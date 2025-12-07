@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -355,9 +356,11 @@ export const TrialBalanceUpload = () => {
               </div>
 
               <div className="flex items-center justify-center gap-4">
-                <Button variant="hero" className="gap-2">
-                  View Dashboard
-                  <ArrowRight className="w-4 h-4" />
+                <Button variant="hero" className="gap-2" asChild>
+                  <Link to="/dashboard">
+                    View Dashboard
+                    <ArrowRight className="w-4 h-4" />
+                  </Link>
                 </Button>
                 <Button variant="outline" onClick={handleReset}>
                   Upload Another
