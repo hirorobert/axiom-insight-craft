@@ -88,22 +88,20 @@ export const TrialBalanceUpload = () => {
         uploadId: uploadRecord.id,
       }));
 
-      // Simulate AI processing (in production, this would call an edge function)
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Call edge function to process with AI
+      const { data: processResult, error: processError } = await supabase.functions.invoke(
+        "process-trial-balance",
+        {
+          body: { uploadId: uploadRecord.id },
+        }
+      );
 
-      // Update record to complete
-      await supabase
-        .from("trial_balance_uploads")
-        .update({
-          status: "complete",
-          processed_at: new Date().toISOString(),
-          processing_result: {
-            statements: ["Balance Sheet", "Income Statement", "Cash Flow"],
-            notes_generated: true,
-            confidence_score: 0.94,
-          },
-        })
-        .eq("id", uploadRecord.id);
+      if (processError) {
+        console.error("Processing error:", processError);
+        throw new Error(processError.message || "AI processing failed");
+      }
+
+      console.log("Processing result:", processResult);
 
       setUploadState((prev) => ({ ...prev, status: "complete" }));
       toast.success("Trial balance processed successfully!");

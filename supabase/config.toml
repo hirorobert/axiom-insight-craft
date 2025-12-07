@@ -1,1 +1,4 @@
 project_id = "bvyivmmfjejbmqoydezk"
+
+[functions.process-trial-balance]
+verify_jwt = false
