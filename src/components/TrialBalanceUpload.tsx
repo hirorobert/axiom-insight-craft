@@ -1,12 +1,16 @@
 import React, { useState, useRef, useCallback } from "react";
 import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface UploadState {
   status: "idle" | "dragging" | "uploading" | "processing" | "complete" | "error";
   progress: number;
   fileName?: string;
   fileSize?: number;
+  uploadId?: string;
+  errorMessage?: string;
 }
 
 export const TrialBalanceUpload = () => {
@@ -26,7 +30,7 @@ export const TrialBalanceUpload = () => {
     setUploadState((prev) => ({ ...prev, status: "idle" }));
   }, []);
 
-  const simulateUpload = useCallback((file: File) => {
+  const uploadFile = useCallback(async (file: File) => {
     setUploadState({
       status: "uploading",
       progress: 0,
@@ -34,23 +38,85 @@ export const TrialBalanceUpload = () => {
       fileSize: file.size,
     });
 
-    // Simulate upload progress
-    let progress = 0;
-    const uploadInterval = setInterval(() => {
-      progress += Math.random() * 15;
-      if (progress >= 100) {
-        progress = 100;
-        clearInterval(uploadInterval);
-        setUploadState((prev) => ({ ...prev, status: "processing", progress: 100 }));
+    try {
+      // Generate unique file path
+      const timestamp = Date.now();
+      const filePath = `uploads/${timestamp}_${file.name}`;
 
-        // Simulate processing
-        setTimeout(() => {
-          setUploadState((prev) => ({ ...prev, status: "complete" }));
-        }, 1500);
-      } else {
-        setUploadState((prev) => ({ ...prev, progress: Math.min(progress, 100) }));
+      // Start progress simulation for visual feedback
+      let progressValue = 0;
+      const progressInterval = setInterval(() => {
+        progressValue += 5;
+        if (progressValue <= 90) {
+          setUploadState((prev) => ({ ...prev, progress: progressValue }));
+        }
+      }, 100);
+
+      // Upload file to storage
+      const { error: uploadError } = await supabase.storage
+        .from("trial-balance-files")
+        .upload(filePath, file);
+
+      clearInterval(progressInterval);
+
+      if (uploadError) {
+        throw new Error(uploadError.message);
       }
-    }, 200);
+
+      setUploadState((prev) => ({ ...prev, progress: 95 }));
+
+      // Create database record
+      const { data: uploadRecord, error: dbError } = await supabase
+        .from("trial_balance_uploads")
+        .insert({
+          file_name: file.name,
+          file_path: filePath,
+          file_size: file.size,
+          status: "processing",
+        })
+        .select()
+        .single();
+
+      if (dbError) {
+        throw new Error(dbError.message);
+      }
+
+      setUploadState((prev) => ({
+        ...prev,
+        progress: 100,
+        status: "processing",
+        uploadId: uploadRecord.id,
+      }));
+
+      // Simulate AI processing (in production, this would call an edge function)
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Update record to complete
+      await supabase
+        .from("trial_balance_uploads")
+        .update({
+          status: "complete",
+          processed_at: new Date().toISOString(),
+          processing_result: {
+            statements: ["Balance Sheet", "Income Statement", "Cash Flow"],
+            notes_generated: true,
+            confidence_score: 0.94,
+          },
+        })
+        .eq("id", uploadRecord.id);
+
+      setUploadState((prev) => ({ ...prev, status: "complete" }));
+      toast.success("Trial balance processed successfully!");
+    } catch (error) {
+      console.error("Upload error:", error);
+      setUploadState({
+        status: "error",
+        progress: 0,
+        fileName: file.name,
+        errorMessage: error instanceof Error ? error.message : "Upload failed",
+      });
+      toast.error("Failed to upload file. Please try again.");
+    }
   }, []);
 
   const handleDrop = useCallback(
@@ -58,22 +124,22 @@ export const TrialBalanceUpload = () => {
       e.preventDefault();
       const file = e.dataTransfer.files[0];
       if (file && (file.name.endsWith(".csv") || file.name.endsWith(".xlsx") || file.name.endsWith(".xls"))) {
-        simulateUpload(file);
+        uploadFile(file);
       } else {
-        setUploadState({ status: "error", progress: 0, fileName: file?.name });
+        setUploadState({ status: "error", progress: 0, fileName: file?.name, errorMessage: "Invalid file format" });
       }
     },
-    [simulateUpload]
+    [uploadFile]
   );
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
-        simulateUpload(file);
+        uploadFile(file);
       }
     },
-    [simulateUpload]
+    [uploadFile]
   );
 
   const handleReset = useCallback(() => {
@@ -310,10 +376,12 @@ export const TrialBalanceUpload = () => {
               </div>
 
               <h3 className="text-xl font-semibold text-foreground mb-2">
-                Invalid File Format
+                {uploadState.errorMessage === "Invalid file format" ? "Invalid File Format" : "Upload Failed"}
               </h3>
               <p className="text-muted-foreground mb-6">
-                Please upload a CSV, XLS, or XLSX file containing your trial balance data.
+                {uploadState.errorMessage === "Invalid file format"
+                  ? "Please upload a CSV, XLS, or XLSX file containing your trial balance data."
+                  : uploadState.errorMessage || "An error occurred. Please try again."}
               </p>
 
               <Button variant="outline" onClick={handleReset}>

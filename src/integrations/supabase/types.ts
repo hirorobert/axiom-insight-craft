@@ -14,7 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      trial_balance_uploads: {
+        Row: {
+          company_name: string | null
+          file_name: string
+          file_path: string
+          file_size: number
+          id: string
+          processed_at: string | null
+          processing_result: Json | null
+          status: string
+          uploaded_at: string
+        }
+        Insert: {
+          company_name?: string | null
+          file_name: string
+          file_path: string
+          file_size: number
+          id?: string
+          processed_at?: string | null
+          processing_result?: Json | null
+          status?: string
+          uploaded_at?: string
+        }
+        Update: {
+          company_name?: string | null
+          file_name?: string
+          file_path?: string
+          file_size?: number
+          id?: string
+          processed_at?: string | null
+          processing_result?: Json | null
+          status?: string
+          uploaded_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
