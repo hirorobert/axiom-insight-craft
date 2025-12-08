@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/contexts/AuthContext";
+import { AccountMappingModal } from "@/components/AccountMappingModal";
+import { toast } from "sonner";
 import {
   FileSpreadsheet,
   ArrowLeft,
@@ -15,6 +17,7 @@ import {
   BarChart3,
   PieChart,
   RefreshCw,
+  Eye,
 } from "lucide-react";
 
 interface TrialBalanceUpload {
@@ -63,6 +66,7 @@ export default function Dashboard() {
   const [uploads, setUploads] = useState<TrialBalanceUpload[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedUpload, setSelectedUpload] = useState<TrialBalanceUpload | null>(null);
+  const [mappingModalOpen, setMappingModalOpen] = useState(false);
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
@@ -352,8 +356,17 @@ export default function Dashboard() {
                   {/* Detailed Mapping */}
                   {mapping && (
                     <Card className="bg-card border-border">
-                      <CardHeader>
+                      <CardHeader className="flex flex-row items-center justify-between">
                         <CardTitle className="text-lg">Account Classifications</CardTitle>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setMappingModalOpen(true)}
+                          className="gap-2"
+                        >
+                          <Eye className="w-4 h-4" />
+                          View Details
+                        </Button>
                       </CardHeader>
                       <CardContent className="space-y-6">
                         {/* Balance Sheet Section */}
@@ -496,6 +509,17 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+
+      {/* Account Mapping Modal */}
+      <AccountMappingModal
+        open={mappingModalOpen}
+        onOpenChange={setMappingModalOpen}
+        mapping={mapping}
+        onSaveCorrections={(corrections) => {
+          console.log("Corrections saved:", corrections);
+          toast.success("Corrections saved successfully");
+        }}
+      />
     </div>
   );
 }
