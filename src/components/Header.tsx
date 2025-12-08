@@ -1,10 +1,20 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Menu, X } from "lucide-react";
+import { Menu, X, LogOut } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    toast.success("Signed out successfully");
+    navigate("/");
+  };
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
@@ -29,21 +39,37 @@ export function Header() {
           <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
             Pricing
           </a>
-          <Link to="/dashboard" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Dashboard
-          </Link>
+          {user && (
+            <Link to="/dashboard" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Dashboard
+            </Link>
+          )}
           <a href="#contact" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
             Contact
           </a>
         </nav>
 
         <div className="hidden md:flex items-center gap-3">
-          <Button variant="ghost" size="sm">
-            Sign In
-          </Button>
-          <Button variant="hero" size="sm" asChild>
-            <a href="#demo">Book Demo</a>
-          </Button>
+          {user ? (
+            <>
+              <span className="text-sm text-muted-foreground">
+                {user.email}
+              </span>
+              <Button variant="ghost" size="sm" onClick={handleSignOut} className="gap-2">
+                <LogOut className="w-4 h-4" />
+                Sign Out
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/auth">Sign In</Link>
+              </Button>
+              <Button variant="hero" size="sm" asChild>
+                <a href="#demo">Book Demo</a>
+              </Button>
+            </>
+          )}
         </div>
 
         {/* Mobile Toggle */}
@@ -64,19 +90,35 @@ export function Header() {
           <a href="#pricing" className="block text-sm text-muted-foreground hover:text-foreground">
             Pricing
           </a>
-          <Link to="/dashboard" className="block text-sm text-muted-foreground hover:text-foreground">
-            Dashboard
-          </Link>
+          {user && (
+            <Link to="/dashboard" className="block text-sm text-muted-foreground hover:text-foreground">
+              Dashboard
+            </Link>
+          )}
           <a href="#contact" className="block text-sm text-muted-foreground hover:text-foreground">
             Contact
           </a>
           <div className="flex flex-col gap-2 pt-4 border-t border-border">
-            <Button variant="ghost" size="sm" className="justify-start">
-              Sign In
-            </Button>
-            <Button variant="hero" size="sm" asChild>
-              <a href="#demo">Book Demo</a>
-            </Button>
+            {user ? (
+              <>
+                <span className="text-sm text-muted-foreground px-3">
+                  {user.email}
+                </span>
+                <Button variant="ghost" size="sm" onClick={handleSignOut} className="justify-start gap-2">
+                  <LogOut className="w-4 h-4" />
+                  Sign Out
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" className="justify-start" asChild>
+                  <Link to="/auth">Sign In</Link>
+                </Button>
+                <Button variant="hero" size="sm" asChild>
+                  <a href="#demo">Book Demo</a>
+                </Button>
+              </>
+            )}
           </div>
         </div>
       )}
