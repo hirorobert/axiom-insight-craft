@@ -1,9 +1,10 @@
 import React, { useState, useRef, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface UploadState {
   status: "idle" | "dragging" | "uploading" | "processing" | "complete" | "error";
@@ -20,6 +21,8 @@ export const TrialBalanceUpload = () => {
     progress: 0,
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -32,6 +35,12 @@ export const TrialBalanceUpload = () => {
   }, []);
 
   const uploadFile = useCallback(async (file: File) => {
+    if (!user) {
+      toast.error("Please sign in to upload files");
+      navigate("/auth");
+      return;
+    }
+
     setUploadState({
       status: "uploading",
       progress: 0,
@@ -42,7 +51,7 @@ export const TrialBalanceUpload = () => {
     try {
       // Generate unique file path
       const timestamp = Date.now();
-      const filePath = `uploads/${timestamp}_${file.name}`;
+      const filePath = `${user.id}/${timestamp}_${file.name}`;
 
       // Start progress simulation for visual feedback
       let progressValue = 0;
@@ -66,7 +75,7 @@ export const TrialBalanceUpload = () => {
 
       setUploadState((prev) => ({ ...prev, progress: 95 }));
 
-      // Create database record
+      // Create database record with user_id
       const { data: uploadRecord, error: dbError } = await supabase
         .from("trial_balance_uploads")
         .insert({
@@ -74,6 +83,7 @@ export const TrialBalanceUpload = () => {
           file_path: filePath,
           file_size: file.size,
           status: "processing",
+          user_id: user.id,
         })
         .select()
         .single();
@@ -116,7 +126,7 @@ export const TrialBalanceUpload = () => {
       });
       toast.error("Failed to upload file. Please try again.");
     }
-  }, []);
+  }, [user, navigate]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {

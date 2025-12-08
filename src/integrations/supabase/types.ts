@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      profiles: {
+        Row: {
+          company_name: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_name?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_name?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       trial_balance_uploads: {
         Row: {
           company_name: string | null
@@ -25,6 +52,7 @@ export type Database = {
           processing_result: Json | null
           status: string
           uploaded_at: string
+          user_id: string | null
         }
         Insert: {
           company_name?: string | null
@@ -36,6 +64,7 @@ export type Database = {
           processing_result?: Json | null
           status?: string
           uploaded_at?: string
+          user_id?: string | null
         }
         Update: {
           company_name?: string | null
@@ -47,6 +76,7 @@ export type Database = {
           processing_result?: Json | null
           status?: string
           uploaded_at?: string
+          user_id?: string | null
         }
         Relationships: []
       }

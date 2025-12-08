@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   FileSpreadsheet,
   ArrowLeft,
@@ -62,8 +63,18 @@ export default function Dashboard() {
   const [uploads, setUploads] = useState<TrialBalanceUpload[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedUpload, setSelectedUpload] = useState<TrialBalanceUpload | null>(null);
+  const { user, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      navigate("/auth");
+    }
+  }, [user, authLoading, navigate]);
 
   const fetchUploads = async () => {
+    if (!user) return;
+    
     setLoading(true);
     const { data, error } = await supabase
       .from("trial_balance_uploads")
@@ -80,8 +91,10 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    fetchUploads();
-  }, []);
+    if (user) {
+      fetchUploads();
+    }
+  }, [user]);
 
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString("en-US", {
