@@ -43,6 +43,27 @@ serve(async (req) => {
 
     console.log("Found upload record:", upload.file_name);
 
+    // Fetch saved corrections for this upload
+    const { data: savedCorrections, error: correctionsError } = await supabase
+      .from("account_corrections")
+      .select("*")
+      .eq("upload_id", uploadId);
+
+    if (correctionsError) {
+      console.log("Error fetching corrections:", correctionsError.message);
+    }
+
+    const correctionsMap = new Map<string, { category: string; subcategory: string }>();
+    if (savedCorrections && savedCorrections.length > 0) {
+      console.log("Found", savedCorrections.length, "saved corrections to apply");
+      savedCorrections.forEach((correction) => {
+        correctionsMap.set(correction.account_code, {
+          category: correction.corrected_category,
+          subcategory: correction.corrected_subcategory,
+        });
+      });
+    }
+
     // Download the file from storage
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("trial-balance-files")
@@ -69,6 +90,15 @@ serve(async (req) => {
     });
 
     console.log("Parsed", dataRows.length, "rows from trial balance");
+
+    // Include saved corrections in the AI prompt for context
+    const correctionsContext = savedCorrections && savedCorrections.length > 0
+      ? `\n\nIMPORTANT: The following accounts have been manually verified by the user. Use these exact classifications:\n${JSON.stringify(savedCorrections.map(c => ({
+          accountCode: c.account_code,
+          category: c.corrected_category,
+          subcategory: c.corrected_subcategory
+        })), null, 2)}`
+      : "";
 
     // Create a summary of the trial balance for AI processing
     const trialBalanceSummary = JSON.stringify({
@@ -127,7 +157,7 @@ Each account entry should include: accountCode, accountName, balance, classifica
             role: "user",
             content: `Please analyze this trial balance data and map each account to the appropriate financial statement:
 
-${trialBalanceSummary}`
+${trialBalanceSummary}${correctionsContext}`
           }
         ],
         tools: [
