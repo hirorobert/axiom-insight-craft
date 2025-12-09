@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/contexts/AuthContext";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
+import { ExportStatements } from "@/components/ExportStatements";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -155,10 +156,18 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchUploads} className="gap-2">
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            {selectedUpload && (
+              <ExportStatements
+                fileName={selectedUpload.file_name}
+                processingResult={selectedUpload.processing_result}
+              />
+            )}
+            <Button variant="outline" size="sm" onClick={fetchUploads} className="gap-2">
+              <RefreshCw className="w-4 h-4" />
+              Refresh
+            </Button>
+          </div>
         </div>
       </header>
 
