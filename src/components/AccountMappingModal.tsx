@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -27,8 +27,11 @@ import {
   TrendingUp,
   BarChart3,
   PieChart,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Account {
   accountCode?: string;
@@ -42,6 +45,7 @@ interface Account {
 interface AccountMappingModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  uploadId: string;
   mapping: {
     balanceSheet?: {
       assets?: { current?: Account[]; nonCurrent?: Account[] };
@@ -170,16 +174,49 @@ function getConfidenceBadge(confidence: number) {
 export function AccountMappingModal({
   open,
   onOpenChange,
+  uploadId,
   mapping,
   onSaveCorrections,
 }: AccountMappingModalProps) {
+  const { user } = useAuth();
   const [editingAccount, setEditingAccount] = useState<string | null>(null);
   const [corrections, setCorrections] = useState<
-    Record<string, { category: string; subcategory: string }>
+    Record<string, { category: string; subcategory: string; original?: { category: string; subcategory: string } }>
   >({});
   const [filter, setFilter] = useState<"all" | "lowConfidence" | "corrected">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [loadingCorrections, setLoadingCorrections] = useState(false);
 
+  // Load existing corrections from database
+  useEffect(() => {
+    const loadCorrections = async () => {
+      if (!open || !uploadId || !user) return;
+      
+      setLoadingCorrections(true);
+      const { data, error } = await supabase
+        .from("account_corrections")
+        .select("*")
+        .eq("upload_id", uploadId);
+
+      if (!error && data) {
+        const loadedCorrections: Record<string, { category: string; subcategory: string; original?: { category: string; subcategory: string } }> = {};
+        data.forEach((c) => {
+          loadedCorrections[c.account_code] = {
+            category: c.corrected_category,
+            subcategory: c.corrected_subcategory,
+            original: c.original_category && c.original_subcategory 
+              ? { category: c.original_category, subcategory: c.original_subcategory }
+              : undefined,
+          };
+        });
+        setCorrections(loadedCorrections);
+      }
+      setLoadingCorrections(false);
+    };
+
+    loadCorrections();
+  }, [open, uploadId, user]);
   const accounts = flattenAccounts(mapping);
 
   const filteredAccounts = accounts.filter((account) => {
@@ -200,19 +237,60 @@ export function AccountMappingModal({
   const handleCorrection = (
     accountCode: string,
     category: string,
-    subcategory: string
+    subcategory: string,
+    originalCategory: string,
+    originalSubcategory: string
   ) => {
     setCorrections((prev) => ({
       ...prev,
-      [accountCode]: { category, subcategory },
+      [accountCode]: { 
+        category, 
+        subcategory, 
+        original: { category: originalCategory, subcategory: originalSubcategory } 
+      },
     }));
     setEditingAccount(null);
   };
 
-  const handleSaveAll = () => {
-    onSaveCorrections?.(corrections);
-    toast.success(`Saved ${Object.keys(corrections).length} corrections`);
-    onOpenChange(false);
+  const handleSaveAll = async () => {
+    if (!user || !uploadId) return;
+    
+    setSaving(true);
+    try {
+      // Get all accounts to find originals
+      const accountsMap = new Map(
+        accounts.map(a => [a.accountCode, { statement: a.statement, section: a.section }])
+      );
+
+      // Prepare upsert data
+      const upsertData = Object.entries(corrections).map(([accountCode, correction]) => {
+        const original = accountsMap.get(accountCode);
+        return {
+          upload_id: uploadId,
+          user_id: user.id,
+          account_code: accountCode,
+          original_category: correction.original?.category || original?.statement || null,
+          original_subcategory: correction.original?.subcategory || original?.section || null,
+          corrected_category: correction.category,
+          corrected_subcategory: correction.subcategory,
+        };
+      });
+
+      const { error } = await supabase
+        .from("account_corrections")
+        .upsert(upsertData, { onConflict: "upload_id,account_code" });
+
+      if (error) throw error;
+
+      onSaveCorrections?.(corrections);
+      toast.success(`Saved ${Object.keys(corrections).length} corrections`);
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error saving corrections:", error);
+      toast.error("Failed to save corrections");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const lowConfidenceCount = accounts.filter((a) => (a.confidence || 0) < 70).length;
@@ -385,7 +463,7 @@ export function AccountMappingModal({
                                 const subcat =
                                   STATEMENT_CATEGORIES[value as keyof typeof STATEMENT_CATEGORIES]
                                     ?.subcategories[0] || "";
-                                handleCorrection(key, value, subcat);
+                                handleCorrection(key, value, subcat, account.statement, account.section);
                               }}
                             >
                               <SelectTrigger className="bg-secondary border-border">
@@ -405,7 +483,7 @@ export function AccountMappingModal({
                             <Select
                               defaultValue={account.section}
                               onValueChange={(value) =>
-                                handleCorrection(key, account.statement, value)
+                                handleCorrection(key, account.statement, value, account.statement, account.section)
                               }
                             >
                               <SelectTrigger className="bg-secondary border-border">
@@ -445,11 +523,15 @@ export function AccountMappingModal({
             <Button
               variant="hero"
               onClick={handleSaveAll}
-              disabled={correctedCount === 0}
+              disabled={correctedCount === 0 || saving}
               className="gap-2"
             >
-              <Save className="w-4 h-4" />
-              Save Corrections ({correctedCount})
+              {saving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              {saving ? "Saving..." : `Save Corrections (${correctedCount})`}
             </Button>
           </div>
         </div>

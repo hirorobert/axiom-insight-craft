@@ -520,15 +520,17 @@ export default function Dashboard() {
       </main>
 
       {/* Account Mapping Modal */}
-      <AccountMappingModal
-        open={mappingModalOpen}
-        onOpenChange={setMappingModalOpen}
-        mapping={mapping}
-        onSaveCorrections={(corrections) => {
-          console.log("Corrections saved:", corrections);
-          toast.success("Corrections saved successfully");
-        }}
-      />
+      {selectedUpload && (
+        <AccountMappingModal
+          open={mappingModalOpen}
+          onOpenChange={setMappingModalOpen}
+          uploadId={selectedUpload.id}
+          mapping={mapping}
+          onSaveCorrections={(corrections) => {
+            console.log("Corrections saved:", corrections);
+          }}
+        />
+      )}
     </div>
   );
 }

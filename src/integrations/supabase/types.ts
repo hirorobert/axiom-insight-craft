@@ -14,6 +14,53 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_corrections: {
+        Row: {
+          account_code: string
+          corrected_category: string
+          corrected_subcategory: string
+          created_at: string
+          id: string
+          original_category: string | null
+          original_subcategory: string | null
+          updated_at: string
+          upload_id: string
+          user_id: string
+        }
+        Insert: {
+          account_code: string
+          corrected_category: string
+          corrected_subcategory: string
+          created_at?: string
+          id?: string
+          original_category?: string | null
+          original_subcategory?: string | null
+          updated_at?: string
+          upload_id: string
+          user_id: string
+        }
+        Update: {
+          account_code?: string
+          corrected_category?: string
+          corrected_subcategory?: string
+          created_at?: string
+          id?: string
+          original_category?: string | null
+          original_subcategory?: string | null
+          updated_at?: string
+          upload_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_corrections_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           company_name: string | null
