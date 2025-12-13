@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Eye,
   UserCheck,
+  RotateCcw,
 } from "lucide-react";
 
 interface TrialBalanceUpload {
@@ -71,6 +72,7 @@ export default function Dashboard() {
   const [selectedUpload, setSelectedUpload] = useState<TrialBalanceUpload | null>(null);
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
   const [correctionCount, setCorrectionCount] = useState(0);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
@@ -93,6 +95,64 @@ export default function Dashboard() {
       fetchCorrectionCount(selectedUpload.id);
     }
   }, [selectedUpload]);
+
+  const handleRegenerate = async () => {
+    if (!selectedUpload || correctionCount === 0) return;
+
+    setIsRegenerating(true);
+    toast.info("Regenerating with your corrections...");
+
+    try {
+      // Reset status to pending
+      await supabase
+        .from("trial_balance_uploads")
+        .update({ status: "processing", processing_result: null })
+        .eq("id", selectedUpload.id);
+
+      // Call the edge function to reprocess
+      const { error } = await supabase.functions.invoke("process-trial-balance", {
+        body: { uploadId: selectedUpload.id },
+      });
+
+      if (error) throw error;
+
+      toast.success("Regeneration started! Results will appear shortly.");
+      
+      // Poll for completion
+      const pollInterval = setInterval(async () => {
+        const { data } = await supabase
+          .from("trial_balance_uploads")
+          .select("*")
+          .eq("id", selectedUpload.id)
+          .single();
+
+        if (data && data.status === "complete") {
+          clearInterval(pollInterval);
+          setSelectedUpload(data as TrialBalanceUpload);
+          await fetchUploads();
+          setIsRegenerating(false);
+          toast.success("Regeneration complete with corrections applied!");
+        } else if (data && data.status === "error") {
+          clearInterval(pollInterval);
+          setIsRegenerating(false);
+          toast.error("Regeneration failed. Please try again.");
+        }
+      }, 2000);
+
+      // Timeout after 60 seconds
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        if (isRegenerating) {
+          setIsRegenerating(false);
+          fetchUploads();
+        }
+      }, 60000);
+    } catch (error) {
+      console.error("Regeneration error:", error);
+      toast.error("Failed to start regeneration");
+      setIsRegenerating(false);
+    }
+  };
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -180,6 +240,18 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {selectedUpload && correctionCount > 0 && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleRegenerate}
+                disabled={isRegenerating}
+                className="gap-2"
+              >
+                <RotateCcw className={`w-4 h-4 ${isRegenerating ? 'animate-spin' : ''}`} />
+                {isRegenerating ? "Regenerating..." : "Regenerate with Corrections"}
+              </Button>
+            )}
             {selectedUpload && (
               <ExportStatements
                 fileName={selectedUpload.file_name}
