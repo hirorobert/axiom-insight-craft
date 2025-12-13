@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import { ExportStatements } from "@/components/ExportStatements";
@@ -19,6 +20,7 @@ import {
   PieChart,
   RefreshCw,
   Eye,
+  UserCheck,
 } from "lucide-react";
 
 interface TrialBalanceUpload {
@@ -68,8 +70,29 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedUpload, setSelectedUpload] = useState<TrialBalanceUpload | null>(null);
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
+  const [correctionCount, setCorrectionCount] = useState(0);
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+
+  // Fetch correction count for the selected upload
+  const fetchCorrectionCount = async (uploadId: string) => {
+    const { count, error } = await supabase
+      .from("account_corrections")
+      .select("*", { count: "exact", head: true })
+      .eq("upload_id", uploadId);
+
+    if (!error && count !== null) {
+      setCorrectionCount(count);
+    } else {
+      setCorrectionCount(0);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedUpload) {
+      fetchCorrectionCount(selectedUpload.id);
+    }
+  }, [selectedUpload]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -278,32 +301,63 @@ export default function Dashboard() {
                     </CardContent>
                   </Card>
 
-                  {/* Confidence Score */}
+                  {/* Confidence Score & Corrections */}
                   {summary && (
-                    <Card className="bg-card border-border">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-lg flex items-center gap-2">
-                          <TrendingUp className="w-5 h-5 text-accent" />
-                          AI Confidence Score
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex items-center gap-4">
-                          <div className="flex-1">
-                            <Progress
-                              value={summary.confidenceScore}
-                              className="h-3"
-                            />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Card className="bg-card border-border">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-lg flex items-center gap-2">
+                            <TrendingUp className="w-5 h-5 text-accent" />
+                            AI Confidence Score
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="flex items-center gap-4">
+                            <div className="flex-1">
+                              <Progress
+                                value={summary.confidenceScore}
+                                className="h-3"
+                              />
+                            </div>
+                            <span className="text-2xl font-bold text-accent">
+                              {summary.confidenceScore}%
+                            </span>
                           </div>
-                          <span className="text-2xl font-bold text-accent">
-                            {summary.confidenceScore}%
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-3">
-                          MapNet AI analyzed {summary.totalAccounts} accounts with high confidence in account classification accuracy.
-                        </p>
-                      </CardContent>
-                    </Card>
+                          <p className="text-sm text-muted-foreground mt-3">
+                            MapNet AI analyzed {summary.totalAccounts} accounts.
+                          </p>
+                        </CardContent>
+                      </Card>
+
+                      <Card className={`bg-card border-border ${correctionCount > 0 ? 'ring-2 ring-accent/50' : ''}`}>
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-lg flex items-center gap-2">
+                            <UserCheck className="w-5 h-5 text-accent" />
+                            User-Verified Corrections
+                            {correctionCount > 0 && (
+                              <Badge variant="secondary" className="bg-accent/20 text-accent border-accent/30">
+                                Active
+                              </Badge>
+                            )}
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="flex items-center gap-4">
+                            <span className="text-3xl font-bold text-foreground">
+                              {correctionCount}
+                            </span>
+                            <span className="text-muted-foreground">
+                              account{correctionCount !== 1 ? 's' : ''} corrected
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-3">
+                            {correctionCount > 0 
+                              ? "These corrections will be applied when regenerating statements."
+                              : "No manual corrections applied yet."}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </div>
                   )}
 
                   {/* Statement Breakdown */}
@@ -528,6 +582,9 @@ export default function Dashboard() {
           mapping={mapping}
           onSaveCorrections={(corrections) => {
             console.log("Corrections saved:", corrections);
+            if (selectedUpload) {
+              fetchCorrectionCount(selectedUpload.id);
+            }
           }}
         />
       )}
