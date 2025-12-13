@@ -184,6 +184,7 @@ export default function Dashboard() {
               <ExportStatements
                 fileName={selectedUpload.file_name}
                 processingResult={selectedUpload.processing_result}
+                uploadId={selectedUpload.id}
               />
             )}
             <Button variant="outline" size="sm" onClick={fetchUploads} className="gap-2">
