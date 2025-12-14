@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import { ExportStatements } from "@/components/ExportStatements";
+import { NoteSynth } from "@/components/NoteSynth";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -63,6 +64,21 @@ interface TrialBalanceUpload {
     };
     statements?: string[];
     notes?: string[];
+    disclosureNotes?: {
+      notes: {
+        id: string;
+        title: string;
+        category: string;
+        content: string;
+        relevance: "high" | "medium" | "low";
+        accountsReferenced?: string[];
+      }[];
+      metadata: {
+        generatedAt: string;
+        totalNotes: number;
+        framework: string;
+      };
+    };
   } | null;
 }
 
@@ -617,7 +633,16 @@ export default function Dashboard() {
                     </Card>
                   )}
 
-                  {/* AI Notes */}
+                  {/* NoteSynth - Disclosure Notes */}
+                  {mapping && (
+                    <NoteSynth
+                      uploadId={selectedUpload.id}
+                      existingNotes={result?.disclosureNotes}
+                      onNotesGenerated={fetchUploads}
+                    />
+                  )}
+
+                  {/* AI Processing Notes */}
                   {result?.notes && result.notes.length > 0 && (
                     <Card className="bg-card border-border">
                       <CardHeader>
