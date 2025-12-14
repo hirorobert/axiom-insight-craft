@@ -1,81 +1,116 @@
 import React, { useState, useRef, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { Progress } from "@/components/ui/progress";
 
-interface UploadState {
-  status: "idle" | "dragging" | "uploading" | "processing" | "complete" | "error";
+interface FileUpload {
+  id: string;
+  file: File;
+  status: "queued" | "uploading" | "processing" | "complete" | "error";
   progress: number;
-  fileName?: string;
-  fileSize?: number;
   uploadId?: string;
   errorMessage?: string;
 }
 
 export const TrialBalanceUpload = () => {
-  const [uploadState, setUploadState] = useState<UploadState>({
-    status: "idle",
-    progress: 0,
-  });
+  const [files, setFiles] = useState<FileUpload[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    setUploadState((prev) => ({ ...prev, status: "dragging" }));
+    setIsDragging(true);
   }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    setUploadState((prev) => ({ ...prev, status: "idle" }));
+    setIsDragging(false);
   }, []);
 
-  const uploadFile = useCallback(async (file: File) => {
-    if (!user) {
-      toast.error("Please sign in to upload files");
-      navigate("/auth");
-      return;
-    }
+  const validateFile = (file: File): boolean => {
+    const validExtensions = [".csv", ".xlsx", ".xls"];
+    const extension = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+    return validExtensions.includes(extension);
+  };
 
-    setUploadState({
-      status: "uploading",
-      progress: 0,
-      fileName: file.name,
-      fileSize: file.size,
+  const addFiles = useCallback((newFiles: FileList) => {
+    const validFiles: FileUpload[] = [];
+    
+    Array.from(newFiles).forEach((file) => {
+      if (validateFile(file)) {
+        validFiles.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          file,
+          status: "queued",
+          progress: 0,
+        });
+      } else {
+        toast.error(`Invalid file format: ${file.name}`);
+      }
     });
 
+    if (validFiles.length > 0) {
+      setFiles((prev) => [...prev, ...validFiles]);
+    }
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragging(false);
+      addFiles(e.dataTransfer.files);
+    },
+    [addFiles]
+  );
+
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files) {
+        addFiles(e.target.files);
+      }
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    },
+    [addFiles]
+  );
+
+  const removeFile = useCallback((fileId: string) => {
+    setFiles((prev) => prev.filter((f) => f.id !== fileId));
+  }, []);
+
+  const updateFileStatus = useCallback((fileId: string, updates: Partial<FileUpload>) => {
+    setFiles((prev) =>
+      prev.map((f) => (f.id === fileId ? { ...f, ...updates } : f))
+    );
+  }, []);
+
+  const processFile = async (fileUpload: FileUpload) => {
+    const { id, file } = fileUpload;
+
     try {
+      updateFileStatus(id, { status: "uploading", progress: 10 });
+
       // Generate unique file path
       const timestamp = Date.now();
-      const filePath = `${user.id}/${timestamp}_${file.name}`;
-
-      // Start progress simulation for visual feedback
-      let progressValue = 0;
-      const progressInterval = setInterval(() => {
-        progressValue += 5;
-        if (progressValue <= 90) {
-          setUploadState((prev) => ({ ...prev, progress: progressValue }));
-        }
-      }, 100);
+      const filePath = `${user!.id}/${timestamp}_${file.name}`;
 
       // Upload file to storage
       const { error: uploadError } = await supabase.storage
         .from("trial-balance-files")
         .upload(filePath, file);
 
-      clearInterval(progressInterval);
+      if (uploadError) throw new Error(uploadError.message);
 
-      if (uploadError) {
-        throw new Error(uploadError.message);
-      }
+      updateFileStatus(id, { progress: 40 });
 
-      setUploadState((prev) => ({ ...prev, progress: 95 }));
-
-      // Create database record with user_id
+      // Create database record
       const { data: uploadRecord, error: dbError } = await supabase
         .from("trial_balance_uploads")
         .insert({
@@ -83,79 +118,69 @@ export const TrialBalanceUpload = () => {
           file_path: filePath,
           file_size: file.size,
           status: "processing",
-          user_id: user.id,
+          user_id: user!.id,
         })
         .select()
         .single();
 
-      if (dbError) {
-        throw new Error(dbError.message);
-      }
+      if (dbError) throw new Error(dbError.message);
 
-      setUploadState((prev) => ({
-        ...prev,
-        progress: 100,
-        status: "processing",
-        uploadId: uploadRecord.id,
-      }));
+      updateFileStatus(id, { status: "processing", progress: 60, uploadId: uploadRecord.id });
 
       // Call edge function to process with AI
-      const { data: processResult, error: processError } = await supabase.functions.invoke(
+      const { error: processError } = await supabase.functions.invoke(
         "process-trial-balance",
-        {
-          body: { uploadId: uploadRecord.id },
-        }
+        { body: { uploadId: uploadRecord.id } }
       );
 
-      if (processError) {
-        console.error("Processing error:", processError);
-        throw new Error(processError.message || "AI processing failed");
-      }
+      if (processError) throw new Error(processError.message || "AI processing failed");
 
-      console.log("Processing result:", processResult);
-
-      setUploadState((prev) => ({ ...prev, status: "complete" }));
-      toast.success("Trial balance processed successfully!");
+      updateFileStatus(id, { status: "complete", progress: 100 });
     } catch (error) {
       console.error("Upload error:", error);
-      setUploadState({
+      updateFileStatus(id, {
         status: "error",
-        progress: 0,
-        fileName: file.name,
         errorMessage: error instanceof Error ? error.message : "Upload failed",
       });
-      toast.error("Failed to upload file. Please try again.");
     }
-  }, [user, navigate]);
+  };
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      const file = e.dataTransfer.files[0];
-      if (file && (file.name.endsWith(".csv") || file.name.endsWith(".xlsx") || file.name.endsWith(".xls"))) {
-        uploadFile(file);
-      } else {
-        setUploadState({ status: "error", progress: 0, fileName: file?.name, errorMessage: "Invalid file format" });
-      }
-    },
-    [uploadFile]
-  );
-
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) {
-        uploadFile(file);
-      }
-    },
-    [uploadFile]
-  );
-
-  const handleReset = useCallback(() => {
-    setUploadState({ status: "idle", progress: 0 });
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+  const startProcessing = async () => {
+    if (!user) {
+      toast.error("Please sign in to upload files");
+      navigate("/auth");
+      return;
     }
+
+    const queuedFiles = files.filter((f) => f.status === "queued");
+    if (queuedFiles.length === 0) {
+      toast.error("No files to process");
+      return;
+    }
+
+    toast.info(`Processing ${queuedFiles.length} file(s)...`);
+
+    // Process files in parallel (max 3 at a time)
+    const batchSize = 3;
+    for (let i = 0; i < queuedFiles.length; i += batchSize) {
+      const batch = queuedFiles.slice(i, i + batchSize);
+      await Promise.all(batch.map(processFile));
+    }
+
+    const completedCount = files.filter((f) => f.status === "complete").length + 
+      queuedFiles.filter((f) => f.status !== "error").length;
+    
+    if (completedCount > 0) {
+      toast.success(`${completedCount} file(s) processed successfully!`);
+    }
+  };
+
+  const clearCompleted = useCallback(() => {
+    setFiles((prev) => prev.filter((f) => f.status !== "complete" && f.status !== "error"));
+  }, []);
+
+  const clearAll = useCallback(() => {
+    setFiles([]);
   }, []);
 
   const formatFileSize = (bytes: number) => {
@@ -164,15 +189,42 @@ export const TrialBalanceUpload = () => {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   };
 
-  const processingSteps = [
-    { label: "Parsing trial balance", delay: 0 },
-    { label: "Mapping accounts to GAAP/IFRS", delay: 0.3 },
-    { label: "Generating financial statements", delay: 0.6 },
-    { label: "Creating compliance notes", delay: 0.9 },
-  ];
+  const getStatusIcon = (status: FileUpload["status"]) => {
+    switch (status) {
+      case "complete":
+        return <CheckCircle className="w-5 h-5 text-accent" />;
+      case "error":
+        return <AlertCircle className="w-5 h-5 text-destructive" />;
+      case "uploading":
+      case "processing":
+        return <Loader2 className="w-5 h-5 text-primary animate-spin" />;
+      default:
+        return <FileSpreadsheet className="w-5 h-5 text-muted-foreground" />;
+    }
+  };
+
+  const getStatusLabel = (status: FileUpload["status"]) => {
+    switch (status) {
+      case "queued":
+        return "Queued";
+      case "uploading":
+        return "Uploading...";
+      case "processing":
+        return "Processing with AI...";
+      case "complete":
+        return "Complete";
+      case "error":
+        return "Failed";
+    }
+  };
+
+  const queuedCount = files.filter((f) => f.status === "queued").length;
+  const processingCount = files.filter((f) => f.status === "uploading" || f.status === "processing").length;
+  const completedCount = files.filter((f) => f.status === "complete").length;
+  const isProcessing = processingCount > 0;
 
   return (
-    <section className="py-24 px-6 relative overflow-hidden">
+    <section id="upload" className="py-24 px-6 relative overflow-hidden">
       {/* Background glow */}
       <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
 
@@ -181,13 +233,13 @@ export const TrialBalanceUpload = () => {
         <div className="text-center mb-12">
           <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-sm font-medium mb-4">
             <FileSpreadsheet className="w-4 h-4" />
-            Try It Now
+            Batch Upload
           </span>
           <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            Upload Your Trial Balance
+            Upload Multiple Trial Balances
           </h2>
           <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-            Drop your CSV or Excel file and watch Axiom transform it into audit-ready financial statements in seconds.
+            Drop multiple CSV or Excel files and watch Axiom transform them into audit-ready financial statements.
           </p>
         </div>
 
@@ -198,209 +250,159 @@ export const TrialBalanceUpload = () => {
           onDrop={handleDrop}
           className={`
             relative rounded-2xl border-2 border-dashed transition-all duration-300 overflow-hidden
-            ${uploadState.status === "idle" ? "border-border bg-card/50 hover:border-primary/50 hover:bg-card" : ""}
-            ${uploadState.status === "dragging" ? "border-primary bg-primary/5 scale-[1.02]" : ""}
-            ${uploadState.status === "uploading" || uploadState.status === "processing" ? "border-primary/50 bg-card" : ""}
-            ${uploadState.status === "complete" ? "border-accent bg-accent/5" : ""}
-            ${uploadState.status === "error" ? "border-destructive bg-destructive/5" : ""}
+            ${isDragging ? "border-primary bg-primary/5 scale-[1.02]" : "border-border bg-card/50 hover:border-primary/50 hover:bg-card"}
           `}
         >
-          {/* Idle/Dragging state */}
-          {(uploadState.status === "idle" || uploadState.status === "dragging") && (
-            <div className="p-12 text-center">
-              <div
-                className={`
-                  w-20 h-20 mx-auto mb-6 rounded-2xl flex items-center justify-center transition-all duration-300
-                  ${uploadState.status === "dragging" ? "bg-primary/20 scale-110" : "bg-secondary"}
-                `}
-              >
-                <Upload
-                  className={`w-10 h-10 transition-all duration-300 ${
-                    uploadState.status === "dragging" ? "text-primary animate-bounce" : "text-muted-foreground"
-                  }`}
-                />
-              </div>
-
-              <h3 className="text-xl font-semibold text-foreground mb-2">
-                {uploadState.status === "dragging" ? "Drop your file here" : "Drag & drop your trial balance"}
-              </h3>
-              <p className="text-muted-foreground mb-6">
-                Supports CSV, XLS, and XLSX formats up to 50MB
-              </p>
-
-              <div className="flex items-center justify-center gap-4">
-                <Button
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="gap-2"
-                >
-                  Browse Files
-                </Button>
-                <span className="text-muted-foreground text-sm">or drag a file</span>
-              </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                onChange={handleFileSelect}
-                className="hidden"
+          <div className="p-8 text-center">
+            <div
+              className={`
+                w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center transition-all duration-300
+                ${isDragging ? "bg-primary/20 scale-110" : "bg-secondary"}
+              `}
+            >
+              <Upload
+                className={`w-8 h-8 transition-all duration-300 ${
+                  isDragging ? "text-primary animate-bounce" : "text-muted-foreground"
+                }`}
               />
+            </div>
 
-              {/* Sample formats */}
-              <div className="mt-8 pt-8 border-t border-border">
-                <p className="text-sm text-muted-foreground mb-3">Sample trial balance templates:</p>
-                <div className="flex items-center justify-center gap-3">
-                  {["GAAP Template", "IFRS Template", "Custom Format"].map((template) => (
-                    <button
-                      key={template}
-                      className="px-3 py-1.5 text-xs font-medium rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
-                    >
-                      {template}
-                    </button>
-                  ))}
-                </div>
+            <h3 className="text-lg font-semibold text-foreground mb-2">
+              {isDragging ? "Drop files here" : "Drag & drop trial balances"}
+            </h3>
+            <p className="text-muted-foreground mb-4 text-sm">
+              Supports CSV, XLS, and XLSX • Multiple files allowed
+            </p>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              className="gap-2"
+            >
+              Browse Files
+            </Button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              multiple
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+          </div>
+        </div>
+
+        {/* File Queue */}
+        {files.length > 0 && (
+          <div className="mt-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">
+                Files ({files.length})
+                {completedCount > 0 && (
+                  <span className="ml-2 text-accent">• {completedCount} complete</span>
+                )}
+              </h3>
+              <div className="flex items-center gap-2">
+                {(completedCount > 0 || files.some((f) => f.status === "error")) && (
+                  <Button variant="ghost" size="sm" onClick={clearCompleted} className="text-xs">
+                    Clear Finished
+                  </Button>
+                )}
+                {files.length > 0 && !isProcessing && (
+                  <Button variant="ghost" size="sm" onClick={clearAll} className="text-xs text-destructive">
+                    Clear All
+                  </Button>
+                )}
               </div>
             </div>
-          )}
 
-          {/* Uploading state */}
-          {uploadState.status === "uploading" && (
-            <div className="p-12">
-              <div className="flex items-start gap-4 mb-8">
-                <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center flex-shrink-0">
-                  <FileSpreadsheet className="w-6 h-6 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-lg font-semibold text-foreground truncate">
-                    {uploadState.fileName}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    {uploadState.fileSize && formatFileSize(uploadState.fileSize)}
-                  </p>
-                </div>
-                <button
-                  onClick={handleReset}
-                  className="p-2 rounded-lg hover:bg-secondary transition-colors"
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {files.map((fileUpload) => (
+                <div
+                  key={fileUpload.id}
+                  className={`
+                    flex items-center gap-3 p-3 rounded-xl border transition-all
+                    ${fileUpload.status === "complete" ? "bg-accent/5 border-accent/20" : ""}
+                    ${fileUpload.status === "error" ? "bg-destructive/5 border-destructive/20" : ""}
+                    ${fileUpload.status === "queued" ? "bg-card border-border" : ""}
+                    ${fileUpload.status === "uploading" || fileUpload.status === "processing" ? "bg-primary/5 border-primary/20" : ""}
+                  `}
                 >
-                  <X className="w-5 h-5 text-muted-foreground" />
-                </button>
-              </div>
-
-              {/* Progress bar */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-foreground font-medium">Uploading...</span>
-                  <span className="text-muted-foreground">{Math.round(uploadState.progress)}%</span>
-                </div>
-                <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-primary to-accent rounded-full transition-all duration-300"
-                    style={{ width: `${uploadState.progress}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Processing state */}
-          {uploadState.status === "processing" && (
-            <div className="p-12">
-              <div className="flex items-center gap-4 mb-8">
-                <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center animate-pulse">
-                  <FileSpreadsheet className="w-6 h-6 text-primary" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">Processing with MapNet AI</h3>
-                  <p className="text-sm text-muted-foreground">{uploadState.fileName}</p>
-                </div>
-              </div>
-
-              {/* Processing steps */}
-              <div className="space-y-3">
-                {processingSteps.map((step, index) => (
-                  <div
-                    key={step.label}
-                    className="flex items-center gap-3 animate-fade-in"
-                    style={{ animationDelay: `${step.delay}s` }}
-                  >
-                    <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
-                      <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                  {getStatusIcon(fileUpload.status)}
+                  
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">
+                      {fileUpload.file.name}
+                    </p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>{formatFileSize(fileUpload.file.size)}</span>
+                      <span>•</span>
+                      <span className={fileUpload.status === "error" ? "text-destructive" : ""}>
+                        {fileUpload.status === "error" ? fileUpload.errorMessage : getStatusLabel(fileUpload.status)}
+                      </span>
                     </div>
-                    <span className="text-sm text-foreground">{step.label}</span>
-                    {index < 2 && (
-                      <CheckCircle className="w-4 h-4 text-accent ml-auto animate-scale-in" />
+                    {(fileUpload.status === "uploading" || fileUpload.status === "processing") && (
+                      <Progress value={fileUpload.progress} className="h-1 mt-2" />
                     )}
                   </div>
-                ))}
-              </div>
+
+                  {fileUpload.status === "queued" && (
+                    <button
+                      onClick={() => removeFile(fileUpload.id)}
+                      className="p-1.5 rounded-lg hover:bg-secondary transition-colors"
+                    >
+                      <X className="w-4 h-4 text-muted-foreground" />
+                    </button>
+                  )}
+                  
+                  {fileUpload.status === "error" && (
+                    <button
+                      onClick={() => removeFile(fileUpload.id)}
+                      className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
-          )}
 
-          {/* Complete state */}
-          {uploadState.status === "complete" && (
-            <div className="p-12 text-center">
-              <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-accent/20 flex items-center justify-center animate-scale-in">
-                <CheckCircle className="w-10 h-10 text-accent" />
-              </div>
-
-              <h3 className="text-xl font-semibold text-foreground mb-2">
-                Statements Generated Successfully!
-              </h3>
-              <p className="text-muted-foreground mb-6">
-                Your trial balance has been transformed into audit-ready financial statements.
-              </p>
-
-              {/* Generated outputs */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-                {["Balance Sheet", "Income Statement", "Cash Flow", "Notes Package"].map((doc, index) => (
-                  <div
-                    key={doc}
-                    className="p-3 rounded-xl bg-secondary/50 border border-border animate-fade-in"
-                    style={{ animationDelay: `${index * 0.1}s` }}
-                  >
-                    <FileSpreadsheet className="w-5 h-5 text-accent mx-auto mb-2" />
-                    <p className="text-xs font-medium text-foreground">{doc}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex items-center justify-center gap-4">
-                <Button variant="hero" className="gap-2" asChild>
+            {/* Action Buttons */}
+            <div className="flex items-center justify-center gap-4 pt-4">
+              {queuedCount > 0 && (
+                <Button
+                  variant="hero"
+                  onClick={startProcessing}
+                  disabled={isProcessing}
+                  className="gap-2"
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Processing {processingCount} file(s)...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      Process {queuedCount} File{queuedCount !== 1 ? "s" : ""}
+                    </>
+                  )}
+                </Button>
+              )}
+              
+              {completedCount > 0 && (
+                <Button variant="outline" className="gap-2" asChild>
                   <Link to="/dashboard">
                     View Dashboard
                     <ArrowRight className="w-4 h-4" />
                   </Link>
                 </Button>
-                <Button variant="outline" onClick={handleReset}>
-                  Upload Another
-                </Button>
-              </div>
+              )}
             </div>
-          )}
-
-          {/* Error state */}
-          {uploadState.status === "error" && (
-            <div className="p-12 text-center">
-              <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-destructive/20 flex items-center justify-center">
-                <AlertCircle className="w-10 h-10 text-destructive" />
-              </div>
-
-              <h3 className="text-xl font-semibold text-foreground mb-2">
-                {uploadState.errorMessage === "Invalid file format" ? "Invalid File Format" : "Upload Failed"}
-              </h3>
-              <p className="text-muted-foreground mb-6">
-                {uploadState.errorMessage === "Invalid file format"
-                  ? "Please upload a CSV, XLS, or XLSX file containing your trial balance data."
-                  : uploadState.errorMessage || "An error occurred. Please try again."}
-              </p>
-
-              <Button variant="outline" onClick={handleReset}>
-                Try Again
-              </Button>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Trust indicators */}
         <div className="mt-8 flex items-center justify-center gap-8 text-sm text-muted-foreground">
@@ -414,7 +416,7 @@ export const TrialBalanceUpload = () => {
           </div>
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-accent" />
-            <span>Auto-deleted after 24h</span>
+            <span>Parallel processing</span>
           </div>
         </div>
       </div>
