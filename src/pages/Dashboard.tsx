@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import { ExportStatements } from "@/components/ExportStatements";
 import { NoteSynth } from "@/components/NoteSynth";
+import { DashboardAnalytics } from "@/components/DashboardAnalytics";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -303,40 +304,44 @@ export default function Dashboard() {
             </Button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* Sidebar - Upload List */}
-            <div className="lg:col-span-1 space-y-3">
-              <h2 className="text-sm font-semibold text-foreground mb-4">Recent Uploads</h2>
-              {uploads.map((upload) => (
-                <button
-                  key={upload.id}
-                  onClick={() => setSelectedUpload(upload)}
-                  className={`w-full text-left p-4 rounded-xl border transition-all ${
-                    selectedUpload?.id === upload.id
-                      ? "bg-primary/10 border-primary/30"
-                      : "bg-card border-border hover:border-primary/20"
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <FileSpreadsheet className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {upload.file_name}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {formatDate(upload.uploaded_at)}
-                      </p>
-                      <div className="flex items-center gap-2 mt-2">
-                        {getStatusIcon(upload.status)}
-                        <span className="text-xs text-muted-foreground capitalize">
-                          {upload.status}
-                        </span>
+          <div className="space-y-8">
+            {/* Analytics Section */}
+            <DashboardAnalytics uploads={uploads} />
+            
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* Sidebar - Upload List */}
+              <div className="lg:col-span-1 space-y-3">
+                <h2 className="text-sm font-semibold text-foreground mb-4">Recent Uploads</h2>
+                {uploads.map((upload) => (
+                  <button
+                    key={upload.id}
+                    onClick={() => setSelectedUpload(upload)}
+                    className={`w-full text-left p-4 rounded-xl border transition-all ${
+                      selectedUpload?.id === upload.id
+                        ? "bg-primary/10 border-primary/30"
+                        : "bg-card border-border hover:border-primary/20"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <FileSpreadsheet className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">
+                          {upload.file_name}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {formatDate(upload.uploaded_at)}
+                        </p>
+                        <div className="flex items-center gap-2 mt-2">
+                          {getStatusIcon(upload.status)}
+                          <span className="text-xs text-muted-foreground capitalize">
+                            {upload.status}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </button>
-              ))}
-            </div>
+                  </button>
+                ))}
+              </div>
 
             {/* Main Content */}
             <div className="lg:col-span-3 space-y-6">
@@ -667,6 +672,7 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+          </div>
           </div>
         )}
       </main>
