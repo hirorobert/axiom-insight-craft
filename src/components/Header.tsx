@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Menu, X, LogOut } from "lucide-react";
+import { Menu, X, LogOut, Settings } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
@@ -55,6 +55,12 @@ export function Header() {
               <span className="text-sm text-muted-foreground">
                 {user.email}
               </span>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/settings" className="gap-2">
+                  <Settings className="w-4 h-4" />
+                  Settings
+                </Link>
+              </Button>
               <Button variant="ghost" size="sm" onClick={handleSignOut} className="gap-2">
                 <LogOut className="w-4 h-4" />
                 Sign Out
@@ -104,6 +110,12 @@ export function Header() {
                 <span className="text-sm text-muted-foreground px-3">
                   {user.email}
                 </span>
+                <Button variant="ghost" size="sm" className="justify-start gap-2" asChild>
+                  <Link to="/settings">
+                    <Settings className="w-4 h-4" />
+                    Settings
+                  </Link>
+                </Button>
                 <Button variant="ghost" size="sm" onClick={handleSignOut} className="justify-start gap-2">
                   <LogOut className="w-4 h-4" />
                   Sign Out
