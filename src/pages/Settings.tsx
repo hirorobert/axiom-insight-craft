@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, User, Building2, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { AvatarUpload } from "@/components/AvatarUpload";
 
 export default function Settings() {
   const { user, loading: authLoading } = useAuth();
@@ -16,6 +17,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [companyName, setCompanyName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -33,7 +35,7 @@ export default function Settings() {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("display_name, company_name")
+        .select("display_name, company_name, avatar_url")
         .eq("user_id", user!.id)
         .maybeSingle();
 
@@ -42,6 +44,7 @@ export default function Settings() {
       if (data) {
         setDisplayName(data.display_name || "");
         setCompanyName(data.company_name || "");
+        setAvatarUrl(data.avatar_url);
       }
     } catch (error) {
       console.error("Error fetching profile:", error);
@@ -133,6 +136,15 @@ export default function Settings() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            <div className="flex justify-center pb-4 border-b border-border">
+              <AvatarUpload
+                userId={user!.id}
+                currentAvatarUrl={avatarUrl}
+                displayName={displayName}
+                onAvatarChange={setAvatarUrl}
+              />
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
               <Input
