@@ -10,6 +10,7 @@ import { AccountMappingModal } from "@/components/AccountMappingModal";
 import { ExportStatements } from "@/components/ExportStatements";
 import { NoteSynth } from "@/components/NoteSynth";
 import { DashboardAnalytics } from "@/components/DashboardAnalytics";
+import { PolicyCompass } from "@/components/PolicyCompass";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -673,6 +674,24 @@ export default function Dashboard() {
               )}
             </div>
           </div>
+
+          {/* Policy Compass Section */}
+          <PolicyCompass 
+            financialData={mapping ? {
+              accounts: [
+                ...(mapping.balanceSheet?.assets?.current || []),
+                ...(mapping.balanceSheet?.assets?.nonCurrent || []),
+                ...(mapping.balanceSheet?.liabilities?.current || []),
+                ...(mapping.balanceSheet?.liabilities?.nonCurrent || []),
+                ...(mapping.balanceSheet?.equity || []),
+              ],
+              totals: summary ? {
+                assets: summary.balanceSheetAccounts,
+                liabilities: summary.balanceSheetAccounts,
+                equity: summary.balanceSheetAccounts
+              } : undefined
+            } : undefined}
+          />
           </div>
         )}
       </main>
