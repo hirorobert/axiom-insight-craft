@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.generate-disclosure-notes]
 verify_jwt = false
+
+[functions.policy-compass]
+verify_jwt = false
