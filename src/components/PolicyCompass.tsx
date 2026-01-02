@@ -8,6 +8,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Compass, Search, Loader2, ChevronRight, BookOpen, AlertTriangle, CheckCircle2, Scale } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useAuditLog } from "@/hooks/useAuditLog";
 
 interface DecisionTreeStep {
   step: number;
@@ -56,6 +57,7 @@ export function PolicyCompass({ financialData }: PolicyCompassProps) {
   const [loading, setLoading] = useState(false);
   const [guidance, setGuidance] = useState<PolicyGuidance | null>(null);
   const [activeStep, setActiveStep] = useState<number>(1);
+  const { logAction } = useAuditLog();
 
   const handleSubmit = async (questionText?: string) => {
     const queryQuestion = questionText || question;
@@ -85,6 +87,10 @@ export function PolicyCompass({ financialData }: PolicyCompassProps) {
       setGuidance(data.guidance);
       setActiveStep(1);
       toast.success("Policy guidance generated");
+      logAction({
+        action: "policy_compass_query",
+        metadata: { question: queryQuestion, confidence: data.guidance?.decision?.confidence },
+      });
     } catch (error) {
       console.error("Policy Compass error:", error);
       toast.error(error instanceof Error ? error.message : "Failed to generate guidance");

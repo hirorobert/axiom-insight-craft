@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { Progress } from "@/components/ui/progress";
+import { useAuditLog } from "@/hooks/useAuditLog";
 
 interface FileUpload {
   id: string;
@@ -22,6 +23,7 @@ export const TrialBalanceUpload = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { logAction } = useAuditLog();
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -127,6 +129,14 @@ export const TrialBalanceUpload = () => {
 
       updateFileStatus(id, { status: "processing", progress: 60, uploadId: uploadRecord.id });
 
+      // Log the upload action
+      logAction({
+        action: "upload_trial_balance",
+        entityType: "trial_balance_upload",
+        entityId: uploadRecord.id,
+        metadata: { fileName: file.name, fileSize: file.size },
+      });
+
       // Call edge function to process with AI
       const { error: processError } = await supabase.functions.invoke(
         "process-trial-balance",
@@ -134,6 +144,14 @@ export const TrialBalanceUpload = () => {
       );
 
       if (processError) throw new Error(processError.message || "AI processing failed");
+
+      // Log the processing action
+      logAction({
+        action: "process_trial_balance",
+        entityType: "trial_balance_upload",
+        entityId: uploadRecord.id,
+        metadata: { fileName: file.name },
+      });
 
       updateFileStatus(id, { status: "complete", progress: 100 });
     } catch (error) {

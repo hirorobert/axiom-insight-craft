@@ -32,6 +32,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAuditLog } from "@/hooks/useAuditLog";
 
 interface Account {
   accountCode?: string;
@@ -179,6 +180,7 @@ export function AccountMappingModal({
   onSaveCorrections,
 }: AccountMappingModalProps) {
   const { user } = useAuth();
+  const { logAction } = useAuditLog();
   const [editingAccount, setEditingAccount] = useState<string | null>(null);
   const [corrections, setCorrections] = useState<
     Record<string, { category: string; subcategory: string; original?: { category: string; subcategory: string } }>
@@ -282,6 +284,12 @@ export function AccountMappingModal({
 
       if (error) throw error;
 
+      logAction({
+        action: "correct_account_mapping",
+        entityType: "trial_balance_upload",
+        entityId: uploadId,
+        metadata: { correctionCount: Object.keys(corrections).length },
+      });
       onSaveCorrections?.(corrections);
       toast.success(`Saved ${Object.keys(corrections).length} corrections`);
       onOpenChange(false);

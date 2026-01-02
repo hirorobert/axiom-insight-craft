@@ -12,6 +12,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuditLog } from "@/hooks/useAuditLog";
 
 interface AccountMapping {
   accountCode?: string;
@@ -65,6 +66,7 @@ export function ExportStatements({ fileName, processingResult, uploadId }: Expor
   const mapping = processingResult?.mapping;
   const summary = processingResult?.summary;
   const [corrections, setCorrections] = useState<Map<string, Correction>>(new Map());
+  const { logAction } = useAuditLog();
 
   useEffect(() => {
     const fetchCorrections = async () => {
@@ -226,6 +228,12 @@ export function ExportStatements({ fileName, processingResult, uploadId }: Expor
 
     doc.save(`${baseFileName}-financial-statements.pdf`);
     toast.success("PDF exported successfully");
+    logAction({
+      action: "export_statements",
+      entityType: "trial_balance_upload",
+      entityId: uploadId,
+      metadata: { format: "pdf", fileName: `${baseFileName}-financial-statements.pdf` },
+    });
   };
 
   const exportToExcel = () => {
@@ -316,6 +324,12 @@ export function ExportStatements({ fileName, processingResult, uploadId }: Expor
 
     XLSX.writeFile(wb, `${baseFileName}-financial-statements.xlsx`);
     toast.success("Excel file exported successfully");
+    logAction({
+      action: "export_statements",
+      entityType: "trial_balance_upload",
+      entityId: uploadId,
+      metadata: { format: "excel", fileName: `${baseFileName}-financial-statements.xlsx` },
+    });
   };
 
   const isDisabled = !mapping;

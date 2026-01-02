@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from "react";
+import { useAuditLog } from "@/hooks/useAuditLog";
 import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -67,6 +68,7 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
   const [deleting, setDeleting] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { logAction } = useAuditLog();
 
   const onSelectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
