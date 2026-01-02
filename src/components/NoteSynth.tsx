@@ -21,6 +21,7 @@ import {
   Download,
 } from "lucide-react";
 import jsPDF from "jspdf";
+import { useAuditLog } from "@/hooks/useAuditLog";
 
 interface DisclosureNote {
   id: string;
@@ -48,6 +49,7 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated }: NoteSyn
   const [isGenerating, setIsGenerating] = useState(false);
   const [notes, setNotes] = useState<DisclosureNote[]>(existingNotes?.notes || []);
   const [metadata, setMetadata] = useState(existingNotes?.metadata || null);
+  const { logAction } = useAuditLog();
 
   const generateNotes = async () => {
     setIsGenerating(true);
@@ -67,6 +69,12 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated }: NoteSyn
       setNotes(data.notes);
       setMetadata(data.metadata);
       toast.success(`Generated ${data.notes.length} disclosure notes!`);
+      logAction({
+        action: "generate_disclosure_notes",
+        entityType: "trial_balance_upload",
+        entityId: uploadId,
+        metadata: { noteCount: data.notes.length, framework: data.metadata?.framework },
+      });
       onNotesGenerated?.();
     } catch (error) {
       console.error("Error generating notes:", error);

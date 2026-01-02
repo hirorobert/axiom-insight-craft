@@ -61,6 +61,42 @@ export type Database = {
           },
         ]
       }
+      audit_logs: {
+        Row: {
+          action: Database["public"]["Enums"]["audit_action"]
+          created_at: string
+          entity_id: string | null
+          entity_type: string | null
+          id: string
+          ip_address: string | null
+          metadata: Json | null
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          action: Database["public"]["Enums"]["audit_action"]
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: Database["public"]["Enums"]["audit_action"]
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -138,7 +174,17 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      audit_action:
+        | "upload_trial_balance"
+        | "process_trial_balance"
+        | "correct_account_mapping"
+        | "generate_disclosure_notes"
+        | "export_statements"
+        | "policy_compass_query"
+        | "update_profile"
+        | "upload_avatar"
+        | "login"
+        | "logout"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -265,6 +311,19 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      audit_action: [
+        "upload_trial_balance",
+        "process_trial_balance",
+        "correct_account_mapping",
+        "generate_disclosure_notes",
+        "export_statements",
+        "policy_compass_query",
+        "update_profile",
+        "upload_avatar",
+        "login",
+        "logout",
+      ],
+    },
   },
 } as const

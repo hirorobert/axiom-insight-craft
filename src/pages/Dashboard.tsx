@@ -11,6 +11,7 @@ import { ExportStatements } from "@/components/ExportStatements";
 import { NoteSynth } from "@/components/NoteSynth";
 import { DashboardAnalytics } from "@/components/DashboardAnalytics";
 import { PolicyCompass } from "@/components/PolicyCompass";
+import { AuditTrail } from "@/components/AuditTrail";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -692,6 +693,9 @@ export default function Dashboard() {
               } : undefined
             } : undefined}
           />
+          
+          {/* Audit Trail Section */}
+          <AuditTrail />
           </div>
         )}
       </main>

@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ArrowLeft, User, Building2, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { AvatarUpload } from "@/components/AvatarUpload";
+import { useAuditLog } from "@/hooks/useAuditLog";
 
 export default function Settings() {
   const { user, loading: authLoading } = useAuth();
@@ -18,6 +19,7 @@ export default function Settings() {
   const [displayName, setDisplayName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const { logAction } = useAuditLog();
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -89,6 +91,10 @@ export default function Settings() {
         if (error) throw error;
       }
 
+      logAction({
+        action: "update_profile",
+        metadata: { displayName: displayName.trim(), companyName: companyName.trim() },
+      });
       toast.success("Profile updated successfully");
     } catch (error) {
       console.error("Error saving profile:", error);
