@@ -97,6 +97,48 @@ export type Database = {
         }
         Relationships: []
       }
+      companies: {
+        Row: {
+          code: string | null
+          created_at: string
+          currency: string | null
+          description: string | null
+          fiscal_year_end: string | null
+          id: string
+          industry: string | null
+          is_active: boolean | null
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          code?: string | null
+          created_at?: string
+          currency?: string | null
+          description?: string | null
+          fiscal_year_end?: string | null
+          id?: string
+          industry?: string | null
+          is_active?: boolean | null
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          code?: string | null
+          created_at?: string
+          currency?: string | null
+          description?: string | null
+          fiscal_year_end?: string | null
+          id?: string
+          industry?: string | null
+          is_active?: boolean | null
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -129,6 +171,7 @@ export type Database = {
       }
       trial_balance_uploads: {
         Row: {
+          company_id: string | null
           company_name: string | null
           file_name: string
           file_path: string
@@ -141,6 +184,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          company_id?: string | null
           company_name?: string | null
           file_name: string
           file_path: string
@@ -153,6 +197,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          company_id?: string | null
           company_name?: string | null
           file_name?: string
           file_path?: string
@@ -164,7 +209,15 @@ export type Database = {
           uploaded_at?: string
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "trial_balance_uploads_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
