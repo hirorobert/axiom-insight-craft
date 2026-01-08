@@ -67,8 +67,8 @@ export const CompanySelector = ({
 
   return (
     <Select
-      value={value || "none"}
-      onValueChange={(val) => onChange(val === "none" ? null : val)}
+      value={value || "all"}
+      onValueChange={(val) => onChange(val === "all" ? null : val)}
     >
       <SelectTrigger className={className}>
         <div className="flex items-center gap-2">
@@ -77,8 +77,8 @@ export const CompanySelector = ({
         </div>
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="none">
-          <span className="text-muted-foreground">No company</span>
+        <SelectItem value="all">
+          <span className="font-medium">All Companies</span>
         </SelectItem>
         {companies.map((company) => (
           <SelectItem key={company.id} value={company.id}>
