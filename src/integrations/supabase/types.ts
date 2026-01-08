@@ -238,6 +238,9 @@ export type Database = {
         | "upload_avatar"
         | "login"
         | "logout"
+        | "create_company"
+        | "update_company"
+        | "delete_company"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -376,6 +379,9 @@ export const Constants = {
         "upload_avatar",
         "login",
         "logout",
+        "create_company",
+        "update_company",
+        "delete_company",
       ],
     },
   },
