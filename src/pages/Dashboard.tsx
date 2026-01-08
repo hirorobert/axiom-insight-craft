@@ -12,6 +12,8 @@ import { NoteSynth } from "@/components/NoteSynth";
 import { DashboardAnalytics } from "@/components/DashboardAnalytics";
 import { PolicyCompass } from "@/components/PolicyCompass";
 import { AuditTrail } from "@/components/AuditTrail";
+import { CompanySelector } from "@/components/CompanySelector";
+import { CompanyManager } from "@/components/CompanyManager";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -32,6 +34,8 @@ interface TrialBalanceUpload {
   id: string;
   file_name: string;
   file_size: number;
+  company_id: string | null;
+  company_name: string | null;
   status: string;
   uploaded_at: string;
   processed_at: string | null;
@@ -92,6 +96,7 @@ export default function Dashboard() {
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
   const [correctionCount, setCorrectionCount] = useState(0);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
@@ -183,15 +188,23 @@ export default function Dashboard() {
     if (!user) return;
     
     setLoading(true);
-    const { data, error } = await supabase
+    let query = supabase
       .from("trial_balance_uploads")
       .select("*")
       .order("uploaded_at", { ascending: false });
+
+    if (selectedCompanyId) {
+      query = query.eq("company_id", selectedCompanyId);
+    }
+
+    const { data, error } = await query;
 
     if (!error && data) {
       setUploads(data as TrialBalanceUpload[]);
       if (data.length > 0 && !selectedUpload) {
         setSelectedUpload(data[0] as TrialBalanceUpload);
+      } else if (data.length === 0) {
+        setSelectedUpload(null);
       }
     }
     setLoading(false);
@@ -201,7 +214,7 @@ export default function Dashboard() {
     if (user) {
       fetchUploads();
     }
-  }, [user]);
+  }, [user, selectedCompanyId]);
 
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString("en-US", {
@@ -258,7 +271,17 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <CompanySelector
+              value={selectedCompanyId}
+              onChange={(id) => {
+                setSelectedCompanyId(id);
+                setSelectedUpload(null);
+              }}
+              placeholder="All companies"
+              className="w-48"
+            />
+            <CompanyManager />
             {selectedUpload && correctionCount > 0 && (
               <Button
                 variant="default"

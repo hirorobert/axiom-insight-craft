@@ -4,7 +4,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Building2, Plus, Pencil, Trash2, Check } from "lucide-react";
+import { Settings, Plus, Pencil, Trash2, Building2 } from "lucide-react";
 import { useAuditLog } from "@/hooks/useAuditLog";
 
 interface Company {
@@ -36,15 +35,11 @@ interface Company {
   created_at: string;
 }
 
-interface CompanyManagerProps {
-  selectedCompanyId: string | null;
-  onCompanySelect: (companyId: string | null) => void;
-}
-
-export const CompanyManager = ({ selectedCompanyId, onCompanySelect }: CompanyManagerProps) => {
+export const CompanyManager = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const { user } = useAuth();
   const { logAction } = useAuditLog();
@@ -74,8 +69,10 @@ export const CompanyManager = ({ selectedCompanyId, onCompanySelect }: CompanyMa
   };
 
   useEffect(() => {
-    fetchCompanies();
-  }, [user]);
+    if (dialogOpen) {
+      fetchCompanies();
+    }
+  }, [user, dialogOpen]);
 
   const resetForm = () => {
     setFormData({
@@ -142,10 +139,9 @@ export const CompanyManager = ({ selectedCompanyId, onCompanySelect }: CompanyMa
         });
 
         toast.success("Company created successfully");
-        onCompanySelect(data.id);
       }
 
-      setDialogOpen(false);
+      setFormDialogOpen(false);
       resetForm();
       fetchCompanies();
     } catch (error) {
@@ -164,7 +160,7 @@ export const CompanyManager = ({ selectedCompanyId, onCompanySelect }: CompanyMa
       fiscal_year_end: company.fiscal_year_end,
       currency: company.currency,
     });
-    setDialogOpen(true);
+    setFormDialogOpen(true);
   };
 
   const handleDelete = async (company: Company) => {
@@ -185,10 +181,6 @@ export const CompanyManager = ({ selectedCompanyId, onCompanySelect }: CompanyMa
         metadata: { name: company.name },
       });
 
-      if (selectedCompanyId === company.id) {
-        onCompanySelect(null);
-      }
-
       toast.success("Company deleted");
       fetchCompanies();
     } catch (error) {
@@ -197,202 +189,192 @@ export const CompanyManager = ({ selectedCompanyId, onCompanySelect }: CompanyMa
     }
   };
 
-  const selectedCompany = companies.find((c) => c.id === selectedCompanyId);
-
   return (
-    <Card className="bg-card border-border">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-primary" />
-            Companies
-          </CardTitle>
-          <Dialog open={dialogOpen} onOpenChange={(open) => {
-            setDialogOpen(open);
-            if (!open) resetForm();
-          }}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2">
-                <Plus className="w-4 h-4" />
-                Add Company
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingCompany ? "Edit Company" : "Add New Company"}
-                </DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Company Name *</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="Acme Corporation"
-                    required
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="code">Code</Label>
-                    <Input
-                      id="code"
-                      value={formData.code}
-                      onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                      placeholder="ACME"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="industry">Industry</Label>
-                    <Input
-                      id="industry"
-                      value={formData.industry}
-                      onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
-                      placeholder="Technology"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="fiscal_year_end">Fiscal Year End</Label>
-                    <Select
-                      value={formData.fiscal_year_end}
-                      onValueChange={(value) => setFormData({ ...formData, fiscal_year_end: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="03-31">March 31</SelectItem>
-                        <SelectItem value="06-30">June 30</SelectItem>
-                        <SelectItem value="09-30">September 30</SelectItem>
-                        <SelectItem value="12-31">December 31</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="currency">Currency</Label>
-                    <Select
-                      value={formData.currency}
-                      onValueChange={(value) => setFormData({ ...formData, currency: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="USD">USD</SelectItem>
-                        <SelectItem value="EUR">EUR</SelectItem>
-                        <SelectItem value="GBP">GBP</SelectItem>
-                        <SelectItem value="JPY">JPY</SelectItem>
-                        <SelectItem value="CAD">CAD</SelectItem>
-                        <SelectItem value="AUD">AUD</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Input
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Brief description..."
-                  />
-                </div>
-                <div className="flex justify-end gap-2 pt-2">
-                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit">
-                    {editingCompany ? "Update" : "Create"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        ) : companies.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No companies yet. Add one to organize your trial balances.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {/* All Companies option */}
-            <button
-              onClick={() => onCompanySelect(null)}
-              className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all text-left ${
-                selectedCompanyId === null
-                  ? "bg-primary/10 border-primary/30"
-                  : "bg-secondary/50 border-border hover:border-primary/20"
-              }`}
+    <>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm" className="gap-2">
+            <Settings className="w-4 h-4" />
+            Manage
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 className="w-5 h-5" />
+              Manage Companies
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 w-full"
+              onClick={() => {
+                resetForm();
+                setFormDialogOpen(true);
+              }}
             >
-              <div className="flex items-center gap-3">
-                <Building2 className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm font-medium">All Companies</span>
-              </div>
-              {selectedCompanyId === null && <Check className="w-4 h-4 text-primary" />}
-            </button>
+              <Plus className="w-4 h-4" />
+              Add Company
+            </Button>
 
-            {companies.map((company) => (
-              <div
-                key={company.id}
-                className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
-                  selectedCompanyId === company.id
-                    ? "bg-primary/10 border-primary/30"
-                    : "bg-card border-border hover:border-primary/20"
-                }`}
-              >
-                <button
-                  onClick={() => onCompanySelect(company.id)}
-                  className="flex-1 flex items-center gap-3 text-left"
-                >
-                  <Building2 className="w-4 h-4 text-primary" />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{company.name}</span>
-                      {company.code && (
-                        <Badge variant="outline" className="text-xs">
-                          {company.code}
-                        </Badge>
-                      )}
+            {loading ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Loading...</p>
+            ) : companies.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No companies yet. Add one to organize your trial balances.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {companies.map((company) => (
+                  <div
+                    key={company.id}
+                    className="flex items-center justify-between p-3 rounded-lg border bg-card border-border"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Building2 className="w-4 h-4 text-primary" />
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{company.name}</span>
+                          {company.code && (
+                            <Badge variant="outline" className="text-xs">
+                              {company.code}
+                            </Badge>
+                          )}
+                        </div>
+                        {company.industry && (
+                          <p className="text-xs text-muted-foreground">{company.industry}</p>
+                        )}
+                      </div>
                     </div>
-                    {company.industry && (
-                      <p className="text-xs text-muted-foreground">{company.industry}</p>
-                    )}
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEdit(company)}
+                        className="h-8 w-8 p-0"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(company)}
+                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
                   </div>
-                </button>
-                <div className="flex items-center gap-1">
-                  {selectedCompanyId === company.id && (
-                    <Check className="w-4 h-4 text-primary mr-2" />
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleEdit(company)}
-                    className="h-8 w-8 p-0"
-                  >
-                    <Pencil className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDelete(company)}
-                    className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add/Edit Form Dialog */}
+      <Dialog open={formDialogOpen} onOpenChange={(open) => {
+        setFormDialogOpen(open);
+        if (!open) resetForm();
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {editingCompany ? "Edit Company" : "Add New Company"}
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">Company Name *</Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="Acme Corporation"
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="code">Code</Label>
+                <Input
+                  id="code"
+                  value={formData.code}
+                  onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                  placeholder="ACME"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="industry">Industry</Label>
+                <Input
+                  id="industry"
+                  value={formData.industry}
+                  onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
+                  placeholder="Technology"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="fiscal_year_end">Fiscal Year End</Label>
+                <Select
+                  value={formData.fiscal_year_end}
+                  onValueChange={(value) => setFormData({ ...formData, fiscal_year_end: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="03-31">March 31</SelectItem>
+                    <SelectItem value="06-30">June 30</SelectItem>
+                    <SelectItem value="09-30">September 30</SelectItem>
+                    <SelectItem value="12-31">December 31</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="currency">Currency</Label>
+                <Select
+                  value={formData.currency}
+                  onValueChange={(value) => setFormData({ ...formData, currency: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="EUR">EUR</SelectItem>
+                    <SelectItem value="GBP">GBP</SelectItem>
+                    <SelectItem value="JPY">JPY</SelectItem>
+                    <SelectItem value="CAD">CAD</SelectItem>
+                    <SelectItem value="AUD">AUD</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Input
+                id="description"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Brief description..."
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={() => setFormDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit">
+                {editingCompany ? "Update" : "Create"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
