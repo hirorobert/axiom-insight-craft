@@ -318,16 +318,29 @@ export default function Dashboard() {
             </div>
           </div>
         ) : uploads.length === 0 ? (
-          <div className="text-center py-16">
-            <FileSpreadsheet className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-foreground mb-2">No uploads yet</h2>
-            <p className="text-muted-foreground mb-6">
-              Upload a trial balance to see AI-generated financial statement mappings.
-            </p>
-            <Button variant="hero" asChild>
-              <Link to="/#upload">Upload Trial Balance</Link>
-            </Button>
-          </div>
+          <Card className="bg-card border-border">
+            <CardContent className="py-20">
+              <div className="text-center max-w-md mx-auto">
+                <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6">
+                  <FileSpreadsheet className="w-10 h-10 text-primary" />
+                </div>
+                <h2 className="text-2xl font-semibold text-foreground mb-3">No Trial Balances Yet</h2>
+                <p className="text-muted-foreground mb-8">
+                  Upload your first trial balance file to see AI-generated financial statement mappings, 
+                  analytics, and disclosure notes.
+                </p>
+                <Button variant="hero" size="lg" asChild>
+                  <Link to="/#upload" className="gap-2">
+                    <FileSpreadsheet className="w-5 h-5" />
+                    Upload Trial Balance
+                  </Link>
+                </Button>
+                <p className="text-xs text-muted-foreground mt-4">
+                  Supports CSV, XLS, and XLSX files
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         ) : (
           <div className="space-y-8">
             {/* Analytics Section */}
@@ -692,9 +705,19 @@ export default function Dashboard() {
                   )}
                 </>
               ) : (
-                <div className="text-center py-16">
-                  <p className="text-muted-foreground">Select an upload to view results</p>
-                </div>
+                <Card className="bg-card border-border">
+                  <CardContent className="py-16">
+                    <div className="text-center">
+                      <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-4">
+                        <Eye className="w-8 h-8 text-muted-foreground" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-foreground mb-2">No Upload Selected</h3>
+                      <p className="text-muted-foreground text-sm">
+                        Select an upload from the list to view its processing results and financial mappings.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
               )}
             </div>
           </div>
