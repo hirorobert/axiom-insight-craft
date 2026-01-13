@@ -1,12 +1,19 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight, Loader2, Trash2 } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight, Loader2, Trash2, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { Progress } from "@/components/ui/progress";
 import { useAuditLog } from "@/hooks/useAuditLog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface FileUpload {
   id: string;
@@ -17,13 +24,42 @@ interface FileUpload {
   errorMessage?: string;
 }
 
+interface Company {
+  id: string;
+  name: string;
+  code: string | null;
+}
+
 export const TrialBalanceUpload = () => {
   const [files, setFiles] = useState<FileUpload[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
   const { logAction } = useAuditLog();
+
+  // Fetch companies when user is authenticated
+  useEffect(() => {
+    const fetchCompanies = async () => {
+      if (!user) return;
+      setLoadingCompanies(true);
+      const { data, error } = await supabase
+        .from("companies")
+        .select("id, name, code")
+        .eq("is_active", true)
+        .order("name");
+
+      if (!error && data) {
+        setCompanies(data);
+      }
+      setLoadingCompanies(false);
+    };
+
+    fetchCompanies();
+  }, [user]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -112,6 +148,9 @@ export const TrialBalanceUpload = () => {
 
       updateFileStatus(id, { progress: 40 });
 
+      // Get selected company name for the record
+      const selectedCompany = companies.find((c) => c.id === selectedCompanyId);
+
       // Create database record
       const { data: uploadRecord, error: dbError } = await supabase
         .from("trial_balance_uploads")
@@ -121,6 +160,8 @@ export const TrialBalanceUpload = () => {
           file_size: file.size,
           status: "processing",
           user_id: user!.id,
+          company_id: selectedCompanyId,
+          company_name: selectedCompany?.name || null,
         })
         .select()
         .single();
@@ -260,6 +301,42 @@ export const TrialBalanceUpload = () => {
             Drop multiple CSV or Excel files and watch Axiom transform them into audit-ready financial statements.
           </p>
         </div>
+
+        {/* Company Selector */}
+        {user && companies.length > 0 && (
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-foreground mb-2">
+              Select Company (Optional)
+            </label>
+            <Select
+              value={selectedCompanyId || "none"}
+              onValueChange={(val) => setSelectedCompanyId(val === "none" ? null : val)}
+            >
+              <SelectTrigger className="w-full md:w-80">
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-primary" />
+                  <SelectValue placeholder="Select a company" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">
+                  <span className="text-muted-foreground">No company selected</span>
+                </SelectItem>
+                {companies.map((company) => (
+                  <SelectItem key={company.id} value={company.id}>
+                    {company.name}
+                    {company.code && (
+                      <span className="text-muted-foreground ml-2">({company.code})</span>
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Associate uploads with a company for better organization
+            </p>
+          </div>
+        )}
 
         {/* Upload area */}
         <div
