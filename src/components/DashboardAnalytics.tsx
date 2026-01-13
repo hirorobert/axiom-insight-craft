@@ -124,8 +124,30 @@ export function DashboardAnalytics({ uploads }: DashboardAnalyticsProps) {
     };
   }, [uploads]);
 
+  const hasCompletedUploads = analytics.completedCount > 0;
+
   if (uploads.length === 0) {
     return null;
+  }
+
+  // Show empty state when no completed uploads
+  if (!hasCompletedUploads) {
+    return (
+      <Card className="bg-card border-border">
+        <CardContent className="py-12">
+          <div className="text-center">
+            <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-4">
+              <Activity className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <h3 className="text-lg font-semibold text-foreground mb-2">Analytics Coming Soon</h3>
+            <p className="text-muted-foreground text-sm max-w-md mx-auto">
+              Once your trial balances finish processing, you'll see confidence scores, 
+              account distributions, and trend analysis here.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
