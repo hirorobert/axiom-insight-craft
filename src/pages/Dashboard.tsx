@@ -14,6 +14,7 @@ import { PolicyCompass } from "@/components/PolicyCompass";
 import { AuditTrail } from "@/components/AuditTrail";
 import { CompanySelector } from "@/components/CompanySelector";
 import { CompanyManager } from "@/components/CompanyManager";
+import { DashboardSkeleton } from "@/components/DashboardSkeleton";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -311,12 +312,7 @@ export default function Dashboard() {
 
       <main className="max-w-7xl mx-auto px-6 py-8">
         {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <RefreshCw className="w-8 h-8 text-primary animate-spin mx-auto mb-4" />
-              <p className="text-muted-foreground">Loading results...</p>
-            </div>
-          </div>
+          <DashboardSkeleton />
         ) : uploads.length === 0 ? (
           <Card className="bg-card border-border">
             <CardContent className="py-20">
