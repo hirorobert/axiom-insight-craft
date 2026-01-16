@@ -217,6 +217,68 @@ export default function Dashboard() {
     }
   }, [user, selectedCompanyId]);
 
+  // Real-time subscription for trial balance updates
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('trial-balance-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'trial_balance_uploads',
+        },
+        (payload) => {
+          console.log('Realtime update received:', payload);
+          const updatedUpload = payload.new as TrialBalanceUpload;
+          
+          // Update the uploads list
+          setUploads((prev) =>
+            prev.map((upload) =>
+              upload.id === updatedUpload.id ? updatedUpload : upload
+            )
+          );
+          
+          // Update selected upload if it's the one that changed
+          if (selectedUpload?.id === updatedUpload.id) {
+            setSelectedUpload(updatedUpload);
+          }
+          
+          // Show toast notification when processing completes
+          if (updatedUpload.status === 'complete') {
+            toast.success(`Processing complete: ${updatedUpload.file_name}`);
+          } else if (updatedUpload.status === 'error') {
+            toast.error(`Processing failed: ${updatedUpload.file_name}`);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'trial_balance_uploads',
+        },
+        (payload) => {
+          console.log('New upload detected:', payload);
+          const newUpload = payload.new as TrialBalanceUpload;
+          
+          // Add to uploads list if it matches the current filter
+          if (!selectedCompanyId || newUpload.company_id === selectedCompanyId) {
+            setUploads((prev) => [newUpload, ...prev]);
+            toast.info(`New upload: ${newUpload.file_name}`);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, selectedCompanyId, selectedUpload?.id]);
+
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString("en-US", {
       month: "short",
