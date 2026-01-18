@@ -6,40 +6,102 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+/**
+ * Validates JWT token and returns user info
+ */
+async function validateAuth(authHeader: string | null): Promise<{ userId?: string; error?: Response }> {
+  if (!authHeader?.startsWith("Bearer ")) {
+    console.error("Missing or invalid Authorization header");
+    return {
+      error: new Response(
+        JSON.stringify({ error: "Unauthorized", message: "Missing authorization header" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      ),
+    };
+  }
+
+  const token = authHeader.replace("Bearer ", "");
+
+  // Validate token format
+  if (!token || token.split(".").length !== 3) {
+    console.error("Malformed JWT token");
+    return {
+      error: new Response(
+        JSON.stringify({ error: "Unauthorized", message: "Malformed token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      ),
+    };
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("Missing Supabase environment variables");
+    return {
+      error: new Response(
+        JSON.stringify({ error: "Server configuration error" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      ),
+    };
+  }
+
+  const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
+
+  try {
+    const { data: claims, error: authError } = await authClient.auth.getClaims(token);
+
+    if (authError || !claims?.claims?.sub) {
+      console.error("Auth validation error:", authError?.message || "No user ID in claims");
+      return {
+        error: new Response(
+          JSON.stringify({ error: "Unauthorized", message: "Invalid or expired token" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        ),
+      };
+    }
+
+    // Check token expiration
+    const exp = claims.claims.exp as number | undefined;
+    if (exp && Date.now() / 1000 > exp) {
+      console.error("Token has expired");
+      return {
+        error: new Response(
+          JSON.stringify({ error: "Unauthorized", message: "Token has expired" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        ),
+      };
+    }
+
+    return { userId: claims.claims.sub as string };
+  } catch (err) {
+    console.error("Unexpected auth error:", err);
+    return {
+      error: new Response(
+        JSON.stringify({ error: "Authentication failed" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      ),
+    };
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Validate JWT
+    // Validate JWT with enhanced validation
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const auth = await validateAuth(authHeader);
+    
+    if (auth.error) {
+      return auth.error;
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    
-    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claims, error: authError } = await authClient.auth.getClaims(token);
-    
-    if (authError || !claims?.claims) {
-      console.error("Auth error:", authError);
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const userId = claims.claims.sub;
+    const userId = auth.userId;
     console.log("Authenticated user:", userId);
 
     const { uploadId } = await req.json();
@@ -50,6 +112,7 @@ serve(async (req) => {
 
     console.log("Generating disclosure notes for upload:", uploadId);
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
 
