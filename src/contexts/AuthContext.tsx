@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuthAudit } from "@/hooks/useAuthAudit";
 
 interface AuthContextType {
   user: User | null;
@@ -17,6 +18,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Initialize auth audit logging
+  useAuthAudit();
 
   useEffect(() => {
     // Set up auth state listener FIRST

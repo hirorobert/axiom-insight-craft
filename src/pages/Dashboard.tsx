@@ -29,11 +29,25 @@ import {
   Eye,
   UserCheck,
   RotateCcw,
+  Trash2,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useAuditLog } from "@/hooks/useAuditLog";
 
 interface TrialBalanceUpload {
   id: string;
   file_name: string;
+  file_path: string;
   file_size: number;
   company_id: string | null;
   company_name: string | null;
@@ -98,8 +112,10 @@ export default function Dashboard() {
   const [correctionCount, setCorrectionCount] = useState(0);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const { logAction } = useAuditLog();
 
   // Fetch correction count for the selected upload
   const fetchCorrectionCount = async (uploadId: string) => {
@@ -176,6 +192,62 @@ export default function Dashboard() {
       console.error("Regeneration error:", error);
       toast.error("Failed to start regeneration");
       setIsRegenerating(false);
+    }
+  };
+
+  // Delete an upload and its associated files
+  const handleDeleteUpload = async (upload: TrialBalanceUpload) => {
+    if (!user) return;
+
+    setIsDeleting(true);
+    try {
+      // Delete associated corrections first
+      await supabase
+        .from("account_corrections")
+        .delete()
+        .eq("upload_id", upload.id);
+
+      // Delete the file from storage
+      const { error: storageError } = await supabase.storage
+        .from("trial-balance-files")
+        .remove([upload.file_path]);
+
+      if (storageError) {
+        console.error("Failed to delete file from storage:", storageError);
+        // Continue anyway - file might already be deleted
+      }
+
+      // Delete the upload record
+      const { error: deleteError } = await supabase
+        .from("trial_balance_uploads")
+        .delete()
+        .eq("id", upload.id);
+
+      if (deleteError) throw deleteError;
+
+      // Log the action
+      await logAction({
+        action: "delete_company",
+        entityType: "trial_balance_upload",
+        entityId: upload.id,
+        metadata: { fileName: upload.file_name },
+      });
+
+      // Update local state
+      setUploads((prev) => prev.filter((u) => u.id !== upload.id));
+      
+      // Clear selection if we deleted the selected upload
+      if (selectedUpload?.id === upload.id) {
+        const remaining = uploads.filter((u) => u.id !== upload.id);
+        setSelectedUpload(remaining.length > 0 ? remaining[0] : null);
+      }
+
+      toast.success(`Deleted: ${upload.file_name}`);
+    } catch (error) {
+      console.error("Delete error:", error);
+      toast.error("Failed to delete upload");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -409,33 +481,69 @@ export default function Dashboard() {
               <div className="lg:col-span-1 space-y-3">
                 <h2 className="text-sm font-semibold text-foreground mb-4">Recent Uploads</h2>
                 {uploads.map((upload) => (
-                  <button
+                  <div
                     key={upload.id}
-                    onClick={() => setSelectedUpload(upload)}
-                    className={`w-full text-left p-4 rounded-xl border transition-all ${
+                    className={`relative group p-4 rounded-xl border transition-all ${
                       selectedUpload?.id === upload.id
                         ? "bg-primary/10 border-primary/30"
                         : "bg-card border-border hover:border-primary/20"
                     }`}
                   >
-                    <div className="flex items-start gap-3">
-                      <FileSpreadsheet className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">
-                          {upload.file_name}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {formatDate(upload.uploaded_at)}
-                        </p>
-                        <div className="flex items-center gap-2 mt-2">
-                          {getStatusIcon(upload.status)}
-                          <span className="text-xs text-muted-foreground capitalize">
-                            {upload.status}
-                          </span>
+                    <button
+                      onClick={() => setSelectedUpload(upload)}
+                      className="w-full text-left"
+                    >
+                      <div className="flex items-start gap-3">
+                        <FileSpreadsheet className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">
+                            {upload.file_name}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {formatDate(upload.uploaded_at)}
+                          </p>
+                          <div className="flex items-center gap-2 mt-2">
+                            {getStatusIcon(upload.status)}
+                            <span className="text-xs text-muted-foreground capitalize">
+                              {upload.status}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </button>
+                    </button>
+                    
+                    {/* Delete button */}
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Upload</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete "{upload.file_name}"? This will permanently remove the file and all associated data including any corrections.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => handleDeleteUpload(upload)}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            disabled={isDeleting}
+                          >
+                            {isDeleting ? "Deleting..." : "Delete"}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                 ))}
               </div>
 
