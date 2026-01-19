@@ -15,6 +15,7 @@ import { AuditTrail } from "@/components/AuditTrail";
 import { CompanySelector } from "@/components/CompanySelector";
 import { CompanyManager } from "@/components/CompanyManager";
 import { DashboardSkeleton } from "@/components/DashboardSkeleton";
+import { NoUploadsEmptyState } from "@/components/EmptyState";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -42,7 +43,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { useAuditLog } from "@/hooks/useAuditLog";
+import { useEnhancedAuditLog } from "@/hooks/useEnhancedAuditLog";
 
 interface TrialBalanceUpload {
   id: string;
@@ -115,7 +116,7 @@ export default function Dashboard() {
   const [isDeleting, setIsDeleting] = useState(false);
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const { logAction } = useAuditLog();
+  const { logAction, logTrialBalanceUpload, logTrialBalanceProcessing } = useEnhancedAuditLog();
 
   // Fetch correction count for the selected upload
   const fetchCorrectionCount = async (uploadId: string) => {
@@ -448,29 +449,9 @@ export default function Dashboard() {
         {loading ? (
           <DashboardSkeleton />
         ) : uploads.length === 0 ? (
-          <Card className="bg-card border-border">
-            <CardContent className="py-20">
-              <div className="text-center max-w-md mx-auto">
-                <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6">
-                  <FileSpreadsheet className="w-10 h-10 text-primary" />
-                </div>
-                <h2 className="text-2xl font-semibold text-foreground mb-3">No Trial Balances Yet</h2>
-                <p className="text-muted-foreground mb-8">
-                  Upload your first trial balance file to see AI-generated financial statement mappings, 
-                  analytics, and disclosure notes.
-                </p>
-                <Button variant="hero" size="lg" asChild>
-                  <Link to="/#upload" className="gap-2">
-                    <FileSpreadsheet className="w-5 h-5" />
-                    Upload Trial Balance
-                  </Link>
-                </Button>
-                <p className="text-xs text-muted-foreground mt-4">
-                  Supports CSV, XLS, and XLSX files
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <NoUploadsEmptyState 
+            onAction={() => navigate("/#upload")}
+          />
         ) : (
           <div className="space-y-8">
             {/* Analytics Section */}
