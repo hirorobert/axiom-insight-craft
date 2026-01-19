@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { PageErrorBoundary } from "@/components/PageErrorBoundary";
+import { SessionTimeoutProvider } from "@/components/SessionTimeoutProvider";
 import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
 import Auth from "./pages/Auth";
@@ -18,18 +20,34 @@ const App = () => (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AuthProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/auth" element={<Auth />} />
-              <Route path="/settings" element={<Settings />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
+          <SessionTimeoutProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route 
+                  path="/dashboard" 
+                  element={
+                    <PageErrorBoundary pageName="Dashboard">
+                      <Dashboard />
+                    </PageErrorBoundary>
+                  } 
+                />
+                <Route path="/auth" element={<Auth />} />
+                <Route 
+                  path="/settings" 
+                  element={
+                    <PageErrorBoundary pageName="Settings">
+                      <Settings />
+                    </PageErrorBoundary>
+                  } 
+                />
+                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </SessionTimeoutProvider>
         </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
