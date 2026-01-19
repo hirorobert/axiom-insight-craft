@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Eye, EyeOff, Mail, Lock, User, ArrowRight, ArrowLeft, CheckCircle, MailCheck } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock, User, ArrowRight, ArrowLeft, CheckCircle, MailCheck, AlertTriangle } from "lucide-react";
 import { z } from "zod";
+import { useLoginRateLimit } from "@/hooks/useLoginRateLimit";
 
 const emailSchema = z.string().email("Please enter a valid email address");
 const passwordSchema = z.string().min(6, "Password must be at least 6 characters");
@@ -30,6 +31,15 @@ export default function Auth() {
   
   const { signIn, signUp, user } = useAuth();
   const navigate = useNavigate();
+  const { 
+    isLocked, 
+    getRemainingAttempts, 
+    recordFailedAttempt, 
+    recordSuccessfulLogin,
+    remainingTime,
+    formatRemainingTime,
+    attempts 
+  } = useLoginRateLimit();
 
   useEffect(() => {
     if (user && mode !== "reset-password" && mode !== "verify-email") {
@@ -136,18 +146,30 @@ export default function Auth() {
     
     if (!validateForm()) return;
     
+    // Check rate limiting for login attempts
+    if (mode === "login" && isLocked()) {
+      toast.error(`Too many failed attempts. Please wait ${formatRemainingTime()} before trying again.`);
+      return;
+    }
+
     setLoading(true);
     
     try {
       if (mode === "login") {
         const { error } = await signIn(email, password);
         if (error) {
-          if (error.message.includes("Invalid login credentials")) {
-            toast.error("Invalid email or password. Please try again.");
+          const { locked, lockoutSeconds } = recordFailedAttempt();
+          
+          if (locked) {
+            toast.error(`Too many failed attempts. Account locked for ${Math.ceil(lockoutSeconds / 60)} minute(s).`);
+          } else if (error.message.includes("Invalid login credentials")) {
+            const remaining = getRemainingAttempts() - 1;
+            toast.error(`Invalid email or password. ${remaining > 0 ? `${remaining} attempts remaining.` : ''}`);
           } else {
             toast.error(error.message);
           }
         } else {
+          recordSuccessfulLogin();
           toast.success("Welcome back!");
           navigate("/");
         }
@@ -400,14 +422,25 @@ export default function Auth() {
               )}
 
               {mode === "login" && (
-                <div className="text-right">
+                <div className="flex items-center justify-between">
+                  {attempts > 0 && attempts < 5 && (
+                    <p className="text-sm text-muted-foreground">
+                      {getRemainingAttempts()} attempts remaining
+                    </p>
+                  )}
+                  {isLocked() && remainingTime > 0 && (
+                    <div className="flex items-center gap-1.5 text-sm text-destructive">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span>Locked for {formatRemainingTime()}</span>
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
                       setMode("forgot-password");
                       setErrors({});
                     }}
-                    className="text-sm text-primary hover:text-primary/80"
+                    className="text-sm text-primary hover:text-primary/80 ml-auto"
                   >
                     Forgot password?
                   </button>
@@ -418,7 +451,7 @@ export default function Auth() {
                 type="submit"
                 variant="hero"
                 className="w-full gap-2"
-                disabled={loading}
+                disabled={loading || (mode === "login" && isLocked())}
               >
                 {loading ? (
                   "Loading..."
