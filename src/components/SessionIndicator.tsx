@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { Clock, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -7,34 +6,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useSessionTimeout } from "@/hooks/useSessionTimeout";
+import { useSessionContext } from "@/components/SessionTimeoutProvider";
 import { cn } from "@/lib/utils";
 
 export function SessionIndicator() {
-  const { resetTimer, getTimeRemaining } = useSessionTimeout();
-  const [timeRemaining, setTimeRemaining] = useState(getTimeRemaining());
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTimeRemaining(getTimeRemaining());
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [getTimeRemaining]);
+  const { timeRemaining, isWarning, isCritical, extendSession } = useSessionContext();
 
   const formatTime = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-  };
-
-  const isWarning = timeRemaining <= 5 * 60 * 1000; // 5 minutes
-  const isCritical = timeRemaining <= 2 * 60 * 1000; // 2 minutes
-
-  const handleExtend = () => {
-    resetTimer();
-    setTimeRemaining(getTimeRemaining());
   };
 
   return (
@@ -59,7 +41,7 @@ export function SessionIndicator() {
               variant="ghost"
               size="icon"
               className="h-7 w-7"
-              onClick={handleExtend}
+              onClick={extendSession}
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </Button>
