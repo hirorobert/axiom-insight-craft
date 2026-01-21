@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { SessionIndicator } from "@/components/SessionIndicator";
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -66,7 +67,9 @@ export function Header() {
 
         <div className="hidden md:flex items-center gap-3">
           {user ? (
-            <DropdownMenu>
+            <>
+              <SessionIndicator />
+              <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0">
                   <Avatar className="h-10 w-10 border-2 border-primary/20 hover:border-primary/50 transition-colors">
@@ -102,6 +105,7 @@ export function Header() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            </>
           ) : (
             <>
               <Button variant="ghost" size="sm" asChild>
