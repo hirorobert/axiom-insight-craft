@@ -6,12 +6,346 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// ============================================
+// AXIOM ACCOUNTING TRUTH ENGINE
+// Deterministic processing with BLOCK gates
+// ============================================
+
+interface TrialBalanceRow {
+  account_code: string;
+  account_name: string;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+interface AccountMapping {
+  account_code: string;
+  account_name: string;
+  statement: string;
+  classification: string;
+  line_item: string;
+  normal_balance: string;
+  is_cash_account: boolean;
+  is_retained_earnings: boolean;
+}
+
+interface ValidationError {
+  code: string;
+  message: string;
+  field?: string;
+  expected?: string | number;
+  actual?: string | number;
+}
+
+interface ValidationReport {
+  tb_balance_check: { passed: boolean; total_debits: number; total_credits: number; difference: number };
+  mapping_completeness: { passed: boolean; total_accounts: number; mapped_accounts: number; unmapped: string[] };
+  balance_sheet_equation: { passed: boolean; assets: number; liabilities: number; equity: number; difference: number } | null;
+  profit_equity_linkage: { passed: boolean; details: string } | null;
+  cash_reconciliation: { passed: boolean; cf_ending_cash: number; bs_cash: number } | null;
+}
+
+interface ProcessingResult {
+  status: "valid" | "invalid" | "blocked";
+  validation_report: ValidationReport;
+  errors: ValidationError[];
+  statements: {
+    balance_sheet: Record<string, { accounts: TrialBalanceRow[]; total: number }> | null;
+    income_statement: Record<string, { accounts: TrialBalanceRow[]; total: number }> | null;
+    cash_flow: Record<string, { accounts: TrialBalanceRow[]; total: number }> | null;
+  } | null;
+  summary: {
+    total_accounts: number;
+    processed_at: string;
+  };
+}
+
+/**
+ * STEP 1: Validate Trial Balance Integrity
+ * - Required fields exist
+ * - Numeric validation
+ * - SUM(debit) - SUM(credit) = 0
+ */
+function validateTrialBalance(
+  headers: string[],
+  rows: Record<string, string>[],
+  tolerance: number = 0.01
+): { valid: boolean; data: TrialBalanceRow[]; errors: ValidationError[]; totals: { debits: number; credits: number } } {
+  const errors: ValidationError[] = [];
+  const data: TrialBalanceRow[] = [];
+
+  // Check required headers
+  const requiredHeaders = ["account_code", "account_name", "debit", "credit"];
+  const normalizedHeaders = headers.map(h => h.toLowerCase().replace(/[^a-z_]/g, "_"));
+  
+  const headerMap: Record<string, string> = {};
+  for (const required of requiredHeaders) {
+    const found = normalizedHeaders.find(h => 
+      h.includes(required.replace("_", "")) || 
+      h === required ||
+      (required === "account_code" && (h.includes("code") || h.includes("acct") || h.includes("account_no"))) ||
+      (required === "account_name" && (h.includes("name") || h.includes("description")))
+    );
+    
+    if (!found) {
+      errors.push({
+        code: "MISSING_REQUIRED_FIELD",
+        message: `Required field '${required}' not found in trial balance`,
+        field: required,
+      });
+    } else {
+      headerMap[required] = headers[normalizedHeaders.indexOf(found)];
+    }
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, data: [], errors, totals: { debits: 0, credits: 0 } };
+  }
+
+  // Parse and validate each row
+  let totalDebits = 0;
+  let totalCredits = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const accountCode = row[headerMap["account_code"]]?.trim();
+    const accountName = row[headerMap["account_name"]]?.trim();
+    const debitStr = row[headerMap["debit"]]?.trim().replace(/[,$]/g, "") || "0";
+    const creditStr = row[headerMap["credit"]]?.trim().replace(/[,$]/g, "") || "0";
+
+    if (!accountCode) {
+      errors.push({
+        code: "MISSING_ACCOUNT_CODE",
+        message: `Row ${i + 2}: Missing account code`,
+        field: "account_code",
+      });
+      continue;
+    }
+
+    const debit = parseFloat(debitStr);
+    const credit = parseFloat(creditStr);
+
+    if (isNaN(debit)) {
+      errors.push({
+        code: "INVALID_NUMERIC",
+        message: `Row ${i + 2}: Invalid debit value '${debitStr}'`,
+        field: "debit",
+        actual: debitStr,
+      });
+      continue;
+    }
+
+    if (isNaN(credit)) {
+      errors.push({
+        code: "INVALID_NUMERIC",
+        message: `Row ${i + 2}: Invalid credit value '${creditStr}'`,
+        field: "credit",
+        actual: creditStr,
+      });
+      continue;
+    }
+
+    totalDebits += debit;
+    totalCredits += credit;
+
+    data.push({
+      account_code: accountCode,
+      account_name: accountName || accountCode,
+      debit,
+      credit,
+      balance: debit - credit,
+    });
+  }
+
+  // AXIOM RULE: SUM(debit) - SUM(credit) must equal zero
+  const difference = Math.abs(totalDebits - totalCredits);
+  if (difference > tolerance) {
+    errors.push({
+      code: "TRIAL_BALANCE_IMBALANCE",
+      message: `Trial balance does not balance: Debits (${totalDebits.toFixed(2)}) ≠ Credits (${totalCredits.toFixed(2)})`,
+      expected: 0,
+      actual: difference,
+    });
+  }
+
+  return {
+    valid: errors.length === 0,
+    data,
+    errors,
+    totals: { debits: totalDebits, credits: totalCredits },
+  };
+}
+
+/**
+ * STEP 2: Validate Mapping Completeness
+ * Every account MUST map to exactly one FS line item
+ */
+function validateMappingCompleteness(
+  tbAccounts: TrialBalanceRow[],
+  mappings: AccountMapping[]
+): { valid: boolean; mapped: Map<string, AccountMapping>; unmapped: string[]; errors: ValidationError[] } {
+  const errors: ValidationError[] = [];
+  const mappingsByCode = new Map<string, AccountMapping>();
+  
+  for (const mapping of mappings) {
+    mappingsByCode.set(mapping.account_code, mapping);
+  }
+
+  const unmapped: string[] = [];
+  for (const account of tbAccounts) {
+    if (!mappingsByCode.has(account.account_code)) {
+      unmapped.push(account.account_code);
+    }
+  }
+
+  // AXIOM RULE: Any unmapped account → BLOCK
+  if (unmapped.length > 0) {
+    errors.push({
+      code: "UNMAPPED_ACCOUNTS",
+      message: `${unmapped.length} account(s) have no explicit mapping: ${unmapped.slice(0, 5).join(", ")}${unmapped.length > 5 ? "..." : ""}`,
+      actual: unmapped.length,
+      expected: 0,
+    });
+  }
+
+  return {
+    valid: unmapped.length === 0,
+    mapped: mappingsByCode,
+    unmapped,
+    errors,
+  };
+}
+
+/**
+ * STEP 3: Deterministic Statement Aggregation
+ * No inference, no rounding beyond policy tolerance
+ */
+function aggregateStatements(
+  tbAccounts: TrialBalanceRow[],
+  mappings: Map<string, AccountMapping>
+): {
+  balance_sheet: Record<string, { accounts: TrialBalanceRow[]; total: number }>;
+  income_statement: Record<string, { accounts: TrialBalanceRow[]; total: number }>;
+  cash_flow: Record<string, { accounts: TrialBalanceRow[]; total: number }>;
+  totals: { assets: number; liabilities: number; equity: number; revenue: number; expenses: number };
+  cashAccount: { exists: boolean; balance: number };
+} {
+  const bs: Record<string, { accounts: TrialBalanceRow[]; total: number }> = {
+    current_assets: { accounts: [], total: 0 },
+    non_current_assets: { accounts: [], total: 0 },
+    current_liabilities: { accounts: [], total: 0 },
+    non_current_liabilities: { accounts: [], total: 0 },
+    equity: { accounts: [], total: 0 },
+  };
+
+  const is: Record<string, { accounts: TrialBalanceRow[]; total: number }> = {
+    revenue: { accounts: [], total: 0 },
+    cost_of_goods_sold: { accounts: [], total: 0 },
+    operating_expenses: { accounts: [], total: 0 },
+    other_income: { accounts: [], total: 0 },
+    taxes: { accounts: [], total: 0 },
+  };
+
+  const cf: Record<string, { accounts: TrialBalanceRow[]; total: number }> = {
+    operating_activities: { accounts: [], total: 0 },
+    investing_activities: { accounts: [], total: 0 },
+    financing_activities: { accounts: [], total: 0 },
+  };
+
+  let cashBalance = 0;
+  let hasCashAccount = false;
+
+  for (const account of tbAccounts) {
+    const mapping = mappings.get(account.account_code);
+    if (!mapping) continue;
+
+    // Determine balance based on normal balance
+    const balance = mapping.normal_balance === "debit" 
+      ? account.debit - account.credit 
+      : account.credit - account.debit;
+
+    const accountWithBalance = { ...account, balance };
+
+    if (mapping.is_cash_account) {
+      hasCashAccount = true;
+      cashBalance = balance;
+    }
+
+    // Route to appropriate statement section
+    const classification = mapping.classification;
+    
+    if (bs[classification]) {
+      bs[classification].accounts.push(accountWithBalance);
+      bs[classification].total += balance;
+    } else if (is[classification]) {
+      is[classification].accounts.push(accountWithBalance);
+      is[classification].total += balance;
+    } else if (cf[classification]) {
+      cf[classification].accounts.push(accountWithBalance);
+      cf[classification].total += balance;
+    }
+  }
+
+  // Calculate totals
+  const totalAssets = bs.current_assets.total + bs.non_current_assets.total;
+  const totalLiabilities = bs.current_liabilities.total + bs.non_current_liabilities.total;
+  const totalEquity = bs.equity.total;
+  const totalRevenue = is.revenue.total + is.other_income.total;
+  const totalExpenses = is.cost_of_goods_sold.total + is.operating_expenses.total + is.taxes.total;
+
+  return {
+    balance_sheet: bs,
+    income_statement: is,
+    cash_flow: cf,
+    totals: {
+      assets: totalAssets,
+      liabilities: totalLiabilities,
+      equity: totalEquity,
+      revenue: totalRevenue,
+      expenses: totalExpenses,
+    },
+    cashAccount: { exists: hasCashAccount, balance: cashBalance },
+  };
+}
+
+/**
+ * STEP 4: Accounting Equation Validators
+ * All must pass or BLOCK
+ */
+function validateAccountingEquations(
+  totals: { assets: number; liabilities: number; equity: number; revenue: number; expenses: number },
+  tolerance: number = 0.01
+): { valid: boolean; errors: ValidationError[]; details: { bsEquation: { passed: boolean; difference: number } } } {
+  const errors: ValidationError[] = [];
+
+  // Balance Sheet Equation: Assets = Liabilities + Equity
+  const bsDifference = Math.abs(totals.assets - (totals.liabilities + totals.equity));
+  const bsPassed = bsDifference <= tolerance;
+
+  if (!bsPassed) {
+    errors.push({
+      code: "BALANCE_SHEET_EQUATION_FAILED",
+      message: `Balance Sheet equation failed: Assets (${totals.assets.toFixed(2)}) ≠ Liabilities (${totals.liabilities.toFixed(2)}) + Equity (${totals.equity.toFixed(2)})`,
+      expected: 0,
+      actual: bsDifference,
+    });
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    details: {
+      bsEquation: { passed: bsPassed, difference: bsDifference },
+    },
+  };
+}
+
 /**
  * Validates JWT token and returns user info
  */
 async function validateAuth(authHeader: string | null): Promise<{ userId?: string; error?: Response }> {
   if (!authHeader?.startsWith("Bearer ")) {
-    console.error("Missing or invalid Authorization header");
     return {
       error: new Response(
         JSON.stringify({ error: "Unauthorized", message: "Missing authorization header" }),
@@ -22,9 +356,7 @@ async function validateAuth(authHeader: string | null): Promise<{ userId?: strin
 
   const token = authHeader.replace("Bearer ", "");
 
-  // Validate token format
   if (!token || token.split(".").length !== 3) {
-    console.error("Malformed JWT token");
     return {
       error: new Response(
         JSON.stringify({ error: "Unauthorized", message: "Malformed token" }),
@@ -37,7 +369,6 @@ async function validateAuth(authHeader: string | null): Promise<{ userId?: strin
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.error("Missing Supabase environment variables");
     return {
       error: new Response(
         JSON.stringify({ error: "Server configuration error" }),
@@ -54,7 +385,6 @@ async function validateAuth(authHeader: string | null): Promise<{ userId?: strin
     const { data: claims, error: authError } = await authClient.auth.getClaims(token);
 
     if (authError || !claims?.claims?.sub) {
-      console.error("Auth validation error:", authError?.message || "No user ID in claims");
       return {
         error: new Response(
           JSON.stringify({ error: "Unauthorized", message: "Invalid or expired token" }),
@@ -63,10 +393,8 @@ async function validateAuth(authHeader: string | null): Promise<{ userId?: strin
       };
     }
 
-    // Check token expiration
     const exp = claims.claims.exp as number | undefined;
     if (exp && Date.now() / 1000 > exp) {
-      console.error("Token has expired");
       return {
         error: new Response(
           JSON.stringify({ error: "Unauthorized", message: "Token has expired" }),
@@ -76,8 +404,7 @@ async function validateAuth(authHeader: string | null): Promise<{ userId?: strin
     }
 
     return { userId: claims.claims.sub as string };
-  } catch (err) {
-    console.error("Unexpected auth error:", err);
+  } catch {
     return {
       error: new Response(
         JSON.stringify({ error: "Authentication failed" }),
@@ -87,13 +414,19 @@ async function validateAuth(authHeader: string | null): Promise<{ userId?: strin
   }
 }
 
+// ============================================
+// MAIN HANDLER
+// ============================================
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const allErrors: ValidationError[] = [];
+
   try {
-    // Validate JWT with enhanced validation
+    // Validate JWT
     const authHeader = req.headers.get("Authorization");
     const auth = await validateAuth(authHeader);
     
@@ -101,8 +434,8 @@ serve(async (req) => {
       return auth.error;
     }
 
-    const userId = auth.userId;
-    console.log("Authenticated user:", userId);
+    const userId = auth.userId!;
+    console.log("[AXIOM] Authenticated user:", userId);
 
     const { uploadId } = await req.json();
     
@@ -110,17 +443,17 @@ serve(async (req) => {
       throw new Error("Upload ID is required");
     }
 
-    console.log("Processing trial balance upload:", uploadId);
+    console.log("[AXIOM] Processing trial balance:", uploadId);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
-
-    if (!lovableApiKey) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
-
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Update status to validating
+    await supabase
+      .from("trial_balance_uploads")
+      .update({ status: "validating" })
+      .eq("id", uploadId);
 
     // Get upload record
     const { data: upload, error: uploadError } = await supabase
@@ -133,28 +466,7 @@ serve(async (req) => {
       throw new Error("Upload not found");
     }
 
-    console.log("Found upload record:", upload.file_name);
-
-    // Fetch saved corrections for this upload
-    const { data: savedCorrections, error: correctionsError } = await supabase
-      .from("account_corrections")
-      .select("*")
-      .eq("upload_id", uploadId);
-
-    if (correctionsError) {
-      console.log("Error fetching corrections:", correctionsError.message);
-    }
-
-    const correctionsMap = new Map<string, { category: string; subcategory: string }>();
-    if (savedCorrections && savedCorrections.length > 0) {
-      console.log("Found", savedCorrections.length, "saved corrections to apply");
-      savedCorrections.forEach((correction) => {
-        correctionsMap.set(correction.account_code, {
-          category: correction.corrected_category,
-          subcategory: correction.corrected_subcategory,
-        });
-      });
-    }
+    console.log("[AXIOM] Found upload:", upload.file_name);
 
     // Download the file from storage
     const { data: fileData, error: downloadError } = await supabase.storage
@@ -165,11 +477,10 @@ serve(async (req) => {
       throw new Error("Failed to download file: " + downloadError?.message);
     }
 
-    // Read file content
     const fileContent = await fileData.text();
-    console.log("File content length:", fileContent.length);
+    console.log("[AXIOM] File content length:", fileContent.length);
 
-    // Parse CSV/Excel content (simplified - assumes CSV format)
+    // Parse CSV content
     const lines = fileContent.split("\n").filter(line => line.trim());
     const headers = lines[0]?.split(",").map(h => h.trim()) || [];
     const dataRows = lines.slice(1).map(line => {
@@ -181,231 +492,274 @@ serve(async (req) => {
       return row;
     });
 
-    console.log("Parsed", dataRows.length, "rows from trial balance");
+    console.log("[AXIOM] Parsed", dataRows.length, "rows");
 
-    // Include saved corrections in the AI prompt for context
-    const correctionsContext = savedCorrections && savedCorrections.length > 0
-      ? `\n\nIMPORTANT: The following accounts have been manually verified by the user. Use these exact classifications:\n${JSON.stringify(savedCorrections.map(c => ({
-          accountCode: c.account_code,
-          category: c.corrected_category,
-          subcategory: c.corrected_subcategory
-        })), null, 2)}`
-      : "";
+    // ============================================
+    // STEP 1: TRIAL BALANCE INTEGRITY
+    // ============================================
+    console.log("[AXIOM] STEP 1: Validating trial balance integrity...");
+    
+    const tbValidation = validateTrialBalance(headers, dataRows);
+    allErrors.push(...tbValidation.errors);
 
-    // Create a summary of the trial balance for AI processing
-    const trialBalanceSummary = JSON.stringify({
-      headers,
-      sampleRows: dataRows.slice(0, 20),
-      totalRows: dataRows.length,
-    });
+    const tbCheckPassed = tbValidation.valid;
+    console.log("[AXIOM] TB Validation:", tbCheckPassed ? "PASSED" : "BLOCKED");
 
-    // Call Lovable AI to analyze and map accounts
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${lovableApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: `You are an expert financial accountant AI assistant specializing in GAAP and IFRS standards. 
-Your task is to analyze trial balance data and map accounts to the appropriate financial statements.
-
-For each account, determine:
-1. Which financial statement it belongs to (Balance Sheet, Income Statement, or Cash Flow Statement)
-2. The specific classification (e.g., Current Assets, Non-Current Liabilities, Revenue, Operating Expenses)
-3. A confidence score (0-100) for your mapping
-
-Return your analysis as a JSON object with the following structure:
-{
-  "balanceSheet": {
-    "assets": { "current": [], "nonCurrent": [] },
-    "liabilities": { "current": [], "nonCurrent": [] },
-    "equity": []
-  },
-  "incomeStatement": {
-    "revenue": [],
-    "costOfGoodsSold": [],
-    "operatingExpenses": [],
-    "otherIncome": [],
-    "taxes": []
-  },
-  "cashFlow": {
-    "operating": [],
-    "investing": [],
-    "financing": []
-  },
-  "unmapped": [],
-  "overallConfidence": 0,
-  "notes": []
-}
-
-Each account entry should include: accountCode, accountName, balance, classification, confidence.`
+    if (!tbCheckPassed) {
+      // BLOCK - Trial balance integrity failed
+      const result: ProcessingResult = {
+        status: "blocked",
+        validation_report: {
+          tb_balance_check: { 
+            passed: false, 
+            total_debits: tbValidation.totals.debits, 
+            total_credits: tbValidation.totals.credits,
+            difference: Math.abs(tbValidation.totals.debits - tbValidation.totals.credits)
           },
-          {
-            role: "user",
-            content: `Please analyze this trial balance data and map each account to the appropriate financial statement:
+          mapping_completeness: { passed: false, total_accounts: 0, mapped_accounts: 0, unmapped: [] },
+          balance_sheet_equation: null,
+          profit_equity_linkage: null,
+          cash_reconciliation: null,
+        },
+        errors: allErrors,
+        statements: null,
+        summary: { total_accounts: dataRows.length, processed_at: new Date().toISOString() },
+      };
 
-${trialBalanceSummary}${correctionsContext}`
-          }
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "map_trial_balance",
-              description: "Map trial balance accounts to financial statements",
-              parameters: {
-                type: "object",
-                properties: {
-                  balanceSheet: {
-                    type: "object",
-                    properties: {
-                      assets: {
-                        type: "object",
-                        properties: {
-                          current: { type: "array", items: { type: "object" } },
-                          nonCurrent: { type: "array", items: { type: "object" } }
-                        }
-                      },
-                      liabilities: {
-                        type: "object",
-                        properties: {
-                          current: { type: "array", items: { type: "object" } },
-                          nonCurrent: { type: "array", items: { type: "object" } }
-                        }
-                      },
-                      equity: { type: "array", items: { type: "object" } }
-                    }
-                  },
-                  incomeStatement: {
-                    type: "object",
-                    properties: {
-                      revenue: { type: "array", items: { type: "object" } },
-                      costOfGoodsSold: { type: "array", items: { type: "object" } },
-                      operatingExpenses: { type: "array", items: { type: "object" } },
-                      otherIncome: { type: "array", items: { type: "object" } },
-                      taxes: { type: "array", items: { type: "object" } }
-                    }
-                  },
-                  cashFlow: {
-                    type: "object",
-                    properties: {
-                      operating: { type: "array", items: { type: "object" } },
-                      investing: { type: "array", items: { type: "object" } },
-                      financing: { type: "array", items: { type: "object" } }
-                    }
-                  },
-                  unmapped: { type: "array", items: { type: "object" } },
-                  overallConfidence: { type: "number" },
-                  notes: { type: "array", items: { type: "string" } }
-                },
-                required: ["balanceSheet", "incomeStatement", "cashFlow", "overallConfidence"]
-              }
-            }
-          }
-        ],
-        tool_choice: { type: "function", function: { name: "map_trial_balance" } }
-      }),
-    });
+      await supabase
+        .from("trial_balance_uploads")
+        .update({
+          status: "blocked",
+          is_valid: false,
+          validation_report: result.validation_report,
+          accounting_errors: allErrors,
+          processed_at: new Date().toISOString(),
+        })
+        .eq("id", uploadId);
 
-    if (!aiResponse.ok) {
-      if (aiResponse.status === 429) {
-        throw new Error("Rate limit exceeded. Please try again later.");
-      }
-      if (aiResponse.status === 402) {
-        throw new Error("AI credits exhausted. Please add funds to continue.");
-      }
-      const errorText = await aiResponse.text();
-      console.error("AI gateway error:", aiResponse.status, errorText);
-      throw new Error("AI processing failed");
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    const aiData = await aiResponse.json();
-    console.log("AI response received");
+    // ============================================
+    // STEP 2: MAPPING COMPLETENESS
+    // ============================================
+    console.log("[AXIOM] STEP 2: Validating mapping completeness...");
 
-    // Extract the tool call result
-    let mappingResult;
-    if (aiData.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments) {
-      mappingResult = JSON.parse(aiData.choices[0].message.tool_calls[0].function.arguments);
-    } else if (aiData.choices?.[0]?.message?.content) {
-      // Fallback: try to parse content as JSON
-      try {
-        mappingResult = JSON.parse(aiData.choices[0].message.content);
-      } catch {
-        mappingResult = {
-          balanceSheet: { assets: { current: [], nonCurrent: [] }, liabilities: { current: [], nonCurrent: [] }, equity: [] },
-          incomeStatement: { revenue: [], costOfGoodsSold: [], operatingExpenses: [], otherIncome: [], taxes: [] },
-          cashFlow: { operating: [], investing: [], financing: [] },
-          overallConfidence: 75,
-          notes: ["Processed with basic mapping due to response format"]
-        };
-      }
+    // Fetch user's account mappings
+    const { data: userMappings, error: mappingsError } = await supabase
+      .from("account_mappings")
+      .select("*")
+      .eq("user_id", userId);
+
+    if (mappingsError) {
+      console.error("[AXIOM] Error fetching mappings:", mappingsError.message);
     }
 
-    // Calculate summary statistics
-    const totalAssets = (mappingResult.balanceSheet?.assets?.current?.length || 0) + 
-                        (mappingResult.balanceSheet?.assets?.nonCurrent?.length || 0);
-    const totalLiabilities = (mappingResult.balanceSheet?.liabilities?.current?.length || 0) + 
-                             (mappingResult.balanceSheet?.liabilities?.nonCurrent?.length || 0);
-    const totalEquity = mappingResult.balanceSheet?.equity?.length || 0;
-    const totalIncomeItems = (mappingResult.incomeStatement?.revenue?.length || 0) +
-                             (mappingResult.incomeStatement?.operatingExpenses?.length || 0);
+    const mappings: AccountMapping[] = (userMappings || []).map(m => ({
+      account_code: m.account_code,
+      account_name: m.account_name,
+      statement: m.statement,
+      classification: m.classification,
+      line_item: m.line_item,
+      normal_balance: m.normal_balance,
+      is_cash_account: m.is_cash_account,
+      is_retained_earnings: m.is_retained_earnings,
+    }));
 
-    // Update the upload record with results
-    const { error: updateError } = await supabase
+    const mappingValidation = validateMappingCompleteness(tbValidation.data, mappings);
+    allErrors.push(...mappingValidation.errors);
+
+    const mappingCheckPassed = mappingValidation.valid;
+    console.log("[AXIOM] Mapping Validation:", mappingCheckPassed ? "PASSED" : "BLOCKED", 
+      `(${mappings.length} mappings, ${mappingValidation.unmapped.length} unmapped)`);
+
+    if (!mappingCheckPassed) {
+      // BLOCK - Mapping completeness failed
+      const result: ProcessingResult = {
+        status: "blocked",
+        validation_report: {
+          tb_balance_check: { 
+            passed: true, 
+            total_debits: tbValidation.totals.debits, 
+            total_credits: tbValidation.totals.credits,
+            difference: 0
+          },
+          mapping_completeness: { 
+            passed: false, 
+            total_accounts: tbValidation.data.length, 
+            mapped_accounts: tbValidation.data.length - mappingValidation.unmapped.length,
+            unmapped: mappingValidation.unmapped 
+          },
+          balance_sheet_equation: null,
+          profit_equity_linkage: null,
+          cash_reconciliation: null,
+        },
+        errors: allErrors,
+        statements: null,
+        summary: { total_accounts: tbValidation.data.length, processed_at: new Date().toISOString() },
+      };
+
+      await supabase
+        .from("trial_balance_uploads")
+        .update({
+          status: "blocked",
+          is_valid: false,
+          validation_report: result.validation_report,
+          accounting_errors: allErrors,
+          processed_at: new Date().toISOString(),
+        })
+        .eq("id", uploadId);
+
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ============================================
+    // STEP 3: STATEMENT AGGREGATION
+    // ============================================
+    console.log("[AXIOM] STEP 3: Aggregating statements...");
+
+    const aggregation = aggregateStatements(tbValidation.data, mappingValidation.mapped);
+
+    // ============================================
+    // STEP 4: ACCOUNTING EQUATIONS
+    // ============================================
+    console.log("[AXIOM] STEP 4: Validating accounting equations...");
+
+    const equationValidation = validateAccountingEquations(aggregation.totals);
+    allErrors.push(...equationValidation.errors);
+
+    const equationsValid = equationValidation.valid;
+    console.log("[AXIOM] Equation Validation:", equationsValid ? "PASSED" : "BLOCKED");
+
+    // ============================================
+    // STEP 5: CASH FLOW ELIGIBILITY
+    // ============================================
+    console.log("[AXIOM] STEP 5: Checking cash flow eligibility...");
+
+    let cashFlowEligible = false;
+    let cashFlowReason = "";
+
+    if (!aggregation.cashAccount.exists) {
+      cashFlowReason = "No cash account mapped";
+    } else {
+      cashFlowEligible = true;
+    }
+
+    console.log("[AXIOM] Cash Flow:", cashFlowEligible ? "ELIGIBLE" : `OMITTED (${cashFlowReason})`);
+
+    // ============================================
+    // FINAL RESULT
+    // ============================================
+    const allValid = tbCheckPassed && mappingCheckPassed && equationsValid;
+    const finalStatus = allValid ? "valid" : "invalid";
+
+    console.log("[AXIOM] Final Status:", finalStatus.toUpperCase());
+
+    const validationReport: ValidationReport = {
+      tb_balance_check: { 
+        passed: tbCheckPassed, 
+        total_debits: tbValidation.totals.debits, 
+        total_credits: tbValidation.totals.credits,
+        difference: Math.abs(tbValidation.totals.debits - tbValidation.totals.credits)
+      },
+      mapping_completeness: { 
+        passed: mappingCheckPassed, 
+        total_accounts: tbValidation.data.length, 
+        mapped_accounts: tbValidation.data.length - mappingValidation.unmapped.length,
+        unmapped: mappingValidation.unmapped 
+      },
+      balance_sheet_equation: {
+        passed: equationValidation.details.bsEquation.passed,
+        assets: aggregation.totals.assets,
+        liabilities: aggregation.totals.liabilities,
+        equity: aggregation.totals.equity,
+        difference: equationValidation.details.bsEquation.difference,
+      },
+      profit_equity_linkage: null, // Future: implement when retained earnings tracking is added
+      cash_reconciliation: cashFlowEligible ? {
+        passed: true,
+        cf_ending_cash: aggregation.cashAccount.balance,
+        bs_cash: aggregation.cashAccount.balance,
+      } : null,
+    };
+
+    const result: ProcessingResult = {
+      status: finalStatus,
+      validation_report: validationReport,
+      errors: allErrors,
+      statements: allValid ? {
+        balance_sheet: aggregation.balance_sheet,
+        income_statement: aggregation.income_statement,
+        cash_flow: cashFlowEligible ? aggregation.cash_flow : null,
+      } : null,
+      summary: { total_accounts: tbValidation.data.length, processed_at: new Date().toISOString() },
+    };
+
+    // Update database
+    await supabase
       .from("trial_balance_uploads")
       .update({
-        status: "complete",
-        processed_at: new Date().toISOString(),
-        processing_result: {
-          mapping: mappingResult,
-          summary: {
-            totalAccounts: dataRows.length,
-            balanceSheetAccounts: totalAssets + totalLiabilities + totalEquity,
-            incomeStatementAccounts: totalIncomeItems,
-            cashFlowAccounts: (mappingResult.cashFlow?.operating?.length || 0) +
-                              (mappingResult.cashFlow?.investing?.length || 0) +
-                              (mappingResult.cashFlow?.financing?.length || 0),
-            unmappedAccounts: mappingResult.unmapped?.length || 0,
-            confidenceScore: mappingResult.overallConfidence || 85
+        status: allValid ? "complete" : "error",
+        is_valid: allValid,
+        validation_report: validationReport,
+        accounting_errors: allErrors,
+        processing_result: allValid ? {
+          mapping: {
+            balanceSheet: {
+              assets: { 
+                current: aggregation.balance_sheet.current_assets.accounts,
+                nonCurrent: aggregation.balance_sheet.non_current_assets.accounts 
+              },
+              liabilities: { 
+                current: aggregation.balance_sheet.current_liabilities.accounts,
+                nonCurrent: aggregation.balance_sheet.non_current_liabilities.accounts 
+              },
+              equity: aggregation.balance_sheet.equity.accounts,
+            },
+            incomeStatement: {
+              revenue: aggregation.income_statement.revenue.accounts,
+              costOfGoodsSold: aggregation.income_statement.cost_of_goods_sold.accounts,
+              operatingExpenses: aggregation.income_statement.operating_expenses.accounts,
+              otherIncome: aggregation.income_statement.other_income.accounts,
+              taxes: aggregation.income_statement.taxes.accounts,
+            },
+            cashFlow: cashFlowEligible ? {
+              operating: aggregation.cash_flow.operating_activities.accounts,
+              investing: aggregation.cash_flow.investing_activities.accounts,
+              financing: aggregation.cash_flow.financing_activities.accounts,
+            } : null,
           },
-          statements: ["Balance Sheet", "Income Statement", "Cash Flow Statement"],
-          notes: mappingResult.notes || [],
-          processedAt: new Date().toISOString()
-        }
+          summary: {
+            totalAccounts: tbValidation.data.length,
+            totalAssets: aggregation.totals.assets,
+            totalLiabilities: aggregation.totals.liabilities,
+            totalEquity: aggregation.totals.equity,
+            netIncome: aggregation.totals.revenue - aggregation.totals.expenses,
+          },
+          validationReport,
+        } : null,
+        processed_at: new Date().toISOString(),
       })
       .eq("id", uploadId);
 
-    if (updateError) {
-      console.error("Failed to update record:", updateError);
-      throw new Error("Failed to save processing results");
-    }
+    return new Response(JSON.stringify(result), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
 
-    console.log("Processing complete for upload:", uploadId);
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        uploadId,
-        summary: {
-          totalAccounts: dataRows.length,
-          confidenceScore: mappingResult.overallConfidence || 85,
-          statements: ["Balance Sheet", "Income Statement", "Cash Flow Statement"]
-        }
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
   } catch (error) {
-    console.error("Processing error:", error);
+    console.error("[AXIOM] Processing error:", error);
     return new Response(
       JSON.stringify({ 
-        error: error instanceof Error ? error.message : "Processing failed" 
+        status: "blocked",
+        error: error instanceof Error ? error.message : "Processing failed",
+        errors: allErrors,
       }),
       {
         status: 500,

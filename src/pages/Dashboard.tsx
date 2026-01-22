@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { CompanySelector } from "@/components/CompanySelector";
 import { CompanyManager } from "@/components/CompanyManager";
 import { DashboardSkeleton } from "@/components/DashboardSkeleton";
 import { NoUploadsEmptyState } from "@/components/EmptyState";
+import { ValidationReport } from "@/components/ValidationReport";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -45,6 +46,48 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useEnhancedAuditLog } from "@/hooks/useEnhancedAuditLog";
 
+interface ValidationReportData {
+  tb_balance_check?: {
+    passed: boolean;
+    total_debits: number;
+    total_credits: number;
+    difference: number;
+  };
+  mapping_completeness?: {
+    passed: boolean;
+    total_accounts: number;
+    mapped_accounts: number;
+    unmapped: string[];
+  };
+  balance_sheet_equation?: {
+    passed: boolean;
+    assets: number;
+    liabilities: number;
+    equity: number;
+    difference: number;
+  } | null;
+  profit_equity_linkage?: {
+    passed: boolean;
+    details: string;
+  } | null;
+  cash_reconciliation?: {
+    passed: boolean;
+    cf_ending_cash: number;
+    bs_cash: number;
+  } | null;
+}
+
+interface AccountingError {
+  code: string;
+  message: string;
+  field?: string;
+  expected?: string | number;
+  actual?: string | number;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type JsonCompatible = any;
+
 interface TrialBalanceUpload {
   id: string;
   file_name: string;
@@ -55,54 +98,10 @@ interface TrialBalanceUpload {
   status: string;
   uploaded_at: string;
   processed_at: string | null;
-  processing_result: {
-    mapping?: {
-      balanceSheet?: {
-        assets?: { current?: any[]; nonCurrent?: any[] };
-        liabilities?: { current?: any[]; nonCurrent?: any[] };
-        equity?: any[];
-      };
-      incomeStatement?: {
-        revenue?: any[];
-        costOfGoodsSold?: any[];
-        operatingExpenses?: any[];
-        otherIncome?: any[];
-        taxes?: any[];
-      };
-      cashFlow?: {
-        operating?: any[];
-        investing?: any[];
-        financing?: any[];
-      };
-      overallConfidence?: number;
-      notes?: string[];
-    };
-    summary?: {
-      totalAccounts: number;
-      balanceSheetAccounts: number;
-      incomeStatementAccounts: number;
-      cashFlowAccounts: number;
-      unmappedAccounts: number;
-      confidenceScore: number;
-    };
-    statements?: string[];
-    notes?: string[];
-    disclosureNotes?: {
-      notes: {
-        id: string;
-        title: string;
-        category: string;
-        content: string;
-        relevance: "high" | "medium" | "low";
-        accountsReferenced?: string[];
-      }[];
-      metadata: {
-        generatedAt: string;
-        totalNotes: number;
-        framework: string;
-      };
-    };
-  } | null;
+  is_valid: boolean | null;
+  validation_report: JsonCompatible;
+  accounting_errors: JsonCompatible;
+  processing_result: JsonCompatible;
 }
 
 export default function Dashboard() {
@@ -170,7 +169,7 @@ export default function Dashboard() {
 
         if (data && data.status === "complete") {
           clearInterval(pollInterval);
-          setSelectedUpload(data as TrialBalanceUpload);
+          setSelectedUpload(data as any);
           await fetchUploads();
           setIsRegenerating(false);
           toast.success("Regeneration complete with corrections applied!");
@@ -274,9 +273,9 @@ export default function Dashboard() {
     const { data, error } = await query;
 
     if (!error && data) {
-      setUploads(data as TrialBalanceUpload[]);
+      setUploads(data as any);
       if (data.length > 0 && !selectedUpload) {
-        setSelectedUpload(data[0] as TrialBalanceUpload);
+        setSelectedUpload(data[0] as any);
       } else if (data.length === 0) {
         setSelectedUpload(null);
       }
@@ -373,12 +372,28 @@ export default function Dashboard() {
       case "complete":
         return <CheckCircle className="w-4 h-4 text-accent" />;
       case "processing":
+      case "validating":
+      case "mapping":
+      case "calculating":
         return <Clock className="w-4 h-4 text-primary animate-pulse" />;
+      case "blocked":
       case "error":
         return <AlertCircle className="w-4 h-4 text-destructive" />;
       default:
         return <Clock className="w-4 h-4 text-muted-foreground" />;
     }
+  };
+
+  // AXIOM: Check if upload is blocked (validation failed)
+  const isBlocked = selectedUpload?.status === "blocked" || 
+                    selectedUpload?.status === "error" ||
+                    selectedUpload?.is_valid === false;
+  
+  // Scroll ref for validation report
+  const validationReportRef = useRef<HTMLDivElement>(null);
+  
+  const scrollToValidation = () => {
+    validationReportRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const result = selectedUpload?.processing_result;
@@ -430,12 +445,24 @@ export default function Dashboard() {
                 {isRegenerating ? "Regenerating..." : "Regenerate with Corrections"}
               </Button>
             )}
-            {selectedUpload && (
+            {selectedUpload && !isBlocked && (
               <ExportStatements
                 fileName={selectedUpload.file_name}
-                processingResult={selectedUpload.processing_result}
+                processingResult={selectedUpload.processing_result as any}
                 uploadId={selectedUpload.id}
               />
+            )}
+            {selectedUpload && isBlocked && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                disabled 
+                className="gap-2 opacity-50"
+                title="Export disabled: validation failed"
+              >
+                <AlertCircle className="w-4 h-4" />
+                Export Blocked
+              </Button>
             )}
             <Button variant="outline" size="sm" onClick={fetchUploads} className="gap-2">
               <RefreshCw className="w-4 h-4" />
@@ -455,7 +482,7 @@ export default function Dashboard() {
         ) : (
           <div className="space-y-8">
             {/* Analytics Section */}
-            <DashboardAnalytics uploads={uploads} />
+            <DashboardAnalytics uploads={uploads as any} />
             
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
               {/* Sidebar - Upload List */}
@@ -545,6 +572,12 @@ export default function Dashboard() {
                           <span className="text-sm text-muted-foreground capitalize">
                             {selectedUpload.status}
                           </span>
+                          {selectedUpload.is_valid === true && (
+                            <Badge className="bg-accent/20 text-accent border-accent/30">VALID</Badge>
+                          )}
+                          {selectedUpload.is_valid === false && (
+                            <Badge className="bg-destructive/20 text-destructive border-destructive/30">BLOCKED</Badge>
+                          )}
                         </div>
                       </div>
                     </CardHeader>
@@ -579,6 +612,16 @@ export default function Dashboard() {
                       </div>
                     </CardContent>
                   </Card>
+
+                  {/* AXIOM Validation Report */}
+                  <div ref={validationReportRef}>
+                    <ValidationReport 
+                      report={selectedUpload.validation_report}
+                      errors={selectedUpload.accounting_errors || []}
+                      isValid={selectedUpload.is_valid}
+                      status={selectedUpload.status}
+                    />
+                  </div>
 
                   {/* Confidence Score & Corrections */}
                   {summary && (

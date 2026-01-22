@@ -61,6 +61,51 @@ export type Database = {
           },
         ]
       }
+      account_mappings: {
+        Row: {
+          account_code: string
+          account_name: string
+          classification: Database["public"]["Enums"]["account_classification"]
+          created_at: string
+          id: string
+          is_cash_account: boolean
+          is_retained_earnings: boolean
+          line_item: string
+          normal_balance: string
+          statement: Database["public"]["Enums"]["financial_statement"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_code: string
+          account_name: string
+          classification: Database["public"]["Enums"]["account_classification"]
+          created_at?: string
+          id?: string
+          is_cash_account?: boolean
+          is_retained_earnings?: boolean
+          line_item: string
+          normal_balance: string
+          statement: Database["public"]["Enums"]["financial_statement"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_code?: string
+          account_name?: string
+          classification?: Database["public"]["Enums"]["account_classification"]
+          created_at?: string
+          id?: string
+          is_cash_account?: boolean
+          is_retained_earnings?: boolean
+          line_item?: string
+          normal_balance?: string
+          statement?: Database["public"]["Enums"]["financial_statement"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           action: Database["public"]["Enums"]["audit_action"]
@@ -171,43 +216,52 @@ export type Database = {
       }
       trial_balance_uploads: {
         Row: {
+          accounting_errors: Json | null
           company_id: string | null
           company_name: string | null
           file_name: string
           file_path: string
           file_size: number
           id: string
+          is_valid: boolean | null
           processed_at: string | null
           processing_result: Json | null
           status: string
           uploaded_at: string
           user_id: string | null
+          validation_report: Json | null
         }
         Insert: {
+          accounting_errors?: Json | null
           company_id?: string | null
           company_name?: string | null
           file_name: string
           file_path: string
           file_size: number
           id?: string
+          is_valid?: boolean | null
           processed_at?: string | null
           processing_result?: Json | null
           status?: string
           uploaded_at?: string
           user_id?: string | null
+          validation_report?: Json | null
         }
         Update: {
+          accounting_errors?: Json | null
           company_id?: string | null
           company_name?: string | null
           file_name?: string
           file_path?: string
           file_size?: number
           id?: string
+          is_valid?: boolean | null
           processed_at?: string | null
           processing_result?: Json | null
           status?: string
           uploaded_at?: string
           user_id?: string | null
+          validation_report?: Json | null
         }
         Relationships: [
           {
@@ -227,6 +281,20 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
+      account_classification:
+        | "current_assets"
+        | "non_current_assets"
+        | "current_liabilities"
+        | "non_current_liabilities"
+        | "equity"
+        | "revenue"
+        | "cost_of_goods_sold"
+        | "operating_expenses"
+        | "other_income"
+        | "taxes"
+        | "operating_activities"
+        | "investing_activities"
+        | "financing_activities"
       audit_action:
         | "upload_trial_balance"
         | "process_trial_balance"
@@ -241,6 +309,20 @@ export type Database = {
         | "create_company"
         | "update_company"
         | "delete_company"
+        | "create_account_mapping"
+        | "update_account_mapping"
+        | "delete_account_mapping"
+        | "validation_failed"
+        | "validation_passed"
+      financial_statement: "balance_sheet" | "income_statement" | "cash_flow"
+      processing_status:
+        | "pending"
+        | "validating"
+        | "mapping"
+        | "calculating"
+        | "valid"
+        | "invalid"
+        | "blocked"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -368,6 +450,21 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      account_classification: [
+        "current_assets",
+        "non_current_assets",
+        "current_liabilities",
+        "non_current_liabilities",
+        "equity",
+        "revenue",
+        "cost_of_goods_sold",
+        "operating_expenses",
+        "other_income",
+        "taxes",
+        "operating_activities",
+        "investing_activities",
+        "financing_activities",
+      ],
       audit_action: [
         "upload_trial_balance",
         "process_trial_balance",
@@ -382,6 +479,21 @@ export const Constants = {
         "create_company",
         "update_company",
         "delete_company",
+        "create_account_mapping",
+        "update_account_mapping",
+        "delete_account_mapping",
+        "validation_failed",
+        "validation_passed",
+      ],
+      financial_statement: ["balance_sheet", "income_statement", "cash_flow"],
+      processing_status: [
+        "pending",
+        "validating",
+        "mapping",
+        "calculating",
+        "valid",
+        "invalid",
+        "blocked",
       ],
     },
   },
