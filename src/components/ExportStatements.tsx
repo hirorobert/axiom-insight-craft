@@ -47,12 +47,20 @@ interface ProcessingResult {
       operating?: AccountMapping[];
       investing?: AccountMapping[];
       financing?: AccountMapping[];
-    };
+    } | null;
     overallConfidence?: number;
   };
   summary?: {
     totalAccounts: number;
-    confidenceScore: number;
+    confidenceScore?: number;
+    totalAssets?: number;
+    totalLiabilities?: number;
+    totalEquity?: number;
+    netIncome?: number;
+    balanceSheetAccounts?: number;
+    incomeStatementAccounts?: number;
+    cashFlowAccounts?: number;
+    unmappedAccounts?: number;
   };
 }
 
