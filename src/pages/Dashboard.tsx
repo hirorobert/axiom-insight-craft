@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
+import { AccountMappingManager } from "@/components/AccountMappingManager";
 import { ExportStatements } from "@/components/ExportStatements";
 import { NoteSynth } from "@/components/NoteSynth";
 import { DashboardAnalytics } from "@/components/DashboardAnalytics";
@@ -433,6 +434,7 @@ export default function Dashboard() {
               className="w-48"
             />
             <CompanyManager />
+            <AccountMappingManager />
             {selectedUpload && correctionCount > 0 && (
               <Button
                 variant="default"
