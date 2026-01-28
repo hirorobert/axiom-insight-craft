@@ -54,6 +54,10 @@ import {
   DollarSign,
   BookOpen,
   Filter,
+  FileUp,
+  CheckCircle2,
+  AlertCircle,
+  X,
 } from "lucide-react";
 import { useAuditLog } from "@/hooks/useAuditLog";
 
@@ -177,6 +181,25 @@ const initialFormData: MappingFormData = {
   is_retained_earnings: false,
 };
 
+// CSV Import types
+interface CSVImportRow {
+  account_code: string;
+  account_name: string;
+  statement: string;
+  classification: string;
+  line_item: string;
+  normal_balance: string;
+  is_cash_account: string;
+  is_retained_earnings: string;
+  isValid: boolean;
+  errors: string[];
+}
+
+// Valid values for validation
+const VALID_STATEMENTS = ["balance_sheet", "income_statement", "cash_flow"];
+const VALID_CLASSIFICATIONS = Object.keys(CLASSIFICATION_LABELS);
+const VALID_NORMAL_BALANCES = ["debit", "credit"];
+
 export function AccountMappingManager() {
   const [mappings, setMappings] = useState<AccountMapping[]>([]);
   const [loading, setLoading] = useState(true);
@@ -188,6 +211,13 @@ export function AccountMappingManager() {
   const [formData, setFormData] = useState<MappingFormData>(initialFormData);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatement, setFilterStatement] = useState<FinancialStatement | "all">("all");
+  
+  // CSV Import state
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importData, setImportData] = useState<CSVImportRow[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importFileName, setImportFileName] = useState("");
+  
   const { user } = useAuth();
   const { logAction } = useAuditLog();
 
@@ -420,6 +450,240 @@ export function AccountMappingManager() {
     toast.success("Mappings exported successfully");
   };
 
+  // Parse CSV file
+  const parseCSV = (text: string): CSVImportRow[] => {
+    const lines = text.split("\n").filter((line) => line.trim());
+    if (lines.length < 2) return [];
+
+    // Parse header to determine column indices
+    const headerLine = lines[0];
+    const headers = headerLine.split(",").map((h) => 
+      h.replace(/^["']|["']$/g, "").trim().toLowerCase()
+    );
+
+    // Map header names to expected fields
+    const headerMap: Record<string, number> = {};
+    headers.forEach((h, i) => {
+      if (h.includes("code")) headerMap.account_code = i;
+      else if (h.includes("name") && !h.includes("company")) headerMap.account_name = i;
+      else if (h.includes("statement")) headerMap.statement = i;
+      else if (h.includes("classification") || h.includes("class")) headerMap.classification = i;
+      else if (h.includes("line") || h.includes("item")) headerMap.line_item = i;
+      else if (h.includes("balance") || h.includes("normal")) headerMap.normal_balance = i;
+      else if (h.includes("cash")) headerMap.is_cash_account = i;
+      else if (h.includes("retained") || h.includes("earnings")) headerMap.is_retained_earnings = i;
+    });
+
+    // Parse data rows
+    const rows: CSVImportRow[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      const values = parseCSVLine(line);
+      
+      const row: CSVImportRow = {
+        account_code: values[headerMap.account_code] || "",
+        account_name: values[headerMap.account_name] || "",
+        statement: normalizeStatement(values[headerMap.statement] || ""),
+        classification: normalizeClassification(values[headerMap.classification] || ""),
+        line_item: values[headerMap.line_item] || "",
+        normal_balance: normalizeNormalBalance(values[headerMap.normal_balance] || ""),
+        is_cash_account: values[headerMap.is_cash_account] || "No",
+        is_retained_earnings: values[headerMap.is_retained_earnings] || "No",
+        isValid: true,
+        errors: [],
+      };
+
+      // Validate row
+      validateImportRow(row);
+      rows.push(row);
+    }
+
+    return rows;
+  };
+
+  // Parse a single CSV line handling quoted values
+  const parseCSVLine = (line: string): string[] => {
+    const values: string[] = [];
+    let current = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"' && !inQuotes) {
+        inQuotes = true;
+      } else if (char === '"' && inQuotes) {
+        inQuotes = false;
+      } else if (char === "," && !inQuotes) {
+        values.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+    values.push(current.trim());
+    return values;
+  };
+
+  // Normalize statement value
+  const normalizeStatement = (value: string): string => {
+    const v = value.toLowerCase().trim();
+    if (v.includes("balance") || v === "bs") return "balance_sheet";
+    if (v.includes("income") || v === "is" || v.includes("p&l") || v.includes("profit")) return "income_statement";
+    if (v.includes("cash") || v === "cf") return "cash_flow";
+    return v.replace(/\s+/g, "_");
+  };
+
+  // Normalize classification value
+  const normalizeClassification = (value: string): string => {
+    const v = value.toLowerCase().trim().replace(/[\s-]+/g, "_");
+    // Try to match common variations
+    if (v.includes("current") && v.includes("asset")) return "current_assets";
+    if (v.includes("non") && v.includes("current") && v.includes("asset")) return "non_current_assets";
+    if (v.includes("current") && v.includes("liab")) return "current_liabilities";
+    if (v.includes("non") && v.includes("current") && v.includes("liab")) return "non_current_liabilities";
+    if (v.includes("equity") || v.includes("capital")) return "equity";
+    if (v.includes("revenue") || v.includes("sales") || v.includes("income") && !v.includes("other")) return "revenue";
+    if (v.includes("cogs") || v.includes("cost_of_goods") || v.includes("cost of goods")) return "cost_of_goods_sold";
+    if (v.includes("operating") && v.includes("exp")) return "operating_expenses";
+    if (v.includes("other") && v.includes("income")) return "other_income";
+    if (v.includes("tax")) return "taxes";
+    if (v.includes("operating") && v.includes("activ")) return "operating_activities";
+    if (v.includes("investing") || v.includes("investment")) return "investing_activities";
+    if (v.includes("financing") || v.includes("finance")) return "financing_activities";
+    return v;
+  };
+
+  // Normalize normal balance value
+  const normalizeNormalBalance = (value: string): string => {
+    const v = value.toLowerCase().trim();
+    if (v === "dr" || v === "d" || v.includes("debit")) return "debit";
+    if (v === "cr" || v === "c" || v.includes("credit")) return "credit";
+    return v;
+  };
+
+  // Validate a single import row
+  const validateImportRow = (row: CSVImportRow) => {
+    row.errors = [];
+    row.isValid = true;
+
+    if (!row.account_code.trim()) {
+      row.errors.push("Account code is required");
+      row.isValid = false;
+    }
+
+    if (!row.account_name.trim()) {
+      row.errors.push("Account name is required");
+      row.isValid = false;
+    }
+
+    if (!VALID_STATEMENTS.includes(row.statement)) {
+      row.errors.push(`Invalid statement: "${row.statement}"`);
+      row.isValid = false;
+    }
+
+    if (!VALID_CLASSIFICATIONS.includes(row.classification)) {
+      row.errors.push(`Invalid classification: "${row.classification}"`);
+      row.isValid = false;
+    }
+
+    if (!row.line_item.trim()) {
+      row.errors.push("Line item is required");
+      row.isValid = false;
+    }
+
+    if (!VALID_NORMAL_BALANCES.includes(row.normal_balance)) {
+      row.errors.push(`Invalid normal balance: "${row.normal_balance}"`);
+      row.isValid = false;
+    }
+
+    // Check for duplicate in existing mappings
+    const existingDuplicate = mappings.find(
+      (m) => m.account_code.toLowerCase() === row.account_code.toLowerCase()
+    );
+    if (existingDuplicate) {
+      row.errors.push("Account code already exists - will be skipped");
+      row.isValid = false;
+    }
+  };
+
+  // Handle file selection
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith(".csv")) {
+      toast.error("Please select a CSV file");
+      return;
+    }
+
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      const parsed = parseCSV(text);
+      setImportData(parsed);
+    };
+    reader.readAsText(file);
+  };
+
+  // Handle import confirmation
+  const handleImportConfirm = async () => {
+    if (!user) return;
+
+    const validRows = importData.filter((row) => row.isValid);
+    if (validRows.length === 0) {
+      toast.error("No valid rows to import");
+      return;
+    }
+
+    setImportLoading(true);
+    try {
+      const insertData = validRows.map((row) => ({
+        user_id: user.id,
+        account_code: row.account_code.trim(),
+        account_name: row.account_name.trim(),
+        statement: row.statement as FinancialStatement,
+        classification: row.classification as AccountClassification,
+        line_item: row.line_item.trim(),
+        normal_balance: row.normal_balance,
+        is_cash_account: row.is_cash_account.toLowerCase() === "yes" || row.is_cash_account === "true",
+        is_retained_earnings: row.is_retained_earnings.toLowerCase() === "yes" || row.is_retained_earnings === "true",
+      }));
+
+      const { error } = await supabase
+        .from("account_mappings")
+        .insert(insertData);
+
+      if (error) throw error;
+
+      logAction({
+        action: "create_account_mapping",
+        entityType: "account_mapping",
+        metadata: { 
+          importedCount: validRows.length,
+          fileName: importFileName 
+        },
+      });
+
+      toast.success(`Successfully imported ${validRows.length} mapping(s)`);
+      setImportDialogOpen(false);
+      setImportData([]);
+      setImportFileName("");
+      fetchMappings();
+    } catch (error) {
+      console.error("Import error:", error);
+      toast.error("Failed to import mappings");
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  // Reset import state
+  const resetImport = () => {
+    setImportData([]);
+    setImportFileName("");
+  };
+
   // Filter mappings
   const filteredMappings = mappings.filter((m) => {
     const matchesSearch =
@@ -495,6 +759,15 @@ export function AccountMappingManager() {
               </Select>
             </div>
             <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setImportDialogOpen(true)} 
+                className="gap-2"
+              >
+                <FileUp className="w-4 h-4" />
+                Import CSV
+              </Button>
               <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
                 <Download className="w-4 h-4" />
                 Export
@@ -840,6 +1113,190 @@ export function AccountMappingManager() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* CSV Import Dialog */}
+      <Dialog 
+        open={importDialogOpen} 
+        onOpenChange={(open) => {
+          setImportDialogOpen(open);
+          if (!open) resetImport();
+        }}
+      >
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileUp className="w-5 h-5 text-primary" />
+              Import Account Mappings from CSV
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Upload a CSV file with your Chart of Accounts mappings. Use the Export function to get a template.
+            </p>
+          </DialogHeader>
+
+          {importData.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-12">
+              <div className="border-2 border-dashed border-border rounded-lg p-8 text-center w-full max-w-md">
+                <Upload className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
+                <p className="text-muted-foreground mb-4">
+                  Drag and drop a CSV file, or click to select
+                </p>
+                <label>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                  <Button variant="outline" asChild className="cursor-pointer">
+                    <span>Select CSV File</span>
+                  </Button>
+                </label>
+                <div className="mt-6 text-left text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium">Expected columns:</p>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    <li>Account Code (required)</li>
+                    <li>Account Name (required)</li>
+                    <li>Statement (balance_sheet, income_statement, cash_flow)</li>
+                    <li>Classification (current_assets, equity, revenue, etc.)</li>
+                    <li>Line Item (required)</li>
+                    <li>Normal Balance (debit, credit)</li>
+                    <li>Is Cash Account (Yes/No)</li>
+                    <li>Is Retained Earnings (Yes/No)</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* File info and stats */}
+              <div className="flex items-center justify-between py-3 px-4 bg-secondary/50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <FileUp className="w-5 h-5 text-muted-foreground" />
+                  <div>
+                    <p className="font-medium text-sm">{importFileName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {importData.length} row(s) found
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-1.5 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                    <span>{importData.filter((r) => r.isValid).length} valid</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-sm">
+                    <AlertCircle className="w-4 h-4 text-destructive" />
+                    <span>{importData.filter((r) => !r.isValid).length} invalid</span>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={resetImport}
+                    className="h-8 w-8 p-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Preview table */}
+              <ScrollArea className="flex-1 -mx-6 px-6 border-y border-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10">Status</TableHead>
+                      <TableHead className="w-24">Code</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Statement</TableHead>
+                      <TableHead>Classification</TableHead>
+                      <TableHead>Line Item</TableHead>
+                      <TableHead className="w-16">Balance</TableHead>
+                      <TableHead className="w-32">Errors</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {importData.map((row, index) => (
+                      <TableRow 
+                        key={index} 
+                        className={!row.isValid ? "bg-destructive/5" : ""}
+                      >
+                        <TableCell>
+                          {row.isValid ? (
+                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          ) : (
+                            <AlertCircle className="w-4 h-4 text-destructive" />
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {row.account_code}
+                        </TableCell>
+                        <TableCell className="text-sm">{row.account_name}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-xs">
+                            {STATEMENT_LABELS[row.statement as FinancialStatement] || row.statement}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {CLASSIFICATION_LABELS[row.classification as AccountClassification] || row.classification}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {row.line_item}
+                        </TableCell>
+                        <TableCell>
+                          <Badge 
+                            variant={row.normal_balance === "debit" ? "default" : "secondary"}
+                            className="text-xs"
+                          >
+                            {row.normal_balance === "debit" ? "DR" : row.normal_balance === "credit" ? "CR" : row.normal_balance}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {row.errors.length > 0 && (
+                            <span className="text-xs text-destructive">
+                              {row.errors[0]}
+                              {row.errors.length > 1 && ` (+${row.errors.length - 1})`}
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+
+              {/* Actions */}
+              <div className="flex items-center justify-between pt-4">
+                <p className="text-sm text-muted-foreground">
+                  {importData.filter((r) => r.isValid).length} valid row(s) will be imported.
+                  Invalid rows will be skipped.
+                </p>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setImportDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    onClick={handleImportConfirm}
+                    disabled={importLoading || importData.filter((r) => r.isValid).length === 0}
+                    className="gap-2"
+                  >
+                    {importLoading ? (
+                      <>Importing...</>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        Import {importData.filter((r) => r.isValid).length} Mapping(s)
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
