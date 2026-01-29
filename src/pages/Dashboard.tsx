@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
-import { AccountMappingManager } from "@/components/AccountMappingManager";
+import { AccountMappingManager, AccountMappingManagerRef } from "@/components/AccountMappingManager";
 import { ExportStatements } from "@/components/ExportStatements";
 import { NoteSynth } from "@/components/NoteSynth";
 import { DashboardAnalytics } from "@/components/DashboardAnalytics";
@@ -18,6 +18,7 @@ import { CompanyManager } from "@/components/CompanyManager";
 import { DashboardSkeleton } from "@/components/DashboardSkeleton";
 import { NoUploadsEmptyState } from "@/components/EmptyState";
 import { ValidationReport } from "@/components/ValidationReport";
+import { MappingCoverageIndicator } from "@/components/MappingCoverageIndicator";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -117,6 +118,11 @@ export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { logAction, logTrialBalanceUpload, logTrialBalanceProcessing } = useEnhancedAuditLog();
+  const mappingManagerRef = useRef<AccountMappingManagerRef | null>(null);
+
+  const handleOpenMappingManager = () => {
+    mappingManagerRef.current?.openDialog();
+  };
 
   // Fetch correction count for the selected upload
   const fetchCorrectionCount = async (uploadId: string) => {
@@ -434,7 +440,7 @@ export default function Dashboard() {
               className="w-48"
             />
             <CompanyManager />
-            <AccountMappingManager />
+            <AccountMappingManager ref={mappingManagerRef} />
             {selectedUpload && correctionCount > 0 && (
               <Button
                 variant="default"
@@ -614,6 +620,15 @@ export default function Dashboard() {
                       </div>
                     </CardContent>
                   </Card>
+
+                  {/* Mapping Coverage Indicator */}
+                  {selectedUpload.processing_result && (
+                    <MappingCoverageIndicator
+                      uploadId={selectedUpload.id}
+                      processingResult={selectedUpload.processing_result}
+                      onOpenMappingManager={handleOpenMappingManager}
+                    />
+                  )}
 
                   {/* AXIOM Validation Report */}
                   <div ref={validationReportRef}>

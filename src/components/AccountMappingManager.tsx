@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -200,7 +200,11 @@ const VALID_STATEMENTS = ["balance_sheet", "income_statement", "cash_flow"];
 const VALID_CLASSIFICATIONS = Object.keys(CLASSIFICATION_LABELS);
 const VALID_NORMAL_BALANCES = ["debit", "credit"];
 
-export function AccountMappingManager() {
+export interface AccountMappingManagerRef {
+  openDialog: () => void;
+}
+
+export const AccountMappingManager = forwardRef<AccountMappingManagerRef, object>((_, ref) => {
   const [mappings, setMappings] = useState<AccountMapping[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -220,6 +224,11 @@ export function AccountMappingManager() {
   
   const { user } = useAuth();
   const { logAction } = useAuditLog();
+
+  // Expose openDialog to parent via ref
+  useImperativeHandle(ref, () => ({
+    openDialog: () => setDialogOpen(true),
+  }));
 
   // Fetch mappings
   const fetchMappings = async () => {
@@ -1299,4 +1308,6 @@ export function AccountMappingManager() {
       </Dialog>
     </>
   );
-}
+});
+
+AccountMappingManager.displayName = "AccountMappingManager";
