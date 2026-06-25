@@ -42,6 +42,7 @@ export function useEnhancedAuditLog() {
       try {
         const { error } = await supabase.from("audit_logs").insert({
           action,
+          user_id: user.id,
           entity_type: entityType || null,
           entity_id: entityId || null,
           metadata: (metadata || {}) as Database["public"]["Tables"]["audit_logs"]["Insert"]["metadata"],

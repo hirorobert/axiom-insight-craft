@@ -269,6 +269,7 @@ export function AccountMappingModal({
         const original = accountsMap.get(accountCode);
         return {
           upload_id: uploadId,
+          user_id: user.id,
           account_code: accountCode,
           original_category: correction.original?.category || original?.statement || null,
           original_subcategory: correction.original?.subcategory || original?.section || null,
