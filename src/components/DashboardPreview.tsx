@@ -37,9 +37,6 @@ const trendLine = [40, 45, 42, 55, 58, 52, 68, 72, 78, 85, 82, 92];
 export function DashboardPreview() {
   return (
     <section className="py-24 px-6 relative overflow-hidden">
-      {/* Background glow */}
-      <div className="absolute inset-0 bg-gradient-glow opacity-50" />
-      
       <div className="max-w-7xl mx-auto relative">
         <div className="text-center mb-16">
           <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent/10 text-accent text-sm font-medium mb-6">
@@ -56,7 +53,7 @@ export function DashboardPreview() {
         </div>
 
         {/* Dashboard Preview Container */}
-        <div className="relative rounded-2xl border border-border bg-card/80 backdrop-blur-sm p-6 shadow-glow">
+        <div className="relative rounded-2xl border border-border bg-card/80 backdrop-blur-sm p-6">
           {/* Browser Chrome */}
           <div className="flex items-center gap-2 mb-6 pb-4 border-b border-border">
             <div className="flex gap-1.5">
@@ -76,8 +73,7 @@ export function DashboardPreview() {
             {metrics.map((metric, index) => (
               <div
                 key={metric.label}
-                className="p-4 rounded-xl bg-secondary/50 border border-border animate-fade-in"
-                style={{ animationDelay: `${index * 0.1}s` }}
+                className="p-4 rounded-xl bg-secondary/50 border border-border"
               >
                 <div className="flex items-center justify-between mb-3">
                   <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
@@ -123,10 +119,9 @@ export function DashboardPreview() {
                   <div key={index} className="flex-1 flex flex-col items-center gap-1">
                     <div className="w-full relative">
                       <div
-                        className="w-full rounded-t-sm bg-gradient-to-t from-primary to-accent animate-grow-up"
+                        className="w-full rounded-t-sm bg-primary"
                         style={{
                           height: `${height * 1.5}px`,
-                          animationDelay: `${index * 0.05}s`,
                         }}
                       />
                     </div>
@@ -146,7 +141,7 @@ export function DashboardPreview() {
               </div>
               
               <div className="space-y-4">
-                <div className="p-3 rounded-lg bg-accent/10 border border-accent/20 animate-pulse-slow">
+                <div className="p-3 rounded-lg bg-accent/10 border border-accent/20">
                   <div className="flex items-start gap-2">
                     <ArrowUpRight size={14} className="text-accent mt-0.5" />
                     <div>
@@ -197,12 +192,12 @@ export function DashboardPreview() {
               <svg className="w-full h-full" viewBox="0 0 400 80" preserveAspectRatio="none">
                 <defs>
                   <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="hsl(231 82% 62%)" />
-                    <stop offset="100%" stopColor="hsl(199 89% 48%)" />
+                    <stop offset="0%" stopColor="hsl(211 56% 16%)" />
+                    <stop offset="100%" stopColor="hsl(211 56% 16%)" />
                   </linearGradient>
                   <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stopColor="hsl(231 82% 62%)" stopOpacity="0.3" />
-                    <stop offset="100%" stopColor="hsl(231 82% 62%)" stopOpacity="0" />
+                    <stop offset="0%" stopColor="hsl(211 56% 16%)" stopOpacity="0.3" />
+                    <stop offset="100%" stopColor="hsl(211 56% 16%)" stopOpacity="0" />
                   </linearGradient>
                 </defs>
                 
@@ -210,7 +205,6 @@ export function DashboardPreview() {
                 <path
                   d={`M0,${80 - trendLine[0] * 0.8} ${trendLine.map((v, i) => `L${(i * 400) / 11},${80 - v * 0.8}`).join(" ")} L400,80 L0,80 Z`}
                   fill="url(#areaGradient)"
-                  className="animate-fade-in"
                 />
                 
                 {/* Line */}
@@ -220,7 +214,6 @@ export function DashboardPreview() {
                   stroke="url(#lineGradient)"
                   strokeWidth="2"
                   strokeLinecap="round"
-                  className="animate-draw-line"
                 />
                 
                 {/* Data points */}
@@ -230,9 +223,7 @@ export function DashboardPreview() {
                     cx={(i * 400) / 11}
                     cy={80 - v * 0.8}
                     r="3"
-                    fill="hsl(231 82% 62%)"
-                    className="animate-scale-in"
-                    style={{ animationDelay: `${i * 0.05}s` }}
+                    fill="hsl(211 56% 16%)"
                   />
                 ))}
               </svg>

@@ -129,7 +129,7 @@ export function Header() {
 
       {/* Mobile Menu */}
       {mobileOpen && (
-        <div className="md:hidden bg-card border-t border-border px-6 py-4 space-y-4 animate-fade-in">
+        <div className="md:hidden bg-card border-t border-border px-6 py-4 space-y-4">
           <a href="#features" className="block text-sm text-muted-foreground hover:text-foreground">
             Features
           </a>

@@ -4,17 +4,11 @@ import { ArrowRight, Shield, Zap, BarChart3 } from "lucide-react";
 export function Hero() {
   return (
     <section className="relative pt-32 pb-20 px-6 overflow-hidden">
-      {/* Background glow */}
-      <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
-      
-      {/* Floating orbs */}
-      <div className="absolute top-40 left-10 w-72 h-72 bg-primary/10 rounded-full blur-3xl animate-pulse-slow" />
-      <div className="absolute top-60 right-10 w-96 h-96 bg-accent/10 rounded-full blur-3xl animate-pulse-slow" style={{ animationDelay: '2s' }} />
 
       <div className="relative max-w-7xl mx-auto">
         <div className="max-w-4xl mx-auto text-center">
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary border border-border mb-8 animate-fade-in">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary border border-border mb-8">
             <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
             <span className="text-xs font-medium text-muted-foreground">
               Trusted by 500+ accounting firms worldwide
@@ -22,19 +16,19 @@ export function Hero() {
           </div>
 
           {/* Main headline */}
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight mb-6 animate-slide-up">
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight mb-6">
             Transform Accounting Data Into{" "}
-            <span className="text-gradient">Strategy & Compliance</span>
+            <span className="text-primary">Strategy & Compliance</span>
           </h1>
 
-          <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 animate-slide-up" style={{ animationDelay: '0.1s' }}>
+          <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
             Axiom automates compliance and delivers actionable insights instantly. 
             Your trial balance becomes audit-ready financial statements and an executive 
             intelligence dashboard — all in one workflow.
           </p>
 
           {/* CTAs */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 animate-slide-up" style={{ animationDelay: '0.2s' }}>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
             <Button variant="hero" size="xl" asChild>
               <a href="#demo">
                 Request Private Demo
@@ -47,7 +41,7 @@ export function Hero() {
           </div>
 
           {/* Trust indicators */}
-          <div className="flex flex-wrap items-center justify-center gap-8 text-muted-foreground animate-fade-in" style={{ animationDelay: '0.3s' }}>
+          <div className="flex flex-wrap items-center justify-center gap-8 text-muted-foreground">
             <div className="flex items-center gap-2">
               <Shield size={18} className="text-accent" />
               <span className="text-sm">SOC 2 Certified</span>

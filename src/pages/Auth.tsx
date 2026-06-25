@@ -216,14 +216,11 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-6 py-12">
-      {/* Background glow */}
-      <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
-      
       <div className="w-full max-w-md relative z-10">
         {/* Logo */}
         <div className="text-center mb-8">
           <Link to="/" className="inline-block">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground font-bold text-2xl shadow-glow mb-4">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground font-bold text-2xl mb-4">
               AX
             </div>
           </Link>

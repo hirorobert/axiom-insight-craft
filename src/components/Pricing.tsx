@@ -75,7 +75,7 @@ export function Pricing() {
               key={plan.name}
               className={`relative p-8 rounded-2xl border transition-all duration-300 ${
                 plan.popular
-                  ? "bg-card border-primary shadow-glow scale-105"
+                  ? "bg-card border-2 border-primary scale-105"
                   : "bg-card/50 border-border hover:border-muted-foreground/50"
               }`}
             >
