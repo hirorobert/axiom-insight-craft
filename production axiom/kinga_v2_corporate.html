@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kinga — Compliance Operations System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0F2540;
+    --navy-deep:#0A1B30;
+    --line:#D6DCE4;
+    --line-soft:#E9ECF1;
+    --bg:#F6F7F9;
+    --panel:#FFFFFF;
+    --text:#15202E;
+    --text-muted:#5B6B7E;
+    --text-faint:#8B97A7;
+    --flag:#7A2E2E;
+    --flag-bg:#F7EEEE;
+    --ok:#2E5C44;
+    --ok-bg:#EEF4F0;
+    --wait:#7A5E1F;
+    --wait-bg:#F8F1E4;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;display:flex;min-height:100vh;}
+  .sidebar{width:248px;min-width:248px;background:var(--navy-deep);color:#E7EAEF;display:flex;flex-direction:column;height:100vh;position:sticky;top:0;}
+  .brand{padding:24px 22px 18px;border-bottom:1px solid rgba(255,255,255,0.08);}
+  .brand-row{display:flex;align-items:center;gap:10px;}
+  .brand-mark{width:28px;height:28px;border:1px solid #8FA0B8;display:flex;align-items:center;justify-content:center;font-family:'Source Serif 4',serif;font-size:13px;color:#C7CFDA;}
+  .brand-name{font-family:'Source Serif 4',serif;font-size:17px;font-weight:600;letter-spacing:0.2px;}
+  .brand-sub{font-size:10.5px;color:#8FA0B8;letter-spacing:0.6px;text-transform:uppercase;margin-top:5px;}
+  nav{padding:14px 10px;flex:1;}
+  .nav-section{font-size:10.5px;color:#6C7E94;text-transform:uppercase;letter-spacing:0.7px;padding:14px 12px 6px;}
+  .nav-item{display:flex;align-items:center;gap:9px;padding:9px 12px;font-size:13px;color:#B7C1CD;cursor:pointer;border-left:2px solid transparent;}
+  .nav-item:hover{background:rgba(255,255,255,0.04);}
+  .nav-item.active{background:rgba(255,255,255,0.06);color:#fff;border-left-color:#8FA0B8;font-weight:500;}
+  .nav-num{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#6C7E94;width:14px;}
+  .nav-badge{margin-left:auto;background:#7A2E2E;color:#fff;font-size:9.5px;padding:1px 6px;border-radius:2px;}
+  .sidebar-foot{padding:14px 22px;border-top:1px solid rgba(255,255,255,0.08);font-size:11px;color:#6C7E94;line-height:1.6;}
+  main{flex:1;padding:30px 44px 70px;max-width:1240px;}
+  .view{display:none;}
+  .view.active{display:block;}
+  .topbar{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid var(--line);}
+  .crumbs{font-size:11px;color:var(--text-faint);letter-spacing:0.3px;margin-bottom:6px;}
+  h1{font-family:'Source Serif 4',serif;font-size:22px;font-weight:600;color:var(--navy);}
+  .topbar-sub{color:var(--text-muted);font-size:13px;margin-top:6px;max-width:600px;line-height:1.55;}
+  .chip{border:1px solid var(--line);background:var(--panel);padding:8px 14px;font-size:12px;color:var(--text-muted);white-space:nowrap;}
+  .chip b{color:var(--flag);font-family:'IBM Plex Mono',monospace;}
+  .grid{display:grid;gap:14px;}
+  .grid-4{grid-template-columns:repeat(4,1fr);margin-bottom:26px;}
+  .stat{background:var(--panel);border:1px solid var(--line);padding:16px 18px;}
+  .stat-label{font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.4px;}
+  .stat-value{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;margin-top:8px;color:var(--navy);}
+  .stat-value.flag{color:var(--flag);}
+  .stat-note{font-size:11.5px;color:var(--text-muted);margin-top:4px;}
+  .panel{background:var(--panel);border:1px solid var(--line);margin-bottom:22px;}
+  .panel-head{padding:15px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;}
+  .panel-title{font-family:'Source Serif 4',serif;font-size:15.5px;font-weight:600;color:var(--navy);}
+  .panel-sub{font-size:11.5px;color:var(--text-faint);margin-top:3px;}
+  table{width:100%;border-collapse:collapse;}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-faint);font-weight:500;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--line-soft);}
+  td{padding:13px 20px;font-size:13px;border-bottom:1px solid var(--line-soft);}
+  tr:last-child td{border-bottom:none;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .amount{font-family:'IBM Plex Mono',monospace;text-align:right;}
+  .amount.neg{color:var(--flag);}
+  .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;font-size:11px;font-weight:500;border:1px solid;}
+  .pill.flag{color:var(--flag);background:var(--flag-bg);border-color:#E3C9C9;}
+  .pill.ok{color:var(--ok);background:var(--ok-bg);border-color:#CADBCF;}
+  .pill.wait{color:var(--wait);background:var(--wait-bg);border-color:#E6D5AB;}
+  .row-click{cursor:pointer;}
+  .row-click:hover{background:var(--line-soft);}
+  .name-main{font-weight:500;color:var(--text);}
+  .name-sub{font-size:11px;color:var(--text-faint);font-family:'IBM Plex Mono',monospace;margin-top:2px;}
+  .finding{border:1px solid var(--line);margin-bottom:12px;}
+  .finding-head{display:flex;justify-content:space-between;align-items:flex-start;padding:14px 18px;border-bottom:1px solid var(--line-soft);background:var(--line-soft);}
+  .finding-title{font-weight:600;font-size:13.5px;color:var(--navy);}
+  .finding-statute{font-size:11px;color:var(--text-faint);margin-top:3px;}
+  .finding-amount{font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:var(--flag);}
+  .finding-body{padding:16px 18px;}
+  .finding-body table{font-size:12px;}
+  .finding-body th,.finding-body td{padding:7px 14px;}
+  .finding-note{font-size:12px;color:var(--text-muted);line-height:1.6;margin-top:10px;border-top:1px solid var(--line-soft);padding-top:10px;}
+  .btn{border:1px solid var(--line);background:var(--panel);color:var(--text);padding:7px 13px;font-size:12px;cursor:pointer;}
+  .btn:hover{border-color:var(--navy);}
+  .btn-primary{background:var(--navy);color:#fff;border-color:var(--navy);}
+  .track{display:flex;border:1px solid var(--line);}
+  .track-step{flex:1;padding:14px 16px;border-right:1px solid var(--line);position:relative;}
+  .track-step:last-child{border-right:none;}
+  .track-step.done{background:var(--ok-bg);}
+  .track-step.active{background:var(--wait-bg);}
+  .track-step.todo{background:var(--panel);color:var(--text-faint);}
+  .track-num{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-faint);}
+  .track-label{font-size:12px;font-weight:500;margin-top:4px;}
+  .track-meta{font-size:10.5px;color:var(--text-muted);margin-top:4px;}
+  .response-pack{background:var(--line-soft);border:1px solid var(--line);padding:22px;font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.8;color:var(--text);white-space:pre-wrap;}
+  .response-pack .hl{color:var(--navy);font-weight:600;}
+  .response-pack .neg{color:var(--flag);font-weight:600;}
+  .footnote{font-size:11px;color:var(--text-faint);padding:12px 20px;line-height:1.6;border-top:1px solid var(--line-soft);}
+  .annotate{font-size:11px;color:var(--text-faint);background:var(--line-soft);border-left:2px solid var(--text-faint);padding:8px 14px;margin:10px 20px;}
+  .spec-box{border:1px solid var(--line);padding:16px 18px;margin-bottom:10px;}
+  .spec-label{font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-faint);margin-bottom:6px;}
+  .spec-text{font-size:12.5px;color:var(--text-muted);line-height:1.6;}
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="brand">
+    <div class="brand-row">
+      <div class="brand-mark">K</div>
+      <div>
+        <div class="brand-name">Kinga</div>
+        <div class="brand-sub">Compliance Operations</div>
+      </div>
+    </div>
+  </div>
+  <nav>
+    <div class="nav-section">Firm Workspace</div>
+    <div class="nav-item active" data-view="dashboard"><span class="nav-num">01</span> Portfolio</div>
+    <div class="nav-item" data-view="reconciliation"><span class="nav-num">02</span> Findings <span class="nav-badge">6</span></div>
+    <div class="nav-item" data-view="workflow"><span class="nav-num">03</span> Evidence Workflow</div>
+    <div class="nav-item" data-view="rules"><span class="nav-num">04</span> Rules Engine</div>
+    <div class="nav-item" data-view="response"><span class="nav-num">05</span> Response Pack</div>
+    <div class="nav-section">Reference</div>
+    <div class="nav-item" data-view="spec"><span class="nav-num">06</span> Functional Spec</div>
+    <div class="nav-item" data-view="arch"><span class="nav-num">07</span> System Map</div>
+  </nav>
+  <div class="sidebar-foot">Tegeta Tax Region<br>Prototype build · no live data</div>
+</div>
+
+<main>
+
+  <div class="view active" id="view-dashboard">
+    <div class="topbar">
+      <div>
+        <div class="crumbs">FIRM WORKSPACE</div>
+        <h1>Portfolio</h1>
+        <div class="topbar-sub">Every client's reconciliation status, in one ranked view. Clean clients stay quiet; exposure surfaces first.</div>
+      </div>
+      <div class="chip">Client Alpha · response due in <b>9 days</b></div>
+    </div>
+
+    <div class="grid grid-4">
+      <div class="stat"><div class="stat-label">Clients Monitored</div><div class="stat-value">14</div><div class="stat-note">3 with open findings</div></div>
+      <div class="stat"><div class="stat-label">Open Exposure</div><div class="stat-value flag mono">5,397,650</div><div class="stat-note">TZS, across active notices</div></div>
+      <div class="stat"><div class="stat-label">Findings Resolved (90d)</div><div class="stat-value">23</div><div class="stat-note">avg. 4.2 days to respond</div></div>
+      <div class="stat"><div class="stat-label">Documents Outstanding</div><div class="stat-value">7</div><div class="stat-note">across 2 active evidence requests</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="panel-title">Client Portfolio</div><div class="panel-sub">Sorted by exposure</div></div>
+        <button class="btn">+ Add Client</button>
+      </div>
+      <table>
+        <tr><th>Client</th><th>Last Sync</th><th>Open Findings</th><th>Exposure (TZS)</th><th>Status</th></tr>
+        <tr class="row-click" onclick="showView('reconciliation')">
+          <td><div class="name-main">Client Alpha Ltd</div><div class="name-sub">TIN XXX-XXX-XXX</div></td>
+          <td class="mono">18 Jun 2026</td><td>6</td>
+          <td class="amount neg">5,397,650</td>
+          <td><span class="pill flag">Notice received</span></td>
+        </tr>
+        <tr class="row-click">
+          <td><div class="name-main">Client Beta Ltd</div><div class="name-sub">TIN XXX-XXX-XXX</div></td>
+          <td class="mono">22 Jun 2026</td><td>2</td>
+          <td class="amount neg">812,400</td>
+          <td><span class="pill wait">Under review</span></td>
+        </tr>
+        <tr class="row-click">
+          <td><div class="name-main">Client Gamma Ltd</div><div class="name-sub">TIN XXX-XXX-XXX</div></td>
+          <td class="mono">23 Jun 2026</td><td>0</td>
+          <td class="amount">—</td>
+          <td><span class="pill ok">Clean</span></td>
+        </tr>
+        <tr class="row-click">
+          <td><div class="name-main">Client Delta Ltd</div><div class="name-sub">TIN XXX-XXX-XXX</div></td>
+          <td class="mono">23 Jun 2026</td><td>0</td>
+          <td class="amount">—</td>
+          <td><span class="pill ok">Clean</span></td>
+        </tr>
+      </table>
+      <div class="annotate">In the real product: this list updates from a scheduled sync job per client (daily or on new EFDMS/ledger data), not a manual refresh. "Clean" means the last reconciliation run found no variance above the materiality threshold set for that client.</div>
+    </div>
+  </div>
+
+  <div class="view" id="view-reconciliation">
+    <div class="topbar">
+      <div>
+        <div class="crumbs">RESA HEALTH CARE LTD</div>
+        <h1>Findings</h1>
+        <div class="topbar-sub">Mapped from TRA notice ref TRA/REF/REDACTED-001, dated 18/06/2026. Each finding links to the source ledger evidence that produced it.</div>
+      </div>
+      <div class="chip">Response window <b>9 / 14 days</b> remaining</div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-head"><div><div class="finding-title">1 · Sales: Accounts vs EFDMS variance</div><div class="finding-statute">Cross-check · EFDMS feed vs General Ledger</div></div><div class="finding-amount">289,302</div></div>
+      <div class="finding-body">
+        <table><tr><th>Source</th><th>Amount (TZS)</th></tr>
+          <tr><td>Sales per Accounts</td><td class="amount mono">210,759,498.00</td></tr>
+          <tr><td>Sales per EFDMS</td><td class="amount mono">211,048,800.05</td></tr>
+          <tr><td><b>Difference</b></td><td class="amount neg mono"><b>(289,302.05)</b></td></tr>
+        </table>
+        <div class="finding-note">Status: evidence requested from client (EFDMS batch export, 2024) — see Evidence Workflow.</div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-head"><div><div class="finding-title">2 · Purchases: Accounts vs EFD variance</div><div class="finding-statute">Cross-check · EFD feed vs General Ledger</div></div><div class="finding-amount">103,614,191</div></div>
+      <div class="finding-body">
+        <table><tr><th>Source</th><th>Amount (TZS)</th></tr>
+          <tr><td>Purchases per Accounts</td><td class="amount mono">110,082,351.00</td></tr>
+          <tr><td>Total Purchases per EFD</td><td class="amount mono">6,468,160.00</td></tr>
+          <tr><td><b>Difference</b></td><td class="amount neg mono"><b>(103,614,191.00)</b></td></tr>
+        </table>
+        <div class="finding-note">Status: largest exposure in this notice. Awaiting purchase ledger detail from client.</div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-head"><div><div class="finding-title">3 · Skills Development Levy — unpaid</div><div class="finding-statute">Rule · Payroll register → SDL obligation, 4%</div></div><div class="finding-amount">3,397,291</div></div>
+      <div class="finding-body">
+        <table><tr><th>Item</th><th>Amount (TZS)</th></tr>
+          <tr><td>Salaries &amp; wages</td><td class="amount mono">107,731,300.00</td></tr>
+          <tr><td>SDL computed</td><td class="amount mono">3,231,939.00</td></tr>
+          <tr><td>Months delayed</td><td class="amount mono">24</td></tr>
+          <tr><td><b>SDL payable (incl. interest)</b></td><td class="amount neg mono"><b>3,397,291.13</b></td></tr>
+        </table>
+        <div class="finding-note">Status: liability acknowledged. Evidence pack assembled — see Response Pack.</div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-head"><div><div class="finding-title">4 · WHT on professional services — unapplied</div><div class="finding-statute">ITA CAP 332 s.83(1)(c) — 5%</div></div><div class="finding-amount">202,637</div></div>
+      <div class="finding-body">
+        <table><tr><th>Item</th><th>Amount (TZS)</th></tr>
+          <tr><td>Audit/Accountant fees</td><td class="amount mono">3,647,840.00</td></tr>
+          <tr><td>5% WHT due</td><td class="amount mono">183,392.00</td></tr>
+          <tr><td><b>WHT payable (incl. interest)</b></td><td class="amount neg mono"><b>202,637.40</b></td></tr>
+        </table>
+        <div class="finding-note">Status: open. No evidence request yet raised.</div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-head"><div><div class="finding-title">5 · WHT on rent — unapplied</div><div class="finding-statute">ITA CAP 332 s.82(1) — 10%</div></div><div class="finding-amount">1,240,371</div></div>
+      <div class="finding-body">
+        <table><tr><th>Item</th><th>Amount (TZS)</th></tr>
+          <tr><td>Rent declared</td><td class="amount mono">11,800,000.00</td></tr>
+          <tr><td>10% WHT due</td><td class="amount mono">1,180,000.00</td></tr>
+          <tr><td><b>Total tax due (incl. interest)</b></td><td class="amount neg mono"><b>1,240,371.04</b></td></tr>
+        </table>
+        <div class="finding-note">Status: open. Linked to Finding 6 (same lease document).</div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-head"><div><div class="finding-title">6 · Stamp duty on lease — unpaid</div><div class="finding-statute">Stamp Duty Act, 1972 — 1% + 200% penalty</div></div><div class="finding-amount">354,000</div></div>
+      <div class="finding-body">
+        <table><tr><th>Item</th><th>Amount (TZS)</th></tr>
+          <tr><td>Rent declared</td><td class="amount mono">11,800,000.00</td></tr>
+          <tr><td>Stamp duty (1%)</td><td class="amount mono">118,000.00</td></tr>
+          <tr><td>Penalty (200%)</td><td class="amount mono">236,000.00</td></tr>
+          <tr><td><b>Total tax due</b></td><td class="amount neg mono"><b>354,000.00</b></td></tr>
+        </table>
+        <div class="finding-note">Status: open. Lease agreement requested — see Evidence Workflow.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="view" id="view-workflow">
+    <div class="topbar">
+      <div>
+        <div class="crumbs">RESA HEALTH CARE LTD · FINDING 1</div>
+        <h1>Evidence Workflow</h1>
+        <div class="topbar-sub">This is the actual moat: the system owns the chase for documents, not just the detection of the problem. Every finding has its own tracked workflow.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><div><div class="panel-title">Finding 1 — Sales variance (TZS 289,302)</div><div class="panel-sub">Opened 19 Jun 2026 · assigned to Preparer: J. Massawe (sample)</div></div></div>
+      <div style="padding:20px;">
+        <div class="track">
+          <div class="track-step done"><div class="track-num">01</div><div class="track-label">Evidence Requested</div><div class="track-meta">EFDMS batch export — sent 19 Jun</div></div>
+          <div class="track-step active"><div class="track-num">02</div><div class="track-label">Awaiting Client</div><div class="track-meta">Reminder sent 22 Jun · 1 outstanding</div></div>
+          <div class="track-step todo"><div class="track-num">03</div><div class="track-label">Evidence Received</div><div class="track-meta">—</div></div>
+          <div class="track-step todo"><div class="track-num">04</div><div class="track-label">Preparer Review</div><div class="track-meta">—</div></div>
+          <div class="track-step todo"><div class="track-num">05</div><div class="track-label">Partner Sign-off</div><div class="track-meta">—</div></div>
+          <div class="track-step todo"><div class="track-num">06</div><div class="track-label">Submitted to TRA</div><div class="track-meta">—</div></div>
+        </div>
+      </div>
+      <div class="annotate">In the real product: each step change is logged to the immutable audit trail with timestamp and actor. Automated reminders fire on a configurable schedule (e.g. every 48 hours of no response) without a human having to remember to chase.</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><div><div class="panel-title">Outstanding Document Requests — all clients</div><div class="panel-sub">Firm-wide view, not per-client</div></div></div>
+      <table>
+        <tr><th>Client</th><th>Document Requested</th><th>Requested</th><th>Status</th><th></th></tr>
+        <tr><td>Client Alpha Ltd</td><td>EFDMS batch export (2024)</td><td class="mono">19 Jun</td><td><span class="pill wait">Awaiting client</span></td><td><button class="btn">Remind</button></td></tr>
+        <tr><td>Client Alpha Ltd</td><td>Executed lease agreement</td><td class="mono">19 Jun</td><td><span class="pill wait">Awaiting client</span></td><td><button class="btn">Remind</button></td></tr>
+        <tr><td>Client Beta Ltd</td><td>Payroll register, Q2</td><td class="mono">21 Jun</td><td><span class="pill ok">Received</span></td><td><button class="btn">Review</button></td></tr>
+      </table>
+      <div class="footnote">This is the layer competitors can't easily copy: it isn't the reconciliation math, it's the accumulated record of every request, reminder, and response across every client and every finding — switching tools means losing that trail.</div>
+    </div>
+  </div>
+
+  <div class="view" id="view-rules">
+    <div class="topbar">
+      <div><div class="crumbs">CONFIGURATION</div><h1>Rules Engine</h1>
+        <div class="topbar-sub">Declarative, versioned, effective-dated. Maps a ledger category to a statutory obligation.</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div><div class="panel-title">Active Rule Set — Tanzania, FY2024–2026</div><div class="panel-sub">Versioned against CAP 332, Stamp Duty Act 1972, VAT Act</div></div></div>
+      <table>
+        <tr><th>Trigger</th><th>Statute</th><th>Obligation</th><th>Rate</th><th>Verified</th></tr>
+        <tr><td>EFDMS sales/purchase feed</td><td>VAT Act / EFDMS Regs</td><td>Continuous variance diff</td><td class="mono">threshold</td><td class="mono">23 Jun 26</td></tr>
+        <tr><td>Payroll register</td><td>SDL Act</td><td>Skills Development Levy</td><td class="mono">4.0%</td><td class="mono">23 Jun 26</td></tr>
+        <tr><td>Ledger: "professional fees"</td><td>ITA CAP 332 s.83(1)(c)</td><td>Withholding tax</td><td class="mono">5.0%</td><td class="mono">23 Jun 26</td></tr>
+        <tr><td>Ledger: "rent expense"</td><td>ITA CAP 332 s.82(1)</td><td>Withholding tax</td><td class="mono">10.0%</td><td class="mono">23 Jun 26</td></tr>
+        <tr><td>Document: lease agreement</td><td>Stamp Duty Act, 1972</td><td>Stamp duty</td><td class="mono">1.0%</td><td class="mono">23 Jun 26</td></tr>
+        <tr><td>Turnover ≥ TZS 11M</td><td>EFD/VFD Regs</td><td>Mandatory fiscal device</td><td class="mono">threshold</td><td class="mono">23 Jun 26</td></tr>
+      </table>
+      <div class="footnote">Rules are effective-dated, not overwritten — a run against 2024 data always applies 2024 rates, even after future rule updates. Industry-specific packs (tourism levies, medical stock VAT treatment, etc.) extend this same table per client industry tag.</div>
+    </div>
+  </div>
+
+  <div class="view" id="view-response">
+    <div class="topbar">
+      <div><div class="crumbs">RESA HEALTH CARE LTD · FINDING 3</div><h1>Response Pack</h1>
+        <div class="topbar-sub">Assembled from the notice and the linked ledger evidence once Evidence Workflow Step 03 completes.</div>
+      </div>
+      <div class="chip">9 days remaining</div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div><div class="panel-title">Draft — Finding 3, Skills Development Levy</div><div class="panel-sub">Status: pending preparer review</div></div><button class="btn-primary btn">Export to PDF</button></div>
+      <div style="padding:20px;">
+<div class="response-pack">RE: <span class="hl">TRA/REF/REDACTED-001</span> — Finding 3, Skills Development Levy
+
+Reviewing entity confirms salaries and wages of <span class="hl">TZS 107,731,300.00</span> for the
+period under review, against which SDL of <span class="hl">TZS 3,231,939.00</span> was due.
+
+Supporting evidence attached:
+  - Payroll register, FY2024 (12 monthly batches)
+  - Employment contracts for all 24 listed staff
+  - Bank disbursement records matching payroll register, 1:1
+
+Position: liability is <span class="neg">acknowledged</span>. Entity requests confirmation of
+interest computation basis (24 months) before remittance of
+<span class="hl">TZS 3,397,291.13</span>.
+
+Prepared by: Kinga · Preparer: J. Massawe (sample) · Partner sign-off: pending</div>
+      </div>
+      <div class="annotate">Real product: this draft is generated only after every linked evidence item shows "Received" in the Workflow tab — the system will not let a preparer submit a response pack with outstanding evidence, which is itself a control, not just a convenience.</div>
+    </div>
+  </div>
+
+  <div class="view" id="view-spec">
+    <div class="topbar">
+      <div><div class="crumbs">REFERENCE</div><h1>Functional Specification</h1>
+        <div class="topbar-sub">What every screen in this prototype represents in the real product — excluding backend and database implementation, as requested.</div>
+      </div>
+    </div>
+
+    <div class="spec-box"><div class="spec-label">01 — Portfolio</div><div class="spec-text">A live, ranked list of every client a firm manages, ordered by open exposure. Each row reflects the most recent reconciliation run for that client. A "Clean" status means no variance exceeded the configured materiality threshold on the last run — not that no data exists.</div></div>
+
+    <div class="spec-box"><div class="spec-label">02 — Findings</div><div class="spec-text">Each finding is generated by one of two mechanisms: (a) a reconciliation diff between two data sources (ledger vs EFDMS/EFD), or (b) a rule trigger fired by a ledger entry matching a statutory category (e.g. a "rent" line triggering a WHT-on-rent check). Every finding stores its source records, so a user can trace the number back to the original transactions, not just see a final figure.</div></div>
+
+    <div class="spec-box"><div class="spec-label">03 — Evidence Workflow</div><div class="spec-text">Each finding has its own six-step tracked process: request, awaiting client, received, preparer review, partner sign-off, submitted. Document requests are sent to the client (email/portal), reminders fire automatically on a schedule, and every status change is timestamped. This is the layer that creates switching cost — the accumulated history of requests and responses lives here, not in the reconciliation logic itself.</div></div>
+
+    <div class="spec-box"><div class="spec-label">04 — Rules Engine</div><div class="spec-text">A versioned, effective-dated table mapping ledger categories and document types to statutory obligations. Rules can be extended per industry (a "tourism levy" rule pack for safari operators, a "medical stock VAT" pack for pharmacies) without changing the core engine — new rows, not new code.</div></div>
+
+    <div class="spec-box"><div class="spec-label">05 — Response Pack</div><div class="spec-text">A structured draft, generated only once all evidence linked to a finding is marked "Received" in the Workflow tab. This sequencing is a deliberate control: the system should not allow a response to be exported while evidence is still outstanding, since an incomplete response is itself a risk.</div></div>
+
+    <div class="spec-box"><div class="spec-label">Roles &amp; Access (not shown as a separate screen)</div><div class="spec-text">Three roles run through every screen: Preparer (drafts findings and responses), Partner (sign-off required before submission to TRA), and Client (can only see and upload against their own outstanding document requests — they do not see the firm's other clients or internal notes).</div></div>
+
+    <div class="spec-box"><div class="spec-label">What this prototype deliberately does not show</div><div class="spec-text">No predictive risk scoring, no "audit readiness" percentage, and no audit simulation. Per the design review this build is based on, those features create unsupportable liability if wrong and are deferred until the deterministic reconciliation and workflow layers are proven with real paying clients.</div></div>
+  </div>
+
+  <div class="view" id="view-arch">
+    <div class="topbar">
+      <div><div class="crumbs">REFERENCE</div><h1>System Map</h1>
+        <div class="topbar-sub">Data flow from ingestion through to the firm-facing workflow layer. Backend services and database schema intentionally excluded, as requested.</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div style="padding:26px;">
+        <svg viewBox="0 0 1000 460" style="width:100%;height:auto;">
+          <defs>
+            <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 Z" fill="#8B97A7"/>
+            </marker>
+          </defs>
+          <style>
+            .b{fill:#FFFFFF;stroke:#D6DCE4;stroke-width:1;}
+            .b2{fill:#F6F7F9;stroke:#0F2540;stroke-width:1;}
+            .t{font-family:'IBM Plex Sans',sans-serif;font-size:12px;fill:#15202E;}
+            .ts{font-family:'IBM Plex Mono',monospace;font-size:9.5px;fill:#8B97A7;}
+            .tier{font-family:'Source Serif 4',serif;font-size:11px;fill:#5B6B7E;letter-spacing:0.6px;}
+            .e{stroke:#8B97A7;stroke-width:1;fill:none;marker-end:url(#arrow);}
+          </style>
+
+          <rect class="b" x="20" y="60" width="140" height="54" rx="2"/>
+          <text class="t" x="90" y="83" text-anchor="middle">EFDMS Feed</text>
+          <text class="ts" x="90" y="99" text-anchor="middle">manual export / API (TBD)</text>
+
+          <rect class="b" x="20" y="138" width="140" height="54" rx="2"/>
+          <text class="t" x="90" y="161" text-anchor="middle">Ledger / ERP</text>
+          <text class="ts" x="90" y="177" text-anchor="middle">CSV / accounting export</text>
+
+          <rect class="b" x="20" y="216" width="140" height="54" rx="2"/>
+          <text class="t" x="90" y="239" text-anchor="middle">Payroll Register</text>
+          <text class="ts" x="90" y="255" text-anchor="middle">monthly upload</text>
+
+          <rect class="b" x="20" y="294" width="140" height="54" rx="2"/>
+          <text class="t" x="90" y="317" text-anchor="middle">Document Upload</text>
+          <text class="ts" x="90" y="333" text-anchor="middle">leases, TRA notices</text>
+
+          <text class="tier" x="90" y="38">INGESTION</text>
+
+          <rect class="b2" x="380" y="80" width="170" height="58" rx="2"/>
+          <text class="t" x="465" y="105" text-anchor="middle">Reconciliation</text>
+          <text class="t" x="465" y="121" text-anchor="middle">Engine</text>
+
+          <rect class="b2" x="380" y="166" width="170" height="58" rx="2"/>
+          <text class="t" x="465" y="191" text-anchor="middle">Rules Engine</text>
+          <text class="t" x="465" y="207" text-anchor="middle">(versioned)</text>
+
+          <rect class="b2" x="380" y="252" width="170" height="58" rx="2"/>
+          <text class="t" x="465" y="277" text-anchor="middle">Evidence Workflow</text>
+          <text class="t" x="465" y="293" text-anchor="middle">Engine</text>
+
+          <text class="tier" x="465" y="60">CORE LOGIC</text>
+
+          <rect x="200" y="386" width="500" height="40" fill="none" stroke="#0F2540" stroke-width="1" stroke-dasharray="3,3"/>
+          <text class="t" x="450" y="410" text-anchor="middle">Immutable audit trail · tenant-isolated · spans every layer above</text>
+
+          <rect class="b" x="650" y="80" width="160" height="58" rx="2"/>
+          <text class="t" x="730" y="105" text-anchor="middle">Firm Dashboard</text>
+          <text class="ts" x="730" y="121" text-anchor="middle">multi-client</text>
+
+          <rect class="b" x="650" y="166" width="160" height="58" rx="2"/>
+          <text class="t" x="730" y="191" text-anchor="middle">Client Portal</text>
+          <text class="ts" x="730" y="207" text-anchor="middle">scoped, view-limited</text>
+
+          <rect class="b" x="650" y="252" width="160" height="58" rx="2"/>
+          <text class="t" x="730" y="277" text-anchor="middle">Response Pack</text>
+          <text class="ts" x="730" y="293" text-anchor="middle">export / PDF</text>
+
+          <text class="tier" x="730" y="60">SURFACES</text>
+
+          <path class="e" d="M160,87 L380,109"/>
+          <path class="e" d="M160,165 L380,123"/>
+          <path class="e" d="M160,243 L380,200"/>
+          <path class="e" d="M160,321 L380,281"/>
+          <path class="e" d="M550,109 L650,109"/>
+          <path class="e" d="M550,195 L650,195"/>
+          <path class="e" d="M550,281 L650,281"/>
+        </svg>
+      </div>
+      <div class="footnote">Deliberately excluded from this map: database schema, hosting/infra choices, and authentication implementation — covered separately in the written architecture document, not in this visual.</div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  const items = document.querySelectorAll('.nav-item');
+  function showView(name){
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-'+name).classList.add('active');
+    items.forEach(i=>i.classList.remove('active'));
+    document.querySelector('.nav-item[data-view="'+name+'"]').classList.add('active');
+    window.scrollTo(0,0);
+  }
+  items.forEach(item=>item.addEventListener('click', ()=> showView(item.dataset.view)));
+</script>
+</body>
+</html>
