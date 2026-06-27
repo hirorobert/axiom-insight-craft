@@ -69,6 +69,7 @@ export type Database = {
           created_at: string
           id: string
           is_cash_account: boolean
+          is_payroll_account: boolean
           is_retained_earnings: boolean
           line_item: string
           normal_balance: string
@@ -83,6 +84,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_cash_account?: boolean
+          is_payroll_account?: boolean
           is_retained_earnings?: boolean
           line_item: string
           normal_balance: string
@@ -97,6 +99,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_cash_account?: boolean
+          is_payroll_account?: boolean
           is_retained_earnings?: boolean
           line_item?: string
           normal_balance?: string
