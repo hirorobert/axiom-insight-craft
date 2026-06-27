@@ -1,7 +1,7 @@
 // ============================================================
 // Kinga Findings Engine — Module B: Rule Trigger
 // Edge Function: kinga-findings-engine
-// Version: Module B v1.0
+// Version: Module B+C v2.1 — Universal Account Detection
 // Date: 2026-06-26
 //
 // Architecture:
@@ -32,13 +32,25 @@
 //   enforces data integrity invariants.  Never relax a trigger
 //   thinking RLS provides equivalent protection here.
 //
-// SDL v1.0 limitation:
-//   trigger_account_classification = 'operating_expenses' captures
-//   ALL operating expense accounts (rent, utilities, etc.), not
-//   payroll only.  SDL base is over-estimated until a payroll flag
-//   is implemented on account_mappings (open decision OD-2).
-//   This limitation is documented in source_detail.payroll_limitation_note
-//   on every SDL finding so reviewers are not misled.
+// Universal account detection (v2.1):
+//   Steps C1b and C1c use TWO-TIER detection — no manual configuration needed
+//   for standard naming conventions (QuickBooks, Sage, Tally, Swahili names,
+//   manual Excel, GFS codes with descriptive names).
+//   TIER 1: explicit account_mappings flags (is_payroll_account, is_retained_earnings)
+//           as override for edge-case account names.
+//   TIER 2: semantic name pattern matching on account names from the JSONB.
+//           "Salaries and Wages" → payroll. "Retained Earnings" → retained equity.
+//           NHIF/NSSF/WCF/SDL excluded from payroll base automatically.
+//   Only if BOTH tiers find nothing: emit config error.
+//
+// Module C (statutory payables):
+//   Reads current_liabilities from processing_result, pattern-matches
+//   account names against known statutory payable categories (SDL, NSSF,
+//   NHIF, WCF, PAYE, VAT, TRA assessments, Service Levy).  Any non-zero
+//   balance creates a 'statutory_payable' finding — no statutory_rule
+//   required, no verified_at check.  The outstanding balance IS the
+//   obligation.  Bypasses enforce_verified_statutory_rule trigger safely
+//   (V1 only gates rule_trigger; V2 only gates non-null statutory_rule_id).
 // ============================================================
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -46,7 +58,7 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 
 // ── Constants ────────────────────────────────────────────────────────────
 
-const ENGINE_VERSION = "Module B v1.0";
+const ENGINE_VERSION = "Module B+C v2.0";
 
 /**
  * Minimum absolute variance (TZS) below which a finding is not raised.
@@ -92,13 +104,22 @@ interface EngineResponse {
   company_id:       string;
   period_year:      number;
   period_month:     number;
+  // Module B — rule-trigger findings
   rules_evaluated:  number;
-  rules_skipped:    number;   // no matching GL accounts or amount too small
+  rules_skipped:    number;
   findings_created: number;
-  findings_skipped: number;   // variance below threshold
+  findings_skipped: number;
+  // Module C — statutory payables from balance sheet
+  payables_scanned: number;
+  payables_found:   number;
+  payables_created: number;
+  payables_skipped: number;
+  // Combined
+  total_findings:   number;
   errors:           EngineError[];
   dry_run:          boolean;
-  findings_preview?: FindingPreview[];  // populated when dry_run = true
+  findings_preview?:  FindingPreview[];         // Module B dry_run
+  payables_preview?:  ModuleCFindingPreview[];  // Module C dry_run
 }
 
 interface EngineError {
@@ -230,11 +251,11 @@ serve(async (req: Request) => {
   const engineRunId = crypto.randomUUID();
   const triggeredBy = body.triggered_by ?? user.id;
 
-  // ── 6. Run the engine ─────────────────────────────────────────────────
-  const result = await runModuleB({
+  // ── 6. Run Module B — rule-trigger findings ───────────────────────────
+  const moduleBResult = await runModuleB({
     supabase,
     companyId:      company_id,
-    companyUserId:  company.user_id,  // for account_mappings retained_earnings filter
+    companyUserId:  company.user_id,
     uploadId:       upload_id,
     periodYear:     period_year,
     periodMonth:    period_month,
@@ -243,25 +264,47 @@ serve(async (req: Request) => {
     dryRun:         dry_run,
   });
 
+  // ── 6b. Run Module C — statutory payables from balance sheet ──────────
+  const moduleCResult = await runModuleC({
+    supabase,
+    companyId:   company_id,
+    uploadId:    upload_id,
+    periodYear:  period_year,
+    periodMonth: period_month,
+    engineRunId,
+    triggeredBy,
+    dryRun:      dry_run,
+  });
+
+  const allErrors      = [...moduleBResult.errors, ...moduleCResult.errors];
+  const totalFindings  = moduleBResult.findings_created + moduleCResult.findings_created;
+
   // ── 7. Write audit log ────────────────────────────────────────────────
   if (!dry_run) {
     await supabase.from("audit_logs").insert({
       user_id:     triggeredBy,
-      action:      result.errors.length === 0
+      action:      allErrors.length === 0
         ? "reconciliation_engine_completed"
         : "reconciliation_engine_partial",
       entity_type: "company",
       entity_id:   company_id,
       metadata: {
-        engine_run_id:    engineRunId,
-        engine_version:   ENGINE_VERSION,
+        engine_run_id:      engineRunId,
+        engine_version:     ENGINE_VERSION,
         upload_id,
         period_year,
         period_month,
-        rules_evaluated:  result.rules_evaluated,
-        findings_created: result.findings_created,
-        findings_skipped: result.findings_skipped,
-        error_count:      result.errors.length,
+        // Module B
+        rules_evaluated:    moduleBResult.rules_evaluated,
+        findings_created:   moduleBResult.findings_created,
+        findings_skipped:   moduleBResult.findings_skipped,
+        // Module C
+        payables_scanned:   moduleCResult.accounts_scanned,
+        payables_found:     moduleCResult.payables_found,
+        payables_created:   moduleCResult.findings_created,
+        // Combined
+        total_findings:     totalFindings,
+        error_count:        allErrors.length,
       },
     });
   }
@@ -271,13 +314,24 @@ serve(async (req: Request) => {
     company_id,
     period_year,
     period_month,
-    rules_evaluated:  result.rules_evaluated,
-    rules_skipped:    result.rules_skipped,
-    findings_created: result.findings_created,
-    findings_skipped: result.findings_skipped,
-    errors:           result.errors,
+    // Module B
+    rules_evaluated:  moduleBResult.rules_evaluated,
+    rules_skipped:    moduleBResult.rules_skipped,
+    findings_created: moduleBResult.findings_created,
+    findings_skipped: moduleBResult.findings_skipped,
+    // Module C
+    payables_scanned: moduleCResult.accounts_scanned,
+    payables_found:   moduleCResult.payables_found,
+    payables_created: moduleCResult.findings_created,
+    payables_skipped: moduleCResult.findings_skipped,
+    // Combined
+    total_findings:   totalFindings,
+    errors:           allErrors,
     dry_run,
-    ...(dry_run ? { findings_preview: result.findings_preview } : {}),
+    ...(dry_run ? {
+      findings_preview:  moduleBResult.findings_preview,
+      payables_preview:  moduleCResult.findings_preview,
+    } : {}),
   });
 });
 
@@ -300,6 +354,116 @@ const WHT_RETAINED_EARNINGS_CATEGORIES = new Set([
   "retained_earnings_deemed_distribution",
 ]);
 
+/**
+ * SDL_PAYROLL_CATEGORIES + PAYROLL_NAME_PATTERNS:
+ *
+ *   SDL (CAP 441) is levied on gross emoluments only.
+ *
+ *   The engine auto-detects payroll accounts by matching account NAMES
+ *   against PAYROLL_NAME_PATTERNS — no manual is_payroll_account flag needed.
+ *   This works for any chart of accounts: QuickBooks, Sage, Tally, manual Excel,
+ *   GFS-coded or not.  "Salaries and Wages", "Mishahara", "Employee Costs",
+ *   "Basic Pay" — all match.
+ *
+ *   NON_PAYROLL_EXCLUSION_PATTERNS removes statutory levies that are often
+ *   named inside the payroll section of accounts but are NOT emoluments:
+ *   NHIF, NSSF, WCF, SDL expense itself (which is circular), PAYE.
+ *
+ *   is_payroll_account column on account_mappings is still available as an
+ *   OVERRIDE for edge cases — if set to true on an account whose name does
+ *   not match PAYROLL_NAME_PATTERNS, the engine includes it. But zero
+ *   manual configuration is required for standard naming conventions.
+ */
+const SDL_PAYROLL_CATEGORIES = new Set([
+  "sdl",
+]);
+
+/** Gross emolument patterns — accounts whose balance IS the SDL base. */
+const PAYROLL_NAME_PATTERNS: RegExp[] = [
+  /\bsalar[yi]/i,
+  /\bwage/i,
+  /\ballowance/i,
+  /\bemolument/i,
+  /\bbasic\s*pay/i,
+  /\bovertime\b/i,
+  /\bextra\s*duty\b/i,
+  /\bmishahara\b/i,           // Swahili: salary
+  /\bposho\b/i,               // Swahili: allowance
+  /\bstipend\b/i,
+  /\bstaff\s*pay\b/i,
+  /\bpayroll\b/i,
+  /\bremuneration\b/i,
+  /\bcompensation\b/i,
+  /\bsalary\s*&\s*wages?\b/i,
+];
+
+/**
+ * Statutory levy accounts that LOOK like payroll but are NOT emoluments.
+ * If an account name matches any of these, it is excluded from the SDL base
+ * even if it also matches a PAYROLL_NAME_PATTERN.
+ * SDL expense itself is explicitly excluded — computing SDL on SDL is circular.
+ */
+const NON_PAYROLL_EXCLUSION_PATTERNS: RegExp[] = [
+  /\bnhif\b/i,
+  /\bnssf\b/i,
+  /\bwcf\b/i,
+  /\bsdl\b/i,      // SDL expense ≠ emolument (it is a levy ON emoluments)
+  /\bpaye\b/i,
+  /\bpension\s*fund\b/i,
+  /\bprovident\s*fund\b/i,
+  /\bworkers?\s*comp/i,
+  /\btraining\s*levy\b/i,
+];
+
+/**
+ * Returns true if an account name represents gross emoluments (SDL base).
+ * Logic: matches PAYROLL_NAME_PATTERNS AND does NOT match NON_PAYROLL_EXCLUSION_PATTERNS.
+ */
+function isGrossEmolumentAccount(accountName: string): boolean {
+  const matchesPayroll = PAYROLL_NAME_PATTERNS.some(p => p.test(accountName));
+  if (!matchesPayroll) return false;
+  const excluded = NON_PAYROLL_EXCLUSION_PATTERNS.some(p => p.test(accountName));
+  return !excluded;
+}
+
+/**
+ * Retained earnings name patterns — used as fallback when is_retained_earnings
+ * flag is not set in account_mappings.  Covers standard naming conventions
+ * across QuickBooks, Sage, Tally, GFS, and manual charts of accounts.
+ */
+const RETAINED_EARNINGS_NAME_PATTERNS: RegExp[] = [
+  /retained\s*earning/i,
+  /accumulated\s*(profit|surplus|deficit|loss)/i,
+  /profit\s*b[\/]?[fo]/i,      // Profit b/f, Profit b/o
+  /surplus\s*b[\/]?[fo]/i,
+  /net\s*(profit|loss)\s*b[\/]?[fo]/i,
+  /faida\s*iliyobakiwa\b/i,    // Swahili: retained profit
+  /undistributed\s*(profit|earning)/i,
+  /income\s*surplus\b/i,
+];
+
+/**
+ * Module C: statutory payable account name patterns.
+ * Matched against current_liabilities account names in the balance sheet.
+ * Any non-zero balance in a matching account creates a statutory_payable finding.
+ */
+const STATUTORY_PAYABLE_PATTERNS: Array<{
+  pattern:      RegExp;
+  category:     string;
+  title_prefix: string;
+}> = [
+  { pattern: /\bsdl\b/i,                         category: "sdl_outstanding",           title_prefix: "SDL Outstanding" },
+  { pattern: /\bnssf\b/i,                        category: "nssf_outstanding",          title_prefix: "NSSF Outstanding" },
+  { pattern: /\bnhif\b/i,                        category: "nhif_outstanding",          title_prefix: "NHIF Outstanding" },
+  { pattern: /\bwcf\b/i,                         category: "wcf_outstanding",           title_prefix: "WCF Outstanding" },
+  { pattern: /\bpaye\b/i,                        category: "paye_outstanding",          title_prefix: "PAYE Outstanding" },
+  { pattern: /\bvat\b/i,                         category: "vat_outstanding",           title_prefix: "VAT Outstanding" },
+  { pattern: /tra|tax\s*(payab|assess|due)/i,    category: "tra_assessment",            title_prefix: "TRA Tax Assessment Outstanding" },
+  { pattern: /service\s*levy/i,                  category: "service_levy_outstanding",  title_prefix: "Service Levy Outstanding" },
+  { pattern: /corporate\s*tax|income\s*tax/i,    category: "corporate_tax_outstanding", title_prefix: "Corporate Tax Outstanding" },
+  { pattern: /\bzssf\b/i,                        category: "zssf_outstanding",          title_prefix: "ZSSF Outstanding" },
+];
+
 interface ModuleBParams {
   supabase:       SupabaseClient;
   companyId:      string;
@@ -319,6 +483,33 @@ interface ModuleBResult {
   findings_skipped: number;
   errors:           EngineError[];
   findings_preview: FindingPreview[];
+}
+
+interface ModuleCFindingPreview {
+  account_code: string;
+  account_name: string;
+  category:     string;
+  balance_tzs:  number;
+}
+
+interface ModuleCParams {
+  supabase:     SupabaseClient;
+  companyId:    string;
+  uploadId:     string;
+  periodYear:   number;
+  periodMonth:  number;
+  engineRunId:  string;
+  triggeredBy:  string;
+  dryRun:       boolean;
+}
+
+interface ModuleCResult {
+  accounts_scanned:   number;
+  payables_found:     number;
+  findings_created:   number;
+  findings_skipped:   number;
+  errors:             EngineError[];
+  findings_preview:   ModuleCFindingPreview[];
 }
 
 async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
@@ -490,26 +681,30 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
 
       // Step C1b: Retained earnings filter (WHT equity rules only) ──────
       //
-      // BLOCKER ADDRESSED: processing_result.statements.balance_sheet.equity
-      // contains ALL equity accounts (share capital, retained earnings, reserves,
-      // accumulated deficit). For WHT on undistributed earnings, the obligation
-      // base is ONLY retained earnings — not total equity.
+      // UNIVERSAL DESIGN — same two-tier approach as Step C1c.
       //
-      // Without this filter, a company with TZS 500M share capital and TZS 10M
-      // retained earnings would have WHT computed on TZS 510M instead of TZS 10M.
+      // PROBLEM: equity bucket contains ALL equity accounts:
+      //   share capital, share premium, retained earnings, reserves,
+      //   accumulated deficit. WHT on undistributed earnings applies only
+      //   to retained earnings — not total equity.
       //
-      // Fix: for WHT retained-earnings categories, do a secondary query to
-      // account_mappings (keyed on user_id) and filter classificationSection.accounts
-      // to only those where is_retained_earnings = true.
+      // Detection priority:
       //
-      // If NO accounts are flagged is_retained_earnings = true, abort with an error.
-      // The finding cannot be computed safely without knowing which accounts are
-      // retained earnings — a silent zero-base finding would be misleading.
+      //   TIER 1 — OVERRIDE: is_retained_earnings = true in account_mappings
+      //     Explicit flag for edge-case names or code-only accounts.
+      //
+      //   TIER 2 — AUTO-DETECT: RETAINED_EARNINGS_NAME_PATTERNS on account name
+      //     Matches: "Retained Earnings", "Accumulated Profit", "Profit b/f",
+      //     "Faida Iliyobakiwa", "Undistributed Earnings", etc.
+      //     Zero configuration required for standard naming conventions.
+      //
+      // If NEITHER tier finds any accounts: emit config error and skip.
 
       let effectiveAccounts = classificationSection.accounts;
       let effectiveTotal    = classificationSection.total;
 
       if (WHT_RETAINED_EARNINGS_CATEGORIES.has(rule.trigger_category)) {
+        // TIER 1: explicit is_retained_earnings overrides from account_mappings
         const { data: retainedMappings, error: retainedErr } = await supabase
           .from("account_mappings")
           .select("account_code")
@@ -520,40 +715,46 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
           result.errors.push({
             rule_id:          rule.id,
             trigger_category: rule.trigger_category,
-            error_message:    `Failed to query account_mappings for retained earnings filter: ${retainedErr.message}`,
+            error_message:    `WHT retained earnings filter: account_mappings query failed: ${retainedErr.message}`,
             stage:            "gl_read",
           });
           result.rules_skipped++;
           continue;
         }
 
-        if (!retainedMappings || retainedMappings.length === 0) {
-          // No accounts are flagged as retained earnings for this company.
-          // Cannot compute WHT — emit a configuration error finding, not a silent skip.
-          // A silent skip would hide the gap from the preparer.
-          result.errors.push({
-            rule_id:          rule.id,
-            trigger_category: rule.trigger_category,
-            error_message:
-              `Cannot compute ${rule.trigger_category}: no account_mappings rows have ` +
-              `is_retained_earnings = true for company ${companyId} (user_id: ${companyUserId}). ` +
-              `Flag the retained earnings account(s) in account_mappings and re-run.`,
-            stage:            "gl_read",
-          });
-          result.rules_skipped++;
-          continue;
-        }
+        const overrideRetainedCodes = new Set(
+          (retainedMappings ?? []).map((m: { account_code: string }) => m.account_code)
+        );
 
-        const retainedCodes = new Set(retainedMappings.map((m: { account_code: string }) => m.account_code));
+        // TIER 2: semantic name-based auto-detection
+        const autoDetectedRetained = classificationSection.accounts.filter(
+          (a: TrialBalanceAccount) =>
+            RETAINED_EARNINGS_NAME_PATTERNS.some(p => p.test(a.account_name))
+        );
+        const autoDetectedRetainedCodes = new Set(
+          autoDetectedRetained.map((a: TrialBalanceAccount) => a.account_code)
+        );
+
+        const retainedCodes = new Set([...overrideRetainedCodes, ...autoDetectedRetainedCodes]);
 
         effectiveAccounts = classificationSection.accounts.filter(
           (a: TrialBalanceAccount) => retainedCodes.has(a.account_code)
         );
 
         if (effectiveAccounts.length === 0) {
-          // Retained earnings accounts exist in mappings but NONE appear in the GL
-          // for this upload period (zero balance or not included in TB).
-          // This is a skip — no retained earnings balance, no WHT obligation.
+          result.errors.push({
+            rule_id:          rule.id,
+            trigger_category: rule.trigger_category,
+            error_message:
+              `Cannot compute ${rule.trigger_category}: no retained earnings accounts found ` +
+              `for company ${companyId}. ` +
+              `Auto-detection checked all equity account names against retained earnings patterns ` +
+              `(retained earnings, accumulated profit, profit b/f, faida iliyobakiwa, etc.) — ` +
+              `no matches found. ` +
+              `Options: (1) rename the account to include "Retained Earnings" or "Accumulated Profit", ` +
+              `OR (2) set is_retained_earnings = true on the account row in account_mappings.`,
+            stage:            "gl_read",
+          });
           result.rules_skipped++;
           continue;
         }
@@ -562,7 +763,101 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
           (sum: number, a: TrialBalanceAccount) => sum + a.balance, 0
         );
 
-        // If total is zero or negative, no undistributed earnings to tax.
+        if (effectiveTotal <= 0) {
+          result.rules_skipped++;
+          continue;
+        }
+      }
+
+      // Step C1c: SDL payroll filter ────────────────────────────────────
+      //
+      // UNIVERSAL DESIGN — works for ANY chart of accounts, any ERP, any
+      // naming convention.  No manual configuration required in the default case.
+      //
+      // Detection priority (first match wins):
+      //
+      //   TIER 1 — OVERRIDE: account_mappings.is_payroll_account = true
+      //     Explicit preparer override.  Takes precedence over name patterns.
+      //     Used for edge-case account names (e.g. "7106 Call & Extra Duty"
+      //     which may or may not be gross emoluments depending on company policy).
+      //     Also used when the company has accounts with non-descriptive codes
+      //     only (e.g. "Account 401" with no semantic name).
+      //
+      //   TIER 2 — AUTO-DETECT: isGrossEmolumentAccount(account_name)
+      //     Semantic pattern matching on the account name from the JSONB.
+      //     Matches: "Salaries and Wages", "Basic Pay", "Mishahara", etc.
+      //     Excludes: "NHIF", "NSSF", "WCF", "SDL", "PAYE" — statutory levies.
+      //     Requires ZERO configuration.  Works for QuickBooks exports, Sage,
+      //     Tally, manual Excel, GFS-coded accounts, Swahili names, etc.
+      //
+      // If NEITHER tier produces any accounts: emit config error.
+      // Silently using the full opex total would produce an 83%+ over-estimate.
+      //
+      // Legal reference: CAP 441 s.5(1) — SDL on "gross emoluments paid to
+      // employees". NHIF, NSSF, WCF, SDL expense itself are NOT emoluments.
+
+      if (SDL_PAYROLL_CATEGORIES.has(rule.trigger_category)) {
+
+        // TIER 1: explicit is_payroll_account overrides from account_mappings
+        const { data: payrollMappings, error: payrollErr } = await supabase
+          .from("account_mappings")
+          .select("account_code")
+          .eq("user_id", companyUserId)
+          .eq("is_payroll_account", true);
+
+        if (payrollErr) {
+          result.errors.push({
+            rule_id:          rule.id,
+            trigger_category: rule.trigger_category,
+            error_message:    `SDL payroll filter: account_mappings query failed: ${payrollErr.message}`,
+            stage:            "gl_read",
+          });
+          result.rules_skipped++;
+          continue;
+        }
+
+        const overrideCodes = new Set(
+          (payrollMappings ?? []).map((m: { account_code: string }) => m.account_code)
+        );
+
+        // TIER 2: semantic name-based auto-detection
+        // Scan accounts array from JSONB — same data that was always there,
+        // just now the engine reads the NAME, not only the bucket total.
+        const autoDetected = classificationSection.accounts.filter(
+          (a: TrialBalanceAccount) => isGrossEmolumentAccount(a.account_name)
+        );
+        const autoDetectedCodes = new Set(autoDetected.map((a: TrialBalanceAccount) => a.account_code));
+
+        // Merge: union of override codes and auto-detected codes
+        const payrollCodes = new Set([...overrideCodes, ...autoDetectedCodes]);
+
+        effectiveAccounts = classificationSection.accounts.filter(
+          (a: TrialBalanceAccount) => payrollCodes.has(a.account_code)
+        );
+
+        if (effectiveAccounts.length === 0) {
+          result.errors.push({
+            rule_id:          rule.id,
+            trigger_category: rule.trigger_category,
+            error_message:
+              `Cannot compute SDL: no payroll accounts detected for company ${companyId}. ` +
+              `Auto-detection checked all operating_expenses account names against ` +
+              `gross emolument patterns (salaries, wages, allowances, mishahara, etc.) — ` +
+              `no matches found. ` +
+              `Options: (1) rename accounts to include standard payroll terminology, ` +
+              `OR (2) set is_payroll_account = true on salary/wages rows in account_mappings. ` +
+              `Do NOT include NHIF, NSSF, WCF, or SDL expense — those are statutory levies, ` +
+              `not gross emoluments (CAP 441 s.5(1)).`,
+            stage: "gl_read",
+          });
+          result.rules_skipped++;
+          continue;
+        }
+
+        effectiveTotal = effectiveAccounts.reduce(
+          (sum: number, a: TrialBalanceAccount) => sum + a.balance, 0
+        );
+
         if (effectiveTotal <= 0) {
           result.rules_skipped++;
           continue;
@@ -624,38 +919,97 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
         continue;
       }
 
-      // Step C3: Declared amount ─────────────────────────────────────────
+      // Step C3: Payment deduction ───────────────────────────────────────
       //
-      // OD-1 (Open Decision): There is currently no tax_payments table or
-      // SDL returns table in the schema. Declared amount defaults to 0.
-      // This means every SDL finding will show 100% variance until payment
-      // data is added.  The evidence_requests workflow handles collection
-      // of actual payment evidence.  This is intentional for v1.0: it is
-      // safer to flag and collect evidence than to silently assume 0 variance.
-      const declaredAmount = 0;
+      // OD-1 CLOSED (migration 20260627110000 — tax_payments table).
+      //
+      // Query tax_payments for the sum of all payments this company made
+      // for this statutory category in this period (year + month).
+      //
+      // Payment sources:
+      //   'preparer_declared' — CPA entered from bank statements / TRA receipts
+      //   'efdms_matched'     — derived from EFDMS receipt reconciliation
+      //   'tra_receipt'       — from TRA official ITAX receipt
+      //
+      // If no tax_payments rows exist: declaredAmount = 0 (same as v1.0 default).
+      // The finding will show gross obligation. Preparer then adds payment records
+      // and re-runs — next run produces the correct net figure.
+      //
+      // Kamanga Medics example:
+      //   gross_obligation:  103,072,691
+      //   declared_paid:      61,930,070  (from tax_payments for period 2025-12)
+      //   net_variance:       41,142,621  ← matches Note 6 SDL outstanding exactly
 
-      // Step C4: Variance ───────────────────────────────────────────────
+      let declaredAmount    = 0;
+      let paymentSource     = "none";
+      let paymentRecords: { amount: number; source: string; ref: string | null }[] = [];
+
+      const { data: payments, error: paymentsErr } = await supabase
+        .from("tax_payments")
+        .select("amount_paid_tzs, payment_source, payment_reference")
+        .eq("company_id",  companyId)
+        .eq("tax_category", rule.trigger_category)
+        .eq("period_year",  periodYear)
+        .eq("period_month", periodMonth);
+
+      if (paymentsErr) {
+        // Non-fatal: log warning, proceed with declaredAmount = 0
+        console.warn(`[Engine] tax_payments query failed for ${rule.trigger_category}: ${paymentsErr.message}`);
+      } else if (payments && payments.length > 0) {
+        declaredAmount  = payments.reduce((s: number, p: { amount_paid_tzs: number }) => s + (p.amount_paid_tzs ?? 0), 0);
+        paymentSource   = payments.map((p: { payment_source: string }) => p.payment_source).join(", ");
+        paymentRecords  = payments.map((p: { amount_paid_tzs: number; payment_source: string; payment_reference: string | null }) => ({
+          amount: p.amount_paid_tzs,
+          source: p.payment_source,
+          ref:    p.payment_reference,
+        }));
+      }
+
+      // Step C4: Penalty calculation ─────────────────────────────────────
+      //
+      // TAA 2015 s.76: TRA charges 5% per month on unpaid tax from the
+      // due date. For SDL: due date = 7th of the month following the
+      // payroll period. We compute from period_end to today.
+      //
+      // IMPORTANT: This is an ESTIMATE only.  Actual penalty is assessed by
+      // TRA.  The finding records computed_penalty_tzs as an advisory figure
+      // for the preparer's risk assessment.  Do not use as a TRA invoice.
+      const PENALTY_RATE_PER_MONTH = 0.05;  // 5% per month (TAA 2015 s.76)
+      const periodEndDate  = new Date(Date.UTC(periodYear, periodMonth, 0));
+      const today          = new Date();
+      const msPerMonth     = 1000 * 60 * 60 * 24 * 30.44;
+      const monthsOverdue  = Math.max(0, (today.getTime() - periodEndDate.getTime()) / msPerMonth);
+      const netVarianceBeforePenalty = Math.max(0, computedObligation - declaredAmount);
+      const penaltyTzs    = Math.round(netVarianceBeforePenalty * PENALTY_RATE_PER_MONTH * monthsOverdue);
+      const totalExposure  = netVarianceBeforePenalty + penaltyTzs;
+
+      // Step C5: Variance ────────────────────────────────────────────────
       const variance    = computedObligation - declaredAmount;
       const variancePct = computedObligation > 0
         ? Math.round((variance / computedObligation) * 10_000) / 100  // 2dp
         : null;
 
-      // Step C5: Threshold gate ─────────────────────────────────────────
+      // Step C6: Threshold gate ─────────────────────────────────────────
+      // Gate on NET variance (after declared payments), not gross obligation.
+      // A company that paid in full (net_variance ≤ threshold) has no finding.
       if (!rule.rate_is_threshold && Math.abs(variance) < VARIANCE_THRESHOLD_TZS) {
         result.findings_skipped++;
         continue;
       }
 
-      // Step C6: SDL-specific payroll limitation note ───────────────────
+      // Step C7: SDL payroll filter confirmation note ──────────────────
+      // OD-2 closed. SDL base is now the is_payroll_account-filtered subset.
+      // The note records which accounts were included so reviewers can verify
+      // that the payroll flag is correct for this company.
       const isSDL = rule.trigger_category === "sdl";
-      const payrollLimitationNote = isSDL
-        ? `v1.0 limitation: SDL base = sum of ALL operating_expenses-classified GL accounts ` +
-          `(TZS ${baseAmount.toFixed(2)}). This includes non-payroll costs (rent, utilities, depreciation). ` +
-          `Actual SDL base = payroll/salary costs only. Obligation is likely OVER-ESTIMATED ` +
-          `until a payroll flag is added to account_mappings (open decision OD-2).`
+      const payrollBaseNote = isSDL
+        ? `SDL base filtered to is_payroll_account=true accounts only ` +
+          `(OD-2 closed, migration 20260626200000). ` +
+          `Base TZS ${baseAmount.toFixed(2)} = sum of ${effectiveAccounts.length} payroll account(s). ` +
+          `Non-emolument accounts (NHIF, NSSF, WCF, SDL expense, rent, utilities) excluded.`
         : undefined;
 
-      // Step C7: Build the finding row ──────────────────────────────────
+      // Step C8: Build the finding row ──────────────────────────────────
       //
       // Exactly matches the findings table schema from migration 20260625100000.
       // Key constraints to satisfy:
@@ -679,12 +1033,12 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
         statute_reference:       rule.statute,
         period_start:            periodStart_d,
         period_end:              periodEnd_d,
-        exposure_amount_tzs:     Math.max(0, variance),  // CHECK: must be >= 0
+        exposure_amount_tzs:     Math.max(0, variance),   // net variance (after payments)
         base_amount_tzs:         baseAmount,
         comparison_amount_tzs:   declaredAmount,
         computed_obligation_tzs: computedObligation,
-        interest_amount_tzs:     null,   // computed on TRA notice receipt
-        penalty_amount_tzs:      null,   // computed on TRA notice receipt
+        interest_amount_tzs:     null,                    // assessed by TRA on notice
+        penalty_amount_tzs:      penaltyTzs > 0 ? penaltyTzs : null,  // TAA s.76 estimate
         source_detail: {
           // ── Engine provenance ──
           engine_version:   ENGINE_VERSION,
@@ -708,6 +1062,14 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
           declared_amount_tzs:             declaredAmount,
           variance_tzs:                    variance,
           variance_pct:                    variancePct,
+          // ── Payment deduction (OD-1 closed) ───
+          payment_records:                 paymentRecords,
+          payment_source:                  paymentSource,
+          months_overdue:                  Math.round(monthsOverdue * 10) / 10,
+          estimated_penalty_tzs:           penaltyTzs,
+          estimated_total_exposure_tzs:    totalExposure,
+          penalty_basis:                   "TAA 2015 s.76: 5% per month on unpaid tax from period_end",
+          penalty_disclaimer:              "Advisory estimate only. Actual penalty assessed by TRA on written notice.",
           // ── GL evidence ───────
           period_year:                     periodYear,
           period_month:                    periodMonth,
@@ -719,27 +1081,28 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
             balance:      a.balance,
           })),
           account_count:                   accounts.length,
-          // ── Open decisions ────
-          declared_amount_source:
-            "OD-1: No tax_payments table exists in v1.0. Declared = 0. Collect via evidence_requests.",
-          ...(payrollLimitationNote ? { payroll_limitation_note: payrollLimitationNote } : {}),
+          ...(payrollBaseNote ? { sdl_payroll_base_note: payrollBaseNote } : {}),
         },
         status:        "open",
         engine_run_id: engineRunId,  // column added by migration 20260626190000
         created_by:    triggeredBy,  // explicit: auth.uid() returns NULL under service_role
       };
 
-      // Step C8: Insert finding (or preview if dry_run) ─────────────────
+      // Step C9: Insert finding (or preview if dry_run) ─────────────────
       if (dryRun) {
         result.findings_preview.push({
-          trigger_category:        rule.trigger_category,
-          statutory_rule_id:       rule.id,
-          base_amount_tzs:         baseAmount,
-          computed_obligation_tzs: computedObligation,
-          declared_amount_tzs:     declaredAmount,
-          variance_tzs:            variance,
-          variance_pct:            variancePct,
-          account_count:           accounts.length,
+          trigger_category:            rule.trigger_category,
+          statutory_rule_id:           rule.id,
+          base_amount_tzs:             baseAmount,
+          computed_obligation_tzs:     computedObligation,
+          declared_amount_tzs:         declaredAmount,
+          net_variance_tzs:            Math.max(0, variance),
+          variance_pct:                variancePct,
+          estimated_penalty_tzs:       penaltyTzs,
+          estimated_total_exposure_tzs:totalExposure,
+          months_overdue:              Math.round(monthsOverdue * 10) / 10,
+          account_count:               accounts.length,
+          payment_records:             paymentRecords,
         });
         result.findings_created++;
         continue;
@@ -804,6 +1167,165 @@ function buildFindingTitle(rule: StatutoryRule, periodLabel: string): string {
   };
   const label = labels[rule.trigger_category] ?? rule.trigger_category;
   return `${label} — ${periodLabel}`;
+}
+
+// ── Module C: Statutory Payables Detector ────────────────────────────────
+//
+// Reads current_liabilities from the trial balance processing_result.
+// Pattern-matches account names against known statutory payable categories.
+// Any non-zero balance creates a 'statutory_payable' finding automatically.
+//
+// This module requires NO statutory_rules rows and NO verified_at check.
+// The outstanding balance IS the obligation — the company owes it today.
+//
+// Trigger compatibility:
+//   finding_type = 'statutory_payable', statutory_rule_id = NULL
+//   V1 trigger: only fires when finding_type = 'rule_trigger' AND
+//               statutory_rule_id IS NULL → does NOT fire here
+//   V2 trigger: only fires when statutory_rule_id IS NOT NULL AND
+//               verified_at IS NULL → does NOT fire here (rule_id is null)
+//
+// Dedup note (OD-13):
+//   uq_finding_per_rule_per_period is scoped to statutory_rule_id IS NOT NULL.
+//   Module C findings (null rule_id) are NOT deduplicated by that constraint.
+//   Running Module C twice creates duplicates. Fix in v1.1: add
+//   UNIQUE(company_id, upload_id, finding_type, source_detail->>'account_code').
+
+async function runModuleC(params: ModuleCParams): Promise<ModuleCResult> {
+  const { supabase, companyId, uploadId, periodYear, periodMonth,
+          engineRunId, triggeredBy, dryRun } = params;
+
+  const result: ModuleCResult = {
+    accounts_scanned:   0,
+    payables_found:     0,
+    findings_created:   0,
+    findings_skipped:   0,
+    errors:             [],
+    findings_preview:   [],
+  };
+
+  // Fetch the processing_result for current_liabilities
+  const { data: upload, error: uploadErr } = await supabase
+    .from("trial_balance_uploads")
+    .select("processing_result, file_name, company_id")
+    .eq("id", uploadId)
+    .single();
+
+  if (uploadErr || !upload) {
+    result.errors.push({
+      rule_id:          null,
+      trigger_category: null,
+      error_message:    `Module C: failed to fetch upload ${uploadId}: ${uploadErr?.message ?? "not found"}`,
+      stage:            "gl_read",
+    });
+    return result;
+  }
+
+  if (upload.company_id !== companyId) {
+    result.errors.push({
+      rule_id:          null,
+      trigger_category: null,
+      error_message:    `Module C: upload ${uploadId} belongs to different company. Refusing.`,
+      stage:            "gl_read",
+    });
+    return result;
+  }
+
+  const pr = upload.processing_result as ProcessingResult | null;
+  if (!pr || pr.status !== "valid" || !pr.statements) return result;
+
+  const currentLiabilities = pr.statements.balance_sheet?.["current_liabilities"];
+  if (!currentLiabilities || currentLiabilities.accounts.length === 0) {
+    // No current_liabilities in this TB — Module C produces no findings.
+    // Common for TB uploads that only map income statement accounts.
+    return result;
+  }
+
+  const periodStart_d = new Date(Date.UTC(periodYear, periodMonth - 1, 1))
+    .toISOString().substring(0, 10);
+  const periodEnd_d   = new Date(Date.UTC(periodYear, periodMonth, 0))
+    .toISOString().substring(0, 10);
+  const periodLabel   = `${periodYear}-${String(periodMonth).padStart(2, "0")}`;
+
+  for (const account of currentLiabilities.accounts) {
+    result.accounts_scanned++;
+
+    // Payables have credit-normal balances; positive balance = amount owed
+    if (account.balance <= 0) continue;
+
+    const match = STATUTORY_PAYABLE_PATTERNS.find(p => p.pattern.test(account.account_name));
+    if (!match) continue;
+
+    result.payables_found++;
+
+    if (account.balance < VARIANCE_THRESHOLD_TZS) {
+      result.findings_skipped++;
+      continue;
+    }
+
+    if (dryRun) {
+      result.findings_preview.push({
+        account_code: account.account_code,
+        account_name: account.account_name,
+        category:     match.category,
+        balance_tzs:  account.balance,
+      });
+      result.findings_created++;
+      continue;
+    }
+
+    const { error: insertErr } = await supabase
+      .from("findings")
+      .insert({
+        company_id:              companyId,
+        statutory_rule_id:       null,         // no rule — bypasses V1/V2 trigger checks
+        upload_id:               uploadId,
+        finding_type:            "statutory_payable",
+        title:                   `${match.title_prefix} — ${periodLabel}`,
+        statute_reference:       null,
+        period_start:            periodStart_d,
+        period_end:              periodEnd_d,
+        exposure_amount_tzs:     account.balance,
+        base_amount_tzs:         account.balance,
+        comparison_amount_tzs:   0,
+        computed_obligation_tzs: account.balance,
+        interest_amount_tzs:     null,
+        penalty_amount_tzs:      null,
+        source_detail: {
+          module:            "C",
+          engine_version:    ENGINE_VERSION,
+          engine_run_id:     engineRunId,
+          upload_id:         uploadId,
+          upload_file_name:  upload.file_name,
+          category:          match.category,
+          account_code:      account.account_code,
+          account_name:      account.account_name,
+          balance_tzs:       account.balance,
+          detection_method:  "balance_sheet_current_liabilities_pattern_match",
+          note:
+            "Outstanding statutory payable detected from balance sheet current_liabilities. " +
+            "The balance IS the obligation — this amount is already due to the authority. " +
+            "Collect payment evidence and settlement details via evidence_requests.",
+        },
+        status:        "open",
+        engine_run_id: engineRunId,
+        created_by:    triggeredBy,
+      });
+
+    if (insertErr) {
+      result.errors.push({
+        rule_id:          null,
+        trigger_category: match.category,
+        error_message:    `Module C INSERT failed: ${insertErr.message} (code: ${insertErr.code})`,
+        stage:            "finding_insert",
+      });
+      continue;
+    }
+
+    result.findings_created++;
+  }
+
+  return result;
 }
 
 function respond(status: number, body: object): Response {

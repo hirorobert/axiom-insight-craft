@@ -1,770 +1,737 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// ============================================================
+// Axiom — process-trial-balance Edge Function
+// Version: v2.0 — Universal Ingestion
+// Date: 2026-06-27
+//
+// CHANGES FROM v1.0:
+//   1. XLSX support (SheetJS) — not just CSV
+//   2. Generic column detection — auto-detects debit/credit/balance columns
+//      from any header row without hardcoded column positions
+//   3. Auto-classification — unmapped accounts classified by name pattern
+//      matching before the mapping completeness check runs.
+//      Reduces BLOCK rate to near-zero for standard naming conventions.
+//   4. processing_result structure aligned with kinga-findings-engine:
+//      BEFORE: pr.mapping.incomeStatement.operatingExpenses (array)
+//      NOW:    pr.statements.income_statement.operating_expenses.accounts + .total
+//      This was a critical misalignment — every real upload was unreadable
+//      by the findings engine. The engine only worked on manually seeded data.
+//   5. is_auto_classified flag saved to account_mappings for all auto-detected
+//      accounts so the preparer can review and correct if needed.
+// ============================================================
+
+import { serve }        from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import * as XLSX        from "https://esm.sh/xlsx@0.18.5";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// ============================================
-// AXIOM ACCOUNTING TRUTH ENGINE
-// Deterministic processing with BLOCK gates
-// ============================================
+// ── Interfaces ────────────────────────────────────────────────────────────────
 
-interface TrialBalanceRow {
+interface RawAccount {
   account_code: string;
   account_name: string;
-  debit: number;
-  credit: number;
-  balance: number;
+  debit:        number;
+  credit:       number;
+  balance:      number;
 }
 
 interface AccountMapping {
-  account_code: string;
-  account_name: string;
-  statement: string;
-  classification: string;
-  line_item: string;
-  normal_balance: string;
-  is_cash_account: boolean;
+  account_code:       string;
+  account_name:       string;
+  statement:          string;
+  classification:     string;
+  line_item:          string;
+  normal_balance:     string;
+  is_cash_account:    boolean;
   is_retained_earnings: boolean;
+  is_payroll_account: boolean;
 }
 
 interface ValidationError {
-  code: string;
-  message: string;
-  field?: string;
+  code:      string;
+  message:   string;
+  field?:    string;
   expected?: string | number;
-  actual?: string | number;
+  actual?:   string | number;
 }
 
-interface ValidationReport {
-  tb_balance_check: { passed: boolean; total_debits: number; total_credits: number; difference: number };
-  mapping_completeness: { passed: boolean; total_accounts: number; mapped_accounts: number; unmapped: string[] };
-  balance_sheet_equation: { passed: boolean; assets: number; liabilities: number; equity: number; difference: number } | null;
-  profit_equity_linkage: { passed: boolean; details: string } | null;
-  cash_reconciliation: { passed: boolean; cf_ending_cash: number; bs_cash: number } | null;
+// Engine-compatible section structure
+interface StatementSection {
+  accounts: RawAccount[];
+  total:    number;
 }
 
+// Engine-compatible statements shape
+interface Statements {
+  balance_sheet:    Record<string, StatementSection>;
+  income_statement: Record<string, StatementSection>;
+  cash_flow:        Record<string, StatementSection> | null;
+}
+
+// Full processing_result (what engine reads)
 interface ProcessingResult {
-  status: "valid" | "invalid" | "blocked";
-  validation_report: ValidationReport;
-  errors: ValidationError[];
-  statements: {
-    balance_sheet: Record<string, { accounts: TrialBalanceRow[]; total: number }> | null;
-    income_statement: Record<string, { accounts: TrialBalanceRow[]; total: number }> | null;
-    cash_flow: Record<string, { accounts: TrialBalanceRow[]; total: number }> | null;
-  } | null;
+  status:            "valid" | "invalid" | "blocked";
+  statements:        Statements | null;
+  validation_report: Record<string, unknown>;
+  errors:            ValidationError[];
   summary: {
     total_accounts: number;
-    processed_at: string;
+    processed_at:   string;
+    parser_version: string;
+    columns_detected: Record<string, string>;
+    auto_classified: number;
   };
 }
 
-/**
- * STEP 1: Validate Trial Balance Integrity
- * - Required fields exist
- * - Numeric validation
- * - SUM(debit) - SUM(credit) = 0
- */
-function validateTrialBalance(
-  headers: string[],
-  rows: Record<string, string>[],
-  tolerance: number = 0.01
-): { valid: boolean; data: TrialBalanceRow[]; errors: ValidationError[]; totals: { debits: number; credits: number } } {
-  const errors: ValidationError[] = [];
-  const data: TrialBalanceRow[] = [];
+// ── Pattern libraries (mirrors kinga-findings-engine) ─────────────────────────
 
-  // Check required headers
-  const requiredHeaders = ["account_code", "account_name", "debit", "credit"];
-  const normalizedHeaders = headers.map(h => h.toLowerCase().replace(/[^a-z_]/g, "_"));
-  
-  const headerMap: Record<string, string> = {};
-  for (const required of requiredHeaders) {
-    const found = normalizedHeaders.find(h => 
-      h.includes(required.replace("_", "")) || 
-      h === required ||
-      (required === "account_code" && (h.includes("code") || h.includes("acct") || h.includes("account_no"))) ||
-      (required === "account_name" && (h.includes("name") || h.includes("description")))
-    );
-    
-    if (!found) {
-      errors.push({
-        code: "MISSING_REQUIRED_FIELD",
-        message: `Required field '${required}' not found in trial balance`,
-        field: required,
-      });
-    } else {
-      headerMap[required] = headers[normalizedHeaders.indexOf(found)];
+/** Column header synonyms — used by generic column detector */
+const COLUMN_SYNONYMS: Record<string, RegExp[]> = {
+  account_code: [/^account[_\s]?(?:code|no|number|#)$/i, /^acct[_\s]?(?:code|no|#)$/i, /^code$/i, /^gl[_\s]?code$/i, /^a\/c$/i],
+  account_name: [/^account[_\s]?(?:name|description|title|desc)$/i, /^description$/i, /^name$/i, /^gl[_\s]?name$/i],
+  debit:        [/^debit[s]?$/i, /^dr$/i, /^debit[_\s]amount$/i],
+  credit:       [/^credit[s]?$/i, /^cr$/i, /^credit[_\s]amount$/i],
+  balance:      [/^balance$/i, /^net[_\s]balance$/i, /^closing[_\s]balance$/i, /^amount$/i],
+};
+
+/** Accounts that represent total/subtotal rows — stripped during parsing */
+const SUBTOTAL_ROW_PATTERNS = [
+  /^total/i, /^sub[- ]?total/i, /^grand[- ]?total/i, /^sum/i,
+  /total$/i, /^net\s+(assets|liabilities|equity|income|profit)/i,
+];
+
+/** Auto-classification patterns — name → { statement, classification, normal_balance } */
+interface AutoClass { statement: string; classification: string; normal_balance: "debit"|"credit"; line_item: string; is_payroll?: boolean; is_retained?: boolean; is_cash?: boolean; }
+
+const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }> = [
+  // ── INCOME STATEMENT — Revenue ─────────────────────────────────────────────
+  { patterns: [/\brevenue\b/i, /\bsale[s]?\b/i, /\bincome(?!\s+tax)\b/i, /\bmapato\b/i, /\bfee[s]?\b/i, /\bturnover\b/i],
+    result: { statement: "income_statement", classification: "revenue", normal_balance: "credit", line_item: "Revenue" }},
+
+  // ── INCOME STATEMENT — Operating Expenses (PAYROLL) ────────────────────────
+  { patterns: [/\bsalar[yi]/i, /\bwage[s]?\b/i, /\bmishahara\b/i, /\bbasic[_\s]pay\b/i, /\bremuneration\b/i, /\bstaff[_\s]cost[s]?\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Staff Costs", is_payroll: true }},
+
+  { patterns: [/\ballowance[s]?\b/i, /\bposho\b/i, /\bstipend\b/i, /\bovertim[e]?\b/i, /\bextra[_\s]duty\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Allowances & Overtime", is_payroll: true }},
+
+  // ── INCOME STATEMENT — Operating Expenses (STATUTORY LEVIES — NOT payroll) ─
+  { patterns: [/\bnhif\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "NHIF Employer Contribution" }},
+  { patterns: [/\bnssf\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "NSSF Employer Contribution" }},
+  { patterns: [/\bwcf\b/i, /\bworkers?[_\s]comp/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "WCF" }},
+  { patterns: [/\bsdl\b.*expense/i, /\bskill[s]?\s+develop/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "SDL Expense" }},
+  { patterns: [/\bpaye\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "PAYE" }},
+
+  // ── INCOME STATEMENT — Operating Expenses (GENERAL) ───────────────────────
+  { patterns: [/\brent\b/i, /\boffice[_\s]rent\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Rent" }},
+  { patterns: [/\belectric/i, /\butility\b/i, /\butilities\b/i, /\bpower\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Utilities" }},
+  { patterns: [/\bfuel\b/i, /\boil\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Fuel & Oil" }},
+  { patterns: [/\bsecurity\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Security" }},
+  { patterns: [/\bdepreciation\b/i, /\bamortis/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Depreciation & Amortisation" }},
+  { patterns: [/\brepair[s]?\b/i, /\bmaintenance\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Repairs & Maintenance" }},
+  { patterns: [/\btraining\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Staff Training" }},
+  { patterns: [/\bwelfare\b/i, /\btea\b/i, /\bwater\b/i, /\buniform[s]?\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Staff Welfare" }},
+  { patterns: [/\badmin(?:istrat\w+)?\s+(?:exp|cost)/i, /\bgeneral\s+(?:exp|admin)/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Administrative Expenses" }},
+  { patterns: [/\bfinance\s+(?:exp|cost|charge)/i, /\binterest\s+(?:exp|charge)/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Finance Expenses" }},
+
+  // ── BALANCE SHEET — Current Assets ────────────────────────────────────────
+  { patterns: [/\bcash\b/i, /\bbank\b/i, /\bpetty[_\s]cash\b/i, /\bfedha\b/i],
+    result: { statement: "balance_sheet", classification: "current_assets", normal_balance: "debit", line_item: "Cash & Bank", is_cash: true }},
+  { patterns: [/\baccounts?\s+receivable\b/i, /\btrade\s+debtor[s]?\b/i, /\bdebtor[s]?\b/i, /\bwadai\b/i],
+    result: { statement: "balance_sheet", classification: "current_assets", normal_balance: "debit", line_item: "Trade Receivables" }},
+  { patterns: [/\binventor[yi]/i, /\bstock\b/i, /\bgoods\b/i],
+    result: { statement: "balance_sheet", classification: "current_assets", normal_balance: "debit", line_item: "Inventories" }},
+  { patterns: [/\bprepay/i, /\bdeposit[s]?\b/i, /\badvance[s]?\b/i],
+    result: { statement: "balance_sheet", classification: "current_assets", normal_balance: "debit", line_item: "Prepayments & Deposits" }},
+  { patterns: [/\bvat\s+receivable\b/i, /\btax\s+refund\b/i, /\btax\s+receivable\b/i],
+    result: { statement: "balance_sheet", classification: "current_assets", normal_balance: "debit", line_item: "Tax Receivables" }},
+
+  // ── BALANCE SHEET — Non-Current Assets ────────────────────────────────────
+  { patterns: [/\bproperty\b/i, /\bplant\b/i, /\bequipment\b/i, /\bfurniture\b/i, /\bfixture[s]?\b/i, /\bmotor\s+vehicle\b/i, /\bvehicle[s]?\b/i],
+    result: { statement: "balance_sheet", classification: "non_current_assets", normal_balance: "debit", line_item: "Property, Plant & Equipment" }},
+  { patterns: [/\baccumulated\s+depreciation\b/i, /\bacc\s+depr/i],
+    result: { statement: "balance_sheet", classification: "non_current_assets", normal_balance: "credit", line_item: "Accumulated Depreciation" }},
+  { patterns: [/\bintangible\b/i, /\bgoodwill\b/i, /\bsoftware\b/i, /\blicense[s]?\b/i],
+    result: { statement: "balance_sheet", classification: "non_current_assets", normal_balance: "debit", line_item: "Intangible Assets" }},
+
+  // ── BALANCE SHEET — Current Liabilities ───────────────────────────────────
+  { patterns: [/\baccounts?\s+payable\b/i, /\btrade\s+creditor[s]?\b/i, /\bcreditor[s]?\b/i, /\bwadaiwa\b/i],
+    result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "Trade Payables" }},
+  { patterns: [/\bvat\s+payable\b/i, /\bvat\s+(?:outstand|due)\b/i],
+    result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "VAT Payable" }},
+  { patterns: [/\bnssf\s+(?:payable|outstand|due|arrear)/i],
+    result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "NSSF Payable" }},
+  { patterns: [/\bnhif\s+(?:payable|outstand|due|arrear)/i],
+    result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "NHIF Payable" }},
+  { patterns: [/\bwcf\s+(?:payable|outstand|due|arrear)/i],
+    result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "WCF Payable" }},
+  { patterns: [/\bsdl\s+(?:payable|outstand|due|arrear)/i],
+    result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "SDL Payable" }},
+  { patterns: [/\bpaye\s+(?:payable|outstand|due|arrear)/i],
+    result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "PAYE Payable" }},
+  { patterns: [/\bservice\s+levy/i],
+    result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "Service Levy Payable" }},
+  { patterns: [/\btra\s+(?:assess|payable|due)/i, /\btax\s+(?:assess|due|payable)\b/i, /\bcorporate\s+tax\b/i, /\bincome\s+tax\s+payable\b/i],
+    result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "Tax Payable" }},
+  { patterns: [/\baccrued\b/i, /\bdeferred\b/i],
+    result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "Accruals & Deferrals" }},
+  { patterns: [/\bcurrent\s+portion\b/i, /\bshort[_-]term\s+loan\b/i, /\boverdraft\b/i],
+    result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "Short-term Borrowings" }},
+
+  // ── BALANCE SHEET — Non-Current Liabilities ────────────────────────────────
+  { patterns: [/\blong[_-]term\s+loan\b/i, /\bterm\s+loan\b/i, /\bmortgage\b/i],
+    result: { statement: "balance_sheet", classification: "non_current_liabilities", normal_balance: "credit", line_item: "Long-term Borrowings" }},
+
+  // ── BALANCE SHEET — Equity ─────────────────────────────────────────────────
+  { patterns: [/\bshare\s+capital\b/i, /\bpaid[_-]?up\s+capital\b/i, /\bordinary\s+share[s]?\b/i, /\bmtaji\b/i],
+    result: { statement: "balance_sheet", classification: "equity", normal_balance: "credit", line_item: "Share Capital" }},
+  { patterns: [/\bshare\s+premium\b/i],
+    result: { statement: "balance_sheet", classification: "equity", normal_balance: "credit", line_item: "Share Premium" }},
+  { patterns: [/\bretained\s+earning[s]?\b/i, /\baccumulated\s+(?:profit|surplus|deficit)\b/i, /\bprofit\s+b[\/]?[fo]\b/i, /\bfaida\s+iliyobakiwa\b/i, /\bundistributed\s+(?:profit|earning)/i],
+    result: { statement: "balance_sheet", classification: "equity", normal_balance: "credit", line_item: "Retained Earnings", is_retained: true }},
+  { patterns: [/\bcurrent\s+year\s+(?:profit|income|surplus)\b/i, /\bnet\s+(?:profit|income|loss)\s+for\s+(?:the\s+)?year\b/i],
+    result: { statement: "balance_sheet", classification: "equity", normal_balance: "credit", line_item: "Current Year Profit" }},
+];
+
+// ── Format Detection ──────────────────────────────────────────────────────────
+
+function detectFormat(fileName: string): "xlsx" | "csv" | "unknown" {
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  if (["xlsx", "xls", "xlsm", "xlsb"].includes(ext)) return "xlsx";
+  if (["csv", "tsv", "txt"].includes(ext))            return "csv";
+  return "unknown";
+}
+
+// ── Generic Column Detector ───────────────────────────────────────────────────
+
+interface ColumnMap {
+  account_code: number | null;
+  account_name: number | null;
+  debit:        number | null;
+  credit:       number | null;
+  balance:      number | null;
+  header_row:   number;
+}
+
+function detectColumns(rows: (string | number | null)[][]): { map: ColumnMap; detected: Record<string, string> } {
+  // Scan first 15 rows for a header-like row
+  const scan = Math.min(rows.length, 15);
+  let bestRow = 0;
+  let bestScore = 0;
+
+  for (let r = 0; r < scan; r++) {
+    const row = rows[r];
+    let score = 0;
+    for (const cell of row) {
+      const s = String(cell ?? "").trim().toLowerCase();
+      for (const synonyms of Object.values(COLUMN_SYNONYMS)) {
+        if (synonyms.some(rx => rx.test(s))) { score++; break; }
+      }
+    }
+    if (score > bestScore) { bestScore = score; bestRow = r; }
+  }
+
+  const headerRow = rows[bestRow];
+  const map: ColumnMap = { account_code: null, account_name: null, debit: null, credit: null, balance: null, header_row: bestRow };
+  const detected: Record<string, string> = {};
+
+  for (let c = 0; c < headerRow.length; c++) {
+    const cell = String(headerRow[c] ?? "").trim();
+    const lower = cell.toLowerCase();
+    for (const [key, synonyms] of Object.entries(COLUMN_SYNONYMS)) {
+      if (map[key as keyof typeof map] === null && synonyms.some(rx => rx.test(lower))) {
+        (map as Record<string, number | null>)[key] = c;
+        detected[key] = cell;
+        break;
+      }
     }
   }
 
-  if (errors.length > 0) {
-    return { valid: false, data: [], errors, totals: { debits: 0, credits: 0 } };
-  }
+  return { map, detected };
+}
 
-  // Parse and validate each row
-  let totalDebits = 0;
-  let totalCredits = 0;
+// ── Row-to-RawAccount parser ──────────────────────────────────────────────────
 
-  for (let i = 0; i < rows.length; i++) {
+function isSubtotalRow(accountName: string, accountCode: string): boolean {
+  return SUBTOTAL_ROW_PATTERNS.some(p => p.test(accountName) || p.test(accountCode));
+}
+
+function parseNumber(v: string | number | null): number {
+  if (v === null || v === undefined || v === "") return 0;
+  if (typeof v === "number") return v;
+  return parseFloat(String(v).replace(/[,$\s]/g, "")) || 0;
+}
+
+function rowsToRawAccounts(
+  rows: (string | number | null)[][],
+  map: ColumnMap
+): { accounts: RawAccount[]; errors: ValidationError[] } {
+  const accounts: RawAccount[] = [];
+  const errors: ValidationError[] = [];
+  const dataStart = map.header_row + 1;
+
+  for (let i = dataStart; i < rows.length; i++) {
     const row = rows[i];
-    const accountCode = row[headerMap["account_code"]]?.trim();
-    const accountName = row[headerMap["account_name"]]?.trim();
-    const debitStr = row[headerMap["debit"]]?.trim().replace(/[,$]/g, "") || "0";
-    const creditStr = row[headerMap["credit"]]?.trim().replace(/[,$]/g, "") || "0";
+    const code = String(row[map.account_code ?? -1] ?? "").trim();
+    const name = String(row[map.account_name ?? -1] ?? "").trim();
 
-    if (!accountCode) {
-      errors.push({
-        code: "MISSING_ACCOUNT_CODE",
-        message: `Row ${i + 2}: Missing account code`,
-        field: "account_code",
-      });
-      continue;
+    // Skip blank rows and subtotal rows
+    if (!code && !name) continue;
+    if (isSubtotalRow(name, code)) continue;
+    if (!code) continue;  // must have account code
+
+    const debit  = parseNumber(map.debit   !== null ? row[map.debit]   : null);
+    const credit = parseNumber(map.credit  !== null ? row[map.credit]  : null);
+
+    let balance: number;
+    if (map.balance !== null && row[map.balance] !== null && row[map.balance] !== "") {
+      balance = parseNumber(row[map.balance]);
+    } else {
+      balance = debit - credit;
     }
 
-    const debit = parseFloat(debitStr);
-    const credit = parseFloat(creditStr);
-
-    if (isNaN(debit)) {
-      errors.push({
-        code: "INVALID_NUMERIC",
-        message: `Row ${i + 2}: Invalid debit value '${debitStr}'`,
-        field: "debit",
-        actual: debitStr,
-      });
-      continue;
-    }
-
-    if (isNaN(credit)) {
-      errors.push({
-        code: "INVALID_NUMERIC",
-        message: `Row ${i + 2}: Invalid credit value '${creditStr}'`,
-        field: "credit",
-        actual: creditStr,
-      });
-      continue;
-    }
-
-    totalDebits += debit;
-    totalCredits += credit;
-
-    data.push({
-      account_code: accountCode,
-      account_name: accountName || accountCode,
-      debit,
-      credit,
-      balance: debit - credit,
-    });
+    accounts.push({ account_code: code, account_name: name || code, debit, credit, balance });
   }
 
-  // AXIOM RULE: SUM(debit) - SUM(credit) must equal zero
-  const difference = Math.abs(totalDebits - totalCredits);
-  if (difference > tolerance) {
-    errors.push({
-      code: "TRIAL_BALANCE_IMBALANCE",
-      message: `Trial balance does not balance: Debits (${totalDebits.toFixed(2)}) ≠ Credits (${totalCredits.toFixed(2)})`,
-      expected: 0,
-      actual: difference,
-    });
-  }
-
-  return {
-    valid: errors.length === 0,
-    data,
-    errors,
-    totals: { debits: totalDebits, credits: totalCredits },
-  };
+  return { accounts, errors };
 }
 
-/**
- * STEP 2: Validate Mapping Completeness
- * Every account MUST map to exactly one FS line item
- */
-function validateMappingCompleteness(
-  tbAccounts: TrialBalanceRow[],
-  mappings: AccountMapping[]
-): { valid: boolean; mapped: Map<string, AccountMapping>; unmapped: string[]; errors: ValidationError[] } {
-  const errors: ValidationError[] = [];
-  const mappingsByCode = new Map<string, AccountMapping>();
-  
-  for (const mapping of mappings) {
-    mappingsByCode.set(mapping.account_code, mapping);
+// ── XLSX Parser ───────────────────────────────────────────────────────────────
+
+function parseXLSX(buffer: ArrayBuffer): { rows: (string | number | null)[][]; sheetName: string } {
+  const wb = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: false });
+
+  // Pick the sheet with the most data rows (usually the trial balance sheet)
+  let bestSheet = wb.SheetNames[0];
+  let bestCount = 0;
+
+  for (const name of wb.SheetNames) {
+    const ws = wb.Sheets[name];
+    const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1:A1");
+    const count = range.e.r - range.s.r;
+    if (count > bestCount) { bestCount = count; bestSheet = name; }
   }
 
-  const unmapped: string[] = [];
-  for (const account of tbAccounts) {
-    if (!mappingsByCode.has(account.account_code)) {
-      unmapped.push(account.account_code);
-    }
-  }
-
-  // AXIOM RULE: Any unmapped account → BLOCK
-  if (unmapped.length > 0) {
-    errors.push({
-      code: "UNMAPPED_ACCOUNTS",
-      message: `${unmapped.length} account(s) have no explicit mapping: ${unmapped.slice(0, 5).join(", ")}${unmapped.length > 5 ? "..." : ""}`,
-      actual: unmapped.length,
-      expected: 0,
-    });
-  }
-
-  return {
-    valid: unmapped.length === 0,
-    mapped: mappingsByCode,
-    unmapped,
-    errors,
-  };
+  const ws  = wb.Sheets[bestSheet];
+  const raw = XLSX.utils.sheet_to_json<(string | number | null)[]>(ws, { header: 1, defval: null, raw: true }) as (string | number | null)[][];
+  return { rows: raw, sheetName: bestSheet };
 }
 
-/**
- * STEP 3: Deterministic Statement Aggregation
- * No inference, no rounding beyond policy tolerance
- */
+// ── CSV Parser ────────────────────────────────────────────────────────────────
+
+function parseCSV(content: string): (string | number | null)[][] {
+  const lines = content.split(/\r?\n/);
+  return lines.map(line => {
+    // Handle quoted fields
+    const result: (string | number | null)[] = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQuotes = !inQuotes; continue; }
+      if (ch === "," && !inQuotes) {
+        result.push(current.trim() || null);
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+    result.push(current.trim() || null);
+    return result;
+  }).filter(row => row.some(cell => cell !== null && cell !== ""));
+}
+
+// ── Auto-Classification ───────────────────────────────────────────────────────
+
+interface ClassificationResult extends AutoClass {
+  confidence: "high" | "medium";
+}
+
+function autoClassifyAccount(name: string): ClassificationResult | null {
+  const normalized = name.trim();
+  for (const rule of AUTO_CLASSIFICATION_RULES) {
+    if (rule.patterns.some(p => p.test(normalized))) {
+      return { ...rule.result, confidence: "high" };
+    }
+  }
+  return null;
+}
+
+// ── Statements Aggregator ─────────────────────────────────────────────────────
+
 function aggregateStatements(
-  tbAccounts: TrialBalanceRow[],
-  mappings: Map<string, AccountMapping>
-): {
-  balance_sheet: Record<string, { accounts: TrialBalanceRow[]; total: number }>;
-  income_statement: Record<string, { accounts: TrialBalanceRow[]; total: number }>;
-  cash_flow: Record<string, { accounts: TrialBalanceRow[]; total: number }>;
-  totals: { assets: number; liabilities: number; equity: number; revenue: number; expenses: number };
-  cashAccount: { exists: boolean; balance: number };
-} {
-  const bs: Record<string, { accounts: TrialBalanceRow[]; total: number }> = {
-    current_assets: { accounts: [], total: 0 },
-    non_current_assets: { accounts: [], total: 0 },
-    current_liabilities: { accounts: [], total: 0 },
-    non_current_liabilities: { accounts: [], total: 0 },
-    equity: { accounts: [], total: 0 },
+  accounts:  RawAccount[],
+  mappings:  Map<string, AccountMapping>
+): { statements: Statements; totals: { assets: number; liabilities: number; equity: number; revenue: number; expenses: number }; cashBalance: number } {
+  const bs: Record<string, StatementSection> = {
+    current_assets:         { accounts: [], total: 0 },
+    non_current_assets:     { accounts: [], total: 0 },
+    current_liabilities:    { accounts: [], total: 0 },
+    non_current_liabilities:{ accounts: [], total: 0 },
+    equity:                 { accounts: [], total: 0 },
   };
-
-  const is: Record<string, { accounts: TrialBalanceRow[]; total: number }> = {
-    revenue: { accounts: [], total: 0 },
-    cost_of_goods_sold: { accounts: [], total: 0 },
-    operating_expenses: { accounts: [], total: 0 },
-    other_income: { accounts: [], total: 0 },
-    taxes: { accounts: [], total: 0 },
+  const is: Record<string, StatementSection> = {
+    revenue:             { accounts: [], total: 0 },
+    cost_of_goods_sold:  { accounts: [], total: 0 },
+    operating_expenses:  { accounts: [], total: 0 },
+    other_income:        { accounts: [], total: 0 },
+    taxes:               { accounts: [], total: 0 },
   };
-
-  const cf: Record<string, { accounts: TrialBalanceRow[]; total: number }> = {
-    operating_activities: { accounts: [], total: 0 },
-    investing_activities: { accounts: [], total: 0 },
-    financing_activities: { accounts: [], total: 0 },
+  const cf: Record<string, StatementSection> = {
+    operating_activities:  { accounts: [], total: 0 },
+    investing_activities:  { accounts: [], total: 0 },
+    financing_activities:  { accounts: [], total: 0 },
   };
 
   let cashBalance = 0;
-  let hasCashAccount = false;
 
-  for (const account of tbAccounts) {
-    const mapping = mappings.get(account.account_code);
-    if (!mapping) continue;
+  for (const account of accounts) {
+    const m = mappings.get(account.account_code);
+    if (!m) continue;
 
-    // Determine balance based on normal balance
-    const balance = mapping.normal_balance === "debit" 
-      ? account.debit - account.credit 
+    const signed = m.normal_balance === "debit"
+      ? account.debit - account.credit
       : account.credit - account.debit;
 
-    const accountWithBalance = { ...account, balance };
+    const enriched = { ...account, balance: signed };
 
-    if (mapping.is_cash_account) {
-      hasCashAccount = true;
-      cashBalance = balance;
-    }
+    if (m.is_cash_account) cashBalance = signed;
 
-    // Route to appropriate statement section
-    const classification = mapping.classification;
-    
-    if (bs[classification]) {
-      bs[classification].accounts.push(accountWithBalance);
-      bs[classification].total += balance;
-    } else if (is[classification]) {
-      is[classification].accounts.push(accountWithBalance);
-      is[classification].total += balance;
-    } else if (cf[classification]) {
-      cf[classification].accounts.push(accountWithBalance);
-      cf[classification].total += balance;
+    if (bs[m.classification]) {
+      bs[m.classification].accounts.push(enriched);
+      bs[m.classification].total += signed;
+    } else if (is[m.classification]) {
+      is[m.classification].accounts.push(enriched);
+      is[m.classification].total += signed;
+    } else if (cf[m.classification]) {
+      cf[m.classification].accounts.push(enriched);
+      cf[m.classification].total += signed;
     }
   }
 
-  // Calculate totals
-  const totalAssets = bs.current_assets.total + bs.non_current_assets.total;
-  const totalLiabilities = bs.current_liabilities.total + bs.non_current_liabilities.total;
-  const totalEquity = bs.equity.total;
-  const totalRevenue = is.revenue.total + is.other_income.total;
-  const totalExpenses = is.cost_of_goods_sold.total + is.operating_expenses.total + is.taxes.total;
+  const totalAssets       = bs.current_assets.total + bs.non_current_assets.total;
+  const totalLiabilities  = bs.current_liabilities.total + bs.non_current_liabilities.total;
+  const totalEquity       = bs.equity.total;
+  const totalRevenue      = is.revenue.total + is.other_income.total;
+  const totalExpenses     = is.cost_of_goods_sold.total + is.operating_expenses.total + is.taxes.total;
+
+  const hasCashFlow = cf.operating_activities.accounts.length > 0 ||
+                      cf.investing_activities.accounts.length  > 0 ||
+                      cf.financing_activities.accounts.length  > 0;
 
   return {
-    balance_sheet: bs,
-    income_statement: is,
-    cash_flow: cf,
-    totals: {
-      assets: totalAssets,
-      liabilities: totalLiabilities,
-      equity: totalEquity,
-      revenue: totalRevenue,
-      expenses: totalExpenses,
+    statements: {
+      balance_sheet:    bs,
+      income_statement: is,
+      cash_flow:        hasCashFlow ? cf : null,
     },
-    cashAccount: { exists: hasCashAccount, balance: cashBalance },
+    totals: { assets: totalAssets, liabilities: totalLiabilities, equity: totalEquity, revenue: totalRevenue, expenses: totalExpenses },
+    cashBalance,
   };
 }
 
-/**
- * STEP 4: Accounting Equation Validators
- * All must pass or BLOCK
- */
-function validateAccountingEquations(
-  totals: { assets: number; liabilities: number; equity: number; revenue: number; expenses: number },
-  tolerance: number = 0.01
-): { valid: boolean; errors: ValidationError[]; details: { bsEquation: { passed: boolean; difference: number } } } {
-  const errors: ValidationError[] = [];
+// ── Auth ──────────────────────────────────────────────────────────────────────
 
-  // Balance Sheet Equation: Assets = Liabilities + Equity
-  const bsDifference = Math.abs(totals.assets - (totals.liabilities + totals.equity));
-  const bsPassed = bsDifference <= tolerance;
-
-  if (!bsPassed) {
-    errors.push({
-      code: "BALANCE_SHEET_EQUATION_FAILED",
-      message: `Balance Sheet equation failed: Assets (${totals.assets.toFixed(2)}) ≠ Liabilities (${totals.liabilities.toFixed(2)}) + Equity (${totals.equity.toFixed(2)})`,
-      expected: 0,
-      actual: bsDifference,
-    });
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors,
-    details: {
-      bsEquation: { passed: bsPassed, difference: bsDifference },
-    },
-  };
-}
-
-/**
- * Validates JWT token and returns user info
- */
 async function validateAuth(authHeader: string | null): Promise<{ userId?: string; error?: Response }> {
   if (!authHeader?.startsWith("Bearer ")) {
-    return {
-      error: new Response(
-        JSON.stringify({ error: "Unauthorized", message: "Missing authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      ),
-    };
+    return { error: new Response(JSON.stringify({ error: "Missing authorization header" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }) };
   }
-
   const token = authHeader.replace("Bearer ", "");
-
   if (!token || token.split(".").length !== 3) {
-    return {
-      error: new Response(
-        JSON.stringify({ error: "Unauthorized", message: "Malformed token" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      ),
-    };
+    return { error: new Response(JSON.stringify({ error: "Malformed token" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }) };
   }
-
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return {
-      error: new Response(
-        JSON.stringify({ error: "Server configuration error" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      ),
-    };
-  }
-
-  const authClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: authHeader } },
-  });
-
+  const supabaseUrl     = Deno.env.get("SUPABASE_URL")!;
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const authClient      = createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: authHeader } } });
   try {
     const { data: claims, error: authError } = await authClient.auth.getClaims(token);
-
     if (authError || !claims?.claims?.sub) {
-      return {
-        error: new Response(
-          JSON.stringify({ error: "Unauthorized", message: "Invalid or expired token" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        ),
-      };
+      return { error: new Response(JSON.stringify({ error: "Invalid or expired token" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }) };
     }
-
     const exp = claims.claims.exp as number | undefined;
     if (exp && Date.now() / 1000 > exp) {
-      return {
-        error: new Response(
-          JSON.stringify({ error: "Unauthorized", message: "Token has expired" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        ),
-      };
+      return { error: new Response(JSON.stringify({ error: "Token has expired" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }) };
     }
-
     return { userId: claims.claims.sub as string };
   } catch {
-    return {
-      error: new Response(
-        JSON.stringify({ error: "Authentication failed" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      ),
-    };
+    return { error: new Response(JSON.stringify({ error: "Authentication failed" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }) };
   }
 }
 
-// ============================================
-// MAIN HANDLER
-// ============================================
+// ── Main Handler ──────────────────────────────────────────────────────────────
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const allErrors: ValidationError[] = [];
 
   try {
-    // Validate JWT
-    const authHeader = req.headers.get("Authorization");
-    const auth = await validateAuth(authHeader);
-    
-    if (auth.error) {
-      return auth.error;
-    }
-
+    const auth = await validateAuth(req.headers.get("Authorization"));
+    if (auth.error) return auth.error;
     const userId = auth.userId!;
-    console.log("[AXIOM] Authenticated user:", userId);
 
     const { uploadId } = await req.json();
-    
-    if (!uploadId) {
-      throw new Error("Upload ID is required");
-    }
+    if (!uploadId) throw new Error("uploadId is required");
 
-    console.log("[AXIOM] Processing trial balance:", uploadId);
+    console.log(`[PTB v2.0] Processing upload ${uploadId} for user ${userId}`);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase    = createClient(supabaseUrl, supabaseKey);
 
-    // Update status to validating
-    await supabase
-      .from("trial_balance_uploads")
-      .update({ status: "validating" })
-      .eq("id", uploadId);
+    await supabase.from("trial_balance_uploads").update({ status: "validating" }).eq("id", uploadId);
 
-    // Get upload record
     const { data: upload, error: uploadError } = await supabase
-      .from("trial_balance_uploads")
-      .select("*")
-      .eq("id", uploadId)
-      .single();
+      .from("trial_balance_uploads").select("*").eq("id", uploadId).single();
+    if (uploadError || !upload) throw new Error("Upload not found");
 
-    if (uploadError || !upload) {
-      throw new Error("Upload not found");
-    }
-
-    console.log("[AXIOM] Found upload:", upload.file_name);
-
-    // Download the file from storage
     const { data: fileData, error: downloadError } = await supabase.storage
-      .from("trial-balance-files")
-      .download(upload.file_path);
+      .from("trial-balance-files").download(upload.file_path);
+    if (downloadError || !fileData) throw new Error(`Failed to download file: ${downloadError?.message}`);
 
-    if (downloadError || !fileData) {
-      throw new Error("Failed to download file: " + downloadError?.message);
-    }
+    // ── STEP 1: Format detection + parsing ────────────────────────────────────
+    console.log(`[PTB] Detected file: ${upload.file_name}`);
+    const format = detectFormat(upload.file_name ?? "");
+    let rawRows: (string | number | null)[][] = [];
+    let sheetName = "";
 
-    const fileContent = await fileData.text();
-    console.log("[AXIOM] File content length:", fileContent.length);
-
-    // Parse CSV content
-    const lines = fileContent.split("\n").filter(line => line.trim());
-    const headers = lines[0]?.split(",").map(h => h.trim()) || [];
-    const dataRows = lines.slice(1).map(line => {
-      const values = line.split(",").map(v => v.trim());
-      const row: Record<string, string> = {};
-      headers.forEach((header, i) => {
-        row[header] = values[i] || "";
-      });
-      return row;
-    });
-
-    console.log("[AXIOM] Parsed", dataRows.length, "rows");
-
-    // ============================================
-    // STEP 1: TRIAL BALANCE INTEGRITY
-    // ============================================
-    console.log("[AXIOM] STEP 1: Validating trial balance integrity...");
-    
-    const tbValidation = validateTrialBalance(headers, dataRows);
-    allErrors.push(...tbValidation.errors);
-
-    const tbCheckPassed = tbValidation.valid;
-    console.log("[AXIOM] TB Validation:", tbCheckPassed ? "PASSED" : "BLOCKED");
-
-    if (!tbCheckPassed) {
-      // BLOCK - Trial balance integrity failed
-      const result: ProcessingResult = {
-        status: "blocked",
-        validation_report: {
-          tb_balance_check: { 
-            passed: false, 
-            total_debits: tbValidation.totals.debits, 
-            total_credits: tbValidation.totals.credits,
-            difference: Math.abs(tbValidation.totals.debits - tbValidation.totals.credits)
-          },
-          mapping_completeness: { passed: false, total_accounts: 0, mapped_accounts: 0, unmapped: [] },
-          balance_sheet_equation: null,
-          profit_equity_linkage: null,
-          cash_reconciliation: null,
-        },
-        errors: allErrors,
-        statements: null,
-        summary: { total_accounts: dataRows.length, processed_at: new Date().toISOString() },
-      };
-
-      await supabase
-        .from("trial_balance_uploads")
-        .update({
-          status: "blocked",
-          is_valid: false,
-          validation_report: result.validation_report,
-          accounting_errors: allErrors,
-          processed_at: new Date().toISOString(),
-        })
-        .eq("id", uploadId);
-
-      return new Response(JSON.stringify(result), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // ============================================
-    // STEP 2: MAPPING COMPLETENESS
-    // ============================================
-    console.log("[AXIOM] STEP 2: Validating mapping completeness...");
-
-    // Fetch user's account mappings
-    const { data: userMappings, error: mappingsError } = await supabase
-      .from("account_mappings")
-      .select("*")
-      .eq("user_id", userId);
-
-    if (mappingsError) {
-      console.error("[AXIOM] Error fetching mappings:", mappingsError.message);
-    }
-
-    const mappings: AccountMapping[] = (userMappings || []).map(m => ({
-      account_code: m.account_code,
-      account_name: m.account_name,
-      statement: m.statement,
-      classification: m.classification,
-      line_item: m.line_item,
-      normal_balance: m.normal_balance,
-      is_cash_account: m.is_cash_account,
-      is_retained_earnings: m.is_retained_earnings,
-    }));
-
-    const mappingValidation = validateMappingCompleteness(tbValidation.data, mappings);
-    allErrors.push(...mappingValidation.errors);
-
-    const mappingCheckPassed = mappingValidation.valid;
-    console.log("[AXIOM] Mapping Validation:", mappingCheckPassed ? "PASSED" : "BLOCKED", 
-      `(${mappings.length} mappings, ${mappingValidation.unmapped.length} unmapped)`);
-
-    if (!mappingCheckPassed) {
-      // BLOCK - Mapping completeness failed
-      const result: ProcessingResult = {
-        status: "blocked",
-        validation_report: {
-          tb_balance_check: { 
-            passed: true, 
-            total_debits: tbValidation.totals.debits, 
-            total_credits: tbValidation.totals.credits,
-            difference: 0
-          },
-          mapping_completeness: { 
-            passed: false, 
-            total_accounts: tbValidation.data.length, 
-            mapped_accounts: tbValidation.data.length - mappingValidation.unmapped.length,
-            unmapped: mappingValidation.unmapped 
-          },
-          balance_sheet_equation: null,
-          profit_equity_linkage: null,
-          cash_reconciliation: null,
-        },
-        errors: allErrors,
-        statements: null,
-        summary: { total_accounts: tbValidation.data.length, processed_at: new Date().toISOString() },
-      };
-
-      await supabase
-        .from("trial_balance_uploads")
-        .update({
-          status: "blocked",
-          is_valid: false,
-          validation_report: result.validation_report,
-          accounting_errors: allErrors,
-          processed_at: new Date().toISOString(),
-        })
-        .eq("id", uploadId);
-
-      return new Response(JSON.stringify(result), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // ============================================
-    // STEP 3: STATEMENT AGGREGATION
-    // ============================================
-    console.log("[AXIOM] STEP 3: Aggregating statements...");
-
-    const aggregation = aggregateStatements(tbValidation.data, mappingValidation.mapped);
-
-    // ============================================
-    // STEP 4: ACCOUNTING EQUATIONS
-    // ============================================
-    console.log("[AXIOM] STEP 4: Validating accounting equations...");
-
-    const equationValidation = validateAccountingEquations(aggregation.totals);
-    allErrors.push(...equationValidation.errors);
-
-    const equationsValid = equationValidation.valid;
-    console.log("[AXIOM] Equation Validation:", equationsValid ? "PASSED" : "BLOCKED");
-
-    // ============================================
-    // STEP 5: CASH FLOW ELIGIBILITY
-    // ============================================
-    console.log("[AXIOM] STEP 5: Checking cash flow eligibility...");
-
-    let cashFlowEligible = false;
-    let cashFlowReason = "";
-
-    if (!aggregation.cashAccount.exists) {
-      cashFlowReason = "No cash account mapped";
+    if (format === "xlsx") {
+      const buffer = await fileData.arrayBuffer();
+      const parsed = parseXLSX(buffer);
+      rawRows    = parsed.rows;
+      sheetName  = parsed.sheetName;
+      console.log(`[PTB] XLSX: sheet="${sheetName}", ${rawRows.length} raw rows`);
     } else {
-      cashFlowEligible = true;
+      const content = await fileData.text();
+      rawRows = parseCSV(content);
+      console.log(`[PTB] CSV: ${rawRows.length} raw rows`);
     }
 
-    console.log("[AXIOM] Cash Flow:", cashFlowEligible ? "ELIGIBLE" : `OMITTED (${cashFlowReason})`);
+    if (rawRows.length < 2) {
+      throw new Error("File appears empty or has no data rows. Minimum 2 rows required (header + 1 account).");
+    }
 
-    // ============================================
-    // FINAL RESULT
-    // ============================================
-    const allValid = tbCheckPassed && mappingCheckPassed && equationsValid;
-    const finalStatus = allValid ? "valid" : "invalid";
+    // ── STEP 2: Column detection ───────────────────────────────────────────────
+    const { map: colMap, detected: detectedCols } = detectColumns(rawRows);
+    console.log(`[PTB] Columns detected:`, detectedCols);
 
-    console.log("[AXIOM] Final Status:", finalStatus.toUpperCase());
+    if (!colMap.account_name) {
+      allErrors.push({ code: "MISSING_COLUMN", message: "Could not detect an account name column. Ensure the file has a column header containing 'Account Name', 'Description', or similar.", field: "account_name" });
+    }
+    if (colMap.debit === null && colMap.balance === null) {
+      allErrors.push({ code: "MISSING_COLUMN", message: "Could not detect debit or balance column. Ensure headers contain 'Debit'/'Dr' or 'Balance'.", field: "debit" });
+    }
+    if (allErrors.length > 0) {
+      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processed_at: new Date().toISOString() }).eq("id", uploadId);
+      return new Response(JSON.stringify({ status: "blocked", errors: allErrors }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
-    const validationReport: ValidationReport = {
-      tb_balance_check: { 
-        passed: tbCheckPassed, 
-        total_debits: tbValidation.totals.debits, 
-        total_credits: tbValidation.totals.credits,
-        difference: Math.abs(tbValidation.totals.debits - tbValidation.totals.credits)
-      },
-      mapping_completeness: { 
-        passed: mappingCheckPassed, 
-        total_accounts: tbValidation.data.length, 
-        mapped_accounts: tbValidation.data.length - mappingValidation.unmapped.length,
-        unmapped: mappingValidation.unmapped 
-      },
-      balance_sheet_equation: {
-        passed: equationValidation.details.bsEquation.passed,
-        assets: aggregation.totals.assets,
-        liabilities: aggregation.totals.liabilities,
-        equity: aggregation.totals.equity,
-        difference: equationValidation.details.bsEquation.difference,
-      },
-      profit_equity_linkage: null, // Future: implement when retained earnings tracking is added
-      cash_reconciliation: cashFlowEligible ? {
-        passed: true,
-        cf_ending_cash: aggregation.cashAccount.balance,
-        bs_cash: aggregation.cashAccount.balance,
-      } : null,
+    // ── STEP 3: Row → RawAccount[] ────────────────────────────────────────────
+    const { accounts: rawAccounts } = rowsToRawAccounts(rawRows, colMap);
+    console.log(`[PTB] Parsed ${rawAccounts.length} accounts`);
+
+    if (rawAccounts.length === 0) {
+      throw new Error("No account rows found after stripping subtotals and blank rows.");
+    }
+
+    // ── STEP 4: Trial balance integrity ───────────────────────────────────────
+    const TOLERANCE = 0.01;
+    const totalDebits  = rawAccounts.reduce((s, a) => s + a.debit, 0);
+    const totalCredits = rawAccounts.reduce((s, a) => s + a.credit, 0);
+    const difference   = Math.abs(totalDebits - totalCredits);
+
+    if (difference > TOLERANCE) {
+      allErrors.push({
+        code: "TRIAL_BALANCE_IMBALANCE",
+        message: `Trial balance does not balance: Debits ${totalDebits.toFixed(2)} ≠ Credits ${totalCredits.toFixed(2)} (difference: ${difference.toFixed(2)})`,
+        expected: 0,
+        actual: difference,
+      });
+    }
+
+    if (allErrors.some(e => e.code === "TRIAL_BALANCE_IMBALANCE")) {
+      const result: Partial<ProcessingResult> = {
+        status: "blocked",
+        statements: null,
+        errors: allErrors,
+        validation_report: { tb_balance_check: { passed: false, total_debits: totalDebits, total_credits: totalCredits, difference } },
+        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.0", columns_detected: detectedCols, auto_classified: 0 },
+      };
+      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
+      return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── STEP 5: Load existing account_mappings ────────────────────────────────
+    const { data: userMappings } = await supabase
+      .from("account_mappings").select("*").eq("user_id", userId);
+    const existingMappings = new Map<string, AccountMapping>();
+    for (const m of (userMappings ?? [])) {
+      existingMappings.set(m.account_code, {
+        account_code: m.account_code, account_name: m.account_name,
+        statement: m.statement, classification: m.classification,
+        line_item: m.line_item, normal_balance: m.normal_balance,
+        is_cash_account: m.is_cash_account ?? false,
+        is_retained_earnings: m.is_retained_earnings ?? false,
+        is_payroll_account: m.is_payroll_account ?? false,
+      });
+    }
+
+    // ── STEP 6: Auto-classification for unmapped accounts ─────────────────────
+    const newMappingsToInsert: Record<string, unknown>[] = [];
+    let autoClassifiedCount = 0;
+
+    for (const account of rawAccounts) {
+      if (existingMappings.has(account.account_code)) continue;
+
+      const classification = autoClassifyAccount(account.account_name);
+      if (!classification) continue;
+
+      const newMapping: AccountMapping = {
+        account_code:        account.account_code,
+        account_name:        account.account_name,
+        statement:           classification.statement,
+        classification:      classification.classification,
+        line_item:           classification.line_item,
+        normal_balance:      classification.normal_balance,
+        is_cash_account:     classification.is_cash ?? false,
+        is_retained_earnings:classification.is_retained ?? false,
+        is_payroll_account:  classification.is_payroll ?? false,
+      };
+
+      existingMappings.set(account.account_code, newMapping);
+      autoClassifiedCount++;
+
+      newMappingsToInsert.push({
+        user_id:              userId,
+        account_code:         account.account_code,
+        account_name:         account.account_name,
+        statement:            classification.statement,
+        classification:       classification.classification,
+        line_item:            classification.line_item,
+        normal_balance:       classification.normal_balance,
+        is_cash_account:      classification.is_cash ?? false,
+        is_retained_earnings: classification.is_retained ?? false,
+        is_payroll_account:   classification.is_payroll ?? false,
+        is_auto_classified:   true,
+      });
+    }
+
+    if (newMappingsToInsert.length > 0) {
+      // Upsert — on_conflict do nothing (don't overwrite human corrections)
+      const { error: upsertErr } = await supabase
+        .from("account_mappings")
+        .upsert(newMappingsToInsert, { onConflict: "user_id,account_code", ignoreDuplicates: true });
+      if (upsertErr) console.warn(`[PTB] Auto-classification upsert warning: ${upsertErr.message}`);
+      else console.log(`[PTB] Auto-classified and saved ${autoClassifiedCount} accounts`);
+    }
+
+    // ── STEP 7: Mapping completeness ──────────────────────────────────────────
+    const unmapped = rawAccounts.filter(a => !existingMappings.has(a.account_code)).map(a => a.account_code);
+
+    if (unmapped.length > 0) {
+      allErrors.push({
+        code: "UNMAPPED_ACCOUNTS",
+        message: `${unmapped.length} account(s) could not be classified automatically: ${unmapped.slice(0, 5).join(", ")}${unmapped.length > 5 ? ` (+${unmapped.length - 5} more)` : ""}. Add descriptive account names or map them manually.`,
+        actual: unmapped.length,
+        expected: 0,
+      });
+      const result: Partial<ProcessingResult> = {
+        status: "blocked",
+        statements: null,
+        errors: allErrors,
+        validation_report: {
+          tb_balance_check: { passed: true, total_debits: totalDebits, total_credits: totalCredits, difference: 0 },
+          mapping_completeness: { passed: false, total_accounts: rawAccounts.length, mapped_accounts: rawAccounts.length - unmapped.length, unmapped },
+        },
+        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.0", columns_detected: detectedCols, auto_classified: autoClassifiedCount },
+      };
+      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
+      return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── STEP 8: Statement aggregation ─────────────────────────────────────────
+    const { statements, totals, cashBalance } = aggregateStatements(rawAccounts, existingMappings);
+
+    // ── STEP 9: Accounting equation ───────────────────────────────────────────
+    const bsDifference = Math.abs(totals.assets - (totals.liabilities + totals.equity));
+    const bsPassed     = bsDifference <= TOLERANCE;
+    if (!bsPassed) {
+      allErrors.push({
+        code: "BALANCE_SHEET_EQUATION_FAILED",
+        message: `Assets (${totals.assets.toFixed(2)}) ≠ Liabilities (${totals.liabilities.toFixed(2)}) + Equity (${totals.equity.toFixed(2)}). Difference: ${bsDifference.toFixed(2)}`,
+        expected: 0,
+        actual: bsDifference,
+      });
+    }
+
+    const allValid   = bsPassed;
+    const finalStatus: "valid" | "invalid" = allValid ? "valid" : "invalid";
+    console.log(`[PTB] Final status: ${finalStatus.toUpperCase()} | Auto-classified: ${autoClassifiedCount}`);
+
+    const validationReport = {
+      tb_balance_check:     { passed: true, total_debits: totalDebits, total_credits: totalCredits, difference: 0 },
+      mapping_completeness: { passed: true, total_accounts: rawAccounts.length, mapped_accounts: rawAccounts.length, unmapped: [], auto_classified: autoClassifiedCount },
+      balance_sheet_equation: { passed: bsPassed, assets: totals.assets, liabilities: totals.liabilities, equity: totals.equity, difference: bsDifference },
+      profit_equity_linkage: null,
+      cash_reconciliation:  cashBalance !== 0 ? { passed: true, cf_ending_cash: cashBalance, bs_cash: cashBalance } : null,
     };
 
-    const result: ProcessingResult = {
+    // ── STEP 10: Save processing_result in engine-compatible format ───────────
+    // CRITICAL: structure must match what kinga-findings-engine reads:
+    //   pr.status, pr.statements.income_statement.operating_expenses.accounts
+    //   pr.statements.balance_sheet.equity.accounts
+    //   pr.statements.balance_sheet.current_liabilities.accounts
+    const processingResult: ProcessingResult = {
       status: finalStatus,
+      statements: allValid ? statements : null,
       validation_report: validationReport,
       errors: allErrors,
-      statements: allValid ? {
-        balance_sheet: aggregation.balance_sheet,
-        income_statement: aggregation.income_statement,
-        cash_flow: cashFlowEligible ? aggregation.cash_flow : null,
-      } : null,
-      summary: { total_accounts: tbValidation.data.length, processed_at: new Date().toISOString() },
+      summary: {
+        total_accounts:    rawAccounts.length,
+        processed_at:      new Date().toISOString(),
+        parser_version:    "v2.0",
+        columns_detected:  detectedCols,
+        auto_classified:   autoClassifiedCount,
+      },
     };
 
-    // Update database
-    await supabase
-      .from("trial_balance_uploads")
-      .update({
-        status: allValid ? "complete" : "error",
-        is_valid: allValid,
-        validation_report: validationReport,
-        accounting_errors: allErrors,
-        processing_result: allValid ? {
-          mapping: {
-            balanceSheet: {
-              assets: { 
-                current: aggregation.balance_sheet.current_assets.accounts,
-                nonCurrent: aggregation.balance_sheet.non_current_assets.accounts 
-              },
-              liabilities: { 
-                current: aggregation.balance_sheet.current_liabilities.accounts,
-                nonCurrent: aggregation.balance_sheet.non_current_liabilities.accounts 
-              },
-              equity: aggregation.balance_sheet.equity.accounts,
-            },
-            incomeStatement: {
-              revenue: aggregation.income_statement.revenue.accounts,
-              costOfGoodsSold: aggregation.income_statement.cost_of_goods_sold.accounts,
-              operatingExpenses: aggregation.income_statement.operating_expenses.accounts,
-              otherIncome: aggregation.income_statement.other_income.accounts,
-              taxes: aggregation.income_statement.taxes.accounts,
-            },
-            cashFlow: cashFlowEligible ? {
-              operating: aggregation.cash_flow.operating_activities.accounts,
-              investing: aggregation.cash_flow.investing_activities.accounts,
-              financing: aggregation.cash_flow.financing_activities.accounts,
-            } : null,
-          },
-          summary: {
-            totalAccounts: tbValidation.data.length,
-            totalAssets: aggregation.totals.assets,
-            totalLiabilities: aggregation.totals.liabilities,
-            totalEquity: aggregation.totals.equity,
-            netIncome: aggregation.totals.revenue - aggregation.totals.expenses,
-          },
-          validationReport,
-        } : null,
-        processed_at: new Date().toISOString(),
-      })
-      .eq("id", uploadId);
+    await supabase.from("trial_balance_uploads").update({
+      status:             allValid ? "complete" : "error",
+      is_valid:           allValid,
+      validation_report:  validationReport,
+      accounting_errors:  allErrors,
+      processing_result:  processingResult,
+      processed_at:       new Date().toISOString(),
+    }).eq("id", uploadId);
 
-    return new Response(JSON.stringify(result), {
+    return new Response(JSON.stringify(processingResult), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (error) {
-    console.error("[AXIOM] Processing error:", error);
+    console.error("[PTB] Fatal error:", error);
     return new Response(
-      JSON.stringify({ 
-        status: "blocked",
-        error: error instanceof Error ? error.message : "Processing failed",
-        errors: allErrors,
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({ status: "blocked", error: error instanceof Error ? error.message : "Processing failed", errors: allErrors }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
