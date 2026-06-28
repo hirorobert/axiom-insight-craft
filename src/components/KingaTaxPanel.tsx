@@ -1,0 +1,579 @@
+// ============================================================
+// KingaTaxPanel — Module E: ITA Corporate Tax Computation
+// Displays the full Tanzania ITA Chapter 332 waterfall:
+//   Accounting PBT → ITA Add-backs → Wear & Tear → Taxable Income
+//   → CIT 30% / Minimum Tax 0.5% → Provision vs Computed → Gap
+// ============================================================
+
+import { useState, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Calculator, ChevronDown, ChevronRight, AlertTriangle,
+  CheckCircle, Info, Plus, RefreshCw,
+} from "lucide-react";
+
+// ── ITA CLASS METADATA ────────────────────────────────────────────────────
+const ITA_CLASS_LABELS: Record<number, string> = {
+  1: "Class 1 — Computers & data equipment (50%)",
+  2: "Class 2 — Commercial vehicles & aircraft (37.5%)",
+  3: "Class 3 — Plant, machinery & equipment (25%)",
+  4: "Class 4 — Furniture & fittings (12.5%)",
+  5: "Class 5 — Buildings, straight-line (5%)",
+};
+
+// ── TYPES ─────────────────────────────────────────────────────────────────
+interface TaxAdjustment {
+  description: string;
+  amount_tzs: number;
+  ita_section: string;
+  account_names: string[];
+  auto_detected: boolean;
+}
+
+interface TaxResult {
+  engine_version: string;
+  dry_run: boolean;
+  accounting_profit_before_tax_tzs: number;
+  gross_income_tzs: number;
+  add_backs: TaxAdjustment[];
+  deductions: TaxAdjustment[];
+  total_add_backs_tzs: number;
+  total_deductions_tzs: number;
+  total_wear_tear_tzs: number;
+  total_debt_tzs: number;
+  total_equity_tzs: number;
+  debt_equity_ratio: number;
+  thin_cap_disallowed_tzs: number;
+  taxable_income_tzs: number;
+  cit_at_30pct_tzs: number;
+  minimum_tax_tzs: number;
+  tax_payable_tzs: number;
+  minimum_tax_applies: boolean;
+  effective_tax_rate_pct: number;
+  income_tax_provision_tzs: number;
+  cit_gap_tzs: number;
+  months_overdue: number;
+  penalty_tzs: number;
+  total_exposure_tzs: number;
+  warnings: string[];
+  finding_created: boolean;
+}
+
+interface CapAllowanceForm {
+  asset_description: string;
+  ita_class: number;
+  cost_tzs: string;
+  ita_wdv_opening_tzs: string;
+  additions_tzs: string;
+  disposals_at_tax_cost_tzs: string;
+  accounting_depreciation_tzs: string;
+  source_account: string;
+  notes: string;
+}
+
+interface StoredComputation {
+  id: string;
+  period_year: number;
+  taxable_income_tzs: number;
+  tax_payable_tzs: number;
+  cit_gap_tzs: number;
+  total_exposure_tzs: number;
+  minimum_tax_applies: boolean;
+  effective_tax_rate_pct: number;
+  engine_version: string;
+  created_at: string;
+}
+
+// ── PROPS ─────────────────────────────────────────────────────────────────
+interface KingaTaxPanelProps {
+  companyId: string;
+  uploadId: string;
+  periodYear: number;
+  companyName?: string;
+  userId: string;
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────
+function fmt(n: number): string {
+  if (!n && n !== 0) return "—";
+  return `TZS ${Math.abs(n).toLocaleString()}`;
+}
+
+function fmtSigned(n: number): string {
+  if (!n && n !== 0) return "—";
+  return n < 0
+    ? `(TZS ${Math.abs(n).toLocaleString()})`
+    : `TZS ${n.toLocaleString()}`;
+}
+
+function severityColor(gap: number): string {
+  const abs = Math.abs(gap);
+  if (abs >= 50_000_000) return "text-red-600 bg-red-50 border-red-200";
+  if (abs >= 10_000_000) return "text-orange-600 bg-orange-50 border-orange-200";
+  if (abs >= 1_000_000)  return "text-yellow-600 bg-yellow-50 border-yellow-200";
+  return "text-green-600 bg-green-50 border-green-200";
+}
+
+// ── CAPITAL ALLOWANCE MODAL ────────────────────────────────────────────────
+function AddCapAllowanceModal({
+  companyId, userId, periodYear, onSaved,
+}: {
+  companyId: string; userId: string; periodYear: number; onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<CapAllowanceForm>({
+    asset_description: "", ita_class: 3, cost_tzs: "",
+    ita_wdv_opening_tzs: "", additions_tzs: "0",
+    disposals_at_tax_cost_tzs: "0", accounting_depreciation_tzs: "0",
+    source_account: "", notes: "",
+  });
+
+  const parseNum = (s: string) => parseFloat(s.replace(/,/g, "")) || 0;
+
+  // Compute preview wear & tear
+  const pool = parseNum(form.ita_wdv_opening_tzs) + parseNum(form.additions_tzs) - parseNum(form.disposals_at_tax_cost_tzs);
+  const rates: Record<number, number> = { 1: 0.50, 2: 0.375, 3: 0.25, 4: 0.125, 5: 0.05 };
+  const wt = form.ita_class === 5
+    ? Math.round(parseNum(form.cost_tzs) * 0.05)
+    : Math.round(pool * (rates[form.ita_class] ?? 0));
+
+  const handleSave = async () => {
+    if (!form.asset_description || !form.cost_tzs) return;
+    setSaving(true);
+    const { error } = await supabase.from("capital_allowances").insert({
+      company_id:                    companyId,
+      period_year:                   periodYear,
+      asset_description:             form.asset_description,
+      ita_class:                     form.ita_class,
+      cost_tzs:                      parseNum(form.cost_tzs),
+      ita_wdv_opening_tzs:           parseNum(form.ita_wdv_opening_tzs) || parseNum(form.cost_tzs),
+      additions_tzs:                 parseNum(form.additions_tzs),
+      disposals_at_tax_cost_tzs:     parseNum(form.disposals_at_tax_cost_tzs),
+      accounting_depreciation_tzs:   parseNum(form.accounting_depreciation_tzs),
+      wear_tear_tzs:                 wt,
+      ita_wdv_closing_tzs:           pool - wt,
+      source_account:                form.source_account || null,
+      notes:                         form.notes || null,
+      created_by:                    userId,
+    });
+    setSaving(false);
+    if (!error) {
+      setOpen(false);
+      setForm({ asset_description: "", ita_class: 3, cost_tzs: "", ita_wdv_opening_tzs: "", additions_tzs: "0", disposals_at_tax_cost_tzs: "0", accounting_depreciation_tzs: "0", source_account: "", notes: "" });
+      onSaved();
+    }
+  };
+
+  const inputClass = "w-full mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)} className="gap-1">
+        <Plus className="w-3 h-3" /> Capital Allowance
+      </Button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto">
+            <div>
+              <h3 className="font-semibold text-lg">Add Capital Allowance (ITA s.34)</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Enter assets for wear & tear deduction. WDV Opening = prior year closing WDV (or cost if first year).
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <label className="text-xs font-medium text-gray-600">Asset Description</label>
+                <input className={inputClass} placeholder="e.g. Office computers (HP ProBook × 12)"
+                  value={form.asset_description} onChange={e => setForm(f => ({ ...f, asset_description: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">ITA Asset Class</label>
+                <select className={inputClass} value={form.ita_class}
+                  onChange={e => setForm(f => ({ ...f, ita_class: Number(e.target.value) }))}>
+                  {Object.entries(ITA_CLASS_LABELS).map(([k, v]) =>
+                    <option key={k} value={k}>{v}</option>
+                  )}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Original Cost (TZS)</label>
+                  <input className={inputClass} placeholder="e.g. 45000000"
+                    value={form.cost_tzs} onChange={e => setForm(f => ({ ...f, cost_tzs: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">ITA WDV Opening (TZS)</label>
+                  <input className={inputClass} placeholder="Opening tax written-down value"
+                    value={form.ita_wdv_opening_tzs} onChange={e => setForm(f => ({ ...f, ita_wdv_opening_tzs: e.target.value }))} />
+                  <p className="text-xs text-gray-400 mt-0.5">Leave blank if first year (uses cost)</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Additions in Period (TZS)</label>
+                  <input className={inputClass} placeholder="0"
+                    value={form.additions_tzs} onChange={e => setForm(f => ({ ...f, additions_tzs: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Disposals at Tax Cost (TZS)</label>
+                  <input className={inputClass} placeholder="0"
+                    value={form.disposals_at_tax_cost_tzs} onChange={e => setForm(f => ({ ...f, disposals_at_tax_cost_tzs: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">Accounting Depreciation (TZS) — for add-back reconciliation</label>
+                <input className={inputClass} placeholder="Per TB"
+                  value={form.accounting_depreciation_tzs} onChange={e => setForm(f => ({ ...f, accounting_depreciation_tzs: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">TB Account Name (optional)</label>
+                <input className={inputClass} placeholder="e.g. Office Equipment — Cost"
+                  value={form.source_account} onChange={e => setForm(f => ({ ...f, source_account: e.target.value }))} />
+              </div>
+            </div>
+            {wt > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                <strong>Preview:</strong> ITA wear & tear = <strong>TZS {wt.toLocaleString()}</strong>
+                {" "}| WDV closing = TZS {(pool - wt).toLocaleString()}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button onClick={handleSave} disabled={saving || !form.asset_description || !form.cost_tzs}>
+                {saving ? "Saving…" : "Save Asset"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── WATERFALL ROW ─────────────────────────────────────────────────────────
+function WaterfallRow({
+  label, value, indent = 0, bold = false, highlight = false, expandable = false, children,
+}: {
+  label: string; value: string; indent?: number; bold?: boolean;
+  highlight?: boolean; expandable?: boolean; children?: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div>
+      <div
+        className={`flex items-center justify-between py-1.5 px-2 rounded text-sm
+          ${highlight ? "bg-muted/60 font-semibold" : ""}
+          ${bold ? "font-medium" : ""}
+          ${expandable ? "cursor-pointer hover:bg-muted/40" : ""}
+        `}
+        style={{ paddingLeft: `${8 + indent * 16}px` }}
+        onClick={() => expandable && setExpanded(!expanded)}
+      >
+        <span className="flex items-center gap-1 text-foreground">
+          {expandable && (expanded
+            ? <ChevronDown className="w-3 h-3 text-muted-foreground" />
+            : <ChevronRight className="w-3 h-3 text-muted-foreground" />
+          )}
+          {label}
+        </span>
+        <span className={`font-mono text-right ${bold ? "text-foreground" : "text-muted-foreground"}`}>
+          {value}
+        </span>
+      </div>
+      {expandable && expanded && (
+        <div className="border-l-2 border-muted ml-4 pl-2 mt-1 mb-1">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── MAIN COMPONENT ────────────────────────────────────────────────────────
+export function KingaTaxPanel({
+  companyId, uploadId, periodYear, companyName, userId,
+}: KingaTaxPanelProps) {
+  type Phase = "idle" | "running" | "preview" | "committing" | "done";
+
+  const [phase, setPhase]               = useState<Phase>("idle");
+  const [result, setResult]             = useState<TaxResult | null>(null);
+  const [monthsOverdue, setMonthsOverdue] = useState(0);
+  const [error, setError]               = useState<string | null>(null);
+  const [stored, setStored]             = useState<StoredComputation | null>(null);
+
+  // Load any existing committed computation
+  useEffect(() => {
+    supabase
+      .from("tax_computations")
+      .select("id,period_year,taxable_income_tzs,tax_payable_tzs,cit_gap_tzs,total_exposure_tzs,minimum_tax_applies,effective_tax_rate_pct,engine_version,created_at")
+      .eq("company_id", companyId)
+      .eq("upload_id", uploadId)
+      .maybeSingle()
+      .then(({ data }) => { if (data) setStored(data); });
+  }, [companyId, uploadId]);
+
+  const runEngine = async (dryRun: boolean) => {
+    setPhase(dryRun ? "running" : "committing");
+    setError(null);
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("kinga-tax-engine", {
+        body: { uploadId, companyId, periodYear, dry_run: dryRun, months_overdue: monthsOverdue },
+      });
+      if (fnErr) throw fnErr;
+      if (!data?.success) throw new Error(data?.error ?? "Engine returned no result");
+      setResult(data.result);
+      setPhase(dryRun ? "preview" : "done");
+      if (!dryRun) {
+        // Reload stored computation
+        const { data: stored } = await supabase
+          .from("tax_computations")
+          .select("id,period_year,taxable_income_tzs,tax_payable_tzs,cit_gap_tzs,total_exposure_tzs,minimum_tax_applies,effective_tax_rate_pct,engine_version,created_at")
+          .eq("company_id", companyId).eq("upload_id", uploadId).maybeSingle();
+        if (stored) setStored(stored);
+      }
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
+      setPhase("idle");
+    }
+  };
+
+  const reset = () => { setPhase("idle"); setResult(null); setError(null); };
+
+  const gapColor = result ? severityColor(result.cit_gap_tzs) : "";
+  const exposureLabel = result
+    ? result.total_exposure_tzs >= 50_000_000 ? "CRITICAL"
+    : result.total_exposure_tzs >= 10_000_000 ? "HIGH"
+    : result.total_exposure_tzs >= 1_000_000  ? "MEDIUM" : "LOW"
+    : "";
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Calculator className="w-5 h-5 text-primary" />
+            Kinga — Corporate Tax (ITA Chapter 332)
+            {companyName && <span className="text-sm font-normal text-muted-foreground">· {companyName}</span>}
+            <Badge variant="outline" className="text-xs ml-1">FY {periodYear}</Badge>
+          </CardTitle>
+          <div className="flex items-center gap-2 flex-wrap">
+            <AddCapAllowanceModal companyId={companyId} userId={userId} periodYear={periodYear} onSaved={reset} />
+            {phase !== "idle" && (
+              <Button variant="ghost" size="sm" onClick={reset} className="gap-1">
+                <RefreshCw className="w-3 h-3" /> Reset
+              </Button>
+            )}
+          </div>
+        </div>
+        {stored && phase === "idle" && (
+          <div className="mt-2 text-xs text-muted-foreground border border-border rounded-lg px-3 py-2 bg-muted/30">
+            Last computation: {new Date(stored.created_at).toLocaleDateString()} —
+            Tax payable TZS {stored.tax_payable_tzs?.toLocaleString()} |
+            Gap TZS {stored.cit_gap_tzs?.toLocaleString()}
+            {stored.minimum_tax_applies && " (min tax applies)"}
+          </div>
+        )}
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {/* ── IDLE ───────────────────────────────────────────────── */}
+        {phase === "idle" && (
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted-foreground">Months overdue:</label>
+              <input
+                type="number" min={0} max={60}
+                value={monthsOverdue}
+                onChange={e => setMonthsOverdue(Number(e.target.value))}
+                className="w-16 border rounded px-2 py-1 text-sm text-center"
+              />
+            </div>
+            <Button onClick={() => runEngine(true)} className="gap-2">
+              <Calculator className="w-4 h-4" />
+              Run Tax Analysis
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Preview ITA computation — nothing saved until you confirm.
+            </p>
+          </div>
+        )}
+
+        {/* ── RUNNING ────────────────────────────────────────────── */}
+        {(phase === "running" || phase === "committing") && (
+          <div className="flex items-center gap-3 text-sm text-muted-foreground py-4">
+            <RefreshCw className="w-4 h-4 animate-spin text-primary" />
+            {phase === "running" ? "Computing ITA waterfall…" : "Saving computation & findings…"}
+          </div>
+        )}
+
+        {/* ── ERROR ──────────────────────────────────────────────── */}
+        {error && (
+          <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* ── WARNINGS ──────────────────────────────────────────── */}
+        {result && result.warnings.length > 0 && (
+          <div className="space-y-1">
+            {result.warnings.map((w, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
+                <Info className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                {w}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── WATERFALL ─────────────────────────────────────────── */}
+        {result && (phase === "preview" || phase === "done") && (
+          <div className="space-y-4">
+            {/* ITA Waterfall */}
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="bg-muted/40 px-3 py-2 border-b border-border">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  ITA Corporate Tax Waterfall — {result.engine_version}
+                </span>
+              </div>
+              <div className="p-3 space-y-0.5">
+                <WaterfallRow label="Accounting Profit Before Tax" value={fmtSigned(result.accounting_profit_before_tax_tzs)} bold highlight />
+                <WaterfallRow label="Gross Income (revenue base)" value={fmt(result.gross_income_tzs)} />
+
+                {/* Add-backs */}
+                {result.add_backs.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1">ADD: Non-deductible Expenses</div>
+                    {result.add_backs.map((adj, i) => (
+                      <WaterfallRow
+                        key={i}
+                        label={adj.description}
+                        value={`+ ${fmt(adj.amount_tzs)}`}
+                        indent={1}
+                        expandable={adj.account_names.length > 0}
+                      >
+                        {adj.account_names.map((n, j) => (
+                          <div key={j} className="text-xs text-muted-foreground py-0.5 pl-2">{n}</div>
+                        ))}
+                      </WaterfallRow>
+                    ))}
+                    <WaterfallRow label="Total add-backs" value={fmt(result.total_add_backs_tzs)} bold />
+                  </div>
+                )}
+
+                {/* Deductions */}
+                {result.deductions.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1">DEDUCT: ITA Allowances</div>
+                    {result.deductions.map((d, i) => (
+                      <WaterfallRow key={i} label={d.description} value={`− ${fmt(d.amount_tzs)}`} indent={1} />
+                    ))}
+                    <WaterfallRow label="Total wear & tear (ITA s.34)" value={`− ${fmt(result.total_wear_tear_tzs)}`} bold />
+                  </div>
+                )}
+
+                {result.thin_cap_disallowed_tzs > 0 && (
+                  <div className="mt-1">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1">THIN CAP (ITA s.24A)</div>
+                    <WaterfallRow label={`Debt:equity = ${result.debt_equity_ratio.toFixed(2)}:1 (limit 2.33:1)`}
+                      value={`+ ${fmt(result.thin_cap_disallowed_tzs)}`} indent={1} />
+                  </div>
+                )}
+
+                {/* Taxable Income */}
+                <div className="my-2 border-t border-border" />
+                <WaterfallRow label="TAXABLE INCOME" value={fmtSigned(result.taxable_income_tzs)} bold highlight />
+
+                {/* CIT */}
+                <div className="mt-3 space-y-0.5">
+                  <WaterfallRow label="CIT @ 30%" value={fmt(result.cit_at_30pct_tzs)} indent={1} />
+                  <WaterfallRow
+                    label={`Minimum Tax @ 0.5% of gross income (ITA s.65)${result.minimum_tax_applies ? " ← APPLIES" : ""}`}
+                    value={fmt(result.minimum_tax_tzs)}
+                    indent={1}
+                  />
+                  <WaterfallRow
+                    label={result.minimum_tax_applies ? "TAX PAYABLE (minimum tax basis)" : "TAX PAYABLE (standard CIT)"}
+                    value={fmt(result.tax_payable_tzs)}
+                    bold highlight
+                  />
+                  <WaterfallRow label={`Effective rate: ${result.effective_tax_rate_pct}% of gross income`} value="" />
+                </div>
+
+                {/* Gap */}
+                <div className="my-2 border-t border-border" />
+                <WaterfallRow label="Income Tax Provision (balance sheet)" value={fmt(result.income_tax_provision_tzs)} />
+                <WaterfallRow
+                  label={result.cit_gap_tzs > 0 ? "UNDER-PROVISION (GAP)" : result.cit_gap_tzs < 0 ? "OVER-PROVISION" : "FULLY PROVIDED"}
+                  value={fmtSigned(result.cit_gap_tzs)}
+                  bold highlight
+                />
+              </div>
+            </div>
+
+            {/* Exposure Card */}
+            {Math.abs(result.cit_gap_tzs) > 500_000 && (
+              <div className={`border rounded-xl p-4 space-y-2 ${gapColor}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <AlertTriangle className="w-4 h-4" />
+                    CIT Gap — {exposureLabel}
+                  </div>
+                  <Badge className={gapColor}>{exposureLabel}</Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="opacity-70 text-xs">Net CIT Gap</p>
+                    <p className="font-bold font-mono">{fmt(result.cit_gap_tzs)}</p>
+                  </div>
+                  <div>
+                    <p className="opacity-70 text-xs">TAA Penalty ({result.months_overdue} months × 5%)</p>
+                    <p className="font-bold font-mono">{result.months_overdue > 0 ? fmt(result.penalty_tzs) : "—"}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="opacity-70 text-xs">Total Exposure</p>
+                    <p className="text-lg font-bold font-mono">{fmt(result.total_exposure_tzs)}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {result.cit_gap_tzs <= 500_000 && result.cit_gap_tzs >= -500_000 && (
+              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">
+                <CheckCircle className="w-4 h-4" />
+                Corporate tax provision is adequate — no material gap detected.
+              </div>
+            )}
+
+            {/* Actions */}
+            {phase === "preview" && (
+              <div className="flex items-center gap-3 pt-2">
+                <Button onClick={() => runEngine(false)} className="gap-2">
+                  <CheckCircle className="w-4 h-4" />
+                  Commit Computation
+                </Button>
+                <Button variant="outline" onClick={reset}>Discard</Button>
+                <p className="text-xs text-muted-foreground">
+                  Saves ITA waterfall + creates finding in the DB.
+                </p>
+              </div>
+            )}
+
+            {phase === "done" && (
+              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">
+                <CheckCircle className="w-4 h-4" />
+                Computation saved.
+                {result.finding_created && " CIT gap finding created in findings table."}
+                <Button variant="ghost" size="sm" onClick={reset} className="ml-auto">Run Again</Button>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

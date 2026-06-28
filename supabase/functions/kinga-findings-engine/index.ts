@@ -58,7 +58,7 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 
 // ── Constants ────────────────────────────────────────────────────────────
 
-const ENGINE_VERSION = "Module B+C v2.1";
+const ENGINE_VERSION = "Module B+C v2.0";
 
 /**
  * Minimum absolute variance (TZS) below which a finding is not raised.

@@ -19,7 +19,6 @@ import { DashboardSkeleton } from "@/components/DashboardSkeleton";
 import { NoUploadsEmptyState } from "@/components/EmptyState";
 import { ValidationReport } from "@/components/ValidationReport";
 import { MappingCoverageIndicator } from "@/components/MappingCoverageIndicator";
-import { KingaFindingsPanel } from "@/components/KingaFindingsPanel";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -890,18 +889,6 @@ export default function Dashboard() {
                       uploadId={selectedUpload.id}
                       existingNotes={result?.disclosureNotes}
                       onNotesGenerated={fetchUploads}
-                    />
-                  )}
-
-                  {/* Kinga — Statutory Compliance Analysis */}
-                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (
-                    <KingaFindingsPanel
-                      companyId={selectedUpload.company_id}
-                      uploadId={selectedUpload.id}
-                      periodYear={new Date(selectedUpload.uploaded_at).getFullYear()}
-                      periodMonth={new Date(selectedUpload.uploaded_at).getMonth() + 1}
-                      companyName={selectedUpload.company_name ?? undefined}
-                      userId={user?.id ?? ""}
                     />
                   )}
 
