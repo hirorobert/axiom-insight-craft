@@ -8,9 +8,13 @@ import { supabase }               from "@/integrations/supabase/client";
 import { Button }                 from "@/components/ui/button";
 import { Badge }                  from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input }    from "@/components/ui/input";
+import { Label }    from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   AlertTriangle, CheckCircle2, XCircle, Play, Loader2,
-  RefreshCw, ChevronDown, ChevronUp, Info, ShieldAlert,
+  RefreshCw, ChevronDown, ChevronUp, Info, ShieldAlert, Plus,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -84,6 +88,15 @@ interface KingaFindingsPanelProps {
   periodYear:  number;
   periodMonth: number;
   companyName?: string;
+  userId: string;
+}
+
+interface AddPaymentForm {
+  tax_category:      string;
+  amount_paid_tzs:   string;
+  payment_date:      string;
+  payment_reference: string;
+  notes:             string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
