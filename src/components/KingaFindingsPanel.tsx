@@ -333,16 +333,19 @@ function AddPaymentModal({
     if (!form.amount_paid_tzs || !form.payment_date) return;
     setSaving(true);
     setError(null);
-    const { error: insErr } = await supabase.from("tax_payments").insert({
+    const d = new Date(form.payment_date);
+    const { error: insErr } = await supabase.from("tax_payments").insert([{
       company_id:        companyId,
       tax_category:      form.tax_category,
       amount_paid_tzs:   parseFloat(form.amount_paid_tzs.replace(/,/g, "")),
       payment_date:      form.payment_date,
-      payment_reference: form.payment_reference || null,
-      notes:             form.notes || null,
+      period_year:       d.getFullYear(),
+      period_month:      d.getMonth() + 1,
+      payment_reference: form.payment_reference || undefined,
+      notes:             form.notes || undefined,
       payment_source:    "preparer_declared",
       created_by:        createdBy,
-    });
+    }]);
     setSaving(false);
     if (insErr) {
       setError(insErr.message);
