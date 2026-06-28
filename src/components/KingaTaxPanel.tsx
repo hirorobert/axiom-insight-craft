@@ -15,13 +15,23 @@ import {
   CheckCircle, Info, Plus, RefreshCw,
 } from "lucide-react";
 
-// ── ITA CLASS METADATA ────────────────────────────────────────────────────
+// ── ITA CLASS METADATA — VERIFIED: PwC Tanzania (reviewed 14 Jan 2026) ───
+// Source: https://taxsummaries.pwc.com/tanzania/corporate/deductions
+// ─────────────────────────────────────────────────────────────────────────
+// Class 1: 37.5% reducing balance  — Computers, automobiles, buses<30pax, const.equip
+// Class 2: 25%   reducing balance  — Heavy vehicles, vessels, aircraft, ag/mfg plant
+// Class 3: 12.5% reducing balance  — Furniture, fixtures, equipment; all other assets
+// Class 5: 20%   straight-line     — Agricultural/livestock/fish farming buildings
+// Class 6: 5%    straight-line     — Commercial/industrial buildings (other)
+// Class 8: 100%  immediate write-off — Agricultural plant & machinery; EFDs
+// NOTE: There is NO Class 4 in Tanzania ITA.
 const ITA_CLASS_LABELS: Record<number, string> = {
-  1: "Class 1 — Computers & data equipment (50%)",
-  2: "Class 2 — Commercial vehicles & aircraft (37.5%)",
-  3: "Class 3 — Plant, machinery & equipment (25%)",
-  4: "Class 4 — Furniture & fittings (12.5%)",
-  5: "Class 5 — Buildings, straight-line (5%)",
+  1: "Class 1 — Computers, automobiles, buses <30 pax, construction equip (37.5% RB)",
+  2: "Class 2 — Heavy vehicles, vessels, aircraft, ag/mfg plant & machinery (25% RB)",
+  3: "Class 3 — Furniture, fixtures, equipment; all other assets (12.5% RB)",
+  5: "Class 5 — Agricultural/livestock/fish farming buildings & structures (20% SL)",
+  6: "Class 6 — Commercial & industrial buildings (all other) (5% SL)",
+  8: "Class 8 — Agricultural plant & machinery; EFDs for non-VAT traders (100% immediate)",
 };
 
 // ── TYPES ─────────────────────────────────────────────────────────────────
@@ -31,6 +41,14 @@ interface TaxAdjustment {
   ita_section: string;
   account_names: string[];
   auto_detected: boolean;
+  requires_review?: boolean;
+}
+
+interface ClassificationWarning {
+  category: string;
+  message: string;
+  accounts_found: string[];
+  action_required: string;
 }
 
 interface TaxResult {
@@ -59,6 +77,9 @@ interface TaxResult {
   penalty_tzs: number;
   total_exposure_tzs: number;
   warnings: string[];
+  classification_warnings: ClassificationWarning[];
+  review_required: boolean;
+  amt_trigger_note: string;
   finding_created: boolean;
 }
 
@@ -134,12 +155,18 @@ function AddCapAllowanceModal({
 
   const parseNum = (s: string) => parseFloat(s.replace(/,/g, "")) || 0;
 
-  // Compute preview wear & tear
-  const pool = parseNum(form.ita_wdv_opening_tzs) + parseNum(form.additions_tzs) - parseNum(form.disposals_at_tax_cost_tzs);
-  const rates: Record<number, number> = { 1: 0.50, 2: 0.375, 3: 0.25, 4: 0.125, 5: 0.05 };
+  // Compute preview wear & tear — VERIFIED RATES (PwC Tanzania, Jan 2026)
+  const pool = parseNum(form.ita_wdv_opening_tzs || form.cost_tzs)
+             + parseNum(form.additions_tzs)
+             - parseNum(form.disposals_at_tax_cost_tzs);
+  const rbRates: Record<number, number> = { 1: 0.375, 2: 0.25, 3: 0.125, 8: 1.00 };
   const wt = form.ita_class === 5
-    ? Math.round(parseNum(form.cost_tzs) * 0.05)
-    : Math.round(pool * (rates[form.ita_class] ?? 0));
+    ? Math.round(parseNum(form.cost_tzs) * 0.20)       // 20% SL on cost
+    : form.ita_class === 6
+    ? Math.round(parseNum(form.cost_tzs) * 0.05)       // 5% SL on cost
+    : form.ita_class === 8
+    ? Math.round(pool)                                  // 100% immediate
+    : Math.round(pool * (rbRates[form.ita_class] ?? 0)); // RB classes 1, 2, 3
 
   const handleSave = async () => {
     if (!form.asset_description || !form.cost_tzs) return;
@@ -430,6 +457,28 @@ export function KingaTaxPanel({
           </div>
         )}
 
+        {/* ── CLASSIFICATION WARNINGS (CPA Review Required) ─────── */}
+        {result && result.classification_warnings && result.classification_warnings.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-orange-700 uppercase tracking-wide flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" />
+              CPA Review Required ({result.classification_warnings.length} item{result.classification_warnings.length > 1 ? "s" : ""})
+            </div>
+            {result.classification_warnings.map((w, i) => (
+              <div key={i} className="text-xs bg-orange-50 border border-orange-200 rounded-lg p-3 space-y-1">
+                <div className="font-semibold text-orange-800">[{w.category}]</div>
+                <div className="text-orange-700">{w.message}</div>
+                {w.accounts_found.length > 0 && (
+                  <div className="text-orange-600 font-mono">
+                    Accounts: {w.accounts_found.join(", ")}
+                  </div>
+                )}
+                <div className="text-orange-800 font-medium">→ {w.action_required}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* ── WATERFALL ─────────────────────────────────────────── */}
         {result && (phase === "preview" || phase === "done") && (
           <div className="space-y-4">
@@ -492,16 +541,16 @@ export function KingaTaxPanel({
                 <div className="mt-3 space-y-0.5">
                   <WaterfallRow label="CIT @ 30%" value={fmt(result.cit_at_30pct_tzs)} indent={1} />
                   <WaterfallRow
-                    label={`Minimum Tax @ 0.5% of gross income (ITA s.65)${result.minimum_tax_applies ? " ← APPLIES" : ""}`}
+                    label={`AMT @ 1% of turnover${result.minimum_tax_applies ? " ← CPA CONFIRMED APPLIES" : " (indicative — requires 3-year loss history verification)"}`}
                     value={fmt(result.minimum_tax_tzs)}
                     indent={1}
                   />
                   <WaterfallRow
-                    label={result.minimum_tax_applies ? "TAX PAYABLE (minimum tax basis)" : "TAX PAYABLE (standard CIT)"}
+                    label={result.minimum_tax_applies ? "TAX PAYABLE (AMT basis — CPA confirmed)" : "TAX PAYABLE (standard CIT)"}
                     value={fmt(result.tax_payable_tzs)}
                     bold highlight
                   />
-                  <WaterfallRow label={`Effective rate: ${result.effective_tax_rate_pct}% of gross income`} value="" />
+                  <WaterfallRow label={`Effective rate: ${result.effective_tax_rate_pct}% of turnover`} value="" />
                 </div>
 
                 {/* Gap */}

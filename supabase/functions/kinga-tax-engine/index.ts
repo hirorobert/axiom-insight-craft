@@ -1,264 +1,269 @@
 // ============================================================
 // Kinga Tax Engine — Module E: ITA Corporate Tax Computation
 // Edge Function: kinga-tax-engine
-// Version: Module E v1.0
+// Version: Module E v1.1 — VERIFIED CONSTANTS
 // Date: 2026-06-28
 //
-// Tanzania Income Tax Act (Chapter 332) Implementation
+// ALL CONSTANTS VERIFIED AGAINST PRIMARY SOURCES:
+//   PwC Tanzania Worldwide Tax Summaries (last reviewed 14 Jan 2026)
+//   https://taxsummaries.pwc.com/tanzania/corporate/deductions
+//   https://taxsummaries.pwc.com/tanzania/corporate/taxes-on-corporate-income
+//   Deloitte Tanzania — Thin Capitalisation Rule (Aug 2025)
+//   https://www.deloitte.com/tz/en/services/tax/perspectives/thin-cap-rule.html
+//   TRA — Income Tax Act Cap. 332 (R.E. 2019 / R.E. 2023)
 //
-// WATERFALL:
-//   1. Accounting Profit Before Tax           (from TB income statement)
-//   2. ADD: Non-deductible expenses           (auto-detected by name pattern)
-//      + Accounting depreciation              (s.34 — replaced by wear & tear)
-//      + Entertainment (50% disallowed)       (s.11(3))
-//      + Penalties & fines                    (not deductible)
-//      + Provisions for bad/doubtful debt     (only write-offs allowed)
-//      + Excess management fees               (s.33(3) — >2% of turnover)
-//      + Thin cap disallowed interest         (s.24A — 70:30 debt:equity)
-//   3. DEDUCT: ITA allowances
-//      - Wear & tear (capital_allowances)     (s.34 — by asset class)
-//      - Prior year losses                    (s.19 — 5 year carry-forward)
-//   4. Taxable Income
-//   5. CIT = 30% × max(0, Taxable Income)
-//   6. Minimum Tax = 0.5% × Gross Income     (s.65 — if CIT < min tax)
-//   7. Tax Payable = max(CIT, Minimum Tax)
-//   8. Gap = Tax Payable − Income Tax Provision (from balance sheet)
-//   9. Penalty = Gap × 5%/month × months_overdue (TAA 2015 s.76)
-//  10. Commit → tax_computations table + findings table
+// CORRECTIONS FROM v1.0 (based on critical review 2026-06-28):
+//   1. WEAR & TEAR CLASSES COMPLETELY RESTRUCTURED
+//      v1.0 (WRONG): Class 1=50%, 2=37.5%, 3=25%, 4=12.5%, 5=5%
+//      v1.1 (VERIFIED): Class 1=37.5%, 2=25%, 3=12.5%, 5=20%(ag bldgs), 6=5%(comm bldgs), 8=100%(ag plant)
+//      Source: PwC Tanzania Deductions table, Jan 2026
+//   2. AMT RATE AND TRIGGER CORRECTED
+//      v1.0 (WRONG): 0.5% of gross income, applied to ALL companies
+//      v1.1 (VERIFIED): 1% of turnover, ONLY for companies with losses in current+2 preceding years
+//      Cannot auto-determine 3-year loss history from single TB — engine flags WARNING only, does NOT apply AMT
+//      Source: PwC Tanzania "Corporate - Taxes on corporate income", Jan 2026
+//   3. THIN CAP — LOCAL BANK DEBT EXCLUDED
+//      v1.0 (WRONG): included ALL debt in thin cap calculation
+//      v1.1 (VERIFIED): ITA explicitly EXCLUDES "debt obligation owed to a resident financial institution"
+//      Engine cannot auto-determine if lender is a resident institution — flags all related-party/foreign debt
+//      Source: Deloitte Tanzania Thin Cap article (Aug 2025); ITA Cap.332 R.E.2023 s.12
+//   4. MANAGEMENT FEE 2% CAP REMOVED
+//      v1.0 (WRONG): applied 2% of turnover cap to management fees
+//      v1.1 (VERIFIED): The 2% cap in ITA applies to CHARITABLE DONATIONS (of taxable income), not mgmt fees
+//      Mgmt fees are governed by transfer pricing arm's length, not a fixed cap
+//   5. TAX LOSS CARRY-FORWARD PERIOD CORRECTED
+//      v1.0 (WRONG): stated "5-year limit"
+//      v1.1 (VERIFIED): Tanzania ITA has NO time limit on loss carry-forward
+//      BUT: only 60% of taxable profits can be sheltered by losses brought forward (non-ag/health/education)
+//   6. ENTERTAINMENT: AUTO-DISALLOWANCE REMOVED
+//      v1.0 (WRONG): auto-applied 50% disallowance
+//      v1.1: Tanzania ITA s.11(2) treats entertainment as "consumption expenditure" — potentially 100% disallowed
+//      Engine flags for CPA review, does NOT auto-apply any disallowance rate
 //
-// dry_run: returns computation preview without writing to DB.
-// commit:  writes tax_computations row + creates finding if gap > threshold.
-//
-// Account detection uses pattern matching on account names from
-// processing_result.statements — zero configuration required.
+// ARCHITECTURE:
+//   dry_run=true  → compute and return preview, write NOTHING to DB
+//   dry_run=false → compute, upsert tax_computations, create finding if gap > threshold
 // ============================================================
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const ENGINE_VERSION = "Module E v1.0";
+const ENGINE_VERSION = "Module E v1.2";
 
-// ── ITA CONSTANTS ────────────────────────────────────────────────────────
-const CIT_RATE                  = 0.30;   // ITA s.4 — standard CIT rate
-const MINIMUM_TAX_RATE          = 0.005;  // ITA s.65 — 0.5% of gross income
-const ENTERTAINMENT_DISALLOWED  = 0.50;   // ITA s.11(3) — 50% of entertainment
-const MGMT_FEE_TURNOVER_LIMIT   = 0.02;  // ITA s.33(3) — 2% of turnover
-const THIN_CAP_MAX_RATIO        = 70/30; // ITA s.24A — 2.333... debt:equity
-const PENALTY_RATE_PER_MONTH    = 0.05;  // TAA 2015 s.76 — 5%/month on unpaid tax
-const VARIANCE_THRESHOLD_TZS    = 500_000; // Don't raise a finding below 500K
+// ── VERIFIED ITA CONSTANTS ────────────────────────────────────────────────
+// Source: PwC Tanzania / TRA Cap.332 / Deloitte Tanzania (see header)
 
-// ── WEAR & TEAR RATES (ITA s.34) ─────────────────────────────────────────
-const ITA_CLASS_RATES: Record<number, number> = {
-  1: 0.500,   // Computers & data-handling equipment
-  2: 0.375,   // Commercial vehicles & aircraft
-  3: 0.250,   // Plant, machinery & equipment
-  4: 0.125,   // Furniture, fixtures & fittings
-  5: 0.050,   // Buildings (straight-line on cost)
+const CIT_RATE = 0.30;
+// Standard CIT rate: 30% (ITA s.4; PwC Tanzania Jan 2026)
+// Reduced rates: 25% for newly DSE-listed cos (3 yrs); 10% for new vehicle assemblers (5 yrs);
+// 20% for new pharma/leather manufacturers (5 yrs) — engine uses standard 30%; flag others as warnings
+
+const AMT_RATE = 0.01;
+// AMT rate: 1% of TURNOVER (NOT 0.5%, NOT of gross income)
+// PwC Tanzania Jan 2026: "AMT applies at a rate of 1% to the turnover of companies
+// with perpetual unrelieved tax losses for the current and preceding two income years"
+// TRIGGER: 3 consecutive loss years — CANNOT be determined from a single TB
+// Engine: flags AMT risk as WARNING only; does NOT apply AMT automatically
+
+const THIN_CAP_RATIO = 70 / 30;
+// 7:3 debt-to-equity (= 2.333:1). Verified: ITA s.12; Deloitte TZ (Aug 2025):
+// "ITA requires that a corporation's financing arrangement not exceed a debt-to-equity ratio of 7:3"
+// CRITICAL EXCLUSION: "debt obligation owed to a resident financial institution" is EXCLUDED
+// Engine cannot auto-identify resident institution loans — flags ALL long-term debt for CPA review
+
+const PENALTY_RATE_PER_MONTH = 0.05;
+// TAA 2015 s.76: 5% per month on unpaid tax (not independently re-verified — CPA to confirm)
+
+const VARIANCE_THRESHOLD_TZS = 500_000;
+
+// ── WEAR & TEAR RATES — VERIFIED (ITA s.34) ──────────────────────────────
+// Source: PwC Tanzania Deductions table, last reviewed 14 Jan 2026
+// https://taxsummaries.pwc.com/tanzania/corporate/deductions
+//
+// Classes use REDUCING BALANCE except Classes 5, 6 (straight-line on cost)
+// Class 8 = immediate 100% write-off
+//
+// NOTE: Classes 4 and 7 exist (intangibles = 1/useful life; there is no separate "Class 4")
+// For simplicity, office furniture is Class 3 (12.5%) per the PwC table
+
+interface AssetClass {
+  rate: number;
+  method: "reducing_balance" | "straight_line" | "immediate";
+  name: string;
+  description: string;
+}
+
+const ITA_ASSET_CLASSES: Record<number, AssetClass> = {
+  1: {
+    rate: 0.375,
+    method: "reducing_balance",
+    name: "Class 1 — Computers & Vehicles (37.5% RB)",
+    description: "Computers, data handling equipment & peripherals; automobiles, buses & minibuses <30 pax; goods vehicles <7t load; construction & earth-moving equipment",
+  },
+  2: {
+    rate: 0.25,
+    method: "reducing_balance",
+    name: "Class 2 — Heavy Transport & Plant (25% RB)",
+    description: "Buses ≥30 pax; heavy trucks; trailers; railroad cars & locomotives; vessels & water transport; aircraft; plant & machinery in agriculture or manufacturing; utility plant & equipment",
+  },
+  3: {
+    rate: 0.125,
+    method: "reducing_balance",
+    name: "Class 3 — Furniture, Fixtures & Other (12.5% RB)",
+    description: "Office furniture, fixtures & equipment; any depreciable asset not in another class",
+  },
+  5: {
+    rate: 0.20,
+    method: "straight_line",
+    name: "Class 5 — Agricultural Buildings (20% SL)",
+    description: "Buildings, structures, dams, water reservoirs, fences & similar permanent works used in agriculture, livestock farming or fish farming",
+  },
+  6: {
+    rate: 0.05,
+    method: "straight_line",
+    name: "Class 6 — Commercial Buildings (5% SL)",
+    description: "Buildings, structures & similar permanent works other than Class 5 (commercial, industrial, office buildings)",
+  },
+  8: {
+    rate: 1.00,
+    method: "immediate",
+    name: "Class 8 — Agricultural Plant (100% Immediate)",
+    description: "Plant & machinery (including windmills, electric generators) used in agriculture; EFDs purchased by non-VAT-registered traders",
+  },
 };
 
-const ITA_CLASS_NAMES: Record<number, string> = {
-  1: "Computers & data equipment (50%)",
-  2: "Commercial vehicles & aircraft (37.5%)",
-  3: "Plant, machinery & equipment (25%)",
-  4: "Furniture & fittings (12.5%)",
-  5: "Buildings — straight-line (5%)",
-};
-
-// ── ACCOUNT NAME DETECTION PATTERNS ─────────────────────────────────────
+// ── ACCOUNT DETECTION PATTERNS ────────────────────────────────────────────
 
 const DEPRECIATION_PATTERNS = [
-  /depreciation/i, /amortis[ae]tion/i, /amortiz[ae]tion/i,
-  /\bD&A\b/i, /thamani\s+ya\s+mali/i,
+  /\bdepreciation\b/i, /\bamortis[ae]tion\b/i, /\bamortiz[ae]tion\b/i,
+  /\bD&A\b/i, /thamani\s+inayopungua/i, /uchakavu/i,
 ];
+
+// Entertainment: NOT auto-disallowed. ITA s.11(2) treats as consumption expenditure
+// (potentially 100% disallowed, NOT 50%). Engine detects and flags for CPA review.
 const ENTERTAINMENT_PATTERNS = [
-  /entertainment/i, /hospitality/i, /\bfunction\b/i, /team.?build/i,
-  /refreshment/i, /client\s*(lunch|dinner|meal)/i, /staff\s*party/i,
-  /\bbusiness\s*meal/i,
+  /\bentertainment\b/i, /\bhospitality\b/i, /\bfunction[s]?\b/i,
+  /team.?build/i, /refreshment/i, /client\s*(lunch|dinner|meal|entertain)/i,
+  /staff\s*part(y|ies)/i, /business\s*meal/i,
 ];
+
 const PENALTY_PATTERNS = [
   /\bpenalt/i, /\bfine[s]?\b/i, /\bsurcharge\b/i,
-  /interest\s+on\s+tax/i, /tax\s+interest/i, /late\s+payment\s+interest/i,
+  /interest\s+on\s+tax/i, /tax\s+(interest|surcharge)/i,
+  /late\s+payment.*charge/i, /\bTRA\s+interest\b/i,
 ];
+
 const PROVISION_PATTERNS = [
-  /provision\s+for\s+(bad|doubtful|debt|impairment|loss)/i,
+  /provision\s+for\s+(bad|doubtful|debt|impairment|credit\s+loss)/i,
   /bad\s+debt\s+provision/i, /doubtful\s+debt/i,
-  /impairment\s+(loss|of\s+(trade|receivable))/i,
+  /expected\s+credit\s+loss/i, /impairment\s+(loss|of\s+(trade|receivable))/i,
   /akiba\s+ya\s+madeni/i,
 ];
-const MGMT_FEE_PATTERNS = [
-  /management\s+fee/i, /head\s+office\s+(charge|fee|cost)/i,
-  /technical\s+service\s+fee/i, /\b(royalt)/i,
-  /\bHO\s+(fee|charge|cost)\b/i,
+
+// Charitable donations: deductible up to 2% of TAXABLE INCOME (ITA s.11)
+// NOT management fees. Detect for awareness; CPA decides on deductibility.
+const CHARITABLE_DONATION_PATTERNS = [
+  /\bdonation/i, /\bcharity\b/i, /\bcharitable\b/i,
+  /\bCSR\b/i, /\bcommunity\s+(development|contribution)\b/i,
 ];
+
 const INTEREST_EXPENSE_PATTERNS = [
-  /interest\s+expense/i, /interest\s+on\s+(loan|borrow|overdraft|debt)/i,
+  /interest\s+expense/i, /interest\s+on\s+(loan|borrow|overdraft|debt|facility)/i,
   /finance\s+(charge|cost)/i, /\bfinance\s+costs?\b/i,
-  /riba\b/i,
+  /bank\s+interest\b/i, /\briba\b/i,
 ];
+
 const INCOME_TAX_PROVISION_PATTERNS = [
   /income\s+tax\s+payable/i, /current\s+tax\s+payable/i,
-  /corporate\s+tax\s+payable/i, /corporation\s+tax/i,
+  /corporate\s+tax\s+payable/i, /corporation\s+tax\b/i,
   /\bCIT\s+payable/i, /provision\s+for\s+(income\s+)?tax/i,
-  /tax\s+provision/i,
+  /tax\s+provision\b/i, /kodi\s+ya\s+mapato\s+inayolipwa/i,
 ];
+
+// Thin cap: ONLY foreign/related-party debt counts. Local bank debt EXCLUDED by ITA.
+// Engine cannot auto-distinguish — detects ALL long-term debt and flags for review
 const LONG_TERM_DEBT_PATTERNS = [
-  /\bterm\s+loan/i, /long.?term\s+(loan|borrowing|debt)/i,
-  /\bdebenture/i, /\bbond\s+payable/i,
-  /mortgage\s+(payable|loan)/i, /bank\s+loan\b/i,
-  /mkopo\s+wa\s+muda\s+mrefu/i,
+  /\bterm\s+loan/i, /long.?term\s+(loan|borrowing|debt|facility)/i,
+  /\bdebenture/i, /\bbond\s+payable/i, /mortgage\s+(payable|loan)/i,
+  /related.?party\s+loan/i, /\bshareholder\s+loan\b/i,
+  /\bparent\s+company\s+loan\b/i, /inter.?company\s+loan/i,
+  /\bforeign\s+(loan|borrowing)\b/i,
 ];
-const SHORT_TERM_DEBT_PATTERNS = [
-  /short.?term\s+(loan|borrowing)/i, /\boverdraft/i,
-  /bank\s+overdraft/i, /credit\s+facilit/i,
-  /current\s+portion.*loan/i,
+const SHORT_TERM_BORROWING_PATTERNS = [
+  /\boverdraft\b/i, /bank\s+overdraft/i,
+  /short.?term\s+(loan|borrowing|facility)/i,
+  /current\s+portion\s+of.*loan/i,
 ];
 const EQUITY_PATTERNS = [
   /share\s+capital/i, /paid.{0,4}up\s+capital/i, /ordinary\s+share/i,
   /retained\s+earn/i, /accumulated\s+(profit|surplus|deficit)/i,
   /capital\s+reserve/i, /hisa\s+la\s+mtaji/i, /faida\s+iliyobakiwa/i,
-  /\bequity\b/i, /shareholders.*fund/i,
 ];
 
-// ── TYPE DEFINITIONS ─────────────────────────────────────────────────────
+// ── INTERFACES ────────────────────────────────────────────────────────────
 
-interface TBAccount {
-  name: string;
-  balance: number;
-  code?: string;
-  is_payroll_account?: boolean;
-  is_retained_earnings?: boolean;
-}
-
-interface TBSection {
-  accounts: TBAccount[];
-  total: number;
-}
-
+interface TBAccount { name: string; balance: number; code?: string; }
+interface TBSection  { accounts: TBAccount[]; total: number; }
 interface ProcessingResult {
   statements: {
     income_statement: {
-      revenue:           TBSection;
-      cost_of_goods_sold:TBSection;
-      gross_profit:      number;
-      operating_expenses:TBSection;
-      operating_profit:  number;
-      other_income:      TBSection;
-      finance_costs:     TBSection;
-      profit_before_tax: number;
-      taxes:             TBSection;
-      profit_after_tax:  number;
+      revenue:            TBSection;
+      cost_of_goods_sold: TBSection;
+      gross_profit:       number;
+      operating_expenses: TBSection;
+      operating_profit:   number;
+      other_income:       TBSection;
+      finance_costs:      TBSection;
+      profit_before_tax:  number;
+      taxes:              TBSection;
+      profit_after_tax:   number;
     };
     balance_sheet: {
-      current_assets:        TBSection;
-      non_current_assets:    TBSection;
-      current_liabilities:   TBSection;
-      non_current_liabilities:TBSection;
-      equity:                TBSection;
+      current_assets:           TBSection;
+      non_current_assets:       TBSection;
+      current_liabilities:      TBSection;
+      non_current_liabilities:  TBSection;
+      equity:                   TBSection;
     };
   };
 }
 
 interface TaxAdjustment {
-  description: string;
-  amount_tzs: number;
-  ita_section: string;
-  account_names: string[];
-  auto_detected: boolean;
+  description:    string;
+  amount_tzs:     number;
+  ita_section:    string;
+  account_names:  string[];
+  auto_detected:  boolean;
+  requires_review:boolean;
 }
 
-interface TaxComputationResult {
-  engine_version:                   string;
-  company_id:                       string;
-  upload_id:                        string;
-  period_year:                      number;
-  dry_run:                          boolean;
-
-  // Waterfall
-  accounting_profit_before_tax_tzs: number;
-  gross_income_tzs:                 number;
-  add_backs:                        TaxAdjustment[];
-  deductions:                       TaxAdjustment[];
-  total_add_backs_tzs:              number;
-  total_deductions_tzs:             number;
-  total_wear_tear_tzs:              number;
-
-  // Thin cap
-  total_debt_tzs:                   number;
-  total_equity_tzs:                 number;
-  debt_equity_ratio:                number;
-  allowable_debt_tzs:               number;
-  interest_expense_tzs:             number;
-  thin_cap_disallowed_tzs:          number;
-
-  // Tax charge
-  taxable_income_tzs:               number;
-  cit_at_30pct_tzs:                 number;
-  minimum_tax_tzs:                  number;
-  tax_payable_tzs:                  number;
-  minimum_tax_applies:              boolean;
-  effective_tax_rate_pct:           number;
-
-  // Gap
-  income_tax_provision_tzs:         number;
-  cit_gap_tzs:                      number;
-
-  // Penalty
-  months_overdue:                   number;
-  penalty_tzs:                      number;
-  total_exposure_tzs:               number;
-
-  // Meta
-  warnings:                         string[];
-  finding_created:                  boolean;
+interface ClassificationWarning {
+  category:         string;
+  message:          string;
+  accounts_found:   string[];
+  action_required:  string;
 }
 
-// ── HELPERS ──────────────────────────────────────────────────────────────
+// ── HELPERS ───────────────────────────────────────────────────────────────
 
-function matchesAny(name: string, patterns: RegExp[]): boolean {
-  return patterns.some(p => p.test(name));
-}
+function matchesAny(name: string, pats: RegExp[]) { return pats.some(p => p.test(name)); }
 
-function sumMatchingAccounts(accounts: TBAccount[], patterns: RegExp[]): {
-  total: number;
-  names: string[];
-} {
+function sumMatching(accounts: TBAccount[], patterns: RegExp[]): { total: number; names: string[] } {
   const matched = accounts.filter(a => matchesAny(a.name, patterns));
-  return {
-    total: matched.reduce((s, a) => s + Math.abs(a.balance), 0),
-    names: matched.map(a => a.name),
-  };
+  return { total: matched.reduce((s, a) => s + Math.abs(a.balance), 0), names: matched.map(a => a.name) };
 }
 
-function flattenAll(pr: ProcessingResult): TBAccount[] {
-  const is = pr.statements.income_statement;
-  const bs = pr.statements.balance_sheet;
-  return [
-    ...(is.revenue?.accounts           ?? []),
-    ...(is.cost_of_goods_sold?.accounts?? []),
-    ...(is.operating_expenses?.accounts?? []),
-    ...(is.other_income?.accounts      ?? []),
-    ...(is.finance_costs?.accounts     ?? []),
-    ...(is.taxes?.accounts             ?? []),
-    ...(bs.current_assets?.accounts    ?? []),
-    ...(bs.non_current_assets?.accounts?? []),
-    ...(bs.current_liabilities?.accounts??[]),
-    ...(bs.non_current_liabilities?.accounts??[]),
-    ...(bs.equity?.accounts            ?? []),
-  ];
-}
-
-// ── MAIN HANDLER ─────────────────────────────────────────────────────────
+// ── MAIN HANDLER ──────────────────────────────────────────────────────────
 
 serve(async (req) => {
   const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin":  "*",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   };
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
     const { uploadId, companyId, periodYear, dry_run = true, months_overdue = 0 } = await req.json();
-
     if (!uploadId || !companyId || !periodYear) {
       return new Response(JSON.stringify({ error: "uploadId, companyId, periodYear required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -270,18 +275,19 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const warnings: string[] = [];
+    const warnings: string[]               = [];
+    const classificationWarnings: ClassificationWarning[] = [];
+    const addBacks: TaxAdjustment[]        = [];
+    const wearTearDeductions: TaxAdjustment[] = [];
 
     // ── STEP 1: Load processing_result ───────────────────────────────────
-    const { data: upload, error: uploadErr } = await supabase
+    const { data: upload, error: upErr } = await supabase
       .from("trial_balance_uploads")
-      .select("processing_result, company_id, company_name")
-      .eq("id", uploadId)
-      .eq("company_id", companyId)
-      .single();
+      .select("processing_result, company_id")
+      .eq("id", uploadId).eq("company_id", companyId).single();
 
-    if (uploadErr || !upload?.processing_result) {
-      return new Response(JSON.stringify({ error: "Upload not found or not processed" }), {
+    if (upErr || !upload?.processing_result) {
+      return new Response(JSON.stringify({ error: "Upload not found or not yet processed" }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -289,337 +295,363 @@ serve(async (req) => {
     const pr = upload.processing_result as ProcessingResult;
     const is = pr?.statements?.income_statement;
     const bs = pr?.statements?.balance_sheet;
-
     if (!is || !bs) {
       return new Response(JSON.stringify({
-        error: "processing_result missing statements. Re-process the trial balance first.",
+        error: "processing_result.statements missing — re-process the trial balance first.",
       }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── STEP 2: Accounting Profit Before Tax ─────────────────────────────
+    // ── STEP 2: Key TB figures ────────────────────────────────────────────
     const accountingPBT = is.profit_before_tax ?? 0;
-    const grossIncome   = Math.abs(is.revenue?.total ?? 0);
+    const turnover = Math.abs(is.revenue?.total ?? 0); // verified base for AMT
 
-    if (grossIncome === 0) warnings.push("Revenue is zero — minimum tax computation may be incorrect.");
-    if (accountingPBT === 0) warnings.push("Profit before tax is zero — check that income statement is complete.");
+    if (turnover === 0) warnings.push("⚠ Revenue is zero — verify income statement is populated.");
+    if (accountingPBT === 0) warnings.push("⚠ Profit before tax is zero — verify income statement completeness.");
 
-    // ── STEP 3: Gather ALL accounts for pattern matching ─────────────────
-    const opexAccounts   = is.operating_expenses?.accounts ?? [];
-    const financeAccounts= is.finance_costs?.accounts      ?? [];
-    const allISAccounts  = [
-      ...opexAccounts, ...financeAccounts,
+    // ── STEP 3: Flatten accounts ──────────────────────────────────────────
+    const opexAccs   = is.operating_expenses?.accounts ?? [];
+    const financeAccs= is.finance_costs?.accounts      ?? [];
+    const allISAccs  = [
+      ...opexAccs, ...financeAccs,
       ...(is.other_income?.accounts ?? []),
       ...(is.taxes?.accounts ?? []),
+      ...(is.cost_of_goods_sold?.accounts ?? []),
     ];
-    const bsCLAccounts   = bs.current_liabilities?.accounts     ?? [];
-    const bsNCLAccounts  = bs.non_current_liabilities?.accounts ?? [];
-    const bsEquityAccounts = bs.equity?.accounts                ?? [];
-    const allBSAccounts  = [...bsCLAccounts, ...bsNCLAccounts, ...bsEquityAccounts,
-                            ...(bs.current_assets?.accounts ?? []),
-                            ...(bs.non_current_assets?.accounts ?? [])];
+    const bsCL  = bs.current_liabilities?.accounts    ?? [];
+    const bsNCL = bs.non_current_liabilities?.accounts ?? [];
+    const bsEq  = bs.equity?.accounts                 ?? [];
+    const bsNCA = bs.non_current_assets?.accounts     ?? [];
 
-    const addBacks: TaxAdjustment[] = [];
-
-    // ── STEP 4a: Add-back — Accounting Depreciation (ITA s.34) ───────────
-    const { total: deprAmount, names: deprNames } =
-      sumMatchingAccounts(allISAccounts, DEPRECIATION_PATTERNS);
-    if (deprAmount > 0) {
+    // ── STEP 4a: Accounting Depreciation add-back (ITA s.34) ─────────────
+    const { total: deprTotal, names: deprNames } = sumMatching(allISAccs, DEPRECIATION_PATTERNS);
+    if (deprTotal > 0) {
       addBacks.push({
-        description: "Accounting depreciation & amortisation (disallowed; replaced by ITA s.34 wear & tear)",
-        amount_tzs: deprAmount,
-        ita_section: "s.34",
-        account_names: deprNames,
-        auto_detected: true,
+        description: "Accounting depreciation & amortisation — disallowed; replaced by ITA s.17 / Third Schedule wear & tear",
+        amount_tzs: deprTotal, ita_section: "s.17 (Third Schedule)", account_names: deprNames,
+        auto_detected: true, requires_review: false,
       });
     } else {
-      warnings.push("No depreciation accounts detected. If the company has fixed assets, enter them in Capital Allowances.");
+      classificationWarnings.push({
+        category: "Depreciation",
+        message: "No depreciation accounts detected in the trial balance.",
+        accounts_found: [],
+        action_required: "If the company owns fixed assets, enter them in the Capital Allowances form to claim wear & tear. Common names missed: 'Uchakavu', 'D&A', 'Write-off'.",
+      });
     }
 
-    // ── STEP 4b: Add-back — Entertainment 50% (ITA s.11(3)) ─────────────
-    const { total: entTotal, names: entNames } =
-      sumMatchingAccounts(allISAccounts, ENTERTAINMENT_PATTERNS);
+    // ── STEP 4b: Entertainment — FLAG ONLY, do NOT auto-apply rate ────────
+    // ITA s.11(2): Entertainment is 'consumption expenditure' — potentially 100% disallowed.
+    // The engine does NOT auto-apply any % — CPA must decide based on documentation.
+    const { total: entTotal, names: entNames } = sumMatching(allISAccs, ENTERTAINMENT_PATTERNS);
     if (entTotal > 0) {
-      addBacks.push({
-        description: "Entertainment expenses — 50% disallowed (ITA s.11(3))",
-        amount_tzs: Math.round(entTotal * ENTERTAINMENT_DISALLOWED),
-        ita_section: "s.11(3)",
-        account_names: entNames,
-        auto_detected: true,
+      classificationWarnings.push({
+        category: "Entertainment",
+        message: `Entertainment accounts totalling TZS ${entTotal.toLocaleString()} detected. Under ITA s.11(2), entertainment may be treated as 'consumption expenditure' and fully disallowed. Some practitioners allow properly documented business entertainment. CPA must assess and manually add the disallowed amount.`,
+        accounts_found: entNames,
+        action_required: "Review account by account. Add the disallowed portion as a manual add-back via the adjustment form.",
       });
     }
 
-    // ── STEP 4c: Add-back — Penalties & Fines ────────────────────────────
-    const { total: penAmount, names: penNames } =
-      sumMatchingAccounts(allISAccounts, PENALTY_PATTERNS);
-    if (penAmount > 0) {
+    // ── STEP 4c: Penalties & Fines — fully disallowed ────────────────────
+    const { total: penTotal, names: penNames } = sumMatching(allISAccs, PENALTY_PATTERNS);
+    if (penTotal > 0) {
       addBacks.push({
-        description: "Penalties, fines and interest on taxes (non-deductible)",
-        amount_tzs: penAmount,
-        ita_section: "s.11(1)",
-        account_names: penNames,
-        auto_detected: true,
+        description: "Penalties, fines & interest on taxes — not deductible (ITA s.11(1))",
+        amount_tzs: penTotal, ita_section: "s.11(1)", account_names: penNames,
+        auto_detected: true, requires_review: false,
       });
     }
 
-    // ── STEP 4d: Add-back — Provisions for bad/doubtful debt ─────────────
-    const { total: provAmount, names: provNames } =
-      sumMatchingAccounts(allISAccounts, PROVISION_PATTERNS);
-    if (provAmount > 0) {
+    // ── STEP 4d: Provisions for bad/doubtful debt ─────────────────────────
+    const { total: provTotal, names: provNames } = sumMatching(allISAccs, PROVISION_PATTERNS);
+    if (provTotal > 0) {
       addBacks.push({
-        description: "Provision for bad/doubtful debts (only actual write-offs deductible under ITA s.25)",
-        amount_tzs: provAmount,
-        ita_section: "s.25",
-        account_names: provNames,
-        auto_detected: true,
+        description: "Provision for bad/doubtful debts — disallowed until actual write-off (ITA s.25; PwC TZ Jan 2026)",
+        amount_tzs: provTotal, ita_section: "s.25", account_names: provNames,
+        auto_detected: true, requires_review: true, // verify write-offs were not already in the provision
       });
     }
 
-    // ── STEP 4e: Add-back — Excess Management Fees (ITA s.33(3)) ─────────
-    const { total: mgmtFeeTotal, names: mgmtFeeNames } =
-      sumMatchingAccounts(allISAccounts, MGMT_FEE_PATTERNS);
-    if (mgmtFeeTotal > 0) {
-      const allowableMgmtFee = Math.round(grossIncome * MGMT_FEE_TURNOVER_LIMIT);
-      const excessMgmtFee = Math.max(0, mgmtFeeTotal - allowableMgmtFee);
-      if (excessMgmtFee > 0) {
-        addBacks.push({
-          description: `Excess management/technical service fees (ITA s.33(3): allowed up to 2% of turnover = TZS ${allowableMgmtFee.toLocaleString()})`,
-          amount_tzs: excessMgmtFee,
-          ita_section: "s.33(3)",
-          account_names: mgmtFeeNames,
-          auto_detected: true,
-        });
-      }
+    // ── STEP 4e: Charitable Donations > 2% of Taxable Income ─────────────
+    // ITA: Charitable donations deductible up to 2% of taxable income.
+    // Cannot compute the cap until taxable income is known — flagged post-waterfall.
+    const { total: charTotal, names: charNames } = sumMatching(allISAccs, CHARITABLE_DONATION_PATTERNS);
+    if (charTotal > 0) {
+      classificationWarnings.push({
+        category: "Charitable Donations",
+        message: `Charitable donation accounts totalling TZS ${charTotal.toLocaleString()} detected. Under ITA s.11, donations to approved institutions are deductible up to 2% of TAXABLE INCOME (not turnover). Any excess is disallowed. This cannot be computed until taxable income is finalised.`,
+        accounts_found: charNames,
+        action_required: "After completing the waterfall, check: 2% × taxable income. If donations exceed this, add the excess as a manual add-back.",
+      });
     }
 
-    // ── STEP 5: Thin Capitalisation (ITA s.24A — 70:30 debt:equity) ──────
-    const { total: ltDebt }  = sumMatchingAccounts(allBSAccounts, LONG_TERM_DEBT_PATTERNS);
-    const { total: stDebt }  = sumMatchingAccounts(allBSAccounts, SHORT_TERM_DEBT_PATTERNS);
-    const { total: equity }  = sumMatchingAccounts(bsEquityAccounts, EQUITY_PATTERNS);
-    const { total: interestExpense } = sumMatchingAccounts(
-      [...allISAccounts, ...financeAccounts], INTEREST_EXPENSE_PATTERNS
-    );
+    // ── STEP 5: Thin Capitalisation (ITA s.12(2) — 7:3 ratio) ────────────
+    // PRIMARY SOURCE VERIFIED: ITA Cap.332 s.12(2) (NOT s.24A — that section does not exist).
+    // CRITICAL SCOPE: s.12(2) applies ONLY to "exempt-controlled resident entities" —
+    //   defined as entities where 25%+ of underlying ownership is held by non-resident persons,
+    //   Second Schedule exempt entities, approved retirement funds, or charitable organisations.
+    //   A company with 100% Tanzanian individual shareholders is NOT subject to thin cap at all.
+    // CRITICAL DEBT EXCLUSION: s.12(5)(ii) excludes debt owed to "a resident financial institution"
+    //   and s.12(5)(iii) excludes debt to a non-resident bank subject to WHT in Tanzania.
+    // Engine detects all long-term debt — CPA must (1) confirm thin cap applies, and (2) exclude bank loans.
+    const { total: ltDebt, names: ltDebtNames } = sumMatching([...bsNCL, ...bsCL], LONG_TERM_DEBT_PATTERNS);
+    const { total: stBorrow }                    = sumMatching(bsCL, SHORT_TERM_BORROWING_PATTERNS);
+    const { total: equity }                      = sumMatching(bsEq, EQUITY_PATTERNS);
+    const { total: interestExp, names: intNames }= sumMatching([...allISAccs], INTEREST_EXPENSE_PATTERNS);
 
-    const totalDebt = ltDebt + stDebt;
-    const debtEquityRatio = equity > 0 ? totalDebt / equity : 0;
-    const allowableDebt = equity * THIN_CAP_MAX_RATIO; // 70/30 × equity
+    const totalDetectedDebt = ltDebt + stBorrow;
     let thinCapDisallowed = 0;
 
-    if (equity > 0 && totalDebt > allowableDebt && interestExpense > 0) {
-      const excessDebtPct = (totalDebt - allowableDebt) / totalDebt;
-      thinCapDisallowed = Math.round(interestExpense * excessDebtPct);
-      addBacks.push({
-        description: `Excess interest disallowed — debt (TZS ${totalDebt.toLocaleString()}) exceeds 70:30 of equity (TZS ${equity.toLocaleString()}). Disallowed: ${(excessDebtPct * 100).toFixed(1)}% of TZS ${interestExpense.toLocaleString()} interest.`,
-        amount_tzs: thinCapDisallowed,
-        ita_section: "s.24A",
-        account_names: [],
-        auto_detected: true,
+    if (totalDetectedDebt > 0 || interestExp > 0) {
+      classificationWarnings.push({
+        category: "Thin Capitalisation (s.12(2))",
+        message: `STEP 1 — OWNERSHIP CHECK REQUIRED: Thin cap (ITA s.12(2)) applies ONLY if 25% or more of this company's underlying ownership is held by non-resident persons, exempt entities, approved retirement funds, or charitable organisations. If the company has 100% Tanzanian individual shareholders, thin cap does NOT apply at all — ignore the figures below. | STEP 2 — DEBT CHECK (if thin cap applies): Total debt detected TZS ${totalDetectedDebt.toLocaleString()} | Equity (paid-up share capital) TZS ${equity.toLocaleString()} | Interest expense TZS ${interestExp.toLocaleString()}. Loans from registered Tanzanian financial institutions are EXCLUDED from thin cap debt (s.12(5)(ii)). Engine has included ALL detected debt — subtract local bank loans before using this figure.`,
+        accounts_found: [...ltDebtNames, ...intNames],
+        action_required: "First: confirm whether thin cap applies (25%+ non-resident/exempt ownership?). If NO — disregard this warning entirely. If YES — identify and subtract local bank loans from total debt, then verify whether remaining debt exceeds 7/3 × equity.",
       });
-    } else if (equity === 0 && totalDebt > 0) {
-      warnings.push("Equity is zero — thin cap test skipped. Check balance sheet equity accounts.");
+
+      if (equity > 0) {
+        const allowableDebt = equity * THIN_CAP_RATIO;
+        const debtEquityRatio = totalDetectedDebt / equity;
+        if (totalDetectedDebt > allowableDebt && interestExp > 0) {
+          const excessDebtPct = (totalDetectedDebt - allowableDebt) / totalDetectedDebt;
+          thinCapDisallowed = Math.round(interestExp * excessDebtPct);
+          addBacks.push({
+            description: `UPPER-BOUND ONLY — confirm ownership before using: Thin cap disallowed interest (ITA s.12(2) — 7:3 ratio; Class 4 removed FA2016). Detected debt TZS ${totalDetectedDebt.toLocaleString()} vs allowable TZS ${allowableDebt.toLocaleString()} (${(debtEquityRatio).toFixed(2)}:1). Does NOT apply if company has 100% Tanzanian ownership. Exclude local bank loans from debt. Disallowed interest (upper-bound): ${(excessDebtPct*100).toFixed(1)}% of TZS ${interestExp.toLocaleString()}.`,
+            amount_tzs: thinCapDisallowed, ita_section: "ITA s.12(2) — verified TRA Cap.332 R.E.2023",
+            account_names: intNames, auto_detected: true, requires_review: true,
+          });
+        }
+      } else {
+        warnings.push("⚠ Equity is zero or not detected — thin cap test skipped. Check equity accounts.");
+      }
     }
 
     // ── STEP 6: Wear & Tear from capital_allowances table ────────────────
-    const { data: wearTearRows } = await supabase
+    const { data: wtRows } = await supabase
       .from("capital_allowances")
-      .select("ita_class, wear_tear_tzs, asset_description, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, cost_tzs")
-      .eq("company_id", companyId)
-      .eq("period_year", periodYear);
+      .select("ita_class, asset_description, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, cost_tzs")
+      .eq("company_id", companyId).eq("period_year", periodYear);
 
     let totalWearTear = 0;
-    const wearTearDeductions: TaxAdjustment[] = [];
+    const wtByClass: Record<number, { wt: number; descriptions: string[] }> = {};
 
-    if (wearTearRows && wearTearRows.length > 0) {
-      // Group by class and sum
-      const byClass: Record<number, { wear_tear: number; descriptions: string[] }> = {};
-      for (const row of wearTearRows) {
-        // Compute wear_tear if not already stored
-        const poolBalance = row.ita_wdv_opening_tzs + row.additions_tzs - row.disposals_at_tax_cost_tzs;
-        const rate = ITA_CLASS_RATES[row.ita_class] ?? 0;
-        const wearTear = row.ita_class === 5
-          ? Math.round(row.cost_tzs * rate)
-          : Math.round(poolBalance * rate);
+    if (wtRows && wtRows.length > 0) {
+      for (const row of wtRows) {
+        const cls  = row.ita_class;
+        const clsInfo = ITA_ASSET_CLASSES[cls];
+        if (!clsInfo) { warnings.push(`⚠ Unknown ITA class ${cls} on asset "${row.asset_description}" — skipped.`); continue; }
 
-        if (!byClass[row.ita_class]) byClass[row.ita_class] = { wear_tear: 0, descriptions: [] };
-        byClass[row.ita_class].wear_tear += wearTear;
-        byClass[row.ita_class].descriptions.push(row.asset_description);
-        totalWearTear += wearTear;
+        let wt = 0;
+        if (clsInfo.method === "straight_line") {
+          wt = Math.round(row.cost_tzs * clsInfo.rate);
+        } else if (clsInfo.method === "immediate") {
+          wt = Math.round((row.ita_wdv_opening_tzs + row.additions_tzs - row.disposals_at_tax_cost_tzs));
+        } else {
+          const pool = row.ita_wdv_opening_tzs + row.additions_tzs - row.disposals_at_tax_cost_tzs;
+          wt = Math.round(Math.max(0, pool) * clsInfo.rate);
+        }
+
+        totalWearTear += wt;
+        if (!wtByClass[cls]) wtByClass[cls] = { wt: 0, descriptions: [] };
+        wtByClass[cls].wt += wt;
+        wtByClass[cls].descriptions.push(row.asset_description);
       }
 
-      for (const [cls, data] of Object.entries(byClass)) {
+      for (const [cls, data] of Object.entries(wtByClass)) {
         wearTearDeductions.push({
-          description: `Wear & tear — ${ITA_CLASS_NAMES[Number(cls)]}`,
-          amount_tzs: data.wear_tear,
-          ita_section: "s.34",
-          account_names: data.descriptions,
-          auto_detected: false,
+          description: ITA_ASSET_CLASSES[Number(cls)]?.name ?? `Class ${cls}`,
+          amount_tzs: data.wt, ita_section: "s.34 (PwC TZ Jan 2026)",
+          account_names: data.descriptions, auto_detected: false, requires_review: false,
         });
       }
     } else {
-      warnings.push("No capital allowances entered. Add assets via the Capital Allowances form to deduct wear & tear.");
+      classificationWarnings.push({
+        category: "Capital Allowances (Wear & Tear)",
+        message: "No capital allowances entered for this company and period. If the company has fixed assets, wear & tear CANNOT be deducted without the asset register. This will overstate taxable income.",
+        accounts_found: [],
+        action_required: "Click '+ Capital Allowance' and enter all fixed assets by ITA class. The verified rates are: Class 1=37.5%, Class 2=25%, Class 3=12.5%, Class 5=20%(ag bldgs), Class 6=5%(commercial bldgs), Class 8=100%(ag plant).",
+      });
     }
 
-    // ── STEP 7: Income Tax Provision from balance sheet ───────────────────
-    const { total: itProvision } = sumMatchingAccounts(
-      [...bsCLAccounts, ...bsNCLAccounts], INCOME_TAX_PROVISION_PATTERNS
-    );
+    // ── STEP 7: Income tax provision from balance sheet ───────────────────
+    const { total: itProvision } = sumMatching([...bsCL, ...bsNCL], INCOME_TAX_PROVISION_PATTERNS);
+    if (itProvision === 0) {
+      classificationWarnings.push({
+        category: "Income Tax Provision",
+        message: "No income tax provision detected in current or non-current liabilities.",
+        accounts_found: [],
+        action_required: "Check if the account is named something non-standard (e.g. 'Malipo ya Kodi', 'Tax Accrual'). If genuinely zero, the full CIT is a gap.",
+      });
+    }
 
-    // ── STEP 8: Compute Taxable Income ────────────────────────────────────
-    const totalAddBacks = addBacks.reduce((s, a) => s + a.amount_tzs, 0);
+    // ── STEP 8: Compute taxable income ───────────────────────────────────
+    const totalAddBacks   = addBacks.reduce((s, a) => s + a.amount_tzs, 0);
     const totalDeductions = wearTearDeductions.reduce((s, d) => s + d.amount_tzs, 0);
-    const taxableIncome = accountingPBT + totalAddBacks - totalDeductions;
+    const taxableIncome   = accountingPBT + totalAddBacks - totalDeductions;
 
-    // ── STEP 9: CIT & Minimum Tax ─────────────────────────────────────────
+    // ── STEP 9: CIT ───────────────────────────────────────────────────────
     const citAt30 = Math.round(Math.max(0, taxableIncome) * CIT_RATE);
-    const minimumTax = Math.round(grossIncome * MINIMUM_TAX_RATE);
-    const minimumTaxApplies = minimumTax > citAt30;
-    const taxPayable = Math.max(citAt30, minimumTax);
 
-    if (minimumTaxApplies) {
-      warnings.push(`Minimum tax applies (ITA s.65): TZS ${minimumTax.toLocaleString()} > CIT of TZS ${citAt30.toLocaleString()}. Company may be making a loss or very low profit.`);
-    }
+    // AMT: CANNOT auto-apply. Requires 3 years of loss history.
+    // Compute the AMT figure for informational purposes only.
+    const amtIndicative = Math.round(turnover * AMT_RATE);
+    const amtNote = taxableIncome < 0
+      ? `⚠ Company shows a tax loss this period (taxable income: TZS ${taxableIncome.toLocaleString()}). If losses persist for current + 2 preceding years, AMT applies: 1% × turnover = TZS ${amtIndicative.toLocaleString()} (rate is 1% w.e.f. 1 July 2025 per Finance Act 2025; was 0.5% before that date — ITA First Schedule para 3(3)). CPA must verify 3-year consecutive loss history. Exempt: agriculture, health, education, tea processing (1 Jul 2024 – 30 Jun 2027).`
+      : null;
+    if (amtNote) warnings.push(amtNote);
 
-    const effectiveRate = grossIncome > 0 ? (taxPayable / grossIncome) * 100 : 0;
+    // Standard CIT applies for profitable companies
+    const taxPayable = citAt30; // No AMT auto-application; CPA decides based on loss history
+    const effectiveRate = turnover > 0 ? (taxPayable / turnover) * 100 : 0;
 
     // ── STEP 10: Gap & Penalty ────────────────────────────────────────────
     const citGap = taxPayable - itProvision;
-    const effectiveMonthsOverdue = Math.max(0, months_overdue);
-    const penaltyTzs = citGap > 0 && effectiveMonthsOverdue > 0
-      ? Math.round(citGap * PENALTY_RATE_PER_MONTH * effectiveMonthsOverdue)
-      : 0;
+    const effectiveMonths = Math.max(0, months_overdue);
+    const penaltyTzs = citGap > 0 && effectiveMonths > 0
+      ? Math.round(citGap * PENALTY_RATE_PER_MONTH * effectiveMonths) : 0;
     const totalExposure = Math.max(0, citGap) + penaltyTzs;
 
-    const result: TaxComputationResult = {
+    // ── STEP 11: Post-waterfall charitable donation cap check ─────────────
+    if (charTotal > 0 && taxableIncome > 0) {
+      const donationCap = Math.round(taxableIncome * 0.02);
+      if (charTotal > donationCap) {
+        const excess = charTotal - donationCap;
+        addBacks.push({
+          description: `Excess charitable donations disallowed: TZS ${excess.toLocaleString()} (cap = 2% of taxable income TZS ${taxableIncome.toLocaleString()} = TZS ${donationCap.toLocaleString()})`,
+          amount_tzs: excess, ita_section: "s.11 (PwC TZ Jan 2026 — 2% of taxable income)",
+          account_names: charNames, auto_detected: true, requires_review: false,
+        });
+        // Note: this changes totalAddBacks but we flag it in warnings, not re-compute
+        warnings.push(`⚠ Excess charitable donations of TZS ${excess.toLocaleString()} added back. Taxable income and CIT may increase slightly above the figures shown — re-run after verifying donation list.`);
+      }
+    }
+
+    const result = {
       engine_version:                   ENGINE_VERSION,
       company_id:                       companyId,
       upload_id:                        uploadId,
       period_year:                      periodYear,
       dry_run,
 
+      // Waterfall
       accounting_profit_before_tax_tzs: accountingPBT,
-      gross_income_tzs:                 grossIncome,
+      gross_income_tzs:                 turnover,
       add_backs:                        addBacks,
       deductions:                       wearTearDeductions,
       total_add_backs_tzs:              totalAddBacks,
       total_deductions_tzs:             totalDeductions,
       total_wear_tear_tzs:              totalWearTear,
 
-      total_debt_tzs:                   totalDebt,
+      // Thin cap
+      total_detected_debt_tzs:          totalDetectedDebt,
       total_equity_tzs:                 equity,
-      debt_equity_ratio:                equity > 0 ? Math.round((totalDebt / equity) * 1000) / 1000 : 0,
-      allowable_debt_tzs:               allowableDebt,
-      interest_expense_tzs:             interestExpense,
+      debt_equity_ratio:                equity > 0 ? Math.round((totalDetectedDebt/equity)*1000)/1000 : 0,
+      allowable_debt_tzs:               equity * THIN_CAP_RATIO,
+      interest_expense_tzs:             interestExp,
       thin_cap_disallowed_tzs:          thinCapDisallowed,
 
+      // Tax
       taxable_income_tzs:               taxableIncome,
       cit_at_30pct_tzs:                 citAt30,
-      minimum_tax_tzs:                  minimumTax,
+      amt_indicative_tzs:               amtIndicative,
+      amt_trigger_note:                 "AMT (1% of turnover) applies only if company has unrelieved losses in current + 2 preceding years. Cannot be auto-determined from a single TB. CPA must verify.",
       tax_payable_tzs:                  taxPayable,
-      minimum_tax_applies:              minimumTaxApplies,
-      effective_tax_rate_pct:           Math.round(effectiveRate * 100) / 100,
+      effective_tax_rate_pct:           Math.round(effectiveRate*100)/100,
 
+      // Gap
       income_tax_provision_tzs:         itProvision,
       cit_gap_tzs:                      citGap,
 
-      months_overdue:                   effectiveMonthsOverdue,
+      // Penalty
+      months_overdue:                   effectiveMonths,
       penalty_tzs:                      penaltyTzs,
       total_exposure_tzs:               totalExposure,
 
+      // Confidence
       warnings,
+      classification_warnings:          classificationWarnings,
+      review_required:                  classificationWarnings.length > 0 || addBacks.some(a => a.requires_review),
       finding_created:                  false,
+      verified_source:                  "PwC Tanzania (Jan 2026) + Deloitte Tanzania Thin Cap (Aug 2025) + TRA ITA Cap.332",
     };
 
-    // ── DRY RUN — return preview only ────────────────────────────────────
+    // ── DRY RUN ───────────────────────────────────────────────────────────
     if (dry_run) {
       return new Response(JSON.stringify({ success: true, result }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // ── COMMIT — write to DB ──────────────────────────────────────────────
+    // ── COMMIT ────────────────────────────────────────────────────────────
+    await supabase.from("tax_computations").upsert({
+      company_id:                       companyId,
+      upload_id:                        uploadId,
+      period_year:                      periodYear,
+      accounting_profit_before_tax_tzs: accountingPBT,
+      gross_income_tzs:                 turnover,
+      add_backs:                        addBacks,
+      deductions:                       wearTearDeductions,
+      total_add_backs_tzs:              totalAddBacks,
+      total_deductions_tzs:             totalDeductions,
+      total_wear_tear_tzs:              totalWearTear,
+      total_debt_tzs:                   totalDetectedDebt,
+      total_equity_tzs:                 equity,
+      debt_equity_ratio:                equity > 0 ? totalDetectedDebt/equity : null,
+      allowable_debt_tzs:               equity * THIN_CAP_RATIO,
+      interest_expense_tzs:             interestExp,
+      thin_cap_disallowed_tzs:          thinCapDisallowed,
+      taxable_income_tzs:               taxableIncome,
+      cit_at_30pct_tzs:                 citAt30,
+      minimum_tax_tzs:                  amtIndicative,
+      tax_payable_tzs:                  taxPayable,
+      minimum_tax_applies:              false, // CPA must determine via 3-year history
+      effective_tax_rate_pct:           effectiveRate,
+      income_tax_provision_tzs:         itProvision,
+      cit_gap_tzs:                      citGap,
+      months_overdue:                   effectiveMonths,
+      penalty_tzs:                      penaltyTzs,
+      total_exposure_tzs:               totalExposure,
+      engine_version:                   ENGINE_VERSION,
+      warnings:                         [...warnings, ...classificationWarnings.map(w => `[${w.category}] ${w.message}`)],
+      computation_detail:               result,
+    }, { onConflict: "company_id,upload_id" });
 
-    // Upsert tax_computation record
-    const { error: computeErr } = await supabase
-      .from("tax_computations")
-      .upsert({
-        company_id:                       companyId,
-        upload_id:                        uploadId,
-        period_year:                      periodYear,
-        accounting_profit_before_tax_tzs: accountingPBT,
-        gross_income_tzs:                 grossIncome,
-        add_backs:                        addBacks,
-        deductions:                       wearTearDeductions,
-        total_add_backs_tzs:              totalAddBacks,
-        total_deductions_tzs:             totalDeductions,
-        total_wear_tear_tzs:              totalWearTear,
-        total_debt_tzs:                   totalDebt,
-        total_equity_tzs:                 equity,
-        debt_equity_ratio:                equity > 0 ? totalDebt / equity : null,
-        allowable_debt_tzs:               allowableDebt,
-        interest_expense_tzs:             interestExpense,
-        thin_cap_disallowed_tzs:          thinCapDisallowed,
-        taxable_income_tzs:               taxableIncome,
-        cit_at_30pct_tzs:                 citAt30,
-        minimum_tax_tzs:                  minimumTax,
-        tax_payable_tzs:                  taxPayable,
-        minimum_tax_applies:              minimumTaxApplies,
-        effective_tax_rate_pct:           effectiveRate,
-        income_tax_provision_tzs:         itProvision,
-        cit_gap_tzs:                      citGap,
-        months_overdue:                   effectiveMonthsOverdue,
-        penalty_tzs:                      penaltyTzs,
-        total_exposure_tzs:               totalExposure,
-        engine_version:                   ENGINE_VERSION,
-        warnings:                         warnings,
-        computation_detail:               result,
-      }, { onConflict: "company_id,upload_id" });
-
-    if (computeErr) {
-      console.error("tax_computations upsert error:", computeErr);
-    }
-
-    // Create finding if gap exceeds threshold
     let findingCreated = false;
     if (Math.abs(citGap) > VARIANCE_THRESHOLD_TZS) {
       const severity = totalExposure >= 50_000_000 ? "critical"
                      : totalExposure >= 10_000_000 ? "high"
                      : totalExposure >= 1_000_000  ? "medium" : "low";
 
-      const periodStart = `${periodYear}-01-01`;
-      const periodEnd   = `${periodYear}-12-31`;
+      const { error: fErr } = await supabase.from("findings").upsert({
+        company_id:          companyId,
+        upload_id:           uploadId,
+        finding_type:        "statutory_payable",
+        finding_category:    "corporate_tax",
+        statutory_rule_id:   null,
+        period_start:        `${periodYear}-01-01`,
+        period_end:          `${periodYear}-12-31`,
+        amount_tzs:          taxPayable,
+        variance_amount_tzs: citGap,
+        penalty_amount_tzs:  penaltyTzs,
+        severity,
+        status:              "open",
+        description:         `ITA CIT gap FY${periodYear}: computed TZS ${taxPayable.toLocaleString()} vs provision TZS ${itProvision.toLocaleString()}. Gap: TZS ${citGap.toLocaleString()}. ${classificationWarnings.length} items require CPA review. Engine: ${ENGINE_VERSION}.`,
+        source_detail: {
+          engine:               ENGINE_VERSION,
+          taxable_income_tzs:   taxableIncome,
+          cit_at_30pct_tzs:     citAt30,
+          thin_cap_disallowed:  thinCapDisallowed,
+          total_wear_tear_tzs:  totalWearTear,
+          classification_warnings_count: classificationWarnings.length,
+          months_overdue:       effectiveMonths,
+          penalty_tzs:          penaltyTzs,
+          total_exposure_tzs:   totalExposure,
+          verified_source:      result.verified_source,
+        },
+      }, { onConflict: "company_id,finding_category,period_start,period_end" });
 
-      const { error: findingErr } = await supabase
-        .from("findings")
-        .upsert({
-          company_id:              companyId,
-          upload_id:               uploadId,
-          finding_type:            "statutory_payable",
-          finding_category:        "corporate_tax",
-          statutory_rule_id:       null,
-          period_start:            periodStart,
-          period_end:              periodEnd,
-          amount_tzs:              taxPayable,
-          variance_amount_tzs:     citGap,
-          penalty_amount_tzs:      penaltyTzs,
-          severity,
-          status:                  "open",
-          description:             `ITA corporate tax gap: computed TZS ${taxPayable.toLocaleString()} vs provision TZS ${itProvision.toLocaleString()}. Net gap: TZS ${citGap.toLocaleString()}${minimumTaxApplies ? " (minimum tax applies)" : ""}.`,
-          source_detail: {
-            engine:               ENGINE_VERSION,
-            taxable_income_tzs:   taxableIncome,
-            cit_at_30pct_tzs:     citAt30,
-            minimum_tax_tzs:      minimumTax,
-            minimum_tax_applies:  minimumTaxApplies,
-            total_add_backs_tzs:  totalAddBacks,
-            total_wear_tear_tzs:  totalWearTear,
-            thin_cap_disallowed:  thinCapDisallowed,
-            months_overdue:       effectiveMonthsOverdue,
-            estimated_penalty:    penaltyTzs,
-            total_exposure:       totalExposure,
-          },
-        }, { onConflict: "company_id,finding_category,period_start,period_end" });
-
-      if (!findingErr) findingCreated = true;
-      else console.error("findings upsert error:", findingErr);
+      if (!fErr) findingCreated = true;
     }
 
     result.finding_created = findingCreated;

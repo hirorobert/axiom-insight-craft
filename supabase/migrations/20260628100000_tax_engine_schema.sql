@@ -16,15 +16,19 @@ BEGIN;
 -- 1. CAPITAL ALLOWANCES  (ITA s.34 — Wear & Tear)
 -- ════════════════════════════════════════════════════════════
 --
--- ITA Asset Classes and Rates (reducing balance except Class 5):
---   Class 1: Computers, data-handling equipment           50%
---   Class 2: Commercial vehicles, aircraft               37.5%
---   Class 3: Plant, machinery & equipment                25%
---   Class 4: Furniture, fixtures & fittings              12.5%
---   Class 5: Industrial & commercial buildings            5% (straight-line on cost)
+-- ITA Asset Classes and Rates — VERIFIED against PwC Tanzania (Jan 2026):
+--   Class 1: Computers, data equipment, automobiles, buses<30pax, const.equip   37.5% RB
+--   Class 2: Heavy trucks, trailers, vessels, aircraft, ag/mfg plant/machinery  25%   RB
+--   Class 3: Office furniture, fixtures, equipment; all other assets             12.5% RB
+--   Class 5: Agricultural/livestock/fish farming buildings & structures          20%   SL
+--   Class 6: All other commercial buildings                                      5%    SL
+--   Class 8: Agricultural plant & machinery; EFDs for non-VAT traders           100%  immediate
 --
--- CPA enters one row per asset class per period.
--- Engine reads the table, sums wear_tear_tzs, deducts from PBT.
+-- NOTE: There is NO Class 4 in Tanzania ITA. Classes 5 & 6 are buildings (straight-line).
+-- Source: https://taxsummaries.pwc.com/tanzania/corporate/deductions (reviewed 14 Jan 2026)
+--
+-- CPA enters one row per asset per period (multiple rows per class allowed).
+-- Engine reads the table, computes wear_tear_tzs per class, deducts total from PBT.
 -- wear_tear_tzs and ita_wdv_closing_tzs are computed by the
 -- kinga-tax-engine and stored (not generated columns — avoids
 -- complexity of PostgreSQL generated column CASE expressions).
@@ -35,7 +39,8 @@ CREATE TABLE IF NOT EXISTS public.capital_allowances (
   period_year               INTEGER       NOT NULL CHECK (period_year BETWEEN 2000 AND 2100),
 
   asset_description         TEXT          NOT NULL,
-  ita_class                 INTEGER       NOT NULL CHECK (ita_class BETWEEN 1 AND 5),
+  -- Valid ITA classes: 1, 2, 3, 5, 6, 8 (no class 4 or 7 in this simplified register)
+  ita_class                 INTEGER       NOT NULL CHECK (ita_class IN (1, 2, 3, 5, 6, 8)),
 
   -- Tax written-down values (all TZS)
   cost_tzs                  NUMERIC(18,2) NOT NULL CHECK (cost_tzs >= 0),
@@ -95,8 +100,13 @@ COMMENT ON TABLE public.capital_allowances IS
   'Used to deduct wear & tear from accounting profit when computing taxable income.';
 
 COMMENT ON COLUMN public.capital_allowances.ita_class IS
-  'ITA wear & tear class: 1=computers(50%), 2=commercial vehicles(37.5%), '
-  '3=plant & machinery(25%), 4=furniture(12.5%), 5=buildings(5% SL)';
+  'ITA wear & tear class (PwC Tanzania, Jan 2026): '
+  '1=computers,automobiles,const.equip(37.5% RB) | '
+  '2=heavy vehicles,aircraft,ag/mfg plant(25% RB) | '
+  '3=furniture,fixtures,other assets(12.5% RB) | '
+  '5=ag/livestock buildings(20% SL) | '
+  '6=commercial buildings(5% SL) | '
+  '8=ag plant/EFDs(100% immediate)';
 
 
 -- ════════════════════════════════════════════════════════════
@@ -140,9 +150,9 @@ CREATE TABLE IF NOT EXISTS public.tax_computations (
 
   -- ── TAX CHARGE ────────────────────────────────────────────
   cit_at_30pct_tzs                  NUMERIC(18,2), -- 30% × max(0, taxable_income)
-  minimum_tax_tzs                   NUMERIC(18,2), -- 0.5% × gross_income (ITA s.65)
-  tax_payable_tzs                   NUMERIC(18,2), -- max(CIT, minimum_tax)
-  minimum_tax_applies               BOOLEAN       NOT NULL DEFAULT false,
+  minimum_tax_tzs                   NUMERIC(18,2), -- 1% × turnover (AMT — only for 3-year loss cos)
+  tax_payable_tzs                   NUMERIC(18,2), -- CIT (or AMT if CPA confirms 3-year loss trigger)
+  minimum_tax_applies               BOOLEAN       NOT NULL DEFAULT false, -- CPA must set; cannot auto-determine
   effective_tax_rate_pct            NUMERIC(6,3),
 
   -- ── PROVISION VS COMPUTED ────────────────────────────────
@@ -173,13 +183,17 @@ COMMENT ON TABLE public.tax_computations IS
   'CIT gap triggers a finding in the findings table.';
 
 COMMENT ON COLUMN public.tax_computations.minimum_tax_applies IS
-  'TRUE when ITA s.65 minimum tax (0.5% of gross income) exceeds the '
-  'standard CIT at 30%. Common for loss-making or low-margin companies.';
+  'TRUE when AMT (1% of turnover per PwC TZ Jan 2026) applies. '
+  'AMT ONLY triggers if company had unrelieved losses for current + 2 preceding years. '
+  'CPA must verify 3-year loss history — engine does NOT auto-set this flag. '
+  'Exempt: agriculture, tea processing (Jul 2024-Jun 2027), health, education sectors.';
 
 COMMENT ON COLUMN public.tax_computations.thin_cap_disallowed_tzs IS
-  'Interest expense disallowed under ITA s.24A thin capitalisation rule. '
-  'Applies when total debt > 2.333× equity (70:30 ratio). '
-  'Disallowed portion is added back to taxable income.';
+  'Interest expense disallowed under ITA s.24A thin capitalisation rule (7:3 debt:equity). '
+  'CRITICAL: ITA EXCLUDES debt owed to resident Tanzanian financial institutions. '
+  'Engine computes an upper-bound (includes all detected debt). '
+  'CPA must subtract local bank loans from total_debt_tzs before relying on this figure. '
+  'Source: Deloitte Tanzania Thin Cap article (Aug 2025); ITA Cap.332.';
 
 COMMIT;
 
