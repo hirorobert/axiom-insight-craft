@@ -289,8 +289,162 @@ function LiveFindingRow({ finding }: { finding: LiveFinding }) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
+function AddPaymentModal({
+  companyId,
+  createdBy,
+  onSaved,
+}: {
+  companyId: string;
+  createdBy: string;
+  onSaved: () => void;
+}) {
+  const [open, setOpen]     = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState<string | null>(null);
+  const [form, setForm]     = useState<AddPaymentForm>({
+    tax_category:      "sdl",
+    amount_paid_tzs:   "",
+    payment_date:      new Date().toISOString().substring(0, 10),
+    payment_reference: "",
+    notes:             "",
+  });
+
+  const TAX_CATEGORIES = [
+    { value: "sdl",                        label: "SDL" },
+    { value: "nssf",                       label: "NSSF" },
+    { value: "nhif",                       label: "NHIF" },
+    { value: "wcf",                        label: "WCF" },
+    { value: "paye",                       label: "PAYE" },
+    { value: "vat",                        label: "VAT" },
+    { value: "wht_undistributed_earnings", label: "WHT (Undistributed Earnings)" },
+    { value: "service_levy",               label: "Service Levy" },
+    { value: "corporate_tax",              label: "Corporate Tax" },
+  ];
+
+  const reset = () => setForm({
+    tax_category:      "sdl",
+    amount_paid_tzs:   "",
+    payment_date:      new Date().toISOString().substring(0, 10),
+    payment_reference: "",
+    notes:             "",
+  });
+
+  const handleSave = async () => {
+    if (!form.amount_paid_tzs || !form.payment_date) return;
+    setSaving(true);
+    setError(null);
+    const { error: insErr } = await supabase.from("tax_payments").insert({
+      company_id:        companyId,
+      tax_category:      form.tax_category,
+      amount_paid_tzs:   parseFloat(form.amount_paid_tzs.replace(/,/g, "")),
+      payment_date:      form.payment_date,
+      payment_reference: form.payment_reference || null,
+      notes:             form.notes || null,
+      payment_source:    "preparer_declared",
+      created_by:        createdBy,
+    });
+    setSaving(false);
+    if (insErr) {
+      setError(insErr.message);
+      return;
+    }
+    reset();
+    setOpen(false);
+    onSaved();
+  };
+
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+        <Plus className="w-4 h-4 mr-1" /> Record Payment
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Record Declared Payment</DialogTitle>
+            <DialogDescription>
+              Enter what was actually paid to TRA / statutory authority. The engine will deduct
+              this from the gross obligation to compute the net gap.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="tax-category">Tax Category</Label>
+              <select
+                id="tax-category"
+                className="flex h-11 w-full rounded-lg border border-border bg-secondary/50 px-4 py-2 text-sm text-foreground"
+                value={form.tax_category}
+                onChange={e => setForm(f => ({ ...f, tax_category: e.target.value }))}
+              >
+                {TAX_CATEGORIES.map(c => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="amount-paid">Amount Paid (TZS)</Label>
+              <Input
+                id="amount-paid"
+                inputMode="decimal"
+                placeholder="e.g. 61,930,070"
+                value={form.amount_paid_tzs}
+                onChange={e => setForm(f => ({ ...f, amount_paid_tzs: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="payment-date">Payment Date</Label>
+              <Input
+                id="payment-date"
+                type="date"
+                value={form.payment_date}
+                onChange={e => setForm(f => ({ ...f, payment_date: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="payment-ref">TRA Receipt / Reference (optional)</Label>
+              <Input
+                id="payment-ref"
+                placeholder="e.g. TRA-2025-12-001"
+                value={form.payment_reference}
+                onChange={e => setForm(f => ({ ...f, payment_reference: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="payment-notes">Notes (optional)</Label>
+              <Textarea
+                id="payment-notes"
+                rows={2}
+                value={form.notes}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              />
+            </div>
+
+            {error && (
+              <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+                {error}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving || !form.amount_paid_tzs || !form.payment_date}>
+              {saving ? "Saving…" : "Save Payment"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export function KingaFindingsPanel({
-  companyId, uploadId, periodYear, periodMonth, companyName,
+  companyId, uploadId, periodYear, periodMonth, companyName, userId,
 }: KingaFindingsPanelProps) {
   const [phase,        setPhase]        = useState<"idle"|"preview"|"running"|"done"|"error">("idle");
   const [preview,      setPreview]      = useState<EngineResponse | null>(null);
@@ -396,11 +550,18 @@ export function KingaFindingsPanel({
             <ShieldAlert className="w-5 h-5 text-primary" />
             Kinga — Statutory Compliance Analysis
           </CardTitle>
-          {(phase === "done" || phase === "error") && (
-            <Button variant="ghost" size="sm" onClick={() => { setPhase("idle"); setPreview(null); }}>
-              <RefreshCw className="w-4 h-4 mr-1" /> Reset
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            <AddPaymentModal
+              companyId={companyId}
+              createdBy={userId}
+              onSaved={loadLiveFindings}
+            />
+            {(phase === "done" || phase === "error") && (
+              <Button variant="ghost" size="sm" onClick={() => { setPhase("idle"); setPreview(null); }}>
+                <RefreshCw className="w-4 h-4 mr-1" /> Reset
+              </Button>
+            )}
+          </div>
         </div>
         <p className="text-sm text-muted-foreground">
           {companyName ? `${companyName} — ` : ""}{monthLabel(periodYear, periodMonth)}
