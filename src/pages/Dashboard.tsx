@@ -10,6 +10,8 @@ import { AccountMappingModal } from "@/components/AccountMappingModal";
 import { AccountMappingManager, AccountMappingManagerRef } from "@/components/AccountMappingManager";
 import { ExportStatements } from "@/components/ExportStatements";
 import { NoteSynth } from "@/components/NoteSynth";
+import { KingaFindingsPanel } from "@/components/KingaFindingsPanel";
+import { KingaTaxPanel } from "@/components/KingaTaxPanel";
 import { DashboardAnalytics } from "@/components/DashboardAnalytics";
 import { PolicyCompass } from "@/components/PolicyCompass";
 import { AuditTrail } from "@/components/AuditTrail";
@@ -889,6 +891,29 @@ export default function Dashboard() {
                       uploadId={selectedUpload.id}
                       existingNotes={result?.disclosureNotes}
                       onNotesGenerated={fetchUploads}
+                    />
+                  )}
+
+                  {/* Kinga — Statutory Compliance Analysis */}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (
+                    <KingaFindingsPanel
+                      companyId={selectedUpload.company_id}
+                      uploadId={selectedUpload.id}
+                      periodYear={new Date(selectedUpload.uploaded_at).getFullYear()}
+                      periodMonth={new Date(selectedUpload.uploaded_at).getMonth() + 1}
+                      companyName={selectedUpload.company_name ?? undefined}
+                      userId={user?.id ?? ""}
+                    />
+                  )}
+
+                  {/* Kinga — Corporate Tax Computation (ITA Chapter 332) */}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (
+                    <KingaTaxPanel
+                      companyId={selectedUpload.company_id}
+                      uploadId={selectedUpload.id}
+                      periodYear={new Date(selectedUpload.uploaded_at).getFullYear()}
+                      companyName={selectedUpload.company_name ?? undefined}
+                      userId={user?.id ?? ""}
                     />
                   )}
 

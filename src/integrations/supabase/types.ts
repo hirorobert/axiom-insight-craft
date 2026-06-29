@@ -37,7 +37,7 @@ export type Database = {
           original_subcategory?: string | null
           updated_at?: string
           upload_id: string
-          user_id: string
+          user_id?: string
         }
         Update: {
           account_code?: string
@@ -69,6 +69,7 @@ export type Database = {
           created_at: string
           id: string
           is_cash_account: boolean
+          is_payroll_account: boolean
           is_retained_earnings: boolean
           line_item: string
           normal_balance: string
@@ -83,6 +84,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_cash_account?: boolean
+          is_payroll_account?: boolean
           is_retained_earnings?: boolean
           line_item: string
           normal_balance: string
@@ -97,6 +99,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_cash_account?: boolean
+          is_payroll_account?: boolean
           is_retained_earnings?: boolean
           line_item?: string
           normal_balance?: string
@@ -127,7 +130,7 @@ export type Database = {
           ip_address?: string | null
           metadata?: Json | null
           user_agent?: string | null
-          user_id: string
+          user_id?: string
         }
         Update: {
           action?: Database["public"]["Enums"]["audit_action"]
@@ -141,6 +144,173 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      canonical_financial_records: {
+        Row: {
+          adapter_confidence: number
+          amount_tzs: number
+          batch_id: string
+          canonical_date: string
+          company_id: string
+          counterparty_name: string | null
+          counterparty_tin: string | null
+          id: string
+          import_batch_id: string
+          imported_at: string
+          imported_by: string
+          ingestion_contract_version: string
+          normalized_hash: string
+          payload_hash: string
+          period_month: number
+          period_year: number
+          provider_name: string
+          raw_payload: Json
+          record_type: string
+          requires_secondary_review: boolean
+          source_file_reference: string | null
+          source_identifier: string | null
+          source_type: string
+          tin_absent: boolean
+          vat_amount_tzs: number
+        }
+        Insert: {
+          adapter_confidence?: number
+          amount_tzs: number
+          batch_id: string
+          canonical_date: string
+          company_id: string
+          counterparty_name?: string | null
+          counterparty_tin?: string | null
+          id?: string
+          import_batch_id: string
+          imported_at?: string
+          imported_by: string
+          ingestion_contract_version: string
+          normalized_hash: string
+          payload_hash: string
+          period_month: number
+          period_year: number
+          provider_name: string
+          raw_payload: Json
+          record_type: string
+          requires_secondary_review?: boolean
+          source_file_reference?: string | null
+          source_identifier?: string | null
+          source_type: string
+          tin_absent?: boolean
+          vat_amount_tzs?: number
+        }
+        Update: {
+          adapter_confidence?: number
+          amount_tzs?: number
+          batch_id?: string
+          canonical_date?: string
+          company_id?: string
+          counterparty_name?: string | null
+          counterparty_tin?: string | null
+          id?: string
+          import_batch_id?: string
+          imported_at?: string
+          imported_by?: string
+          ingestion_contract_version?: string
+          normalized_hash?: string
+          payload_hash?: string
+          period_month?: number
+          period_year?: number
+          provider_name?: string
+          raw_payload?: Json
+          record_type?: string
+          requires_secondary_review?: boolean
+          source_file_reference?: string | null
+          source_identifier?: string | null
+          source_type?: string
+          tin_absent?: boolean
+          vat_amount_tzs?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_canonical_batch"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "ingestion_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_canonical_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      capital_allowances: {
+        Row: {
+          accounting_depreciation_tzs: number
+          additions_tzs: number
+          asset_description: string
+          company_id: string
+          cost_tzs: number
+          created_at: string
+          created_by: string
+          disposals_at_tax_cost_tzs: number
+          id: string
+          ita_class: number
+          ita_wdv_closing_tzs: number
+          ita_wdv_opening_tzs: number
+          notes: string | null
+          period_year: number
+          source_account: string | null
+          updated_at: string
+          wear_tear_tzs: number
+        }
+        Insert: {
+          accounting_depreciation_tzs?: number
+          additions_tzs?: number
+          asset_description: string
+          company_id: string
+          cost_tzs: number
+          created_at?: string
+          created_by: string
+          disposals_at_tax_cost_tzs?: number
+          id?: string
+          ita_class: number
+          ita_wdv_closing_tzs?: number
+          ita_wdv_opening_tzs?: number
+          notes?: string | null
+          period_year: number
+          source_account?: string | null
+          updated_at?: string
+          wear_tear_tzs?: number
+        }
+        Update: {
+          accounting_depreciation_tzs?: number
+          additions_tzs?: number
+          asset_description?: string
+          company_id?: string
+          cost_tzs?: number
+          created_at?: string
+          created_by?: string
+          disposals_at_tax_cost_tzs?: number
+          id?: string
+          ita_class?: number
+          ita_wdv_closing_tzs?: number
+          ita_wdv_opening_tzs?: number
+          notes?: string | null
+          period_year?: number
+          source_account?: string | null
+          updated_at?: string
+          wear_tear_tzs?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capital_allowances_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       companies: {
         Row: {
@@ -184,6 +354,372 @@ export type Database = {
         }
         Relationships: []
       }
+      efdms_records: {
+        Row: {
+          amount_tzs: number
+          company_id: string
+          counterparty_name: string | null
+          counterparty_tin: string | null
+          created_at: string
+          efd_device_id: string | null
+          efdms_transaction_id: string
+          id: string
+          ingested_by: string | null
+          period_month: number
+          period_year: number
+          raw_payload: Json | null
+          record_type: string
+          source_batch_id: string | null
+          transaction_date: string
+          vat_amount_tzs: number
+        }
+        Insert: {
+          amount_tzs: number
+          company_id: string
+          counterparty_name?: string | null
+          counterparty_tin?: string | null
+          created_at?: string
+          efd_device_id?: string | null
+          efdms_transaction_id: string
+          id?: string
+          ingested_by?: string | null
+          period_month: number
+          period_year: number
+          raw_payload?: Json | null
+          record_type: string
+          source_batch_id?: string | null
+          transaction_date: string
+          vat_amount_tzs?: number
+        }
+        Update: {
+          amount_tzs?: number
+          company_id?: string
+          counterparty_name?: string | null
+          counterparty_tin?: string | null
+          created_at?: string
+          efd_device_id?: string | null
+          efdms_transaction_id?: string
+          id?: string
+          ingested_by?: string | null
+          period_month?: number
+          period_year?: number
+          raw_payload?: Json | null
+          record_type?: string
+          source_batch_id?: string | null
+          transaction_date?: string
+          vat_amount_tzs?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_efdms_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      evidence_requests: {
+        Row: {
+          created_at: string
+          created_by: string
+          current_step: number
+          documents_requested: string[]
+          finding_id: string
+          id: string
+          notes: string | null
+          step1_requested_at: string | null
+          step1_requested_by: string | null
+          step2_last_reminder_at: string | null
+          step2_reminder_count: number
+          step3_received_at: string | null
+          step3_received_by: string | null
+          step4_review_started_at: string | null
+          step4_reviewed_at: string | null
+          step4_reviewed_by: string | null
+          step5_signed_by: string | null
+          step5_signoff_at: string | null
+          step6_submission_ref: string | null
+          step6_submitted_at: string | null
+          step6_submitted_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          current_step?: number
+          documents_requested?: string[]
+          finding_id: string
+          id?: string
+          notes?: string | null
+          step1_requested_at?: string | null
+          step1_requested_by?: string | null
+          step2_last_reminder_at?: string | null
+          step2_reminder_count?: number
+          step3_received_at?: string | null
+          step3_received_by?: string | null
+          step4_review_started_at?: string | null
+          step4_reviewed_at?: string | null
+          step4_reviewed_by?: string | null
+          step5_signed_by?: string | null
+          step5_signoff_at?: string | null
+          step6_submission_ref?: string | null
+          step6_submitted_at?: string | null
+          step6_submitted_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          current_step?: number
+          documents_requested?: string[]
+          finding_id?: string
+          id?: string
+          notes?: string | null
+          step1_requested_at?: string | null
+          step1_requested_by?: string | null
+          step2_last_reminder_at?: string | null
+          step2_reminder_count?: number
+          step3_received_at?: string | null
+          step3_received_by?: string | null
+          step4_review_started_at?: string | null
+          step4_reviewed_at?: string | null
+          step4_reviewed_by?: string | null
+          step5_signed_by?: string | null
+          step5_signoff_at?: string | null
+          step6_submission_ref?: string | null
+          step6_submitted_at?: string | null
+          step6_submitted_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_evidence_finding"
+            columns: ["finding_id"]
+            isOneToOne: true
+            referencedRelation: "findings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      findings: {
+        Row: {
+          assigned_to_user_id: string | null
+          base_amount_tzs: number | null
+          company_id: string
+          comparison_amount_tzs: number | null
+          computed_obligation_tzs: number | null
+          created_at: string
+          created_by: string
+          engine_run_id: string | null
+          exposure_amount_tzs: number
+          finding_category: string | null
+          finding_type: string
+          id: string
+          interest_amount_tzs: number | null
+          penalty_amount_tzs: number | null
+          period_end: string
+          period_start: string
+          related_finding_ids: string[] | null
+          response_pack_ready: boolean
+          source_detail: Json
+          status: string
+          statute_reference: string | null
+          statutory_rule_id: string | null
+          title: string
+          tra_notice_date: string | null
+          tra_notice_ref: string | null
+          updated_at: string
+          upload_id: string | null
+        }
+        Insert: {
+          assigned_to_user_id?: string | null
+          base_amount_tzs?: number | null
+          company_id: string
+          comparison_amount_tzs?: number | null
+          computed_obligation_tzs?: number | null
+          created_at?: string
+          created_by?: string
+          engine_run_id?: string | null
+          exposure_amount_tzs: number
+          finding_category?: string | null
+          finding_type: string
+          id?: string
+          interest_amount_tzs?: number | null
+          penalty_amount_tzs?: number | null
+          period_end: string
+          period_start: string
+          related_finding_ids?: string[] | null
+          response_pack_ready?: boolean
+          source_detail?: Json
+          status?: string
+          statute_reference?: string | null
+          statutory_rule_id?: string | null
+          title: string
+          tra_notice_date?: string | null
+          tra_notice_ref?: string | null
+          updated_at?: string
+          upload_id?: string | null
+        }
+        Update: {
+          assigned_to_user_id?: string | null
+          base_amount_tzs?: number | null
+          company_id?: string
+          comparison_amount_tzs?: number | null
+          computed_obligation_tzs?: number | null
+          created_at?: string
+          created_by?: string
+          engine_run_id?: string | null
+          exposure_amount_tzs?: number
+          finding_category?: string | null
+          finding_type?: string
+          id?: string
+          interest_amount_tzs?: number | null
+          penalty_amount_tzs?: number | null
+          period_end?: string
+          period_start?: string
+          related_finding_ids?: string[] | null
+          response_pack_ready?: boolean
+          source_detail?: Json
+          status?: string
+          statute_reference?: string | null
+          statutory_rule_id?: string | null
+          title?: string
+          tra_notice_date?: string | null
+          tra_notice_ref?: string | null
+          updated_at?: string
+          upload_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_findings_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_findings_statutory_rule"
+            columns: ["statutory_rule_id"]
+            isOneToOne: false
+            referencedRelation: "statutory_rules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_findings_upload"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      firm_members: {
+        Row: {
+          accepted_at: string | null
+          company_id: string
+          created_at: string
+          id: string
+          invited_by: string | null
+          role: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          company_id: string
+          created_at?: string
+          id?: string
+          invited_by?: string | null
+          role: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          accepted_at?: string | null
+          company_id?: string
+          created_at?: string
+          id?: string
+          invited_by?: string | null
+          role?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_firm_member_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ingestion_batches: {
+        Row: {
+          company_id: string
+          completed_at: string | null
+          error_count: number | null
+          error_summary: Json | null
+          id: string
+          import_batch_id: string
+          imported_at: string
+          imported_by: string
+          ingestion_contract_version: string
+          inserted_count: number | null
+          provider_name: string
+          record_count: number
+          skipped_count: number | null
+          source_file_reference: string | null
+          source_type: string
+          status: string
+        }
+        Insert: {
+          company_id: string
+          completed_at?: string | null
+          error_count?: number | null
+          error_summary?: Json | null
+          id?: string
+          import_batch_id: string
+          imported_at?: string
+          imported_by: string
+          ingestion_contract_version?: string
+          inserted_count?: number | null
+          provider_name: string
+          record_count: number
+          skipped_count?: number | null
+          source_file_reference?: string | null
+          source_type: string
+          status?: string
+        }
+        Update: {
+          company_id?: string
+          completed_at?: string | null
+          error_count?: number | null
+          error_summary?: Json | null
+          id?: string
+          import_batch_id?: string
+          imported_at?: string
+          imported_by?: string
+          ingestion_contract_version?: string
+          inserted_count?: number | null
+          provider_name?: string
+          record_count?: number
+          skipped_count?: number | null
+          source_file_reference?: string | null
+          source_type?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_batch_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -213,6 +749,251 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      statutory_rules: {
+        Row: {
+          created_at: string
+          effective_from: string
+          effective_to: string | null
+          flat_tax_tzs: number | null
+          id: string
+          industry_pack: string | null
+          jurisdiction: string
+          notes: string | null
+          obligation: string
+          penalty_rate_pct: number | null
+          rate_is_threshold: boolean
+          rate_pct: number | null
+          statute: string
+          threshold_amount: number | null
+          trigger_account_classification:
+            | Database["public"]["Enums"]["account_classification"]
+            | null
+          trigger_category: string
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          effective_from: string
+          effective_to?: string | null
+          flat_tax_tzs?: number | null
+          id?: string
+          industry_pack?: string | null
+          jurisdiction?: string
+          notes?: string | null
+          obligation: string
+          penalty_rate_pct?: number | null
+          rate_is_threshold?: boolean
+          rate_pct?: number | null
+          statute: string
+          threshold_amount?: number | null
+          trigger_account_classification?:
+            | Database["public"]["Enums"]["account_classification"]
+            | null
+          trigger_category: string
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          effective_from?: string
+          effective_to?: string | null
+          flat_tax_tzs?: number | null
+          id?: string
+          industry_pack?: string | null
+          jurisdiction?: string
+          notes?: string | null
+          obligation?: string
+          penalty_rate_pct?: number | null
+          rate_is_threshold?: boolean
+          rate_pct?: number | null
+          statute?: string
+          threshold_amount?: number | null
+          trigger_account_classification?:
+            | Database["public"]["Enums"]["account_classification"]
+            | null
+          trigger_category?: string
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: []
+      }
+      tax_computations: {
+        Row: {
+          accounting_profit_before_tax_tzs: number | null
+          add_backs: Json
+          allowable_debt_tzs: number | null
+          cit_at_30pct_tzs: number | null
+          cit_gap_tzs: number | null
+          company_id: string
+          computation_detail: Json | null
+          created_at: string
+          debt_equity_ratio: number | null
+          deductions: Json
+          effective_tax_rate_pct: number | null
+          engine_version: string
+          gross_income_tzs: number | null
+          id: string
+          income_tax_provision_tzs: number
+          interest_expense_tzs: number | null
+          minimum_tax_applies: boolean
+          minimum_tax_tzs: number | null
+          months_overdue: number
+          penalty_tzs: number
+          period_year: number
+          tax_payable_tzs: number | null
+          taxable_income_tzs: number | null
+          thin_cap_disallowed_tzs: number
+          total_add_backs_tzs: number
+          total_debt_tzs: number | null
+          total_deductions_tzs: number
+          total_equity_tzs: number | null
+          total_exposure_tzs: number | null
+          total_wear_tear_tzs: number
+          upload_id: string
+          warnings: Json
+        }
+        Insert: {
+          accounting_profit_before_tax_tzs?: number | null
+          add_backs?: Json
+          allowable_debt_tzs?: number | null
+          cit_at_30pct_tzs?: number | null
+          cit_gap_tzs?: number | null
+          company_id: string
+          computation_detail?: Json | null
+          created_at?: string
+          debt_equity_ratio?: number | null
+          deductions?: Json
+          effective_tax_rate_pct?: number | null
+          engine_version?: string
+          gross_income_tzs?: number | null
+          id?: string
+          income_tax_provision_tzs?: number
+          interest_expense_tzs?: number | null
+          minimum_tax_applies?: boolean
+          minimum_tax_tzs?: number | null
+          months_overdue?: number
+          penalty_tzs?: number
+          period_year: number
+          tax_payable_tzs?: number | null
+          taxable_income_tzs?: number | null
+          thin_cap_disallowed_tzs?: number
+          total_add_backs_tzs?: number
+          total_debt_tzs?: number | null
+          total_deductions_tzs?: number
+          total_equity_tzs?: number | null
+          total_exposure_tzs?: number | null
+          total_wear_tear_tzs?: number
+          upload_id: string
+          warnings?: Json
+        }
+        Update: {
+          accounting_profit_before_tax_tzs?: number | null
+          add_backs?: Json
+          allowable_debt_tzs?: number | null
+          cit_at_30pct_tzs?: number | null
+          cit_gap_tzs?: number | null
+          company_id?: string
+          computation_detail?: Json | null
+          created_at?: string
+          debt_equity_ratio?: number | null
+          deductions?: Json
+          effective_tax_rate_pct?: number | null
+          engine_version?: string
+          gross_income_tzs?: number | null
+          id?: string
+          income_tax_provision_tzs?: number
+          interest_expense_tzs?: number | null
+          minimum_tax_applies?: boolean
+          minimum_tax_tzs?: number | null
+          months_overdue?: number
+          penalty_tzs?: number
+          period_year?: number
+          tax_payable_tzs?: number | null
+          taxable_income_tzs?: number | null
+          thin_cap_disallowed_tzs?: number
+          total_add_backs_tzs?: number
+          total_debt_tzs?: number | null
+          total_deductions_tzs?: number
+          total_equity_tzs?: number | null
+          total_exposure_tzs?: number | null
+          total_wear_tear_tzs?: number
+          upload_id?: string
+          warnings?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tax_computations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tax_computations_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tax_payments: {
+        Row: {
+          amount_paid_tzs: number
+          company_id: string
+          created_at: string
+          created_by: string
+          id: string
+          notes: string | null
+          payment_date: string
+          payment_reference: string | null
+          payment_source: string
+          period_month: number
+          period_year: number
+          tax_category: string
+          updated_at: string
+        }
+        Insert: {
+          amount_paid_tzs: number
+          company_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          notes?: string | null
+          payment_date: string
+          payment_reference?: string | null
+          payment_source?: string
+          period_month: number
+          period_year: number
+          tax_category: string
+          updated_at?: string
+        }
+        Update: {
+          amount_paid_tzs?: number
+          company_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          notes?: string | null
+          payment_date?: string
+          payment_reference?: string | null
+          payment_source?: string
+          period_month?: number
+          period_year?: number
+          tax_category?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tax_payments_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       trial_balance_uploads: {
         Row: {
@@ -278,7 +1059,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_member_company_ids: { Args: never; Returns: string[] }
     }
     Enums: {
       account_classification:
@@ -314,6 +1095,21 @@ export type Database = {
         | "delete_account_mapping"
         | "validation_failed"
         | "validation_passed"
+        | "canonical_ingestion_started"
+        | "canonical_ingestion_completed"
+        | "canonical_ingestion_failed"
+        | "reconciliation_run"
+        | "finding_generated"
+        | "finding_status_changed"
+        | "finding_disputed"
+        | "finding_resolved"
+        | "evidence_requested"
+        | "evidence_received"
+        | "response_pack_generated"
+        | "statutory_rule_verified"
+        | "firm_member_invited"
+        | "firm_member_accepted"
+        | "firm_member_removed"
       financial_statement: "balance_sheet" | "income_statement" | "cash_flow"
       processing_status:
         | "pending"
@@ -484,6 +1280,21 @@ export const Constants = {
         "delete_account_mapping",
         "validation_failed",
         "validation_passed",
+        "canonical_ingestion_started",
+        "canonical_ingestion_completed",
+        "canonical_ingestion_failed",
+        "reconciliation_run",
+        "finding_generated",
+        "finding_status_changed",
+        "finding_disputed",
+        "finding_resolved",
+        "evidence_requested",
+        "evidence_received",
+        "response_pack_generated",
+        "statutory_rule_verified",
+        "firm_member_invited",
+        "firm_member_accepted",
+        "firm_member_removed",
       ],
       financial_statement: ["balance_sheet", "income_statement", "cash_flow"],
       processing_status: [
