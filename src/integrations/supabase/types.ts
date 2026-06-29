@@ -244,6 +244,74 @@ export type Database = {
           },
         ]
       }
+      capital_allowances: {
+        Row: {
+          accounting_depreciation_tzs: number
+          additions_tzs: number
+          asset_description: string
+          company_id: string
+          cost_tzs: number
+          created_at: string
+          created_by: string
+          disposals_at_tax_cost_tzs: number
+          id: string
+          ita_class: number
+          ita_wdv_closing_tzs: number
+          ita_wdv_opening_tzs: number
+          notes: string | null
+          period_year: number
+          source_account: string | null
+          updated_at: string
+          wear_tear_tzs: number
+        }
+        Insert: {
+          accounting_depreciation_tzs?: number
+          additions_tzs?: number
+          asset_description: string
+          company_id: string
+          cost_tzs: number
+          created_at?: string
+          created_by: string
+          disposals_at_tax_cost_tzs?: number
+          id?: string
+          ita_class: number
+          ita_wdv_closing_tzs?: number
+          ita_wdv_opening_tzs?: number
+          notes?: string | null
+          period_year: number
+          source_account?: string | null
+          updated_at?: string
+          wear_tear_tzs?: number
+        }
+        Update: {
+          accounting_depreciation_tzs?: number
+          additions_tzs?: number
+          asset_description?: string
+          company_id?: string
+          cost_tzs?: number
+          created_at?: string
+          created_by?: string
+          disposals_at_tax_cost_tzs?: number
+          id?: string
+          ita_class?: number
+          ita_wdv_closing_tzs?: number
+          ita_wdv_opening_tzs?: number
+          notes?: string | null
+          period_year?: number
+          source_account?: string | null
+          updated_at?: string
+          wear_tear_tzs?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capital_allowances_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       companies: {
         Row: {
           code: string | null
@@ -750,6 +818,126 @@ export type Database = {
           verified_by?: string | null
         }
         Relationships: []
+      }
+      tax_computations: {
+        Row: {
+          accounting_profit_before_tax_tzs: number | null
+          add_backs: Json
+          allowable_debt_tzs: number | null
+          cit_at_30pct_tzs: number | null
+          cit_gap_tzs: number | null
+          company_id: string
+          computation_detail: Json | null
+          created_at: string
+          debt_equity_ratio: number | null
+          deductions: Json
+          effective_tax_rate_pct: number | null
+          engine_version: string
+          gross_income_tzs: number | null
+          id: string
+          income_tax_provision_tzs: number
+          interest_expense_tzs: number | null
+          minimum_tax_applies: boolean
+          minimum_tax_tzs: number | null
+          months_overdue: number
+          penalty_tzs: number
+          period_year: number
+          tax_payable_tzs: number | null
+          taxable_income_tzs: number | null
+          thin_cap_disallowed_tzs: number
+          total_add_backs_tzs: number
+          total_debt_tzs: number | null
+          total_deductions_tzs: number
+          total_equity_tzs: number | null
+          total_exposure_tzs: number | null
+          total_wear_tear_tzs: number
+          upload_id: string
+          warnings: Json
+        }
+        Insert: {
+          accounting_profit_before_tax_tzs?: number | null
+          add_backs?: Json
+          allowable_debt_tzs?: number | null
+          cit_at_30pct_tzs?: number | null
+          cit_gap_tzs?: number | null
+          company_id: string
+          computation_detail?: Json | null
+          created_at?: string
+          debt_equity_ratio?: number | null
+          deductions?: Json
+          effective_tax_rate_pct?: number | null
+          engine_version?: string
+          gross_income_tzs?: number | null
+          id?: string
+          income_tax_provision_tzs?: number
+          interest_expense_tzs?: number | null
+          minimum_tax_applies?: boolean
+          minimum_tax_tzs?: number | null
+          months_overdue?: number
+          penalty_tzs?: number
+          period_year: number
+          tax_payable_tzs?: number | null
+          taxable_income_tzs?: number | null
+          thin_cap_disallowed_tzs?: number
+          total_add_backs_tzs?: number
+          total_debt_tzs?: number | null
+          total_deductions_tzs?: number
+          total_equity_tzs?: number | null
+          total_exposure_tzs?: number | null
+          total_wear_tear_tzs?: number
+          upload_id: string
+          warnings?: Json
+        }
+        Update: {
+          accounting_profit_before_tax_tzs?: number | null
+          add_backs?: Json
+          allowable_debt_tzs?: number | null
+          cit_at_30pct_tzs?: number | null
+          cit_gap_tzs?: number | null
+          company_id?: string
+          computation_detail?: Json | null
+          created_at?: string
+          debt_equity_ratio?: number | null
+          deductions?: Json
+          effective_tax_rate_pct?: number | null
+          engine_version?: string
+          gross_income_tzs?: number | null
+          id?: string
+          income_tax_provision_tzs?: number
+          interest_expense_tzs?: number | null
+          minimum_tax_applies?: boolean
+          minimum_tax_tzs?: number | null
+          months_overdue?: number
+          penalty_tzs?: number
+          period_year?: number
+          tax_payable_tzs?: number | null
+          taxable_income_tzs?: number | null
+          thin_cap_disallowed_tzs?: number
+          total_add_backs_tzs?: number
+          total_debt_tzs?: number | null
+          total_deductions_tzs?: number
+          total_equity_tzs?: number | null
+          total_exposure_tzs?: number | null
+          total_wear_tear_tzs?: number
+          upload_id?: string
+          warnings?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tax_computations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tax_computations_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       tax_payments: {
         Row: {
