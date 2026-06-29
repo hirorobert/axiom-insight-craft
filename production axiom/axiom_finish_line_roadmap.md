@@ -1,6 +1,6 @@
 # Axiom — Finish Line Roadmap
 # Tanzania Tax Compliance SaaS: Phase 4 → Production
-# Date: 2026-06-28 | Engine: Module E v1.1
+# Date: 2026-06-28 | Engine: Module E v1.2
 
 ---
 
@@ -23,7 +23,7 @@ Before pasting anything to Lovable, run this in PowerShell in your project direc
 if (Test-Path .git\index.lock) { Remove-Item ".git\index.lock" -Force }
 
 git add -A
-git commit -m "Phase 4: kinga-tax-engine v1.1 + verified ITA constants + KingaTaxPanel"
+git commit -m "Phase 4: kinga-tax-engine v1.2 + verified ITA constants + primary source audit"
 git push origin main
 ```
 

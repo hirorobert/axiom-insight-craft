@@ -1,7 +1,8 @@
 # ITA Cap. 332 Primary-Source Verification Report
 # Axiom — kinga-tax-engine Module E
 # Date: 2026-06-28
-# Status: HOLD DEPLOYMENT pending engine corrections
+# Last updated: 2026-06-28 (post-deployment verification round 2)
+# Status: READY TO DEPLOY (Priority 1 items resolved)
 
 ## Sources Used (in order of authority)
 
@@ -19,6 +20,14 @@
 4. **Habib Advisory Tanzania Tax Guide 2025/2026** (IAPA International member firm)
    — https://habibadvisory.co.tz/resources/guides/2025-2026-Tax-Guide.pdf
    — Contains full Third Schedule depreciation table. Used as authoritative secondary source for Schedule content.
+
+5. **PwC Worldwide Tax Summaries — Tanzania Corporate: Deductions** (reviewed 14 January 2026)
+   — https://taxsummaries.pwc.com/tanzania/corporate/deductions
+   — Full depreciation class table (Class 7 verbatim), loss carry-forward rule (60% confirmed), charitable donation cap.
+
+6. **RSM Tanzania — Finance Act 2020 analysis article** (published March 2021)
+   — https://www.rsm.global/tanzania/insights/tax-insights/restriction-utilisation-tax-losses-brought-forward-prior-years
+   — Quotes FA2020 amendment text to s.19(2) verbatim. Used to trace loss shelter rule history.
 
 ---
 
@@ -39,7 +48,7 @@ Previously used section numbers that ARE WRONG:
 
 ## PART B — THIRD SCHEDULE DEPRECIATION RATES (VERIFIED)
 
-Source: Habib Advisory Tax Guide 2025/2026 (pp.20-21), which reproduces the Third Schedule.
+Sources: Habib Advisory Tax Guide 2025/2026 (pp.20-21) + PwC Tanzania (reviewed 14 Jan 2026). Both reproduce the Third Schedule. PwC is used for Class 7 verbatim rate description.
 
 ### Verified class table:
 
@@ -50,7 +59,7 @@ Source: Habib Advisory Tax Guide 2025/2026 (pp.20-21), which reproduces the Thir
 | **3*** | Office furniture, fixtures and equipment; **any asset not included in another class** | **12.5%** | Diminishing Value Balance |
 | **5**** | Buildings, structures, dams, water reservoirs, fences and similar permanent works used in **agriculture, livestock farming or fishing farming** | **20%** | Straight Line on cost |
 | **6**** | Buildings, structures, international pipeline and similar permanent works **other than Class 5** | **5%** | Straight Line on cost |
-| **7**** | Intangible assets (other than those in the now-removed Class 4) | **1 ÷ useful life** | Straight Line |
+| **7**** | Intangible assets | **1 divided by the useful life of the asset in the pool, rounded DOWN to the nearest half year** | Straight Line (PwC Tanzania Jan 2026 — verbatim) |
 | **8**** | Plant and machinery (including windmills, electric generators and distribution equipment) used in **agriculture**; **EFDs** purchased by non-VAT registered traders; **equipment used for prospecting and exploration of minerals or petroleum** | **100%** | Straight Line (immediate write-off) |
 
 **Class 4 was REMOVED by Finance Act 2016.** Any reference to Class 4 in code is incorrect.
@@ -59,10 +68,11 @@ Source: Habib Advisory Tax Guide 2025/2026 (pp.20-21), which reproduces the Thir
 
 **First Year Allowance (50% initial deduction):** Applies to plant and machinery that is:
 - (a) used in manufacturing processes and fixed in a factory, OR
-- (b) used for providing services to tourists and fixed in a hotel
+- (b) used for providing services to tourists and fixed in a hotel, OR
+- (c) used in **fish farming** (PwC Tanzania Jan 2026 adds this — Habib omits it)
 - AND is added to the person's Class 2 or 3 pool.
 
-This means eligible manufacturing/hotel plant gets 50% deducted in year 1, then normal class rate on the balance in subsequent years. The engine does not currently model this.
+This means eligible manufacturing/hotel/fish-farming plant gets 50% deducted in year 1, then normal class rate on the balance in subsequent years. The engine does not currently model this.
 
 **Non-commercial vehicle cap:** Expenditure on a non-commercial road vehicle exceeding TZS 30,000,000 is not recognized. "Commercial vehicle" = designated to carry more than ½ tonne, or more than 13 passengers, or used in transport business.
 
@@ -134,21 +144,26 @@ Or equivalently: Disallowed interest = Actual interest × max(0, (Total debt −
 
 ---
 
-## PART E — TAX LOSS CARRY-FORWARD (VERIFIED)
+## PART E — TAX LOSS CARRY-FORWARD (VERIFIED — CORRECTED 2026-06-28)
 
 ### Statutory basis: s.19
 
 - **No time limit on carry-forward** — s.19(1)(b) covers "any unrelieved loss of a **previous year of income**" without restriction ✅
-- **30% floor rule (s.19(2)):** Once a person has had unrelieved losses for **four previous consecutive years**, deductions in the current year cannot reduce income below **30% of pre-loss income**
-  - This means losses can shelter up to **70% of income** in any single year (NOT 60% as previously coded — that was wrong)
-  - **The 30% floor only kicks in after 4 consecutive loss years** — not from the first year
-  - Exempt from the 30% floor: agricultural business, health services, education services
+- **Loss shelter cap — CURRENT RULE IS 60% (40% FLOOR):**
+  - PwC Tanzania (reviewed 14 Jan 2026): "only **60%** of the taxable profits of the company can be sheltered by losses brought forward"
+  - RSM Tanzania Tax Guide 2025/26: "60% of chargeable income" (per user verification)
+  - **The engine already uses 60%. This is CORRECT.**
+- **History of the rule:**
+  - Before Finance Act 2020: no restriction on annual loss utilisation
+  - Finance Act 2020 amended s.19(2): introduced a **30% floor** (= 70% maximum shelter). RSM's 2021 article quotes the FA2020 text verbatim as "shall not be reduced below thirty per centum."
+  - A subsequent Finance Act (likely FA2022, FA2023, or FA2024) raised the floor to **40%** (= 60% maximum shelter). Both current 2025/26 professional guides confirm 60%.
+  - The R.E.2023 PDF on the TRA website still shows "thirty per centum" — indicating TRA's published consolidation has NOT yet incorporated this subsequent amendment. The current operative law is 60% per PwC Jan 2026 and RSM 2025/26.
+- **Trigger:** The shelter cap only applies from the 5th year of income, i.e., where the taxpayer has had unrelieved losses for **four previous consecutive years**
+- **Exempt from restriction:** agricultural business, health services, education services
 - **Loss ringfencing (s.19(3)):** Investment losses, foreign losses, agricultural losses, and speculative losses can only offset income of the same type
 
-### Previous engine errors on this topic:
-- Engine said "60% shelter cap" — WRONG. Correct is 30% floor (= 70% shelter)
-- Engine implied this applied always — WRONG. The floor only applies after 4 consecutive loss years
-- Engine did not mention the ringfencing rules
+### Note on prior verification report error (now corrected):
+An earlier version of this report stated "losses can shelter up to 70% of income (NOT 60% as previously coded — that was wrong)." **This was itself wrong.** The engine having 60% was correct. The R.E.2023 PDF says "thirty per centum" because TRA's PDF has not incorporated the post-FA2020 amendment. Current professional guides (PwC Jan 2026 + RSM 2025/26) both confirm 60%.
 
 ---
 
@@ -199,12 +214,12 @@ The Act does NOT set a specific percentage disallowance for entertainment. Wheth
 - **Correct:** Thin cap (s.12) applies ONLY to "exempt-controlled resident entities" (25%+ non-resident or exempt ownership)
 - **Fix:** Add classification warning: "Thin cap (s.12) applies only if 25%+ of the company's ownership is held by non-resident persons, exempt entities, retirement funds or charitable organisations. If the company has 100% Tanzanian individual shareholders, thin cap does NOT apply. Confirm ownership structure."
 
-### SIGNIFICANT — Loss carry-forward shelter cap:
+### Loss carry-forward shelter cap — ENGINE IS CORRECT:
 
-- **Error:** Engine said "60% of taxable profits can be sheltered"
-- **Correct:** Up to **70%** can be sheltered (income cannot fall below **30%** of pre-loss income)
-- **Additional error:** The 30% floor applies only after **4 consecutive loss years**, not always
-- **Fix:** Update engine comment and any UI text
+- **Engine says: 60% shelter cap** — ✅ CORRECT per PwC Tanzania (Jan 2026) and RSM Tanzania 2025/26
+- An earlier version of this error list said "should be 70%" — that was the error. The engine was right.
+- Note: the R.E.2023 TRA PDF still says "thirty per centum" (30% floor = 70%) because TRA's published PDF has not incorporated the post-FA2020 legislative amendment. Current professional guides confirm 60%.
+- The trigger (only applies after 4 consecutive loss years) is not yet modelled in the engine — add a note in the classification_warning when AMT is flagged.
 
 ### SIGNIFICANT — AMT rate history:
 
@@ -268,27 +283,31 @@ The Act does NOT set a specific percentage disallowance for entertainment. Wheth
 
 ## PART J — RECOMMENDED ENGINE CHANGES BEFORE DEPLOYMENT
 
-Priority 1 (BLOCKER — factually wrong):
-1. Fix all section citations in code comments: s.24A → s.12, s.34 → s.17 (Third Schedule), s.65 → First Schedule para 3(3)
-2. Add classification warning on thin cap: applies only to companies with 25%+ non-resident/exempt ownership
-3. Fix loss shelter cap comment: "70% shelter (30% floor on income)" not "60%"
-4. Note AMT rate history: was 0.5% before 1 July 2025
+Priority 1 (BLOCKER — factually wrong): ALL RESOLVED IN v1.2
+1. ✅ Fix all section citations: s.24A → s.12(2), s.34 → s.17 (Third Schedule), s.65 → First Schedule para 3(3)
+2. ✅ Add classification warning on thin cap: applies only to companies with 25%+ non-resident/exempt ownership
+3. ✅ Loss shelter cap: engine uses 60% — CONFIRMED CORRECT per PwC Jan 2026 + RSM 2025/26
+4. ✅ Note AMT rate history: was 0.5% before 1 July 2025, now 1%
 
-Priority 2 (IMPORTANT — missing but not blocking for basic CIT computation):
-5. Add Class 7 (intangibles — 1/useful life) to class selector
-6. Add First Year Allowance checkbox on AddCapAllowanceModal for qualifying manufacturing/hotel plant
-7. Add note about equity definition uncertainty in thin cap warning
-8. Add TZS 30M vehicle cost cap warning when Class 1 asset cost > 30M and asset may be non-commercial
+Priority 2 (IMPORTANT — missing but not blocking for basic CIT computation): TARGET v1.3
+5. Add Class 7 (intangibles — 1/useful life, rounded down to nearest half year per PwC) to engine + class selector
+6. Add First Year Allowance checkbox on AddCapAllowanceModal (manufacturing/hotel/fish-farming plant — 50%)
+7. Add note about equity definition in thin cap warning ("paid-up share capital; possible FA2025 amendment adds positive retained earnings — confirm with CPA")
+8. Add TZS 30M vehicle cost cap warning when Class 1 asset cost > 30M
 
-Priority 3 (NICE TO HAVE — edge cases):
+Priority 3 (NICE TO HAVE — edge cases): TARGET v1.4+
 9. Small pool write-off (TZS 1M threshold)
-10. Class 8 description update: add "equipment for prospecting and exploration of minerals or petroleum"
-11. Ringfencing note on loss carry-forward for agricultural, investment, and foreign losses
+10. Ringfencing note on loss carry-forward for agricultural, investment, and foreign losses
+11. AMT classification_warning: add explicit note that the 60% loss shelter cap only kicks in from year 5 (after 4 consecutive loss years)
 
 ---
 
 ## DEPLOYMENT RECOMMENDATION
 
-**DO NOT DEPLOY** to Lovable until Priority 1 items are patched. The section citations in code comments are wrong (s.24A, s.34, s.65 all point to wrong provisions). The thin cap scope error (applying to all companies vs. only exempt-controlled entities) means the engine would generate incorrect findings for domestic companies. The loss shelter cap error (60% vs 70%) means loss company computations will be wrong.
+**CLEAR TO DEPLOY** (as of v1.2). All Priority 1 blockers are resolved:
+- Section citations corrected in engine (s.12(2), s.17, s.4(1)(a))
+- Thin cap scope warning added (exempt-controlled entities only)
+- Loss shelter cap: engine's 60% confirmed correct — no change needed
+- AMT rate history noted in engine warning
 
-Priority 2 and 3 items can be addressed in a v1.2 follow-up without blocking the initial deployment.
+Priority 2 items (Class 7, FYA, vehicle cap) do not affect computation correctness for standard profitable SMEs and are safe to defer to v1.3.

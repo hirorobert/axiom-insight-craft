@@ -21,8 +21,8 @@
 Apply `supabase/migrations/20260628100000_tax_engine_schema.sql` to the database.
 
 This migration creates:
-- `capital_allowances` table — ITA s.34 wear & tear asset register, with RLS
-  - Valid `ita_class` values: 1, 2, 3, 5, 6, 8 (constraint: `CHECK (ita_class IN (1,2,3,5,6,8))`)
+- `capital_allowances` table — ITA s.17 (Third Schedule) wear & tear asset register, with RLS
+  - Valid `ita_class` values: 1, 2, 3, 5, 6, 7, 8 (constraint: `CHECK (ita_class IN (1,2,3,5,6,7,8))`)
   - No Class 4 — Tanzania ITA does NOT have a Class 4
 - `tax_computations` table — full ITA waterfall storage, without RLS (service role writes)
   - Unique constraint on `(company_id, upload_id)`
@@ -49,7 +49,8 @@ Full Tanzania ITA Chapter 332 corporate tax waterfall (verified constants as of 
 | 3 | Office furniture, fixtures, equipment; all other assets | 12.5% | Reducing balance |
 | 5 | Agricultural/livestock/fish farming buildings & structures | 20% | Straight-line on cost |
 | 6 | Commercial buildings & structures (all others) | 5% | Straight-line on cost |
-| 8 | Agricultural plant & machinery; EFDs for non-VAT traders | 100% | Immediate write-off |
+| 7 | Intangible assets (patents, trademarks, licences, software) | 1 ÷ useful life (rounded down to nearest 0.5 yr) | Straight-line — CPA must confirm useful life |
+| 8 | Agricultural plant & machinery; EFDs for non-VAT traders; minerals/petroleum exploration equip | 100% | Immediate write-off |
 
 **CIT rate: 30%** — ITA s.4 (standard; engine uses standard rate)
 
@@ -59,7 +60,7 @@ Full Tanzania ITA Chapter 332 corporate tax waterfall (verified constants as of 
 - NOT applied to profitable companies
 - Source: PwC Tanzania (Jan 2026)
 
-**Thin cap: 7:3 debt-to-equity (70:30 = 2.333:1)** — ITA s.24A
+**Thin cap: 7:3 debt-to-equity (70:30 = 2.333:1)** — ITA s.12(2) (exempt-controlled entities only)
 - CRITICAL: Debt owed to RESIDENT Tanzanian financial institutions is EXCLUDED from thin cap debt
 - Engine computes upper-bound (includes all detected debt); flags for CPA review
 - Source: Deloitte Tanzania Thin Cap (Aug 2025)
@@ -152,10 +153,10 @@ WHERE tablename = 'capital_allowances'
 ORDER BY policyname;
 -- Expected: ca_delete, ca_insert, ca_select, ca_update
 
--- V3: capital_allowances ita_class CHECK constraint uses (1,2,3,5,6,8) — not BETWEEN 1 AND 5
+-- V3: capital_allowances ita_class CHECK constraint uses (1,2,3,5,6,7,8) — not BETWEEN 1 AND 5
 SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
 WHERE conrelid = 'public.capital_allowances'::regclass AND contype = 'c';
--- Expected: CHECK (ita_class = ANY (ARRAY[1,2,3,5,6,8])) or equivalent
+-- Expected: CHECK (ita_class = ANY (ARRAY[1,2,3,5,6,7,8])) or equivalent
 
 -- V4: tax_computations unique constraint on (company_id, upload_id)
 SELECT indexname FROM pg_indexes
@@ -176,7 +177,7 @@ WHERE tablename = 'tax_computations'
 - [ ] `tax_computations` table, no RLS, unique on (company_id, upload_id) ✅
 - [ ] `KingaTaxPanel` import added to Dashboard.tsx ✅
 - [ ] `KingaTaxPanel` renders after `KingaFindingsPanel` ✅
-- [ ] `AddCapAllowanceModal` inside `KingaTaxPanel.tsx` shows 6 ITA classes (1,2,3,5,6,8 — no Class 4) ✅
+- [ ] `AddCapAllowanceModal` inside `KingaTaxPanel.tsx` shows 7 ITA classes (1,2,3,5,6,7,8 — no Class 4) ✅
 - [ ] No TypeScript errors ✅
 - [ ] No other files modified ✅
 
@@ -194,7 +195,8 @@ When complete, a CPA using the dashboard can:
    - Class 3: Furniture, fixtures, equipment; all other assets (12.5% RB)
    - Class 5: Agricultural/livestock buildings (20% SL on cost)
    - Class 6: Commercial/industrial buildings (5% SL on cost)
-   - Class 8: Agricultural plant & machinery; EFDs (100% immediate)
+   - Class 7: Intangible assets — patents, trademarks, licences, software (1÷useful life SL — CPA specifies useful life)
+   - Class 8: Agricultural plant & machinery; EFDs; minerals/petroleum exploration equip (100% immediate)
 4. Set **months overdue** for TAA penalty estimation
 5. Click **"Run Tax Analysis"** → see the full ITA waterfall dry-run:
    - Accounting PBT
@@ -229,4 +231,4 @@ When complete, a CPA using the dashboard can:
 - AMT = 1% of TURNOVER, only if 3 consecutive loss years (NOT 0.5%, NOT always applied)
 - Thin cap = 7:3 (2.333:1); local bank debt EXCLUDED from thin cap debt definition
 - Penalty = 5%/month on unpaid tax (TAA 2015 s.76)
-- Engine version in code: `"Module E v1.1"`
+- Engine version in code: `"Module E v1.2"`

@@ -39,8 +39,9 @@ CREATE TABLE IF NOT EXISTS public.capital_allowances (
   period_year               INTEGER       NOT NULL CHECK (period_year BETWEEN 2000 AND 2100),
 
   asset_description         TEXT          NOT NULL,
-  -- Valid ITA classes: 1, 2, 3, 5, 6, 8 (no class 4 or 7 in this simplified register)
-  ita_class                 INTEGER       NOT NULL CHECK (ita_class IN (1, 2, 3, 5, 6, 8)),
+  -- Valid ITA classes: 1=37.5%RB, 2=25%RB, 3=12.5%RB, 5=20%SL, 6=5%SL, 7=1/useful-life SL, 8=100% immediate
+  -- No Class 4 (removed Finance Act 2016). Class 7 deduction requires CPA to confirm useful life.
+  ita_class                 INTEGER       NOT NULL CHECK (ita_class IN (1, 2, 3, 5, 6, 7, 8)),
 
   -- Tax written-down values (all TZS)
   cost_tzs                  NUMERIC(18,2) NOT NULL CHECK (cost_tzs >= 0),

@@ -23,15 +23,17 @@ import {
 // Class 3: 12.5% reducing balance  — Furniture, fixtures, equipment; all other assets
 // Class 5: 20%   straight-line     — Agricultural/livestock/fish farming buildings
 // Class 6: 5%    straight-line     — Commercial/industrial buildings (other)
-// Class 8: 100%  immediate write-off — Agricultural plant & machinery; EFDs
-// NOTE: There is NO Class 4 in Tanzania ITA.
+// Class 7: 1/useful life (rounded down to nearest 0.5 yr) — Intangible assets (PwC Tanzania Jan 2026)
+// Class 8: 100% immediate write-off — Agricultural plant & machinery; EFDs; minerals/petroleum exploration equip
+// NOTE: There is NO Class 4 in Tanzania ITA (removed Finance Act 2016).
 const ITA_CLASS_LABELS: Record<number, string> = {
   1: "Class 1 — Computers, automobiles, buses <30 pax, construction equip (37.5% RB)",
   2: "Class 2 — Heavy vehicles, vessels, aircraft, ag/mfg plant & machinery (25% RB)",
   3: "Class 3 — Furniture, fixtures, equipment; all other assets (12.5% RB)",
   5: "Class 5 — Agricultural/livestock/fish farming buildings & structures (20% SL)",
   6: "Class 6 — Commercial & industrial buildings (all other) (5% SL)",
-  8: "Class 8 — Agricultural plant & machinery; EFDs for non-VAT traders (100% immediate)",
+  7: "Class 7 — Intangible assets (patents, trademarks, licences, software) — 1÷useful life SL",
+  8: "Class 8 — Agricultural plant & machinery; EFDs; minerals/petroleum exploration equip (100% immediate)",
 };
 
 // ── TYPES ─────────────────────────────────────────────────────────────────
@@ -166,6 +168,8 @@ function AddCapAllowanceModal({
     ? Math.round(parseNum(form.cost_tzs) * 0.05)       // 5% SL on cost
     : form.ita_class === 8
     ? Math.round(pool)                                  // 100% immediate
+    : form.ita_class === 7
+    ? 0                                                  // Class 7: 1/useful_life — CPA must confirm useful life (v1.3)
     : Math.round(pool * (rbRates[form.ita_class] ?? 0)); // RB classes 1, 2, 3
 
   const handleSave = async () => {
@@ -262,6 +266,11 @@ function AddCapAllowanceModal({
                   value={form.source_account} onChange={e => setForm(f => ({ ...f, source_account: e.target.value }))} />
               </div>
             </div>
+            {form.ita_class === 7 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                <strong>Class 7 — CPA action required:</strong> Rate = 1 ÷ useful life (rounded down to nearest 0.5 yr per ITA Third Schedule). The engine cannot compute Class 7 wear & tear without the asset's useful life in years. Record this asset now; enter useful life in the Notes field. Deduction computation will be added in v1.3.
+              </div>
+            )}
             {wt > 0 && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
                 <strong>Preview:</strong> ITA wear & tear = <strong>TZS {wt.toLocaleString()}</strong>

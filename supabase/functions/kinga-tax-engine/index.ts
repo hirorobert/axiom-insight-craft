@@ -76,15 +76,15 @@ const PENALTY_RATE_PER_MONTH = 0.05;
 
 const VARIANCE_THRESHOLD_TZS = 500_000;
 
-// ── WEAR & TEAR RATES — VERIFIED (ITA s.34) ──────────────────────────────
+// ── WEAR & TEAR RATES — VERIFIED (ITA s.17 → Third Schedule) ─────────────
 // Source: PwC Tanzania Deductions table, last reviewed 14 Jan 2026
 // https://taxsummaries.pwc.com/tanzania/corporate/deductions
+// Also corroborated by Habib Advisory Tanzania Tax Guide 2025/2026
 //
-// Classes use REDUCING BALANCE except Classes 5, 6 (straight-line on cost)
+// Classes use REDUCING BALANCE except Classes 5, 6, 7 (straight-line)
 // Class 8 = immediate 100% write-off
-//
-// NOTE: Classes 4 and 7 exist (intangibles = 1/useful life; there is no separate "Class 4")
-// For simplicity, office furniture is Class 3 (12.5%) per the PwC table
+// Class 7 = intangible assets — 1/useful life, rounded DOWN to nearest 0.5 year (PwC verbatim)
+// Class 4 removed by Finance Act 2016. No class-4 assets exist.
 
 interface AssetClass {
   rate: number;
@@ -124,11 +124,17 @@ const ITA_ASSET_CLASSES: Record<number, AssetClass> = {
     name: "Class 6 — Commercial Buildings (5% SL)",
     description: "Buildings, structures & similar permanent works other than Class 5 (commercial, industrial, office buildings)",
   },
+  7: {
+    rate: 0,           // rate is variable — 1/useful_life_years, rounded DOWN to nearest 0.5 year
+    method: "straight_line",
+    name: "Class 7 — Intangible Assets (1/useful life SL)",
+    description: "Intangible assets (patents, trademarks, licences, goodwill, software etc.) — deducted over useful life, rate = 1÷useful_life rounded down to nearest 0.5 year (PwC Tanzania Jan 2026). CPA must specify useful life in years when adding this class.",
+  },
   8: {
     rate: 1.00,
     method: "immediate",
-    name: "Class 8 — Agricultural Plant (100% Immediate)",
-    description: "Plant & machinery (including windmills, electric generators) used in agriculture; EFDs purchased by non-VAT-registered traders",
+    name: "Class 8 — Agricultural Plant & EFDs (100% Immediate)",
+    description: "Plant & machinery (including windmills, electric generators) used in agriculture; EFDs purchased by non-VAT-registered traders; equipment for prospecting and exploration of minerals or petroleum",
   },
 };
 
