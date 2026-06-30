@@ -259,6 +259,7 @@ export type Database = {
           ita_wdv_closing_tzs: number
           ita_wdv_opening_tzs: number
           notes: string | null
+          period_id: string | null
           period_year: number
           source_account: string | null
           updated_at: string
@@ -278,6 +279,7 @@ export type Database = {
           ita_wdv_closing_tzs?: number
           ita_wdv_opening_tzs?: number
           notes?: string | null
+          period_id?: string | null
           period_year: number
           source_account?: string | null
           updated_at?: string
@@ -297,6 +299,7 @@ export type Database = {
           ita_wdv_closing_tzs?: number
           ita_wdv_opening_tzs?: number
           notes?: string | null
+          period_id?: string | null
           period_year?: number
           source_account?: string | null
           updated_at?: string
@@ -309,6 +312,27 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "companies"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "capital_allowances_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "fiscal_periods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "capital_allowances_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["current_period_id"]
+          },
+          {
+            foreignKeyName: "capital_allowances_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["prior_period_id"]
           },
         ]
       }
@@ -655,6 +679,87 @@ export type Database = {
           },
         ]
       }
+      fiscal_periods: {
+        Row: {
+          accounting_basis: string
+          active_upload_id: string | null
+          company_id: string
+          created_at: string
+          created_by: string
+          fiscal_year_end: string
+          id: string
+          period_label: string
+          prior_period_id: string | null
+          reporting_currency: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          accounting_basis?: string
+          active_upload_id?: string | null
+          company_id: string
+          created_at?: string
+          created_by: string
+          fiscal_year_end: string
+          id?: string
+          period_label: string
+          prior_period_id?: string | null
+          reporting_currency?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          accounting_basis?: string
+          active_upload_id?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string
+          fiscal_year_end?: string
+          id?: string
+          period_label?: string
+          prior_period_id?: string | null
+          reporting_currency?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fiscal_periods_active_upload_id_fkey"
+            columns: ["active_upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fiscal_periods_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fiscal_periods_prior_period_id_fkey"
+            columns: ["prior_period_id"]
+            isOneToOne: false
+            referencedRelation: "fiscal_periods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fiscal_periods_prior_period_id_fkey"
+            columns: ["prior_period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["current_period_id"]
+          },
+          {
+            foreignKeyName: "fiscal_periods_prior_period_id_fkey"
+            columns: ["prior_period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["prior_period_id"]
+          },
+        ]
+      }
       ingestion_batches: {
         Row: {
           company_id: string
@@ -824,6 +929,7 @@ export type Database = {
           accounting_profit_before_tax_tzs: number | null
           add_backs: Json
           allowable_debt_tzs: number | null
+          amt_3yr_trigger: boolean
           cit_at_30pct_tzs: number | null
           cit_gap_tzs: number | null
           company_id: string
@@ -837,10 +943,12 @@ export type Database = {
           id: string
           income_tax_provision_tzs: number
           interest_expense_tzs: number | null
+          loss_relief_applied_tzs: number
           minimum_tax_applies: boolean
           minimum_tax_tzs: number | null
           months_overdue: number
           penalty_tzs: number
+          period_id: string | null
           period_year: number
           tax_payable_tzs: number | null
           taxable_income_tzs: number | null
@@ -851,6 +959,8 @@ export type Database = {
           total_equity_tzs: number | null
           total_exposure_tzs: number | null
           total_wear_tear_tzs: number
+          unrelieved_losses_bf_tzs: number
+          unrelieved_losses_cf_tzs: number
           upload_id: string
           warnings: Json
         }
@@ -858,6 +968,7 @@ export type Database = {
           accounting_profit_before_tax_tzs?: number | null
           add_backs?: Json
           allowable_debt_tzs?: number | null
+          amt_3yr_trigger?: boolean
           cit_at_30pct_tzs?: number | null
           cit_gap_tzs?: number | null
           company_id: string
@@ -871,10 +982,12 @@ export type Database = {
           id?: string
           income_tax_provision_tzs?: number
           interest_expense_tzs?: number | null
+          loss_relief_applied_tzs?: number
           minimum_tax_applies?: boolean
           minimum_tax_tzs?: number | null
           months_overdue?: number
           penalty_tzs?: number
+          period_id?: string | null
           period_year: number
           tax_payable_tzs?: number | null
           taxable_income_tzs?: number | null
@@ -885,6 +998,8 @@ export type Database = {
           total_equity_tzs?: number | null
           total_exposure_tzs?: number | null
           total_wear_tear_tzs?: number
+          unrelieved_losses_bf_tzs?: number
+          unrelieved_losses_cf_tzs?: number
           upload_id: string
           warnings?: Json
         }
@@ -892,6 +1007,7 @@ export type Database = {
           accounting_profit_before_tax_tzs?: number | null
           add_backs?: Json
           allowable_debt_tzs?: number | null
+          amt_3yr_trigger?: boolean
           cit_at_30pct_tzs?: number | null
           cit_gap_tzs?: number | null
           company_id?: string
@@ -905,10 +1021,12 @@ export type Database = {
           id?: string
           income_tax_provision_tzs?: number
           interest_expense_tzs?: number | null
+          loss_relief_applied_tzs?: number
           minimum_tax_applies?: boolean
           minimum_tax_tzs?: number | null
           months_overdue?: number
           penalty_tzs?: number
+          period_id?: string | null
           period_year?: number
           tax_payable_tzs?: number | null
           taxable_income_tzs?: number | null
@@ -919,6 +1037,8 @@ export type Database = {
           total_equity_tzs?: number | null
           total_exposure_tzs?: number | null
           total_wear_tear_tzs?: number
+          unrelieved_losses_bf_tzs?: number
+          unrelieved_losses_cf_tzs?: number
           upload_id?: string
           warnings?: Json
         }
@@ -931,7 +1051,118 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "tax_computations_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "fiscal_periods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tax_computations_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["current_period_id"]
+          },
+          {
+            foreignKeyName: "tax_computations_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["prior_period_id"]
+          },
+          {
             foreignKeyName: "tax_computations_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tax_losses: {
+        Row: {
+          amt_3yr_trigger: boolean
+          company_id: string
+          consecutive_loss_years: number
+          created_at: string
+          created_by: string
+          current_year_result_tzs: number
+          id: string
+          loss_utilised_tzs: number
+          notes: string | null
+          period_id: string | null
+          period_year: number
+          unrelieved_loss_bf_tzs: number
+          unrelieved_loss_cf_tzs: number
+          updated_at: string
+          upload_id: string | null
+        }
+        Insert: {
+          amt_3yr_trigger?: boolean
+          company_id: string
+          consecutive_loss_years?: number
+          created_at?: string
+          created_by: string
+          current_year_result_tzs?: number
+          id?: string
+          loss_utilised_tzs?: number
+          notes?: string | null
+          period_id?: string | null
+          period_year: number
+          unrelieved_loss_bf_tzs?: number
+          unrelieved_loss_cf_tzs?: number
+          updated_at?: string
+          upload_id?: string | null
+        }
+        Update: {
+          amt_3yr_trigger?: boolean
+          company_id?: string
+          consecutive_loss_years?: number
+          created_at?: string
+          created_by?: string
+          current_year_result_tzs?: number
+          id?: string
+          loss_utilised_tzs?: number
+          notes?: string | null
+          period_id?: string | null
+          period_year?: number
+          unrelieved_loss_bf_tzs?: number
+          unrelieved_loss_cf_tzs?: number
+          updated_at?: string
+          upload_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tax_losses_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tax_losses_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "fiscal_periods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tax_losses_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["current_period_id"]
+          },
+          {
+            foreignKeyName: "tax_losses_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["prior_period_id"]
+          },
+          {
+            foreignKeyName: "tax_losses_upload_id_fkey"
             columns: ["upload_id"]
             isOneToOne: false
             referencedRelation: "trial_balance_uploads"
@@ -1003,8 +1234,10 @@ export type Database = {
           file_name: string
           file_path: string
           file_size: number
+          fiscal_year_end: string | null
           id: string
           is_valid: boolean | null
+          period_id: string | null
           processed_at: string | null
           processing_result: Json | null
           status: string
@@ -1019,8 +1252,10 @@ export type Database = {
           file_name: string
           file_path: string
           file_size: number
+          fiscal_year_end?: string | null
           id?: string
           is_valid?: boolean | null
+          period_id?: string | null
           processed_at?: string | null
           processing_result?: Json | null
           status?: string
@@ -1035,8 +1270,10 @@ export type Database = {
           file_name?: string
           file_path?: string
           file_size?: number
+          fiscal_year_end?: string | null
           id?: string
           is_valid?: boolean | null
+          period_id?: string | null
           processed_at?: string | null
           processing_result?: Json | null
           status?: string
@@ -1052,13 +1289,126 @@ export type Database = {
             referencedRelation: "companies"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "trial_balance_uploads_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "fiscal_periods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_balance_uploads_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["current_period_id"]
+          },
+          {
+            foreignKeyName: "trial_balance_uploads_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["prior_period_id"]
+          },
         ]
       }
     }
     Views: {
-      [_ in never]: never
+      v_loss_history: {
+        Row: {
+          amt_3yr_trigger: boolean | null
+          company_id: string | null
+          company_name: string | null
+          consecutive_loss_years: number | null
+          current_year_result_tzs: number | null
+          loss_utilised_tzs: number | null
+          period_year: number | null
+          risk_label: string | null
+          unrelieved_loss_bf_tzs: number | null
+          unrelieved_loss_cf_tzs: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tax_losses_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_period_pairs: {
+        Row: {
+          accounting_basis: string | null
+          company_id: string | null
+          current_label: string | null
+          current_period_id: string | null
+          current_upload_id: string | null
+          current_year_end: string | null
+          prior_label: string | null
+          prior_period_id: string | null
+          prior_upload_id: string | null
+          prior_year_end: string | null
+          reporting_currency: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fiscal_periods_active_upload_id_fkey"
+            columns: ["current_upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fiscal_periods_active_upload_id_fkey"
+            columns: ["prior_upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fiscal_periods_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_wdv_carry_forward: {
+        Row: {
+          asset_description: string | null
+          company_id: string | null
+          company_name: string | null
+          current_year: number | null
+          ita_class: number | null
+          prior_year: number | null
+          status: string | null
+          wdv_closing_prior: number | null
+          wdv_opening_current: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capital_allowances_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
+      carry_forward_wdv: {
+        Args: { p_company_id: string; p_from_year: number; p_to_year: number }
+        Returns: {
+          action: string
+          asset_description: string
+          ita_class: number
+          wdv_closing_prior: number
+          wdv_opening_new: number
+        }[]
+      }
       get_member_company_ids: { Args: never; Returns: string[] }
     }
     Enums: {
