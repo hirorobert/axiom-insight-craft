@@ -513,7 +513,7 @@ export default function Auth() {
         <div className="mt-8 flex items-center justify-center gap-6 text-xs text-muted-foreground">
           <span>256-bit encryption</span>
           <span>•</span>
-          <span>SOC 2 compliant</span>
+          <span>Encrypted at rest</span>
           <span>•</span>
           <span>GDPR ready</span>
         </div>

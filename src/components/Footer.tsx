@@ -59,7 +59,7 @@ export function Footer() {
             </a>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground">SOC 2 Type II Certified</span>
+            <span className="text-sm text-muted-foreground">Data stored securely on Supabase</span>
             <span className="text-muted-foreground">•</span>
             <span className="text-sm text-muted-foreground">GDPR Compliant</span>
           </div>

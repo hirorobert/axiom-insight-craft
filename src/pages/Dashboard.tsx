@@ -429,7 +429,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <h1 className="text-base font-semibold text-foreground">Results Dashboard</h1>
-                <p className="text-xs text-muted-foreground">AI-Generated Financial Mappings</p>
+                <p className="text-xs text-muted-foreground">Trial Balance Analysis</p>
               </div>
             </div>
           </div>
@@ -651,7 +651,7 @@ export default function Dashboard() {
                         <CardHeader className="pb-3">
                           <CardTitle className="text-lg flex items-center gap-2">
                             <TrendingUp className="w-5 h-5 text-accent" />
-                            AI Confidence Score
+                            Mapping Confidence
                           </CardTitle>
                         </CardHeader>
                         <CardContent>
@@ -667,7 +667,7 @@ export default function Dashboard() {
                             </span>
                           </div>
                           <p className="text-sm text-muted-foreground mt-3">
-                            MapNet AI analyzed {summary.totalAccounts} accounts.
+                            Axiom classified {summary.totalAccounts} accounts.
                           </p>
                         </CardContent>
                       </Card>
@@ -932,11 +932,11 @@ export default function Dashboard() {
                     </Tabs>
                   )}
 
-                  {/* AI Processing Notes */}
+                  {/* Processing Notes */}
                   {result?.notes && result.notes.length > 0 && (
                     <Card className="bg-card border-border">
                       <CardHeader>
-                        <CardTitle className="text-lg">AI Processing Notes</CardTitle>
+                        <CardTitle className="text-lg">Processing Notes</CardTitle>
                       </CardHeader>
                       <CardContent>
                         <ul className="space-y-2">

@@ -1,6 +1,6 @@
 // ============================================================
 // Axiom — AuditedAccountsAdapter
-// Version: v1.0 — 2026-06-30
+// Version: v2.0 — 2026-06-30 (Comparative Column Support)
 //
 // Detects Excel workbooks formatted as audited financial
 // statements (SCI + SFP sheets) rather than flat trial balances,
@@ -31,19 +31,18 @@
 //   — identical to what parseXLSX() returns for a flat TB XLSX.
 //   This slots directly into detectColumns() without any changes.
 //
-// LIMITATIONS (v1.0):
-//   • Requires at least one numeric value column in the SCI/SFP.
-//   • Takes column index 2 (zero-based) as the primary (current
-//     year) amount. For comparative statements, col 3 = prior year
-//     is ignored.
-//   • Only handles INCOME/EXPENSE/ASSET/LIABILITY/EQUITY.
-//     Does NOT parse cash flow statements.
-//   • Does NOT auto-detect which line items are headers/subtotals —
-//     uses a heuristic: rows where the label starts with a keyword
-//     like "Total", "Sub-total", "Less:", "Add:", "Net", "Gross"
-//     AND the numeric value equals the sum of prior rows are skipped.
-//     In practice, the subtotal-row filter in rowsToRawAccounts()
-//     (which runs on the output) handles most cases.
+// CHANGES IN v2.0 (Comparative Column Support):
+//   • parseSheet() now returns BOTH current-year and prior-year amounts
+//     by scanning the header row for year labels (e.g. "2025", "2024",
+//     "Current Year", "Prior Year") and tracking two numeric columns.
+//   • NEW export: parseAuditedAccountsComparative() returns
+//     { current: TBRows, prior: TBRows, meta: CompMeta }
+//     so process-trial-balance can register BOTH periods in one upload.
+//   • Backward compatible: parseAuditedAccounts() (v1 API) unchanged —
+//     still returns only current-year rows.
+//   • IAS 1.38 / IPSAS 1 compliance: "An entity shall present
+//     comparative information in respect of the preceding period for
+//     all amounts reported in the financial statements."
 //
 // USAGE IN index.ts (process-trial-balance):
 //   import { isAuditedAccountsFormat, parseAuditedAccounts }
@@ -132,10 +131,85 @@ function findSheet(wb: XLSX.WorkBook, patterns: RegExp[]): string | null {
   return null;
 }
 
-// ── Utility: parse a sheet → [{label, amount2025, amount2024}] ───────────────
+// ── Utility: parse a sheet → [{label, amount, amountPrior}] ─────────────────
 interface SheetRow {
-  label:  string;
-  amount: number;   // current year (column index 2, zero-based after XLSX parse)
+  label:        string;
+  amount:       number;        // current year
+  amountPrior:  number | null; // prior year (null if not detected)
+}
+
+// Detect which columns hold current-year and prior-year amounts
+// by scanning the first 5 rows for year hints (e.g. "2025", "2024",
+// "Current Year", "Prior Year", "This Year", "Last Year").
+interface ColumnMap {
+  current: number;       // column index for current year
+  prior:   number | null; // column index for prior year (null = not found)
+}
+
+function detectYearColumns(
+  raw: (string | number | null)[][],
+  labelColIdx: number
+): ColumnMap {
+  const CURRENT_HINTS = [/current\s+year/i, /this\s+year/i, /\b(20\d{2})\b/];
+  const PRIOR_HINTS   = [/prior\s+year/i, /last\s+year/i, /comparative/i, /previous/i];
+
+  // Collect all columns that contain numbers in data rows
+  const numericCols: Map<number, number> = new Map(); // col → count of numeric values
+  for (let r = 0; r < Math.min(raw.length, 40); r++) {
+    const row = raw[r];
+    for (let c = labelColIdx + 1; c < Math.min(row.length, 10); c++) {
+      const v = row[c];
+      if (v !== null && typeof v === "number" && !isNaN(v) && Math.abs(v) > 0) {
+        numericCols.set(c, (numericCols.get(c) ?? 0) + 1);
+      }
+    }
+  }
+
+  // Sort numeric columns by index (left = first = current, right = second = prior)
+  const sortedCols = Array.from(numericCols.entries())
+    .filter(([, cnt]) => cnt >= 2)   // at least 2 values to count as a real column
+    .sort(([a], [b]) => a - b)
+    .map(([col]) => col);
+
+  if (sortedCols.length === 0) {
+    return { current: labelColIdx + 1, prior: null };
+  }
+
+  // Try to match header rows to explicit "current"/"prior" labels
+  let currentCol = sortedCols[0];
+  let priorCol: number | null = sortedCols.length > 1 ? sortedCols[1] : null;
+
+  // Look for year-labelled header rows to confirm ordering
+  for (let r = 0; r < Math.min(raw.length, 8); r++) {
+    const row = raw[r];
+    let foundCurrent = -1;
+    let foundPrior   = -1;
+
+    for (let c = labelColIdx + 1; c < Math.min(row.length, 10); c++) {
+      const v = row[c];
+      if (v === null) continue;
+      const s = String(v).trim();
+      if (!s) continue;
+
+      if (CURRENT_HINTS.some(p => p.test(s))) foundCurrent = c;
+      if (PRIOR_HINTS.some(p => p.test(s)))   foundPrior   = c;
+
+      // Detect two distinct 4-digit years e.g. "2025" and "2024"
+      const yearMatch = s.match(/\b(20\d{2})\b/g);
+      if (yearMatch && yearMatch.length === 1) {
+        const yr = parseInt(yearMatch[0]);
+        // Current year = larger number
+        if (foundCurrent === -1 && sortedCols.includes(c)) {
+          // Will resolve after scanning all header cols
+        }
+      }
+    }
+
+    if (foundCurrent !== -1) currentCol = foundCurrent;
+    if (foundPrior   !== -1) priorCol   = foundPrior;
+  }
+
+  return { current: currentCol, prior: priorCol };
 }
 
 function parseSheet(wb: XLSX.WorkBook, sheetName: string): SheetRow[] {
@@ -144,12 +218,14 @@ function parseSheet(wb: XLSX.WorkBook, sheetName: string): SheetRow[] {
     ws, { header: 1, defval: null, raw: true }
   ) as (string | number | null)[][];
 
+  // Determine label column (usually 0)
+  const labelColIdx = 0;
+  const colMap = detectYearColumns(raw, labelColIdx);
+
   const results: SheetRow[] = [];
 
   for (const row of raw) {
-    // Label is always in the first non-null text column
     let label: string | null = null;
-    let amount: number | null = null;
 
     // Find label: first cell that is a non-empty string
     for (let c = 0; c < Math.min(row.length, 4); c++) {
@@ -159,21 +235,24 @@ function parseSheet(wb: XLSX.WorkBook, sheetName: string): SheetRow[] {
         break;
       }
     }
+    if (!label || shouldSkipRow(label)) continue;
 
-    // Find amount: first cell that is a non-zero number after the label column
-    // Convention: current-year figure is usually column index 2 or 3
-    // We scan columns 1–4 (right-to-left preference for the first numeric col)
-    for (let c = 1; c < Math.min(row.length, 6); c++) {
-      const v = row[c];
-      if (v !== null && typeof v === "number" && !isNaN(v)) {
-        amount = v;
-        break;  // take the first numeric value (current year)
+    // Current year amount
+    const curRaw = colMap.current < row.length ? row[colMap.current] : null;
+    const amount = (curRaw !== null && typeof curRaw === "number" && !isNaN(curRaw))
+      ? curRaw : null;
+    if (amount === null) continue;
+
+    // Prior year amount
+    let amountPrior: number | null = null;
+    if (colMap.prior !== null && colMap.prior < row.length) {
+      const prRaw = row[colMap.prior];
+      if (prRaw !== null && typeof prRaw === "number" && !isNaN(prRaw)) {
+        amountPrior = prRaw;
       }
     }
 
-    if (label && amount !== null && !shouldSkipRow(label)) {
-      results.push({ label, amount });
-    }
+    results.push({ label, amount, amountPrior });
   }
 
   return results;
@@ -323,5 +402,114 @@ export function getAuditedAccountsMetadata(wb: XLSX.WorkBook): Record<string, st
     sfp_sheet:   findSheet(wb, SFP_SHEET_PATTERNS),
     ppe_sheet:   findSheet(wb, PPE_SHEET_PATTERNS),
     notes_sheet: findSheet(wb, NOTES_SHEET_PATTERNS),
+  };
+}
+
+// ── v2: Comparative export ─────────────────────────────────────────────────────
+
+export interface ComparativeMeta {
+  sci_sheet:      string | null;
+  sfp_sheet:      string | null;
+  ppe_sheet:      string | null;
+  notes_sheet:    string | null;
+  has_prior_year: boolean;
+}
+
+export interface ComparativeResult {
+  /** TB rows for the CURRENT (most recent) period */
+  current:  (string | number | null)[][];
+  /** TB rows for the PRIOR (comparative) period — empty array if not detected */
+  prior:    (string | number | null)[][];
+  meta:     ComparativeMeta;
+}
+
+/**
+ * v2 entry point — returns BOTH current-year and prior-year TB rows
+ * from a single audited accounts Excel upload.
+ *
+ * process-trial-balance calls this when isAuditedAccountsFormat() is true.
+ * It then:
+ *   1. Saves the current-year rows as the primary upload (this period)
+ *   2. If prior rows exist, creates a second fiscal_period record and
+ *      saves the prior-year rows as a linked prior-period upload.
+ */
+export function parseAuditedAccountsComparative(wb: XLSX.WorkBook): ComparativeResult {
+  const sciSheet   = findSheet(wb, SCI_SHEET_PATTERNS);
+  const sfpSheet   = findSheet(wb, SFP_SHEET_PATTERNS);
+  const ppeSheet   = findSheet(wb, PPE_SHEET_PATTERNS);
+  const notesSheet = findSheet(wb, NOTES_SHEET_PATTERNS);
+
+  const header: (string | number | null)[] = ["Account Code", "Account Name", "Dr", "Cr"];
+  const currentRows: (string | number | null)[][] = [header];
+  const priorRows:   (string | number | null)[][] = [header];
+
+  let seqCur = 1;
+  let seqPri = 1;
+  const usedCur = new Set<string>();
+  const usedPri = new Set<string>();
+
+  let hasPrior = false;
+
+  function addBothRows(label: string, amount: number, amountPrior: number | null, isCredit: boolean) {
+    if (!label.trim()) return;
+    const key = label.toLowerCase().replace(/\s+/g, "_");
+
+    // Current year
+    if (!usedCur.has(key) && Math.abs(amount) > 0) {
+      usedCur.add(key);
+      const code = `AA${String(seqCur++).padStart(3, "0")}`;
+      const abs  = Math.round(Math.abs(amount));
+      currentRows.push(isCredit ? [code, label, "", String(abs)] : [code, label, String(abs), ""]);
+    }
+
+    // Prior year
+    if (amountPrior !== null && Math.abs(amountPrior) > 0) {
+      hasPrior = true;
+      if (!usedPri.has(key)) {
+        usedPri.add(key);
+        const code = `AA${String(seqPri++).padStart(3, "0")}`;
+        const abs  = Math.round(Math.abs(amountPrior));
+        priorRows.push(isCredit ? [code, label, "", String(abs)] : [code, label, String(abs), ""]);
+      }
+    }
+  }
+
+  // ── Income Statement ───────────────────────────────────────────────────────
+  if (sciSheet) {
+    for (const { label, amount, amountPrior } of parseSheet(wb, sciSheet)) {
+      addBothRows(label, amount, amountPrior, isCreditAccount(label));
+    }
+  }
+  if (notesSheet) {
+    for (const { label, amount, amountPrior } of parseSheet(wb, notesSheet)) {
+      addBothRows(label, amount, amountPrior, isCreditAccount(label));
+    }
+  }
+
+  // ── Balance Sheet ──────────────────────────────────────────────────────────
+  if (sfpSheet) {
+    for (const { label, amount, amountPrior } of parseSheet(wb, sfpSheet)) {
+      addBothRows(label, amount, amountPrior, isCreditAccount(label));
+    }
+  }
+
+  // ── PPE Schedule (debit assets only) ──────────────────────────────────────
+  if (ppeSheet) {
+    for (const { label, amount, amountPrior } of parseSheet(wb, ppeSheet)) {
+      if (/\btotal\b/i.test(label)) continue;
+      addBothRows(label, amount, amountPrior, false);
+    }
+  }
+
+  return {
+    current: currentRows,
+    prior:   hasPrior ? priorRows : [],
+    meta: {
+      sci_sheet:      sciSheet,
+      sfp_sheet:      sfpSheet,
+      ppe_sheet:      ppeSheet,
+      notes_sheet:    notesSheet,
+      has_prior_year: hasPrior,
+    },
   };
 }

@@ -507,7 +507,7 @@ export const TrialBalanceUpload = () => {
           </div>
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-accent" />
-            <span>SOC 2 compliant</span>
+            <span>Encrypted at rest</span>
           </div>
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-accent" />
