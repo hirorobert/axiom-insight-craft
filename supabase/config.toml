@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.policy-compass]
 verify_jwt = false
+
+[functions.kinga-comparative-engine]
+verify_jwt = false

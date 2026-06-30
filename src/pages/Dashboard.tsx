@@ -12,6 +12,8 @@ import { ExportStatements } from "@/components/ExportStatements";
 import { NoteSynth } from "@/components/NoteSynth";
 import { KingaFindingsPanel } from "@/components/KingaFindingsPanel";
 import { KingaTaxPanel } from "@/components/KingaTaxPanel";
+import { KingaComparativePanel } from "@/components/KingaComparativePanel";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DashboardAnalytics } from "@/components/DashboardAnalytics";
 import { PolicyCompass } from "@/components/PolicyCompass";
 import { AuditTrail } from "@/components/AuditTrail";
@@ -906,15 +908,28 @@ export default function Dashboard() {
                     />
                   )}
 
-                  {/* Kinga — Corporate Tax Computation (ITA Chapter 332) */}
+                  {/* Kinga — Tax + Comparative tabs */}
                   {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (
-                    <KingaTaxPanel
-                      companyId={selectedUpload.company_id}
-                      uploadId={selectedUpload.id}
-                      periodYear={new Date(selectedUpload.uploaded_at).getFullYear()}
-                      companyName={selectedUpload.company_name ?? undefined}
-                      userId={user?.id ?? ""}
-                    />
+                    <Tabs defaultValue="tax" className="w-full">
+                      <TabsList>
+                        <TabsTrigger value="tax">Corporate Tax (ITA)</TabsTrigger>
+                        <TabsTrigger value="comparative">Comparative Analysis</TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="tax">
+                        <KingaTaxPanel
+                          companyId={selectedUpload.company_id}
+                          uploadId={selectedUpload.id}
+                          periodYear={new Date(selectedUpload.uploaded_at).getFullYear()}
+                          companyName={selectedUpload.company_name ?? undefined}
+                          userId={user?.id ?? ""}
+                        />
+                      </TabsContent>
+                      <TabsContent value="comparative">
+                        <KingaComparativePanel
+                          companyId={selectedUpload.company_id}
+                        />
+                      </TabsContent>
+                    </Tabs>
                   )}
 
                   {/* AI Processing Notes */}
