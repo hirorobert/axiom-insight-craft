@@ -1,0 +1,47 @@
+Account Code,Account Name,Dr,Cr
+A001,Revenue - Medical Services,,9396638868
+A002,Cost of Goods Sold,3821206509,
+A003,Salaries Allowances & Wages,2944934031,
+A004,NHIF Employer Contribution,94927488,
+A005,NSSF Employer Contribution,290969479,
+A006,SDL - Skills Development Levy,103072691,
+A007,WCF Workers Compensation,15821992,
+A008,Staff Tea & Refreshments,120970700,
+A009,Staff Welfare,165936600,
+A010,Staff Training,123198000,
+A011,Staff Uniforms,940100,
+A012,Drinking Water,2180000,
+A013,Office Rent,256412000,
+A014,Land Rent,455100,
+A015,Electricity,99742000,
+A016,Fuel & Oil,99395154,
+A017,Security,79500000,
+A018,Depreciation,158904033,
+A019,Repair & Maintenance - All Assets,136719957,
+A020,Call & Extra Duty,158000000,
+A021,Meeting & Entertainment Expenses,16957600,
+A022,Office Stationery & Supplies,39879322,
+A023,Telephone Postage & Internet,11724650,
+A024,Travelling & Transport,37191300,
+A025,Insurance Expense,18894700,
+A026,Cleaning & Gardening,22751500,
+A027,Service Levy Expense,23491597,
+A028,Professional Legal & Audit Fees,12804600,
+A030,Finance Cost - Interest on Loan,76707518,
+A031,Finance Cost - Bank Charges,10627954,
+A032,Finance Cost - Loan Documentation Fees,115691271,
+A033,Income Tax Charge,54320029,
+A029,General & Administrative Expenses,155564259,
+B001,Property Plant & Equipment Net,3359220767,
+B002,Inventories,292684562,
+B003,Trade Receivables - Patients,714131700,
+B004,Prepayments & Deposits,56554000,
+B005,Cash & Bank on Hand,3678834052,
+B006,Long Term Loan NBC,,323859346
+B007,Long Term Loan CRDB,,155495174
+B008,Long Term Loan TIB,,3775842228
+B009,Trade Payables,,1305372421
+B010,Accrued Payables - Statutory,,345121968
+B011,Income Tax Payable,,24320029
+B012,Share Capital,,478916106
+B013,Retained Earnings Opening Balance,,1565751075
