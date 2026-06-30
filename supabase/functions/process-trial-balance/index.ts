@@ -1,6 +1,6 @@
 // ============================================================
 // Axiom — process-trial-balance Edge Function
-// Version: v2.0 — Universal Ingestion
+// Version: v2.1 — Audited Accounts Support + Extended Classification
 // Date: 2026-06-27
 //
 // CHANGES FROM v1.0:
@@ -22,6 +22,11 @@
 import { serve }        from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as XLSX        from "https://esm.sh/xlsx@0.18.5";
+import {
+  isAuditedAccountsFormat,
+  parseAuditedAccounts,
+  getAuditedAccountsMetadata,
+} from "./auditedAccountsAdapter.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -111,6 +116,22 @@ const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }
   { patterns: [/\brevenue\b/i, /\bsale[s]?\b/i, /\bincome(?!\s+tax)\b/i, /\bmapato\b/i, /\bfee[s]?\b/i, /\bturnover\b/i],
     result: { statement: "income_statement", classification: "revenue", normal_balance: "credit", line_item: "Revenue" }},
 
+  // ── INCOME STATEMENT — Cost of Goods Sold ──────────────────────────────────
+  // Must come BEFORE operating_expenses so "cost of sales" routes to cogs not opex
+  { patterns: [/\bcost\s+of\s+(?:goods\s+)?sold\b/i, /\bcost\s+of\s+sales\b/i, /\bcost\s+of\s+revenue\b/i, /\bcogs\b/i, /\bdirect\s+cost[s]?\b/i, /\bghara\s+za\s+bidhaa\b/i],
+    result: { statement: "income_statement", classification: "cost_of_goods_sold", normal_balance: "debit", line_item: "Cost of Sales" }},
+  { patterns: [/\bpurchases?\s+(?:drugs?|medic|goods|stock|supplies?)\b/i, /\bstock\s+purchases?\b/i],
+    result: { statement: "income_statement", classification: "cost_of_goods_sold", normal_balance: "debit", line_item: "Purchases" }},
+  { patterns: [/\bopening\s+(?:stock|inventor[yi])\b/i],
+    result: { statement: "income_statement", classification: "cost_of_goods_sold", normal_balance: "debit", line_item: "Opening Stock" }},
+  { patterns: [/\bclosing\s+(?:stock|inventor[yi])\b/i, /\bless[:\s]+closing\b/i],
+    result: { statement: "income_statement", classification: "cost_of_goods_sold", normal_balance: "credit", line_item: "Less: Closing Stock" }},
+
+  // ── INCOME STATEMENT — Tax Charge (P&L below PBT line) ─────────────────────
+  // Must come BEFORE the BS income-tax-payable rule to avoid misclassification
+  { patterns: [/\bincome\s+tax\s+(?:charge|provision|expense)\b/i, /\bcorporate\s+(?:income\s+)?tax\s+(?:charge|provision|expense)\b/i, /\bcit\s+(?:charge|provision|expense)\b/i, /\btax\s+(?:charge|provision|expense)\b/i],
+    result: { statement: "income_statement", classification: "taxes", normal_balance: "debit", line_item: "Income Tax Charge" }},
+
   // ── INCOME STATEMENT — Operating Expenses (PAYROLL) ────────────────────────
   { patterns: [/\bsalar[yi]/i, /\bwage[s]?\b/i, /\bmishahara\b/i, /\bbasic[_\s]pay\b/i, /\bremuneration\b/i, /\bstaff[_\s]cost[s]?\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Staff Costs", is_payroll: true }},
@@ -151,11 +172,52 @@ const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Administrative Expenses" }},
   { patterns: [/\bfinance\s+(?:exp|cost|charge)/i, /\binterest\s+(?:exp|charge)/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Finance Expenses" }},
+  // ── Additional finance expense patterns ────────────────────────────────────
+  { patterns: [/\binterest\s+(?:on|paid|expense)?\s*(?:loan|borrow|overdraft|debt)\b/i, /\bloan\s+interest\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Finance Expenses" }},
+  { patterns: [/\bbank\s+charge[s]?\b/i, /\bbank\s+fee[s]?\b/i, /\bborrowing\s+cost[s]?\b/i, /\bloan\s+(?:fee[s]?|charge[s]?|cost[s]?|documentation)\b/i, /\bdocumentation\s+fee[s]?\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Finance Expenses" }},
+  // ── Insurance ──────────────────────────────────────────────────────────────
+  { patterns: [/\binsurance\b/i, /\bpremium[s]?\s+(?:exp|paid|charge)\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Insurance" }},
+  // ── Entertainment / Meetings ────────────────────────────────────────────────
+  { patterns: [/\bentertain(?:ment)?\b/i, /\bmeeting[s]?\s+(?:exp|allow|cost)\b/i, /\bhospitality\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Entertainment & Meetings" }},
+  // ── Office Supplies / Stationery ────────────────────────────────────────────
+  { patterns: [/\bstation[e]?r[yi]\b/i, /\boffice\s+suppli\b/i, /\bprinting\b/i, /\bstamp[s]?\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Office Supplies & Stationery" }},
+  // ── Telephone / Communication ────────────────────────────────────────────────
+  { patterns: [/\btelephon[e]?\b/i, /\binternet\b/i, /\bpostage\b/i, /\bcommunication\b/i, /\bdata\s+(?:plan|bundle|cost)\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Telephone & Communication" }},
+  // ── Travel & Transport ────────────────────────────────────────────────────────
+  { patterns: [/\btravel(?:ling|ing)?\b/i, /\btransport\b/i, /\bvehicle\s+(?:hire|rental)\b/i, /\bairfare\b/i, /\baccommodation\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Travel & Transport" }},
+  // ── Cleaning / Sanitation ────────────────────────────────────────────────────
+  { patterns: [/\bclean(?:ing)?\b/i, /\bgarden(?:ing)?\b/i, /\bsanit(?:ation|ary)\b/i, /\bwaste\s+(?:management|disposal)\b/i, /\bfumigat\b/i, /\bpest\s+control\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Cleaning & Sanitation" }},
+  // ── Service Levy (P&L expense — MUST come before BS service levy payable rule)
+  { patterns: [/\bservice\s+levy\b/i, /\bmunicipal\s+(?:levy|tax)\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Service Levy" }},
+  // ── Professional & Legal Fees ────────────────────────────────────────────────
+  { patterns: [/\baudit\s+fee[s]?\b/i, /\baccounting\s+fee[s]?\b/i, /\blegal\s+fee[s]?\b/i, /\bprofessional\s+fee[s]?\b/i, /\bconsulting\s+fee[s]?\b/i, /\bbrela\b/i, /\bvaluation\b/i, /\bsurvey\b/i, /\binspection\s+fee\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Professional & Legal Fees" }},
+  // ── Licences & Permits ───────────────────────────────────────────────────────
+  { patterns: [/\blicen[sc]e[s]?\b/i, /\bpermit[s]?\b/i, /\bregistration\s+fee[s]?\b/i, /\bmembership\s+fee[s]?\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Licences & Permits" }},
+  // ── Safety & Maintenance (catch-all for specialist opex) ─────────────────────
+  { patterns: [/\bfire\s+extinguisher\b/i, /\bsafety\b/i, /\bstock[_\s]?tak(?:ing)?\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Safety & Administration" }},
+  // ── Hospital / Clinical Direct Expenses (sector-specific) ────────────────────
+  { patterns: [/\bpatient[s]?\s+(?:meal|food|refund|invest)/i, /\bhiring\s+cost\b/i, /\bambulance\b/i, /\bclinical\b/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Hospital Direct Expenses" }},
+  // ── Miscellaneous / Unallocated ──────────────────────────────────────────────
+  { patterns: [/\bunallocated\b/i, /\bmiscellaneous\b/i, /\bsundry\b/i, /\bcontract\s+renewal\b/i, /\bother\s+(?:admin|operating)\s+exp/i],
+    result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Miscellaneous Expenses" }},
 
   // ── BALANCE SHEET — Current Assets ────────────────────────────────────────
   { patterns: [/\bcash\b/i, /\bbank\b/i, /\bpetty[_\s]cash\b/i, /\bfedha\b/i],
     result: { statement: "balance_sheet", classification: "current_assets", normal_balance: "debit", line_item: "Cash & Bank", is_cash: true }},
-  { patterns: [/\baccounts?\s+receivable\b/i, /\btrade\s+debtor[s]?\b/i, /\bdebtor[s]?\b/i, /\bwadai\b/i],
+  { patterns: [/\baccounts?\s+receivable\b/i, /\btrade\s+(?:receivable[s]?|debtor[s]?)\b/i, /\bdebtor[s]?\b/i, /\breceivable[s]?\b/i, /\bwadai\b/i],
     result: { statement: "balance_sheet", classification: "current_assets", normal_balance: "debit", line_item: "Trade Receivables" }},
   { patterns: [/\binventor[yi]/i, /\bstock\b/i, /\bgoods\b/i],
     result: { statement: "balance_sheet", classification: "current_assets", normal_balance: "debit", line_item: "Inventories" }},
@@ -173,7 +235,7 @@ const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }
     result: { statement: "balance_sheet", classification: "non_current_assets", normal_balance: "debit", line_item: "Intangible Assets" }},
 
   // ── BALANCE SHEET — Current Liabilities ───────────────────────────────────
-  { patterns: [/\baccounts?\s+payable\b/i, /\btrade\s+creditor[s]?\b/i, /\bcreditor[s]?\b/i, /\bwadaiwa\b/i],
+  { patterns: [/\baccounts?\s+payable\b/i, /\btrade\s+(?:payable[s]?|creditor[s]?)\b/i, /\bcreditor[s]?\b/i, /\bwadaiwa\b/i],
     result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "Trade Payables" }},
   { patterns: [/\bvat\s+payable\b/i, /\bvat\s+(?:outstand|due)\b/i],
     result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "VAT Payable" }},
@@ -197,7 +259,13 @@ const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }
     result: { statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit", line_item: "Short-term Borrowings" }},
 
   // ── BALANCE SHEET — Non-Current Liabilities ────────────────────────────────
-  { patterns: [/\blong[_-]term\s+loan\b/i, /\bterm\s+loan\b/i, /\bmortgage\b/i],
+  { patterns: [
+      /\blong[_\s-]?term\s+(?:bank\s+)?loan[s]?\b/i,   // "long term bank loan"
+      /\bterm\s+loan\b/i,                                  // "term loan"
+      /\bmortgage\b/i,
+      /\bbond[s]?\s+(?:payable|issued)\b/i,
+      /\bdebenture[s]?\b/i,
+    ],
     result: { statement: "balance_sheet", classification: "non_current_liabilities", normal_balance: "credit", line_item: "Long-term Borrowings" }},
 
   // ── BALANCE SHEET — Equity ─────────────────────────────────────────────────
@@ -290,13 +358,18 @@ function rowsToRawAccounts(
 
   for (let i = dataStart; i < rows.length; i++) {
     const row = rows[i];
-    const code = String(row[map.account_code ?? -1] ?? "").trim();
-    const name = String(row[map.account_name ?? -1] ?? "").trim();
+    const rawCode = String(row[map.account_code ?? -1] ?? "").trim();
+    const name    = String(row[map.account_name ?? -1] ?? "").trim();
 
     // Skip blank rows and subtotal rows
-    if (!code && !name) continue;
-    if (isSubtotalRow(name, code)) continue;
-    if (!code) continue;  // must have account code
+    if (!rawCode && !name) continue;
+    if (isSubtotalRow(name, rawCode)) continue;
+
+    // Fall back to account_name as the key when no account_code column exists.
+    // This handles CSVs/XLSXs that only have an account name column (e.g. trial
+    // balance exports without GL codes, or reconstructed TBs from audited accounts).
+    const code = rawCode || name;
+    if (!code) continue;
 
     const debit  = parseNumber(map.debit   !== null ? row[map.debit]   : null);
     const credit = parseNumber(map.credit  !== null ? row[map.credit]  : null);
@@ -515,9 +588,22 @@ serve(async (req) => {
 
     if (format === "xlsx") {
       const buffer = await fileData.arrayBuffer();
-      const parsed = parseXLSX(buffer);
-      rawRows    = parsed.rows;
-      sheetName  = parsed.sheetName;
+
+      // ── Detect audited financial statements vs. flat trial balance ──────────
+      // Audited accounts (SCI + SFP sheets) are converted to a flat TB format
+      // by the AuditedAccountsAdapter before entering the normal pipeline.
+      const wb = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: false });
+
+      if (isAuditedAccountsFormat(wb)) {
+        const meta = getAuditedAccountsMetadata(wb);
+        console.log(`[PTB] Detected AUDITED ACCOUNTS format — SCI: "${meta.sci_sheet}", SFP: "${meta.sfp_sheet}", Notes: "${meta.notes_sheet}"`);
+        rawRows   = parseAuditedAccounts(wb);
+        sheetName = `AUDITED_ACCOUNTS (SCI="${meta.sci_sheet}", SFP="${meta.sfp_sheet}")`;
+      } else {
+        const parsed = parseXLSX(buffer);
+        rawRows    = parsed.rows;
+        sheetName  = parsed.sheetName;
+      }
       console.log(`[PTB] XLSX: sheet="${sheetName}", ${rawRows.length} raw rows`);
     } else {
       const content = await fileData.text();
@@ -553,7 +639,9 @@ serve(async (req) => {
     }
 
     // ── STEP 4: Trial balance integrity ───────────────────────────────────────
-    const TOLERANCE = 0.01;
+    // TZS 1.00 tolerance — TZS is non-decimal and rounding across many lines
+    // can accumulate to several whole-TZS units.  Anything over 1 TZS is flagged.
+    const TOLERANCE = 1.00;
     const totalDebits  = rawAccounts.reduce((s, a) => s + a.debit, 0);
     const totalCredits = rawAccounts.reduce((s, a) => s + a.credit, 0);
     const difference   = Math.abs(totalDebits - totalCredits);
@@ -573,7 +661,7 @@ serve(async (req) => {
         statements: null,
         errors: allErrors,
         validation_report: { tb_balance_check: { passed: false, total_debits: totalDebits, total_credits: totalCredits, difference } },
-        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.0", columns_detected: detectedCols, auto_classified: 0 },
+        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.1", columns_detected: detectedCols, auto_classified: 0 },
       };
       await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -661,7 +749,7 @@ serve(async (req) => {
           tb_balance_check: { passed: true, total_debits: totalDebits, total_credits: totalCredits, difference: 0 },
           mapping_completeness: { passed: false, total_accounts: rawAccounts.length, mapped_accounts: rawAccounts.length - unmapped.length, unmapped },
         },
-        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.0", columns_detected: detectedCols, auto_classified: autoClassifiedCount },
+        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.1", columns_detected: detectedCols, auto_classified: autoClassifiedCount },
       };
       await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
