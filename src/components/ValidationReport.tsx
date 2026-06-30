@@ -58,11 +58,7 @@ interface ValidationReportProps {
 }
 
 const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  }).format(value);
+  return `TZS ${Math.round(value).toLocaleString("en-US")}`;
 };
 
 const CheckIcon = ({ passed }: { passed: boolean }) => {
