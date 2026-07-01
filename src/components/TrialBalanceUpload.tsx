@@ -283,7 +283,7 @@ export const TrialBalanceUpload = () => {
   const isProcessing = processingCount > 0;
 
   return (
-    <section id="upload" className="py-16 px-6 relative overflow-hidden">
+    <section id="upload" className="py-10 px-6 relative overflow-hidden">
       {/* Background glow */}
       <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
 
@@ -295,7 +295,7 @@ export const TrialBalanceUpload = () => {
             Upload Multiple Trial Balances
           </h2>
           <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-            Upload CSV or Excel. Axiom validates, classifies every account, and produces statutory-grade output.
+            Upload CSV or Excel. SAFF ERP validates, classifies every account, and produces statutory-grade output.
           </p>
         </div>
 
@@ -497,17 +497,4 @@ export const TrialBalanceUpload = () => {
         )}
 
         {/* Trust indicators */}
-        <div className="mt-8 flex items-center justify-center gap-8 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-4 h-4 text-accent" />
-            <span>AES-256 encrypted storage</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-4 h-4 text-accent" />
-            <span>ITA Cap.332 validated output</span>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-};
+        <div cl

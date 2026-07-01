@@ -3,7 +3,7 @@ import { ArrowRight, FileCheck, ShieldCheck } from "lucide-react";
 
 export function Hero() {
   return (
-    <section className="relative pt-32 pb-20 px-6">
+    <section className="relative pt-28 pb-8 px-6">
       <div className="max-w-7xl mx-auto">
         <div className="max-w-3xl mx-auto text-center">
 
@@ -13,12 +13,12 @@ export function Hero() {
           </h1>
 
           <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
-            Upload a trial balance. Axiom validates it, classifies every account,
+            Upload a trial balance. SAFF ERP validates it, classifies every account,
             computes corporate income tax under ITA Cap.332, and surfaces statutory
             compliance findings — in seconds.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10">
             <Button variant="hero" size="xl" asChild>
               <a href="/auth">
                 Get Started
@@ -40,8 +40,4 @@ export function Hero() {
               <span className="text-sm">Deterministic validation — no guessing</span>
             </div>
           </div>
-        </div>
-      </div>
-    </section>
-  );
-}
+        

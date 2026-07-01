@@ -39,7 +39,7 @@ export function Header() {
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground font-bold text-sm shadow-md">
             AX
           </div>
-          <span className="text-base font-semibold text-foreground">Axiom</span>
+          <span className="text-base font-semibold text-foreground">SAFF ERP</span>
         </Link>
 
         {/* Desktop Nav */}
@@ -145,13 +145,4 @@ export function Header() {
                   <Link to="/auth">Sign In</Link>
                 </Button>
                 <Button variant="hero" size="sm" asChild>
-                  <Link to="/auth">Sign Up</Link>
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </header>
-  );
-}
+                  <Link 

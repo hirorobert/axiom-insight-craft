@@ -5,7 +5,7 @@ const features = [
   {
     icon: FileCheck,
     title: "Trial Balance Validation",
-    description: "Upload CSV or Excel. Axiom validates Dr = Cr, classifies every account using 50+ pattern rules, and checks the balance sheet equation. Export is blocked until all checks pass.",
+    description: "Upload CSV or Excel. SAFF ERP validates Dr = Cr, classifies every account using 50+ pattern rules, and checks the balance sheet equation. Export is blocked until all checks pass.",
     highlights: [
       "Auto-classification of 46+ account types",
       "Balance sheet equation: Assets = Liabilities + Closing Equity",
@@ -46,12 +46,12 @@ const features = [
 
 export function Features() {
   return (
-    <section id="features" className="py-20 px-6">
+    <section id="features" className="pt-10 pb-20 px-6">
       <div className="max-w-7xl mx-auto">
 
         <div className="text-center mb-14">
           <h2 className="text-3xl sm:text-4xl font-bold mb-3">
-            What Axiom Does
+            What SAFF ERP Does
           </h2>
           <p className="text-muted-foreground max-w-xl mx-auto">
             Four engines. Each one does exactly what it says.
@@ -72,13 +72,13 @@ export function Features() {
                 {feature.title}
               </h3>
 
-              <p className="text-sm text-muted-foreground mb-5 leading-relaxed">
+              <p className="text-sm text-foreground/60 mb-5 leading-relaxed">
                 {feature.description}
               </p>
 
               <ul className="space-y-1.5">
                 {feature.highlights.map((h) => (
-                  <li key={h} className="flex items-start gap-2 text-sm text-foreground/70">
+                  <li key={h} className="flex items-start gap-2 text-sm text-foreground/60">
                     <span className="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0 mt-1.5" />
                     {h}
                   </li>
@@ -96,12 +96,4 @@ export function Features() {
           <Button variant="hero" size="lg" asChild>
             <a href="#upload">
               Upload Now
-              <ArrowRight size={16} />
-            </a>
-          </Button>
-        </div>
-
-      </div>
-    </section>
-  );
-}
+              <ArrowRight siz

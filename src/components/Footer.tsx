@@ -11,7 +11,7 @@ export function Footer() {
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground font-bold text-sm">
                 AX
               </div>
-              <span className="text-base font-semibold text-foreground">Axiom</span>
+              <span className="text-base font-semibold text-foreground">SAFF ERP</span>
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
               Tanzania statutory compliance engine.<br />
@@ -58,7 +58,7 @@ export function Footer() {
         {/* Bottom strip */}
         <div className="pt-6 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
-            © {new Date().getFullYear()} Axiom. All rights reserved.
+            © {new Date().getFullYear()} SAFF ERP. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
             <a href="#" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
@@ -67,11 +67,4 @@ export function Footer() {
             <a href="#" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
               Terms of Service
             </a>
-            <span className="text-xs text-muted-foreground">Data stored on Supabase</span>
-          </div>
-        </div>
-
-      </div>
-    </footer>
-  );
-}
+            <span className="text-xs text-muted-foreground">Data stored on Supabase</span
