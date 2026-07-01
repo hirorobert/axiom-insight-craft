@@ -283,22 +283,19 @@ export const TrialBalanceUpload = () => {
   const isProcessing = processingCount > 0;
 
   return (
-    <section id="upload" className="py-24 px-6 relative overflow-hidden">
+    <section id="upload" className="py-16 px-6 relative overflow-hidden">
       {/* Background glow */}
       <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
 
       <div className="max-w-4xl mx-auto relative z-10">
         {/* Section header */}
         <div className="text-center mb-12">
-          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-sm font-medium mb-4">
-            <FileSpreadsheet className="w-4 h-4" />
-            Batch Upload
-          </span>
+
           <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
             Upload Multiple Trial Balances
           </h2>
           <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-            Drop multiple CSV or Excel files and watch Axiom transform them into audit-ready financial statements.
+            Upload CSV or Excel. Axiom validates, classifies every account, and produces statutory-grade output.
           </p>
         </div>
 
@@ -503,15 +500,11 @@ export const TrialBalanceUpload = () => {
         <div className="mt-8 flex items-center justify-center gap-8 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-accent" />
-            <span>256-bit encryption</span>
+            <span>AES-256 encrypted storage</span>
           </div>
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-accent" />
-            <span>Encrypted at rest</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-4 h-4 text-accent" />
-            <span>Parallel processing</span>
+            <span>ITA Cap.332 validated output</span>
           </div>
         </div>
       </div>
