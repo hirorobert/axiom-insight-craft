@@ -497,4 +497,17 @@ export const TrialBalanceUpload = () => {
         )}
 
         {/* Trust indicators */}
-        <div cl
+        <div className="mt-8 flex items-center justify-center gap-8 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-accent" />
+            <span>AES-256 encrypted storage</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-accent" />
+            <span>ITA Cap.332 validated output</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};

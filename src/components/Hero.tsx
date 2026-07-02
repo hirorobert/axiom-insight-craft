@@ -40,4 +40,6 @@ export function Hero() {
               <span className="text-sm">Deterministic validation — no guessing</span>
             </div>
           </div>
-        
+    </section>
+  );
+}
