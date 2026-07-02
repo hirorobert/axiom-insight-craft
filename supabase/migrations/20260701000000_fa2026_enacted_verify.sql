@@ -163,7 +163,10 @@ SELECT
   'rule_trigger',
   'V2 smoke — vat_withholding_goods 2026 verified — expect FK error not trigger error',
   '2026-07-01', '2026-09-30',
-  0.00, '{"smoke_test": true}', auth.uid()
+  0.00, '{"smoke_test": true}',
+  -- auth.uid() returns NULL in SQL Editor (service_role context) → NOT NULL violation.
+  -- Use a deterministic dummy UUID; the whole block is ROLLBACK'd anyway.
+  '00000000-0000-0000-0000-000000000001'::uuid
 FROM public.statutory_rules sr
 WHERE sr.trigger_category = 'vat_withholding_goods'
   AND sr.effective_from   = '2026-07-01'
