@@ -1,3 +1,11 @@
+/* Canonical Financial Model:
+   production axiom/kinga_canonical_financial_model.md
+   All financial data consumed by this module must conform
+   to that contract.
+   Key correction: statutory_rules audit field is 'notes', not 'source_note'.
+   canonical_financial_records is a transaction ingestion table, not
+   an account-balance table. Account balances live in trial_balance_uploads
+   and account_mappings. */
 // ============================================================
 // Kinga Tax Engine — Module E: ITA Corporate Tax Computation
 // Edge Function: kinga-tax-engine
