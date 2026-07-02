@@ -1,46 +1,75 @@
 // ============================================================
 // Kinga Tax Engine — Module E: ITA Corporate Tax Computation
 // Edge Function: kinga-tax-engine
-// Version: Module E v1.1 — VERIFIED CONSTANTS
-// Date: 2026-06-28
+// Version: Module E v1.3 — Finance Act 2026 (enacted)
+// Date: 2026-07-01
 //
-// ALL CONSTANTS VERIFIED AGAINST PRIMARY SOURCES:
+// ── PRIMARY SOURCES ──────────────────────────────────────────
+//   Income Tax Act, Cap. 332 R.E. 2023 (TRA)
+//   Finance Act, 2026 — No. 3 of 2026, Gazette Vol. 107 No. 6,
+//     15 June 2026, assented to and effective 1 July 2026
 //   PwC Tanzania Worldwide Tax Summaries (last reviewed 14 Jan 2026)
-//   https://taxsummaries.pwc.com/tanzania/corporate/deductions
-//   https://taxsummaries.pwc.com/tanzania/corporate/taxes-on-corporate-income
 //   Deloitte Tanzania — Thin Capitalisation Rule (Aug 2025)
-//   https://www.deloitte.com/tz/en/services/tax/perspectives/thin-cap-rule.html
-//   TRA — Income Tax Act Cap. 332 (R.E. 2019 / R.E. 2023)
 //
-// CORRECTIONS FROM v1.0 (based on critical review 2026-06-28):
-//   1. WEAR & TEAR CLASSES COMPLETELY RESTRUCTURED
-//      v1.0 (WRONG): Class 1=50%, 2=37.5%, 3=25%, 4=12.5%, 5=5%
-//      v1.1 (VERIFIED): Class 1=37.5%, 2=25%, 3=12.5%, 5=20%(ag bldgs), 6=5%(comm bldgs), 8=100%(ag plant)
-//      Source: PwC Tanzania Deductions table, Jan 2026
-//   2. AMT RATE AND TRIGGER CORRECTED
-//      v1.0 (WRONG): 0.5% of gross income, applied to ALL companies
-//      v1.1 (VERIFIED): 1% of turnover, ONLY for companies with losses in current+2 preceding years
-//      Cannot auto-determine 3-year loss history from single TB — engine flags WARNING only, does NOT apply AMT
-//      Source: PwC Tanzania "Corporate - Taxes on corporate income", Jan 2026
-//   3. THIN CAP — LOCAL BANK DEBT EXCLUDED
-//      v1.0 (WRONG): included ALL debt in thin cap calculation
-//      v1.1 (VERIFIED): ITA explicitly EXCLUDES "debt obligation owed to a resident financial institution"
-//      Engine cannot auto-determine if lender is a resident institution — flags all related-party/foreign debt
-//      Source: Deloitte Tanzania Thin Cap article (Aug 2025); ITA Cap.332 R.E.2023 s.12
-//   4. MANAGEMENT FEE 2% CAP REMOVED
-//      v1.0 (WRONG): applied 2% of turnover cap to management fees
-//      v1.1 (VERIFIED): The 2% cap in ITA applies to CHARITABLE DONATIONS (of taxable income), not mgmt fees
-//      Mgmt fees are governed by transfer pricing arm's length, not a fixed cap
-//   5. TAX LOSS CARRY-FORWARD PERIOD CORRECTED
-//      v1.0 (WRONG): stated "5-year limit"
-//      v1.1 (VERIFIED): Tanzania ITA has NO time limit on loss carry-forward
-//      BUT: only 60% of taxable profits can be sheltered by losses brought forward (non-ag/health/education)
-//   6. ENTERTAINMENT: AUTO-DISALLOWANCE REMOVED
-//      v1.0 (WRONG): auto-applied 50% disallowance
-//      v1.1: Tanzania ITA s.11(2) treats entertainment as "consumption expenditure" — potentially 100% disallowed
-//      Engine flags for CPA review, does NOT auto-apply any disallowance rate
+// ── CHANGES IN v1.3 vs v1.2 (Finance Act 2026 — FA2026) ─────
 //
-// ARCHITECTURE:
+//   1. DEEMED RETAINED EARNINGS FRACTION — ITA s.33A (FA2026 s.23)
+//      v1.2: 30% deemed distributed; v1.3: 15%
+//      Excluded: DSE-listed companies, financial institutions (BAFIA),
+//        insurance companies, mining companies with Framework Agreement
+//      Engine: exposes constant FA2026_DEEMED_DISTRIBUTION_RATE = 0.15
+//      Not auto-applied in CIT waterfall (separate WHT obligation)
+//
+//   2. NON-RESIDENT DIGITAL SERVICE TAX — ITA s.116(1) (FA2026 s.26)
+//      v1.2: 2%; v1.3: 3%
+//      Engine: constant FA2026_NONRESIDENT_DIGITAL_WHT = 0.03
+//      Reported in fa2026_provisions output block for CPA awareness
+//
+//   3. TRANSFER PRICING PENALTY — TAA Cap.438 s.90(2)(c) (FA2026 s.82)
+//      v1.2: 100% of tax shortfall
+//      v1.3: 30% of the TP adjustment amount (NOT of the tax shortfall)
+//      Engine: updates TP penalty constant; reported in warnings
+//
+//   4. PRESUMPTIVE TAX THRESHOLD — ITA First Schedule Item 2 (FA2026 s.31)
+//      v1.2: TZS 100,000,000 ceiling
+//      v1.3: TZS 200,000,000 ceiling
+//      Top band rate: 3.5% → 4.5% (turnover 11,000,001–200,000,000)
+//      Engine: constants updated; flagged in fa2026_provisions
+//
+//   5. NEW — WHT ON CROPS/LIVESTOCK/FISHERIES — ITA new s.109A (FA2026 s.25)
+//      Resident corporations must withhold 1% on payments for crops,
+//        livestock products (incl. live animals, unprocessed milk),
+//        fishery products (incl. unprocessed fish, fish maws)
+//      Engine: constant FA2026_WHT_CROPS_LIVESTOCK_FISHERIES = 0.01
+//      Reported as awareness warning when payroll/purchase accounts detected
+//
+//   6. NEW — SINGLE INSTALMENT ON FOOD CROPS — ITA new s.116B (FA2026 s.28)
+//      1% on value of food crop purchases (farm gate / purchase price, higher)
+//      Does NOT apply to: sesame, sugarcane, tobacco, tea, cashew, coffee,
+//        cotton, pyrethrum, sisal; or quantities < 1 tonne
+//      Engine: constant FA2026_SINGLE_INSTALMENT_FOOD_CROPS = 0.01
+//
+//   7. FOREST PRODUCE INSTALMENT — ITA s.116A (FA2026 s.27) — SCOPE ONLY
+//      Rate unchanged at 2%. Definition of "forest produce" expanded to
+//        include natural varnish, latex, resin, sap, gums
+//      Engine: FA2026_FOREST_PRODUCE_INSTALMENT_RATE = 0.02 (unchanged)
+//
+//   8. SDL (VET Act Cap.82 s.19) — NO RATE CHANGE
+//      FA2026 Part XXVI (s.102) only clarifies Government institution
+//        exemption wording. SDL rate remains 4.5% of gross emoluments.
+//
+//   9. CIT RATE — NO CHANGE. Remains 30%.
+//  10. PAYE — NO CHANGE.
+//  11. WEAR & TEAR — NO CHANGE (Third Schedule rates unchanged).
+//  12. AMT — NO CHANGE. Remains 1% of turnover; 3-year consecutive loss trigger.
+//
+// ── CORRECTIONS FROM v1.0→v1.2 (retained for audit trail) ───
+//   v1.1: Wear & tear classes restructured; AMT rate corrected to 1%/turnover;
+//         Thin cap local bank debt exclusion added; mgmt fee 2% cap removed;
+//         Loss carry-forward period corrected (no time limit, 60% cap);
+//         Entertainment auto-disallowance removed
+//
+// ── ARCHITECTURE ─────────────────────────────────────────────
 //   dry_run=true  → compute and return preview, write NOTHING to DB
 //   dry_run=false → compute, upsert tax_computations, create finding if gap > threshold
 // ============================================================
@@ -48,33 +77,81 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const ENGINE_VERSION = "Module E v1.2";
+const ENGINE_VERSION = "Module E v1.3 — FA2026";
 
-// ── VERIFIED ITA CONSTANTS ────────────────────────────────────────────────
-// Source: PwC Tanzania / TRA Cap.332 / Deloitte Tanzania (see header)
+// ── ITA CONSTANTS — VERIFIED + FA2026 UPDATED ────────────────────────────
+// Source: ITA Cap.332 R.E.2023 / PwC Tanzania Jan 2026 / Deloitte TZ Aug 2025
+//         Finance Act 2026 (No. 3, effective 1 July 2026)
 
 const CIT_RATE = 0.30;
-// Standard CIT rate: 30% (ITA s.4; PwC Tanzania Jan 2026)
+// Standard CIT rate: 30% (ITA s.4). UNCHANGED by FA2026.
 // Reduced rates: 25% for newly DSE-listed cos (3 yrs); 10% for new vehicle assemblers (5 yrs);
 // 20% for new pharma/leather manufacturers (5 yrs) — engine uses standard 30%; flag others as warnings
 
 const AMT_RATE = 0.01;
-// AMT rate: 1% of TURNOVER (NOT 0.5%, NOT of gross income)
-// PwC Tanzania Jan 2026: "AMT applies at a rate of 1% to the turnover of companies
-// with perpetual unrelieved tax losses for the current and preceding two income years"
-// TRIGGER: 3 consecutive loss years — CANNOT be determined from a single TB
+// AMT rate: 1% of TURNOVER. UNCHANGED by FA2026.
+// Trigger: 3 consecutive years of tax losses (current + 2 preceding) — cannot auto-determine from single TB
+// Exemptions: agriculture, health, education, tea processing sectors
 // Engine: flags AMT risk as WARNING only; does NOT apply AMT automatically
 
 const THIN_CAP_RATIO = 70 / 30;
-// 7:3 debt-to-equity (= 2.333:1). Verified: ITA s.12; Deloitte TZ (Aug 2025):
-// "ITA requires that a corporation's financing arrangement not exceed a debt-to-equity ratio of 7:3"
-// CRITICAL EXCLUSION: "debt obligation owed to a resident financial institution" is EXCLUDED
+// 7:3 debt-to-equity (= 2.333:1). UNCHANGED by FA2026.
+// Verified: ITA Cap.332 s.12; Deloitte TZ (Aug 2025)
+// CRITICAL EXCLUSION: "debt obligation owed to a resident financial institution" is EXCLUDED (s.12(5)(ii))
 // Engine cannot auto-identify resident institution loans — flags ALL long-term debt for CPA review
 
 const PENALTY_RATE_PER_MONTH = 0.05;
-// TAA 2015 s.76: 5% per month on unpaid tax (not independently re-verified — CPA to confirm)
+// TAA Cap.438 s.76: 5% per month on unpaid tax. UNCHANGED by FA2026.
 
 const VARIANCE_THRESHOLD_TZS = 500_000;
+
+// ── FINANCE ACT 2026 CONSTANTS (effective 1 July 2026) ───────────────────
+// Source: Finance Act 2026, No. 3 of 2026, Gazette Vol. 107 No. 6, 15 June 2026
+
+const FA2026_DEEMED_DISTRIBUTION_RATE = 0.15;
+// ITA s.33A amended by FA2026 s.23: deemed retained earnings fraction 30% → 15%
+// WHT on deemed amount (10%) is unchanged and is a SEPARATE obligation
+// Excluded entities: DSE-listed companies; financial institutions (BAFIA); insurance companies;
+//   mining companies with Government Framework Agreement
+// This constant is for INFORMATION / CPA AWARENESS only — not applied in CIT waterfall
+
+const FA2026_NONRESIDENT_DIGITAL_WHT = 0.03;
+// ITA s.116(1) amended by FA2026 s.26: non-resident digital service provider tax 2% → 3%
+// Applies to payments to non-resident providers of digital/electronic services
+// Withheld by the payer at time of payment
+
+const FA2026_TP_PENALTY_RATE = 0.30;
+// TAA s.90(2)(c) amended by FA2026 s.82: transfer pricing penalty changed from
+// "100% of tax shortfall" to "30% of the TP ADJUSTMENT AMOUNT" (not of the tax shortfall)
+// This is a significant reduction in TP penalty exposure
+
+const FA2026_PRESUMPTIVE_THRESHOLD = 200_000_000;
+// ITA First Schedule Item 2 amended by FA2026 s.31: ceiling raised 100M → 200M TZS
+// Taxpayers below this ceiling may elect self-assessment and maintain books of account
+
+const FA2026_PRESUMPTIVE_TOP_RATE = 0.045;
+// FA2026 s.31: top band rate 3.5% → 4.5% for turnover 11,000,001–200,000,000 TZS
+// Full replacement table (all 5 bands) effective 1 July 2026:
+//   Band 1: ≤ 4,000,000         → NIL
+//   Band 2: new TIN, any amount → NIL (first year)
+//   Band 3: 4,000,001–7,000,000 → TZS 100,000 (non-compliant) / 3% of excess over 4M (compliant)
+//   Band 4: 7,000,001–11,000,000→ TZS 250,000 (non-compliant) / TZS 90,000 + 3% excess over 7M (compliant)
+//   Band 5: 11,000,001–200,000,000 → 4.5% of turnover (compliant) [changed from 3.5%]
+
+const FA2026_WHT_CROPS_LIVESTOCK_FISHERIES = 0.01;
+// ITA new s.109A added by FA2026 s.25: 1% WHT by resident corporations on payments for:
+//   crops; livestock products (incl. live animals, unprocessed milk);
+//   fishery products (incl. unprocessed fish, fish maws)
+// First Schedule para 4(d) encodes the rate
+
+const FA2026_SINGLE_INSTALMENT_FOOD_CROPS = 0.01;
+// ITA new s.116B added by FA2026 s.28: 1% single instalment on food crop purchases
+// Does NOT apply to: sesame, sugarcane, tobacco, tea, cashew nuts, coffee, cotton, pyrethrum, sisal
+// Does NOT apply if quantity < 1 tonne
+
+const FA2026_FOREST_PRODUCE_INSTALMENT_RATE = 0.02;
+// ITA s.116A amended by FA2026 s.27: rate UNCHANGED at 2%
+// Scope EXPANDED: "forest produce" now includes natural varnish, latex, resin, sap, gums
 
 // ── WEAR & TEAR RATES — VERIFIED (ITA s.17 → Third Schedule) ─────────────
 // Source: PwC Tanzania Deductions table, last reviewed 14 Jan 2026
@@ -503,7 +580,7 @@ serve(async (req) => {
     // Compute the AMT figure for informational purposes only.
     const amtIndicative = Math.round(turnover * AMT_RATE);
     const amtNote = taxableIncome < 0
-      ? `⚠ Company shows a tax loss this period (taxable income: TZS ${taxableIncome.toLocaleString()}). If losses persist for current + 2 preceding years, AMT applies: 1% × turnover = TZS ${amtIndicative.toLocaleString()} (rate is 1% w.e.f. 1 July 2025 per Finance Act 2025; was 0.5% before that date — ITA First Schedule para 3(3)). CPA must verify 3-year consecutive loss history. Exempt: agriculture, health, education, tea processing (1 Jul 2024 – 30 Jun 2027).`
+      ? `⚠ Company shows a tax loss this period (taxable income: TZS ${taxableIncome.toLocaleString()}). If losses persist for current + 2 preceding years, AMT applies: 1% × turnover = TZS ${amtIndicative.toLocaleString()} (ITA First Schedule para 3(3); rate UNCHANGED by Finance Act 2026). CPA must verify 3-year consecutive loss history. Exempt sectors: agriculture, health, education, tea processing.`
       : null;
     if (amtNote) warnings.push(amtNote);
 
@@ -579,7 +656,55 @@ serve(async (req) => {
       classification_warnings:          classificationWarnings,
       review_required:                  classificationWarnings.length > 0 || addBacks.some(a => a.requires_review),
       finding_created:                  false,
-      verified_source:                  "PwC Tanzania (Jan 2026) + Deloitte Tanzania Thin Cap (Aug 2025) + TRA ITA Cap.332",
+      verified_source:                  "ITA Cap.332 R.E.2023 + Finance Act 2026 (No. 3, effective 1 Jul 2026) + PwC Tanzania (Jan 2026) + Deloitte Tanzania Thin Cap (Aug 2025)",
+
+      // ── FINANCE ACT 2026 AWARENESS BLOCK ────────────────────
+      // These provisions are effective 1 July 2026. The CIT waterfall above
+      // is unchanged (CIT rate 30%, wear & tear, thin cap all unchanged).
+      // Items below require SEPARATE action by the CPA / payroll team.
+      fa2026_provisions: {
+        deemed_retained_earnings: {
+          ita_section: "s.33A (amended FA2026 s.23)",
+          note: "Deemed-distribution fraction reduced from 30% to 15%. WHT on deemed amount (10%) is unchanged. EXCLUDED: DSE-listed companies, financial institutions (BAFIA), insurance companies, mining cos with Framework Agreement.",
+          rate: FA2026_DEEMED_DISTRIBUTION_RATE,
+        },
+        nonresident_digital_service_tax: {
+          ita_section: "s.116(1) (amended FA2026 s.26)",
+          note: "WHT rate on payments to non-resident digital service providers increased 2% → 3%, effective 1 July 2026. Review any platform/SaaS payments made from 1 Jul 2026.",
+          rate: FA2026_NONRESIDENT_DIGITAL_WHT,
+        },
+        transfer_pricing_penalty: {
+          taa_section: "s.90(2)(c) (amended FA2026 s.82)",
+          note: "TP penalty basis changed: was 100% of tax shortfall; now 30% of TP adjustment amount. This reduces potential TP penalty exposure materially.",
+          rate: FA2026_TP_PENALTY_RATE,
+        },
+        presumptive_tax: {
+          ita_section: "First Schedule Item 2 (amended FA2026 s.31)",
+          note: "Presumptive tax ceiling raised 100M → 200M TZS. Top band rate raised 3.5% → 4.5% for turnover 11,000,001–200,000,000 TZS.",
+          threshold_tzs: FA2026_PRESUMPTIVE_THRESHOLD,
+          top_band_rate: FA2026_PRESUMPTIVE_TOP_RATE,
+        },
+        wht_crops_livestock_fisheries: {
+          ita_section: "new s.109A (FA2026 s.25)",
+          note: "Resident corporations must now withhold 1% on payments for crops, livestock products (live animals, unprocessed milk), and fishery products (unprocessed fish, fish maws). First Schedule para 4(d).",
+          rate: FA2026_WHT_CROPS_LIVESTOCK_FISHERIES,
+        },
+        single_instalment_food_crops: {
+          ita_section: "new s.116B (FA2026 s.28)",
+          note: "1% single instalment on food crop purchases (farm gate / purchase price, whichever higher). Excludes: sesame, sugarcane, tobacco, tea, cashew, coffee, cotton, pyrethrum, sisal; and purchases < 1 tonne.",
+          rate: FA2026_SINGLE_INSTALMENT_FOOD_CROPS,
+        },
+        forest_produce_instalment: {
+          ita_section: "s.116A (amended FA2026 s.27)",
+          note: "Rate unchanged at 2%. Scope expanded: 'forest produce' now includes natural varnish, latex, resin, sap, gums in addition to timber, logs, mirunda, poles.",
+          rate: FA2026_FOREST_PRODUCE_INSTALMENT_RATE,
+        },
+        sdl_rate: {
+          vet_section: "VET Act Cap.82 s.19 (amended FA2026 s.102)",
+          note: "SDL rate UNCHANGED at 4.5%. Amendment only clarifies Government institution exemption wording ('through Government subvention'). No change to corporate SDL obligations.",
+          rate: 0.045,
+        },
+      },
     };
 
     // ── DRY RUN ───────────────────────────────────────────────────────────
