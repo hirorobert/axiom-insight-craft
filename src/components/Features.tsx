@@ -96,4 +96,12 @@ export function Features() {
           <Button variant="hero" size="lg" asChild>
             <a href="#upload">
               Upload Now
-              <ArrowRight siz
+              <ArrowRight size={16} />
+            </a>
+          </Button>
+        </div>
+
+      </div>
+    </section>
+  );
+}

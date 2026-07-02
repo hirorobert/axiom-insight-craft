@@ -67,4 +67,11 @@ export function Footer() {
             <a href="#" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
               Terms of Service
             </a>
-            <span className="text-xs text-muted-foreground">Data stored on Supabase</span
+            <span className="text-xs text-muted-foreground">Data stored on Supabase</span>
+          </div>
+        </div>
+
+      </div>
+    </footer>
+  );
+}
