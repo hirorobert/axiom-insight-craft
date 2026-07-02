@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ArrowLeft, User, Building2, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { AvatarUpload } from "@/components/AvatarUpload";
+import { AuditTrail } from "@/components/AuditTrail";
 import { useAuditLog } from "@/hooks/useAuditLog";
 
 export default function Settings() {
@@ -114,7 +115,7 @@ export default function Settings() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-2xl mx-auto px-6 py-12">
+      <div className="max-w-2xl mx-auto px-6 py-12 space-y-8">
         <Button
           variant="ghost"
           onClick={() => navigate("/dashboard")}
@@ -193,8 +194,8 @@ export default function Settings() {
               </div>
             </div>
 
-            <Button 
-              onClick={handleSave} 
+            <Button
+              onClick={handleSave}
               disabled={saving}
               className="w-full gap-2"
             >
@@ -207,6 +208,9 @@ export default function Settings() {
             </Button>
           </CardContent>
         </Card>
+
+        {/* Audit Trail — admin-level action log */}
+        <AuditTrail />
       </div>
     </div>
   );

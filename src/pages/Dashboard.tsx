@@ -16,7 +16,6 @@ import { KingaComparativePanel } from "@/components/KingaComparativePanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DashboardAnalytics } from "@/components/DashboardAnalytics";
 import { PolicyCompass } from "@/components/PolicyCompass";
-import { AuditTrail } from "@/components/AuditTrail";
 import { CompanySelector } from "@/components/CompanySelector";
 import { CompanyManager } from "@/components/CompanyManager";
 import { DashboardSkeleton } from "@/components/DashboardSkeleton";
@@ -407,6 +406,27 @@ export default function Dashboard() {
     validationReportRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Handle audited-accounts smart routing (from ValidationReport smart card)
+  const handleProcessAsAuditedAccounts = async () => {
+    if (!selectedUpload) return;
+    toast.info("Re-processing as Audited Financial Statements…");
+    try {
+      const { error } = await supabase.functions.invoke("process-trial-balance", {
+        body: { uploadId: selectedUpload.id, mode: "audited_accounts" },
+      });
+      if (error) throw error;
+      toast.success("Processing started — results will appear shortly.");
+    } catch (err) {
+      console.error("Audited accounts processing error:", err);
+      toast.error("Failed to start processing. Please try again.");
+    }
+  };
+
+  // Clear selection so user can pick a new upload
+  const handleUploadNew = () => {
+    setSelectedUpload(null);
+  };
+
   const result = selectedUpload?.processing_result;
   const summary = result?.summary;
   const mapping = result?.mapping;
@@ -634,13 +654,16 @@ export default function Dashboard() {
                     />
                   )}
 
-                  {/* AXIOM Validation Report */}
+                  {/* SAFF ERP Validation Report */}
                   <div ref={validationReportRef}>
-                    <ValidationReport 
+                    <ValidationReport
                       report={selectedUpload.validation_report}
                       errors={selectedUpload.accounting_errors || []}
                       isValid={selectedUpload.is_valid}
                       status={selectedUpload.status}
+                      fileName={selectedUpload.file_name}
+                      onProcessAsAuditedAccounts={handleProcessAsAuditedAccounts}
+                      onUploadNew={handleUploadNew}
                     />
                   </div>
 
@@ -667,7 +690,7 @@ export default function Dashboard() {
                             </span>
                           </div>
                           <p className="text-sm text-muted-foreground mt-3">
-                            Axiom classified {summary.totalAccounts} accounts.
+                            SAFF ERP classified {summary.totalAccounts} accounts.
                           </p>
                         </CardContent>
                       </Card>
@@ -969,6 +992,16 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {/* Last Activity strip */}
+          {uploads.length > 0 && (
+            <div className="flex items-center gap-2 px-1 py-2 text-xs text-foreground/50 border-t border-border/30">
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+              <span>Last upload: <span className="font-medium text-foreground/70">{uploads[0].file_name}</span></span>
+              <span className="text-foreground/30">·</span>
+              <span>{formatDate(uploads[0].uploaded_at)}</span>
+            </div>
+          )}
+
           {/* Policy Compass Section */}
           <PolicyCompass 
             financialData={mapping ? {
@@ -987,8 +1020,6 @@ export default function Dashboard() {
             } : undefined}
           />
           
-          {/* Audit Trail Section */}
-          <AuditTrail />
           </div>
         )}
       </main>

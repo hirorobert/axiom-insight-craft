@@ -43,12 +43,13 @@ interface PolicyCompassProps {
   };
 }
 
+// Tanzania-specific questions — ITA Cap.332, SDL, PAYE, IPSAS, IFRS for SMEs
 const COMMON_QUESTIONS = [
-  "When should I recognize revenue from a multi-year contract?",
-  "How do I account for lease modifications under ASC 842?",
-  "What is the proper treatment for research and development costs?",
-  "How should I classify debt with covenant violations?",
-  "When is it appropriate to capitalize software development costs?",
+  "What SDL rate applies to our payroll and who is exempt under Finance Act 2026?",
+  "Which ITA wear & tear class applies to medical equipment and computers?",
+  "How do I treat a Directors Loan received by a private company on the balance sheet?",
+  "When does the 1% single instalment tax on forest produce apply under ITA s.116A?",
+  "How should loan facility fees and appraisal fees be accounted for under IFRS for SMEs?",
 ];
 
 export function PolicyCompass({ financialData }: PolicyCompassProps) {
@@ -136,7 +137,7 @@ export function PolicyCompass({ financialData }: PolicyCompassProps) {
           Policy Compass
         </CardTitle>
         <CardDescription>
-          AI-powered decision-tree guidance for accounting policy questions
+          Tanzania statutory guidance — ITA Cap.332, SDL, PAYE, IFRS for SMEs, IPSAS
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -146,7 +147,7 @@ export function PolicyCompass({ financialData }: PolicyCompassProps) {
             <label className="text-sm font-medium text-foreground">Your Question</label>
             <div className="flex gap-2">
               <Input
-                placeholder="e.g., How should I account for lease modifications?"
+                placeholder="e.g., Which wear & tear class applies to our X-ray machine?"
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
@@ -171,7 +172,7 @@ export function PolicyCompass({ financialData }: PolicyCompassProps) {
 
           {/* Quick Questions */}
           <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">Common Questions</label>
+            <label className="text-xs text-muted-foreground">Tanzania-Specific Questions</label>
             <div className="flex flex-wrap gap-2">
               {COMMON_QUESTIONS.map((q, i) => (
                 <Button

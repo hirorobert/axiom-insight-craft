@@ -23,6 +23,13 @@ import { toast } from "sonner";
 import { Settings, Plus, Pencil, Trash2, Building2 } from "lucide-react";
 import { useAuditLog } from "@/hooks/useAuditLog";
 
+const FRAMEWORK_LABELS: Record<string, string> = {
+  ifrs_for_smes: "IFRS for SMEs",
+  full_ifrs: "Full IFRS",
+  ipsas_accrual: "IPSAS Accrual",
+  ipsas_cash: "IPSAS Cash Basis",
+};
+
 interface Company {
   id: string;
   name: string;
@@ -31,6 +38,7 @@ interface Company {
   industry: string | null;
   fiscal_year_end: string;
   currency: string;
+  reporting_framework: string;
   is_active: boolean;
   created_at: string;
 }
@@ -50,7 +58,8 @@ export const CompanyManager = () => {
     description: "",
     industry: "",
     fiscal_year_end: "12-31",
-    currency: "USD",
+    currency: "TZS",
+    reporting_framework: "ifrs_for_smes",
   });
 
   const fetchCompanies = async () => {
@@ -81,7 +90,8 @@ export const CompanyManager = () => {
       description: "",
       industry: "",
       fiscal_year_end: "12-31",
-      currency: "USD",
+      currency: "TZS",
+      reporting_framework: "ifrs_for_smes",
     });
     setEditingCompany(null);
   };
@@ -101,6 +111,7 @@ export const CompanyManager = () => {
             industry: formData.industry || null,
             fiscal_year_end: formData.fiscal_year_end,
             currency: formData.currency,
+            reporting_framework: formData.reporting_framework,
           })
           .eq("id", editingCompany.id);
 
@@ -124,6 +135,7 @@ export const CompanyManager = () => {
             industry: formData.industry || null,
             fiscal_year_end: formData.fiscal_year_end,
             currency: formData.currency,
+            reporting_framework: formData.reporting_framework,
             user_id: user.id,
           })
           .select()
@@ -159,6 +171,7 @@ export const CompanyManager = () => {
       industry: company.industry || "",
       fiscal_year_end: company.fiscal_year_end,
       currency: company.currency,
+      reporting_framework: company.reporting_framework || "ifrs_for_smes",
     });
     setFormDialogOpen(true);
   };
@@ -236,13 +249,16 @@ export const CompanyManager = () => {
                     <div className="flex items-center gap-3">
                       <Building2 className="w-4 h-4 text-primary" />
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-sm font-medium">{company.name}</span>
                           {company.code && (
                             <Badge variant="outline" className="text-xs">
                               {company.code}
                             </Badge>
                           )}
+                          <Badge variant="outline" className="text-xs text-foreground/60 border-border">
+                            {FRAMEWORK_LABELS[company.reporting_framework] || company.reporting_framework}
+                          </Badge>
                         </div>
                         {company.industry && (
                           <p className="text-xs text-muted-foreground">{company.industry}</p>
@@ -317,6 +333,28 @@ export const CompanyManager = () => {
                 />
               </div>
             </div>
+            {/* Reporting Framework — set once at company level */}
+            <div className="space-y-2">
+              <Label htmlFor="reporting_framework">Reporting Framework</Label>
+              <Select
+                value={formData.reporting_framework}
+                onValueChange={(value) => setFormData({ ...formData, reporting_framework: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ifrs_for_smes">IFRS for SMEs — private companies (default)</SelectItem>
+                  <SelectItem value="full_ifrs">Full IFRS — listed or large entities</SelectItem>
+                  <SelectItem value="ipsas_accrual">IPSAS Accrual — government / public sector</SelectItem>
+                  <SelectItem value="ipsas_cash">IPSAS Cash Basis — smaller government entities</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Determines statement headers and output format. Cannot be changed after first report is generated.
+              </p>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="fiscal_year_end">Fiscal Year End</Label>
@@ -345,12 +383,10 @@ export const CompanyManager = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="TZS">TZS — Tanzanian Shilling</SelectItem>
                     <SelectItem value="USD">USD</SelectItem>
                     <SelectItem value="EUR">EUR</SelectItem>
                     <SelectItem value="GBP">GBP</SelectItem>
-                    <SelectItem value="JPY">JPY</SelectItem>
-                    <SelectItem value="CAD">CAD</SelectItem>
-                    <SelectItem value="AUD">AUD</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
