@@ -345,9 +345,9 @@ export const CompanyManager = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ifrs_for_smes">IFRS for SMEs — private companies (default)</SelectItem>
-                  <SelectItem value="full_ifrs">Full IFRS — listed or large entities</SelectItem>
+                  <SelectItem value="full_ifrs" disabled>Full IFRS — coming soon</SelectItem>
                   <SelectItem value="ipsas_accrual">IPSAS Accrual — government / public sector</SelectItem>
-                  <SelectItem value="ipsas_cash">IPSAS Cash Basis — smaller government entities</SelectItem>
+                  <SelectItem value="ipsas_cash" disabled>IPSAS Cash Basis — coming soon</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
