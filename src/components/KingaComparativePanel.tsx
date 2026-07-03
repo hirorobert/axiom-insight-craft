@@ -55,7 +55,8 @@ export function KingaComparativePanel({ companyId, currentPeriodId }: Props) {
   const [currentId, setCurrentId] = useState<string>(currentPeriodId ?? "");
   const [priorId, setPriorId] = useState<string>("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [result, setResult] = useState<any>(null);
 
   useEffect(() => {
     (async () => {

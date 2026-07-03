@@ -27,6 +27,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -72,7 +73,7 @@ export function AuditTrail() {
         .limit(showMore ? 100 : 20);
 
       if (filter !== "all") {
-        query = query.eq("action", filter as string);
+        query = query.eq("action", filter as Database["public"]["Enums"]["audit_action"]);
       }
 
       const { data, error } = await query;

@@ -31,13 +31,25 @@ interface AccountMapping {
   confidence?: number;
 }
 
+interface StatementRow {
+  category: string;
+  subcategory: string;
+  code: string;
+  name: string;
+  debit: number;
+  credit: number;
+  balance: number;
+  confidence: number;
+  isCorrected: boolean;
+}
+
 interface Correction {
   account_code: string;
   corrected_category: string;
   corrected_subcategory: string;
 }
 
-interface ProcessingResult {
+export interface ProcessingResult {
   mapping?: {
     balanceSheet?: {
       assets?: { current?: AccountMapping[]; nonCurrent?: AccountMapping[] };
