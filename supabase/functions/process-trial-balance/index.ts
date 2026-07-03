@@ -93,13 +93,33 @@ interface ProcessingResult {
 
 // ── Pattern libraries (mirrors kinga-findings-engine) ─────────────────────────
 
-/** Column header synonyms — used by generic column detector */
-const COLUMN_SYNONYMS: Record<string, RegExp[]> = {
-  account_code: [/^account[_\s]?(?:code|no|number|#)$/i, /^acct[_\s]?(?:code|no|#)$/i, /^code$/i, /^gl[_\s]?code$/i, /^a\/c$/i],
-  account_name: [/^account[_\s]?(?:name|description|title|desc)$/i, /^description$/i, /^name$/i, /^gl[_\s]?name$/i],
-  debit:        [/^debit[s]?$/i, /^dr$/i, /^debit[_\s]amount$/i],
-  credit:       [/^credit[s]?$/i, /^cr$/i, /^credit[_\s]amount$/i],
-  balance:      [/^balance$/i, /^net[_\s]balance$/i, /^closing[_\s]balance$/i, /^amount$/i],
+/** Column header matchers — strip, lowercase, then startsWith/includes core keyword.
+ *  Covers common real-world variations: "Debit (TZS)", "Dr.", "Account No", etc. */
+const COLUMN_MATCHERS: Record<string, (s: string) => boolean> = {
+  account_code: (s) =>
+    s === "code" ||
+    s.startsWith("a/c") ||
+    (s.startsWith("gl")      && s.includes("code")) ||
+    (s.startsWith("ledger")  && s.includes("code")) ||
+    (s.startsWith("acc")     && s.includes("code")) ||
+    (s.startsWith("account") && (s.includes("code") || s.includes("number") || s.endsWith("no"))),
+  account_name: (s) =>
+    s === "name"        ||
+    s === "description" ||
+    s === "particulars" ||
+    (s.startsWith("gl")      && s.includes("name")) ||
+    (s.startsWith("ledger")  && s.includes("name")) ||
+    (s.startsWith("account") && (s.includes("name") || s.includes("description") || s.includes("title"))),
+  debit: (s) =>
+    s.includes("debit") ||
+    s.startsWith("dr"),
+  credit: (s) =>
+    s.includes("credit") ||
+    s.startsWith("cr"),
+  balance: (s) =>
+    s.startsWith("amount")     ||
+    s.startsWith("net amount") ||
+    s.includes("balance"),
 };
 
 /** Accounts that represent total/subtotal rows — stripped during parsing */
@@ -310,8 +330,8 @@ function detectColumns(rows: (string | number | null)[][]): { map: ColumnMap; de
     let score = 0;
     for (const cell of row) {
       const s = String(cell ?? "").trim().toLowerCase();
-      for (const synonyms of Object.values(COLUMN_SYNONYMS)) {
-        if (synonyms.some(rx => rx.test(s))) { score++; break; }
+      for (const matcher of Object.values(COLUMN_MATCHERS)) {
+        if (matcher(s)) { score++; break; }
       }
     }
     if (score > bestScore) { bestScore = score; bestRow = r; }
@@ -324,8 +344,8 @@ function detectColumns(rows: (string | number | null)[][]): { map: ColumnMap; de
   for (let c = 0; c < headerRow.length; c++) {
     const cell = String(headerRow[c] ?? "").trim();
     const lower = cell.toLowerCase();
-    for (const [key, synonyms] of Object.entries(COLUMN_SYNONYMS)) {
-      if (map[key as keyof typeof map] === null && synonyms.some(rx => rx.test(lower))) {
+    for (const [key, matcher] of Object.entries(COLUMN_MATCHERS)) {
+      if (map[key as keyof typeof map] === null && matcher(lower)) {
         (map as Record<string, number | null>)[key] = c;
         detected[key] = cell;
         break;
