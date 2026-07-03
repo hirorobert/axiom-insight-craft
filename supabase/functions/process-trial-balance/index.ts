@@ -133,14 +133,14 @@ interface AutoClass { statement: string; classification: string; normal_balance:
 
 const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }> = [
   // ── INCOME STATEMENT — Revenue ─────────────────────────────────────────────
-  { patterns: [/\brevenue\b/i, /\bsale[s]?\b/i, /\bincome(?!\s+tax)\b/i, /\bmapato\b/i, /\bfee[s]?\b/i, /\bturnover\b/i],
+  { patterns: [/\brevenue\b/i, /\bsale[s]?\b/i, /\bincome(?!\s+tax)\b/i, /\bmapato\b/i, /\bturnover\b/i],
     result: { statement: "income_statement", classification: "revenue", normal_balance: "credit", line_item: "Revenue" }},
 
   // ── INCOME STATEMENT — Cost of Goods Sold ──────────────────────────────────
   // Must come BEFORE operating_expenses so "cost of sales" routes to cogs not opex
   { patterns: [/\bcost\s+of\s+(?:goods\s+)?sold\b/i, /\bcost\s+of\s+sales\b/i, /\bcost\s+of\s+revenue\b/i, /\bcogs\b/i, /\bdirect\s+cost[s]?\b/i, /\bghara\s+za\s+bidhaa\b/i],
     result: { statement: "income_statement", classification: "cost_of_goods_sold", normal_balance: "debit", line_item: "Cost of Sales" }},
-  { patterns: [/\bpurchases?\s+(?:drugs?|medic|goods|stock|supplies?)\b/i, /\bstock\s+purchases?\b/i],
+  { patterns: [/\bpurchases?\s*(?:[-—–]|\s)\s*(?:drugs?|medic|goods|stock|supplies?)\b/i, /\bstock\s+purchases?\b/i],
     result: { statement: "income_statement", classification: "cost_of_goods_sold", normal_balance: "debit", line_item: "Purchases" }},
   { patterns: [/\bopening\s+(?:stock|inventor[yi])\b/i],
     result: { statement: "income_statement", classification: "cost_of_goods_sold", normal_balance: "debit", line_item: "Opening Stock" }},
@@ -188,7 +188,7 @@ const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Staff Training" }},
   { patterns: [/\bwelfare\b/i, /\btea\b/i, /\bwater\b/i, /\buniform[s]?\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Staff Welfare" }},
-  { patterns: [/\badmin(?:istrat\w+)?\s+(?:exp|cost)/i, /\bgeneral\s+(?:exp|admin)/i],
+  { patterns: [/\badmin(?:istrat\w+)?\s+(?:exp|cost)/i, /\bgeneral\s+(?:exp|admin)/i, /\bexpenditure\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Administrative Expenses" }},
   { patterns: [/\bfinance\s+(?:exp|cost|charge)/i, /\binterest\s+(?:exp|charge)/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Finance Expenses" }},
@@ -201,10 +201,10 @@ const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }
   { patterns: [/\binsurance\b/i, /\bpremium[s]?\s+(?:exp|paid|charge)\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Insurance" }},
   // ── Entertainment / Meetings ────────────────────────────────────────────────
-  { patterns: [/\bentertain(?:ment)?\b/i, /\bmeeting[s]?\s+(?:exp|allow|cost)\b/i, /\bhospitality\b/i],
+  { patterns: [/\bentertain(?:ment)?\b/i, /\bmeeting[s]?\b/i, /\bhospitality\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Entertainment & Meetings" }},
   // ── Office Supplies / Stationery ────────────────────────────────────────────
-  { patterns: [/\bstation[e]?r[yi]\b/i, /\boffice\s+suppli\b/i, /\bprinting\b/i, /\bstamp[s]?\b/i],
+  { patterns: [/\bstation[e]?r/i, /\boffice\s+suppli\b/i, /\bprinting\b/i, /\bstamp[s]?\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Office Supplies & Stationery" }},
   // ── Telephone / Communication ────────────────────────────────────────────────
   { patterns: [/\btelephon[e]?\b/i, /\binternet\b/i, /\bpostage\b/i, /\bcommunication\b/i, /\bdata\s+(?:plan|bundle|cost)\b/i],
@@ -213,22 +213,22 @@ const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }
   { patterns: [/\btravel(?:ling|ing)?\b/i, /\btransport\b/i, /\bvehicle\s+(?:hire|rental)\b/i, /\bairfare\b/i, /\baccommodation\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Travel & Transport" }},
   // ── Cleaning / Sanitation ────────────────────────────────────────────────────
-  { patterns: [/\bclean(?:ing)?\b/i, /\bgarden(?:ing)?\b/i, /\bsanit(?:ation|ary)\b/i, /\bwaste\s+(?:management|disposal)\b/i, /\bfumigat\b/i, /\bpest\s+control\b/i],
+  { patterns: [/\bclean(?:ing)?\b/i, /\bgarden(?:ing)?\b/i, /\bsanit(?:ation|ary)\b/i, /\bwaste\s+(?:management|disposal)\b/i, /\bfumigat/i, /\bpest\s+control\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Cleaning & Sanitation" }},
   // ── Service Levy (P&L expense — MUST come before BS service levy payable rule)
   { patterns: [/\bservice\s+levy\b/i, /\bmunicipal\s+(?:levy|tax)\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Service Levy" }},
   // ── Professional & Legal Fees ────────────────────────────────────────────────
-  { patterns: [/\baudit\s+fee[s]?\b/i, /\baccounting\s+fee[s]?\b/i, /\blegal\s+fee[s]?\b/i, /\bprofessional\s+fee[s]?\b/i, /\bconsulting\s+fee[s]?\b/i, /\bbrela\b/i, /\bvaluation\b/i, /\bsurvey\b/i, /\binspection\s+fee\b/i],
+  { patterns: [/\baudit\s+fee[s]?\b/i, /\baccounting\s+fee[s]?\b/i, /\blegal\s+fee[s]?\b/i, /\bprofessional\s+fee[s]?\b/i, /\bconsulting\s+fee[s]?\b/i, /\bbrela\b/i, /\bvaluation\b/i, /\bsurvey\b/i, /\binspection\s+fee[s]?\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Professional & Legal Fees" }},
   // ── Licences & Permits ───────────────────────────────────────────────────────
-  { patterns: [/\blicen[sc]e[s]?\b/i, /\bpermit[s]?\b/i, /\bregistration\s+fee[s]?\b/i, /\bmembership\s+fee[s]?\b/i],
+  { patterns: [/\blicen[sc]e[s]?\b/i, /\bpermit[s]?\b/i, /\bregistration\s+fee[s]?\b/i, /\bmembership\s+fee[s]?\b/i, /\bregistration\b/i, /\bmembership\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Licences & Permits" }},
   // ── Safety & Maintenance (catch-all for specialist opex) ─────────────────────
   { patterns: [/\bfire\s+extinguisher\b/i, /\bsafety\b/i, /\bstock[_\s]?tak(?:ing)?\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Safety & Administration" }},
   // ── Hospital / Clinical Direct Expenses (sector-specific) ────────────────────
-  { patterns: [/\bpatient[s]?\s+(?:meal|food|refund|invest)/i, /\bhiring\s+cost\b/i, /\bambulance\b/i, /\bclinical\b/i],
+  { patterns: [/\bpatient[s]?\s+(?:meal|food|refund|invest)/i, /\bhiring\s+cost\b/i, /\bambulance\b/i, /\bclinical\b/i, /\bhospital\s+system\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Hospital Direct Expenses" }},
   // ── Miscellaneous / Unallocated ──────────────────────────────────────────────
   { patterns: [/\bunallocated\b/i, /\bmiscellaneous\b/i, /\bsundry\b/i, /\bcontract\s+renewal\b/i, /\bother\s+(?:admin|operating)\s+exp/i],
@@ -247,7 +247,7 @@ const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }
     result: { statement: "balance_sheet", classification: "current_assets", normal_balance: "debit", line_item: "Tax Receivables" }},
 
   // ── BALANCE SHEET — Non-Current Assets ────────────────────────────────────
-  { patterns: [/\bproperty\b/i, /\bplant\b/i, /\bequipment\b/i, /\bfurniture\b/i, /\bfixture[s]?\b/i, /\bmotor\s+vehicle\b/i, /\bvehicle[s]?\b/i],
+  { patterns: [/\bproperty\b/i, /\bplant\b/i, /\bequipment\b/i, /\bfurniture\b/i, /\bfixture[s]?\b/i, /\bmotor\s+vehicle\b/i, /\bvehicle[s]?\b/i, /\bland\b/i, /\bbuilding[s]?\b/i, /\bwater\s+well\b/i, /\bwork\s+in\s+progress\b/i, /\bwip\b/i, /\bcomputer[s]?\b/i],
     result: { statement: "balance_sheet", classification: "non_current_assets", normal_balance: "debit", line_item: "Property, Plant & Equipment" }},
   { patterns: [/\baccumulated\s+depreciation\b/i, /\bacc\s+depr/i],
     result: { statement: "balance_sheet", classification: "non_current_assets", normal_balance: "credit", line_item: "Accumulated Depreciation" }},
