@@ -55,6 +55,7 @@ export function KingaComparativePanel({ companyId, currentPeriodId }: Props) {
   const [currentId, setCurrentId] = useState<string>(currentPeriodId ?? "");
   const [priorId, setPriorId] = useState<string>("");
   const [loading, setLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [result, setResult] = useState<any>(null);
 
   useEffect(() => {
@@ -88,8 +89,8 @@ export function KingaComparativePanel({ companyId, currentPeriodId }: Props) {
       if (error) throw error;
       setResult(data);
       toast.success("Comparative analysis complete");
-    } catch (e: any) {
-      toast.error(e.message || "Analysis failed");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Analysis failed");
     } finally {
       setLoading(false);
     }

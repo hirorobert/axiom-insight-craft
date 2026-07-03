@@ -442,9 +442,9 @@ function isGrossEmolumentAccount(accountName: string): boolean {
 const RETAINED_EARNINGS_NAME_PATTERNS: RegExp[] = [
   /retained\s*earning/i,
   /accumulated\s*(profit|surplus|deficit|loss)/i,
-  /profit\s*b[\/]?[fo]/i,      // Profit b/f, Profit b/o
-  /surplus\s*b[\/]?[fo]/i,
-  /net\s*(profit|loss)\s*b[\/]?[fo]/i,
+  /profit\s*b[/]?[fo]/i,      // Profit b/f, Profit b/o
+  /surplus\s*b[/]?[fo]/i,
+  /net\s*(profit|loss)\s*b[/]?[fo]/i,
   /faida\s*iliyobakiwa\b/i,    // Swahili: retained profit
   /undistributed\s*(profit|earning)/i,
   /income\s*surplus\b/i,

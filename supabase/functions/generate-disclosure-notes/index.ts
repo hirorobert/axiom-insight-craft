@@ -343,7 +343,7 @@ Please generate all applicable disclosure notes for these financial statements.`
   }
 });
 
-function countAccounts(category: any): number {
+function countAccounts(category: { current?: unknown[]; nonCurrent?: unknown[] } | null | undefined): number {
   if (!category) return 0;
   let count = 0;
   if (category.current) count += category.current.length;

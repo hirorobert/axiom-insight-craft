@@ -371,8 +371,8 @@ export function KingaTaxPanel({
           .eq("company_id", companyId).eq("upload_id", uploadId).maybeSingle();
         if (stored) setStored(stored);
       }
-    } catch (e: any) {
-      setError(e?.message ?? String(e));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
       setPhase("idle");
     }
   };
