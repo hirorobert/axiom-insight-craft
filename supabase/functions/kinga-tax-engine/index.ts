@@ -102,6 +102,15 @@ const AMT_RATE = 0.01;
 // Exemptions: agriculture, health, education, tea processing sectors
 // Engine: flags AMT risk as WARNING only; does NOT apply AMT automatically
 
+/* Loss carry-forward annual shelter cap: 70%.
+   Source: Income Tax Act Cap. 332 R.E. 2023, section 19,
+   subsection (2). FA 2020 amendment.
+   Verified 2026-07-02 by cpahumphrey@gmail.com. */
+const LOSS_CARRYFORWARD_SHELTER = 0.70;
+// Maximum proportion of income that may be sheltered by unrelieved losses in any year.
+// Income after loss deduction shall not fall below 30% of pre-deduction income (s.19(2)).
+// Exception: agricultural business, health, education services corporations (s.19(2) proviso).
+
 const THIN_CAP_RATIO = 70 / 30;
 // 7:3 debt-to-equity (= 2.333:1). UNCHANGED by FA2026.
 // Verified: ITA Cap.332 s.12; Deloitte TZ (Aug 2025)
