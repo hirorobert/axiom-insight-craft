@@ -347,6 +347,7 @@ export type Database = {
           industry: string | null
           is_active: boolean | null
           name: string
+          reporting_framework: string
           updated_at: string
           user_id: string
         }
@@ -360,6 +361,7 @@ export type Database = {
           industry?: string | null
           is_active?: boolean | null
           name: string
+          reporting_framework?: string
           updated_at?: string
           user_id: string
         }
@@ -373,6 +375,7 @@ export type Database = {
           industry?: string | null
           is_active?: boolean | null
           name?: string
+          reporting_framework?: string
           updated_at?: string
           user_id?: string
         }
