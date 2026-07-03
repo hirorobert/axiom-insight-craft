@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import { AccountMappingManager, AccountMappingManagerRef } from "@/components/AccountMappingManager";
-import { ExportStatements } from "@/components/ExportStatements";
+import { ExportStatements, ProcessingResult } from "@/components/ExportStatements";
 import { NoteSynth } from "@/components/NoteSynth";
 import { KingaFindingsPanel } from "@/components/KingaFindingsPanel";
 import { KingaTaxPanel } from "@/components/KingaTaxPanel";
