@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight, Loader2, Trash2, Building2 } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight, Loader2, Trash2, Building2, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -36,6 +36,7 @@ export const TrialBalanceUpload = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -334,6 +335,99 @@ export const TrialBalanceUpload = () => {
             </p>
           </div>
         )}
+
+        {/* Formatting guide — collapsed by default */}
+        <div className="mb-6">
+          <button
+            onClick={() => setIsGuideOpen(!isGuideOpen)}
+            className="flex items-center gap-1 text-sm text-primary hover:underline"
+          >
+            <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isGuideOpen ? "rotate-180" : ""}`} />
+            {isGuideOpen ? "Hide formatting guide" : "Show formatting guide"}
+          </button>
+
+          {isGuideOpen && (
+            <div className="mt-3 p-4 rounded-xl border border-border bg-card/80 text-sm space-y-4">
+              <p className="font-semibold text-foreground">How to format your trial balance file</p>
+
+              <div>
+                <p className="font-medium text-foreground mb-1">Accepted formats</p>
+                <ul className="space-y-0.5 text-muted-foreground">
+                  <li>✓ Excel (.xlsx, .xls) or CSV (.csv)</li>
+                  <li>✓ One row per account</li>
+                  <li>✓ Column headers in the first row</li>
+                </ul>
+              </div>
+
+              <div>
+                <p className="font-medium text-foreground mb-2">Required columns</p>
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-1 pr-4 font-medium text-foreground">Column</th>
+                      <th className="text-left py-1 font-medium text-foreground">Accepted header names</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-muted-foreground">
+                    <tr className="border-b border-border/50">
+                      <td className="py-1 pr-4 font-medium text-foreground">Account Code</td>
+                      <td className="py-1">Account Code, Code, GL Code, Account No</td>
+                    </tr>
+                    <tr className="border-b border-border/50">
+                      <td className="py-1 pr-4 font-medium text-foreground">Account Name</td>
+                      <td className="py-1">Account Name, Name, Description, Particulars</td>
+                    </tr>
+                    <tr className="border-b border-border/50">
+                      <td className="py-1 pr-4 font-medium text-foreground">Debit</td>
+                      <td className="py-1">Debit, Dr, Debit (TZS), Debit Amount</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1 pr-4 font-medium text-foreground">Credit</td>
+                      <td className="py-1">Credit, Cr, Credit (TZS), Credit Amount</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Column headers are not case-sensitive. You may also use a single{" "}
+                  <span className="font-medium text-foreground">Balance</span>{" "}
+                  column instead of separate Debit and Credit columns.
+                </p>
+              </div>
+
+              <div>
+                <p className="font-medium text-foreground mb-2">Example row</p>
+                <div className="overflow-x-auto">
+                  <table className="text-xs border-collapse border border-border rounded">
+                    <thead>
+                      <tr className="bg-secondary">
+                        <th className="border border-border px-3 py-1 text-left text-foreground">Account Code</th>
+                        <th className="border border-border px-3 py-1 text-left text-foreground">Account Name</th>
+                        <th className="border border-border px-3 py-1 text-right text-foreground">Debit</th>
+                        <th className="border border-border px-3 py-1 text-right text-foreground">Credit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="border border-border px-3 py-1 text-muted-foreground">6040</td>
+                        <td className="border border-border px-3 py-1 text-muted-foreground">Skills Development Levy</td>
+                        <td className="border border-border px-3 py-1 text-right text-muted-foreground">103,072,691</td>
+                        <td className="border border-border px-3 py-1 text-right text-muted-foreground">—</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <p className="font-medium text-foreground mb-1">What happens next</p>
+                <p className="text-muted-foreground">
+                  SAFF ERP will validate every account, check that Debits = Credits,
+                  classify each account automatically, and block export until all checks pass.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Upload area */}
         <div
