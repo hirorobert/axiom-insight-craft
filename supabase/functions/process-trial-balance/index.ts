@@ -36,11 +36,12 @@ const corsHeaders = {
 // ── Interfaces ────────────────────────────────────────────────────────────────
 
 interface RawAccount {
-  account_code: string;
-  account_name: string;
-  debit:        number;
-  credit:       number;
-  balance:      number;
+  account_code:      string;
+  account_name:      string;
+  debit:             number;
+  credit:            number;
+  balance:           number;
+  source_row_number: number; // raw file row index (1-based from header_row + 1)
 }
 
 interface AccountMapping {
@@ -76,18 +77,45 @@ interface Statements {
   cash_flow:        Record<string, StatementSection> | null;
 }
 
+// Keyword dictionary row (fetched once per run)
+interface KeywordRow {
+  id:             string;
+  term:           string;
+  language:       string;
+  classification: string;
+  match_type:     "exact" | "contains";
+}
+
+// Account that could not be confidently classified
+interface NeedsReviewAccount {
+  account_code:              string;
+  account_name:              string;
+  debit:                     number;
+  credit:                    number;
+  balance:                   number;
+  suggested_classification?: string;
+  suggested_statement?:      string;
+  confidence_source?:        string;
+  reason:                    string;
+}
+
+type TieredClassifyResult =
+  | { status: "classified"; mapping: AccountMapping; confidence: "high" | "medium"; confidence_source: "mapping" | "dictionary_exact" | "dictionary_contains" | "rule" }
+  | { status: "needs_review"; suggested_classification?: string; suggested_statement?: string; confidence_source?: string; reason: string };
+
 // Full processing_result (what engine reads)
 interface ProcessingResult {
-  status:            "valid" | "invalid" | "blocked";
-  statements:        Statements | null;
-  validation_report: Record<string, unknown>;
-  errors:            ValidationError[];
+  status:                 "valid" | "invalid" | "blocked" | "needs_review";
+  statements:             Statements | null;
+  validation_report:      Record<string, unknown>;
+  errors:                 ValidationError[];
+  needs_review_accounts?: NeedsReviewAccount[];
   summary: {
-    total_accounts: number;
-    processed_at:   string;
-    parser_version: string;
+    total_accounts:   number;
+    processed_at:     string;
+    parser_version:   string;
     columns_detected: Record<string, string>;
-    auto_classified: number;
+    auto_classified:  number;
   };
 }
 
@@ -401,7 +429,7 @@ function rowsToRawAccounts(
       balance = debit - credit;
     }
 
-    accounts.push({ account_code: code, account_name: name || code, debit, credit, balance });
+    accounts.push({ account_code: code, account_name: name || code, debit, credit, balance, source_row_number: i });
   }
 
   return { accounts, errors };
@@ -468,6 +496,219 @@ function autoClassifyAccount(name: string): ClassificationResult | null {
   return null;
 }
 
+// ── Stable per-row map key ────────────────────────────────────────────────────
+// account_code is always non-empty in the current parser (falls back to name on
+// line 391: `const code = rawCode || name`), but two name-only rows can share
+// the same derived code if their account names are identical.
+// source_row_number guarantees uniqueness: used as key when code === name.
+// ONE helper used by BOTH the write in STEP 6 and the read in aggregateStatements.
+
+function accountKey(account: RawAccount): string {
+  return account.account_code !== account.account_name
+    ? account.account_code                // real GL code — safe to key directly
+    : `row:${account.source_row_number}`; // name-derived code — disambiguate by row
+}
+
+// ── Account name normalisation ────────────────────────────────────────────────
+// Mirrors SQL: lower(trim(regexp_replace(regexp_replace(name,'[[:punct:]]','','g'),'\s+',' ','g')))
+
+function normalizeAccountName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^\w\s]/g, "")   // strip punctuation
+    .replace(/\s+/g, " ")      // collapse whitespace
+    .trim();
+}
+
+// ── Levenshtein distance (O(n) space) ─────────────────────────────────────────
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const row: number[] = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const curr = row[j];
+      row[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, row[j], row[j - 1]);
+      prev = curr;
+    }
+  }
+  return row[n];
+}
+
+// ── Fuzzy lookup over a normalised-name → AccountMapping map (distance ≤ 2) ───
+
+function fuzzyMapLookup(
+  normName: string,
+  nameMap:  Map<string, AccountMapping>,
+): AccountMapping | null {
+  let best = 3; // must be strictly less than 3 (i.e., ≤ 2) to win
+  let hit: AccountMapping | null = null;
+  for (const [key, mapping] of nameMap) {
+    const d = levenshtein(normName, key);
+    if (d < best) { best = d; hit = mapping; }
+  }
+  return hit;
+}
+
+// ── Derive statement + normal_balance from classification ─────────────────────
+
+function classificationMeta(cls: string): { statement: string; normal_balance: "debit" | "credit" } {
+  const table: Record<string, { statement: string; normal_balance: "debit" | "credit" }> = {
+    current_assets:          { statement: "balance_sheet",    normal_balance: "debit"  },
+    non_current_assets:      { statement: "balance_sheet",    normal_balance: "debit"  },
+    current_liabilities:     { statement: "balance_sheet",    normal_balance: "credit" },
+    non_current_liabilities: { statement: "balance_sheet",    normal_balance: "credit" },
+    equity:                  { statement: "balance_sheet",    normal_balance: "credit" },
+    revenue:                 { statement: "income_statement", normal_balance: "credit" },
+    cost_of_goods_sold:      { statement: "income_statement", normal_balance: "debit"  },
+    operating_expenses:      { statement: "income_statement", normal_balance: "debit"  },
+    other_income:            { statement: "income_statement", normal_balance: "credit" },
+    taxes:                   { statement: "income_statement", normal_balance: "debit"  },
+  };
+  return table[cls] ?? { statement: "income_statement", normal_balance: "debit" };
+}
+
+// ── 6-tier account classifier ─────────────────────────────────────────────────
+// Tier 1–3: account_mappings (company-scoped then global) — code exact, then name exact/fuzzy.
+// Tier 4:   keyword_dictionary — exact → contains longest-match-wins → fuzzy (exact terms only).
+// Tier 5:   AUTO_CLASSIFICATION_RULES regex (autoClassifyAccount, unchanged).
+// Tier 6:   needs_review.
+//
+// All four maps and both kwd arrays are fetched once before this is called.
+// No per-account DB queries.
+
+function classifyAccountTiered(
+  account:       RawAccount,
+  companyByCode: Map<string, AccountMapping>,
+  companyByName: Map<string, AccountMapping>,
+  globalByCode:  Map<string, AccountMapping>,
+  globalByName:  Map<string, AccountMapping>,
+  kwdExact:      KeywordRow[],
+  kwdContains:   KeywordRow[],
+): TieredClassifyResult {
+  const normName = normalizeAccountName(account.account_name);
+  const code     = account.account_code?.trim() ?? "";
+
+  // ── Tier 1: company mapping, exact code (NEVER fuzzy-match codes) ─────────
+  if (code && companyByCode.has(code)) {
+    return { status: "classified", mapping: companyByCode.get(code)!, confidence: "high", confidence_source: "mapping" };
+  }
+
+  // ── Tier 2: company mapping, normalised name — exact then fuzzy ≤ 2 ───────
+  if (normName) {
+    if (companyByName.has(normName)) {
+      return { status: "classified", mapping: companyByName.get(normName)!, confidence: "high", confidence_source: "mapping" };
+    }
+    const fuzzyC = fuzzyMapLookup(normName, companyByName);
+    if (fuzzyC) return { status: "classified", mapping: fuzzyC, confidence: "high", confidence_source: "mapping" };
+  }
+
+  // ── Tier 3: global mapping (company_id IS NULL) — code exact, then name exact/fuzzy ─
+  if (code && globalByCode.has(code)) {
+    return { status: "classified", mapping: globalByCode.get(code)!, confidence: "high", confidence_source: "mapping" };
+  }
+  if (normName) {
+    if (globalByName.has(normName)) {
+      return { status: "classified", mapping: globalByName.get(normName)!, confidence: "high", confidence_source: "mapping" };
+    }
+    const fuzzyG = fuzzyMapLookup(normName, globalByName);
+    if (fuzzyG) return { status: "classified", mapping: fuzzyG, confidence: "high", confidence_source: "mapping" };
+  }
+
+  // ── Tier 4a: keyword_dictionary — exact match ──────────────────────────────
+  const exactHit = kwdExact.find(k => k.term === normName);
+  if (exactHit) {
+    const meta = classificationMeta(exactHit.classification);
+    return {
+      status: "classified",
+      mapping: {
+        account_code: account.account_code, account_name: account.account_name,
+        statement: meta.statement, classification: exactHit.classification,
+        line_item: account.account_name, normal_balance: meta.normal_balance,
+        is_cash_account: false, is_retained_earnings: false, is_payroll_account: false,
+      },
+      confidence: "high", confidence_source: "dictionary_exact",
+    };
+  }
+
+  // ── Tier 4b: keyword_dictionary — contains, longest-match-wins ────────────
+  if (normName) {
+    const hits = kwdContains.filter(k => normName.includes(k.term));
+    if (hits.length > 0) {
+      hits.sort((a, b) => b.term.length - a.term.length);
+      const maxLen  = hits[0].term.length;
+      const topHits = hits.filter(k => k.term.length === maxLen);
+      const classes = [...new Set(topHits.map(k => k.classification))];
+      if (classes.length > 1) {
+        // Equal-length conflicting matches → needs_review, never a guess
+        return {
+          status: "needs_review",
+          confidence_source: "dictionary_contains_conflict",
+          reason: `Conflicting keyword matches (length ${maxLen}): ${classes.join(" vs ")}`,
+        };
+      }
+      const meta = classificationMeta(hits[0].classification);
+      return {
+        status: "classified",
+        mapping: {
+          account_code: account.account_code, account_name: account.account_name,
+          statement: meta.statement, classification: hits[0].classification,
+          line_item: account.account_name, normal_balance: meta.normal_balance,
+          is_cash_account: false, is_retained_earnings: false, is_payroll_account: false,
+        },
+        confidence: "high", confidence_source: "dictionary_contains",
+      };
+    }
+
+    // ── Tier 4c: keyword_dictionary — fuzzy on exact-type terms only (≤ 2) ──
+    // Medium confidence → needs_review per doctrine (suggestion recorded for review screen).
+    let bestDist = 3;
+    let bestKwd: KeywordRow | null = null;
+    for (const k of kwdExact) {
+      const d = levenshtein(normName, k.term);
+      if (d <= 2 && d < bestDist) { bestDist = d; bestKwd = k; }
+    }
+    if (bestKwd) {
+      const meta = classificationMeta(bestKwd.classification);
+      return {
+        status: "needs_review",
+        suggested_classification: bestKwd.classification,
+        suggested_statement:      meta.statement,
+        confidence_source:        "dictionary_fuzzy",
+        reason: `Fuzzy keyword match (Δ${bestDist}): "${normName}" ≈ "${bestKwd.term}" → ${bestKwd.classification}`,
+      };
+    }
+  }
+
+  // ── Tier 5: AUTO_CLASSIFICATION_RULES regex (autoClassifyAccount, unchanged) ─
+  const auto = autoClassifyAccount(account.account_name);
+  if (auto) {
+    return {
+      status: "classified",
+      mapping: {
+        account_code:         account.account_code,
+        account_name:         account.account_name,
+        statement:            auto.statement,
+        classification:       auto.classification,
+        line_item:            auto.line_item,
+        normal_balance:       auto.normal_balance,
+        is_cash_account:      auto.is_cash     ?? false,
+        is_retained_earnings: auto.is_retained ?? false,
+        is_payroll_account:   auto.is_payroll  ?? false,
+      },
+      confidence: "high", confidence_source: "rule",
+    };
+  }
+
+  // ── Tier 6: needs_review ───────────────────────────────────────────────────
+  return {
+    status: "needs_review",
+    reason: `No classification found for "${account.account_name}"${code ? ` (${code})` : ""}`,
+  };
+}
+
 // ── Statements Aggregator ─────────────────────────────────────────────────────
 
 function aggregateStatements(
@@ -497,7 +738,7 @@ function aggregateStatements(
   let cashBalance = 0;
 
   for (const account of accounts) {
-    const m = mappings.get(account.account_code);
+    const m = mappings.get(accountKey(account));
     if (!m) continue;
 
     const signed = m.normal_balance === "debit"
@@ -642,208 +883,4 @@ serve(async (req) => {
     if (!colMap.account_name) {
       allErrors.push({ code: "MISSING_COLUMN", message: "Could not detect an account name column. Ensure the file has a column header containing 'Account Name', 'Description', or similar.", field: "account_name" });
     }
-    if (colMap.debit === null && colMap.balance === null) {
-      allErrors.push({ code: "MISSING_COLUMN", message: "Could not detect debit or balance column. Ensure headers contain 'Debit'/'Dr' or 'Balance'.", field: "debit" });
-    }
-    if (allErrors.length > 0) {
-      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processed_at: new Date().toISOString() }).eq("id", uploadId);
-      return new Response(JSON.stringify({ status: "blocked", errors: allErrors }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // ── STEP 3: Row → RawAccount[] ────────────────────────────────────────────
-    const { accounts: rawAccounts } = rowsToRawAccounts(rawRows, colMap);
-    console.log(`[PTB] Parsed ${rawAccounts.length} accounts`);
-
-    if (rawAccounts.length === 0) {
-      throw new Error("No account rows found after stripping subtotals and blank rows.");
-    }
-
-    // ── STEP 4: Trial balance integrity ───────────────────────────────────────
-    // TZS 1.00 tolerance — TZS is non-decimal and rounding across many lines
-    // can accumulate to several whole-TZS units.  Anything over 1 TZS is flagged.
-    const TOLERANCE = 1.00;
-    const totalDebits  = rawAccounts.reduce((s, a) => s + a.debit, 0);
-    const totalCredits = rawAccounts.reduce((s, a) => s + a.credit, 0);
-    const difference   = Math.abs(totalDebits - totalCredits);
-
-    if (difference > TOLERANCE) {
-      allErrors.push({
-        code: "TRIAL_BALANCE_IMBALANCE",
-        message: `Trial balance does not balance: Debits ${totalDebits.toFixed(2)} ≠ Credits ${totalCredits.toFixed(2)} (difference: ${difference.toFixed(2)})`,
-        expected: 0,
-        actual: difference,
-      });
-    }
-
-    if (allErrors.some(e => e.code === "TRIAL_BALANCE_IMBALANCE")) {
-      const result: Partial<ProcessingResult> = {
-        status: "blocked",
-        statements: null,
-        errors: allErrors,
-        validation_report: { tb_balance_check: { passed: false, total_debits: totalDebits, total_credits: totalCredits, difference } },
-        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.2", columns_detected: detectedCols, auto_classified: 0 },
-      };
-      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
-      return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // ── STEP 5: Load existing account_mappings ────────────────────────────────
-    const { data: userMappings } = await supabase
-      .from("account_mappings").select("*").eq("user_id", userId);
-    const existingMappings = new Map<string, AccountMapping>();
-    for (const m of (userMappings ?? [])) {
-      existingMappings.set(m.account_code, {
-        account_code: m.account_code, account_name: m.account_name,
-        statement: m.statement, classification: m.classification,
-        line_item: m.line_item, normal_balance: m.normal_balance,
-        is_cash_account: m.is_cash_account ?? false,
-        is_retained_earnings: m.is_retained_earnings ?? false,
-        is_payroll_account: m.is_payroll_account ?? false,
-      });
-    }
-
-    // ── STEP 6: Auto-classification for unmapped accounts ─────────────────────
-    const newMappingsToInsert: Record<string, unknown>[] = [];
-    let autoClassifiedCount = 0;
-
-    for (const account of rawAccounts) {
-      if (existingMappings.has(account.account_code)) continue;
-
-      const classification = autoClassifyAccount(account.account_name);
-      if (!classification) continue;
-
-      const newMapping: AccountMapping = {
-        account_code:        account.account_code,
-        account_name:        account.account_name,
-        statement:           classification.statement,
-        classification:      classification.classification,
-        line_item:           classification.line_item,
-        normal_balance:      classification.normal_balance,
-        is_cash_account:     classification.is_cash ?? false,
-        is_retained_earnings:classification.is_retained ?? false,
-        is_payroll_account:  classification.is_payroll ?? false,
-      };
-
-      existingMappings.set(account.account_code, newMapping);
-      autoClassifiedCount++;
-
-      newMappingsToInsert.push({
-        user_id:              userId,
-        account_code:         account.account_code,
-        account_name:         account.account_name,
-        statement:            classification.statement,
-        classification:       classification.classification,
-        line_item:            classification.line_item,
-        normal_balance:       classification.normal_balance,
-        is_cash_account:      classification.is_cash ?? false,
-        is_retained_earnings: classification.is_retained ?? false,
-        is_payroll_account:   classification.is_payroll ?? false,
-        is_auto_classified:   true,
-      });
-    }
-
-    if (newMappingsToInsert.length > 0) {
-      // Upsert — on_conflict do nothing (don't overwrite human corrections)
-      const { error: upsertErr } = await supabase
-        .from("account_mappings")
-        .upsert(newMappingsToInsert, { onConflict: "user_id,account_code", ignoreDuplicates: true });
-      if (upsertErr) console.warn(`[PTB] Auto-classification upsert warning: ${upsertErr.message}`);
-      else console.log(`[PTB] Auto-classified and saved ${autoClassifiedCount} accounts`);
-    }
-
-    // ── STEP 7: Mapping completeness ──────────────────────────────────────────
-    const unmapped = rawAccounts.filter(a => !existingMappings.has(a.account_code)).map(a => a.account_code);
-
-    if (unmapped.length > 0) {
-      allErrors.push({
-        code: "UNMAPPED_ACCOUNTS",
-        message: `${unmapped.length} account(s) could not be classified automatically: ${unmapped.slice(0, 5).join(", ")}${unmapped.length > 5 ? ` (+${unmapped.length - 5} more)` : ""}. Add descriptive account names or map them manually.`,
-        actual: unmapped.length,
-        expected: 0,
-      });
-      const result: Partial<ProcessingResult> = {
-        status: "blocked",
-        statements: null,
-        errors: allErrors,
-        validation_report: {
-          tb_balance_check: { passed: true, total_debits: totalDebits, total_credits: totalCredits, difference: 0 },
-          mapping_completeness: { passed: false, total_accounts: rawAccounts.length, mapped_accounts: rawAccounts.length - unmapped.length, unmapped },
-        },
-        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.2", columns_detected: detectedCols, auto_classified: autoClassifiedCount },
-      };
-      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
-      return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // ── STEP 8: Statement aggregation ─────────────────────────────────────────
-    const { statements, totals, cashBalance } = aggregateStatements(rawAccounts, existingMappings);
-
-    // ── STEP 9: Accounting equation ───────────────────────────────────────────
-    // In an unadjusted trial balance, P&L accounts are not yet closed to
-    // retained earnings. Closing equity = opening equity + current-year net income.
-    const netIncome      = totals.revenue - totals.expenses;
-    const closingEquity  = totals.equity + netIncome;
-    const bsDifference   = Math.abs(totals.assets - (totals.liabilities + closingEquity));
-    const bsPassed       = bsDifference <= TOLERANCE;
-    if (!bsPassed) {
-      allErrors.push({
-        code: "BALANCE_SHEET_EQUATION_FAILED",
-        message: `Assets (${totals.assets.toFixed(2)}) ≠ Liabilities (${totals.liabilities.toFixed(2)}) + Closing Equity (${closingEquity.toFixed(2)}). [Opening Equity: ${totals.equity.toFixed(2)}, Net Income: ${netIncome.toFixed(2)}]. Difference: ${bsDifference.toFixed(2)}`,
-        expected: 0,
-        actual: bsDifference,
-      });
-    }
-
-    const allValid   = bsPassed;
-    const finalStatus: "valid" | "invalid" = allValid ? "valid" : "invalid";
-    console.log(`[PTB] Final status: ${finalStatus.toUpperCase()} | Auto-classified: ${autoClassifiedCount}`);
-
-    const validationReport = {
-      tb_balance_check:     { passed: true, total_debits: totalDebits, total_credits: totalCredits, difference: 0 },
-      mapping_completeness: { passed: true, total_accounts: rawAccounts.length, mapped_accounts: rawAccounts.length, unmapped: [], auto_classified: autoClassifiedCount },
-      balance_sheet_equation: { passed: bsPassed, assets: totals.assets, liabilities: totals.liabilities, equity: totals.equity, difference: bsDifference },
-      profit_equity_linkage: null,
-      cash_reconciliation:  cashBalance !== 0 ? { passed: true, cf_ending_cash: cashBalance, bs_cash: cashBalance } : null,
-    };
-
-    // ── STEP 10: Save processing_result in engine-compatible format ───────────
-    // CRITICAL: structure must match what kinga-findings-engine reads:
-    //   pr.status, pr.statements.income_statement.operating_expenses.accounts
-    //   pr.statements.balance_sheet.equity.accounts
-    //   pr.statements.balance_sheet.current_liabilities.accounts
-    const processingResult: ProcessingResult = {
-      status: finalStatus,
-      statements: allValid ? statements : null,
-      validation_report: validationReport,
-      errors: allErrors,
-      summary: {
-        total_accounts:    rawAccounts.length,
-        processed_at:      new Date().toISOString(),
-        parser_version:    "v2.0",
-        columns_detected:  detectedCols,
-        auto_classified:   autoClassifiedCount,
-      },
-    };
-
-    await supabase.from("trial_balance_uploads").update({
-      status:             allValid ? "complete" : "error",
-      is_valid:           allValid,
-      validation_report:  validationReport,
-      accounting_errors:  allErrors,
-      processing_result:  processingResult,
-      processed_at:       new Date().toISOString(),
-    }).eq("id", uploadId);
-
-    return new Response(JSON.stringify(processingResult), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-
-  } catch (error) {
-    console.error("[PTB] Fatal error:", error);
-    return new Response(
-      JSON.stringify({ status: "blocked", error: error instanceof Error ? error.message : "Processing failed", errors: allErrors }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
-});
+    if (colMap.debit === null && colMap.balan
