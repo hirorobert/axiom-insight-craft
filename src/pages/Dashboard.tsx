@@ -109,6 +109,14 @@ interface TrialBalanceUpload {
   processing_result: JsonCompatible;
 }
 
+interface SelectedCompanyData {
+  id: string;
+  name: string;
+  code: string | null;
+  reporting_framework: string | null;
+  fiscal_year_end: string | null;
+}
+
 export default function Dashboard() {
   const [uploads, setUploads] = useState<TrialBalanceUpload[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,6 +126,7 @@ export default function Dashboard() {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [selectedCompanyData, setSelectedCompanyData] = useState<SelectedCompanyData | null>(null);
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { logAction, logTrialBalanceUpload, logTrialBalanceProcessing } = useEnhancedAuditLog();
@@ -266,6 +275,24 @@ export default function Dashboard() {
       navigate("/auth");
     }
   }, [user, authLoading, navigate]);
+
+  // Fetch full company record whenever the selected upload changes,
+  // so reporting_framework and fiscal_year_end are available for export.
+  useEffect(() => {
+    if (!selectedUpload?.company_id) {
+      setSelectedCompanyData(null);
+      return;
+    }
+    const fetchCompany = async () => {
+      const { data } = await supabase
+        .from("companies")
+        .select("id, name, code, reporting_framework, fiscal_year_end")
+        .eq("id", selectedUpload.company_id)
+        .single();
+      if (data) setSelectedCompanyData(data as SelectedCompanyData);
+    };
+    fetchCompany();
+  }, [selectedUpload?.company_id]);
 
   const fetchUploads = async () => {
     if (!user) return;
@@ -482,6 +509,10 @@ export default function Dashboard() {
                 fileName={selectedUpload.file_name}
                 processingResult={selectedUpload.processing_result as any}
                 uploadId={selectedUpload.id}
+                reportingFramework={selectedCompanyData?.reporting_framework ?? null}
+                companyName={selectedCompanyData?.name ?? (selectedUpload as any).company_name ?? ""}
+                companyTin={selectedCompanyData?.code ?? ""}
+                periodYearEnd={selectedCompanyData?.fiscal_year_end ?? ""}
               />
             )}
             {selectedUpload && isBlocked && (
