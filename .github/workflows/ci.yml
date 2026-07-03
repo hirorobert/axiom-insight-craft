@@ -5,8 +5,8 @@ on:
     branches: [main]
 
 jobs:
-  build-and-typecheck:
-    name: Build and Type Check
+  lint-build-and-typecheck:
+    name: Lint, Build and Type Check
     runs-on: ubuntu-latest
 
     steps:
