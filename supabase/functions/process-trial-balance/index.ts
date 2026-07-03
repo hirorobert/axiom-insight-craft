@@ -1,10 +1,6 @@
 // ============================================================
 // Axiom — process-trial-balance Edge Function
-<<<<<<< HEAD
-// Version: v2.1 — Audited Accounts Support + Extended Classification
-=======
 // Version: v2.2 — BS Equation includes current-year net income (closing equity)
->>>>>>> 6ee2310 (v2.1: AuditedAccountsAdapter + 13 new TB patterns + Class 7)
 // Date: 2026-06-27
 //
 // CHANGES FROM v1.0:
@@ -665,11 +661,7 @@ serve(async (req) => {
         statements: null,
         errors: allErrors,
         validation_report: { tb_balance_check: { passed: false, total_debits: totalDebits, total_credits: totalCredits, difference } },
-<<<<<<< HEAD
-        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.1", columns_detected: detectedCols, auto_classified: 0 },
-=======
         summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.2", columns_detected: detectedCols, auto_classified: 0 },
->>>>>>> 6ee2310 (v2.1: AuditedAccountsAdapter + 13 new TB patterns + Class 7)
       };
       await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -757,11 +749,7 @@ serve(async (req) => {
           tb_balance_check: { passed: true, total_debits: totalDebits, total_credits: totalCredits, difference: 0 },
           mapping_completeness: { passed: false, total_accounts: rawAccounts.length, mapped_accounts: rawAccounts.length - unmapped.length, unmapped },
         },
-<<<<<<< HEAD
-        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.1", columns_detected: detectedCols, auto_classified: autoClassifiedCount },
-=======
         summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.2", columns_detected: detectedCols, auto_classified: autoClassifiedCount },
->>>>>>> 6ee2310 (v2.1: AuditedAccountsAdapter + 13 new TB patterns + Class 7)
       };
       await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
