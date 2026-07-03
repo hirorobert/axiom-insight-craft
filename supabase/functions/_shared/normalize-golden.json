@@ -1,0 +1,17 @@
+[
+  {
+    "input": "  Salaries   Payable! ",
+    "expected": "salaries payable",
+    "note": "leading/trailing spaces, internal multiple spaces, punctuation"
+  },
+  {
+    "input": "MISHAHARA",
+    "expected": "mishahara",
+    "note": "Swahili uppercase — no punctuation, no whitespace to collapse"
+  },
+  {
+    "input": "Kodi-ya-Pango",
+    "expected": "kodiyapango",
+    "note": "Swahili hyphenated name — hyphens stripped, no spaces remain"
+  }
+]

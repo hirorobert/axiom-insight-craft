@@ -21,6 +21,7 @@ import { CompanyManager } from "@/components/CompanyManager";
 import { DashboardSkeleton } from "@/components/DashboardSkeleton";
 import { NoUploadsEmptyState } from "@/components/EmptyState";
 import { ValidationReport } from "@/components/ValidationReport";
+import { AccountReviewPanel } from "@/components/AccountReviewPanel";
 import { MappingCoverageIndicator } from "@/components/MappingCoverageIndicator";
 import { toast } from "sonner";
 import {
@@ -196,6 +197,12 @@ export default function Dashboard() {
           clearInterval(pollInterval);
           setIsRegenerating(false);
           toast.error("Regeneration failed. Please try again.");
+        } else if (data && data.status === "needs_review") {
+          clearInterval(pollInterval);
+          setSelectedUpload(data);
+          await fetchUploads();
+          setIsRegenerating(false);
+          toast.warning("Some accounts need manual classification before processing can complete.");
         }
       }, 2000);
 
@@ -360,6 +367,8 @@ export default function Dashboard() {
             toast.success(`Processing complete: ${updatedUpload.file_name}`);
           } else if (updatedUpload.status === 'error') {
             toast.error(`Processing failed: ${updatedUpload.file_name}`);
+          } else if (updatedUpload.status === 'needs_review') {
+            toast.warning(`Review required: ${updatedUpload.file_name} has unresolved accounts.`);
           }
         }
       )
@@ -698,6 +707,21 @@ export default function Dashboard() {
                     />
                   </div>
 
+                  {/* Account Review Panel — visible only when classifier has unresolved accounts */}
+                  {selectedUpload.status === "needs_review" &&
+                    Array.isArray(selectedUpload.processing_result?.needs_review_accounts) &&
+                    selectedUpload.processing_result.needs_review_accounts.length > 0 &&
+                    selectedUpload.company_id &&
+                    user && (
+                      <AccountReviewPanel
+                        uploadId={selectedUpload.id}
+                        companyId={selectedUpload.company_id}
+                        userId={user.id}
+                        needsReviewAccounts={selectedUpload.processing_result.needs_review_accounts}
+                        onReprocessed={fetchUploads}
+                      />
+                    )}
+
                   {/* Confidence Score & Corrections */}
                   {summary && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1029,47 +1053,4 @@ export default function Dashboard() {
               <Clock className="w-3.5 h-3.5 shrink-0" />
               <span>Last upload: <span className="font-medium text-foreground/70">{uploads[0].file_name}</span></span>
               <span className="text-foreground/30">·</span>
-              <span>{formatDate(uploads[0].uploaded_at)}</span>
-            </div>
-          )}
-
-          {/* Policy Compass Section */}
-          <PolicyCompass 
-            financialData={mapping ? {
-              accounts: [
-                ...(mapping.balanceSheet?.assets?.current || []),
-                ...(mapping.balanceSheet?.assets?.nonCurrent || []),
-                ...(mapping.balanceSheet?.liabilities?.current || []),
-                ...(mapping.balanceSheet?.liabilities?.nonCurrent || []),
-                ...(mapping.balanceSheet?.equity || []),
-              ],
-              totals: summary ? {
-                assets: summary.balanceSheetAccounts,
-                liabilities: summary.balanceSheetAccounts,
-                equity: summary.balanceSheetAccounts
-              } : undefined
-            } : undefined}
-          />
-          
-          </div>
-        )}
-      </main>
-
-      {/* Account Mapping Modal */}
-      {selectedUpload && (
-        <AccountMappingModal
-          open={mappingModalOpen}
-          onOpenChange={setMappingModalOpen}
-          uploadId={selectedUpload.id}
-          mapping={mapping}
-          onSaveCorrections={(corrections) => {
-            console.log("Corrections saved:", corrections);
-            if (selectedUpload) {
-              fetchCorrectionCount(selectedUpload.id);
-            }
-          }}
-        />
-      )}
-    </div>
-  );
-}
+              <span>{formatDate(uploads[0].uploaded_at)}</

@@ -191,7 +191,7 @@ export function ValidationReport({
   }
 
   // ── STANDARD VALIDATION REPORT ───────────────────────────────────────────
-  const isBlocked = status === "blocked" || status === "error";
+  const isBlocked = status === "blocked" || status === "error" || status === "needs_review";
   const statusLabel =
     isValid === true ? "VALID" : isValid === false ? "INVALID" : "PENDING";
   const statusColor =
@@ -421,7 +421,4 @@ export function ValidationReport({
             </p>
           </div>
         )}
-      </CardContent>
-    </Card>
-  );
-}
+      </Car

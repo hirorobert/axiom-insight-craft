@@ -511,6 +511,10 @@ function accountKey(account: RawAccount): string {
 
 // ── Account name normalisation ────────────────────────────────────────────────
 // Mirrors SQL: lower(trim(regexp_replace(regexp_replace(name,'[[:punct:]]','','g'),'\s+',' ','g')))
+// CANONICAL NORMALIZE v1 — keep in sync with
+//   src/lib/normalizeAccountName.ts (browser side)
+// Golden fixture: supabase/functions/_shared/normalize-golden.json
+// Deno test    : supabase/functions/process-trial-balance/normalize.test.ts
 
 function normalizeAccountName(name: string): string {
   return name
@@ -881,6 +885,4 @@ serve(async (req) => {
     console.log(`[PTB] Columns detected:`, detectedCols);
 
     if (!colMap.account_name) {
-      allErrors.push({ code: "MISSING_COLUMN", message: "Could not detect an account name column. Ensure the file has a column header containing 'Account Name', 'Description', or similar.", field: "account_name" });
-    }
-    if (colMap.debit === null && colMap.balan
+      allErrors.push
