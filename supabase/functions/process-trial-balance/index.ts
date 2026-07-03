@@ -273,7 +273,7 @@ const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }
     result: { statement: "balance_sheet", classification: "equity", normal_balance: "credit", line_item: "Share Capital" }},
   { patterns: [/\bshare\s+premium\b/i],
     result: { statement: "balance_sheet", classification: "equity", normal_balance: "credit", line_item: "Share Premium" }},
-  { patterns: [/\bretained\s+earning[s]?\b/i, /\baccumulated\s+(?:profit|surplus|deficit)\b/i, /\bprofit\s+b[\/]?[fo]\b/i, /\bfaida\s+iliyobakiwa\b/i, /\bundistributed\s+(?:profit|earning)/i],
+  { patterns: [/\bretained\s+earning[s]?\b/i, /\baccumulated\s+(?:profit|surplus|deficit)\b/i, /\bprofit\s+b[/]?[fo]\b/i, /\bfaida\s+iliyobakiwa\b/i, /\bundistributed\s+(?:profit|earning)/i],
     result: { statement: "balance_sheet", classification: "equity", normal_balance: "credit", line_item: "Retained Earnings", is_retained: true }},
   { patterns: [/\bcurrent\s+year\s+(?:profit|income|surplus)\b/i, /\bnet\s+(?:profit|income|loss)\s+for\s+(?:the\s+)?year\b/i],
     result: { statement: "balance_sheet", classification: "equity", normal_balance: "credit", line_item: "Current Year Profit" }},
