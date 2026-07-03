@@ -176,8 +176,8 @@ export function ExportStatements({
     }
     try {
       return getFrameworkConfig(reportingFramework);
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Unknown error");
       return null;
     }
   };
@@ -214,7 +214,7 @@ export function ExportStatements({
   };
 
   const collectAllData = (cfg: FrameworkConfig) => {
-    const data: any[] = [];
+    const data: StatementRow[] = [];
     const sn = cfg.statementNames;
 
     if (mapping?.balanceSheet) {
@@ -333,7 +333,7 @@ export function ExportStatements({
     });
 
     // D — Footer on every page with framework compliance statement.
-    const pageCount = (doc as any).internal.getNumberOfPages();
+    const pageCount = doc.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
       doc.setFontSize(7);

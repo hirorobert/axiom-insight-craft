@@ -72,7 +72,7 @@ export function AuditTrail() {
         .limit(showMore ? 100 : 20);
 
       if (filter !== "all") {
-        query = query.eq("action", filter as any);
+        query = query.eq("action", filter as string);
       }
 
       const { data, error } = await query;

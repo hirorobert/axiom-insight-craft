@@ -188,7 +188,7 @@ export default function Dashboard() {
 
         if (data && data.status === "complete") {
           clearInterval(pollInterval);
-          setSelectedUpload(data as any);
+          setSelectedUpload(data);
           await fetchUploads();
           setIsRegenerating(false);
           toast.success("Regeneration complete with corrections applied!");
@@ -310,9 +310,9 @@ export default function Dashboard() {
     const { data, error } = await query;
 
     if (!error && data) {
-      setUploads(data as any);
+      setUploads(data);
       if (data.length > 0 && !selectedUpload) {
-        setSelectedUpload(data[0] as any);
+        setSelectedUpload(data[0]);
       } else if (data.length === 0) {
         setSelectedUpload(null);
       }
@@ -507,10 +507,10 @@ export default function Dashboard() {
             {selectedUpload && !isBlocked && (
               <ExportStatements
                 fileName={selectedUpload.file_name}
-                processingResult={selectedUpload.processing_result as any}
+                processingResult={selectedUpload.processing_result as ProcessingResult | null}
                 uploadId={selectedUpload.id}
                 reportingFramework={selectedCompanyData?.reporting_framework ?? null}
-                companyName={selectedCompanyData?.name ?? (selectedUpload as any).company_name ?? ""}
+                companyName={selectedUpload.company_name ?? ""}
                 companyTin={selectedCompanyData?.code ?? ""}
                 periodYearEnd={selectedCompanyData?.fiscal_year_end ?? ""}
               />
@@ -545,7 +545,7 @@ export default function Dashboard() {
         ) : (
           <div className="space-y-8">
             {/* Analytics Section */}
-            <DashboardAnalytics uploads={uploads as any} />
+            <DashboardAnalytics uploads={uploads} />
             
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
               {/* Sidebar - Upload List */}

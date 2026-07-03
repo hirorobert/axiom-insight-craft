@@ -74,8 +74,8 @@ export function PeriodSelector({ companyId, uploadId, onPeriodCreated }: PeriodS
       if (error) throw error;
       toast.success(`Fiscal period ${payload.period_label} created`);
       onPeriodCreated?.(data.id);
-    } catch (e: any) {
-      toast.error(e.message || "Failed to create fiscal period");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to create fiscal period");
     } finally {
       setSaving(false);
     }
