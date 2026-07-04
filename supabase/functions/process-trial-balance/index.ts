@@ -437,6 +437,11 @@ function rowsToRawAccounts(
     // A row with zeros across all three columns is a check/total sentinel row.
     if (debit === 0 && credit === 0 && balance === 0) continue;
 
+    // Skip pure-zero sentinel rows (debit = credit = 0 AND balance = 0).
+    // Real accounts can have zero balance but always have at least one posting.
+    // A row with zeros across all three columns is a check/total sentinel row.
+    if (debit === 0 && credit === 0 && balance === 0) continue;
+
     accounts.push({ account_code: code, account_name: name || code, debit, credit, balance, source_row_number: i });
   }
 
