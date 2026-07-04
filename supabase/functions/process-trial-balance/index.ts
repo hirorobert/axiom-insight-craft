@@ -154,6 +154,9 @@ const COLUMN_MATCHERS: Record<string, (s: string) => boolean> = {
 const SUBTOTAL_ROW_PATTERNS = [
   /^total/i, /^sub[- ]?total/i, /^grand[- ]?total/i, /^sum/i,
   /total$/i, /^net\s+(assets|liabilities|equity|income|profit)/i,
+  // Sentinel / integrity-check rows common in Tanzanian TB exports
+  /^balance\s*check/i, /^check\s*figure/i, /^proof\s*of\s*(balance|total)/i,
+  /must\s*be\s*zero/i, /^difference/i, /^variance/i,
 ];
 
 /** Auto-classification patterns — name → { statement, classification, normal_balance } */
@@ -428,6 +431,11 @@ function rowsToRawAccounts(
     } else {
       balance = debit - credit;
     }
+
+    // Skip pure-zero sentinel rows (debit = credit = 0 AND balance = 0).
+    // Real accounts can have zero balance but always have at least one posting.
+    // A row with zeros across all three columns is a check/total sentinel row.
+    if (debit === 0 && credit === 0 && balance === 0) continue;
 
     accounts.push({ account_code: code, account_name: name || code, debit, credit, balance, source_row_number: i });
   }
