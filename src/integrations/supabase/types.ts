@@ -63,9 +63,13 @@ export type Database = {
       }
       account_mappings: {
         Row: {
-          account_code: string
+          account_code: string | null
+          account_key: string | null
           account_name: string
+          approved_at: string
           classification: Database["public"]["Enums"]["account_classification"]
+          company_id: string | null
+          confidence_source: string
           created_at: string
           id: string
           is_cash_account: boolean
@@ -73,14 +77,19 @@ export type Database = {
           is_retained_earnings: boolean
           line_item: string
           normal_balance: string
+          normalized_account_name: string | null
           statement: Database["public"]["Enums"]["financial_statement"]
           updated_at: string
           user_id: string
         }
         Insert: {
-          account_code: string
+          account_code?: string | null
+          account_key?: string | null
           account_name: string
+          approved_at?: string
           classification: Database["public"]["Enums"]["account_classification"]
+          company_id?: string | null
+          confidence_source?: string
           created_at?: string
           id?: string
           is_cash_account?: boolean
@@ -88,14 +97,19 @@ export type Database = {
           is_retained_earnings?: boolean
           line_item: string
           normal_balance: string
+          normalized_account_name?: string | null
           statement: Database["public"]["Enums"]["financial_statement"]
           updated_at?: string
           user_id: string
         }
         Update: {
-          account_code?: string
+          account_code?: string | null
+          account_key?: string | null
           account_name?: string
+          approved_at?: string
           classification?: Database["public"]["Enums"]["account_classification"]
+          company_id?: string | null
+          confidence_source?: string
           created_at?: string
           id?: string
           is_cash_account?: boolean
@@ -103,11 +117,20 @@ export type Database = {
           is_retained_earnings?: boolean
           line_item?: string
           normal_balance?: string
+          normalized_account_name?: string | null
           statement?: Database["public"]["Enums"]["financial_statement"]
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "account_mappings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       audit_logs: {
         Row: {
@@ -827,6 +850,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      keyword_dictionary: {
+        Row: {
+          classification: Database["public"]["Enums"]["account_classification"]
+          created_at: string
+          id: string
+          language: string
+          match_type: string
+          term: string
+        }
+        Insert: {
+          classification: Database["public"]["Enums"]["account_classification"]
+          created_at?: string
+          id?: string
+          language: string
+          match_type?: string
+          term: string
+        }
+        Update: {
+          classification?: Database["public"]["Enums"]["account_classification"]
+          created_at?: string
+          id?: string
+          language?: string
+          match_type?: string
+          term?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
