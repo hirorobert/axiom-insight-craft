@@ -421,4 +421,7 @@ export function ValidationReport({
             </p>
           </div>
         )}
-      </Car
+      </CardContent>
+    </Card>
+  );
+}

@@ -1053,4 +1053,12 @@ export default function Dashboard() {
               <Clock className="w-3.5 h-3.5 shrink-0" />
               <span>Last upload: <span className="font-medium text-foreground/70">{uploads[0].file_name}</span></span>
               <span className="text-foreground/30">·</span>
-              <span>{formatDate(uploads[0].uploaded_at)}</
+              <span>{formatDate(uploads[0].uploaded_at)}</span>
+            </div>
+          )}
+        </div>
+        )}
+      </main>
+    </div>
+  );
+}
