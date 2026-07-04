@@ -177,7 +177,7 @@ export function AccountReviewPanel({
         // corrections always win → ignoreDuplicates defaults to false (DO UPDATE).
         const { error } = await supabase
           .from("account_mappings")
-          .upsert(rows, { onConflict: "company_id,account_key" });
+          .upsert(rows as never, { onConflict: "company_id,account_key" });
         if (error) throw error;
       }
 
