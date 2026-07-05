@@ -14,7 +14,6 @@ import { KingaFindingsPanel } from "@/components/KingaFindingsPanel";
 import { KingaTaxPanel } from "@/components/KingaTaxPanel";
 import { KingaComparativePanel } from "@/components/KingaComparativePanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DashboardAnalytics } from "@/components/DashboardAnalytics";
 import { PolicyCompass } from "@/components/PolicyCompass";
 import { CompanySelector } from "@/components/CompanySelector";
 import { CompanyManager } from "@/components/CompanyManager";
@@ -22,7 +21,13 @@ import { DashboardSkeleton } from "@/components/DashboardSkeleton";
 import { NoUploadsEmptyState } from "@/components/EmptyState";
 import { ValidationReport } from "@/components/ValidationReport";
 import { AccountReviewPanel } from "@/components/AccountReviewPanel";
-import { MappingCoverageIndicator } from "@/components/MappingCoverageIndicator";
+import { CertificationHeader } from "@/components/certification/CertificationHeader";
+import { CertificationSummaryStrip } from "@/components/certification/CertificationSummaryStrip";
+import { TrialBalanceIntegrityCard } from "@/components/certification/TrialBalanceIntegrityCard";
+import { BalanceSheetEquationCard } from "@/components/certification/BalanceSheetEquationCard";
+import { ClassificationBreakdown } from "@/components/certification/ClassificationBreakdown";
+import { RecentUploadsList } from "@/components/certification/RecentUploadsList";
+import { EmptyCertificationState } from "@/components/certification/EmptyCertificationState";
 import { toast } from "sonner";
 import {
   FileSpreadsheet,
@@ -553,146 +558,30 @@ export default function Dashboard() {
           />
         ) : (
           <div className="space-y-8">
-            {/* Analytics Section */}
-            <DashboardAnalytics uploads={uploads} />
-            
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              {/* Sidebar - Upload List */}
-              <div className="lg:col-span-1 space-y-3">
-                <h2 className="text-sm font-semibold text-foreground mb-4">Recent Uploads</h2>
-                {uploads.map((upload) => (
-                  <div
-                    key={upload.id}
-                    className={`relative group p-4 rounded-xl border transition-all ${
-                      selectedUpload?.id === upload.id
-                        ? "bg-primary/10 border-primary/30"
-                        : "bg-card border-border hover:border-primary/20"
-                    }`}
-                  >
-                    <button
-                      onClick={() => setSelectedUpload(upload)}
-                      className="w-full text-left"
-                    >
-                      <div className="flex items-start gap-3">
-                        <FileSpreadsheet className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">
-                            {upload.file_name}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {formatDate(upload.uploaded_at)}
-                          </p>
-                          <div className="flex items-center gap-2 mt-2">
-                            {getStatusIcon(upload.status)}
-                            <span className="text-xs text-muted-foreground capitalize">
-                              {upload.status}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                    
-                    {/* Delete button */}
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete Upload</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Are you sure you want to delete "{upload.file_name}"? This will permanently remove the file and all associated data including any corrections.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => handleDeleteUpload(upload)}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            disabled={isDeleting}
-                          >
-                            {isDeleting ? "Deleting..." : "Delete"}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                ))}
+              {/* Sidebar - Certification Trial Balances */}
+              <div className="lg:col-span-1">
+                <RecentUploadsList
+                  uploads={uploads}
+                  selectedId={selectedUpload?.id ?? null}
+                  onSelect={(u) => setSelectedUpload(u as typeof selectedUpload)}
+                />
               </div>
 
             {/* Main Content */}
             <div className="lg:col-span-3 space-y-6">
               {selectedUpload ? (
                 <>
-                  {/* File Info */}
-                  <Card className="bg-card border-border">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg flex items-center gap-2">
-                          <FileSpreadsheet className="w-5 h-5 text-primary" />
-                          {selectedUpload.file_name}
-                        </CardTitle>
-                        <div className="flex items-center gap-2">
-                          {getStatusIcon(selectedUpload.status)}
-                          <span className="text-sm text-muted-foreground capitalize">
-                            {selectedUpload.status}
-                          </span>
-                          {selectedUpload.is_valid === true && (
-                            <Badge className="bg-accent/20 text-accent border-accent/30">VALID</Badge>
-                          )}
-                          {selectedUpload.is_valid === false && (
-                            <Badge className="bg-destructive/20 text-destructive border-destructive/30">BLOCKED</Badge>
-                          )}
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        <div>
-                          <p className="text-muted-foreground">File Size</p>
-                          <p className="font-medium text-foreground">
-                            {formatFileSize(selectedUpload.file_size)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Uploaded</p>
-                          <p className="font-medium text-foreground">
-                            {formatDate(selectedUpload.uploaded_at)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Processed</p>
-                          <p className="font-medium text-foreground">
-                            {selectedUpload.processed_at
-                              ? formatDate(selectedUpload.processed_at)
-                              : "—"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Total Accounts</p>
-                          <p className="font-medium text-foreground">
-                            {summary?.totalAccounts || "—"}
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  {/* Certification Header + Summary Strip */}
+                  <div>
+                    <CertificationHeader upload={selectedUpload} />
+                    <CertificationSummaryStrip upload={selectedUpload} />
+                  </div>
 
-                  {/* Mapping Coverage Indicator */}
-                  {selectedUpload.processing_result && (
-                    <MappingCoverageIndicator
-                      uploadId={selectedUpload.id}
-                      processingResult={selectedUpload.processing_result}
-                      onOpenMappingManager={handleOpenMappingManager}
-                    />
-                  )}
+                  {/* Integrity + Equation */}
+                  <TrialBalanceIntegrityCard upload={selectedUpload} />
+                  <BalanceSheetEquationCard upload={selectedUpload} />
+                  <ClassificationBreakdown upload={selectedUpload} />
 
                   {/* SAFF ERP Validation Report */}
                   <div ref={validationReportRef}>
@@ -721,121 +610,6 @@ export default function Dashboard() {
                         onReprocessed={fetchUploads}
                       />
                     )}
-
-                  {/* Confidence Score & Corrections */}
-                  {summary && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Card className="bg-card border-border">
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-lg flex items-center gap-2">
-                            <TrendingUp className="w-5 h-5 text-accent" />
-                            Mapping Confidence
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="flex items-center gap-4">
-                            <div className="flex-1">
-                              <Progress
-                                value={summary.confidenceScore}
-                                className="h-3"
-                              />
-                            </div>
-                            <span className="text-2xl font-bold text-accent">
-                              {summary.confidenceScore}%
-                            </span>
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-3">
-                            SAFF ERP classified {summary.totalAccounts} accounts.
-                          </p>
-                        </CardContent>
-                      </Card>
-
-                      <Card className={`bg-card border-border ${correctionCount > 0 ? 'ring-2 ring-accent/50' : ''}`}>
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-lg flex items-center gap-2">
-                            <UserCheck className="w-5 h-5 text-accent" />
-                            User-Verified Corrections
-                            {correctionCount > 0 && (
-                              <Badge variant="secondary" className="bg-accent/20 text-accent border-accent/30">
-                                Active
-                              </Badge>
-                            )}
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="flex items-center gap-4">
-                            <span className="text-3xl font-bold text-foreground">
-                              {correctionCount}
-                            </span>
-                            <span className="text-muted-foreground">
-                              account{correctionCount !== 1 ? 's' : ''} corrected
-                            </span>
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-3">
-                            {correctionCount > 0 
-                              ? "These corrections will be applied when regenerating statements."
-                              : "No manual corrections applied yet."}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  )}
-
-                  {/* Statement Breakdown */}
-                  {summary && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <Card className="bg-card border-border">
-                        <CardContent className="pt-6">
-                          <div className="flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
-                              <BarChart3 className="w-5 h-5 text-primary" />
-                            </div>
-                            <div>
-                              <p className="text-sm text-muted-foreground">Balance Sheet</p>
-                              <p className="text-2xl font-bold text-foreground">
-                                {summary.balanceSheetAccounts}
-                              </p>
-                            </div>
-                          </div>
-                          <p className="text-xs text-muted-foreground">accounts mapped</p>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="bg-card border-border">
-                        <CardContent className="pt-6">
-                          <div className="flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center">
-                              <TrendingUp className="w-5 h-5 text-accent" />
-                            </div>
-                            <div>
-                              <p className="text-sm text-muted-foreground">Income Statement</p>
-                              <p className="text-2xl font-bold text-foreground">
-                                {summary.incomeStatementAccounts}
-                              </p>
-                            </div>
-                          </div>
-                          <p className="text-xs text-muted-foreground">accounts mapped</p>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="bg-card border-border">
-                        <CardContent className="pt-6">
-                          <div className="flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center">
-                              <PieChart className="w-5 h-5 text-foreground" />
-                            </div>
-                            <div>
-                              <p className="text-sm text-muted-foreground">Cash Flow</p>
-                              <p className="text-2xl font-bold text-foreground">
-                                {summary.cashFlowAccounts}
-                              </p>
-                            </div>
-                          </div>
-                          <p className="text-xs text-muted-foreground">accounts mapped</p>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  )}
 
                   {/* Detailed Mapping */}
                   {mapping && (
@@ -1030,19 +804,7 @@ export default function Dashboard() {
                   )}
                 </>
               ) : (
-                <Card className="bg-card border-border">
-                  <CardContent className="py-16">
-                    <div className="text-center">
-                      <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-4">
-                        <Eye className="w-8 h-8 text-muted-foreground" />
-                      </div>
-                      <h3 className="text-lg font-semibold text-foreground mb-2">No Upload Selected</h3>
-                      <p className="text-muted-foreground text-sm">
-                        Select an upload from the list to view its processing results and financial mappings.
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
+                <EmptyCertificationState />
               )}
             </div>
           </div>
