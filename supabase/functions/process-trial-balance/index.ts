@@ -402,9 +402,10 @@ function parseNumber(v: string | number | null): number {
 function rowsToRawAccounts(
   rows: (string | number | null)[][],
   map: ColumnMap
-): { accounts: RawAccount[]; errors: ValidationError[] } {
+): { accounts: RawAccount[]; errors: ValidationError[]; rejectedRows: { account_name: string; account_code: string; reason: string }[] } {
   const accounts: RawAccount[] = [];
   const errors: ValidationError[] = [];
+  const rejectedRows: { account_name: string; account_code: string; reason: string }[] = [];
   const dataStart = map.header_row + 1;
 
   for (let i = dataStart; i < rows.length; i++) {
@@ -414,7 +415,10 @@ function rowsToRawAccounts(
 
     // Skip blank rows and subtotal rows
     if (!rawCode && !name) continue;
-    if (isSubtotalRow(name, rawCode)) continue;
+    if (isSubtotalRow(name, rawCode)) {
+      rejectedRows.push({ account_name: name, account_code: rawCode, reason: "Subtotal/total row — filtered during parsing" });
+      continue;
+    }
 
     // Fall back to account_name as the key when no account_code column exists.
     // This handles CSVs/XLSXs that only have an account name column (e.g. trial
@@ -435,17 +439,15 @@ function rowsToRawAccounts(
     // Skip pure-zero sentinel rows (debit = credit = 0 AND balance = 0).
     // Real accounts can have zero balance but always have at least one posting.
     // A row with zeros across all three columns is a check/total sentinel row.
-    if (debit === 0 && credit === 0 && balance === 0) continue;
-
-    // Skip pure-zero sentinel rows (debit = credit = 0 AND balance = 0).
-    // Real accounts can have zero balance but always have at least one posting.
-    // A row with zeros across all three columns is a check/total sentinel row.
-    if (debit === 0 && credit === 0 && balance === 0) continue;
+    if (debit === 0 && credit === 0 && balance === 0) {
+      rejectedRows.push({ account_name: name, account_code: rawCode, reason: "All-zero sentinel row (debit=0, credit=0, balance=0) — filtered during parsing" });
+      continue;
+    }
 
     accounts.push({ account_code: code, account_name: name || code, debit, credit, balance, source_row_number: i });
   }
 
-  return { accounts, errors };
+  return { accounts, errors, rejectedRows };
 }
 
 // ── XLSX Parser ───────────────────────────────────────────────────────────────
@@ -909,7 +911,7 @@ serve(async (req) => {
     }
 
     // ── STEP 3: Row → RawAccount[] ────────────────────────────────────────────
-    const { accounts: rawAccounts } = rowsToRawAccounts(rawRows, colMap);
+    const { accounts: rawAccounts, rejectedRows } = rowsToRawAccounts(rawRows, colMap);
     console.log(`[PTB] Parsed ${rawAccounts.length} accounts`);
 
     if (rawAccounts.length === 0) {
@@ -1070,6 +1072,7 @@ serve(async (req) => {
           parser_version:   "v2.2",
           columns_detected: detectedCols,
           auto_classified:  autoClassifiedCount,
+          rejected_rows:    rejectedRows,
         },
       };
       await supabase.from("trial_balance_uploads").update({
@@ -1108,7 +1111,7 @@ serve(async (req) => {
     const validationReport = {
       tb_balance_check:     { passed: true, total_debits: totalDebits, total_credits: totalCredits, difference: 0 },
       mapping_completeness: { passed: true, total_accounts: rawAccounts.length, mapped_accounts: rawAccounts.length, unmapped: [], auto_classified: autoClassifiedCount },
-      balance_sheet_equation: { passed: bsPassed, assets: totals.assets, liabilities: totals.liabilities, equity: totals.equity, difference: bsDifference },
+      balance_sheet_equation: { passed: bsPassed, assets: totals.assets, liabilities: totals.liabilities, equity: totals.equity, revenue_total: totals.revenue, expenses_total: totals.expenses, net_income: netIncome, closing_equity: closingEquity, difference: bsDifference },
       profit_equity_linkage: null,
       cash_reconciliation:  cashBalance !== 0 ? { passed: true, cf_ending_cash: cashBalance, bs_cash: cashBalance } : null,
     };
@@ -1129,6 +1132,7 @@ serve(async (req) => {
         parser_version:    "v2.0",
         columns_detected:  detectedCols,
         auto_classified:   autoClassifiedCount,
+        rejected_rows:     rejectedRows,
       },
     };
 
