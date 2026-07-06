@@ -55,6 +55,10 @@ export const TrialBalanceUpload = () => {
 
       if (!error && data) {
         setCompanies(data);
+        // Auto-select the only active company so uploads are never unassigned.
+        if (data.length === 1) {
+          setSelectedCompanyId(data[0].id);
+        }
       }
       setLoadingCompanies(false);
     };
@@ -212,6 +216,11 @@ export const TrialBalanceUpload = () => {
       return;
     }
 
+    if (companies.length > 1 && !selectedCompanyId) {
+      toast.error("Select a company before uploading.");
+      return;
+    }
+
     const queuedFiles = files.filter((f) => f.status === "queued");
     if (queuedFiles.length === 0) {
       toast.error("No files to process");
@@ -304,7 +313,7 @@ export const TrialBalanceUpload = () => {
         {user && companies.length > 0 && (
           <div className="mb-6">
             <label className="block text-sm font-medium text-foreground mb-2">
-              Select Company (Optional)
+              Select Company{companies.length > 1 ? " (Required)" : ""}
             </label>
             <Select
               value={selectedCompanyId || "none"}
@@ -317,9 +326,11 @@ export const TrialBalanceUpload = () => {
                 </div>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">
-                  <span className="text-muted-foreground">No company selected</span>
-                </SelectItem>
+                {companies.length > 1 && (
+                  <SelectItem value="none">
+                    <span className="text-muted-foreground">No company selected</span>
+                  </SelectItem>
+                )}
                 {companies.map((company) => (
                   <SelectItem key={company.id} value={company.id}>
                     {company.name}
@@ -330,9 +341,15 @@ export const TrialBalanceUpload = () => {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground mt-1">
-              Associate uploads with a company for better organization
-            </p>
+            {companies.length > 1 && !selectedCompanyId ? (
+              <p className="text-xs text-destructive mt-1">
+                Select a company before uploading.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground mt-1">
+                Associate uploads with a company for better organization
+              </p>
+            )}
           </div>
         )}
 
