@@ -96,6 +96,15 @@ export function ValidationReport({
 }: ValidationReportProps) {
   if (!report && errors.length === 0) return null;
 
+  // Valid uploads with no errors, cash reconciliation, or profit→equity
+  // linkage issues render nothing — the Certification Console shows the rest.
+  if (
+    isValid === true &&
+    errors.length === 0 &&
+    !report?.cash_reconciliation &&
+    !report?.profit_equity_linkage
+  ) return null;
+
   // ── SMART ROUTING: audited accounts detected ─────────────────────────────
   if (isLikelyAuditedAccounts(errors, report)) {
     return (
