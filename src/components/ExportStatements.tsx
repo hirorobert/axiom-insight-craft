@@ -49,7 +49,29 @@ interface Correction {
   corrected_subcategory: string;
 }
 
+// Raw account shape written by process-trial-balance v2+ inside each StatementSection.
+interface RawAccountEntry {
+  account_code: string;
+  account_name: string;
+  debit:        number;
+  credit:       number;
+  balance:      number;
+}
+
+interface StatementSection {
+  accounts: RawAccountEntry[];
+  total:    number;
+}
+
+// Canonical statements shape written by the edge function (processingResult.statements).
+interface CanonicalStatements {
+  balance_sheet?:    Record<string, StatementSection>;
+  income_statement?: Record<string, StatementSection>;
+  cash_flow?:        Record<string, StatementSection> | null;
+}
+
 export interface ProcessingResult {
+  // Legacy shape (not written by current edge function; kept for forward-compat).
   mapping?: {
     balanceSheet?: {
       assets?: { current?: AccountMapping[]; nonCurrent?: AccountMapping[] };
@@ -70,6 +92,8 @@ export interface ProcessingResult {
     } | null;
     overallConfidence?: number;
   };
+  // Canonical shape written by process-trial-balance v2+.
+  statements?: CanonicalStatements;
   summary?: {
     totalAccounts: number;
     confidenceScore?: number;
@@ -103,6 +127,63 @@ interface ExportStatementsProps {
   companyName: string;
   companyTin: string;
   periodYearEnd: string;
+}
+
+// ── Canonical → legacy mapping adapter ────────────────────────────────────────
+// process-trial-balance v2+ writes processingResult.statements (snake_case,
+// flat per-classification keys).  collectAllData() consumes the legacy
+// processingResult.mapping shape (camelCase, nested assets/liabilities).
+// This adapter bridges the two without touching the edge function.
+function sectionToAccountMappings(
+  sections: Record<string, StatementSection> | null | undefined,
+  key: string
+): AccountMapping[] {
+  return (
+    sections?.[key]?.accounts?.map((a) => ({
+      accountCode: a.account_code,
+      accountName: a.account_name,
+      debit:       a.debit,
+      credit:      a.credit,
+      balance:     a.balance,
+      confidence:  0, // edge function does not write per-account confidence
+    })) ?? []
+  );
+}
+
+function statementsToMapping(
+  statements: CanonicalStatements | undefined
+): ProcessingResult["mapping"] | undefined {
+  if (!statements) return undefined;
+  const bs = statements.balance_sheet;
+  const is = statements.income_statement;
+  const cf = statements.cash_flow;
+  return {
+    balanceSheet: {
+      assets: {
+        current:    sectionToAccountMappings(bs, "current_assets"),
+        nonCurrent: sectionToAccountMappings(bs, "non_current_assets"),
+      },
+      liabilities: {
+        current:    sectionToAccountMappings(bs, "current_liabilities"),
+        nonCurrent: sectionToAccountMappings(bs, "non_current_liabilities"),
+      },
+      equity: sectionToAccountMappings(bs, "equity"),
+    },
+    incomeStatement: {
+      revenue:           sectionToAccountMappings(is, "revenue"),
+      costOfGoodsSold:   sectionToAccountMappings(is, "cost_of_goods_sold"),
+      operatingExpenses: sectionToAccountMappings(is, "operating_expenses"),
+      otherIncome:       sectionToAccountMappings(is, "other_income"),
+      taxes:             sectionToAccountMappings(is, "taxes"),
+    },
+    cashFlow: cf
+      ? {
+          operating: sectionToAccountMappings(cf, "operating_activities"),
+          investing:  sectionToAccountMappings(cf, "investing_activities"),
+          financing:  sectionToAccountMappings(cf, "financing_activities"),
+        }
+      : null,
+  };
 }
 
 /* REFACTOR NOTE: This branching is intentional for two
@@ -153,7 +234,10 @@ export function ExportStatements({
   companyTin,
   periodYearEnd,
 }: ExportStatementsProps) {
-  const mapping = processingResult?.mapping;
+  // Prefer the legacy 'mapping' key; fall back to reshaping the canonical
+  // 'statements' object written by process-trial-balance v2+.
+  const mapping = processingResult?.mapping
+    ?? statementsToMapping(processingResult?.statements);
   const summary = processingResult?.summary;
   const [corrections, setCorrections] = useState<Map<string, Correction>>(new Map());
   const { logAction } = useAuditLog();
