@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  Scale,
   FileCheck,
   Banknote,
   FileSpreadsheet,
