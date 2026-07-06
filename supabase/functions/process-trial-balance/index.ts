@@ -217,6 +217,13 @@ const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Repairs & Maintenance" }},
   { patterns: [/\btraining\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Staff Training" }},
+  // ── FIX A: Water Well / Borehole — capital asset ──────────────────────────
+  // MUST precede the Staff Welfare block: /\bwater\b/i in that block would
+  // otherwise match "Water Well (Net Book Value)" before this rule can fire.
+  // Regression: classification.test.js test 1 (account 1030).
+  { patterns: [/\bwater[\s_-]+well\b/i, /\bwater[\s_-]+borehole\b/i, /\bbore[\s_-]+well\b/i],
+    result: { statement: "balance_sheet", classification: "non_current_assets", normal_balance: "debit", line_item: "Water Well" }},
+
   { patterns: [/\bwelfare\b/i, /\btea\b/i, /\bwater\b/i, /\buniform[s]?\b/i],
     result: { statement: "income_statement", classification: "operating_expenses", normal_balance: "debit", line_item: "Staff Welfare" }},
   { patterns: [/\badmin(?:istrat\w+)?\s+(?:exp|cost)/i, /\bgeneral\s+(?:exp|admin)/i, /\bexpenditure\b/i],
@@ -668,17 +675,35 @@ function classifyAccountTiered(
           reason: `Conflicting keyword matches (length ${maxLen}): ${classes.join(" vs ")}`,
         };
       }
-      const meta = classificationMeta(hits[0].classification);
-      return {
-        status: "classified",
-        mapping: {
-          account_code: account.account_code, account_name: account.account_name,
-          statement: meta.statement, classification: hits[0].classification,
-          line_item: account.account_name, normal_balance: meta.normal_balance,
-          is_cash_account: false, is_retained_earnings: false, is_payroll_account: false,
-        },
-        confidence: "high", confidence_source: "dictionary_contains",
-      };
+      // ── FIX B: Expense-over-asset override ──────────────────────────────────
+      // Longest-match-wins can let a balance-sheet asset keyword (e.g.
+      // "motor vehicles", 14 chars) beat a shorter expense keyword (e.g.
+      // "maintenance", 11 chars).  That is wrong for accounts like
+      // "Repair & Maintenance — Motor Vehicles", which are always operating
+      // expenses regardless of the asset qualifier in the name.
+      // Rule: if the winner is a balance-sheet asset class AND any match
+      // (any length) signals operating_expenses, fall through to Tier 5 regex,
+      // which handles compound account names deterministically.
+      // Regression: classification.test.js tests 4–5 (account 6054),
+      //             tests 11–14 (Equipment Repairs, Motor Vehicle Insurance).
+      const winnerClass = classes[0];
+      const hasOpexConflict =
+        (winnerClass === "non_current_assets" || winnerClass === "non_current_liabilities") &&
+        hits.some(k => k.classification === "operating_expenses");
+      if (!hasOpexConflict) {
+        const meta = classificationMeta(winnerClass);
+        return {
+          status: "classified",
+          mapping: {
+            account_code: account.account_code, account_name: account.account_name,
+            statement: meta.statement, classification: winnerClass,
+            line_item: account.account_name, normal_balance: meta.normal_balance,
+            is_cash_account: false, is_retained_earnings: false, is_payroll_account: false,
+          },
+          confidence: "high", confidence_source: "dictionary_contains",
+        };
+      }
+      // hasOpexConflict → fall through to Tier 4c / Tier 5
     }
 
     // ── Tier 4c: keyword_dictionary — fuzzy on exact-type terms only (≤ 2) ──
