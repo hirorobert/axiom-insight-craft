@@ -119,7 +119,6 @@ interface SelectedCompanyData {
   id: string;
   name: string;
   code: string | null;
-  tin: string | null;          // TRA Tax Identification Number (migration 20260707100000)
   reporting_framework: string | null;
   fiscal_year_end: string | null;
   currency: string | null;
@@ -300,7 +299,7 @@ export default function Dashboard() {
     const fetchCompany = async () => {
       const { data } = await supabase
         .from("companies")
-        .select("id, name, code, tin, reporting_framework, fiscal_year_end, currency")
+        .select("id, name, code, reporting_framework, fiscal_year_end, currency")
         .eq("id", selectedUpload.company_id)
         .single();
       if (data) setSelectedCompanyData(data as SelectedCompanyData);
@@ -527,7 +526,7 @@ export default function Dashboard() {
                 uploadId={selectedUpload.id}
                 reportingFramework={selectedCompanyData?.reporting_framework ?? null}
                 companyName={selectedUpload.company_name ?? ""}
-                companyTin={selectedCompanyData?.tin ?? ""}
+                companyTin={selectedCompanyData?.code ?? ""}
                 periodYearEnd={selectedCompanyData?.fiscal_year_end ?? ""}
                 companyCurrency={selectedCompanyData?.currency ?? "TZS"}
               />
@@ -819,3 +818,11 @@ export default function Dashboard() {
               <span>Last upload: <span className="font-medium text-foreground/70">{uploads[0].file_name}</span></span>
               <span className="text-foreground/30">·</span>
               <span>{formatDate(uploads[0].uploaded_at)}</span>
+            </div>
+          )}
+        </div>
+        )}
+      </main>
+    </div>
+  );
+}

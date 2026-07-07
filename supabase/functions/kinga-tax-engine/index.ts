@@ -424,43 +424,11 @@ serve(async (req) => {
     }
 
     // ── STEP 2: Key TB figures ────────────────────────────────────────────
-    // process-trial-balance does NOT write profit_before_tax as a scalar —
-    // it only writes per-section {accounts, total} objects.  Derive PBT from
-    // IS section totals so the waterfall is never force-set to zero.
-    //
-    // Formula (IFRS/IAS 1): PBT = Revenue − COGS − Opex + OtherIncome − FinanceCosts
-    // Note: section totals are POSITIVE for their natural sign:
-    //   revenue.total     → positive (credit-normal, credit − debit)
-    //   cost_of_goods_sold→ positive net COGS (debit-normal components sum)
-    //   operating_expenses→ positive (debit-normal)
-    //   other_income.total→ positive (credit-normal)
-    //   finance_costs.total→ positive (debit-normal)
-    const turnover      = Math.abs(is.revenue?.total ?? 0);
-    const cogsDerived   = Math.abs(is.cost_of_goods_sold?.total  ?? 0);
-    const opexDerived   = Math.abs(is.operating_expenses?.total  ?? 0);
-    const otherIncDeriv = Math.abs(is.other_income?.total        ?? 0);
-    const finCostDeriv  = Math.abs(is.finance_costs?.total       ?? 0);
-
-    // Prefer the scalar if it was written (future-proofing); fall back to derived.
-    const derivedPBT    = turnover - cogsDerived - opexDerived + otherIncDeriv - finCostDeriv;
-    const accountingPBT: number = (is.profit_before_tax != null)
-      ? (is.profit_before_tax as number)
-      : derivedPBT;
+    const accountingPBT = is.profit_before_tax ?? 0;
+    const turnover = Math.abs(is.revenue?.total ?? 0); // verified base for AMT
 
     if (turnover === 0) warnings.push("⚠ Revenue is zero — verify income statement is populated.");
-    if (accountingPBT === 0 && turnover > 0) {
-      // PBT = 0 with real revenue means either a breakeven company or a classification
-      // gap. Set review_required so the green "adequate" banner cannot fire.
-      warnings.push("⚠ Profit before tax is zero with non-zero revenue — verify income statement completeness. Tax computation is provisional.");
-      classificationWarnings.push({
-        category:        "Profit Before Tax",
-        message:         `Profit before tax is TZS 0 but revenue is TZS ${turnover.toLocaleString()}. ` +
-                         `This may mean income statement accounts are incomplete or misclassified. ` +
-                         `The ITA waterfall uses PBT = TZS 0 — taxable income and CIT are provisional.`,
-        accounts_found:  [],
-        action_required: "Review the income statement section in Account Review. Ensure all revenue, COGS, and expense accounts are correctly classified before committing this computation.",
-      });
-    }
+    if (accountingPBT === 0) warnings.push("⚠ Profit before tax is zero — verify income statement completeness.");
 
     // ── STEP 3: Flatten accounts ──────────────────────────────────────────
     const opexAccs   = is.operating_expenses?.accounts ?? [];
@@ -702,9 +670,14 @@ serve(async (req) => {
     }
 
     // ── STEP 11b: Income statement breakdown (for transparent waterfall) ─────
-    // Uses the same derived values computed in STEP 2 (cogsDerived, opexDerived,
-    // otherIncDeriv, finCostDeriv) so the breakdown matches the PBT figure.
-    const taxesTzs = Math.abs(is.taxes?.total ?? 0);
+    // Provides the deduction trail from gross income → PBT so the waterfall
+    // is auditable. Without this, the jump from TZS 9.4B gross → TZS 0 PBT
+    // is a black box to the CPA. These figures are read directly from the TB.
+    const cogsTzs   = Math.abs(is.cost_of_goods_sold?.total ?? 0);
+    const opexTzs   = Math.abs(is.operating_expenses?.total ?? 0);
+    const otherIncTzs = Math.abs(is.other_income?.total ?? 0);
+    const finCostTzs  = Math.abs(is.finance_costs?.total ?? 0);
+    const taxesTzs    = Math.abs(is.taxes?.total ?? 0);
 
     const result = {
       engine_version:                   ENGINE_VERSION,
@@ -716,13 +689,13 @@ serve(async (req) => {
       // ── Accounting P&L breakdown (TB-sourced, transparent waterfall) ──
       income_statement_breakdown: {
         revenue_tzs:            turnover,
-        cost_of_goods_sold_tzs: cogsDerived,
-        gross_profit_tzs:       turnover - cogsDerived,
-        operating_expenses_tzs: opexDerived,
-        other_income_tzs:       otherIncDeriv,
-        finance_costs_tzs:      finCostDeriv,
+        cost_of_goods_sold_tzs: cogsTzs,
+        gross_profit_tzs:       turnover - cogsTzs,
+        operating_expenses_tzs: opexTzs,
+        other_income_tzs:       otherIncTzs,
+        finance_costs_tzs:      finCostTzs,
         taxes_tzs:              taxesTzs,
-        profit_before_tax_tzs:  accountingPBT,  // derived from IS totals, not forced zero
+        profit_before_tax_tzs:  accountingPBT,
       },
 
       // ── ITA Waterfall ─────────────────────────────────────────────────
@@ -865,4 +838,45 @@ serve(async (req) => {
       const { error: fErr } = await supabase.from("findings").upsert({
         company_id:          companyId,
         upload_id:           uploadId,
-        finding_typ
+        finding_type:        "statutory_payable",
+        finding_category:    "corporate_tax",
+        statutory_rule_id:   null,
+        period_start:        `${periodYear}-01-01`,
+        period_end:          `${periodYear}-12-31`,
+        amount_tzs:          taxPayable,
+        variance_amount_tzs: citGap,
+        penalty_amount_tzs:  penaltyTzs,
+        severity,
+        status:              "open",
+        description:         `ITA CIT gap FY${periodYear}: computed TZS ${taxPayable.toLocaleString()} vs provision TZS ${itProvision.toLocaleString()}. Gap: TZS ${citGap.toLocaleString()}. ${classificationWarnings.length} items require CPA review. Engine: ${ENGINE_VERSION}.`,
+        source_detail: {
+          engine:               ENGINE_VERSION,
+          taxable_income_tzs:   taxableIncome,
+          cit_at_30pct_tzs:     citAt30,
+          thin_cap_disallowed:  thinCapDisallowed,
+          total_wear_tear_tzs:  totalWearTear,
+          classification_warnings_count: classificationWarnings.length,
+          months_overdue:       effectiveMonths,
+          penalty_tzs:          penaltyTzs,
+          total_exposure_tzs:   totalExposure,
+          verified_source:      result.verified_source,
+        },
+      }, { onConflict: "company_id,finding_category,period_start,period_end" });
+
+      if (!fErr) findingCreated = true;
+    }
+
+    result.finding_created = findingCreated;
+    result.dry_run = false;
+
+    return new Response(JSON.stringify({ success: true, result }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+
+  } catch (err) {
+    console.error("kinga-tax-engine error:", err);
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 500, headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+    });
+  }
+});

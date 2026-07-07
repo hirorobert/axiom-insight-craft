@@ -530,59 +530,39 @@ export function ExportStatements({
       },
     });
 
-    // ── APPENDIX A: Trial Balance Listing ─────────────────────────────────────
+    // ── PAGE 3: Notes to the Financial Statements ─────────────────────────────
     doc.addPage();
     y = 14;
     y = stampHeader(y);
-    doc.setFontSize(9); doc.setTextColor(30);
-    doc.text("APPENDIX A — TRIAL BALANCE LISTING (source data)", 14, y); y += 2;
+    doc.setFontSize(10); doc.setTextColor(30);
+    doc.text("NOTES TO THE FINANCIAL STATEMENTS", 14, y); y += 7;
 
-    const data = collectAllData(cfg);
-    const correctedCount = data.filter(r => r.isCorrected).length;
-    if (correctedCount > 0) {
-      doc.setFontSize(7.5); doc.setTextColor(5, 150, 105);
-      doc.text(`${correctedCount} user-verified correction(s) shown in green`, 14, y); y += 4;
-    }
+    // Note 1 — Basis of Preparation
+    doc.setFontSize(8.5); doc.setTextColor(30); doc.setFont("helvetica", "bold");
+    doc.text("1.  Basis of Preparation", 14, y); y += 5;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(60);
+    const note1Lines = doc.splitTextToSize(
+      `These financial statements have been prepared in accordance with the ${cfg.displayLabel}. ` +
+      `They are prepared on the accrual basis of accounting and present fairly the financial position, ` +
+      `financial performance, and (where applicable) cash flows of the entity for the period ended ${periodYearEnd || "—"}.`,
+      182
+    );
+    doc.text(note1Lines, 14, y); y += note1Lines.length * 4.5 + 3;
 
-    const tbData = data.map(row => [
-      row.isCorrected ? `✓ ${row.subcategory}` : row.subcategory,
-      row.code,
-      row.name,
-      formatCurrency(row.debit),
-      formatCurrency(row.credit),
-      formatCurrency(row.balance),
-    ]);
+    // Note 2 — Reporting Currency
+    doc.setFontSize(8.5); doc.setTextColor(30); doc.setFont("helvetica", "bold");
+    doc.text("2.  Reporting Currency", 14, y); y += 5;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(60);
+    const note2Lines = doc.splitTextToSize(
+      `All amounts in these financial statements are expressed in ${companyCurrency}, which is the functional and presentation currency of the entity. ` +
+      `No comparative figures are presented for the current period unless explicitly stated.`,
+      182
+    );
+    doc.text(note2Lines, 14, y); y += note2Lines.length * 4.5 + 3;
 
-    autoTable(doc, {
-      head: [["Category", "Code", "Account Name", "Debit", "Credit", "Balance"]],
-      body: tbData,
-      startY: y,
-      styles: { fontSize: 6.5, cellPadding: 1.6 },
-      headStyles: { fillColor: [100, 100, 120] },
-      alternateRowStyles: { fillColor: [248, 248, 252] },
-      columnStyles: {
-        0: { cellWidth: 30 },
-        1: { cellWidth: 14 },
-        2: { cellWidth: 70 },
-        3: { cellWidth: 22, halign: "right" },
-        4: { cellWidth: 22, halign: "right" },
-        5: { cellWidth: 22, halign: "right" },
-      },
-      didParseCell: (d) => {
-        if (d.section === "body" && data[d.row.index]?.isCorrected) {
-          d.cell.styles.fillColor = [209, 250, 229];
-          d.cell.styles.textColor = [5, 150, 105];
-          d.cell.styles.fontStyle = "bold";
-        }
-      },
-    });
-
-    addFooters();
-    doc.save(`${baseFileName}-financial-statements.pdf`);
-    toast.success("PDF exported successfully");
-    logAction({
-      action: "export_statements",
-      entityType: "trial_balance_upload",
-      entityId: uploadId,
-      metadata: {
- 
+    // Note 3 — Use of Estimates and Judgements
+    doc.setFontSize(8.5); doc.setTextColor(30); doc.setFont("helvetica", "bold");
+    doc.text("3.  Use of Estimates and Judgements", 14, y); y += 5;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(60);
+    const note3Lines = doc.splitTextToSize(
+      `T
