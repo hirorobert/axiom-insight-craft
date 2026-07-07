@@ -753,4 +753,169 @@ export function KingaTaxPanel({
                             : "TZS 0"
                         }
                         indent={2} bold
-                  
+                      />
+                    </>
+                  )}
+
+                  {/* Net deferred tax position */}
+                  <div className="my-2 border-t border-dashed border-amber-200 mx-2" />
+                  <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1">
+                    Net Deferred Tax Position — Year-End (SFP)
+                  </div>
+                  <WaterfallRow label="Gross DTL (SFP: non-current liabilities)" value={result.module_d_deferred.net_dtl_tzs > 0 ? fmt(result.module_d_deferred.net_dtl_tzs) : "Nil"} indent={1} />
+                  <WaterfallRow label="Gross DTA (SFP: non-current assets)" value={result.module_d_deferred.net_dta_tzs > 0 ? fmt(result.module_d_deferred.net_dta_tzs) : "Nil"} indent={1} />
+                  <WaterfallRow
+                    label={result.module_d_deferred.net_deferred_tax_position_tzs > 0
+                      ? "NET DEFERRED TAX LIABILITY (post to SFP non-current liabilities)"
+                      : result.module_d_deferred.net_deferred_tax_position_tzs < 0
+                      ? "NET DEFERRED TAX ASSET (post to SFP non-current assets)"
+                      : "Net Deferred Tax Position: Nil"}
+                    value={fmtSigned(result.module_d_deferred.net_deferred_tax_position_tzs)}
+                    bold highlight
+                  />
+
+                  {/* SCI total tax charge */}
+                  <div className="my-2 border-t border-dashed border-amber-200 mx-2" />
+                  <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1">
+                    SCI Total Tax Charge (IFRS for SMEs s.29.1)
+                  </div>
+                  <WaterfallRow label="Current tax payable (CIT)" value={fmt(result.tax_payable_tzs)} indent={1} />
+                  <WaterfallRow label="Deferred tax movement † (approx.)" value={fmtSigned(result.module_d_deferred.deferred_tax_movement_tzs)} indent={1} />
+                  <WaterfallRow label="TOTAL TAX EXPENSE (SCI)" value={fmtSigned(result.module_d_deferred.total_tax_expense_tzs)} bold highlight />
+                  <WaterfallRow label="PROFIT AFTER FULL TAX — PAT" value={fmtSigned(result.module_d_deferred.profit_after_full_tax_tzs)} bold />
+
+                  {/* Opening balance notice */}
+                  <div className="mt-3 mx-1 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
+                    <div className="font-semibold">† CPA Action Required — Opening Balance</div>
+                    <div>
+                      Deferred tax movement is approximated as the closing position because no prior-year
+                      deferred tax schedule (opening DTL/DTA) is loaded yet. True movement =
+                      closing DTL/DTA minus opening DTL/DTA. Obtain the prior-year schedule before
+                      publishing the SCI. Loss-DTA recovery uses a 5% net margin proxy — replace with
+                      management's profit forecast per IFRS for SMEs s.29.9.
+                    </div>
+                    <div className="text-amber-600 font-medium">
+                      Primary source: {result.module_d_deferred.ifrs_section} · {result.module_d_deferred.ita_loss_section}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            {phase === "preview" && (
+              <div className="flex items-center gap-3 pt-2 flex-wrap">
+                <Button onClick={() => setShowConfirm(true)} className="gap-2">
+                  <CheckCircle className="w-4 h-4" />
+                  Commit Computation
+                </Button>
+                <Button variant="outline" onClick={reset}>Discard</Button>
+                <p className="text-xs text-muted-foreground">
+                  Saves ITA waterfall + creates finding in the DB.
+                </p>
+                {stored && (
+                  <div className="w-full mt-1 flex items-center gap-1.5 text-xs text-muted-foreground border border-border rounded px-2 py-1.5 bg-muted/20">
+                    <History className="w-3 h-3 flex-shrink-0" />
+                    <span className="font-medium">Previous commit:</span>
+                    {new Date(stored.created_at).toLocaleString()} —
+                    Engine {stored.engine_version ?? "unknown"} —
+                    Tax payable TZS {stored.tax_payable_tzs?.toLocaleString() ?? "—"} |
+                    Gap TZS {stored.cit_gap_tzs?.toLocaleString() ?? "—"}
+                    <span className="ml-1 text-orange-600 font-medium">
+                      (Committing will replace this record)
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {phase === "done" && (
+              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">
+                <CheckCircle className="w-4 h-4" />
+                Computation saved.
+                {result.finding_created && " CIT gap finding created in findings table."}
+                <Button variant="ghost" size="sm" onClick={reset} className="ml-auto">Run Again</Button>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+
+      {/* ── COMMIT CONFIRM DIALOG ─────────────────────────────────── */}
+      {result && (
+        <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-primary" />
+                Confirm — Commit ITA Computation to Database
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-3 text-sm">
+              <div className="text-muted-foreground">
+                Committing will write the following computation to the <code>tax_computations</code> table
+                and create a formal finding record in the audit database.
+                {stored && <span className="text-orange-600 font-medium"> This will replace the previous commit from {new Date(stored.created_at).toLocaleDateString()}.</span>}
+              </div>
+
+              <div className="bg-muted/40 border border-border rounded-lg p-3 space-y-1.5 font-mono text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Company</span>
+                  <span className="font-semibold">{companyName ?? companyId}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Period</span>
+                  <span>FY {periodYear}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Engine</span>
+                  <span>{result.engine_version}</span>
+                </div>
+                <div className="my-1 border-t border-dashed border-muted" />
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Taxable Income</span>
+                  <span>TZS {result.taxable_income_tzs?.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">CIT @ 30%</span>
+                  <span>TZS {result.cit_at_30pct_tzs?.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tax Provision (booked)</span>
+                  <span>TZS {result.income_tax_provision_tzs?.toLocaleString()}</span>
+                </div>
+                <div className={`flex justify-between font-bold ${Math.abs(result.cit_gap_tzs) > 500_000 ? "text-destructive" : "text-green-700"}`}>
+                  <span>CIT Gap</span>
+                  <span>TZS {result.cit_gap_tzs?.toLocaleString()}</span>
+                </div>
+              </div>
+
+              {result.review_required && (
+                <div className="flex items-start gap-2 text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded px-3 py-2">
+                  <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                  CPA Review Required — {result.classification_warnings?.length ?? 0} classification warning(s) unresolved.
+                  Committing will save this as a provisional computation.
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowConfirm(false)}>Cancel</Button>
+              <Button
+                onClick={() => {
+                  setShowConfirm(false);
+                  runEngine(false);
+                }}
+                className="gap-2"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Yes, Commit to Database
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </Card>
+  );
+}

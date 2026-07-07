@@ -351,113 +351,309 @@ export function ExportStatements({
   };
 
   const exportToPDF = () => {
-    // A — Read and validate reporting_framework at the start of export.
     const cfg = resolveFramework();
-    if (!cfg) return; // B — NULL or unsupported: blocked above, do not continue.
-
-    if (!mapping) {
-      toast.error("No data to export");
-      return;
-    }
+    if (!cfg) return;
+    if (!mapping) { toast.error("No data to export"); return; }
 
     const doc = new jsPDF();
-    const data = collectAllData(cfg);
-    const baseFileName = fileName.replace(/\.[^/.]+$/, "");
-    const correctedCount = data.filter(row => row.isCorrected).length;
-    const generatedAt = new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC";
-    const sn = cfg.statementNames;
+    const baseFileName  = fileName.replace(/\.[^/.]+$/, "");
+    const generatedAt   = new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC";
+    const autoCount     = summary?.auto_classified ?? 0;
+    const totalCount    = summary?.total_accounts ?? summary?.totalAccounts ?? 0;
+    const pageW         = doc.internal.pageSize.getWidth();
 
-    // D — Stamp: company name, TIN, period, framework, generated time, Kinga line.
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    const sum = (accs: AccountMapping[] | undefined) =>
+      (accs ?? []).reduce((s, a) => s + (a.balance ?? 0), 0);
+
+    const fmt = (v: number) => formatCurrency(Math.abs(v));
+    const fmtSigned = (v: number) =>
+      v < 0 ? `(${formatCurrency(Math.abs(v))})` : formatCurrency(v);
+
+    // Section header row style (indigo strip)
+    const secHead = { fillColor: [79, 70, 229] as [number, number, number], textColor: [255, 255, 255] as [number, number, number], fontStyle: "bold" as const, fontSize: 8 };
+    // Subtotal row style
+    const subtotalStyle = { fillColor: [237, 233, 254] as [number, number, number], fontStyle: "bold" as const, fontSize: 8 };
+    // Grand total row style
+    const grandStyle = { fillColor: [49, 46, 129] as [number, number, number], textColor: [255, 255, 255] as [number, number, number], fontStyle: "bold" as const, fontSize: 8.5 };
+    // Normal account row
+    const rowStyle = { fontSize: 7.5 as number, cellPadding: 1.8 };
+
+    const addFooters = () => {
+      const n = doc.getNumberOfPages();
+      for (let i = 1; i <= n; i++) {
+        doc.setPage(i);
+        doc.setFontSize(6.5);
+        doc.setTextColor(140);
+        doc.text(cfg.footer, 14, doc.internal.pageSize.getHeight() - 9, { maxWidth: 130 });
+        doc.text(`Page ${i} of ${n}`, pageW - 14, doc.internal.pageSize.getHeight() - 9, { align: "right" });
+      }
+    };
+
+    // Stamp header block; returns updated y position
+    const stampHeader = (y: number): number => {
+      doc.setFontSize(14); doc.setTextColor(30);
+      doc.text(companyName || "—", 14, y); y += 7;
+      doc.setFontSize(8.5); doc.setTextColor(80);
+      if (companyTin) { doc.text(`TIN: ${companyTin}`, 14, y); y += 4.5; }
+      doc.text(`Period year end: ${periodYearEnd || "—"}`, 14, y);             y += 4.5;
+      doc.text(`Framework: ${cfg.displayLabel}`, 14, y);                       y += 4.5;
+      doc.text(`Generated: ${generatedAt} · ${totalCount > 0 ? `${autoCount}/${totalCount} accounts auto-classified` : "—"} · Kinga`, 14, y); y += 4.5;
+      return y + 2;
+    };
+
+    // Build a 2-column statement table body from account sections
+    // Returns array of {cells, meta} for autoTable body
+    const buildSFPBody = (
+      sections: { label: string; accounts: AccountMapping[] | undefined; subtotalLabel: string }[]
+    ) => {
+      type Row = [string, string];
+      const body: Row[] = [];
+      const styles: Record<number, object> = {};
+      let row = 0;
+
+      for (const sec of sections) {
+        // Section header
+        styles[row] = secHead;
+        body.push([sec.label, ""]);
+        row++;
+        // Account lines
+        for (const acc of (sec.accounts ?? [])) {
+          body.push([`  ${acc.accountCode ? acc.accountCode + "  " : ""}${acc.accountName || "—"}`, fmt(acc.balance ?? 0)]);
+          row++;
+        }
+        // Subtotal
+        const total = sum(sec.accounts);
+        styles[row] = subtotalStyle;
+        body.push([`  ${sec.subtotalLabel}`, fmtSigned(total)]);
+        row++;
+      }
+      return { body, styles };
+    };
+
+    // ── PAGE 1: Statement of Financial Position ───────────────────────────────
     let y = 14;
-    doc.setFontSize(15);
-    doc.setTextColor(40);
-    doc.text(companyName || "—", 14, y);
-    y += 7;
+    y = stampHeader(y);
 
-    doc.setFontSize(9);
-    doc.setTextColor(80);
-    if (companyTin) {
-      doc.text(`TIN: ${companyTin}`, 14, y);
-      y += 5;
-    }
-    doc.text(`Period year end: ${periodYearEnd || "—"}`, 14, y);                        y += 5;
-    doc.text(`Reporting framework: ${cfg.displayLabel}`, 14, y);                        y += 5;
-    doc.text(`Generated: ${generatedAt}`, 14, y);                                       y += 5;
-    doc.text("Generated by Kinga — for professional review before submission", 14, y);  y += 5;
-    doc.text(`Source file: ${fileName}`, 14, y);                                        y += 5;
-    const autoCount = summary?.auto_classified ?? 0;
-    const totalCount = summary?.total_accounts ?? summary?.totalAccounts ?? 0;
-    doc.text(
-      totalCount > 0
-        ? `Auto-classified: ${autoCount} of ${totalCount} accounts`
-        : "Auto-classified: —",
-      14, y
+    doc.setFontSize(10); doc.setTextColor(30);
+    doc.text("STATEMENT OF FINANCIAL POSITION", 14, y); y += 2;
+
+    const bs = mapping.balanceSheet;
+    const sfpSections = [
+      { label: "ASSETS — Current Assets",     accounts: bs?.assets?.current,    subtotalLabel: "Total Current Assets" },
+      { label: "ASSETS — Non-Current Assets", accounts: bs?.assets?.nonCurrent, subtotalLabel: "Total Non-Current Assets" },
+      { label: "LIABILITIES — Current",       accounts: bs?.liabilities?.current,    subtotalLabel: "Total Current Liabilities" },
+      { label: "LIABILITIES — Non-Current",   accounts: bs?.liabilities?.nonCurrent, subtotalLabel: "Total Non-Current Liabilities" },
+      { label: "EQUITY",                       accounts: bs?.equity,             subtotalLabel: "Total Equity" },
+    ];
+
+    const { body: sfpBody, styles: sfpStyles } = buildSFPBody(sfpSections);
+
+    // Totals rows
+    const totalAssets = sum(bs?.assets?.current) + sum(bs?.assets?.nonCurrent);
+    const totalLiab   = sum(bs?.liabilities?.current) + sum(bs?.liabilities?.nonCurrent);
+    const totalEquity = sum(bs?.equity);
+    sfpBody.push(["TOTAL ASSETS", fmtSigned(totalAssets)]);
+    sfpStyles[sfpBody.length - 1] = grandStyle;
+    sfpBody.push(["TOTAL LIABILITIES & EQUITY", fmtSigned(totalLiab + totalEquity)]);
+    sfpStyles[sfpBody.length - 1] = grandStyle;
+
+    autoTable(doc, {
+      body:         sfpBody as [string, string][],
+      startY:       y,
+      styles:       rowStyle,
+      columnStyles: { 0: { cellWidth: 130 }, 1: { cellWidth: 50, halign: "right" } },
+      didParseCell: (d) => {
+        if (d.section === "body" && sfpStyles[d.row.index]) {
+          Object.assign(d.cell.styles, sfpStyles[d.row.index]);
+        }
+      },
+    });
+
+    // ── PAGE 2: Statement of Comprehensive Income ─────────────────────────────
+    doc.addPage();
+    y = 14;
+    y = stampHeader(y);
+
+    doc.setFontSize(10); doc.setTextColor(30);
+    doc.text("STATEMENT OF COMPREHENSIVE INCOME", 14, y); y += 2;
+
+    const is = mapping.incomeStatement;
+    const totalRevenue  = sum(is?.revenue);
+    const totalCOGS     = sum(is?.costOfGoodsSold);
+    const grossProfit   = totalRevenue - totalCOGS;
+    const totalOpex     = sum(is?.operatingExpenses);
+    const opProfit      = grossProfit - totalOpex;
+    const otherInc      = sum(is?.otherIncome);
+    const taxCharge     = sum(is?.taxes);
+    const pbt           = opProfit + otherInc;
+    const pat           = pbt - taxCharge;
+
+    type Row2 = [string, string];
+    const sciBody: Row2[] = [];
+    const sciStyles: Record<number, object> = {};
+    let sciRow = 0;
+
+    const addSciSection = (label: string, accounts: AccountMapping[] | undefined) => {
+      sciStyles[sciRow] = secHead;
+      sciBody.push([label, ""]); sciRow++;
+      for (const acc of (accounts ?? [])) {
+        sciBody.push([`  ${acc.accountCode ? acc.accountCode + "  " : ""}${acc.accountName || "—"}`, fmt(acc.balance ?? 0)]);
+        sciRow++;
+      }
+    };
+    const addSciTotal = (label: string, value: number, grand = false) => {
+      sciStyles[sciRow] = grand ? grandStyle : subtotalStyle;
+      sciBody.push([label, fmtSigned(value)]); sciRow++;
+    };
+
+    addSciSection("REVENUE", is?.revenue);
+    addSciTotal("Total Revenue", totalRevenue);
+    addSciSection("COST OF GOODS SOLD", is?.costOfGoodsSold);
+    addSciTotal("GROSS PROFIT", grossProfit, false);
+    addSciSection("OPERATING EXPENSES", is?.operatingExpenses);
+    addSciTotal("OPERATING PROFIT / (LOSS)", opProfit, false);
+    addSciSection("OTHER INCOME", is?.otherIncome);
+    addSciTotal("PROFIT BEFORE TAX", pbt, false);
+    addSciSection("INCOME TAX", is?.taxes);
+    addSciTotal("PROFIT AFTER TAX", pat, true);
+
+    autoTable(doc, {
+      body:         sciBody as [string, string][],
+      startY:       y,
+      styles:       rowStyle,
+      columnStyles: { 0: { cellWidth: 130 }, 1: { cellWidth: 50, halign: "right" } },
+      didParseCell: (d) => {
+        if (d.section === "body" && sciStyles[d.row.index]) {
+          Object.assign(d.cell.styles, sciStyles[d.row.index]);
+        }
+      },
+    });
+
+    // ── PAGE 3: Notes to the Financial Statements ─────────────────────────────
+    doc.addPage();
+    y = 14;
+    y = stampHeader(y);
+    doc.setFontSize(10); doc.setTextColor(30);
+    doc.text("NOTES TO THE FINANCIAL STATEMENTS", 14, y); y += 7;
+
+    // Note 1 — Basis of Preparation
+    doc.setFontSize(8.5); doc.setTextColor(30); doc.setFont("helvetica", "bold");
+    doc.text("1.  Basis of Preparation", 14, y); y += 5;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(60);
+    const note1Lines = doc.splitTextToSize(
+      `These financial statements have been prepared in accordance with the ${cfg.displayLabel}. ` +
+      `They are prepared on the accrual basis of accounting and present fairly the financial position, ` +
+      `financial performance, and (where applicable) cash flows of the entity for the period ended ${periodYearEnd || "—"}.`,
+      182
     );
-    y += 3;
+    doc.text(note1Lines, 14, y); y += note1Lines.length * 4.5 + 3;
 
-    if (correctedCount > 0) {
-      doc.setTextColor(16, 185, 129);
-      doc.text(`User-Verified Corrections: ${correctedCount} account(s)`, 14, y);
-      y += 4;
-      doc.setFontSize(8);
-      doc.text("* Green highlighted rows indicate user-verified corrections", 14, y);
-      y += 4;
-      doc.setFontSize(9);
-      doc.setTextColor(80);
+    // Note 2 — Reporting Currency
+    doc.setFontSize(8.5); doc.setTextColor(30); doc.setFont("helvetica", "bold");
+    doc.text("2.  Reporting Currency", 14, y); y += 5;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(60);
+    const note2Lines = doc.splitTextToSize(
+      `All amounts in these financial statements are expressed in ${companyCurrency}, which is the functional and presentation currency of the entity. ` +
+      `No comparative figures are presented for the current period unless explicitly stated.`,
+      182
+    );
+    doc.text(note2Lines, 14, y); y += note2Lines.length * 4.5 + 3;
+
+    // Note 3 — Use of Estimates and Judgements
+    doc.setFontSize(8.5); doc.setTextColor(30); doc.setFont("helvetica", "bold");
+    doc.text("3.  Use of Estimates and Judgements", 14, y); y += 5;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(60);
+    const note3Lines = doc.splitTextToSize(
+      `The preparation of financial statements requires management to make estimates and assumptions that affect reported amounts. ` +
+      `Actual results may differ from these estimates. Key areas of estimation include: depreciation and amortisation of non-current assets, ` +
+      `impairment of receivables, and income tax provisions. These statements were computer-generated by Kinga from the entity's trial balance ` +
+      `and must be reviewed and approved by management before publication or submission.`,
+      182
+    );
+    doc.text(note3Lines, 14, y); y += note3Lines.length * 4.5 + 3;
+
+    // Note 4 — Classification Summary (auto-generated, factual)
+    if (totalCount > 0) {
+      doc.setFontSize(8.5); doc.setTextColor(30); doc.setFont("helvetica", "bold");
+      doc.text("4.  Account Classification Summary", 14, y); y += 5;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(60);
+      const data4 = collectAllData(cfg);
+      const corrCount = data4.filter(r => r.isCorrected).length;
+      const note4Lines = doc.splitTextToSize(
+        `The trial balance comprised ${totalCount} accounts. ` +
+        (autoCount > 0
+          ? `${autoCount} accounts (${Math.round((autoCount / totalCount) * 100)}%) were classified automatically by Kinga's six-tier classifier. `
+          : "") +
+        (corrCount > 0
+          ? `${corrCount} account(s) were manually reclassified by the preparer after review. `
+          : "") +
+        `Accounts classified in this report are detailed in Appendix A.`,
+        182
+      );
+      doc.text(note4Lines, 14, y); y += note4Lines.length * 4.5 + 3;
     }
 
-    y += 2;
+    // Note 5 — Going Concern (standard disclosure)
+    doc.setFontSize(8.5); doc.setTextColor(30); doc.setFont("helvetica", "bold");
+    doc.text(`${totalCount > 0 ? "5" : "4"}.  Going Concern`, 14, y); y += 5;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(60);
+    const note5Lines = doc.splitTextToSize(
+      `The financial statements have been prepared on the going concern basis. Management has assessed the entity's ability to ` +
+      `continue as a going concern and has not identified material uncertainties that would cast significant doubt on this assessment. ` +
+      `This disclosure should be reviewed by the responsible CPA and updated if management's assessment differs.`,
+      182
+    );
+    doc.text(note5Lines, 14, y); y += note5Lines.length * 4.5 + 3;
 
-    const tableData = data.map(row => [
-      row.isCorrected ? `✓ ${row.category}` : row.category,
-      row.subcategory,
+    // ── APPENDIX A: Trial Balance Listing ─────────────────────────────────────
+    doc.addPage();
+    y = 14;
+    y = stampHeader(y);
+    doc.setFontSize(9); doc.setTextColor(30);
+    doc.text("APPENDIX A — TRIAL BALANCE LISTING (source data)", 14, y); y += 2;
+
+    const data = collectAllData(cfg);
+    const correctedCount = data.filter(r => r.isCorrected).length;
+    if (correctedCount > 0) {
+      doc.setFontSize(7.5); doc.setTextColor(5, 150, 105);
+      doc.text(`${correctedCount} user-verified correction(s) shown in green`, 14, y); y += 4;
+    }
+
+    const tbData = data.map(row => [
+      row.isCorrected ? `✓ ${row.subcategory}` : row.subcategory,
       row.code,
       row.name,
       formatCurrency(row.debit),
       formatCurrency(row.credit),
       formatCurrency(row.balance),
-      row.isCorrected ? "Verified" : "Auto",
     ]);
 
     autoTable(doc, {
-      head: [["Statement", "Category", "Code", "Account Name", "Debit", "Credit", "Balance", "Status"]],
-      body: tableData,
+      head: [["Category", "Code", "Account Name", "Debit", "Credit", "Balance"]],
+      body: tbData,
       startY: y,
-      styles: { fontSize: 7, cellPadding: 2 },
-      headStyles: { fillColor: [79, 70, 229] },
-      alternateRowStyles: { fillColor: [245, 245, 250] },
+      styles: { fontSize: 6.5, cellPadding: 1.6 },
+      headStyles: { fillColor: [100, 100, 120] },
+      alternateRowStyles: { fillColor: [248, 248, 252] },
       columnStyles: {
-        0: { cellWidth: 28 },
-        1: { cellWidth: 28 },
-        2: { cellWidth: 16 },
-        3: { cellWidth: 38 },
+        0: { cellWidth: 30 },
+        1: { cellWidth: 14 },
+        2: { cellWidth: 70 },
+        3: { cellWidth: 22, halign: "right" },
         4: { cellWidth: 22, halign: "right" },
         5: { cellWidth: 22, halign: "right" },
-        6: { cellWidth: 22, halign: "right" },
-        7: { cellWidth: 16, halign: "center" },
       },
-      didParseCell: (hookData) => {
-        if (hookData.section === "body") {
-          const rowIndex = hookData.row.index;
-          if (data[rowIndex]?.isCorrected) {
-            hookData.cell.styles.fillColor = [209, 250, 229];
-            hookData.cell.styles.textColor = [5, 150, 105];
-            hookData.cell.styles.fontStyle = "bold";
-          }
+      didParseCell: (d) => {
+        if (d.section === "body" && data[d.row.index]?.isCorrected) {
+          d.cell.styles.fillColor = [209, 250, 229];
+          d.cell.styles.textColor = [5, 150, 105];
+          d.cell.styles.fontStyle = "bold";
         }
       },
     });
 
-    // D — Footer on every page with framework compliance statement.
-    const pageCount = doc.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(7);
-      doc.setTextColor(120);
-      const footerY = doc.internal.pageSize.getHeight() - 10;
-      doc.text(cfg.footer, 14, footerY, { maxWidth: 180 });
-    }
-
+    addFooters();
     doc.save(`${baseFileName}-financial-statements.pdf`);
     toast.success("PDF exported successfully");
     logAction({
