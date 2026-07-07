@@ -424,11 +424,43 @@ serve(async (req) => {
     }
 
     // ── STEP 2: Key TB figures ────────────────────────────────────────────
-    const accountingPBT = is.profit_before_tax ?? 0;
-    const turnover = Math.abs(is.revenue?.total ?? 0); // verified base for AMT
+    // process-trial-balance does NOT write profit_before_tax as a scalar —
+    // it only writes per-section {accounts, total} objects.  Derive PBT from
+    // IS section totals so the waterfall is never force-set to zero.
+    //
+    // Formula (IFRS/IAS 1): PBT = Revenue − COGS − Opex + OtherIncome − FinanceCosts
+    // Note: section totals are POSITIVE for their natural sign:
+    //   revenue.total     → positive (credit-normal, credit − debit)
+    //   cost_of_goods_sold→ positive net COGS (debit-normal components sum)
+    //   operating_expenses→ positive (debit-normal)
+    //   other_income.total→ positive (credit-normal)
+    //   finance_costs.total→ positive (debit-normal)
+    const turnover      = Math.abs(is.revenue?.total ?? 0);
+    const cogsDerived   = Math.abs(is.cost_of_goods_sold?.total  ?? 0);
+    const opexDerived   = Math.abs(is.operating_expenses?.total  ?? 0);
+    const otherIncDeriv = Math.abs(is.other_income?.total        ?? 0);
+    const finCostDeriv  = Math.abs(is.finance_costs?.total       ?? 0);
+
+    // Prefer the scalar if it was written (future-proofing); fall back to derived.
+    const derivedPBT    = turnover - cogsDerived - opexDerived + otherIncDeriv - finCostDeriv;
+    const accountingPBT: number = (is.profit_before_tax != null)
+      ? (is.profit_before_tax as number)
+      : derivedPBT;
 
     if (turnover === 0) warnings.push("⚠ Revenue is zero — verify income statement is populated.");
-    if (accountingPBT === 0) warnings.push("⚠ Profit before tax is zero — verify income statement completeness.");
+    if (accountingPBT === 0 && turnover > 0) {
+      // PBT = 0 with real revenue means either a breakeven company or a classification
+      // gap. Set review_required so the green "adequate" banner cannot fire.
+      warnings.push("⚠ Profit before tax is zero with non-zero revenue — verify income statement completeness. Tax computation is provisional.");
+      classificationWarnings.push({
+        category:        "Profit Before Tax",
+        message:         `Profit before tax is TZS 0 but revenue is TZS ${turnover.toLocaleString()}. ` +
+                         `This may mean income statement accounts are incomplete or misclassified. ` +
+                         `The ITA waterfall uses PBT = TZS 0 — taxable income and CIT are provisional.`,
+        accounts_found:  [],
+        action_required: "Review the income statement section in Account Review. Ensure all revenue, COGS, and expense accounts are correctly classified before committing this computation.",
+      });
+    }
 
     // ── STEP 3: Flatten accounts ──────────────────────────────────────────
     const opexAccs   = is.operating_expenses?.accounts ?? [];
@@ -669,214 +701,158 @@ serve(async (req) => {
       }
     }
 
-    // ── STEP 11b: Income statement breakdown (for transparent waterfall) ─────
-    // Provides the deduction trail from gross income → PBT so the waterfall
-    // is auditable. Without this, the jump from TZS 9.4B gross → TZS 0 PBT
-    // is a black box to the CPA. These figures are read directly from the TB.
-    const cogsTzs   = Math.abs(is.cost_of_goods_sold?.total ?? 0);
-    const opexTzs   = Math.abs(is.operating_expenses?.total ?? 0);
-    const otherIncTzs = Math.abs(is.other_income?.total ?? 0);
-    const finCostTzs  = Math.abs(is.finance_costs?.total ?? 0);
-    const taxesTzs    = Math.abs(is.taxes?.total ?? 0);
+    // ── STEP 11c: Module D — Deferred Tax (IAS 12 / IFRS for SMEs s.29) ────────
+    //
+    // PRIMARY SOURCES:
+    //   IFRS for SMEs (2015 edition / 2019 update) Section 29 — Income Tax
+    //   ITA Cap.332 R.E.2023 s.19(2) — 70% annual loss shelter cap (LOSS_CARRYFORWARD_SHELTER)
+    //   IAS 12 Income Taxes (for reference; IFRS for SMEs s.29 is the applied standard)
+    //
+    // TWO CATEGORIES OF TEMPORARY DIFFERENCES:
+    //
+    //   CATEGORY A — TIMING: Wear & Tear vs Accounting Depreciation
+    //     The tax base of PPE ≠ its carrying amount wherever ITA accelerated rates differ from
+    //     IFRS useful-life depreciation.  Per IAS 12 / IFRS for SMEs s.29.15, this creates a
+    //     taxable temporary difference → DTL (accelerated) or deductible difference → DTA (decelerated).
+    //     Source: totalWearTear (STEP 6) minus deprTotal (STEP 4a accounting add-back).
+    //
+    //   CATEGORY B — LOSS CARRY-FORWARD DTA
+    //     Unrelieved tax losses (ITA s.19; no time limit) create a potential DTA.
+    //     RECOGNITION CONSTRAINT (IFRS for SMEs s.29.9):
+    //       Recognize DTA ONLY when probable future taxable income will absorb it.
+    //
+    //     S.19(2) INTERACTION — THE KEY NUANCE:
+    //       The 70% annual shelter cap throttles absorption speed, extending the recovery period.
+    //       A loss of TZS 181M with future profits of TZS 100M/yr is absorbed at:
+    //         100M × 70% = 70M/yr → recovery in ~2.6 years (WITHIN foreseeable horizon → full DTA).
+    //       But if future profits are only TZS 30M/yr:
+    //         30M × 70% = 21M/yr → recovery in ~8.6 years (exceeds horizon → DTA NOT recognizable).
+    //       The shelter cap thus DIRECTLY determines whether the DTA can be booked.
+    //
+    //     ENGINE APPROACH:
+    //       Uses turnover × 5% as a conservative future profit proxy (CPA MUST override).
+    //       Recognition thresholds (IFRS for SMEs conservative interpretation):
+    //         ≤ 3 years  → FULL recognition
+    //         3–5 years  → PARTIAL (70% of potential — CPA must assess)
+    //         > 5 years  → NOT recognized; disclose in notes
+    //
+    // OPENING BALANCE (OD-14 open):
+    //   Full deferred tax movement = closing DTL − opening DTL (or DTA).
+    //   Without a deferred_tax_schedules table, movement is approximated as the closing position.
+    //   This is acceptable for first-year Kinga tracking; CPA must provide prior-year schedule.
+    //
+    // ── Category A: Timing differences ───────────────────────────────────────
+    // deprTotal  = accounting depreciation (from IS add-back detection, STEP 4a)
+    // totalWearTear = ITA wear & tear from capital_allowances table (STEP 6)
+    // Both are positive scalars representing absolute deduction amounts.
+    const timingDiff       = totalWearTear - deprTotal;
+    // +ve → W&T > depreciation → accelerated tax deduction → future taxable amount → DTL
+    // -ve → W&T < depreciation → decelerated tax deduction → future deductible amount → DTA
+    // zero → no difference (may mean no capital allowances entered — already warned in STEP 6)
 
-    const result = {
-      engine_version:                   ENGINE_VERSION,
-      company_id:                       companyId,
-      upload_id:                        uploadId,
-      period_year:                      periodYear,
-      dry_run,
+    const dtlTiming = Math.round(Math.max(0,  timingDiff) * CIT_RATE);
+    const dtaTiming = Math.round(Math.max(0, -timingDiff) * CIT_RATE);
 
-      // ── Accounting P&L breakdown (TB-sourced, transparent waterfall) ──
-      income_statement_breakdown: {
-        revenue_tzs:            turnover,
-        cost_of_goods_sold_tzs: cogsTzs,
-        gross_profit_tzs:       turnover - cogsTzs,
-        operating_expenses_tzs: opexTzs,
-        other_income_tzs:       otherIncTzs,
-        finance_costs_tzs:      finCostTzs,
-        taxes_tzs:              taxesTzs,
-        profit_before_tax_tzs:  accountingPBT,
-      },
+    // ── Category B: Loss carry-forward DTA (s.19(2) throttled) ─────────────
+    const currentYearLoss  = Math.max(0, -taxableIncome);
+    const dtaPotentialLoss = Math.round(currentYearLoss * CIT_RATE);
 
-      // ── ITA Waterfall ─────────────────────────────────────────────────
-      accounting_profit_before_tax_tzs: accountingPBT,
-      gross_income_tzs:                 turnover,
-      add_backs:                        addBacks,
-      deductions:                       wearTearDeductions,
-      total_add_backs_tzs:              totalAddBacks,
-      total_deductions_tzs:             totalDeductions,
-      total_wear_tear_tzs:              totalWearTear,
+    let dtaLossRecognized  = 0;
+    let dtaLossRecoveryYrs: number | null = null;
+    let dtaLossNote        = "";
+    type DtaStatus = "full" | "partial" | "not_recognized" | "nil";
+    let dtaLossStatus: DtaStatus = "nil";
 
-      // Thin cap
-      total_detected_debt_tzs:          totalDetectedDebt,
-      total_equity_tzs:                 equity,
-      debt_equity_ratio:                equity > 0 ? Math.round((totalDetectedDebt/equity)*1000)/1000 : 0,
-      allowable_debt_tzs:               equity * THIN_CAP_RATIO,
-      interest_expense_tzs:             interestExp,
-      thin_cap_disallowed_tzs:          thinCapDisallowed,
+    if (dtaPotentialLoss > 0) {
+      if (turnover > 0) {
+        // Conservative proxy: 5% net margin on current-year turnover.
+        // CPA MUST replace with management's forward profit forecast before publishing.
+        const estimatedFutureAnnualProfit = turnover * 0.05;
+        // ITA s.19(2): max 70% of pre-deduction income absorbed per year
+        const annualAbsorption = estimatedFutureAnnualProfit * LOSS_CARRYFORWARD_SHELTER;
+        dtaLossRecoveryYrs = annualAbsorption > 0
+          ? Math.ceil((currentYearLoss / annualAbsorption) * 10) / 10
+          : null; // null = indefinite
 
-      // Tax
-      taxable_income_tzs:               taxableIncome,
-      cit_at_30pct_tzs:                 citAt30,
-      amt_indicative_tzs:               amtIndicative,
-      amt_trigger_note:                 "AMT (1% of turnover) applies only if company has unrelieved losses in current + 2 preceding years. Cannot be auto-determined from a single TB. CPA must verify.",
-      tax_payable_tzs:                  taxPayable,
-      effective_tax_rate_pct:           Math.round(effectiveRate*100)/100,
+        const recoveryLabel = dtaLossRecoveryYrs === null
+          ? "indefinite"
+          : `~${dtaLossRecoveryYrs.toFixed(1)} years`;
 
-      // Gap
-      income_tax_provision_tzs:         itProvision,
-      cit_gap_tzs:                      citGap,
+        if (dtaLossRecoveryYrs !== null && dtaLossRecoveryYrs <= 3) {
+          dtaLossRecognized = dtaPotentialLoss;
+          dtaLossStatus     = "full";
+          dtaLossNote =
+            `Loss DTA FULLY RECOGNIZED: TZS ${dtaPotentialLoss.toLocaleString()}. ` +
+            `Estimated recovery ${recoveryLabel} at 5% margin proxy × 70% annual shelter (ITA s.19(2)). ` +
+            `CPA must confirm with management profit forecast before recognizing in financial statements.`;
 
-      // Penalty
-      months_overdue:                   effectiveMonths,
-      penalty_tzs:                      penaltyTzs,
-      total_exposure_tzs:               totalExposure,
+        } else if (dtaLossRecoveryYrs !== null && dtaLossRecoveryYrs <= 5) {
+          dtaLossRecognized = Math.round(dtaPotentialLoss * 0.70);
+          dtaLossStatus     = "partial";
+          const unrecognized = dtaPotentialLoss - dtaLossRecognized;
+          dtaLossNote =
+            `Loss DTA PARTIALLY RECOGNIZED: TZS ${dtaLossRecognized.toLocaleString()} of ` +
+            `potential TZS ${dtaPotentialLoss.toLocaleString()} (30% haircut applied). ` +
+            `Estimated recovery ${recoveryLabel} at 70% annual shelter cap (ITA s.19(2)) — ` +
+            `IFRS for SMEs s.29.9 probable-recovery threshold is borderline. ` +
+            `Unrecognized DTA TZS ${unrecognized.toLocaleString()} must be disclosed in financial statement notes.`;
+          classificationWarnings.push({
+            category: "Deferred Tax Asset — Loss Carry-Forward (Partial Recognition)",
+            message:  dtaLossNote,
+            accounts_found:  [],
+            action_required:
+              "Obtain management profit forecast for next 3–5 years. " +
+              "If forecast supports full recovery within 3 years → recognize full TZS " + dtaPotentialLoss.toLocaleString() + ". " +
+              "If recovery extends beyond 5 years → derecognize entirely. " +
+              "Disclose TZS " + unrecognized.toLocaleString() + " unrecognized DTA in notes per IFRS for SMEs s.29.9.",
+          });
 
-      // Confidence
-      warnings,
-      classification_warnings:          classificationWarnings,
-      review_required:                  classificationWarnings.length > 0 || addBacks.some(a => a.requires_review),
-      finding_created:                  false,
-      verified_source:                  "ITA Cap.332 R.E.2023 + Finance Act 2026 (No. 3, effective 1 Jul 2026) + PwC Tanzania (Jan 2026) + Deloitte Tanzania Thin Cap (Aug 2025)",
-
-      // ── FINANCE ACT 2026 AWARENESS BLOCK ────────────────────
-      // These provisions are effective 1 July 2026. The CIT waterfall above
-      // is unchanged (CIT rate 30%, wear & tear, thin cap all unchanged).
-      // Items below require SEPARATE action by the CPA / payroll team.
-      fa2026_provisions: {
-        deemed_retained_earnings: {
-          ita_section: "s.33A (amended FA2026 s.23)",
-          note: "Deemed-distribution fraction reduced from 30% to 15%. WHT on deemed amount (10%) is unchanged. EXCLUDED: DSE-listed companies, financial institutions (BAFIA), insurance companies, mining cos with Framework Agreement.",
-          rate: FA2026_DEEMED_DISTRIBUTION_RATE,
-        },
-        nonresident_digital_service_tax: {
-          ita_section: "s.116(1) (amended FA2026 s.26)",
-          note: "WHT rate on payments to non-resident digital service providers increased 2% → 3%, effective 1 July 2026. Review any platform/SaaS payments made from 1 Jul 2026.",
-          rate: FA2026_NONRESIDENT_DIGITAL_WHT,
-        },
-        transfer_pricing_penalty: {
-          taa_section: "s.90(2)(c) (amended FA2026 s.82)",
-          note: "TP penalty basis changed: was 100% of tax shortfall; now 30% of TP adjustment amount. This reduces potential TP penalty exposure materially.",
-          rate: FA2026_TP_PENALTY_RATE,
-        },
-        presumptive_tax: {
-          ita_section: "First Schedule Item 2 (amended FA2026 s.31)",
-          note: "Presumptive tax ceiling raised 100M → 200M TZS. Top band rate raised 3.5% → 4.5% for turnover 11,000,001–200,000,000 TZS.",
-          threshold_tzs: FA2026_PRESUMPTIVE_THRESHOLD,
-          top_band_rate: FA2026_PRESUMPTIVE_TOP_RATE,
-        },
-        wht_crops_livestock_fisheries: {
-          ita_section: "new s.109A (FA2026 s.25)",
-          note: "Resident corporations must now withhold 1% on payments for crops, livestock products (live animals, unprocessed milk), and fishery products (unprocessed fish, fish maws). First Schedule para 4(d).",
-          rate: FA2026_WHT_CROPS_LIVESTOCK_FISHERIES,
-        },
-        single_instalment_food_crops: {
-          ita_section: "new s.116B (FA2026 s.28)",
-          note: "1% single instalment on food crop purchases (farm gate / purchase price, whichever higher). Excludes: sesame, sugarcane, tobacco, tea, cashew, coffee, cotton, pyrethrum, sisal; and purchases < 1 tonne.",
-          rate: FA2026_SINGLE_INSTALMENT_FOOD_CROPS,
-        },
-        forest_produce_instalment: {
-          ita_section: "s.116A (amended FA2026 s.27)",
-          note: "Rate unchanged at 2%. Scope expanded: 'forest produce' now includes natural varnish, latex, resin, sap, gums in addition to timber, logs, mirunda, poles.",
-          rate: FA2026_FOREST_PRODUCE_INSTALMENT_RATE,
-        },
-        sdl_rate: {
-          vet_section: "VET Act Cap.82 s.19 (amended FA2026 s.102)",
-          note: "SDL rate UNCHANGED at 4.5%. Amendment only clarifies Government institution exemption wording ('through Government subvention'). No change to corporate SDL obligations.",
-          rate: 0.045,
-        },
-      },
-    };
-
-    // ── DRY RUN ───────────────────────────────────────────────────────────
-    if (dry_run) {
-      return new Response(JSON.stringify({ success: true, result }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+        } else {
+          dtaLossRecognized = 0;
+          dtaLossStatus     = "not_recognized";
+          dtaLossNote =
+            `Loss DTA NOT RECOGNIZED (TZS ${dtaPotentialLoss.toLocaleString()} derecognized). ` +
+            `Estimated recovery ${recoveryLabel} — exceeds 5-year foreseeable horizon at ` +
+            `5% margin proxy + 70% annual shelter cap (ITA s.19(2)). ` +
+            `Per IFRS for SMEs s.29.9: probable recovery threshold NOT met at this proxy rate. ` +
+            `Full TZS ${dtaPotentialLoss.toLocaleString()} to be disclosed as unrecognized DTA in notes. ` +
+            `If management provides a credible recovery forecast reducing horizon to ≤ 5 years, re-assess.`;
+          classificationWarnings.push({
+            category: "Deferred Tax Asset — Loss Carry-Forward (Not Recognized)",
+            message:  dtaLossNote,
+            accounts_found:  [],
+            action_required:
+              "Disclose unrecognized DTA of TZS " + dtaPotentialLoss.toLocaleString() +
+              " in notes. Provide management profit forecast. If recovery horizon ≤ 5 years, " +
+              "adjust recognition and re-run engine.",
+          });
+        }
+      } else {
+        // Zero turnover: future profits not demonstrably probable
+        dtaLossStatus    = "not_recognized";
+        dtaLossNote =
+          `Loss DTA NOT RECOGNIZED — zero revenue this period; ` +
+          `future taxable income not demonstrably probable (IFRS for SMEs s.29.9). ` +
+          `Potential TZS ${dtaPotentialLoss.toLocaleString()} to be disclosed as unrecognized DTA.`;
+        classificationWarnings.push({
+          category: "Deferred Tax Asset — Loss Carry-Forward (Zero Revenue)",
+          message:  dtaLossNote,
+          accounts_found:  [],
+          action_required:
+            "Entity has zero revenue — loss DTA cannot be recognized without evidence of " +
+            "future profitable operations. Disclose unrecognized DTA in financial statement notes.",
+        });
+      }
     }
 
-    // ── COMMIT ────────────────────────────────────────────────────────────
-    await supabase.from("tax_computations").upsert({
-      company_id:                       companyId,
-      upload_id:                        uploadId,
-      period_year:                      periodYear,
-      accounting_profit_before_tax_tzs: accountingPBT,
-      gross_income_tzs:                 turnover,
-      add_backs:                        addBacks,
-      deductions:                       wearTearDeductions,
-      total_add_backs_tzs:              totalAddBacks,
-      total_deductions_tzs:             totalDeductions,
-      total_wear_tear_tzs:              totalWearTear,
-      total_debt_tzs:                   totalDetectedDebt,
-      total_equity_tzs:                 equity,
-      debt_equity_ratio:                equity > 0 ? totalDetectedDebt/equity : null,
-      allowable_debt_tzs:               equity * THIN_CAP_RATIO,
-      interest_expense_tzs:             interestExp,
-      thin_cap_disallowed_tzs:          thinCapDisallowed,
-      taxable_income_tzs:               taxableIncome,
-      cit_at_30pct_tzs:                 citAt30,
-      minimum_tax_tzs:                  amtIndicative,
-      tax_payable_tzs:                  taxPayable,
-      minimum_tax_applies:              false, // CPA must determine via 3-year history
-      effective_tax_rate_pct:           effectiveRate,
-      income_tax_provision_tzs:         itProvision,
-      cit_gap_tzs:                      citGap,
-      months_overdue:                   effectiveMonths,
-      penalty_tzs:                      penaltyTzs,
-      total_exposure_tzs:               totalExposure,
-      engine_version:                   ENGINE_VERSION,
-      warnings:                         [...warnings, ...classificationWarnings.map(w => `[${w.category}] ${w.message}`)],
-      computation_detail:               result,
-    }, { onConflict: "company_id,upload_id" });
+    // ── Net Deferred Tax Position (year-end closing) ─────────────────────────
+    const netDTL = dtlTiming;
+    const netDTA = dtaTiming + dtaLossRecognized;
+    // +ve = net liability position (DTL > DTA) → SFP non-current liabilities
+    // -ve = net asset position  (DTA > DTL) → SFP non-current assets
+    const netDeferredTaxPosition = netDTL - netDTA;
 
-    let findingCreated = false;
-    if (Math.abs(citGap) > VARIANCE_THRESHOLD_TZS) {
-      const severity = totalExposure >= 50_000_000 ? "critical"
-                     : totalExposure >= 10_000_000 ? "high"
-                     : totalExposure >= 1_000_000  ? "medium" : "low";
-
-      const { error: fErr } = await supabase.from("findings").upsert({
-        company_id:          companyId,
-        upload_id:           uploadId,
-        finding_type:        "statutory_payable",
-        finding_category:    "corporate_tax",
-        statutory_rule_id:   null,
-        period_start:        `${periodYear}-01-01`,
-        period_end:          `${periodYear}-12-31`,
-        amount_tzs:          taxPayable,
-        variance_amount_tzs: citGap,
-        penalty_amount_tzs:  penaltyTzs,
-        severity,
-        status:              "open",
-        description:         `ITA CIT gap FY${periodYear}: computed TZS ${taxPayable.toLocaleString()} vs provision TZS ${itProvision.toLocaleString()}. Gap: TZS ${citGap.toLocaleString()}. ${classificationWarnings.length} items require CPA review. Engine: ${ENGINE_VERSION}.`,
-        source_detail: {
-          engine:               ENGINE_VERSION,
-          taxable_income_tzs:   taxableIncome,
-          cit_at_30pct_tzs:     citAt30,
-          thin_cap_disallowed:  thinCapDisallowed,
-          total_wear_tear_tzs:  totalWearTear,
-          classification_warnings_count: classificationWarnings.length,
-          months_overdue:       effectiveMonths,
-          penalty_tzs:          penaltyTzs,
-          total_exposure_tzs:   totalExposure,
-          verified_source:      result.verified_source,
-        },
-      }, { onConflict: "company_id,finding_category,period_start,period_end" });
-
-      if (!fErr) findingCreated = true;
-    }
-
-    result.finding_created = findingCreated;
-    result.dry_run = false;
-
-    return new Response(JSON.stringify({ success: true, result }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-
-  } catch (err) {
-    console.error("kinga-tax-engine error:", err);
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500, headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
-    });
-  }
-});
+    // ── Deferred Tax Movement on SCI ─────────────────────────────────────────
+    // True movement = closing position − opening position.
+    // OD-14: no deferred_tax_schedules table yet → movement approximated as closing position.
+    // This is conservative and explicitly disclosed. CPA must adjust using prior-

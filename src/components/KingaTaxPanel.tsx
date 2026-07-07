@@ -67,6 +67,37 @@ interface IncomeStatementBreakdown {
   profit_before_tax_tzs:  number;
 }
 
+// ── MODULE D: Deferred Tax (IFRS for SMEs s.29 / IAS 12) ─────────────────
+interface ModuleDDeferred {
+  // Category A — timing (W&T vs depreciation)
+  timing_diff_tzs:               number;   // +ve=accelerated, -ve=decelerated
+  wear_tear_tzs:                 number;
+  accounting_depreciation_tzs:   number;
+  dtl_timing_tzs:                number;   // deferred tax liability from timing
+  dta_timing_tzs:                number;   // deferred tax asset from timing
+  // Category B — loss carry-forward (ITA s.19)
+  current_year_loss_tzs:         number;
+  dta_potential_loss_tzs:        number;
+  dta_loss_recognized_tzs:       number;
+  dta_loss_status:               "full" | "partial" | "not_recognized" | "nil";
+  dta_loss_recovery_years:       number | null;
+  dta_loss_note:                 string;
+  s19_shelter_rate:              number;   // 0.70 — ITA s.19(2) annual shelter cap
+  // Net position
+  net_dtl_tzs:                   number;
+  net_dta_tzs:                   number;
+  net_deferred_tax_position_tzs: number;   // +ve=net DTL (SFP liability), -ve=net DTA (SFP asset)
+  // SCI total tax charge
+  deferred_tax_movement_tzs:     number;   // approximate (opening balance not yet loaded)
+  total_tax_expense_tzs:         number;   // current tax + deferred tax movement
+  profit_after_full_tax_tzs:     number;
+  // Compliance
+  opening_balance_required:      boolean;
+  ifrs_section:                  string;
+  ita_loss_section:              string;
+  note:                          string;
+}
+
 interface TaxResult {
   engine_version: string;
   dry_run: boolean;
@@ -98,6 +129,8 @@ interface TaxResult {
   review_required: boolean;
   amt_trigger_note: string;
   finding_created: boolean;
+  // Module D — Deferred Tax (IFRS for SMEs s.29 / IAS 12)
+  module_d_deferred?: ModuleDDeferred;
 }
 
 interface CapAllowanceForm {
@@ -657,120 +690,67 @@ export function KingaTaxPanel({
               </div>
             )}
 
-            {/* Actions */}
-            {phase === "preview" && (
-              <div className="flex items-center gap-3 pt-2 flex-wrap">
-                <Button onClick={() => setShowConfirm(true)} className="gap-2">
-                  <CheckCircle className="w-4 h-4" />
-                  Commit Computation
-                </Button>
-                <Button variant="outline" onClick={reset}>Discard</Button>
-                <p className="text-xs text-muted-foreground">
-                  Saves ITA waterfall + creates finding in the DB.
-                </p>
-                {stored && (
-                  <div className="w-full mt-1 flex items-center gap-1.5 text-xs text-muted-foreground border border-border rounded px-2 py-1.5 bg-muted/20">
-                    <History className="w-3 h-3 flex-shrink-0" />
-                    <span className="font-medium">Previous commit:</span>
-                    {new Date(stored.created_at).toLocaleString()} —
-                    Engine {stored.engine_version ?? "unknown"} —
-                    Tax payable TZS {stored.tax_payable_tzs?.toLocaleString() ?? "—"} |
-                    Gap TZS {stored.cit_gap_tzs?.toLocaleString() ?? "—"}
-                    <span className="ml-1 text-orange-600 font-medium">
-                      (Committing will replace this record)
-                    </span>
+            {/* ── MODULE D: Section 29 Deferred Tax Disclosure ────────────────── */}
+            {result.module_d_deferred && (
+              <div className="border border-amber-300 rounded-xl overflow-hidden">
+                <div className="bg-amber-50 px-3 py-2 border-b border-amber-300 flex items-center gap-2">
+                  <Info className="w-3.5 h-3.5 text-amber-700" />
+                  <span className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
+                    Module D — Deferred Tax Disclosure (IFRS for SMEs s.29 / IAS 12)
+                  </span>
+                </div>
+                <div className="p-3 space-y-0.5">
+
+                  {/* Category A: Timing differences */}
+                  <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1 mt-1">
+                    Category A — Timing Differences (W&amp;T vs Depreciation)
                   </div>
-                )}
-              </div>
-            )}
+                  <WaterfallRow label="ITA Wear &amp; Tear this period" value={fmt(result.module_d_deferred.wear_tear_tzs)} indent={1} />
+                  <WaterfallRow label="Accounting Depreciation (from TB)" value={fmt(result.module_d_deferred.accounting_depreciation_tzs)} indent={1} />
+                  {result.module_d_deferred.dtl_timing_tzs > 0 && (
+                    <WaterfallRow
+                      label="→ DTL: Accelerated W&T creates future taxable amount (× 30%)"
+                      value={fmt(result.module_d_deferred.dtl_timing_tzs)}
+                      indent={2} bold
+                    />
+                  )}
+                  {result.module_d_deferred.dta_timing_tzs > 0 && (
+                    <WaterfallRow
+                      label="→ DTA: Decelerated W&T creates future deductible amount (× 30%)"
+                      value={fmt(result.module_d_deferred.dta_timing_tzs)}
+                      indent={2} bold
+                    />
+                  )}
+                  {result.module_d_deferred.dtl_timing_tzs === 0 && result.module_d_deferred.dta_timing_tzs === 0 && (
+                    <div className="text-xs text-muted-foreground px-8 py-1 italic">
+                      No timing difference — enter capital allowances to populate this section.
+                    </div>
+                  )}
 
-            {phase === "done" && (
-              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">
-                <CheckCircle className="w-4 h-4" />
-                Computation saved.
-                {result.finding_created && " CIT gap finding created in findings table."}
-                <Button variant="ghost" size="sm" onClick={reset} className="ml-auto">Run Again</Button>
-              </div>
-            )}
-          </div>
-        )}
-      </CardContent>
-
-      {/* ── COMMIT CONFIRM DIALOG ─────────────────────────────────── */}
-      {result && (
-        <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-primary" />
-                Confirm — Commit ITA Computation to Database
-              </DialogTitle>
-            </DialogHeader>
-
-            <div className="space-y-3 text-sm">
-              <div className="text-muted-foreground">
-                Committing will write the following computation to the <code>tax_computations</code> table
-                and create a formal finding record in the audit database.
-                {stored && <span className="text-orange-600 font-medium"> This will replace the previous commit from {new Date(stored.created_at).toLocaleDateString()}.</span>}
-              </div>
-
-              <div className="bg-muted/40 border border-border rounded-lg p-3 space-y-1.5 font-mono text-xs">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Company</span>
-                  <span className="font-semibold">{companyName ?? companyId}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Period</span>
-                  <span>FY {periodYear}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Engine</span>
-                  <span>{result.engine_version}</span>
-                </div>
-                <div className="my-1 border-t border-dashed border-muted" />
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Taxable Income</span>
-                  <span>TZS {result.taxable_income_tzs?.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">CIT @ 30%</span>
-                  <span>TZS {result.cit_at_30pct_tzs?.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Tax Provision (booked)</span>
-                  <span>TZS {result.income_tax_provision_tzs?.toLocaleString()}</span>
-                </div>
-                <div className={`flex justify-between font-bold ${Math.abs(result.cit_gap_tzs) > 500_000 ? "text-destructive" : "text-green-700"}`}>
-                  <span>CIT Gap</span>
-                  <span>TZS {result.cit_gap_tzs?.toLocaleString()}</span>
-                </div>
-              </div>
-
-              {result.review_required && (
-                <div className="flex items-start gap-2 text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded px-3 py-2">
-                  <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                  CPA Review Required — {result.classification_warnings?.length ?? 0} classification warning(s) unresolved.
-                  Committing will save this as a provisional computation.
-                </div>
-              )}
-            </div>
-
-            <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setShowConfirm(false)}>Cancel</Button>
-              <Button
-                onClick={() => {
-                  setShowConfirm(false);
-                  runEngine(false);
-                }}
-                className="gap-2"
-              >
-                <CheckCircle className="w-4 h-4" />
-                Yes, Commit to Database
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
-    </Card>
-  );
-}
+                  {/* Category B: Loss carry-forward DTA */}
+                  {result.module_d_deferred.current_year_loss_tzs > 0 && (
+                    <>
+                      <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1 mt-3">
+                        Category B — Loss Carry-Forward DTA (ITA s.19 + IFRS for SMEs s.29.9)
+                      </div>
+                      <WaterfallRow label="Current year unrelieved tax loss" value={fmt(result.module_d_deferred.current_year_loss_tzs)} indent={1} />
+                      <WaterfallRow label="Potential DTA (loss × 30%)" value={fmt(result.module_d_deferred.dta_potential_loss_tzs)} indent={1} />
+                      <WaterfallRow
+                        label={`ITA s.19(2) — 70% annual shelter cap recovery: ~${result.module_d_deferred.dta_loss_recovery_years !== null ? result.module_d_deferred.dta_loss_recovery_years.toFixed(1) + " yrs" : "∞ yrs"} at 5% margin proxy`}
+                        value=""
+                        indent={2}
+                      />
+                      <WaterfallRow
+                        label={
+                          result.module_d_deferred.dta_loss_status === "full"          ? "→ DTA Recognized in FULL" :
+                          result.module_d_deferred.dta_loss_status === "partial"       ? "→ DTA Recognized PARTIALLY (70% haircut — CPA must verify)" :
+                          result.module_d_deferred.dta_loss_status === "not_recognized"? "→ DTA NOT Recognized — horizon exceeded (disclose in notes)" :
+                          "→ No loss this period"
+                        }
+                        value={
+                          result.module_d_deferred.dta_loss_recognized_tzs > 0
+                            ? fmt(result.module_d_deferred.dta_loss_recognized_tzs)
+                            : "TZS 0"
+                        }
+                        indent={2} bold
+                  
