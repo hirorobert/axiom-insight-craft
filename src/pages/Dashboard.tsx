@@ -121,6 +121,7 @@ interface SelectedCompanyData {
   code: string | null;
   reporting_framework: string | null;
   fiscal_year_end: string | null;
+  currency: string | null;
 }
 
 export default function Dashboard() {
@@ -298,7 +299,7 @@ export default function Dashboard() {
     const fetchCompany = async () => {
       const { data } = await supabase
         .from("companies")
-        .select("id, name, code, reporting_framework, fiscal_year_end")
+        .select("id, name, code, reporting_framework, fiscal_year_end, currency")
         .eq("id", selectedUpload.company_id)
         .single();
       if (data) setSelectedCompanyData(data as SelectedCompanyData);
@@ -527,6 +528,7 @@ export default function Dashboard() {
                 companyName={selectedUpload.company_name ?? ""}
                 companyTin={selectedCompanyData?.code ?? ""}
                 periodYearEnd={selectedCompanyData?.fiscal_year_end ?? ""}
+                companyCurrency={selectedCompanyData?.currency ?? "TZS"}
               />
             )}
             {selectedUpload && isBlocked && (

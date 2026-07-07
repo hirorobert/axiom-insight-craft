@@ -424,6 +424,33 @@ const NON_PAYROLL_EXCLUSION_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * Presumptive tax ceiling guard — FA2026 s.31(a)(ii).
+ *
+ * Presumptive tax ONLY applies to businesses with annual turnover ≤ TZS 200M.
+ * Above this ceiling the company is in the standard CIT regime (ITA Chapter 332).
+ * None of the band-specific rules apply.
+ *
+ * Pre-FA2026 ceiling was TZS 100M (now superseded).  Use the FA2026 figure.
+ *
+ * This set lists every band trigger_category that must be suppressed for
+ * companies above the ceiling. The advisory threshold rule
+ * ('presumptive_tax_threshold', rate_is_threshold=true) is NOT listed here —
+ * it is correctly left active to surface the informational advisory finding.
+ */
+const PRESUMPTIVE_TAX_BAND_CATEGORIES = new Set([
+  "presumptive_tax_band1",
+  "presumptive_tax_band2_new_tin",
+  "presumptive_tax_band3_compliant",
+  "presumptive_tax_band3_noncompliant",
+  "presumptive_tax_band4_compliant",
+  "presumptive_tax_band4_noncompliant",
+  "presumptive_tax_top_band_rate",
+]);
+
+/** TZS 200,000,000 — FA2026 s.31(a)(ii) — annual turnover ceiling for presumptive tax regime. */
+const PRESUMPTIVE_TAX_CEILING_TZS = 200_000_000;
+
+/**
  * Returns true if an account name represents gross emoluments (SDL base).
  * Logic: matches PAYROLL_NAME_PATTERNS AND does NOT match NON_PAYROLL_EXCLUSION_PATTERNS.
  */
@@ -466,7 +493,9 @@ const STATUTORY_PAYABLE_PATTERNS: Array<{
   { pattern: /\bwcf\b/i,                         category: "wcf_outstanding",           title_prefix: "WCF Outstanding" },
   { pattern: /\bpaye\b/i,                        category: "paye_outstanding",          title_prefix: "PAYE Outstanding" },
   { pattern: /\bvat\b/i,                         category: "vat_outstanding",           title_prefix: "VAT Outstanding" },
-  { pattern: /tra|tax\s*(payab|assess|due)/i,    category: "tra_assessment",            title_prefix: "TRA Tax Assessment Outstanding" },
+  // IMPORTANT: use \bTRA\b not bare /tra/ — "Trade" starts with "Tra" and would
+  // match, inflating Total Exposure by the full trade-payables balance.
+  { pattern: /\bTRA\b|tax\s*(payab|assess|due)/i, category: "tra_assessment",            title_prefix: "TRA Tax Assessment Outstanding" },
   { pattern: /service\s*levy/i,                  category: "service_levy_outstanding",  title_prefix: "Service Levy Outstanding" },
   { pattern: /corporate\s*tax|income\s*tax/i,    category: "corporate_tax_outstanding", title_prefix: "Corporate Tax Outstanding" },
   { pattern: /\bzssf\b/i,                        category: "zssf_outstanding",          title_prefix: "ZSSF Outstanding" },
@@ -890,6 +919,17 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
       const baseAmount = effectiveTotal;
       const accounts   = effectiveAccounts;
 
+      // ── Presumptive tax ceiling guard (FA2026 s.31(a)(ii)) ────────────
+      // Band rules only apply to companies with turnover ≤ TZS 200M.
+      // Kamanga Medics: TZS 9.4B revenue — 47× above ceiling. Skip all bands.
+      // The advisory 'presumptive_tax_threshold' rule (rate_is_threshold=true)
+      // is deliberately excluded from this guard and fires correctly as LOW/advisory.
+      if (PRESUMPTIVE_TAX_BAND_CATEGORIES.has(rule.trigger_category) &&
+          baseAmount > PRESUMPTIVE_TAX_CEILING_TZS) {
+        result.rules_skipped++;
+        continue;
+      }
+
       let computedObligation: number;
       let obligationFormula: string;
 
@@ -1005,14 +1045,47 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
         continue;
       }
 
-      // Step C7: SDL payroll filter confirmation note ──────────────────
-      // OD-2 closed. SDL base is now the is_payroll_account-filtered subset.
-      // The note records which accounts were included so reviewers can verify
-      // that the payroll flag is correct for this company.
+      // Step C7: SDL transparency — read TB-booked SDL and surface in finding ──
+      //
+      // Architecture: declared amounts come from the tax_payments table (preparer
+      // records actual remittances). The TB SDL expense is NOT the same as a
+      // payment — the company may have accrued SDL without remitting.
+      //
+      // However, the TB SDL expense is CERTIFIED evidence of what the company
+      // computed. If TB SDL ≈ computed_obligation, the gap is a payment-timing
+      // issue, not a computation error. Surfacing this prevents a misleading
+      // "massive gap" when the company's own calculation is correct.
+      //
+      // Read-TB-first: scan operating_expenses for accounts that are SDL expense.
+      // Include their total as `tb_sdl_expense_tzs` in source_detail (advisory).
       const isSDL = rule.trigger_category === "sdl";
+      let tbSdlExpenseTzs: number | null = null;
+      let tbSdlNote: string | undefined;
+
+      if (isSDL) {
+        const opexSection = processingResult.statements.income_statement?.["operating_expenses"];
+        if (opexSection?.accounts) {
+          const sdlExpenseAccounts = opexSection.accounts.filter(
+            (a: TrialBalanceAccount) => /\bsdl\b/i.test(a.account_name)
+          );
+          if (sdlExpenseAccounts.length > 0) {
+            tbSdlExpenseTzs = sdlExpenseAccounts.reduce(
+              (s: number, a: TrialBalanceAccount) => s + a.balance, 0
+            );
+            const match10pct = Math.abs(tbSdlExpenseTzs - computedObligation) / computedObligation < 0.10;
+            tbSdlNote =
+              `TB contains SDL expense account(s): TZS ${tbSdlExpenseTzs.toFixed(2)} ` +
+              `(${sdlExpenseAccounts.map((a: TrialBalanceAccount) => a.account_name).join(", ")}). ` +
+              (match10pct
+                ? `TB SDL expense is within 10% of computed obligation — company's SDL computation appears correct. ` +
+                  `Gap likely reflects un-recorded remittance. Record payment via 'Record Payment' to close.`
+                : `TB SDL expense differs from computed obligation by > 10%. Verify payroll base accounts.`);
+          }
+        }
+      }
+
       const payrollBaseNote = isSDL
-        ? `SDL base filtered to is_payroll_account=true accounts only ` +
-          `(OD-2 closed, migration 20260626200000). ` +
+        ? `SDL base filtered to payroll accounts only. ` +
           `Base TZS ${baseAmount.toFixed(2)} = sum of ${effectiveAccounts.length} payroll account(s). ` +
           `Non-emolument accounts (NHIF, NSSF, WCF, SDL expense, rent, utilities) excluded.`
         : undefined;
@@ -1090,6 +1163,8 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
           })),
           account_count:                   accounts.length,
           ...(payrollBaseNote ? { sdl_payroll_base_note: payrollBaseNote } : {}),
+          ...(tbSdlExpenseTzs !== null ? { tb_sdl_expense_tzs: tbSdlExpenseTzs } : {}),
+          ...(tbSdlNote ? { tb_sdl_note: tbSdlNote } : {}),
         },
         status:        "open",
         engine_run_id: engineRunId,  // column added by migration 20260626190000
@@ -1111,6 +1186,7 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
           months_overdue:              Math.round(monthsOverdue * 10) / 10,
           account_count:               accounts.length,
           payment_records:             paymentRecords,
+          ...(tbSdlNote ? { tb_sdl_note: tbSdlNote } : {}),
         });
         result.findings_created++;
         continue;

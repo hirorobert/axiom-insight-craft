@@ -793,6 +793,24 @@ function aggregateStatements(
 
     if (m.is_cash_account) cashBalance = signed;
 
+    // ── Closing-stock rescue (Task #85) ──────────────────────────────────────
+    // Pattern `/\binventor[yi]/i` at Tier 5 classifies ALL "Inventory" accounts
+    // as current_assets (debit normal balance).  Accounts with code prefix "5"
+    // (income-statement range) that carry a net-credit balance are closing-stock
+    // COGS adjustments misclassified as assets.  Intercept here, before pushing
+    // to the section arrays, and reclassify to cost_of_goods_sold.
+    if (
+      m.classification === "current_assets" &&
+      signed < 0 &&
+      /^5/.test(account.account_code?.trim() ?? "")
+    ) {
+      const cogsCredit = Math.abs(signed); // positive reduction of COGS
+      const rescuedEnriched = { ...account, balance: cogsCredit };
+      is.cost_of_goods_sold.accounts.push(rescuedEnriched);
+      is.cost_of_goods_sold.total += cogsCredit; // credit-convention: matches how normal_balance:"credit" rows are totalled
+      continue; // do not push to current_assets
+    }
+
     if (bs[m.classification]) {
       bs[m.classification].accounts.push(enriched);
       bs[m.classification].total += signed;

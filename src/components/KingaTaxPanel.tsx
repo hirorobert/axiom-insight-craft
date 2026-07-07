@@ -11,8 +11,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import {
   Calculator, ChevronDown, ChevronRight, AlertTriangle,
-  CheckCircle, Info, Plus, RefreshCw,
+  CheckCircle, Info, Plus, RefreshCw, History,
 } from "lucide-react";
 
 // ── ITA CLASS METADATA — VERIFIED: PwC Tanzania (reviewed 14 Jan 2026) ───
@@ -53,9 +56,21 @@ interface ClassificationWarning {
   action_required: string;
 }
 
+interface IncomeStatementBreakdown {
+  revenue_tzs:            number;
+  cost_of_goods_sold_tzs: number;
+  gross_profit_tzs:       number;
+  operating_expenses_tzs: number;
+  other_income_tzs:       number;
+  finance_costs_tzs:      number;
+  taxes_tzs:              number;
+  profit_before_tax_tzs:  number;
+}
+
 interface TaxResult {
   engine_version: string;
   dry_run: boolean;
+  income_statement_breakdown?: IncomeStatementBreakdown;
   accounting_profit_before_tax_tzs: number;
   gross_income_tzs: number;
   add_backs: TaxAdjustment[];
@@ -337,6 +352,8 @@ export function KingaTaxPanel({
 
   const [phase, setPhase]               = useState<Phase>("idle");
   const [result, setResult]             = useState<TaxResult | null>(null);
+  const [showConfirm, setShowConfirm]   = useState(false);
+  const [history, setHistory]           = useState<StoredComputation[]>([]);
   const [monthsOverdue, setMonthsOverdue] = useState(0);
   const [error, setError]               = useState<string | null>(null);
   const [stored, setStored]             = useState<StoredComputation | null>(null);
@@ -499,6 +516,33 @@ export function KingaTaxPanel({
                 </span>
               </div>
               <div className="p-3 space-y-0.5">
+                {/* ── Accounting P&L breakdown (TB-sourced, transparent) ── */}
+                {result.income_statement_breakdown && (
+                  <div className="mb-2">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1">ACCOUNTING P&L (from Trial Balance)</div>
+                    <WaterfallRow label="Revenue / Turnover" value={fmt(result.income_statement_breakdown.revenue_tzs)} indent={1} />
+                    {result.income_statement_breakdown.cost_of_goods_sold_tzs > 0 && (
+                      <WaterfallRow label="Less: Cost of Goods Sold" value={`− ${fmt(result.income_statement_breakdown.cost_of_goods_sold_tzs)}`} indent={1} />
+                    )}
+                    {result.income_statement_breakdown.cost_of_goods_sold_tzs > 0 && (
+                      <WaterfallRow label="Gross Profit" value={fmtSigned(result.income_statement_breakdown.gross_profit_tzs)} bold indent={1} />
+                    )}
+                    {result.income_statement_breakdown.operating_expenses_tzs > 0 && (
+                      <WaterfallRow label="Less: Operating Expenses" value={`− ${fmt(result.income_statement_breakdown.operating_expenses_tzs)}`} indent={1} />
+                    )}
+                    {result.income_statement_breakdown.other_income_tzs > 0 && (
+                      <WaterfallRow label="Add: Other Income" value={`+ ${fmt(result.income_statement_breakdown.other_income_tzs)}`} indent={1} />
+                    )}
+                    {result.income_statement_breakdown.finance_costs_tzs > 0 && (
+                      <WaterfallRow label="Less: Finance Costs" value={`− ${fmt(result.income_statement_breakdown.finance_costs_tzs)}`} indent={1} />
+                    )}
+                    {result.income_statement_breakdown.taxes_tzs > 0 && (
+                      <WaterfallRow label="Less: Income Tax Provision" value={`− ${fmt(result.income_statement_breakdown.taxes_tzs)}`} indent={1} />
+                    )}
+                    <div className="my-1 border-t border-dashed border-muted mx-2" />
+                  </div>
+                )}
+
                 <WaterfallRow label="Accounting Profit Before Tax" value={fmtSigned(result.accounting_profit_before_tax_tzs)} bold highlight />
                 <WaterfallRow label="Gross Income (revenue base)" value={fmt(result.gross_income_tzs)} />
 
@@ -600,17 +644,23 @@ export function KingaTaxPanel({
               </div>
             )}
 
-            {result.cit_gap_tzs <= 500_000 && result.cit_gap_tzs >= -500_000 && (
+            {result.cit_gap_tzs <= 500_000 && result.cit_gap_tzs >= -500_000 && !result.review_required && (
               <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">
                 <CheckCircle className="w-4 h-4" />
                 Corporate tax provision is adequate — no material gap detected.
               </div>
             )}
+            {result.cit_gap_tzs <= 500_000 && result.cit_gap_tzs >= -500_000 && result.review_required && (
+              <div className="flex items-center gap-2 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <AlertTriangle className="w-4 h-4" />
+                Gap is within threshold but CPA review is required before this computation can be certified. Resolve the items above first.
+              </div>
+            )}
 
             {/* Actions */}
             {phase === "preview" && (
-              <div className="flex items-center gap-3 pt-2">
-                <Button onClick={() => runEngine(false)} className="gap-2">
+              <div className="flex items-center gap-3 pt-2 flex-wrap">
+                <Button onClick={() => setShowConfirm(true)} className="gap-2">
                   <CheckCircle className="w-4 h-4" />
                   Commit Computation
                 </Button>
@@ -618,6 +668,19 @@ export function KingaTaxPanel({
                 <p className="text-xs text-muted-foreground">
                   Saves ITA waterfall + creates finding in the DB.
                 </p>
+                {stored && (
+                  <div className="w-full mt-1 flex items-center gap-1.5 text-xs text-muted-foreground border border-border rounded px-2 py-1.5 bg-muted/20">
+                    <History className="w-3 h-3 flex-shrink-0" />
+                    <span className="font-medium">Previous commit:</span>
+                    {new Date(stored.created_at).toLocaleString()} —
+                    Engine {stored.engine_version ?? "unknown"} —
+                    Tax payable TZS {stored.tax_payable_tzs?.toLocaleString() ?? "—"} |
+                    Gap TZS {stored.cit_gap_tzs?.toLocaleString() ?? "—"}
+                    <span className="ml-1 text-orange-600 font-medium">
+                      (Committing will replace this record)
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -632,6 +695,82 @@ export function KingaTaxPanel({
           </div>
         )}
       </CardContent>
+
+      {/* ── COMMIT CONFIRM DIALOG ─────────────────────────────────── */}
+      {result && (
+        <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-primary" />
+                Confirm — Commit ITA Computation to Database
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-3 text-sm">
+              <div className="text-muted-foreground">
+                Committing will write the following computation to the <code>tax_computations</code> table
+                and create a formal finding record in the audit database.
+                {stored && <span className="text-orange-600 font-medium"> This will replace the previous commit from {new Date(stored.created_at).toLocaleDateString()}.</span>}
+              </div>
+
+              <div className="bg-muted/40 border border-border rounded-lg p-3 space-y-1.5 font-mono text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Company</span>
+                  <span className="font-semibold">{companyName ?? companyId}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Period</span>
+                  <span>FY {periodYear}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Engine</span>
+                  <span>{result.engine_version}</span>
+                </div>
+                <div className="my-1 border-t border-dashed border-muted" />
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Taxable Income</span>
+                  <span>TZS {result.taxable_income_tzs?.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">CIT @ 30%</span>
+                  <span>TZS {result.cit_at_30pct_tzs?.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tax Provision (booked)</span>
+                  <span>TZS {result.income_tax_provision_tzs?.toLocaleString()}</span>
+                </div>
+                <div className={`flex justify-between font-bold ${Math.abs(result.cit_gap_tzs) > 500_000 ? "text-destructive" : "text-green-700"}`}>
+                  <span>CIT Gap</span>
+                  <span>TZS {result.cit_gap_tzs?.toLocaleString()}</span>
+                </div>
+              </div>
+
+              {result.review_required && (
+                <div className="flex items-start gap-2 text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded px-3 py-2">
+                  <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                  CPA Review Required — {result.classification_warnings?.length ?? 0} classification warning(s) unresolved.
+                  Committing will save this as a provisional computation.
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowConfirm(false)}>Cancel</Button>
+              <Button
+                onClick={() => {
+                  setShowConfirm(false);
+                  runEngine(false);
+                }}
+                className="gap-2"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Yes, Commit to Database
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </Card>
   );
 }

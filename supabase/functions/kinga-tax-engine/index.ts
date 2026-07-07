@@ -302,7 +302,15 @@ const EQUITY_PATTERNS = [
 
 // ── INTERFACES ────────────────────────────────────────────────────────────
 
-interface TBAccount { name: string; balance: number; code?: string; }
+interface TBAccount {
+  // process-trial-balance v2+ writes account_name (snake_case).
+  // Older snapshots may have name (camelCase). Support both.
+  account_name?: string;
+  name?:         string;
+  balance:       number;
+  account_code?: string;
+  code?:         string;
+}
 interface TBSection  { accounts: TBAccount[]; total: number; }
 interface ProcessingResult {
   statements: {
@@ -346,11 +354,25 @@ interface ClassificationWarning {
 
 // ── HELPERS ───────────────────────────────────────────────────────────────
 
-function matchesAny(name: string, pats: RegExp[]) { return pats.some(p => p.test(name)); }
+function matchesAny(name: string | undefined, pats: RegExp[]): boolean {
+  if (!name) return false;
+  return pats.some(p => p.test(name));
+}
+
+/** Resolve the human-readable account name from either field convention. */
+function accountLabel(a: TBAccount): string {
+  return a.account_name ?? a.name ?? "(unnamed)";
+}
 
 function sumMatching(accounts: TBAccount[], patterns: RegExp[]): { total: number; names: string[] } {
-  const matched = accounts.filter(a => matchesAny(a.name, patterns));
-  return { total: matched.reduce((s, a) => s + Math.abs(a.balance), 0), names: matched.map(a => a.name) };
+  // MASTER BUG FIX (2026-07-07): process-trial-balance v2+ writes account_name,
+  // not name. Prior code used a.name which was always undefined → all pattern
+  // matches returned zero. Use accountLabel() to support both field names.
+  const matched = accounts.filter(a => matchesAny(accountLabel(a), patterns));
+  return {
+    total: matched.reduce((s, a) => s + Math.abs(a.balance), 0),
+    names: matched.map(accountLabel),
+  };
 }
 
 // ── MAIN HANDLER ──────────────────────────────────────────────────────────
@@ -574,15 +596,35 @@ serve(async (req) => {
       });
     }
 
-    // ── STEP 7: Income tax provision from balance sheet ───────────────────
-    const { total: itProvision } = sumMatching([...bsCL, ...bsNCL], INCOME_TAX_PROVISION_PATTERNS);
+    // ── STEP 7: Income tax provision — read from BOTH balance sheet AND P&L ─
+    //
+    // Read-TB-first principle: the provision may be booked in one of two places:
+    //   (a) Current liabilities — "Corporate Tax Payable" (balance sheet approach)
+    //   (b) Income statement taxes section — "Corporate Tax Provision" (P&L approach)
+    //
+    // Prior version only searched (a), missing companies that book the provision
+    // as a P&L tax charge (e.g. Kamanga account 7000 "Corporate Tax Provision"
+    // classified under income_statement.taxes). Both are valid IFRS treatments.
+    //
+    // Use the larger of the two as the provision (they should not double-count;
+    // the same amount would only appear in one section).
+    const taxesAccs = is.taxes?.accounts ?? [];
+    const { total: itProvisionBS, names: provBSNames } = sumMatching([...bsCL, ...bsNCL], INCOME_TAX_PROVISION_PATTERNS);
+    const { total: itProvisionIS, names: provISNames } = sumMatching(taxesAccs, INCOME_TAX_PROVISION_PATTERNS);
+    const itProvision = itProvisionBS + itProvisionIS; // sum if provision in both sections
+    const provisionSources = [...provBSNames, ...provISNames];
     if (itProvision === 0) {
       classificationWarnings.push({
         category: "Income Tax Provision",
-        message: "No income tax provision detected in current or non-current liabilities.",
+        message: "No income tax provision detected in current or non-current liabilities, or in the taxes section of the income statement.",
         accounts_found: [],
-        action_required: "Check if the account is named something non-standard (e.g. 'Malipo ya Kodi', 'Tax Accrual'). If genuinely zero, the full CIT is a gap.",
+        action_required: "Check if the account is named something non-standard (e.g. 'Malipo ya Kodi', 'Tax Accrual', 'Corporate Tax Provision'). The engine searched both balance sheet liabilities and income statement taxes. If genuinely zero, the full CIT is a gap.",
       });
+    } else if (itProvisionIS > 0 && itProvisionBS === 0) {
+      warnings.push(
+        `ℹ Income tax provision TZS ${itProvisionIS.toLocaleString()} found in income statement (taxes section: ${provISNames.join(", ")}). ` +
+        `This is the CURRENT YEAR tax charge. If also recording a balance sheet payable separately, ensure no double-count.`
+      );
     }
 
     // ── STEP 8: Compute taxable income ───────────────────────────────────
@@ -627,6 +669,16 @@ serve(async (req) => {
       }
     }
 
+    // ── STEP 11b: Income statement breakdown (for transparent waterfall) ─────
+    // Provides the deduction trail from gross income → PBT so the waterfall
+    // is auditable. Without this, the jump from TZS 9.4B gross → TZS 0 PBT
+    // is a black box to the CPA. These figures are read directly from the TB.
+    const cogsTzs   = Math.abs(is.cost_of_goods_sold?.total ?? 0);
+    const opexTzs   = Math.abs(is.operating_expenses?.total ?? 0);
+    const otherIncTzs = Math.abs(is.other_income?.total ?? 0);
+    const finCostTzs  = Math.abs(is.finance_costs?.total ?? 0);
+    const taxesTzs    = Math.abs(is.taxes?.total ?? 0);
+
     const result = {
       engine_version:                   ENGINE_VERSION,
       company_id:                       companyId,
@@ -634,7 +686,19 @@ serve(async (req) => {
       period_year:                      periodYear,
       dry_run,
 
-      // Waterfall
+      // ── Accounting P&L breakdown (TB-sourced, transparent waterfall) ──
+      income_statement_breakdown: {
+        revenue_tzs:            turnover,
+        cost_of_goods_sold_tzs: cogsTzs,
+        gross_profit_tzs:       turnover - cogsTzs,
+        operating_expenses_tzs: opexTzs,
+        other_income_tzs:       otherIncTzs,
+        finance_costs_tzs:      finCostTzs,
+        taxes_tzs:              taxesTzs,
+        profit_before_tax_tzs:  accountingPBT,
+      },
+
+      // ── ITA Waterfall ─────────────────────────────────────────────────
       accounting_profit_before_tax_tzs: accountingPBT,
       gross_income_tzs:                 turnover,
       add_backs:                        addBacks,
