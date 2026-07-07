@@ -132,6 +132,126 @@ export type Database = {
           },
         ]
       }
+      adjusting_journal_entries: {
+        Row: {
+          aje_number: string
+          aje_type: string
+          approved_at: string | null
+          approved_by: string | null
+          auto_generated: boolean
+          company_id: string
+          created_at: string
+          created_by: string
+          description: string
+          id: string
+          period_year: number
+          source: string
+          status: string
+          updated_at: string
+          upload_id: string
+        }
+        Insert: {
+          aje_number: string
+          aje_type: string
+          approved_at?: string | null
+          approved_by?: string | null
+          auto_generated?: boolean
+          company_id: string
+          created_at?: string
+          created_by: string
+          description: string
+          id?: string
+          period_year: number
+          source?: string
+          status?: string
+          updated_at?: string
+          upload_id: string
+        }
+        Update: {
+          aje_number?: string
+          aje_type?: string
+          approved_at?: string | null
+          approved_by?: string | null
+          auto_generated?: boolean
+          company_id?: string
+          created_at?: string
+          created_by?: string
+          description?: string
+          id?: string
+          period_year?: number
+          source?: string
+          status?: string
+          updated_at?: string
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "adjusting_journal_entries_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "adjusting_journal_entries_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      aje_lines: {
+        Row: {
+          account_code: string
+          account_name: string
+          aje_id: string
+          classification: string
+          credit_tzs: number
+          debit_tzs: number
+          id: string
+          line_number: number
+          narration: string | null
+        }
+        Insert: {
+          account_code: string
+          account_name: string
+          aje_id: string
+          classification: string
+          credit_tzs?: number
+          debit_tzs?: number
+          id?: string
+          line_number: number
+          narration?: string | null
+        }
+        Update: {
+          account_code?: string
+          account_name?: string
+          aje_id?: string
+          classification?: string
+          credit_tzs?: number
+          debit_tzs?: number
+          id?: string
+          line_number?: number
+          narration?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "aje_lines_aje_id_fkey"
+            columns: ["aje_id"]
+            isOneToOne: false
+            referencedRelation: "adjusting_journal_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "aje_lines_aje_id_fkey"
+            columns: ["aje_id"]
+            isOneToOne: false
+            referencedRelation: "v_aje_balance_check"
+            referencedColumns: ["aje_id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: Database["public"]["Enums"]["audit_action"]
@@ -881,6 +1001,114 @@ export type Database = {
         }
         Relationships: []
       }
+      period_closing_balances: {
+        Row: {
+          cash_balance_tzs: number
+          closing_dta_tzs: number
+          closing_dtl_tzs: number
+          company_id: string
+          computed_at: string
+          created_at: string
+          cumulative_unrelieved_loss_tzs: number
+          current_assets_tzs: number
+          current_liabilities_tzs: number
+          engine_version: string | null
+          equity_tzs: number
+          id: string
+          net_deferred_tax_position_tzs: number
+          non_current_assets_tzs: number
+          non_current_liabilities_tzs: number
+          other_reserves_tzs: number
+          period_month: number
+          period_year: number
+          retained_earnings_tzs: number
+          share_capital_tzs: number
+          upload_id: string | null
+          wdv_class1_tzs: number
+          wdv_class2_tzs: number
+          wdv_class3_tzs: number
+          wdv_class5_tzs: number
+          wdv_class6_tzs: number
+          wdv_class7_tzs: number
+          wdv_class8_tzs: number
+        }
+        Insert: {
+          cash_balance_tzs?: number
+          closing_dta_tzs?: number
+          closing_dtl_tzs?: number
+          company_id: string
+          computed_at?: string
+          created_at?: string
+          cumulative_unrelieved_loss_tzs?: number
+          current_assets_tzs?: number
+          current_liabilities_tzs?: number
+          engine_version?: string | null
+          equity_tzs?: number
+          id?: string
+          net_deferred_tax_position_tzs?: number
+          non_current_assets_tzs?: number
+          non_current_liabilities_tzs?: number
+          other_reserves_tzs?: number
+          period_month?: number
+          period_year: number
+          retained_earnings_tzs?: number
+          share_capital_tzs?: number
+          upload_id?: string | null
+          wdv_class1_tzs?: number
+          wdv_class2_tzs?: number
+          wdv_class3_tzs?: number
+          wdv_class5_tzs?: number
+          wdv_class6_tzs?: number
+          wdv_class7_tzs?: number
+          wdv_class8_tzs?: number
+        }
+        Update: {
+          cash_balance_tzs?: number
+          closing_dta_tzs?: number
+          closing_dtl_tzs?: number
+          company_id?: string
+          computed_at?: string
+          created_at?: string
+          cumulative_unrelieved_loss_tzs?: number
+          current_assets_tzs?: number
+          current_liabilities_tzs?: number
+          engine_version?: string | null
+          equity_tzs?: number
+          id?: string
+          net_deferred_tax_position_tzs?: number
+          non_current_assets_tzs?: number
+          non_current_liabilities_tzs?: number
+          other_reserves_tzs?: number
+          period_month?: number
+          period_year?: number
+          retained_earnings_tzs?: number
+          share_capital_tzs?: number
+          upload_id?: string | null
+          wdv_class1_tzs?: number
+          wdv_class2_tzs?: number
+          wdv_class3_tzs?: number
+          wdv_class5_tzs?: number
+          wdv_class6_tzs?: number
+          wdv_class7_tzs?: number
+          wdv_class8_tzs?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "period_closing_balances_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "period_closing_balances_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -910,6 +1138,87 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      statement_sign_offs: {
+        Row: {
+          approver_id: string | null
+          approver_note: string | null
+          approver_signed_at: string | null
+          company_id: string
+          created_at: string
+          id: string
+          locked_at: string | null
+          locked_by: string | null
+          period_year: number
+          preparer_id: string | null
+          preparer_note: string | null
+          preparer_signed_at: string | null
+          reviewer_id: string | null
+          reviewer_note: string | null
+          reviewer_signed_at: string | null
+          statements_hash: string | null
+          status: string
+          updated_at: string
+          upload_id: string
+        }
+        Insert: {
+          approver_id?: string | null
+          approver_note?: string | null
+          approver_signed_at?: string | null
+          company_id: string
+          created_at?: string
+          id?: string
+          locked_at?: string | null
+          locked_by?: string | null
+          period_year: number
+          preparer_id?: string | null
+          preparer_note?: string | null
+          preparer_signed_at?: string | null
+          reviewer_id?: string | null
+          reviewer_note?: string | null
+          reviewer_signed_at?: string | null
+          statements_hash?: string | null
+          status?: string
+          updated_at?: string
+          upload_id: string
+        }
+        Update: {
+          approver_id?: string | null
+          approver_note?: string | null
+          approver_signed_at?: string | null
+          company_id?: string
+          created_at?: string
+          id?: string
+          locked_at?: string | null
+          locked_by?: string | null
+          period_year?: number
+          preparer_id?: string | null
+          preparer_note?: string | null
+          preparer_signed_at?: string | null
+          reviewer_id?: string | null
+          reviewer_note?: string | null
+          reviewer_signed_at?: string | null
+          statements_hash?: string | null
+          status?: string
+          updated_at?: string
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "statement_sign_offs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "statement_sign_offs_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       statutory_rules: {
         Row: {
@@ -1370,6 +1679,29 @@ export type Database = {
       }
     }
     Views: {
+      v_aje_balance_check: {
+        Row: {
+          aje_id: string | null
+          aje_number: string | null
+          balanced: boolean | null
+          company_id: string | null
+          description: string | null
+          imbalance_tzs: number | null
+          period_year: number | null
+          status: string | null
+          total_credit_tzs: number | null
+          total_debit_tzs: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "adjusting_journal_entries_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       v_loss_history: {
         Row: {
           amt_3yr_trigger: boolean | null
