@@ -127,6 +127,56 @@ interface FrameworkConfig {
   footer: string;
 }
 
+// ── Tax-engine result (minimal shape for export) ───────────────────────────
+interface SCFEngineForExport {
+  operating_activities: {
+    profit_before_tax_tzs:                 number;
+    add_depreciation_amortisation_tzs:     number;
+    add_finance_costs_tzs:                 number;
+    working_capital_changes: {
+      delta_current_assets_excl_cash_tzs:  number;
+      delta_current_liabilities_tzs:       number;
+    };
+    cash_generated_from_operations_tzs:    number;
+    finance_costs_paid_tzs:                number;
+    income_taxes_paid_tzs:                 number;
+    net_cash_from_operating_tzs:           number;
+  };
+  investing_activities: {
+    ppe_additions_tzs:            number;
+    ppe_disposal_proceeds_tzs:    number;
+    net_cash_from_investing_tzs:  number;
+  };
+  financing_activities: {
+    change_in_long_term_debt_tzs: number;
+    dividends_paid_tzs:           number;
+    net_cash_from_financing_tzs:  number;
+  };
+  net_change_in_cash_tzs:   number;
+  opening_cash_tzs:         number;
+  closing_cash_tzs:         number;
+  reconciles_to_sfp:        boolean;
+  note:                     string;
+  cpa_note:                 string;
+  opening_data_available:   boolean;
+}
+
+interface SOCIEEngineForExport {
+  share_capital:     { opening_tzs: number; issued_tzs: number;             closing_tzs: number; };
+  retained_earnings: { opening_tzs: number; profit_for_year_tzs: number; dividends_declared_tzs: number; closing_tzs: number; };
+  other_reserves:    { opening_tzs: number; movement_tzs: number;           closing_tzs: number; };
+  total:             { opening_tzs: number; profit_for_year_tzs: number; other_movements_tzs: number; closing_derived_tzs: number; sfp_closing_tzs: number; };
+  reconciles_to_sfp:              boolean;
+  reconciliation_difference_tzs:  number;
+  opening_data_available:         boolean;
+  cpa_note:                       string;
+}
+
+export interface TaxResultForExport {
+  scf_engine?:   SCFEngineForExport;
+  socie_engine?: SOCIEEngineForExport;
+}
+
 interface ExportStatementsProps {
   fileName: string;
   processingResult: ProcessingResult | null;
@@ -136,6 +186,7 @@ interface ExportStatementsProps {
   companyTin: string;
   periodYearEnd: string;
   companyCurrency?: string;
+  taxResult?: TaxResultForExport | null;
 }
 
 // ── Canonical → legacy mapping adapter ────────────────────────────────────────
@@ -243,6 +294,7 @@ export function ExportStatements({
   companyTin,
   periodYearEnd,
   companyCurrency = "TZS",
+  taxResult = null,
 }: ExportStatementsProps) {
   // Prefer the legacy 'mapping' key; fall back to reshaping the canonical
   // 'statements' object written by process-trial-balance v2+.
@@ -605,6 +657,205 @@ export function ExportStatements({
       182
     );
     doc.text(note5Lines, 14, y); y += note5Lines.length * 4.5 + 3;
+
+    // ── PAGE 4: Statement of Changes in Equity (SOCIE) ───────────────────────
+    doc.addPage();
+    y = 14;
+    y = stampHeader(y);
+    doc.setFontSize(10); doc.setTextColor(30);
+    doc.text("STATEMENT OF CHANGES IN EQUITY", 14, y); y += 2;
+
+    const socie = taxResult?.socie_engine;
+    if (socie) {
+      type SocieRow = [string, string, string, string, string];
+      const socieBody: SocieRow[] = [];
+      const socieRowStyles: Record<number, object> = {};
+      let sr = 0;
+      const fmtS = (v: number) => v === 0 ? "—"
+        : v < 0 ? `(${formatCurrency(Math.abs(v))})` : formatCurrency(v);
+
+      // Header row
+      socieRowStyles[sr] = { ...secHead, fontSize: 7 };
+      socieBody.push(["", `Share Capital\n${companyCurrency}`, `Retained Earnings\n${companyCurrency}`, `Other Reserves\n${companyCurrency}`, `Total\n${companyCurrency}`]);
+      sr++;
+
+      // Opening balance
+      socieBody.push([
+        "Opening balance",
+        fmtS(socie.share_capital.opening_tzs),
+        fmtS(socie.retained_earnings.opening_tzs),
+        fmtS(socie.other_reserves.opening_tzs),
+        fmtS(socie.total.opening_tzs),
+      ]); sr++;
+
+      // Profit for year
+      socieRowStyles[sr] = { fontStyle: "bold" as const, fillColor: [237, 233, 254] as [number, number, number] };
+      socieBody.push([
+        "Profit for the year",
+        "—",
+        fmtS(socie.retained_earnings.profit_for_year_tzs),
+        "—",
+        fmtS(socie.total.profit_for_year_tzs),
+      ]); sr++;
+
+      // Dividends
+      if (socie.retained_earnings.dividends_declared_tzs !== 0) {
+        socieBody.push([
+          "Dividends declared",
+          "—",
+          fmtS(socie.retained_earnings.dividends_declared_tzs),
+          "—",
+          fmtS(socie.retained_earnings.dividends_declared_tzs),
+        ]); sr++;
+      }
+
+      // Share capital issued
+      if (socie.share_capital.issued_tzs !== 0) {
+        socieBody.push([
+          "Share capital issued",
+          fmtS(socie.share_capital.issued_tzs),
+          "—",
+          "—",
+          fmtS(socie.share_capital.issued_tzs),
+        ]); sr++;
+      }
+
+      // Closing balance
+      socieRowStyles[sr] = { ...grandStyle };
+      socieBody.push([
+        "Closing balance",
+        fmtS(socie.share_capital.closing_tzs),
+        fmtS(socie.retained_earnings.closing_tzs),
+        fmtS(socie.other_reserves.closing_tzs),
+        fmtS(socie.total.closing_derived_tzs),
+      ]); sr++;
+
+      autoTable(doc, {
+        body:         socieBody as [string, string, string, string, string][],
+        startY:       y,
+        styles:       { fontSize: 7.5, cellPadding: 2 },
+        columnStyles: {
+          0: { cellWidth: 60 },
+          1: { cellWidth: 30, halign: "right" },
+          2: { cellWidth: 40, halign: "right" },
+          3: { cellWidth: 30, halign: "right" },
+          4: { cellWidth: 30, halign: "right" },
+        },
+        didParseCell: (d) => {
+          if (d.section === "body" && socieRowStyles[d.row.index]) {
+            Object.assign(d.cell.styles, socieRowStyles[d.row.index]);
+          }
+        },
+      });
+      // CPA note
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const soAfter = (doc as any).lastAutoTable.finalY + 3;
+      doc.setFontSize(6.5); doc.setTextColor(140);
+      const socieNote = doc.splitTextToSize(
+        (socie.opening_data_available ? "✓ Opening balances loaded from prior-year records. " : "† Opening balances not available — first year or no prior period saved. ")
+        + socie.cpa_note, 182);
+      doc.text(socieNote, 14, soAfter);
+    } else {
+      doc.setFontSize(8); doc.setTextColor(120);
+      doc.text(
+        "Statement of Changes in Equity will appear here once the ITA Tax Analysis has been run and committed.",
+        14, y + 6
+      );
+      doc.setFontSize(6.5); doc.setTextColor(160);
+      doc.text("Run Kinga Tax Analysis and commit to generate this statement.", 14, y + 12);
+    }
+
+    // ── PAGE 5: Statement of Cash Flows (Indirect Method) ────────────────────
+    doc.addPage();
+    y = 14;
+    y = stampHeader(y);
+    doc.setFontSize(10); doc.setTextColor(30);
+    doc.text("STATEMENT OF CASH FLOWS", 14, y);
+    doc.setFontSize(7.5); doc.setTextColor(100);
+    doc.text("(Indirect Method)", 14 + doc.getTextWidth("STATEMENT OF CASH FLOWS") + 4, y);
+    y += 2;
+
+    const scf = taxResult?.scf_engine;
+    if (scf) {
+      type Row2 = [string, string];
+      const scfBody: Row2[] = [];
+      const scfStyles: Record<number, object> = {};
+      let scfR = 0;
+      const fmtCF = (v: number) => v === 0 ? "—"
+        : v < 0 ? `(${formatCurrency(Math.abs(v))})` : formatCurrency(v);
+
+      // Operating
+      scfStyles[scfR] = secHead;
+      scfBody.push(["OPERATING ACTIVITIES", ""]); scfR++;
+      scfBody.push(["  Profit before tax", fmtCF(scf.operating_activities.profit_before_tax_tzs)]); scfR++;
+      scfBody.push(["  Add: Depreciation & amortisation", fmtCF(scf.operating_activities.add_depreciation_amortisation_tzs)]); scfR++;
+      scfBody.push(["  Add: Finance costs (reclassified)", fmtCF(scf.operating_activities.add_finance_costs_tzs)]); scfR++;
+      scfBody.push(["  Decrease/(increase) in working capital assets",
+        fmtCF(scf.operating_activities.working_capital_changes.delta_current_assets_excl_cash_tzs)]); scfR++;
+      scfBody.push(["  Increase/(decrease) in current liabilities",
+        fmtCF(scf.operating_activities.working_capital_changes.delta_current_liabilities_tzs)]); scfR++;
+      scfStyles[scfR] = subtotalStyle;
+      scfBody.push(["  Cash generated from operations", fmtCF(scf.operating_activities.cash_generated_from_operations_tzs)]); scfR++;
+      scfBody.push(["  Finance costs paid", fmtCF(scf.operating_activities.finance_costs_paid_tzs)]); scfR++;
+      scfBody.push(["  Income taxes paid", fmtCF(scf.operating_activities.income_taxes_paid_tzs)]); scfR++;
+      scfStyles[scfR] = grandStyle;
+      scfBody.push(["NET CASH FROM OPERATING ACTIVITIES", fmtCF(scf.operating_activities.net_cash_from_operating_tzs)]); scfR++;
+
+      // Investing
+      scfBody.push(["", ""]); scfR++;
+      scfStyles[scfR] = secHead;
+      scfBody.push(["INVESTING ACTIVITIES", ""]); scfR++;
+      scfBody.push(["  Purchase of property, plant & equipment", fmtCF(scf.investing_activities.ppe_additions_tzs)]); scfR++;
+      scfBody.push(["  Proceeds from disposal of assets", fmtCF(scf.investing_activities.ppe_disposal_proceeds_tzs)]); scfR++;
+      scfStyles[scfR] = grandStyle;
+      scfBody.push(["NET CASH FROM INVESTING ACTIVITIES", fmtCF(scf.investing_activities.net_cash_from_investing_tzs)]); scfR++;
+
+      // Financing
+      scfBody.push(["", ""]); scfR++;
+      scfStyles[scfR] = secHead;
+      scfBody.push(["FINANCING ACTIVITIES", ""]); scfR++;
+      scfBody.push(["  Increase/(decrease) in long-term borrowings", fmtCF(scf.financing_activities.change_in_long_term_debt_tzs)]); scfR++;
+      scfBody.push(["  Dividends paid", fmtCF(scf.financing_activities.dividends_paid_tzs)]); scfR++;
+      scfStyles[scfR] = grandStyle;
+      scfBody.push(["NET CASH FROM FINANCING ACTIVITIES", fmtCF(scf.financing_activities.net_cash_from_financing_tzs)]); scfR++;
+
+      // Summary
+      scfBody.push(["", ""]); scfR++;
+      scfStyles[scfR] = subtotalStyle;
+      scfBody.push(["NET INCREASE/(DECREASE) IN CASH", fmtCF(scf.net_change_in_cash_tzs)]); scfR++;
+      scfBody.push(["Cash and cash equivalents at beginning of year", fmtCF(scf.opening_cash_tzs)]); scfR++;
+      scfStyles[scfR] = { ...grandStyle, fontSize: 8.5 };
+      scfBody.push(["CASH AND CASH EQUIVALENTS AT END OF YEAR", fmtCF(scf.closing_cash_tzs)]); scfR++;
+
+      autoTable(doc, {
+        body:         scfBody as [string, string][],
+        startY:       y,
+        styles:       rowStyle,
+        columnStyles: { 0: { cellWidth: 140 }, 1: { cellWidth: 40, halign: "right" } },
+        didParseCell: (d) => {
+          if (d.section === "body" && scfStyles[d.row.index]) {
+            Object.assign(d.cell.styles, scfStyles[d.row.index]);
+          }
+        },
+      });
+
+      // Reconciliation notice
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const scfAfter = (doc as any).lastAutoTable.finalY + 3;
+      doc.setFontSize(6.5); doc.setTextColor(140);
+      const reconLabel = scf.reconciles_to_sfp
+        ? "✓ SCF closing cash reconciles to Statement of Financial Position balance."
+        : `⚠ SCF closing cash does NOT reconcile to SFP balance. Review cash account classification.`;
+      const scfNoteLines = doc.splitTextToSize(
+        reconLabel + "  " + scf.cpa_note, 182);
+      doc.text(scfNoteLines, 14, scfAfter);
+    } else {
+      doc.setFontSize(8); doc.setTextColor(120);
+      doc.text(
+        "Statement of Cash Flows will appear here once the ITA Tax Analysis has been run and committed.",
+        14, y + 6
+      );
+    }
 
     // ── APPENDIX A: Trial Balance Listing ─────────────────────────────────────
     doc.addPage();

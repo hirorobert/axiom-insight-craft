@@ -385,7 +385,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { uploadId, companyId, periodYear, dry_run = true, months_overdue = 0 } = await req.json();
+    const { uploadId, companyId, periodYear, dry_run = true, months_overdue = 0, userId = null } = await req.json();
     if (!uploadId || !companyId || !periodYear) {
       return new Response(JSON.stringify({ error: "uploadId, companyId, periodYear required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -462,6 +462,14 @@ serve(async (req) => {
       });
     }
 
+    // ── BS SECTION TOTALS (for SCF + SOCIE) ──────────────────────────────
+    // Extracted here — before STEP 3 — so they're available to SCF/SOCIE engines.
+    const closingCA_total    = Math.abs(bs.current_assets?.total          ?? 0);
+    const closingNCA_total   = Math.abs(bs.non_current_assets?.total      ?? 0);
+    const closingCL_total    = Math.abs(bs.current_liabilities?.total     ?? 0);
+    const closingNCL_total   = Math.abs(bs.non_current_liabilities?.total  ?? 0);
+    const closingEquity_total= Math.abs(bs.equity?.total                  ?? 0);
+
     // ── STEP 3: Flatten accounts ──────────────────────────────────────────
     const opexAccs   = is.operating_expenses?.accounts ?? [];
     const financeAccs= is.finance_costs?.accounts      ?? [];
@@ -475,6 +483,22 @@ serve(async (req) => {
     const bsNCL = bs.non_current_liabilities?.accounts ?? [];
     const bsEq  = bs.equity?.accounts                 ?? [];
     const bsNCA = bs.non_current_assets?.accounts     ?? [];
+
+    // ── CASH + EQUITY COMPONENT DETECTION (for SCF + SOCIE) ──────────────
+    const CASH_PATTERNS_SCF = [
+      /\bcash\s*(and\s*(bank|equivalent|cash))?/i, /cash\s+at\s+(bank|hand)/i,
+      /\bbank\b/i, /\bbenki\b/i, /\bnakdi\b/i, /petty\s+cash/i,
+    ];
+    const SHARE_CAPITAL_PATS = [
+      /share\s+capital/i, /paid.{0,4}up\s+capital/i, /ordinary\s+share/i, /hisa\s+la\s+mtaji/i,
+    ];
+    const RETAINED_EARNINGS_PATS = [
+      /retained\s+earn/i, /accumulated\s+(profit|surplus|deficit)/i, /faida\s+iliyobakiwa/i,
+    ];
+    const { total: cashBalance }        = sumMatching(bs.current_assets?.accounts ?? [], CASH_PATTERNS_SCF);
+    const { total: bsShareCapital }     = sumMatching(bsEq, SHARE_CAPITAL_PATS);
+    const { total: bsRetainedEarnings } = sumMatching(bsEq, RETAINED_EARNINGS_PATS);
+    const bsOtherReserves               = Math.max(0, closingEquity_total - bsShareCapital - bsRetainedEarnings);
 
     // ── STEP 4a: Accounting Depreciation add-back (ITA s.34) ─────────────
     const { total: deprTotal, names: deprNames } = sumMatching(allISAccs, DEPRECIATION_PATTERNS);
@@ -618,6 +642,27 @@ serve(async (req) => {
           amount_tzs: data.wt, ita_section: "s.34 (PwC TZ Jan 2026)",
           account_names: data.descriptions, auto_detected: false, requires_review: false,
         });
+      }
+    }
+
+    // ── PPE ADDITIONS + DISPOSALS + WDV CLOSING (SCF Investing + period_closing_balances) ─
+    let ppeAdditionsTzs = 0;
+    let ppeDisposalsTzs = 0;
+    const wdvClosingByClass: Record<number, number> = {};
+    if (wtRows && wtRows.length > 0) {
+      for (const row of wtRows) {
+        ppeAdditionsTzs  += row.additions_tzs             ?? 0;
+        ppeDisposalsTzs  += row.disposals_at_tax_cost_tzs ?? 0;
+        const clsI = ITA_ASSET_CLASSES[row.ita_class];
+        if (!clsI) continue;
+        const poolI = (row.ita_wdv_opening_tzs ?? 0) + (row.additions_tzs ?? 0)
+                    - (row.disposals_at_tax_cost_tzs ?? 0);
+        let wtSingle = 0;
+        if (clsI.method === "straight_line")  wtSingle = Math.round((row.cost_tzs ?? 0) * clsI.rate);
+        else if (clsI.method === "immediate") wtSingle = Math.round(poolI);
+        else                                  wtSingle = Math.round(Math.max(0, poolI) * clsI.rate);
+        wdvClosingByClass[row.ita_class] =
+          (wdvClosingByClass[row.ita_class] ?? 0) + Math.max(0, poolI - wtSingle);
       }
     } else {
       classificationWarnings.push({
@@ -902,6 +947,207 @@ serve(async (req) => {
         "Loss DTA uses a 5% net margin proxy — replace with management forecast.",
     };
 
+    // ── STEP 0b: Load opening balances from period_closing_balances ──────────
+    // Fetches the PRIOR year's closing snapshot as THIS year's opening balance.
+    // Enables: (1) true deferred tax movement, (2) SCF working capital Δ,
+    // (3) SOCIE equity roll-forward. On first year, returns null → graceful fallback.
+    const { data: openingBalRow } = await supabase
+      .from("period_closing_balances")
+      .select("*")
+      .eq("company_id", companyId)
+      .eq("period_year", periodYear - 1)
+      .maybeSingle();
+
+    const openingBal             = openingBalRow ?? null;
+    const openingDataAvailable   = openingBal !== null;
+
+    // ── TRUE Deferred Tax Movement (OD-14 RESOLVED when opening data available) ─
+    const openingNetDTPosition   = openingBal?.net_deferred_tax_position_tzs ?? 0;
+    const trueDeferredTaxMovement = netDeferredTaxPosition - openingNetDTPosition;
+    // If first year (no opening data): approximate movement as closing (as before)
+    const finalDeferredTaxMovement = openingDataAvailable ? trueDeferredTaxMovement : deferredTaxMovement;
+    const finalTotalTaxExpense     = taxPayable + finalDeferredTaxMovement;
+    const finalProfitAfterFullTax  = accountingPBT - finalTotalTaxExpense;
+
+    // Upgrade moduleDDeferred with precise movement if opening data available
+    if (openingDataAvailable) {
+      moduleDDeferred.deferred_tax_movement_tzs  = trueDeferredTaxMovement;
+      moduleDDeferred.total_tax_expense_tzs      = finalTotalTaxExpense;
+      moduleDDeferred.profit_after_full_tax_tzs  = finalProfitAfterFullTax;
+      moduleDDeferred.opening_balance_required   = false;
+      moduleDDeferred.note =
+        `Opening DTL/DTA loaded from period_closing_balances FY${periodYear - 1}. ` +
+        `True deferred tax movement = closing TZS ${netDeferredTaxPosition.toLocaleString()} ` +
+        `− opening TZS ${openingNetDTPosition.toLocaleString()} ` +
+        `= TZS ${trueDeferredTaxMovement.toLocaleString()}. OD-14 resolved.`;
+    }
+
+    // ── STEP 11d: Statement of Cash Flows (Indirect Method) ──────────────────
+    // IFRS for SMEs Section 7 — mandatory primary statement.
+    // Source: PwC Tanzania "Statement of Cash Flows under IFRS for SMEs" guidance.
+    //
+    // INDIRECT METHOD LAYOUT:
+    //   PBT
+    //   + Depreciation & amortisation (non-cash add-back)
+    //   + Finance costs (reclassified; paid separately below)
+    //   − Δ current assets excl. cash (increase = use of cash)
+    //   + Δ current liabilities (increase = source of cash)
+    //   = Cash generated from operations
+    //   − Finance costs paid
+    //   − Income taxes paid
+    //   = Net cash from operating activities
+    //
+    //   − PPE additions (capex outflow)
+    //   + PPE disposal proceeds (inflow)
+    //   = Net cash from investing activities
+    //
+    //   + Δ long-term debt (financing inflow)
+    //   − Dividends paid (management input; 0 by default)
+    //   = Net cash from financing activities
+    //
+    //   + Opening cash → = Closing cash (reconcile to SFP)
+
+    // Operating
+    const openingNonCashCA  = openingDataAvailable
+      ? Math.max(0, (openingBal!.current_assets_tzs ?? 0) - (openingBal!.cash_balance_tzs ?? 0))
+      : (closingCA_total - cashBalance);              // first year: assume no Δ
+    const closingNonCashCA  = Math.max(0, closingCA_total - cashBalance);
+    const deltaWorkCapAssets = closingNonCashCA - openingNonCashCA;   // +ve = more tied up in WC
+
+    const openingCL_scf     = openingDataAvailable
+      ? (openingBal!.current_liabilities_tzs ?? 0)
+      : closingCL_total;                              // first year: assume no Δ
+    const deltaCL           = closingCL_total - openingCL_scf;        // +ve = payables grew
+
+    const cashGeneratedFromOps = accountingPBT + deprTotal + finCostDeriv
+                               - deltaWorkCapAssets + deltaCL;
+    const finCostsPaid         = finCostDeriv;        // approximate: all finance costs = paid
+    const taxesPaid            = Math.max(0, itProvision); // approximate: provision = cash paid
+    const netCashFromOperating = cashGeneratedFromOps - finCostsPaid - taxesPaid;
+
+    // Investing
+    const netCashFromInvesting = ppeDisposalsTzs - ppeAdditionsTzs;
+
+    // Financing
+    const openingLTD_scf   = openingDataAvailable
+      ? (openingBal!.non_current_liabilities_tzs ?? 0)
+      : closingNCL_total;
+    const deltaLTD         = closingNCL_total - openingLTD_scf;
+    const dividendsPaid    = 0;   // requires management input — 0 by default
+    const netCashFromFinancing = deltaLTD - dividendsPaid;
+
+    // Reconciliation
+    const netChangeCash         = netCashFromOperating + netCashFromInvesting + netCashFromFinancing;
+    const openingCashSCF        = openingDataAvailable ? (openingBal!.cash_balance_tzs ?? 0) : 0;
+    const scfDerivedClosingCash = openingCashSCF + netChangeCash;
+    const scfTolerance          = Math.max(500_000, Math.abs(cashBalance) * 0.10);
+    const scfReconciles         = Math.abs(scfDerivedClosingCash - cashBalance) <= scfTolerance;
+
+    const scfEngine = {
+      operating_activities: {
+        profit_before_tax_tzs:         accountingPBT,
+        add_depreciation_amortisation_tzs: deprTotal,
+        add_finance_costs_tzs:         finCostDeriv,
+        working_capital_changes: {
+          delta_current_assets_excl_cash_tzs:  -deltaWorkCapAssets,
+          delta_current_liabilities_tzs:        deltaCL,
+        },
+        cash_generated_from_operations_tzs: cashGeneratedFromOps,
+        finance_costs_paid_tzs:         -finCostsPaid,
+        income_taxes_paid_tzs:          -taxesPaid,
+        net_cash_from_operating_tzs:    netCashFromOperating,
+      },
+      investing_activities: {
+        ppe_additions_tzs:              -ppeAdditionsTzs,
+        ppe_disposal_proceeds_tzs:       ppeDisposalsTzs,
+        net_cash_from_investing_tzs:    netCashFromInvesting,
+      },
+      financing_activities: {
+        change_in_long_term_debt_tzs:   deltaLTD,
+        dividends_paid_tzs:            -dividendsPaid,
+        net_cash_from_financing_tzs:    netCashFromFinancing,
+      },
+      net_change_in_cash_tzs:           netChangeCash,
+      opening_cash_tzs:                 openingCashSCF,
+      closing_cash_tzs:                 cashBalance,       // from BS cash detection
+      derived_closing_cash_tzs:         Math.round(scfDerivedClosingCash),
+      reconciles_to_sfp:                scfReconciles,
+      reconciliation_difference_tzs:    Math.round(scfDerivedClosingCash - cashBalance),
+      opening_data_available:           openingDataAvailable,
+      note: openingDataAvailable
+        ? `Opening cash TZS ${openingCashSCF.toLocaleString()} from period_closing_balances FY${periodYear - 1}. ` +
+          (scfReconciles
+            ? "SCF reconciles to SFP cash balance within tolerance."
+            : `SCF does NOT reconcile — difference TZS ${Math.round(Math.abs(scfDerivedClosingCash - cashBalance)).toLocaleString()}. Review cash account classification.`)
+        : "First-year run: no prior-year closing balance available. Working capital and financing movements estimated as nil. " +
+          "This period's closing balance is saved — next year will have full SCF.",
+      cpa_note: "Finance costs paid and income taxes paid are approximated from IS figures. " +
+                "Actual cash payments may differ (timing of payments). " +
+                "Dividends paid require management input (currently TZS 0). " +
+                "Proceed with caution if company has material finance leases.",
+      ifrs_section: "IFRS for SMEs Section 7 — Statement of Cash Flows (indirect method)",
+    };
+
+    // ── STEP 11e: Statement of Changes in Equity (SOCIE) ─────────────────────
+    // IFRS for SMEs Section 6 — required when there are transactions with owners.
+    // Proves: Opening Equity + Comprehensive Income + Owner Transactions = Closing Equity.
+    // This is the integrity bridge between SCI (PAT) and SFP (closing equity).
+    //
+    // CPA NOTE: Share capital changes and dividends require management confirmation.
+    // The engine uses TZS 0 for undisclosed owner transactions by default.
+
+    const openingShareCap       = openingDataAvailable ? (openingBal!.share_capital_tzs     ?? 0) : bsShareCapital;
+    const openingRetEarnings    = openingDataAvailable ? (openingBal!.retained_earnings_tzs  ?? 0) : 0;
+    const openingOtherRes       = openingDataAvailable ? (openingBal!.other_reserves_tzs     ?? 0) : bsOtherReserves;
+    const openingEquitySOCIE    = openingShareCap + openingRetEarnings + openingOtherRes;
+
+    const sociePatForYear       = finalProfitAfterFullTax; // SCI PAT incl. deferred tax
+    const socieShareCapIssued   = 0;   // management input — 0 default
+    const socieDividendsDeclared = 0;  // management input — 0 default
+
+    const closingRetEarnings    = openingRetEarnings + sociePatForYear - socieDividendsDeclared;
+    const closingShareCapSOCIE  = openingShareCap + socieShareCapIssued;
+    const closingOtherResSOCIE  = openingOtherRes;
+    const closingEquitySOCIE    = closingShareCapSOCIE + closingRetEarnings + closingOtherResSOCIE;
+
+    const socieToSFPDiff        = Math.abs(closingEquitySOCIE - closingEquity_total);
+    const socieTolerance        = Math.max(1_000_000, closingEquity_total * 0.05);
+    const socieReconciles       = openingDataAvailable && (socieToSFPDiff <= socieTolerance);
+
+    const socieEngine = {
+      share_capital: {
+        opening_tzs:   openingShareCap,
+        issued_tzs:    socieShareCapIssued,
+        closing_tzs:   closingShareCapSOCIE,
+      },
+      retained_earnings: {
+        opening_tzs:                openingRetEarnings,
+        profit_for_year_tzs:        sociePatForYear,
+        dividends_declared_tzs:    -socieDividendsDeclared,
+        closing_tzs:                closingRetEarnings,
+      },
+      other_reserves: {
+        opening_tzs:   openingOtherRes,
+        movement_tzs:  0,
+        closing_tzs:   closingOtherResSOCIE,
+      },
+      total: {
+        opening_tzs:              openingEquitySOCIE,
+        profit_for_year_tzs:      sociePatForYear,
+        other_movements_tzs:      socieShareCapIssued - socieDividendsDeclared,
+        closing_derived_tzs:      closingEquitySOCIE,
+        sfp_closing_tzs:          closingEquity_total,
+      },
+      reconciles_to_sfp:            socieReconciles,
+      reconciliation_difference_tzs: Math.round(closingEquitySOCIE - closingEquity_total),
+      opening_data_available:       openingDataAvailable,
+      cpa_note: "Share capital issued and dividends declared require management input. " +
+                "Other comprehensive income (OCI) not yet computed. " +
+                "Large reconciliation differences may indicate undisclosed owner transactions " +
+                "or misclassified equity accounts.",
+      ifrs_section: "IFRS for SMEs Section 6 — Statement of Changes in Equity",
+    };
+
     // ── STEP 11b: Income statement breakdown (for transparent waterfall) ─────
     // Uses the same derived values computed in STEP 2 (cogsDerived, opexDerived,
     // otherIncDeriv, finCostDeriv) so the breakdown matches the PBT figure.
@@ -969,6 +1215,12 @@ serve(async (req) => {
 
       // ── MODULE D: Deferred Tax (IFRS for SMEs s.29 / IAS 12) ────────────
       module_d_deferred:                moduleDDeferred,
+
+      // ── MODULE F: Statement of Cash Flows (IFRS for SMEs s.7) ───────────
+      scf_engine:                       scfEngine,
+
+      // ── MODULE G: Statement of Changes in Equity (IFRS for SMEs s.6) ────
+      socie_engine:                     socieEngine,
 
       // ── FINANCE ACT 2026 AWARENESS BLOCK ────────────────────
       // These provisions are effective 1 July 2026. The CIT waterfall above
@@ -1099,6 +1351,133 @@ serve(async (req) => {
 
     result.finding_created = findingCreated;
     result.dry_run = false;
+
+    // ── STEP 12: Save period closing balances ─────────────────────────────
+    // Upsert the closing snapshot so next year's run has opening balances.
+    // This is what resolves OD-14 for every subsequent period.
+    await supabase.from("period_closing_balances").upsert({
+      company_id:                    companyId,
+      period_year:                   periodYear,
+      period_month:                  12,
+      // SFP snapshot
+      current_assets_tzs:            closingCA_total,
+      non_current_assets_tzs:        closingNCA_total,
+      current_liabilities_tzs:       closingCL_total,
+      non_current_liabilities_tzs:   closingNCL_total,
+      equity_tzs:                    closingEquity_total,
+      cash_balance_tzs:              cashBalance,
+      // Equity components
+      share_capital_tzs:             bsShareCapital,
+      retained_earnings_tzs:         Math.round(closingRetEarnings),
+      other_reserves_tzs:            bsOtherReserves,
+      // Deferred tax
+      closing_dtl_tzs:               netDTL,
+      closing_dta_tzs:               netDTA,
+      net_deferred_tax_position_tzs: netDeferredTaxPosition,
+      // Loss carry-forward
+      cumulative_unrelieved_loss_tzs: (openingBal?.cumulative_unrelieved_loss_tzs ?? 0)
+                                    + Math.max(0, -taxableIncome),
+      // WDV by class
+      wdv_class1_tzs:   Math.round(wdvClosingByClass[1] ?? 0),
+      wdv_class2_tzs:   Math.round(wdvClosingByClass[2] ?? 0),
+      wdv_class3_tzs:   Math.round(wdvClosingByClass[3] ?? 0),
+      wdv_class5_tzs:   Math.round(wdvClosingByClass[5] ?? 0),
+      wdv_class6_tzs:   Math.round(wdvClosingByClass[6] ?? 0),
+      wdv_class7_tzs:   Math.round(wdvClosingByClass[7] ?? 0),
+      wdv_class8_tzs:   Math.round(wdvClosingByClass[8] ?? 0),
+      // Provenance
+      upload_id:         uploadId,
+      engine_version:    ENGINE_VERSION,
+      computed_at:       new Date().toISOString(),
+    }, { onConflict: "company_id,period_year,period_month" });
+
+    // ── STEP 13: Auto-generate AJEs for CIT gap and DTL ──────────────────
+    // AJEs are only written when:
+    //   (a) userId is provided (so we have a created_by value), AND
+    //   (b) there is a material gap or deferred tax position
+    // Each AJE is an upsert keyed on (company_id, upload_id, aje_number)
+    // so re-runs are idempotent.
+    if (userId) {
+      const ajeInserts: object[] = [];
+
+      // AJE-E001: CIT gap → Dr Income Tax Expense / Cr Income Tax Payable
+      if (Math.abs(citGap) > VARIANCE_THRESHOLD_TZS) {
+        const ajeE001 = {
+          company_id:     companyId,
+          upload_id:      uploadId,
+          period_year:    periodYear,
+          aje_number:     "AJE-E001",
+          description:    `CIT gap adjustment FY${periodYear}: computed TZS ${taxPayable.toLocaleString()} vs provision TZS ${itProvision.toLocaleString()}. Gap = TZS ${citGap.toLocaleString()}.`,
+          aje_type:       "tax",
+          source:         "module_e",
+          auto_generated: true,
+          created_by:     userId,
+          status:         "draft",
+        };
+        const { data: ajeE001Row } = await supabase
+          .from("adjusting_journal_entries")
+          .upsert(ajeE001, { onConflict: "company_id,upload_id,aje_number" })
+          .select("id")
+          .single();
+
+        if (ajeE001Row?.id) {
+          const lines = citGap > 0
+            ? [
+                { aje_id: ajeE001Row.id, line_number: 1, account_code: "7000", account_name: "Income Tax Expense", classification: "taxes",              debit_tzs: citGap, credit_tzs: 0, narration: "Additional CIT charge to close gap" },
+                { aje_id: ajeE001Row.id, line_number: 2, account_code: "2200", account_name: "Income Tax Payable",  classification: "current_liabilities", debit_tzs: 0, credit_tzs: citGap, narration: "CIT payable balance" },
+              ]
+            : [
+                { aje_id: ajeE001Row.id, line_number: 1, account_code: "2200", account_name: "Income Tax Payable",  classification: "current_liabilities", debit_tzs: Math.abs(citGap), credit_tzs: 0, narration: "Release over-provision" },
+                { aje_id: ajeE001Row.id, line_number: 2, account_code: "7000", account_name: "Income Tax Expense", classification: "taxes",              debit_tzs: 0, credit_tzs: Math.abs(citGap), narration: "CIT over-provision credit" },
+              ];
+          await supabase.from("aje_lines").upsert(lines, { onConflict: "aje_id,line_number" });
+          ajeInserts.push(ajeE001Row);
+        }
+      }
+
+      // AJE-D001: Deferred tax position → Dr/Cr Deferred Tax Expense
+      if (Math.abs(netDeferredTaxPosition) > 0) {
+        const isNetDTL = netDeferredTaxPosition > 0;
+        const dtAmount = Math.abs(finalDeferredTaxMovement);
+        if (dtAmount > 0) {
+          const ajeD001 = {
+            company_id:     companyId,
+            upload_id:      uploadId,
+            period_year:    periodYear,
+            aje_number:     "AJE-D001",
+            description:    `Deferred tax ${isNetDTL ? "liability" : "asset"} FY${periodYear}: movement TZS ${finalDeferredTaxMovement.toLocaleString()} (${moduleDDeferred.ifrs_section}).`,
+            aje_type:       "deferred_tax",
+            source:         "module_d",
+            auto_generated: true,
+            created_by:     userId,
+            status:         "draft",
+          };
+          const { data: ajeD001Row } = await supabase
+            .from("adjusting_journal_entries")
+            .upsert(ajeD001, { onConflict: "company_id,upload_id,aje_number" })
+            .select("id")
+            .single();
+
+          if (ajeD001Row?.id) {
+            const lines = isNetDTL
+              ? [
+                  { aje_id: ajeD001Row.id, line_number: 1, account_code: "7001", account_name: "Deferred Tax Expense", classification: "taxes",                   debit_tzs: dtAmount, credit_tzs: 0, narration: "Deferred tax charge (net DTL position)" },
+                  { aje_id: ajeD001Row.id, line_number: 2, account_code: "2500", account_name: "Deferred Tax Liability", classification: "non_current_liabilities", debit_tzs: 0, credit_tzs: dtAmount, narration: "DTL posted to SFP non-current liabilities" },
+                ]
+              : [
+                  { aje_id: ajeD001Row.id, line_number: 1, account_code: "1500", account_name: "Deferred Tax Asset",    classification: "non_current_assets",      debit_tzs: dtAmount, credit_tzs: 0, narration: "DTA posted to SFP non-current assets" },
+                  { aje_id: ajeD001Row.id, line_number: 2, account_code: "7001", account_name: "Deferred Tax Income",   classification: "taxes",                   debit_tzs: 0, credit_tzs: dtAmount, narration: "Deferred tax credit (net DTA position)" },
+                ];
+            await supabase.from("aje_lines").upsert(lines, { onConflict: "aje_id,line_number" });
+            ajeInserts.push(ajeD001Row);
+          }
+        }
+      }
+
+      if (ajeInserts.length > 0) {
+        result.auto_ajes_created = ajeInserts.length;
+      }
+    }
 
     return new Response(JSON.stringify({ success: true, result }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

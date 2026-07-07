@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import { AccountMappingManager, AccountMappingManagerRef } from "@/components/AccountMappingManager";
-import { ExportStatements, ProcessingResult } from "@/components/ExportStatements";
+import { ExportStatements, ProcessingResult, TaxResultForExport } from "@/components/ExportStatements";
 import { NoteSynth } from "@/components/NoteSynth";
 import { KingaFindingsPanel } from "@/components/KingaFindingsPanel";
 import { KingaTaxPanel } from "@/components/KingaTaxPanel";
@@ -135,6 +135,7 @@ export default function Dashboard() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedCompanyData, setSelectedCompanyData] = useState<SelectedCompanyData | null>(null);
+  const [taxResult, setTaxResult] = useState<TaxResultForExport | null>(null);
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { logAction, logTrialBalanceUpload, logTrialBalanceProcessing } = useEnhancedAuditLog();
@@ -530,6 +531,7 @@ export default function Dashboard() {
                 companyTin={selectedCompanyData?.tin ?? ""}
                 periodYearEnd={selectedCompanyData?.fiscal_year_end ?? ""}
                 companyCurrency={selectedCompanyData?.currency ?? "TZS"}
+                taxResult={taxResult}
               />
             )}
             {selectedUpload && isBlocked && (
@@ -567,7 +569,7 @@ export default function Dashboard() {
                 <RecentUploadsList
                   uploads={uploads}
                   selectedId={selectedUpload?.id ?? null}
-                  onSelect={(u) => setSelectedUpload(u as typeof selectedUpload)}
+                  onSelect={(u) => { setSelectedUpload(u as typeof selectedUpload); setTaxResult(null); }}
                 />
               </div>
 
@@ -777,6 +779,7 @@ export default function Dashboard() {
                           periodYear={new Date(selectedUpload.uploaded_at).getFullYear()}
                           companyName={selectedUpload.company_name ?? undefined}
                           userId={user?.id ?? ""}
+                          onResultChange={(r) => setTaxResult(r)}
                         />
                       </TabsContent>
                       <TabsContent value="comparative">

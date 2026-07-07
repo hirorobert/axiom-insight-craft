@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import {
   Calculator, ChevronDown, ChevronRight, AlertTriangle,
-  CheckCircle, Info, Plus, RefreshCw, History,
+  CheckCircle, Info, Plus, RefreshCw, History, Lock, Unlock,
+  TrendingUp, ArrowUpDown, PenLine,
 } from "lucide-react";
 
 // ── ITA CLASS METADATA — VERIFIED: PwC Tanzania (reviewed 14 Jan 2026) ───
@@ -98,6 +99,68 @@ interface ModuleDDeferred {
   note:                          string;
 }
 
+// ── MODULE F: Statement of Cash Flows ────────────────────────────────────
+interface SCFEngine {
+  operating_activities: {
+    profit_before_tax_tzs:             number;
+    add_depreciation_amortisation_tzs: number;
+    add_finance_costs_tzs:             number;
+    working_capital_changes: {
+      delta_current_assets_excl_cash_tzs: number;
+      delta_current_liabilities_tzs:      number;
+    };
+    cash_generated_from_operations_tzs: number;
+    finance_costs_paid_tzs:            number;
+    income_taxes_paid_tzs:             number;
+    net_cash_from_operating_tzs:       number;
+  };
+  investing_activities: {
+    ppe_additions_tzs:           number;
+    ppe_disposal_proceeds_tzs:   number;
+    net_cash_from_investing_tzs: number;
+  };
+  financing_activities: {
+    change_in_long_term_debt_tzs: number;
+    dividends_paid_tzs:           number;
+    net_cash_from_financing_tzs:  number;
+  };
+  net_change_in_cash_tzs:  number;
+  opening_cash_tzs:        number;
+  closing_cash_tzs:        number;
+  reconciles_to_sfp:       boolean;
+  note:                    string;
+  cpa_note:                string;
+  opening_data_available:  boolean;
+}
+
+// ── MODULE G: Statement of Changes in Equity ─────────────────────────────
+interface SOCIEEngine {
+  share_capital:     { opening_tzs: number; issued_tzs: number;           closing_tzs: number; };
+  retained_earnings: { opening_tzs: number; profit_for_year_tzs: number; dividends_declared_tzs: number; closing_tzs: number; };
+  other_reserves:    { opening_tzs: number; movement_tzs: number;         closing_tzs: number; };
+  total:             { opening_tzs: number; profit_for_year_tzs: number; other_movements_tzs: number; closing_derived_tzs: number; sfp_closing_tzs: number; };
+  reconciles_to_sfp:              boolean;
+  reconciliation_difference_tzs:  number;
+  opening_data_available:         boolean;
+  cpa_note:                       string;
+}
+
+// ── SIGN-OFF STATE ────────────────────────────────────────────────────────
+interface SignOff {
+  id?: string;
+  status:             string;
+  preparer_id?:       string | null;
+  preparer_signed_at?: string | null;
+  preparer_note?:     string | null;
+  reviewer_id?:       string | null;
+  reviewer_signed_at?: string | null;
+  reviewer_note?:     string | null;
+  approver_id?:       string | null;
+  approver_signed_at?: string | null;
+  approver_note?:     string | null;
+  locked_at?:         string | null;
+}
+
 interface TaxResult {
   engine_version: string;
   dry_run: boolean;
@@ -131,6 +194,12 @@ interface TaxResult {
   finding_created: boolean;
   // Module D — Deferred Tax (IFRS for SMEs s.29 / IAS 12)
   module_d_deferred?: ModuleDDeferred;
+  // Module F — Statement of Cash Flows (IFRS for SMEs s.7)
+  scf_engine?: SCFEngine;
+  // Module G — Statement of Changes in Equity (IFRS for SMEs s.6)
+  socie_engine?: SOCIEEngine;
+  // Auto-AJEs written on commit
+  auto_ajes_created?: number;
 }
 
 interface CapAllowanceForm {
@@ -165,6 +234,7 @@ interface KingaTaxPanelProps {
   periodYear: number;
   companyName?: string;
   userId: string;
+  onResultChange?: (result: TaxResult | null) => void;
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────
@@ -379,19 +449,21 @@ function WaterfallRow({
 
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────
 export function KingaTaxPanel({
-  companyId, uploadId, periodYear, companyName, userId,
+  companyId, uploadId, periodYear, companyName, userId, onResultChange,
 }: KingaTaxPanelProps) {
   type Phase = "idle" | "running" | "preview" | "committing" | "done";
 
   const [phase, setPhase]               = useState<Phase>("idle");
   const [result, setResult]             = useState<TaxResult | null>(null);
   const [showConfirm, setShowConfirm]   = useState(false);
-  const [history, setHistory]           = useState<StoredComputation[]>([]);
   const [monthsOverdue, setMonthsOverdue] = useState(0);
   const [error, setError]               = useState<string | null>(null);
   const [stored, setStored]             = useState<StoredComputation | null>(null);
+  const [signOff, setSignOff]           = useState<SignOff | null>(null);
+  const [signOffLoading, setSignOffLoading] = useState(false);
+  const [signOffNote, setSignOffNote]   = useState("");
 
-  // Load any existing committed computation
+  // Load existing computation + sign-off state
   useEffect(() => {
     supabase
       .from("tax_computations")
@@ -400,18 +472,77 @@ export function KingaTaxPanel({
       .eq("upload_id", uploadId)
       .maybeSingle()
       .then(({ data }) => { if (data) setStored(data); });
-  }, [companyId, uploadId]);
+
+    supabase
+      .from("statement_sign_offs")
+      .select("*")
+      .eq("company_id", companyId)
+      .eq("period_year", periodYear)
+      .maybeSingle()
+      .then(({ data }) => { if (data) setSignOff(data as SignOff); });
+  }, [companyId, uploadId, periodYear]);
+
+  const handleSign = async (tier: "preparer" | "reviewer" | "approver") => {
+    setSignOffLoading(true);
+    const now = new Date().toISOString();
+    const updates: Record<string, string | null> = {
+      [`${tier}_id`]:        userId,
+      [`${tier}_signed_at`]: now,
+      [`${tier}_note`]:      signOffNote || null,
+    };
+
+    const newStatus =
+      tier === "preparer" ? "preparer_signed" :
+      tier === "reviewer" ? "reviewer_signed" : "approved";
+
+    if (tier === "approver") {
+      updates.locked_at  = now;
+      updates.locked_by  = userId;
+      updates.status     = "locked";
+    } else {
+      updates.status = newStatus;
+    }
+
+    if (!signOff?.id) {
+      // Create the sign-off record first
+      const { data: newSO } = await supabase
+        .from("statement_sign_offs")
+        .insert({
+          company_id:  companyId,
+          period_year: periodYear,
+          upload_id:   uploadId,
+          status:      "draft",
+          ...updates,
+        })
+        .select("*")
+        .single();
+      if (newSO) setSignOff(newSO as SignOff);
+    } else {
+      const { data: updated } = await supabase
+        .from("statement_sign_offs")
+        .update(updates)
+        .eq("id", signOff.id)
+        .select("*")
+        .single();
+      if (updated) setSignOff(updated as SignOff);
+    }
+    setSignOffNote("");
+    setSignOffLoading(false);
+  };
+
+  const isLocked = !!signOff?.locked_at;
 
   const runEngine = async (dryRun: boolean) => {
     setPhase(dryRun ? "running" : "committing");
     setError(null);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("kinga-tax-engine", {
-        body: { uploadId, companyId, periodYear, dry_run: dryRun, months_overdue: monthsOverdue },
+        body: { uploadId, companyId, periodYear, dry_run: dryRun, months_overdue: monthsOverdue, userId },
       });
       if (fnErr) throw fnErr;
       if (!data?.success) throw new Error(data?.error ?? "Engine returned no result");
       setResult(data.result);
+      onResultChange?.(data.result);
       setPhase(dryRun ? "preview" : "done");
       if (!dryRun) {
         // Reload stored computation
@@ -440,11 +571,24 @@ export function KingaTaxPanel({
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <CardTitle className="text-lg flex items-center gap-2">
+          <CardTitle className="text-lg flex items-center gap-2 flex-wrap">
             <Calculator className="w-5 h-5 text-primary" />
             Kinga — Corporate Tax (ITA Chapter 332)
             {companyName && <span className="text-sm font-normal text-muted-foreground">· {companyName}</span>}
             <Badge variant="outline" className="text-xs ml-1">FY {periodYear}</Badge>
+            {isLocked && (
+              <span className="flex items-center gap-1 text-xs bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5 font-semibold">
+                <Lock className="w-3 h-3" /> PERIOD LOCKED
+              </span>
+            )}
+            {signOff && !isLocked && signOff.status !== "draft" && (
+              <span className="flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2 py-0.5">
+                <PenLine className="w-3 h-3" />
+                {signOff.status === "preparer_signed" ? "Preparer signed" :
+                 signOff.status === "reviewer_signed" ? "Reviewer signed" :
+                 signOff.status === "approved"         ? "Approved" : signOff.status}
+              </span>
+            )}
           </CardTitle>
           <div className="flex items-center gap-2 flex-wrap">
             <AddCapAllowanceModal companyId={companyId} userId={userId} periodYear={periodYear} onSaved={reset} />
@@ -799,6 +943,182 @@ export function KingaTaxPanel({
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* ── MODULE F: Statement of Cash Flows ──────────────────────────────── */}
+            {result.scf_engine && (
+              <div className="border border-blue-200 rounded-xl overflow-hidden">
+                <div className="bg-blue-50 px-3 py-2 border-b border-blue-200 flex items-center gap-2">
+                  <TrendingUp className="w-3.5 h-3.5 text-blue-700" />
+                  <span className="text-xs font-semibold text-blue-800 uppercase tracking-wide">
+                    Module F — Statement of Cash Flows (IFRS for SMEs s.7 — Indirect Method)
+                  </span>
+                  {!result.scf_engine.opening_data_available && (
+                    <span className="ml-auto text-xs text-blue-600 bg-blue-100 rounded px-1.5 py-0.5">First year — movements estimated nil</span>
+                  )}
+                </div>
+                <div className="p-3 space-y-0.5">
+                  <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1">OPERATING ACTIVITIES</div>
+                  <WaterfallRow label="Profit before tax" value={fmtSigned(result.scf_engine.operating_activities.profit_before_tax_tzs)} indent={1} />
+                  <WaterfallRow label="Add: Depreciation & amortisation" value={`+ ${fmt(result.scf_engine.operating_activities.add_depreciation_amortisation_tzs)}`} indent={1} />
+                  <WaterfallRow label="Add: Finance costs (reclassified)" value={`+ ${fmt(result.scf_engine.operating_activities.add_finance_costs_tzs)}`} indent={1} />
+                  <WaterfallRow label="Δ Working capital assets (excl. cash)" value={fmtSigned(result.scf_engine.operating_activities.working_capital_changes.delta_current_assets_excl_cash_tzs)} indent={1} />
+                  <WaterfallRow label="Δ Current liabilities" value={fmtSigned(result.scf_engine.operating_activities.working_capital_changes.delta_current_liabilities_tzs)} indent={1} />
+                  <WaterfallRow label="Cash generated from operations" value={fmtSigned(result.scf_engine.operating_activities.cash_generated_from_operations_tzs)} bold highlight />
+                  <WaterfallRow label="Finance costs paid" value={fmtSigned(result.scf_engine.operating_activities.finance_costs_paid_tzs)} indent={1} />
+                  <WaterfallRow label="Income taxes paid" value={fmtSigned(result.scf_engine.operating_activities.income_taxes_paid_tzs)} indent={1} />
+                  <WaterfallRow label="NET CASH FROM OPERATING ACTIVITIES" value={fmtSigned(result.scf_engine.operating_activities.net_cash_from_operating_tzs)} bold highlight />
+
+                  <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1 mt-3">INVESTING ACTIVITIES</div>
+                  <WaterfallRow label="PPE additions / capex" value={fmtSigned(result.scf_engine.investing_activities.ppe_additions_tzs)} indent={1} />
+                  <WaterfallRow label="PPE disposal proceeds" value={fmtSigned(result.scf_engine.investing_activities.ppe_disposal_proceeds_tzs)} indent={1} />
+                  <WaterfallRow label="NET CASH FROM INVESTING ACTIVITIES" value={fmtSigned(result.scf_engine.investing_activities.net_cash_from_investing_tzs)} bold highlight />
+
+                  <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1 mt-3">FINANCING ACTIVITIES</div>
+                  <WaterfallRow label="Δ Long-term borrowings" value={fmtSigned(result.scf_engine.financing_activities.change_in_long_term_debt_tzs)} indent={1} />
+                  <WaterfallRow label="Dividends paid" value={fmtSigned(result.scf_engine.financing_activities.dividends_paid_tzs)} indent={1} />
+                  <WaterfallRow label="NET CASH FROM FINANCING ACTIVITIES" value={fmtSigned(result.scf_engine.financing_activities.net_cash_from_financing_tzs)} bold highlight />
+
+                  <div className="my-2 border-t border-dashed border-blue-200 mx-2" />
+                  <WaterfallRow label="NET INCREASE/(DECREASE) IN CASH" value={fmtSigned(result.scf_engine.net_change_in_cash_tzs)} bold />
+                  <WaterfallRow label="Opening cash & bank" value={fmt(result.scf_engine.opening_cash_tzs)} indent={1} />
+                  <WaterfallRow label="CLOSING CASH & BANK (per SFP)" value={fmt(result.scf_engine.closing_cash_tzs)} bold highlight />
+
+                  <div className={`mt-3 mx-1 text-xs rounded-lg px-3 py-2 space-y-1 ${
+                    result.scf_engine.reconciles_to_sfp
+                      ? "text-green-800 bg-green-50 border border-green-200"
+                      : "text-orange-800 bg-orange-50 border border-orange-200"
+                  }`}>
+                    <div className="font-semibold">
+                      {result.scf_engine.reconciles_to_sfp
+                        ? "✓ Reconciles to SFP cash balance"
+                        : "⚠ SCF does not reconcile — review cash account classification"}
+                    </div>
+                    <div className="text-xs">{result.scf_engine.cpa_note}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── MODULE G: Statement of Changes in Equity ───────────────────────── */}
+            {result.socie_engine && (
+              <div className="border border-emerald-200 rounded-xl overflow-hidden">
+                <div className="bg-emerald-50 px-3 py-2 border-b border-emerald-200 flex items-center gap-2">
+                  <ArrowUpDown className="w-3.5 h-3.5 text-emerald-700" />
+                  <span className="text-xs font-semibold text-emerald-800 uppercase tracking-wide">
+                    Module G — Statement of Changes in Equity (IFRS for SMEs s.6)
+                  </span>
+                  {!result.socie_engine.opening_data_available && (
+                    <span className="ml-auto text-xs text-emerald-600 bg-emerald-100 rounded px-1.5 py-0.5">First year — opening = closing detected</span>
+                  )}
+                </div>
+                <div className="p-3 space-y-0.5">
+                  {/* mini table */}
+                  <div className="grid grid-cols-5 text-xs font-semibold text-muted-foreground uppercase px-2 mb-1 gap-1">
+                    <span className="col-span-2"></span>
+                    <span className="text-right">Share Cap</span>
+                    <span className="text-right">Ret. Earn.</span>
+                    <span className="text-right">Total</span>
+                  </div>
+                  {[
+                    { label: "Opening balance",   a: result.socie_engine.share_capital.opening_tzs, b: result.socie_engine.retained_earnings.opening_tzs, t: result.socie_engine.total.opening_tzs, bold: false },
+                    { label: "Profit for year",   a: 0, b: result.socie_engine.retained_earnings.profit_for_year_tzs, t: result.socie_engine.total.profit_for_year_tzs, bold: true },
+                    { label: "Dividends declared",a: 0, b: result.socie_engine.retained_earnings.dividends_declared_tzs, t: result.socie_engine.retained_earnings.dividends_declared_tzs, bold: false },
+                    { label: "Share cap. issued", a: result.socie_engine.share_capital.issued_tzs, b: 0, t: result.socie_engine.share_capital.issued_tzs, bold: false },
+                    { label: "Closing balance",   a: result.socie_engine.share_capital.closing_tzs, b: result.socie_engine.retained_earnings.closing_tzs, t: result.socie_engine.total.closing_derived_tzs, bold: true },
+                  ].map((row, i) => (
+                    <div key={i} className={`grid grid-cols-5 text-xs py-1 px-2 rounded gap-1 ${row.bold ? "bg-muted/60 font-semibold" : ""}`}>
+                      <span className="col-span-2 text-foreground">{row.label}</span>
+                      <span className="text-right font-mono text-muted-foreground">{row.a !== 0 ? fmtSigned(row.a) : "—"}</span>
+                      <span className="text-right font-mono text-muted-foreground">{row.b !== 0 ? fmtSigned(row.b) : "—"}</span>
+                      <span className="text-right font-mono">{fmtSigned(row.t)}</span>
+                    </div>
+                  ))}
+                  <div className={`mt-3 mx-1 text-xs rounded-lg px-3 py-2 ${
+                    result.socie_engine.reconciles_to_sfp
+                      ? "text-green-800 bg-green-50 border border-green-200"
+                      : "text-orange-800 bg-orange-50 border border-orange-200"
+                  }`}>
+                    {result.socie_engine.reconciles_to_sfp
+                      ? `✓ Closing equity reconciles to SFP equity balance (TZS ${result.socie_engine.total.sfp_closing_tzs.toLocaleString()}).`
+                      : `⚠ Closing equity does not reconcile — difference TZS ${result.socie_engine.reconciliation_difference_tzs.toLocaleString()}. ` + result.socie_engine.cpa_note
+                    }
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── SIGN-OFF CHAIN + PERIOD LOCK ───────────────────────────────────── */}
+            {(phase === "done" || stored) && (
+              <div className={`border rounded-xl overflow-hidden ${isLocked ? "border-red-300" : "border-slate-200"}`}>
+                <div className={`px-3 py-2 border-b flex items-center gap-2 ${isLocked ? "bg-red-50 border-red-300" : "bg-slate-50 border-slate-200"}`}>
+                  {isLocked ? <Lock className="w-3.5 h-3.5 text-red-700" /> : <PenLine className="w-3.5 h-3.5 text-slate-600" />}
+                  <span className={`text-xs font-semibold uppercase tracking-wide ${isLocked ? "text-red-800" : "text-slate-700"}`}>
+                    {isLocked ? "Period Locked — Statements Signed Off" : "CPA Sign-Off Chain"}
+                  </span>
+                  {isLocked && (
+                    <span className="ml-auto text-xs text-red-600">Locked {signOff?.locked_at ? new Date(signOff.locked_at).toLocaleDateString() : ""}</span>
+                  )}
+                </div>
+                <div className="p-3 space-y-2">
+                  {/* Tier 1: Preparer */}
+                  {[
+                    { tier: "preparer" as const, label: "Tier 1 — Preparer",  signed: !!signOff?.preparer_signed_at, at: signOff?.preparer_signed_at, enabled: !signOff?.preparer_signed_at && !isLocked },
+                    { tier: "reviewer" as const, label: "Tier 2 — Reviewer",  signed: !!signOff?.reviewer_signed_at, at: signOff?.reviewer_signed_at, enabled: !!signOff?.preparer_signed_at && !signOff?.reviewer_signed_at && !isLocked },
+                    { tier: "approver" as const, label: "Tier 3 — Approver ★ Lock Period", signed: !!signOff?.approver_signed_at, at: signOff?.approver_signed_at, enabled: !!signOff?.reviewer_signed_at && !signOff?.approver_signed_at && !isLocked },
+                  ].map(({ tier, label, signed, at, enabled }) => (
+                    <div key={tier} className={`flex items-center gap-3 text-xs rounded-lg px-3 py-2 ${signed ? "bg-green-50 border border-green-200" : enabled ? "bg-white border border-slate-200" : "bg-muted/20 border border-muted text-muted-foreground"}`}>
+                      {signed
+                        ? <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        : <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${enabled ? "border-blue-400" : "border-gray-300"}`} />
+                      }
+                      <div className="flex-1">
+                        <span className={`font-semibold ${signed ? "text-green-800" : enabled ? "text-foreground" : "text-muted-foreground"}`}>{label}</span>
+                        {signed && at && (
+                          <span className="ml-2 text-green-600">— signed {new Date(at).toLocaleDateString()}</span>
+                        )}
+                      </div>
+                      {enabled && !isLocked && (
+                        <Button
+                          size="sm"
+                          variant={tier === "approver" ? "default" : "outline"}
+                          className={`text-xs h-7 gap-1 ${tier === "approver" ? "bg-red-600 hover:bg-red-700" : ""}`}
+                          onClick={() => handleSign(tier)}
+                          disabled={signOffLoading}
+                        >
+                          {tier === "approver" ? <Lock className="w-3 h-3" /> : <PenLine className="w-3 h-3" />}
+                          {tier === "approver" ? "Approve & Lock" : "Sign"}
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  {!isLocked && (
+                    <div className="mt-1">
+                      <input
+                        className="w-full text-xs border border-input rounded px-2 py-1.5"
+                        placeholder="Optional note for this signature…"
+                        value={signOffNote}
+                        onChange={e => setSignOffNote(e.target.value)}
+                      />
+                    </div>
+                  )}
+                  {isLocked && (
+                    <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                      <strong>Period is LOCKED.</strong> Financial statements are signed off and immutable.
+                      New trial balance uploads for FY{periodYear} are blocked at the database level.
+                      To reopen, unlock via Supabase admin with explicit CPA authorisation.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Auto-AJE notice */}
+            {result.auto_ajes_created && result.auto_ajes_created > 0 && (
+              <div className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                ✓ {result.auto_ajes_created} adjusting journal entr{result.auto_ajes_created === 1 ? "y" : "ies"} auto-generated
+                (AJE-E001 = CIT gap, AJE-D001 = Deferred Tax). Review and approve in the AJE register.
               </div>
             )}
 
