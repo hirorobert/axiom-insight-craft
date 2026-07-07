@@ -30,6 +30,18 @@ const FRAMEWORK_LABELS: Record<string, string> = {
   ipsas_cash: "IPSAS Cash Basis",
 };
 
+// A TIN is considered missing when it's null/blank, matches a known
+// placeholder sentinel, or contains no digits (real TRA TINs are numeric).
+const isTinMissing = (tin: string | null | undefined): boolean => {
+  if (!tin) return true;
+  const v = tin.trim();
+  if (!v) return true;
+  if (/^put[-_ ]?real/i.test(v)) return true;
+  if (/placeholder|todo|tbd|xxx/i.test(v)) return true;
+  if (!/\d/.test(v)) return true;
+  return false;
+};
+
 interface Company {
   id: string;
   name: string;
@@ -39,6 +51,7 @@ interface Company {
   fiscal_year_end: string;
   currency: string;
   reporting_framework: string;
+  tin: string | null;
   is_active: boolean;
   created_at: string;
 }
@@ -259,6 +272,15 @@ export const CompanyManager = () => {
                           <Badge variant="outline" className="text-xs text-foreground/60 border-border">
                             {FRAMEWORK_LABELS[company.reporting_framework] || company.reporting_framework}
                           </Badge>
+                          {isTinMissing(company.tin) && (
+                            <Badge
+                              variant="outline"
+                              className="text-xs border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                              title="TRA TIN is missing or still a placeholder. Enter the real TIN."
+                            >
+                              TIN needed
+                            </Badge>
+                          )}
                         </div>
                         {company.industry && (
                           <p className="text-xs text-muted-foreground">{company.industry}</p>
