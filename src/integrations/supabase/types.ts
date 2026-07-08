@@ -396,6 +396,7 @@ export type Database = {
           cost_tzs: number
           created_at: string
           created_by: string
+          disposal_proceeds_tzs: number | null
           disposals_at_tax_cost_tzs: number
           id: string
           ita_class: number
@@ -416,6 +417,7 @@ export type Database = {
           cost_tzs: number
           created_at?: string
           created_by: string
+          disposal_proceeds_tzs?: number | null
           disposals_at_tax_cost_tzs?: number
           id?: string
           ita_class: number
@@ -436,6 +438,7 @@ export type Database = {
           cost_tzs?: number
           created_at?: string
           created_by?: string
+          disposal_proceeds_tzs?: number | null
           disposals_at_tax_cost_tzs?: number
           id?: string
           ita_class?: number
@@ -1001,6 +1004,69 @@ export type Database = {
         }
         Relationships: []
       }
+      management_inputs: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string
+          dividends_declared_tzs: number
+          id: string
+          loan_repayments_tzs: number
+          new_borrowings_tzs: number
+          notes: string | null
+          other_equity_movements_tzs: number
+          period_year: number
+          share_capital_issued_tzs: number
+          updated_at: string
+          upload_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by: string
+          dividends_declared_tzs?: number
+          id?: string
+          loan_repayments_tzs?: number
+          new_borrowings_tzs?: number
+          notes?: string | null
+          other_equity_movements_tzs?: number
+          period_year: number
+          share_capital_issued_tzs?: number
+          updated_at?: string
+          upload_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string
+          dividends_declared_tzs?: number
+          id?: string
+          loan_repayments_tzs?: number
+          new_borrowings_tzs?: number
+          notes?: string | null
+          other_equity_movements_tzs?: number
+          period_year?: number
+          share_capital_issued_tzs?: number
+          updated_at?: string
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "management_inputs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "management_inputs_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       period_closing_balances: {
         Row: {
           cash_balance_tzs: number
@@ -1023,6 +1089,7 @@ export type Database = {
           period_year: number
           retained_earnings_tzs: number
           share_capital_tzs: number
+          taxable_income_tzs: number | null
           upload_id: string | null
           wdv_class1_tzs: number
           wdv_class2_tzs: number
@@ -1053,6 +1120,7 @@ export type Database = {
           period_year: number
           retained_earnings_tzs?: number
           share_capital_tzs?: number
+          taxable_income_tzs?: number | null
           upload_id?: string | null
           wdv_class1_tzs?: number
           wdv_class2_tzs?: number
@@ -1083,6 +1151,7 @@ export type Database = {
           period_year?: number
           retained_earnings_tzs?: number
           share_capital_tzs?: number
+          taxable_income_tzs?: number | null
           upload_id?: string | null
           wdv_class1_tzs?: number
           wdv_class2_tzs?: number
@@ -1141,6 +1210,7 @@ export type Database = {
       }
       statement_sign_offs: {
         Row: {
+          approver_firm_member_id: string | null
           approver_id: string | null
           approver_note: string | null
           approver_signed_at: string | null
@@ -1150,9 +1220,11 @@ export type Database = {
           locked_at: string | null
           locked_by: string | null
           period_year: number
+          preparer_firm_member_id: string | null
           preparer_id: string | null
           preparer_note: string | null
           preparer_signed_at: string | null
+          reviewer_firm_member_id: string | null
           reviewer_id: string | null
           reviewer_note: string | null
           reviewer_signed_at: string | null
@@ -1162,6 +1234,7 @@ export type Database = {
           upload_id: string
         }
         Insert: {
+          approver_firm_member_id?: string | null
           approver_id?: string | null
           approver_note?: string | null
           approver_signed_at?: string | null
@@ -1171,9 +1244,11 @@ export type Database = {
           locked_at?: string | null
           locked_by?: string | null
           period_year: number
+          preparer_firm_member_id?: string | null
           preparer_id?: string | null
           preparer_note?: string | null
           preparer_signed_at?: string | null
+          reviewer_firm_member_id?: string | null
           reviewer_id?: string | null
           reviewer_note?: string | null
           reviewer_signed_at?: string | null
@@ -1183,6 +1258,7 @@ export type Database = {
           upload_id: string
         }
         Update: {
+          approver_firm_member_id?: string | null
           approver_id?: string | null
           approver_note?: string | null
           approver_signed_at?: string | null
@@ -1192,9 +1268,11 @@ export type Database = {
           locked_at?: string | null
           locked_by?: string | null
           period_year?: number
+          preparer_firm_member_id?: string | null
           preparer_id?: string | null
           preparer_note?: string | null
           preparer_signed_at?: string | null
+          reviewer_firm_member_id?: string | null
           reviewer_id?: string | null
           reviewer_note?: string | null
           reviewer_signed_at?: string | null
@@ -1205,10 +1283,31 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "statement_sign_offs_approver_firm_member_id_fkey"
+            columns: ["approver_firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "statement_sign_offs_company_id_fkey"
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "statement_sign_offs_preparer_firm_member_id_fkey"
+            columns: ["preparer_firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "statement_sign_offs_reviewer_firm_member_id_fkey"
+            columns: ["reviewer_firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
             referencedColumns: ["id"]
           },
           {
@@ -1603,6 +1702,7 @@ export type Database = {
           id: string
           is_valid: boolean | null
           period_id: string | null
+          period_year: number | null
           processed_at: string | null
           processing_result: Json | null
           status: string
@@ -1621,6 +1721,7 @@ export type Database = {
           id?: string
           is_valid?: boolean | null
           period_id?: string | null
+          period_year?: number | null
           processed_at?: string | null
           processing_result?: Json | null
           status?: string
@@ -1639,6 +1740,7 @@ export type Database = {
           id?: string
           is_valid?: boolean | null
           period_id?: string | null
+          period_year?: number | null
           processed_at?: string | null
           processing_result?: Json | null
           status?: string
