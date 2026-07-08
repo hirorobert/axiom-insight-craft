@@ -128,9 +128,12 @@ interface SCFEngine {
   opening_cash_tzs:        number;
   closing_cash_tzs:        number;
   reconciles_to_sfp:       boolean;
+  reconciliation_difference_tzs?: number;
   note:                    string;
   cpa_note:                string;
   opening_data_available:  boolean;
+  is_first_year_draft:     boolean;   // D9-FIX: true when no prior-year closing balances
+  scf_disposal_proceeds_missing?: boolean; // D2-FIX: engine fell back to tax cost for SCF proceeds
 }
 
 // ── MODULE G: Statement of Changes in Equity ─────────────────────────────
@@ -209,6 +212,7 @@ interface CapAllowanceForm {
   ita_wdv_opening_tzs: string;
   additions_tzs: string;
   disposals_at_tax_cost_tzs: string;
+  disposal_proceeds_tzs: string;   // D2-FIX: actual IFRS SCF proceeds (≠ tax cost)
   accounting_depreciation_tzs: string;
   source_account: string;
   notes: string;
@@ -232,10 +236,19 @@ interface KingaTaxPanelProps {
   companyId: string;
   uploadId: string;
   periodYear: number;
+  periodEndMonth?: number;    // D7-FIX: fiscal year-end month (1-12), default 12
   companyName?: string;
   userId: string;
   onResultChange?: (result: TaxResult | null) => void;
 }
+
+// D6-FIX: role weights for sign-off tier enforcement
+const ROLE_WEIGHT: Record<string, number> = { viewer: 0, preparer: 1, partner: 2, owner: 3 };
+const TIER_MIN_WEIGHT: Record<string, number> = {
+  preparer: 1,  // preparer, partner, owner can sign as Tier 1
+  reviewer: 2,  // only partner or owner for Tier 2
+  approver: 2,  // only partner or owner can lock (Tier 3)
+};
 
 // ── HELPERS ───────────────────────────────────────────────────────────────
 function fmt(n: number): string {
@@ -269,8 +282,8 @@ function AddCapAllowanceModal({
   const [form, setForm] = useState<CapAllowanceForm>({
     asset_description: "", ita_class: 3, cost_tzs: "",
     ita_wdv_opening_tzs: "", additions_tzs: "0",
-    disposals_at_tax_cost_tzs: "0", accounting_depreciation_tzs: "0",
-    source_account: "", notes: "",
+    disposals_at_tax_cost_tzs: "0", disposal_proceeds_tzs: "",
+    accounting_depreciation_tzs: "0", source_account: "", notes: "",
   });
 
   const parseNum = (s: string) => parseFloat(s.replace(/,/g, "")) || 0;
@@ -302,6 +315,7 @@ function AddCapAllowanceModal({
       ita_wdv_opening_tzs:           parseNum(form.ita_wdv_opening_tzs) || parseNum(form.cost_tzs),
       additions_tzs:                 parseNum(form.additions_tzs),
       disposals_at_tax_cost_tzs:     parseNum(form.disposals_at_tax_cost_tzs),
+      disposal_proceeds_tzs:         form.disposal_proceeds_tzs !== "" ? parseNum(form.disposal_proceeds_tzs) : null,
       accounting_depreciation_tzs:   parseNum(form.accounting_depreciation_tzs),
       wear_tear_tzs:                 wt,
       ita_wdv_closing_tzs:           pool - wt,
@@ -312,7 +326,7 @@ function AddCapAllowanceModal({
     setSaving(false);
     if (!error) {
       setOpen(false);
-      setForm({ asset_description: "", ita_class: 3, cost_tzs: "", ita_wdv_opening_tzs: "", additions_tzs: "0", disposals_at_tax_cost_tzs: "0", accounting_depreciation_tzs: "0", source_account: "", notes: "" });
+      setForm({ asset_description: "", ita_class: 3, cost_tzs: "", ita_wdv_opening_tzs: "", additions_tzs: "0", disposals_at_tax_cost_tzs: "0", disposal_proceeds_tzs: "", accounting_depreciation_tzs: "0", source_account: "", notes: "" });
       onSaved();
     }
   };
@@ -368,10 +382,21 @@ function AddCapAllowanceModal({
                     value={form.additions_tzs} onChange={e => setForm(f => ({ ...f, additions_tzs: e.target.value }))} />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">Disposals at Tax Cost (TZS)</label>
+                  <label className="text-xs font-medium text-gray-600">Disposals at Tax Cost / WDV (TZS) — ITA s.34</label>
                   <input className={inputClass} placeholder="0"
                     value={form.disposals_at_tax_cost_tzs} onChange={e => setForm(f => ({ ...f, disposals_at_tax_cost_tzs: e.target.value }))} />
+                  <p className="text-xs text-gray-400 mt-0.5">ITA written-down value of disposed asset — for wear &amp; tear pool reduction.</p>
                 </div>
+              </div>
+              {/* D2-FIX: IFRS SCF disposal proceeds — separate from ITA tax cost */}
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                <label className="text-xs font-semibold text-blue-800">Disposal Proceeds — IFRS SCF (TZS)</label>
+                <input className={inputClass + " mt-1"} placeholder="Actual cash received on disposal (leave blank if no disposal)"
+                  value={form.disposal_proceeds_tzs} onChange={e => setForm(f => ({ ...f, disposal_proceeds_tzs: e.target.value }))} />
+                <p className="text-xs text-blue-600 mt-0.5">
+                  This is the <strong>actual sale proceeds</strong> for the IFRS Statement of Cash Flows (investing activities).
+                  It differs from the tax cost above. If blank and a disposal exists, the engine uses ITA WDV as a fallback and flags a warning.
+                </p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-600">Accounting Depreciation (TZS) — for add-back reconciliation</label>
@@ -449,7 +474,7 @@ function WaterfallRow({
 
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────
 export function KingaTaxPanel({
-  companyId, uploadId, periodYear, companyName, userId, onResultChange,
+  companyId, uploadId, periodYear, periodEndMonth = 12, companyName, userId, onResultChange,
 }: KingaTaxPanelProps) {
   type Phase = "idle" | "running" | "preview" | "committing" | "done";
 
@@ -462,33 +487,71 @@ export function KingaTaxPanel({
   const [signOff, setSignOff]           = useState<SignOff | null>(null);
   const [signOffLoading, setSignOffLoading] = useState(false);
   const [signOffNote, setSignOffNote]   = useState("");
+  // D6-FIX: current user's firm_members role (for sign-off enforcement)
+  const [firmMemberRole, setFirmMemberRole] = useState<string>("preparer");
+  const [firmMemberId, setFirmMemberId]     = useState<string | null>(null);
+  // D4-FIX: management inputs (dividends, share capital, loan movements)
+  const [mgmtInputs, setMgmtInputs]         = useState({ dividends: "", shareCapital: "", loanRepaid: "", newBorrowings: "", otherEquity: "" });
+  const [savingMgmtInputs, setSavingMgmtInputs] = useState(false);
 
-  // Load existing computation + sign-off state
+  // Load existing computation + sign-off state + firm member role + management inputs
   useEffect(() => {
     supabase
       .from("tax_computations")
       .select("id,period_year,taxable_income_tzs,tax_payable_tzs,cit_gap_tzs,total_exposure_tzs,minimum_tax_applies,effective_tax_rate_pct,engine_version,created_at")
-      .eq("company_id", companyId)
-      .eq("upload_id", uploadId)
-      .maybeSingle()
+      .eq("company_id", companyId).eq("upload_id", uploadId).maybeSingle()
       .then(({ data }) => { if (data) setStored(data); });
 
     supabase
       .from("statement_sign_offs")
       .select("*")
-      .eq("company_id", companyId)
-      .eq("period_year", periodYear)
-      .maybeSingle()
+      .eq("company_id", companyId).eq("period_year", periodYear).maybeSingle()
       .then(({ data }) => { if (data) setSignOff(data as SignOff); });
-  }, [companyId, uploadId, periodYear]);
+
+    // D6-FIX: load current user's role in this company
+    supabase
+      .from("firm_members")
+      .select("id, role")
+      .eq("company_id", companyId).eq("user_id", userId).maybeSingle()
+      .then(({ data }) => {
+        if (data) { setFirmMemberRole(data.role); setFirmMemberId(data.id); }
+      });
+
+    // D4-FIX: load saved management inputs if they exist
+    supabase
+      .from("management_inputs")
+      .select("*")
+      .eq("company_id", companyId).eq("upload_id", uploadId).maybeSingle()
+      .then(({ data }) => {
+        if (data) setMgmtInputs({
+          dividends:     String(data.dividends_declared_tzs   ?? ""),
+          shareCapital:  String(data.share_capital_issued_tzs  ?? ""),
+          loanRepaid:    String(data.loan_repayments_tzs       ?? ""),
+          newBorrowings: String(data.new_borrowings_tzs        ?? ""),
+          otherEquity:   String(data.other_equity_movements_tzs ?? ""),
+        });
+      });
+  }, [companyId, uploadId, periodYear, userId]);
 
   const handleSign = async (tier: "preparer" | "reviewer" | "approver") => {
+    // D6-FIX: enforce minimum role weight for each sign-off tier
+    const userWeight = ROLE_WEIGHT[firmMemberRole] ?? 0;
+    const requiredWeight = TIER_MIN_WEIGHT[tier] ?? 99;
+    if (userWeight < requiredWeight) {
+      setError(
+        `Role "${firmMemberRole}" cannot sign off as ${tier}. ` +
+        `This action requires at least ${tier === "preparer" ? "preparer" : "partner or owner"} role.`
+      );
+      return;
+    }
+
     setSignOffLoading(true);
     const now = new Date().toISOString();
     const updates: Record<string, string | null> = {
-      [`${tier}_id`]:        userId,
-      [`${tier}_signed_at`]: now,
-      [`${tier}_note`]:      signOffNote || null,
+      [`${tier}_id`]:                  userId,
+      [`${tier}_signed_at`]:           now,
+      [`${tier}_note`]:                signOffNote || null,
+      [`${tier}_firm_member_id`]:      firmMemberId,   // D6: audit trail via firm_members FK
     };
 
     const newStatus =
@@ -537,7 +600,7 @@ export function KingaTaxPanel({
     setError(null);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("kinga-tax-engine", {
-        body: { uploadId, companyId, periodYear, dry_run: dryRun, months_overdue: monthsOverdue, userId },
+        body: { uploadId, companyId, periodYear, periodEndMonth, dry_run: dryRun, months_overdue: monthsOverdue, userId },
       });
       if (fnErr) throw fnErr;
       if (!data?.success) throw new Error(data?.error ?? "Engine returned no result");
@@ -559,6 +622,24 @@ export function KingaTaxPanel({
   };
 
   const reset = () => { setPhase("idle"); setResult(null); setError(null); };
+
+  // D4-FIX: save management inputs (dividends, share capital, loan movements) before engine run
+  const saveMgmtInputs = async () => {
+    setSavingMgmtInputs(true);
+    const payload = {
+      company_id:                  companyId,
+      upload_id:                   uploadId,
+      period_year:                 periodYear,
+      dividends_declared_tzs:      parseFloat(mgmtInputs.dividends || "0") || 0,
+      share_capital_issued_tzs:    parseFloat(mgmtInputs.shareCapital || "0") || 0,
+      loan_repayments_tzs:         parseFloat(mgmtInputs.loanRepaid || "0") || 0,
+      new_borrowings_tzs:          parseFloat(mgmtInputs.newBorrowings || "0") || 0,
+      other_equity_movements_tzs:  parseFloat(mgmtInputs.otherEquity || "0") || 0,
+      created_by:                  userId,
+    };
+    await supabase.from("management_inputs").upsert(payload, { onConflict: "company_id,upload_id" });
+    setSavingMgmtInputs(false);
+  };
 
   const gapColor = result ? severityColor(result.cit_gap_tzs) : "";
   const exposureLabel = result
@@ -612,23 +693,78 @@ export function KingaTaxPanel({
       <CardContent className="space-y-4">
         {/* ── IDLE ───────────────────────────────────────────────── */}
         {phase === "idle" && (
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-muted-foreground">Months overdue:</label>
-              <input
-                type="number" min={0} max={60}
-                value={monthsOverdue}
-                onChange={e => setMonthsOverdue(Number(e.target.value))}
-                className="w-16 border rounded px-2 py-1 text-sm text-center"
-              />
+          <div className="space-y-4">
+            {/* D4-FIX: Management Inputs — CPA must fill before running engine */}
+            <div className="border border-amber-200 bg-amber-50 rounded-lg p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <PenLine className="w-4 h-4 text-amber-600" />
+                <span className="text-sm font-semibold text-amber-800">Management Inputs (IFRS for SMEs — SOCIE &amp; SCF Financing)</span>
+              </div>
+              <p className="text-xs text-amber-700">
+                These items cannot be derived from the trial balance. Enter them before running the engine.
+                Zeros are used if left blank. Fields are auto-saved when you click Save.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-700">Dividends Declared (TZS)</label>
+                  <input className="w-full mt-0.5 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    placeholder="0" type="number" min="0"
+                    value={mgmtInputs.dividends}
+                    onChange={e => setMgmtInputs(m => ({ ...m, dividends: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700">Share Capital Issued (TZS)</label>
+                  <input className="w-full mt-0.5 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    placeholder="0" type="number" min="0"
+                    value={mgmtInputs.shareCapital}
+                    onChange={e => setMgmtInputs(m => ({ ...m, shareCapital: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700">Loan Repayments (TZS)</label>
+                  <input className="w-full mt-0.5 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    placeholder="0" type="number" min="0"
+                    value={mgmtInputs.loanRepaid}
+                    onChange={e => setMgmtInputs(m => ({ ...m, loanRepaid: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700">New Borrowings (TZS)</label>
+                  <input className="w-full mt-0.5 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    placeholder="0" type="number" min="0"
+                    value={mgmtInputs.newBorrowings}
+                    onChange={e => setMgmtInputs(m => ({ ...m, newBorrowings: e.target.value }))} />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs font-medium text-gray-700">Other Equity Movements / OCI (TZS)</label>
+                  <input className="w-full mt-0.5 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    placeholder="0 — revaluations, FX translation, etc."
+                    value={mgmtInputs.otherEquity}
+                    onChange={e => setMgmtInputs(m => ({ ...m, otherEquity: e.target.value }))} />
+                </div>
+              </div>
+              <Button size="sm" variant="outline" onClick={saveMgmtInputs} disabled={savingMgmtInputs} className="border-amber-400 text-amber-800 hover:bg-amber-100">
+                {savingMgmtInputs ? "Saving…" : "Save Management Inputs"}
+              </Button>
             </div>
-            <Button onClick={() => runEngine(true)} className="gap-2">
-              <Calculator className="w-4 h-4" />
-              Run Tax Analysis
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Preview ITA computation — nothing saved until you confirm.
-            </p>
+
+            {/* Run Engine controls */}
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-muted-foreground">Months overdue:</label>
+                <input
+                  type="number" min={0} max={60}
+                  value={monthsOverdue}
+                  onChange={e => setMonthsOverdue(Number(e.target.value))}
+                  className="w-16 border rounded px-2 py-1 text-sm text-center"
+                />
+              </div>
+              <Button onClick={() => runEngine(true)} className="gap-2">
+                <Calculator className="w-4 h-4" />
+                Run Tax Analysis
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Preview ITA computation — nothing saved until you confirm.
+              </p>
+            </div>
           </div>
         )}
 
@@ -954,11 +1090,29 @@ export function KingaTaxPanel({
                   <span className="text-xs font-semibold text-blue-800 uppercase tracking-wide">
                     Module F — Statement of Cash Flows (IFRS for SMEs s.7 — Indirect Method)
                   </span>
-                  {!result.scf_engine.opening_data_available && (
-                    <span className="ml-auto text-xs text-blue-600 bg-blue-100 rounded px-1.5 py-0.5">First year — movements estimated nil</span>
+                  {result.scf_engine.is_first_year_draft && (
+                    <span className="ml-auto text-xs text-amber-700 bg-amber-100 border border-amber-300 rounded px-1.5 py-0.5 font-semibold">⚠ First Year — Draft</span>
                   )}
                 </div>
                 <div className="p-3 space-y-0.5">
+                  {/* D9-FIX: mandatory first-year disclaimer */}
+                  {result.scf_engine.is_first_year_draft && (
+                    <div className="mb-3 rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-1">
+                      <div className="font-bold uppercase tracking-wide">⚠ First-Year SCF — Draft Only. Not for Publication.</div>
+                      <div>
+                        This Statement of Cash Flows is produced for the <strong>first period</strong> in Kinga for this entity.
+                        Opening cash, working capital, and balance-sheet movements are <strong>estimated as nil</strong> because
+                        no prior-year closing balance is stored in the system. The resulting SCF will not reconcile to the
+                        balance sheet and will always show a non-reconciled status.
+                      </div>
+                      <div>
+                        <strong>CPA action required before publication:</strong> Enter the prior-year closing
+                        balances (cash, receivables, payables, PPE) via the period registry, run the engine for the
+                        prior year first, or manually override the SCF working-capital movements via an AJE.
+                        Reference: IFRS for SMEs s.7.7 — comparative statements require consistent period data.
+                      </div>
+                    </div>
+                  )}
                   <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1">OPERATING ACTIVITIES</div>
                   <WaterfallRow label="Profit before tax" value={fmtSigned(result.scf_engine.operating_activities.profit_before_tax_tzs)} indent={1} />
                   <WaterfallRow label="Add: Depreciation & amortisation" value={`+ ${fmt(result.scf_engine.operating_activities.add_depreciation_amortisation_tzs)}`} indent={1} />
@@ -973,6 +1127,12 @@ export function KingaTaxPanel({
                   <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1 mt-3">INVESTING ACTIVITIES</div>
                   <WaterfallRow label="PPE additions / capex" value={fmtSigned(result.scf_engine.investing_activities.ppe_additions_tzs)} indent={1} />
                   <WaterfallRow label="PPE disposal proceeds" value={fmtSigned(result.scf_engine.investing_activities.ppe_disposal_proceeds_tzs)} indent={1} />
+                  {result.scf_engine.scf_disposal_proceeds_missing && (
+                    <div className="mx-2 mt-0.5 mb-1 text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded px-2 py-1">
+                      ⚠ D2 Warning: One or more asset disposals have no IFRS proceeds entered. Engine used ITA tax cost (WDV) as fallback.
+                      Enter actual sale proceeds in the capital allowance modal for each disposed asset.
+                    </div>
+                  )}
                   <WaterfallRow label="NET CASH FROM INVESTING ACTIVITIES" value={fmtSigned(result.scf_engine.investing_activities.net_cash_from_investing_tzs)} bold highlight />
 
                   <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1 mt-3">FINANCING ACTIVITIES</div>

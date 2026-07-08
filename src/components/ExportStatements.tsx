@@ -159,6 +159,8 @@ interface SCFEngineForExport {
   note:                     string;
   cpa_note:                 string;
   opening_data_available:   boolean;
+  is_first_year_draft:      boolean;   // D9-FIX
+  scf_disposal_proceeds_missing?: boolean; // D2-FIX
 }
 
 interface SOCIEEngineForExport {
@@ -777,6 +779,28 @@ export function ExportStatements({
 
     const scf = taxResult?.scf_engine;
     if (scf) {
+      // D9-FIX: first-year SCF mandatory red disclaimer before the table
+      if (scf.is_first_year_draft) {
+        // Red box disclaimer
+        const disclaimerY = y + 4;
+        doc.setFillColor(255, 235, 235);
+        doc.setDrawColor(200, 50, 50);
+        doc.roundedRect(14, disclaimerY, 182, 20, 1.5, 1.5, "FD");
+        doc.setFontSize(7); doc.setTextColor(160, 0, 0);
+        doc.setFont("helvetica", "bold");
+        doc.text("⚠  DRAFT — FIRST YEAR — NOT FOR PUBLICATION", 16, disclaimerY + 5);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(6.5);
+        const disclaimer = doc.splitTextToSize(
+          "This Statement of Cash Flows is a FIRST-YEAR draft. Opening balances (cash, working capital, PPE) " +
+          "are estimated as nil because no prior-year closing balances are stored. Balance-sheet movements are " +
+          "therefore unreliable. This statement must not be published or presented to third parties. " +
+          "Action required: enter prior-year closing balances or run the engine for the prior period first. " +
+          "Reference: IFRS for SMEs s.7.7.", 178);
+        doc.text(disclaimer, 16, disclaimerY + 10);
+        y = disclaimerY + 25;
+      }
+
       type Row2 = [string, string];
       const scfBody: Row2[] = [];
       const scfStyles: Record<number, object> = {};
@@ -849,6 +873,16 @@ export function ExportStatements({
       const scfNoteLines = doc.splitTextToSize(
         reconLabel + "  " + scf.cpa_note, 182);
       doc.text(scfNoteLines, 14, scfAfter);
+      // D2-FIX: warn if disposal proceeds were missing and engine used tax cost fallback
+      if (scf.scf_disposal_proceeds_missing) {
+        const d2Y = scfAfter + scfNoteLines.length * 3.5 + 2;
+        doc.setFontSize(6.5); doc.setTextColor(180, 80, 0);
+        doc.text(
+          "⚠  One or more asset disposals: IFRS sale proceeds not provided — ITA tax cost (WDV) used as fallback. " +
+          "Enter actual disposal proceeds in the capital allowance schedule to correct investing activities.",
+          14, d2Y
+        );
+      }
     } else {
       doc.setFontSize(8); doc.setTextColor(120);
       doc.text(

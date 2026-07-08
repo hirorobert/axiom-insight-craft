@@ -273,6 +273,23 @@ const INTEREST_EXPENSE_PATTERNS = [
   /bank\s+interest\b/i, /\briba\b/i,
 ];
 
+// D10-FIX: Management and professional fees to related parties (ITA s.33)
+// Cap: 1% of gross income for management fees to foreign related parties.
+// Engine detects, computes cap, adds excess as flagged add-back.
+const MGMT_FEE_PATTERNS = [
+  /management\s+fee/i, /management\s+charge/i, /\bmanagement\s+service/i,
+  /\bhead\s*office\s*(fee|charge|levy|allocation)/i,
+  /\bgroup\s*(service|support|management)\s*(fee|charge)/i,
+  /\bparent\s+company\s+(fee|charge|allocation)/i,
+  /technical\s+service\s+fee/i, /\bfranchise\s+fee\b/i,
+  /royalt(y|ies)/i,
+  /\bconsultancy\s+fee\b/i, /\badvisory\s+fee\b/i,
+];
+// ITA s.33 cap rate: 1% of gross income (verified ITA Cap.332 R.E.2023)
+// Note: A 2% figure circulates in some summaries but the Act specifies 1%.
+// Engine applies 1%; CPA must confirm current TRA interpretation.
+const MGMT_FEE_CAP_RATE = 0.01;
+
 const INCOME_TAX_PROVISION_PATTERNS = [
   /income\s+tax\s+payable/i, /current\s+tax\s+payable/i,
   /corporate\s+tax\s+payable/i, /corporation\s+tax\b/i,
@@ -385,7 +402,11 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { uploadId, companyId, periodYear, dry_run = true, months_overdue = 0, userId = null } = await req.json();
+    const {
+      uploadId, companyId, periodYear, dry_run = true,
+      months_overdue = 0, userId = null,
+      periodEndMonth = 12,   // D7-FIX: fiscal year-end month (1-12). Pass from Dashboard.
+    } = await req.json();
     if (!uploadId || !companyId || !periodYear) {
       return new Response(JSON.stringify({ error: "uploadId, companyId, periodYear required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -563,6 +584,41 @@ serve(async (req) => {
       });
     }
 
+    // ── STEP 4f: Management & professional fees cap (ITA s.33) ── D10-FIX ─
+    // ITA s.33: fees paid to foreign related parties for management, technical,
+    // professional or consultancy services are deductible only up to 1% of gross income.
+    // Cap = 1% of turnover (verified ITA Cap.332 R.E.2023).
+    // Engine auto-adds the excess as a requires_review add-back.
+    const { total: mgmtFeeTotal, names: mgmtFeeNames } = sumMatching(allISAccs, MGMT_FEE_PATTERNS);
+    if (mgmtFeeTotal > 0) {
+      const mgmtFeeCap = Math.round(turnover * MGMT_FEE_CAP_RATE);  // 1% of gross income
+      if (mgmtFeeTotal > mgmtFeeCap) {
+        const mgmtFeeExcess = mgmtFeeTotal - mgmtFeeCap;
+        addBacks.push({
+          description: `Management/professional fee disallowance: ITA s.33 cap = 1% × TZS ${turnover.toLocaleString()} = TZS ${mgmtFeeCap.toLocaleString()}. ` +
+                       `Detected fees TZS ${mgmtFeeTotal.toLocaleString()} exceed cap by TZS ${mgmtFeeExcess.toLocaleString()}. ` +
+                       `UPPER-BOUND: applies only to fees paid to FOREIGN related parties. ` +
+                       `Fees to Tanzanian entities may be fully deductible — CPA must confirm nature of each payment.`,
+          amount_tzs:      mgmtFeeExcess,
+          ita_section:     "ITA Cap.332 s.33 (R.E.2023)",
+          account_names:   mgmtFeeNames,
+          auto_detected:   true,
+          requires_review: true,  // CPA must confirm foreign vs domestic recipient
+        });
+      } else {
+        // Under cap — still disclose for CPA awareness
+        classificationWarnings.push({
+          category: "Management Fees (ITA s.33)",
+          message: `Management/professional fee accounts TZS ${mgmtFeeTotal.toLocaleString()} detected. ` +
+                   `ITA s.33 cap = 1% × gross income TZS ${turnover.toLocaleString()} = TZS ${mgmtFeeCap.toLocaleString()}. ` +
+                   `Detected amount is WITHIN the cap — no add-back required IF paid to a foreign related party. ` +
+                   `If paid to a domestic entity, full amount is deductible and no cap applies.`,
+          accounts_found:  mgmtFeeNames,
+          action_required: "Confirm whether payee is a foreign related party. If domestic, disregard cap entirely.",
+        });
+      }
+    }
+
     // ── STEP 5: Thin Capitalisation (ITA s.12(2) — 7:3 ratio) ────────────
     // PRIMARY SOURCE VERIFIED: ITA Cap.332 s.12(2) (NOT s.24A — that section does not exist).
     // CRITICAL SCOPE: s.12(2) applies ONLY to "exempt-controlled resident entities" —
@@ -608,8 +664,10 @@ serve(async (req) => {
     // ── STEP 6: Wear & Tear from capital_allowances table ────────────────
     const { data: wtRows } = await supabase
       .from("capital_allowances")
-      .select("ita_class, asset_description, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, cost_tzs")
+      .select("ita_class, asset_description, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, disposal_proceeds_tzs, cost_tzs")
       .eq("company_id", companyId).eq("period_year", periodYear);
+      // D2-FIX: disposal_proceeds_tzs = actual cash received (IFRS SCF investing).
+      // Falls back to disposals_at_tax_cost_tzs with warning if CPA has not provided it.
 
     let totalWearTear = 0;
     const wtByClass: Record<number, { wt: number; descriptions: string[] }> = {};
@@ -646,13 +704,24 @@ serve(async (req) => {
     }
 
     // ── PPE ADDITIONS + DISPOSALS + WDV CLOSING (SCF Investing + period_closing_balances) ─
+    // D2-FIX: disposal_proceeds_tzs (IFRS cash received) is now separate from
+    // disposals_at_tax_cost_tzs (ITA tax WDV used in wear & tear computation).
     let ppeAdditionsTzs = 0;
-    let ppeDisposalsTzs = 0;
+    let ppeDisposalsTzs = 0;       // SCF: IFRS cash received on disposal
+    let ppeDisposalsMissingProceeds = false;
     const wdvClosingByClass: Record<number, number> = {};
     if (wtRows && wtRows.length > 0) {
       for (const row of wtRows) {
-        ppeAdditionsTzs  += row.additions_tzs             ?? 0;
-        ppeDisposalsTzs  += row.disposals_at_tax_cost_tzs ?? 0;
+        ppeAdditionsTzs  += row.additions_tzs ?? 0;
+        // D2-FIX: prefer IFRS cash proceeds; fallback to tax cost with flag
+        if (row.disposals_at_tax_cost_tzs > 0) {
+          if (row.disposal_proceeds_tzs != null) {
+            ppeDisposalsTzs += row.disposal_proceeds_tzs;
+          } else {
+            ppeDisposalsTzs += row.disposals_at_tax_cost_tzs; // fallback — imprecise
+            ppeDisposalsMissingProceeds = true;
+          }
+        }
         const clsI = ITA_ASSET_CLASSES[row.ita_class];
         if (!clsI) continue;
         const poolI = (row.ita_wdv_opening_tzs ?? 0) + (row.additions_tzs ?? 0)
@@ -799,7 +868,9 @@ serve(async (req) => {
     const dtaTiming = Math.round(Math.max(0, -timingDiff) * CIT_RATE);
 
     // ── Category B: Loss carry-forward DTA (s.19(2) throttled) ─────────────
-    const currentYearLoss  = Math.max(0, -taxableIncome);
+    // D3-FIX: use TOTAL remaining loss pool (accumulated + current), not just this year.
+    // totalLossPool is computed above in the D3-FIX block.
+    const currentYearLoss  = totalLossPool;    // full unrelieved pool for DTA
     const dtaPotentialLoss = Math.round(currentYearLoss * CIT_RATE);
 
     let dtaLossRecognized  = 0;
@@ -947,19 +1018,93 @@ serve(async (req) => {
         "Loss DTA uses a 5% net margin proxy — replace with management forecast.",
     };
 
-    // ── STEP 0b: Load opening balances from period_closing_balances ──────────
-    // Fetches the PRIOR year's closing snapshot as THIS year's opening balance.
-    // Enables: (1) true deferred tax movement, (2) SCF working capital Δ,
-    // (3) SOCIE equity roll-forward. On first year, returns null → graceful fallback.
-    const { data: openingBalRow } = await supabase
-      .from("period_closing_balances")
-      .select("*")
-      .eq("company_id", companyId)
-      .eq("period_year", periodYear - 1)
-      .maybeSingle();
+    // ── STEP 0b: Load opening balances + prior years + management inputs ─────
+    // D3-FIX: also load cumulative_unrelieved_loss_tzs from opening balance for DTA pool.
+    // D8-FIX: also query period_year-2 to enable AMT 3-year consecutive-loss detection.
+    // D4-FIX: also query management_inputs for dividends/share capital/financing items.
 
-    const openingBal             = openingBalRow ?? null;
-    const openingDataAvailable   = openingBal !== null;
+    const [openingBalResult, twoYearsAgoResult, mgmtInputResult] = await Promise.all([
+      supabase
+        .from("period_closing_balances")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("period_year", periodYear - 1)
+        .eq("period_month", periodEndMonth)   // D7-FIX: match correct year-end month
+        .maybeSingle(),
+      supabase
+        .from("period_closing_balances")
+        .select("taxable_income_tzs, period_year")
+        .eq("company_id", companyId)
+        .eq("period_year", periodYear - 2)
+        .eq("period_month", periodEndMonth)   // D7-FIX
+        .maybeSingle(),
+      supabase
+        .from("management_inputs")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("upload_id", uploadId)
+        .maybeSingle(),
+    ]);
+
+    const openingBal           = openingBalResult.data ?? null;
+    const openingDataAvailable = openingBal !== null;
+    const priorPriorYearBal    = twoYearsAgoResult.data ?? null;
+    const mgmtInputs           = mgmtInputResult.data ?? null;
+
+    // D4-FIX: extract management inputs (CPA-provided) or default to zero
+    const mgmtDividendsDeclared   = mgmtInputs?.dividends_declared_tzs   ?? 0;
+    const mgmtShareCapIssued      = mgmtInputs?.share_capital_issued_tzs  ?? 0;
+    const mgmtOtherEquityMoves    = mgmtInputs?.other_equity_movements_tzs ?? 0;
+    const mgmtLoanRepayments      = mgmtInputs?.loan_repayments_tzs       ?? 0;
+    const mgmtNewBorrowings       = mgmtInputs?.new_borrowings_tzs        ?? 0;
+    const mgmtInputsProvided      = mgmtInputs !== null;
+
+    // ── D3-FIX: Cumulative Loss Pool — correctly maintained across years ─────
+    // Prior version: pool only ever grew (never reduced on profit years) — WRONG.
+    // Fix: on profit years, pool decreases by (taxableIncome × 70% shelter cap).
+    //      DTA computation uses TOTAL remaining pool, not just current year loss.
+    const openingCumulativeLoss = openingBal?.cumulative_unrelieved_loss_tzs ?? 0;
+    const currentYearNewLoss    = Math.max(0, -taxableIncome);
+    const currentYearProfit     = Math.max(0, taxableIncome);
+
+    // When company is profitable, prior losses are absorbed up to 70% annual cap
+    const lossAbsorbedThisYear  = Math.min(
+      openingCumulativeLoss,
+      currentYearProfit * LOSS_CARRYFORWARD_SHELTER
+    );
+    // Total unrelieved loss pool available for DTA recognition this year
+    const totalLossPool         = Math.max(0, openingCumulativeLoss - lossAbsorbedThisYear + currentYearNewLoss);
+    // Closing pool saved to period_closing_balances (replaces old running-total)
+    const closingLossPool       = totalLossPool;
+
+    // ── D8-FIX: AMT 3-year consecutive-loss detection ─────────────────────
+    // AMT (ITA First Schedule para 3(3)): 1% of turnover applies when the entity
+    // has unrelieved tax losses in the current AND preceding 2 years.
+    // Now possible because period_closing_balances stores taxable_income_tzs.
+    const priorYearTaxableIncome     = openingBal?.taxable_income_tzs ?? null;
+    const priorPriorYearTaxableIncome = priorPriorYearBal?.taxable_income_tzs ?? null;
+    const amtThreeYearLosses =
+      taxableIncome < 0 &&
+      priorYearTaxableIncome !== null && priorYearTaxableIncome < 0 &&
+      priorPriorYearTaxableIncome !== null && priorPriorYearTaxableIncome < 0;
+    const amtApplicable = amtThreeYearLosses;
+    const amtComputed   = Math.round(turnover * AMT_RATE);  // 1% of turnover
+    if (amtApplicable) {
+      warnings.push(
+        `⚠ AMT APPLIES: Company has recorded tax losses for 3 consecutive years ` +
+        `(FY${periodYear}: TZS ${taxableIncome.toLocaleString()}, ` +
+        `FY${periodYear - 1}: TZS ${priorYearTaxableIncome!.toLocaleString()}, ` +
+        `FY${periodYear - 2}: TZS ${priorPriorYearTaxableIncome!.toLocaleString()}). ` +
+        `ITA First Schedule para 3(3): Minimum Tax = 1% × turnover = TZS ${amtComputed.toLocaleString()}. ` +
+        `AMT exempt: agriculture, health, education, tea processing. ` +
+        `CPA must confirm sector exemption before applying.`
+      );
+    } else if (taxableIncome < 0 && (priorYearTaxableIncome === null || priorPriorYearTaxableIncome === null)) {
+      warnings.push(
+        `⚠ AMT RISK: Tax loss this period. Prior 2-year history not yet available in period_closing_balances. ` +
+        `AMT check requires 3 years of data. Run engine for FY${periodYear - 1} and FY${periodYear - 2} first to enable auto-detection.`
+      );
+    }
 
     // ── TRUE Deferred Tax Movement (OD-14 RESOLVED when opening data available) ─
     const openingNetDTPosition   = openingBal?.net_deferred_tax_position_tzs ?? 0;
@@ -1028,20 +1173,31 @@ serve(async (req) => {
     // Investing
     const netCashFromInvesting = ppeDisposalsTzs - ppeAdditionsTzs;
 
-    // Financing
-    const openingLTD_scf   = openingDataAvailable
-      ? (openingBal!.non_current_liabilities_tzs ?? 0)
-      : closingNCL_total;
-    const deltaLTD         = closingNCL_total - openingLTD_scf;
-    const dividendsPaid    = 0;   // requires management input — 0 by default
-    const netCashFromFinancing = deltaLTD - dividendsPaid;
+    // Financing — D4-FIX: use management inputs for dividends, new borrowings, repayments
+    // Prior version: dividends hardcoded to 0, deltaLTD used as proxy for all financing.
+    // Fix: use explicit loan movements from mgmtInputs; deltaLTD is now a fallback only.
+    const dividendsPaid        = mgmtDividendsDeclared;   // D4-FIX: from management_inputs
+    const shareCapRaised       = mgmtShareCapIssued;      // D4-FIX: from management_inputs
+    const loanNetMovement = mgmtInputsProvided
+      ? (mgmtNewBorrowings - mgmtLoanRepayments)          // D4-FIX: explicit CPA inputs
+      : (() => {                                           // Fallback: balance-sheet delta
+          const openingLTD_scf = openingDataAvailable
+            ? (openingBal!.non_current_liabilities_tzs ?? 0) : closingNCL_total;
+          return closingNCL_total - openingLTD_scf;
+        })();
+    const netCashFromFinancing = loanNetMovement + shareCapRaised - dividendsPaid;
 
     // Reconciliation
     const netChangeCash         = netCashFromOperating + netCashFromInvesting + netCashFromFinancing;
     const openingCashSCF        = openingDataAvailable ? (openingBal!.cash_balance_tzs ?? 0) : 0;
     const scfDerivedClosingCash = openingCashSCF + netChangeCash;
-    const scfTolerance          = Math.max(500_000, Math.abs(cashBalance) * 0.10);
-    const scfReconciles         = Math.abs(scfDerivedClosingCash - cashBalance) <= scfTolerance;
+    // D5-FIX: tolerance tightened from 10% to 1% of cash balance.
+    // 10% was a proxy for first-year architecture — never a publishable standard.
+    // IFRS for SMEs s.7 requires exact reconciliation. 1% max allows for rounding only.
+    const scfTolerance          = Math.max(500_000, Math.abs(cashBalance) * 0.01);
+    const scfReconciles         = openingDataAvailable &&
+                                  Math.abs(scfDerivedClosingCash - cashBalance) <= scfTolerance;
+    // D9: first-year SCF can never reconcile (no opening cash) — explicitly mark as draft.
 
     const scfEngine = {
       operating_activities: {
@@ -1063,9 +1219,13 @@ serve(async (req) => {
         net_cash_from_investing_tzs:    netCashFromInvesting,
       },
       financing_activities: {
-        change_in_long_term_debt_tzs:   deltaLTD,
+        new_borrowings_tzs:             mgmtInputsProvided ? mgmtNewBorrowings : 0,
+        loan_repayments_tzs:            mgmtInputsProvided ? -mgmtLoanRepayments : 0,
+        net_loan_movement_tzs:          loanNetMovement,
+        share_capital_raised_tzs:       shareCapRaised,
         dividends_paid_tzs:            -dividendsPaid,
         net_cash_from_financing_tzs:    netCashFromFinancing,
+        management_inputs_provided:     mgmtInputsProvided,
       },
       net_change_in_cash_tzs:           netChangeCash,
       opening_cash_tzs:                 openingCashSCF,
@@ -1074,17 +1234,28 @@ serve(async (req) => {
       reconciles_to_sfp:                scfReconciles,
       reconciliation_difference_tzs:    Math.round(scfDerivedClosingCash - cashBalance),
       opening_data_available:           openingDataAvailable,
+      is_first_year_draft: !openingDataAvailable,   // D9: drives mandatory PDF disclaimer
       note: openingDataAvailable
         ? `Opening cash TZS ${openingCashSCF.toLocaleString()} from period_closing_balances FY${periodYear - 1}. ` +
           (scfReconciles
-            ? "SCF reconciles to SFP cash balance within tolerance."
-            : `SCF does NOT reconcile — difference TZS ${Math.round(Math.abs(scfDerivedClosingCash - cashBalance)).toLocaleString()}. Review cash account classification.`)
-        : "First-year run: no prior-year closing balance available. Working capital and financing movements estimated as nil. " +
-          "This period's closing balance is saved — next year will have full SCF.",
-      cpa_note: "Finance costs paid and income taxes paid are approximated from IS figures. " +
-                "Actual cash payments may differ (timing of payments). " +
-                "Dividends paid require management input (currently TZS 0). " +
-                "Proceed with caution if company has material finance leases.",
+            ? `SCF reconciles to SFP cash balance within ±1% tolerance (TZS ${scfTolerance.toLocaleString()}).`
+            : `SCF does NOT reconcile — difference TZS ${Math.round(Math.abs(scfDerivedClosingCash - cashBalance)).toLocaleString()}. ` +
+              `Tolerance (±1%): TZS ${scfTolerance.toLocaleString()}. Review cash classification, dividends, and loan movements.`)
+        : "⚠ DRAFT — FIRST YEAR ONLY: No prior-year closing balance. Working capital Δ = nil (overstatement of operating cash). " +
+          "Do NOT publish this SCF without CPA adjustment of opening positions. " +
+          "This period's closing balance is now saved — next year's SCF will be correct.",
+      cpa_note: (ppeDisposalsMissingProceeds
+        ? "⚠ IFRS INTEGRITY: One or more assets were disposed of but disposal_proceeds_tzs is not set. " +
+          "SCF investing uses ITA tax cost as fallback — may not equal actual cash received. " +
+          "Enter actual sale proceeds in Capital Allowances to fix. | "
+        : "") +
+        (!mgmtInputsProvided && (dividendsPaid > 0 || shareCapRaised > 0)
+        ? ""
+        : !mgmtInputsProvided
+        ? "Management inputs not provided: dividends and share capital changes default to TZS 0. Enter via 'Management Inputs' section if applicable. | "
+        : "") +
+        "Finance costs paid and taxes paid are approximated from IS figures (timing may differ). " +
+        "Finance leases should be presented separately if material.",
       ifrs_section: "IFRS for SMEs Section 7 — Statement of Cash Flows (indirect method)",
     };
 
@@ -1101,13 +1272,14 @@ serve(async (req) => {
     const openingOtherRes       = openingDataAvailable ? (openingBal!.other_reserves_tzs     ?? 0) : bsOtherReserves;
     const openingEquitySOCIE    = openingShareCap + openingRetEarnings + openingOtherRes;
 
-    const sociePatForYear       = finalProfitAfterFullTax; // SCI PAT incl. deferred tax
-    const socieShareCapIssued   = 0;   // management input — 0 default
-    const socieDividendsDeclared = 0;  // management input — 0 default
+    const sociePatForYear        = finalProfitAfterFullTax;  // SCI PAT incl. deferred tax
+    const socieShareCapIssued    = mgmtShareCapIssued;        // D4-FIX: from management_inputs
+    const socieDividendsDeclared = mgmtDividendsDeclared;     // D4-FIX: from management_inputs
+    const socieOCIMovement       = mgmtOtherEquityMoves;      // D4-FIX: OCI & other
 
     const closingRetEarnings    = openingRetEarnings + sociePatForYear - socieDividendsDeclared;
     const closingShareCapSOCIE  = openingShareCap + socieShareCapIssued;
-    const closingOtherResSOCIE  = openingOtherRes;
+    const closingOtherResSOCIE  = openingOtherRes + socieOCIMovement;  // D4: include OCI
     const closingEquitySOCIE    = closingShareCapSOCIE + closingRetEarnings + closingOtherResSOCIE;
 
     const socieToSFPDiff        = Math.abs(closingEquitySOCIE - closingEquity_total);
@@ -1128,7 +1300,7 @@ serve(async (req) => {
       },
       other_reserves: {
         opening_tzs:   openingOtherRes,
-        movement_tzs:  0,
+        movement_tzs:  socieOCIMovement,   // D4: OCI movements from management_inputs
         closing_tzs:   closingOtherResSOCIE,
       },
       total: {
@@ -1212,6 +1384,21 @@ serve(async (req) => {
       review_required:                  classificationWarnings.length > 0 || addBacks.some(a => a.requires_review),
       finding_created:                  false,
       verified_source:                  "ITA Cap.332 R.E.2023 + Finance Act 2026 (No. 3, effective 1 Jul 2026) + PwC Tanzania (Jan 2026) + Deloitte Tanzania Thin Cap (Aug 2025)",
+
+      // ── D8: AMT status ────────────────────────────────────────────────────
+      amt_applies:                      amtApplicable,
+      amt_computed_tzs:                 amtApplicable ? amtComputed : 0,
+
+      // ── D2: SCF disposal data quality flag ────────────────────────────────
+      scf_disposal_proceeds_missing:    ppeDisposalsMissingProceeds,
+
+      // ── D4: Management inputs availability ────────────────────────────────
+      management_inputs_provided:       mgmtInputsProvided,
+
+      // ── D3: Loss pool ─────────────────────────────────────────────────────
+      opening_cumulative_loss_tzs:      openingCumulativeLoss,
+      closing_cumulative_loss_tzs:      Math.round(closingLossPool),
+      loss_absorbed_this_year_tzs:      Math.round(lossAbsorbedThisYear),
 
       // ── MODULE D: Deferred Tax (IFRS for SMEs s.29 / IAS 12) ────────────
       module_d_deferred:                moduleDDeferred,
@@ -1358,7 +1545,7 @@ serve(async (req) => {
     await supabase.from("period_closing_balances").upsert({
       company_id:                    companyId,
       period_year:                   periodYear,
-      period_month:                  12,
+      period_month:                  periodEndMonth,   // D7-FIX: actual fiscal year-end month
       // SFP snapshot
       current_assets_tzs:            closingCA_total,
       non_current_assets_tzs:        closingNCA_total,
@@ -1374,9 +1561,13 @@ serve(async (req) => {
       closing_dtl_tzs:               netDTL,
       closing_dta_tzs:               netDTA,
       net_deferred_tax_position_tzs: netDeferredTaxPosition,
-      // Loss carry-forward
-      cumulative_unrelieved_loss_tzs: (openingBal?.cumulative_unrelieved_loss_tzs ?? 0)
-                                    + Math.max(0, -taxableIncome),
+      // D3-FIX: save corrected closing loss pool (reduced on profit years)
+      cumulative_unrelieved_loss_tzs: Math.round(closingLossPool),
+      // D8-FIX: save taxable_income_tzs + revenue for AMT 3-year detection
+      taxable_income_tzs:             taxableIncome,
+      accounting_pbt_tzs:             accountingPBT,
+      total_wear_tear_tzs:            totalWearTear,
+      revenue_tzs:                    turnover,
       // WDV by class
       wdv_class1_tzs:   Math.round(wdvClosingByClass[1] ?? 0),
       wdv_class2_tzs:   Math.round(wdvClosingByClass[2] ?? 0),

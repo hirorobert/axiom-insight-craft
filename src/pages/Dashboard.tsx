@@ -113,6 +113,38 @@ interface TrialBalanceUpload {
   validation_report: JsonCompatible;
   accounting_errors: JsonCompatible;
   processing_result: JsonCompatible;
+  // D1-FIX: fiscal period fields (Phase 5A migration adds these to trial_balance_uploads)
+  fiscal_year_end?: string | null;   // DATE as ISO string e.g. "2025-12-31"
+  period_year?: number | null;       // Sprint 2 migration: derived from fiscal_year_end
+}
+
+// ── D1-FIX + D7-FIX: derive correct period year and year-end month ──────────
+// Priority: upload.period_year (DB) → upload.fiscal_year_end → company fiscal_year_end → smart fallback
+function deriveFiscalPeriod(
+  upload: TrialBalanceUpload,
+  companyData: SelectedCompanyData | null
+): { periodYear: number; periodEndMonth: number } {
+  // 1. DB-stored period_year (most reliable — Sprint 2 migration trigger)
+  if (upload.period_year && upload.period_year > 2000) {
+    const fyeStr = upload.fiscal_year_end ?? companyData?.fiscal_year_end;
+    const month  = fyeStr ? new Date(fyeStr).getMonth() + 1 : 12;
+    return { periodYear: upload.period_year, periodEndMonth: isNaN(month) ? 12 : month };
+  }
+  // 2. Upload's fiscal_year_end date (Phase 5A trigger populates when period_id linked)
+  if (upload.fiscal_year_end) {
+    const d = new Date(upload.fiscal_year_end);
+    if (!isNaN(d.getTime())) return { periodYear: d.getFullYear(), periodEndMonth: d.getMonth() + 1 };
+  }
+  // 3. Company-level fiscal_year_end
+  if (companyData?.fiscal_year_end) {
+    const d = new Date(companyData.fiscal_year_end);
+    if (!isNaN(d.getTime())) return { periodYear: d.getFullYear(), periodEndMonth: d.getMonth() + 1 };
+  }
+  // 4. Smart upload-date fallback: uploaded Jan-Sep → prior calendar year (most common case)
+  const uploadDate  = new Date(upload.uploaded_at);
+  const uploadMonth = uploadDate.getMonth() + 1;
+  const uploadYear  = uploadDate.getFullYear();
+  return { periodYear: uploadMonth <= 9 ? uploadYear - 1 : uploadYear, periodEndMonth: 12 };
 }
 
 interface SelectedCompanyData {
@@ -773,14 +805,20 @@ export default function Dashboard() {
                         <TabsTrigger value="comparative">Comparative Analysis</TabsTrigger>
                       </TabsList>
                       <TabsContent value="tax">
-                        <KingaTaxPanel
-                          companyId={selectedUpload.company_id}
-                          uploadId={selectedUpload.id}
-                          periodYear={new Date(selectedUpload.uploaded_at).getFullYear()}
-                          companyName={selectedUpload.company_name ?? undefined}
-                          userId={user?.id ?? ""}
-                          onResultChange={(r) => setTaxResult(r)}
-                        />
+                        {(() => {
+                          const { periodYear, periodEndMonth } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
+                          return (
+                            <KingaTaxPanel
+                              companyId={selectedUpload.company_id}
+                              uploadId={selectedUpload.id}
+                              periodYear={periodYear}
+                              periodEndMonth={periodEndMonth}
+                              companyName={selectedUpload.company_name ?? undefined}
+                              userId={user?.id ?? ""}
+                              onResultChange={(r) => setTaxResult(r)}
+                            />
+                          );
+                        })()}
                       </TabsContent>
                       <TabsContent value="comparative">
                         <KingaComparativePanel
