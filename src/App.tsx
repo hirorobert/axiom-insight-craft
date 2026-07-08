@@ -11,6 +11,7 @@ import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
 import Auth from "./pages/Auth";
 import Settings from "./pages/Settings";
+import UploadStatus from "./pages/UploadStatus";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -35,6 +36,14 @@ const App = () => (
                   } 
                 />
                 <Route path="/auth" element={<Auth />} />
+                <Route
+                  path="/uploads/status"
+                  element={
+                    <PageErrorBoundary pageName="UploadStatus">
+                      <UploadStatus />
+                    </PageErrorBoundary>
+                  }
+                />
                 <Route 
                   path="/settings" 
                   element={
