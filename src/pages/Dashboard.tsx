@@ -26,7 +26,7 @@ import { CertificationSummaryStrip } from "@/components/certification/Certificat
 import { TrialBalanceIntegrityCard } from "@/components/certification/TrialBalanceIntegrityCard";
 import { BalanceSheetEquationCard } from "@/components/certification/BalanceSheetEquationCard";
 import { ClassificationBreakdown } from "@/components/certification/ClassificationBreakdown";
-import { RecentUploadsList } from "@/components/certification/RecentUploadsList";
+import { UploadsStatusPanel } from "@/components/UploadsStatusPanel";
 import { EmptyCertificationState } from "@/components/certification/EmptyCertificationState";
 import { toast } from "sonner";
 import {
@@ -596,12 +596,13 @@ export default function Dashboard() {
         ) : (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              {/* Sidebar - Certification Trial Balances */}
+              {/* Sidebar - Uploads Status Panel (Iron Dome Nuclear Design) */}
               <div className="lg:col-span-1">
-                <RecentUploadsList
+                <UploadsStatusPanel
                   uploads={uploads}
                   selectedId={selectedUpload?.id ?? null}
                   onSelect={(u) => { setSelectedUpload(u as typeof selectedUpload); setTaxResult(null); }}
+                  onRefresh={fetchUploads}
                 />
               </div>
 
