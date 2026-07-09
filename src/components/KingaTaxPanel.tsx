@@ -203,6 +203,13 @@ interface TaxResult {
   socie_engine?: SOCIEEngine;
   // Auto-AJEs written on commit
   auto_ajes_created?: number;
+  // D3 — Loss pool (ITA s.19)
+  opening_cumulative_loss_tzs?: number;
+  loss_absorbed_this_year_tzs?: number;
+  closing_cumulative_loss_tzs?: number;
+  // D8 — AMT 3-year auto-detection
+  amt_applies?: boolean;
+  amt_computed_tzs?: number;
 }
 
 interface CapAllowanceForm {
@@ -891,6 +898,23 @@ export function KingaTaxPanel({
                   </div>
                 )}
 
+                {/* ITA s.19 Loss carry-forward relief */}
+                {(result.loss_absorbed_this_year_tzs ?? 0) > 0 && (
+                  <div className="mt-2">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1">DEDUCT: ITA s.19 Loss Relief</div>
+                    <WaterfallRow
+                      label={`Prior-year loss absorbed (70% cap applied) — opening pool TZS ${fmt(result.opening_cumulative_loss_tzs ?? 0)}`}
+                      value={`− ${fmt(result.loss_absorbed_this_year_tzs ?? 0)}`}
+                      indent={1}
+                    />
+                    <WaterfallRow
+                      label={`Closing unrelieved loss pool`}
+                      value={fmt(result.closing_cumulative_loss_tzs ?? 0)}
+                      indent={2}
+                    />
+                  </div>
+                )}
+
                 {result.thin_cap_disallowed_tzs > 0 && (
                   <div className="mt-1">
                     <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1">THIN CAP (ITA s.24A)</div>
@@ -969,6 +993,74 @@ export function KingaTaxPanel({
                 Gap is within threshold but CPA review is required before this computation can be certified. Resolve the items above first.
               </div>
             )}
+
+            {/* ── ITA s.88 INSTALMENT TAX SCHEDULE ───────────────────────────── */}
+            {result.tax_payable_tzs > 0 && (() => {
+              // ITA s.88: 4 equal instalments due at end of 3rd, 6th, 9th month
+              // of income year and at year-end. Income year starts month after FYE.
+              const estTax = result.tax_payable_tzs;
+              const instalment = Math.round(estTax / 4);
+              // Income year start: month after periodEndMonth
+              const startM = (periodEndMonth % 12) + 1;
+              const startY = periodEndMonth === 12 ? periodYear : periodYear - 1;
+              // Add n months then get last day of that month
+              const addM = (m: number, y: number, n: number): string => {
+                const total = (y * 12 + m - 1) + n;
+                const rm = (total % 12) + 1;
+                const ry = Math.floor(total / 12);
+                const last = new Date(ry, rm, 0).getDate();
+                return `${String(last).padStart(2,"0")}/${String(rm).padStart(2,"0")}/${ry}`;
+              };
+              const dues = [
+                { label: "1st Instalment (3rd month)", date: addM(startM, startY, 3), amount: instalment },
+                { label: "2nd Instalment (6th month)", date: addM(startM, startY, 6), amount: instalment },
+                { label: "3rd Instalment (9th month)", date: addM(startM, startY, 9), amount: instalment },
+                { label: "Final Balance (year-end)",   date: addM(startM, startY, 12), amount: estTax - instalment * 3 },
+              ];
+              return (
+                <div className="border border-[#0E1D30]/20 rounded-xl overflow-hidden">
+                  <div className="bg-[#0E1D30]/5 px-3 py-2 border-b border-[#0E1D30]/20 flex items-center gap-2">
+                    <Calendar className="w-3.5 h-3.5 text-[#0E1D30]" />
+                    <span className="text-xs font-semibold text-[#0E1D30] uppercase tracking-wide">
+                      ITA s.88 — Instalment Tax Schedule (FY{periodYear})
+                    </span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      Estimated tax TZS {fmt(estTax)} ÷ 4 equal instalments
+                    </span>
+                  </div>
+                  <div className="p-3">
+                    <div className="overflow-hidden rounded-lg border border-border">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-muted/40 border-b border-border">
+                            <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Instalment</th>
+                            <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Due Date</th>
+                            <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Amount (TZS)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {dues.map((d, i) => (
+                            <tr key={i} className={i === 3 ? "bg-[#0E1D30]/5 font-semibold" : ""}>
+                              <td className="px-3 py-1.5">{d.label}</td>
+                              <td className="px-3 py-1.5 font-mono">{d.date}</td>
+                              <td className="px-3 py-1.5 text-right font-mono">{fmt(d.amount)}</td>
+                            </tr>
+                          ))}
+                          <tr className="bg-muted/20 font-bold border-t-2 border-border">
+                            <td className="px-3 py-2" colSpan={2}>Total Instalment Tax</td>
+                            <td className="px-3 py-2 text-right font-mono">{fmt(estTax)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-2">
+                      ITA Cap.332 R.E.2023 s.88 — Self-assessment. Late payment: TAA s.76 interest at 5%/month on unpaid balance.
+                      Final balance = total tax less instalments paid. Adjust if estimated tax changes during the year.
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ── MODULE D: Section 29 Deferred Tax Disclosure ────────────────── */}
             {result.module_d_deferred && (
