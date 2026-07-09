@@ -58,6 +58,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useEnhancedAuditLog } from "@/hooks/useEnhancedAuditLog";
 import { SaffLogo } from "@/components/SaffLogo";
+import { FilingCalendarPanel } from "@/components/FilingCalendarPanel";
+import { PaymentLedgerPanel } from "@/components/PaymentLedgerPanel";
+import { TRAFilingChecklist } from "@/components/TRAFilingChecklist";
 
 interface ValidationReportData {
   tb_balance_check?: {
@@ -827,6 +830,7 @@ export default function Dashboard() {
                               periodYear={periodYear}
                               periodEndMonth={periodEndMonth}
                               companyName={selectedUpload.company_name ?? undefined}
+                              companyTin={selectedCompanyData?.tin ?? undefined}
                               userId={user?.id ?? ""}
                               onResultChange={(r) => setTaxResult(r)}
                             />
@@ -840,6 +844,20 @@ export default function Dashboard() {
                       </TabsContent>
                     </Tabs>
                   )}
+
+                  {/* TRA e-Filing Readiness Checklist (5H) */}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (() => {
+                    const { periodYear, periodEndMonth } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
+                    return (
+                      <TRAFilingChecklist
+                        uploadId={selectedUpload.id}
+                        companyId={selectedUpload.company_id}
+                        periodYear={periodYear}
+                        periodMonth={periodEndMonth}
+                        companyName={selectedUpload.company_name ?? undefined}
+                      />
+                    );
+                  })()}
 
                   {/* Processing Notes */}
                   {result?.notes && result.notes.length > 0 && (
@@ -864,6 +882,12 @@ export default function Dashboard() {
                 <EmptyCertificationState />
               )}
             </div>
+          </div>
+
+          {/* ── Sprint 4: Cross-Company Panels ─────────────────── */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <FilingCalendarPanel />
+            <PaymentLedgerPanel />
           </div>
 
           {/* Last Activity strip */}

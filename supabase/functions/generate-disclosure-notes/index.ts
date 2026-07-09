@@ -109,6 +109,7 @@ interface DisclosureNote {
 
 function note1_basisOfPreparation(
   companyName: string,
+  companyTin: string,
   periodYear: number,
   periodEndMonth: number,
   framework: string,
@@ -131,7 +132,7 @@ function note1_basisOfPreparation(
     engineVersion,
     content: `These financial statements have been prepared in accordance with ${ifrsLabel} as adopted in Tanzania, and comply with the requirements of the Companies Act Cap.212 R.E.2002 (as amended).
 
-The financial statements are prepared on the historical cost basis and presented in Tanzanian Shillings (TZS), which is the functional and presentation currency of ${companyName}.
+The financial statements are prepared on the historical cost basis and presented in Tanzanian Shillings (TZS), which is the functional and presentation currency of ${companyName}.${companyTin ? ` The Company's TRA Tax Identification Number (TIN) is ${companyTin}.` : ""}
 
 The financial year covered by these statements is the twelve-month period ending ${fyEnd}.
 
@@ -526,6 +527,14 @@ serve(async (req) => {
       });
     }
 
+    // 1b. Company TIN (mandatory for all TRA-facing documents)
+    const { data: companyRow } = await admin
+      .from("companies")
+      .select("tin")
+      .eq("id", upload.company_id)
+      .maybeSingle();
+    const companyTin: string = companyRow?.tin ?? "";
+
     // 2. Latest committed tax computation for this upload
     const { data: computation, error: compErr } = await admin
       .from("tax_computations")
@@ -566,7 +575,7 @@ serve(async (req) => {
     const engineVersion: string = engineResult.engine_version ?? computation?.engine_version ?? "v2";
 
     const notes: DisclosureNote[] = [
-      note1_basisOfPreparation(companyName, periodYear, periodEndMonth, framework, generatedAt, engineVersion),
+      note1_basisOfPreparation(companyName, companyTin, periodYear, periodEndMonth, framework, generatedAt, engineVersion),
       note2_incomeTax(engineResult, periodYear, generatedAt, engineVersion),
       note3_contingentLiabilities(engineResult, generatedAt, engineVersion),
       note4_relatedPartyTransactions(engineResult, generatedAt, engineVersion),

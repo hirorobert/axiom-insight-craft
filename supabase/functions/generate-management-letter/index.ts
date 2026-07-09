@@ -165,6 +165,14 @@ serve(async (req) => {
       });
     }
 
+    // ── 1b. Company TIN (mandatory for all TRA-facing documents) ─
+    const { data: companyRow } = await admin
+      .from("companies")
+      .select("tin")
+      .eq("id", upload.company_id)
+      .maybeSingle();
+    const companyTin: string = companyRow?.tin ?? "";
+
     // ── 2. Latest committed tax computation ──────────────────
     const { data: computation } = await admin
       .from("tax_computations")
@@ -396,7 +404,7 @@ Engagement Partner / CPA
 
     // ── 5. Assemble letter ────────────────────────────────────
     const letter = {
-      addressee:  `The Board of Directors\n${companyName}`,
+      addressee:  `The Board of Directors\n${companyName}${companyTin ? `\nTIN: ${companyTin}` : ""}`,
       date:       fmtDate(generatedAt),
       reference,
       subject:    `Management Letter — Financial Year Ended ${fyEnd}`,
@@ -404,6 +412,7 @@ Engagement Partner / CPA
       metadata: {
         generatedAt:      generatedAt.toISOString(),
         companyName,
+        companyTin,
         companyId:        upload.company_id,
         uploadId,
         periodYear,
