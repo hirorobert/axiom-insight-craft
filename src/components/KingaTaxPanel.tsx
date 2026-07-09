@@ -16,8 +16,9 @@ import {
 import {
   Calculator, ChevronDown, ChevronRight, AlertTriangle,
   CheckCircle, Info, Plus, RefreshCw, History, Lock, Unlock,
-  TrendingUp, ArrowUpDown, PenLine,
+  TrendingUp, ArrowUpDown, PenLine, Calendar,
 } from "lucide-react";
+import { TaxLossPanel } from "@/components/TaxLossPanel";
 
 // ── ITA CLASS METADATA — VERIFIED: PwC Tanzania (reviewed 14 Jan 2026) ───
 // Source: https://taxsummaries.pwc.com/tanzania/corporate/deductions
@@ -656,6 +657,7 @@ export function KingaTaxPanel({
     : "";
 
   return (
+    <div className="space-y-4">
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1489,5 +1491,12 @@ export function KingaTaxPanel({
         </Dialog>
       )}
     </Card>
+
+    {/* ── ITA s.19 LOSS CARRY-FORWARD POOL PANEL ──────────────── */}
+    {result && (
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      <TaxLossPanel result={result as any} periodYear={periodYear} companyName={companyName} />
+    )}
+    </div>
   );
 }
