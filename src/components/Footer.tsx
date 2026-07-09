@@ -8,9 +8,9 @@ export function Footer() {
         {/* Brand + single column of real links */}
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-8 mb-10">
 
-          <div className="max-w-xs">
-            <div className="mb-3">
-              <SaffLogo variant="header" className="h-11 w-auto" />
+          <div className="max-w-xs mx-auto md:mx-0 text-center md:text-left">
+            <div className="mb-3 flex justify-center md:justify-start">
+              <SaffLogo variant="header" className="h-11 md:h-12 w-auto mx-auto md:mx-0" />
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
               Tanzania statutory compliance engine.<br />
