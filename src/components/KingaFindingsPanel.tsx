@@ -14,8 +14,9 @@ import { Label }    from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertTriangle, CheckCircle2, XCircle, Play, Loader2,
-  RefreshCw, ChevronDown, ChevronUp, Info, ShieldAlert, Plus,
+  RefreshCw, ChevronDown, ChevronUp, Info, ShieldAlert, Plus, ClipboardList,
 } from "lucide-react";
+import { EvidenceRequestPanel } from "@/components/EvidenceRequestPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ interface LiveFinding {
   computed_obligation_tzs: number;
   penalty_amount_tzs:      number | null;
   status:                  string;
+  response_pack_ready:     boolean;
   created_at:              string;
   source_detail:           Record<string, unknown> | null;
 }
@@ -245,8 +247,9 @@ function PayableRow({ payable }: { payable: ModuleCPreview }) {
   );
 }
 
-function LiveFindingRow({ finding }: { finding: LiveFinding }) {
-  const [expanded, setExpanded] = useState(false);
+function LiveFindingRow({ finding, userId }: { finding: LiveFinding; userId: string }) {
+  const [expanded,      setExpanded]      = useState(false);
+  const [showEvidence,  setShowEvidence]  = useState(false);
   const exposure = finding.exposure_amount_tzs ?? 0;
   const penalty  = finding.penalty_amount_tzs  ?? 0;
   const total    = exposure + penalty;
@@ -261,6 +264,11 @@ function LiveFindingRow({ finding }: { finding: LiveFinding }) {
           <div className="text-sm font-semibold">{finding.title}</div>
           <div className="text-xs text-muted-foreground">
             {finding.period_start.substring(0, 7)} — {finding.status}
+            {finding.response_pack_ready && (
+              <span className="ml-2 inline-flex items-center gap-0.5 text-emerald-700 font-semibold">
+                <CheckCircle2 className="w-2.5 h-2.5" /> Pack Ready
+              </span>
+            )}
           </div>
         </div>
         <div className="text-right mr-4">
@@ -273,6 +281,14 @@ function LiveFindingRow({ finding }: { finding: LiveFinding }) {
             <div className="text-xs text-muted-foreground">penalty est.</div>
           </div>
         )}
+        {/* Evidence request button — stopPropagation to avoid toggling expand */}
+        <button
+          onClick={e => { e.stopPropagation(); setShowEvidence(true); }}
+          title="Evidence Request Workflow"
+          className="p-1 rounded hover:bg-white/40 transition-colors shrink-0"
+        >
+          <ClipboardList className="w-4 h-4 text-slate-600" />
+        </button>
         <Badge variant="outline" className={`text-xs ${styles.badge}`}>{finding.finding_type}</Badge>
         {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
       </div>
@@ -283,6 +299,26 @@ function LiveFindingRow({ finding }: { finding: LiveFinding }) {
           </pre>
         </div>
       )}
+
+      {/* ── Evidence Request Dialog ── */}
+      <Dialog open={showEvidence} onOpenChange={setShowEvidence}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-bold flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-[#0E1D30]" />
+              Evidence Request
+            </DialogTitle>
+            <DialogDescription className="text-[11px] text-muted-foreground truncate">
+              {finding.title}
+            </DialogDescription>
+          </DialogHeader>
+          <EvidenceRequestPanel
+            findingId={finding.id}
+            findingTitle={finding.title}
+            userId={userId}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -459,7 +495,7 @@ export function KingaFindingsPanel({
   const loadLiveFindings = useCallback(async () => {
     const { data } = await supabase
       .from("findings")
-      .select("id,finding_type,finding_category,title,period_start,period_end,exposure_amount_tzs,computed_obligation_tzs,penalty_amount_tzs,status,created_at,source_detail")
+      .select("id,finding_type,finding_category,title,period_start,period_end,exposure_amount_tzs,computed_obligation_tzs,penalty_amount_tzs,status,response_pack_ready,created_at,source_detail")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false })
       .limit(50);
@@ -718,7 +754,7 @@ export function KingaFindingsPanel({
                 <RefreshCw className="w-3 h-3 mr-1" /> Refresh
               </Button>
             </div>
-            {livefindings.map(f => <LiveFindingRow key={f.id} finding={f} />)}
+            {livefindings.map(f => <LiveFindingRow key={f.id} finding={f} userId={userId} />)}
           </div>
         )}
 
