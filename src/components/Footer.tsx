@@ -1,4 +1,5 @@
 import { SaffLogo } from "@/components/SaffLogo";
+import { FOOTER } from "@/constants/copy";
 
 export function Footer() {
   return (
@@ -13,9 +14,7 @@ export function Footer() {
               <SaffLogo variant="header" className="h-11 md:h-12 w-auto mx-auto md:mx-0" />
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Tanzania statutory compliance engine.<br />
-              ITA Cap.332 R.E.2023 — corporate tax, SDL,
-              PAYE, and comparative financial statements.
+              {FOOTER.description}
             </p>
           </div>
 
@@ -60,13 +59,15 @@ export function Footer() {
             © {new Date().getFullYear()} SAFF ERP. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
-            <a href="#" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-              Privacy Policy
-            </a>
-            <a href="#" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-              Terms of Service
-            </a>
-            <span className="text-xs text-muted-foreground">Data stored on Supabase</span>
+            {FOOTER.legal.map((label) => (
+              <a
+                key={label}
+                href="#"
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {label}
+              </a>
+            ))}
           </div>
         </div>
 
