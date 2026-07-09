@@ -104,6 +104,10 @@ export default function UploadStatus() {
     { processing: 0, succeeded: 0, failed: 0 } as Record<Bucket, number>
   );
 
+  const gitSha = import.meta.env.VITE_GIT_SHA ?? "unknown";
+  const buildTimestamp = import.meta.env.VITE_BUILD_TIMESTAMP ?? "unknown";
+  const shortSha = gitSha === "unknown" ? "unknown" : gitSha.slice(0, 7);
+
   const toggleExpanded = (id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -131,7 +135,36 @@ export default function UploadStatus() {
           </Button>
         </div>
 
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <GitCommit className="h-4 w-4" />
+                <span>Latest synced commit</span>
+                <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
+                  {shortSha}
+                </code>
+                {gitSha !== "unknown" && (
+                  <span className="hidden text-xs text-muted-foreground sm:inline">
+                    {gitSha}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Clock className="h-4 w-4" />
+                <span>Preview generated</span>
+                <span className="text-foreground">
+                  {buildTimestamp === "unknown"
+                    ? "unknown"
+                    : new Date(buildTimestamp).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="grid grid-cols-3 gap-4">
+
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-muted-foreground">Processing</CardTitle>
