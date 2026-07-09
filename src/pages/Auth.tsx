@@ -237,7 +237,7 @@ export default function Auth() {
             />
             <SaffLogo
               variant="full"
-              className="hidden sm:block h-20 md:h-24 w-auto mx-auto"
+              className="hidden sm:block h-24 w-auto mx-auto"
             />
           </Link>
           <h1 className="text-2xl font-bold text-foreground">{getTitle()}</h1>
