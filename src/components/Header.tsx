@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { SaffLogo } from "@/components/SaffLogo";
 import { Button } from "@/components/ui/button";
 import { Menu, X, LogOut, Settings, LayoutDashboard } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -36,12 +37,7 @@ export function Header() {
 
         {/* Logo */}
         <Link to="/" className="flex items-center">
-          <img
-            src="/saff-erp-logo.svg"
-            alt="SAFF ERP"
-            className="h-10 w-auto"
-            draggable={false}
-          />
+          <SaffLogo variant="header" className="h-10 w-auto" />
         </Link>
 
         {/* Desktop Nav */}

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, ArrowLeft, CheckCircle, MailCheck, AlertTriangle } from "lucide-react";
+import { SaffLogo } from "@/components/SaffLogo";
 import { z } from "zod";
 import { useLoginRateLimit } from "@/hooks/useLoginRateLimit";
 
@@ -227,13 +228,8 @@ export default function Auth() {
 
         {/* Logo */}
         <div className="text-center mb-8">
-          <Link to="/" className="inline-block mb-5">
-            <img
-              src="/saff-erp-logo.svg"
-              alt="SAFF ERP"
-              className="h-14 w-auto mx-auto"
-              draggable={false}
-            />
+          <Link to="/" className="inline-block mb-6">
+            <SaffLogo variant="full" className="h-20 w-auto mx-auto" />
           </Link>
           <h1 className="text-2xl font-bold text-foreground">{getTitle()}</h1>
           <p className="text-muted-foreground mt-2">{getSubtitle()}</p>

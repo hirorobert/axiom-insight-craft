@@ -1,3 +1,5 @@
+import { SaffLogo } from "@/components/SaffLogo";
+
 export function Footer() {
   return (
     <footer className="border-t border-border py-12 px-6">
@@ -8,12 +10,7 @@ export function Footer() {
 
           <div className="max-w-xs">
             <div className="mb-3">
-              <img
-                src="/saff-erp-logo.svg"
-                alt="SAFF ERP"
-                className="h-9 w-auto"
-                draggable={false}
-              />
+              <SaffLogo variant="header" className="h-9 w-auto" />
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
               Tanzania statutory compliance engine.<br />
