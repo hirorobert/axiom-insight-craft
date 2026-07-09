@@ -37,7 +37,7 @@ export function Header() {
 
         {/* Logo */}
         <Link to="/" className="inline-flex items-center" aria-label="SAFF ERP home">
-          <SaffLogo variant="header" className="h-11 w-auto" />
+          <SaffLogo variant="header" className="h-11 md:h-12 lg:h-14 w-auto" />
         </Link>
 
         {/* Desktop Nav */}
