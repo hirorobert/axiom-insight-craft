@@ -141,31 +141,39 @@ export function TaxLossPanel({ result, periodYear, companyName }: TaxLossPanelPr
           </div>
         )}
 
-        {/* ── Recovery Estimate ── */}
+        {/* ── Recovery Horizon — ILLUSTRATIVE ONLY ── */}
         {closingLoss > 0 && (
-          <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3">
             <div className="flex items-center gap-2 mb-2">
-              <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                Estimated Recovery Horizon
+              <Clock className="w-3.5 h-3.5 text-amber-600" />
+              <span className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
+                Indicative Recovery Horizon
+              </span>
+              <span className="ml-auto text-[10px] font-semibold text-amber-700 bg-amber-100 border border-amber-300 rounded px-1.5 py-0.5">
+                ILLUSTRATIVE — NOT AN ACCOUNTING MEASUREMENT
               </span>
             </div>
             {estimatedYearsToRecovery !== null ? (
-              <div className="flex items-end gap-3">
-                <div>
-                  <span className="text-2xl font-bold text-foreground">{estimatedYearsToRecovery}</span>
-                  <span className="text-sm text-muted-foreground ml-1">years</span>
+              <>
+                <div className="flex items-end gap-3 mb-1">
+                  <div>
+                    <span className="text-2xl font-bold text-amber-900">{estimatedYearsToRecovery}</span>
+                    <span className="text-sm text-amber-700 ml-1">years</span>
+                  </div>
+                  <p className="text-[11px] text-amber-700 pb-0.5">
+                    Assumes TZS {fmt(annualProfitProxy)}/yr taxable profit (revenue × 5% margin proxy)
+                    × 70% ITA s.19(2) shelter cap = TZS {fmt(maxAnnualRelief)}/yr absorption.
+                  </p>
                 </div>
-                <p className="text-[11px] text-muted-foreground pb-0.5">
-                  Based on revenue × 5% margin proxy (TZS {fmt(annualProfitProxy)}/yr)
-                  × 70% shelter = TZS {fmt(maxAnnualRelief)}/yr relief capacity.
-                  Subject to actual future profitability.
+                <p className="text-[10px] text-amber-700 border-t border-amber-200 pt-1.5 mt-1">
+                  ⚠ Illustrative only. Based on an assumed 5% profit margin — not an accounting measurement.
+                  Actual recovery depends on future taxable profits, which cannot be predicted.
+                  Do not use this figure in financial statements or TRA submissions.
                 </p>
-              </div>
+              </>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                Recovery horizon cannot be estimated — revenue data unavailable. Provide revenue
-                to the tax engine to enable this calculation.
+              <p className="text-xs text-amber-700">
+                Recovery horizon cannot be estimated — revenue data not available from the trial balance.
               </p>
             )}
           </div>

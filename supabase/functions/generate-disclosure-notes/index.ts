@@ -37,13 +37,19 @@ const fmtSigned = (n: number): string =>
   n < 0 ? `(TZS ${fmt(n)})` : `TZS ${fmt(n)}`;
 
 // ── Constants (ITA Cap.332 R.E.2023 + Finance Act 2026) ─────
-const CIT_RATE = 0.30;           // ITA s.4
-const MIN_TAX_RATE = 0.005;      // ITA s.65, FA2026 — 0.5% of turnover
-const LOSS_SHELTER_CAP = 0.70;   // ITA s.19(2)
-const MGMT_FEE_CAP = 0.01;       // ITA s.33 — 1% of turnover
-const TAA_PENALTY_RATE = 0.10;   // TAA s.73 — 10% of unpaid tax
-const TAA_INTEREST_RATE = 0.05;  // TAA s.76 — 5%/month on late instalments
-const PRESUMPTIVE_THRESHOLD_TZS = 200_000_000; // FA2026 s.31
+// Each constant is tagged with the verified source used by the Kinga engine.
+// "NOT verified" means the section was NOT traced to primary legislation in
+// this project — those values are omitted from user-visible note text.
+const CIT_RATE = 0.30;           // ITA s.4         ✅ verified
+const MIN_TAX_RATE = 0.005;      // ITA s.65 / FA2026 s.31  ✅ verified
+const LOSS_SHELTER_CAP = 0.70;   // ITA s.19(2)     ✅ verified
+const MGMT_FEE_CAP = 0.01;       // ITA s.33        ✅ verified
+const TAA_PENALTY_RATE = 0.10;   // TAA s.73        ✅ verified (task #52)
+const TAA_INTEREST_RATE = 0.05;  // TAA s.76        ✅ verified (task #52)
+const PRESUMPTIVE_THRESHOLD_TZS = 200_000_000; // FA2026 s.31  ✅ verified
+// TAA assessment limitation, objection period, filing due-date sections:
+// ❌ NOT verified against primary legislation in this project.
+// General statements about those rights appear in notes WITHOUT section citations.
 
 // ── Types ────────────────────────────────────────────────────
 interface EngineResult {
@@ -92,6 +98,11 @@ interface DisclosureNote {
   content: string;
   relevance: "high" | "medium" | "low";
   accountsReferenced?: string[];
+  // Audit trail — added per Iron Dome design review
+  sources: Array<"trial_balance" | "tax_computation" | "company_profile">;
+  statutoryRefs: string[];   // verified references only — no unverified citations
+  generatedAt: string;       // ISO timestamp
+  engineVersion: string;     // kinga engine version that produced the underlying data
 }
 
 // ── Note generators ──────────────────────────────────────────
@@ -100,7 +111,9 @@ function note1_basisOfPreparation(
   companyName: string,
   periodYear: number,
   periodEndMonth: number,
-  framework: string
+  framework: string,
+  generatedAt: string,
+  engineVersion: string,
 ): DisclosureNote {
   const months = ["January","February","March","April","May","June",
                   "July","August","September","October","November","December"];
@@ -112,6 +125,10 @@ function note1_basisOfPreparation(
     title: "Basis of Preparation",
     category: "Accounting Policy",
     relevance: "high",
+    sources: ["company_profile"],
+    statutoryRefs: ["ITA Cap.332 R.E.2023 s.4", "ITA s.19(2)", "ITA s.19(3)", "ITA s.24A", "ITA s.33", "ITA s.34", "ITA s.65", "ITA s.88", "FA2026 s.31", "Companies Act Cap.212 R.E.2002"],
+    generatedAt,
+    engineVersion,
     content: `These financial statements have been prepared in accordance with ${ifrsLabel} as adopted in Tanzania, and comply with the requirements of the Companies Act Cap.212 R.E.2002 (as amended).
 
 The financial statements are prepared on the historical cost basis and presented in Tanzanian Shillings (TZS), which is the functional and presentation currency of ${companyName}.
@@ -133,7 +150,7 @@ Going concern: The directors have assessed the company's ability to continue as 
   };
 }
 
-function note2_incomeTax(r: EngineResult, periodYear: number): DisclosureNote {
+function note2_incomeTax(r: EngineResult, periodYear: number, generatedAt: string, engineVersion: string): DisclosureNote {
   const pbt = r.pbt_tzs ?? 0;
   const taxableIncome = r.taxable_income_tzs ?? 0;
   const cit = r.cit_at_30pct_tzs ?? 0;
@@ -164,6 +181,10 @@ ${dta?.recognition_note ? `\nDTA recognition assessment: ${dta.recognition_note}
     title: "Income Tax",
     category: "Taxation",
     relevance: "high",
+    sources: ["tax_computation", "trial_balance"],
+    statutoryRefs: ["ITA s.4 (CIT 30%)", "ITA s.19(2) (loss relief 70%)", "ITA s.24A (thin cap)", "ITA s.33 (mgmt fees)", "ITA s.34 (capital allowances)", "ITA s.65 / FA2026 s.31 (minimum tax)", "IFRS for SMEs s.29", "IAS 12"],
+    generatedAt,
+    engineVersion,
     content: `CURRENT YEAR COMPUTATION (ITA Cap.332 R.E.2023):
 
                                               TZS
@@ -182,7 +203,7 @@ All computation performed by SAFF Kinga Tax Engine (${r.engine_version ?? "v2"})
   };
 }
 
-function note3_contingentLiabilities(r: EngineResult): DisclosureNote {
+function note3_contingentLiabilities(r: EngineResult, generatedAt: string, engineVersion: string): DisclosureNote {
   const gap = r.cit_gap_tzs ?? 0;
   const taxPayable = r.tax_payable_tzs ?? 0;
   const hasGap = Math.abs(gap) > 500_000;
@@ -209,17 +230,21 @@ The Company has triggered the AMT threshold (3+ consecutive loss years). AMT com
     title: "Contingent Liabilities",
     category: "Disclosures",
     relevance: hasGap || hasAmt ? "high" : "medium",
+    sources: ["tax_computation"],
+    statutoryRefs: ["TAA Cap.438 s.73 (penalty 10%)", "TAA Cap.438 s.76 (interest 5%/month)", "ITA s.65 / FA2026 s.31 (minimum tax 0.5%)", "ITA s.89 (AMT)", "IFRS for SMEs s.21 (provisions)"],
+    generatedAt,
+    engineVersion,
     content: `${gapSection}${amtSection}
 
 TRA AUDIT RISK:
-The Company is subject to routine audit by the Tanzania Revenue Authority (TRA) under TAA Cap.438. The limitation period for TRA assessments is generally 5 years from the date of filing (TAA s.48), extended to 7 years in cases of fraud or negligence. The directors are not aware of any pending TRA audit or assessment as at the balance sheet date.
+The Company is subject to routine audit by the Tanzania Revenue Authority (TRA) under the Tax Administration Act Cap.438 ("TAA"). TRA assessments are subject to a statutory limitation period under the TAA; the directors are not aware of any pending TRA audit or assessment as at the balance sheet date.
 
-Where a TRA assessment is received, the Company's right to object is within 30 days of receipt (TAA s.54). All tax returns should be filed by the due dates per TAA s.38 to avoid automatic penalties.`,
+Where a TRA assessment is received, the Company has a statutory right to object within the period prescribed by the TAA. All tax returns must be filed by the due dates prescribed under the TAA to avoid automatic penalties and interest. The directors should verify current filing deadlines with a qualified tax adviser.`,
     accountsReferenced: ["Income Tax Payable", "Provisions"],
   };
 }
 
-function note4_relatedPartyTransactions(r: EngineResult): DisclosureNote {
+function note4_relatedPartyTransactions(r: EngineResult, generatedAt: string, engineVersion: string): DisclosureNote {
   const mgmtFeeInput = r.management_fee_input_tzs ?? 0;
   const disallowance = r.management_fee_disallowance_tzs ?? 0;
   const revenue = r.total_revenue_tzs ?? 0;
@@ -238,6 +263,10 @@ ${disallowance > 0 ? `Disallowed amount (added back to income): TZS ${fmt(disall
     title: "Related Party Transactions",
     category: "Disclosures",
     relevance: hasMgmtFees ? "high" : "low",
+    sources: ["tax_computation", "trial_balance"],
+    statutoryRefs: ["ITA s.33 (mgmt fee cap 1% turnover)", "ITA s.24A (thin cap 3:1)", "IFRS for SMEs s.33", "IAS 24"],
+    generatedAt,
+    engineVersion,
     content: `${feeSection}
 
 DEFINITION OF RELATED PARTIES:
@@ -256,7 +285,7 @@ Where the Company has obtained financing from related parties, the deductibility
   };
 }
 
-function note5_goingConcern(r: EngineResult, periodYear: number): DisclosureNote {
+function note5_goingConcern(r: EngineResult, periodYear: number, generatedAt: string, engineVersion: string): DisclosureNote {
   const closingLoss = r.closing_cumulative_loss_tzs ?? 0;
   const hasAmt = r.amt_applies ?? false;
   const taxableIncome = r.taxable_income_tzs ?? 0;
@@ -274,6 +303,10 @@ function note5_goingConcern(r: EngineResult, periodYear: number): DisclosureNote
     title: "Going Concern",
     category: "Accounting Policy",
     relevance: hasConcerns ? "high" : "low",
+    sources: ["tax_computation"],
+    statutoryRefs: ["ITA s.19(2) (loss relief 70%)", "ITA s.19(3) (indefinite c/f)", "ITA s.89 (AMT 3-year trigger)"],
+    generatedAt,
+    engineVersion,
     content: hasConcerns
       ? `GOING CONCERN CONSIDERATIONS:
 The directors have assessed the Company's ability to continue as a going concern for the financial year ending ${periodYear} and beyond. The following factors require disclosure:
@@ -293,7 +326,7 @@ The financial statements have been prepared on the going concern basis.`,
   };
 }
 
-function note6_ppeCapitalAllowances(r: EngineResult): DisclosureNote {
+function note6_ppeCapitalAllowances(r: EngineResult, generatedAt: string, engineVersion: string): DisclosureNote {
   const allowances = r.capital_allowances ?? [];
   const wearTear = r.wear_tear_allowance_tzs ?? 0;
 
@@ -308,6 +341,10 @@ function note6_ppeCapitalAllowances(r: EngineResult): DisclosureNote {
     title: "Property, Plant & Equipment and Capital Allowances",
     category: "Assets",
     relevance: wearTear > 0 ? "high" : "medium",
+    sources: ["tax_computation", "trial_balance"],
+    statutoryRefs: ["ITA s.34 (capital allowances — class rates)", "IFRS for SMEs s.17 (PPE)", "IFRS for SMEs s.29 (deferred tax on timing differences)"],
+    generatedAt,
+    engineVersion,
     content: `ITA s.34 CAPITAL ALLOWANCES SCHEDULE:
 Total capital allowances claimed (ITA s.34): TZS ${fmt(wearTear)}
 
@@ -317,7 +354,7 @@ Capital allowances are computed under ITA Cap.332 R.E.2023 s.34 on the following
 • Class 3 (furniture, fixtures, all other equipment): 12.5% reducing balance
 • Class 5 (agricultural/livestock/fisheries buildings): 20% straight-line
 • Class 6 (commercial/industrial buildings): 5% straight-line
-• Class 7 (intangible assets): 1/useful life straight-line (ITA s.34(7))
+• Class 7 (intangible assets): 1/useful life straight-line (ITA s.34 — rate per PwC Tanzania Jan 2026 summary; verify against primary legislation before use)
 
 WRITTEN-DOWN VALUE SCHEDULE (ITA s.34):
 ${schedule}
@@ -330,7 +367,7 @@ For financial reporting purposes, property, plant and equipment is stated at cos
   };
 }
 
-function note7_lossCarryForward(r: EngineResult, periodYear: number): DisclosureNote {
+function note7_lossCarryForward(r: EngineResult, periodYear: number, generatedAt: string, engineVersion: string): DisclosureNote {
   const openingLoss = r.opening_cumulative_loss_tzs ?? 0;
   const closingLoss = r.closing_cumulative_loss_tzs ?? 0;
   const absorbed = r.loss_absorbed_this_year_tzs ?? 0;
@@ -345,6 +382,10 @@ function note7_lossCarryForward(r: EngineResult, periodYear: number): Disclosure
       title: "Tax Loss Carry-Forward",
       category: "Taxation",
       relevance: "low",
+      sources: ["tax_computation"],
+      statutoryRefs: ["ITA s.19"],
+      generatedAt,
+      engineVersion,
       content: `The Company has no unrelieved tax losses to carry forward as at the end of financial year ${periodYear}. No deferred tax asset in respect of tax losses has been recognised.`,
       accountsReferenced: [],
     };
@@ -362,6 +403,10 @@ DTA recognised: ${dtaRecognised ? `TZS ${fmt(dtaAmount)} — recognised based on
     title: "Tax Loss Carry-Forward",
     category: "Taxation",
     relevance: closingLoss > 0 ? "high" : "medium",
+    sources: ["tax_computation"],
+    statutoryRefs: ["ITA s.19(2) (70% annual shelter cap)", "ITA s.19(3) (indefinite carry-forward)", "IFRS for SMEs s.29 / s.29.7 (DTA recognition)", "IAS 12"],
+    generatedAt,
+    engineVersion,
     content: `MOVEMENT IN UNRELIEVED TAX LOSS POOL (ITA s.19):
 
                                               TZS
@@ -386,12 +431,16 @@ The directors will continue to assess the recoverability of the tax loss pool at
   };
 }
 
-function note8_accountingPolicies(framework: string): DisclosureNote {
+function note8_accountingPolicies(framework: string, generatedAt: string, engineVersion: string): DisclosureNote {
   return {
     id: "note-8-policies",
     title: "Significant Accounting Policies",
     category: "Accounting Policy",
     relevance: "medium",
+    sources: ["company_profile"],
+    statutoryRefs: ["IFRS for SMEs s.11–12", "IFRS for SMEs s.13", "IFRS for SMEs s.17", "IFRS for SMEs s.21", "IFRS for SMEs s.23", "IFRS for SMEs s.29", "ITA s.34", "Companies Act Cap.212 R.E.2002"],
+    generatedAt,
+    engineVersion,
     content: `BASIS OF MEASUREMENT:
 These financial statements are prepared on the historical cost basis, except where otherwise stated.
 
@@ -513,15 +562,18 @@ serve(async (req) => {
     const engineResult: EngineResult = (computation?.result_json as EngineResult) ?? {};
 
     // ── Generate all 8 Tanzania-specific notes ───────────────
+    const generatedAt = new Date().toISOString();
+    const engineVersion: string = engineResult.engine_version ?? computation?.engine_version ?? "v2";
+
     const notes: DisclosureNote[] = [
-      note1_basisOfPreparation(companyName, periodYear, periodEndMonth, framework),
-      note2_incomeTax(engineResult, periodYear),
-      note3_contingentLiabilities(engineResult),
-      note4_relatedPartyTransactions(engineResult),
-      note5_goingConcern(engineResult, periodYear),
-      note6_ppeCapitalAllowances(engineResult),
-      note7_lossCarryForward(engineResult, periodYear),
-      note8_accountingPolicies(framework),
+      note1_basisOfPreparation(companyName, periodYear, periodEndMonth, framework, generatedAt, engineVersion),
+      note2_incomeTax(engineResult, periodYear, generatedAt, engineVersion),
+      note3_contingentLiabilities(engineResult, generatedAt, engineVersion),
+      note4_relatedPartyTransactions(engineResult, generatedAt, engineVersion),
+      note5_goingConcern(engineResult, periodYear, generatedAt, engineVersion),
+      note6_ppeCapitalAllowances(engineResult, generatedAt, engineVersion),
+      note7_lossCarryForward(engineResult, periodYear, generatedAt, engineVersion),
+      note8_accountingPolicies(framework, generatedAt, engineVersion),
     ];
 
     // ── Persist to upload record — safe merge into processing_result ──

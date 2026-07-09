@@ -19,6 +19,9 @@ import {
   AlertCircle,
   BookOpen,
   Download,
+  Database,
+  Scale,
+  Clock,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import { useAuditLog } from "@/hooks/useAuditLog";
@@ -30,6 +33,11 @@ interface DisclosureNote {
   content: string;
   relevance: "high" | "medium" | "low";
   accountsReferenced?: string[];
+  // Audit trail
+  sources?: Array<"trial_balance" | "tax_computation" | "company_profile">;
+  statutoryRefs?: string[];
+  generatedAt?: string;
+  engineVersion?: string;
 }
 
 interface NoteSynthProps {
@@ -286,6 +294,44 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated }: NoteSyn
                         </div>
                       </div>
                     )}
+
+                    {/* ── Audit Trail ── */}
+                    <div className="pt-2 border-t border-border/50 grid grid-cols-1 gap-1.5 text-[10px] text-muted-foreground">
+                      {note.sources && note.sources.length > 0 && (
+                        <div className="flex items-start gap-1.5">
+                          <Database className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                          <span>
+                            <span className="font-semibold">Sources:</span>{" "}
+                            {note.sources.map(s =>
+                              s === "trial_balance" ? "Trial Balance" :
+                              s === "tax_computation" ? "Tax Computation" : "Company Profile"
+                            ).join(" · ")}
+                          </span>
+                        </div>
+                      )}
+                      {note.statutoryRefs && note.statutoryRefs.length > 0 && (
+                        <div className="flex items-start gap-1.5">
+                          <Scale className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                          <span>
+                            <span className="font-semibold">Statutory refs:</span>{" "}
+                            {note.statutoryRefs.join(" · ")}
+                          </span>
+                        </div>
+                      )}
+                      {note.generatedAt && (
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3 h-3 flex-shrink-0" />
+                          <span>
+                            <span className="font-semibold">Generated:</span>{" "}
+                            {new Date(note.generatedAt).toLocaleString("en-TZ", {
+                              day: "2-digit", month: "short", year: "numeric",
+                              hour: "2-digit", minute: "2-digit",
+                            })}
+                            {note.engineVersion ? ` · Kinga Engine ${note.engineVersion}` : ""}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </AccordionContent>
               </AccordionItem>
