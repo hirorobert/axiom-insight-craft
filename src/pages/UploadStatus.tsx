@@ -13,7 +13,10 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronRight,
+  GitCommit,
+  Clock,
 } from "lucide-react";
+
 
 type Upload = {
   id: string;
