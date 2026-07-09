@@ -1959,6 +1959,7 @@ export type Database = {
         | "firm_member_invited"
         | "firm_member_accepted"
         | "firm_member_removed"
+        | "generate_management_letter"
       financial_statement: "balance_sheet" | "income_statement" | "cash_flow"
       processing_status:
         | "pending"
@@ -2144,6 +2145,7 @@ export const Constants = {
         "firm_member_invited",
         "firm_member_accepted",
         "firm_member_removed",
+        "generate_management_letter",
       ],
       financial_statement: ["balance_sheet", "income_statement", "cash_flow"],
       processing_status: [
