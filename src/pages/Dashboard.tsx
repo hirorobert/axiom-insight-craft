@@ -787,16 +787,19 @@ export default function Dashboard() {
                   )}
 
                   {/* Kinga — Statutory Compliance Analysis */}
-                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (
-                    <KingaFindingsPanel
-                      companyId={selectedUpload.company_id}
-                      uploadId={selectedUpload.id}
-                      periodYear={new Date(selectedUpload.uploaded_at).getFullYear()}
-                      periodMonth={new Date(selectedUpload.uploaded_at).getMonth() + 1}
-                      companyName={selectedUpload.company_name ?? undefined}
-                      userId={user?.id ?? ""}
-                    />
-                  )}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (() => {
+                    const { periodYear: fpYear, periodEndMonth: fpMonth } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
+                    return (
+                      <KingaFindingsPanel
+                        companyId={selectedUpload.company_id}
+                        uploadId={selectedUpload.id}
+                        periodYear={fpYear}
+                        periodMonth={fpMonth}
+                        companyName={selectedUpload.company_name ?? undefined}
+                        userId={user?.id ?? ""}
+                      />
+                    );
+                  })()}
 
                   {/* Kinga — Tax + Comparative tabs */}
                   {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (

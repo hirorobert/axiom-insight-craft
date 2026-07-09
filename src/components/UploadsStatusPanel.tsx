@@ -272,9 +272,19 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh }:
 
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
-        <h2 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-          Trial Balances
-        </h2>
+        <div>
+          <h2 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+            Trial Balances
+          </h2>
+          <p className="text-[9px] font-mono text-muted-foreground/60 mt-0.5">
+            {import.meta.env.VITE_GIT_SHA
+              ? `SHA ${String(import.meta.env.VITE_GIT_SHA).slice(0, 7)}`
+              : "dev"}
+            {import.meta.env.VITE_BUILD_TIMESTAMP
+              ? ` · ${new Date(String(import.meta.env.VITE_BUILD_TIMESTAMP)).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
+              : ""}
+          </p>
+        </div>
         <div className="flex items-center gap-1.5">
           <Button
             variant="ghost" size="sm"
