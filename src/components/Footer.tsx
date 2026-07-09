@@ -10,7 +10,7 @@ export function Footer() {
 
           <div className="max-w-xs">
             <div className="mb-3">
-              <SaffLogo variant="header" className="h-9 w-auto" />
+              <SaffLogo variant="header" className="h-11 w-auto" />
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
               Tanzania statutory compliance engine.<br />
