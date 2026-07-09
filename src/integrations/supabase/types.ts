@@ -1069,6 +1069,7 @@ export type Database = {
       }
       period_closing_balances: {
         Row: {
+          accounting_pbt_tzs: number | null
           cash_balance_tzs: number
           closing_dta_tzs: number
           closing_dtl_tzs: number
@@ -1088,8 +1089,10 @@ export type Database = {
           period_month: number
           period_year: number
           retained_earnings_tzs: number
+          revenue_tzs: number | null
           share_capital_tzs: number
           taxable_income_tzs: number | null
+          total_wear_tear_tzs: number | null
           upload_id: string | null
           wdv_class1_tzs: number
           wdv_class2_tzs: number
@@ -1100,6 +1103,7 @@ export type Database = {
           wdv_class8_tzs: number
         }
         Insert: {
+          accounting_pbt_tzs?: number | null
           cash_balance_tzs?: number
           closing_dta_tzs?: number
           closing_dtl_tzs?: number
@@ -1119,8 +1123,10 @@ export type Database = {
           period_month?: number
           period_year: number
           retained_earnings_tzs?: number
+          revenue_tzs?: number | null
           share_capital_tzs?: number
           taxable_income_tzs?: number | null
+          total_wear_tear_tzs?: number | null
           upload_id?: string | null
           wdv_class1_tzs?: number
           wdv_class2_tzs?: number
@@ -1131,6 +1137,7 @@ export type Database = {
           wdv_class8_tzs?: number
         }
         Update: {
+          accounting_pbt_tzs?: number | null
           cash_balance_tzs?: number
           closing_dta_tzs?: number
           closing_dtl_tzs?: number
@@ -1150,8 +1157,10 @@ export type Database = {
           period_month?: number
           period_year?: number
           retained_earnings_tzs?: number
+          revenue_tzs?: number | null
           share_capital_tzs?: number
           taxable_income_tzs?: number | null
+          total_wear_tear_tzs?: number | null
           upload_id?: string | null
           wdv_class1_tzs?: number
           wdv_class2_tzs?: number
