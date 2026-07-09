@@ -57,6 +57,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useEnhancedAuditLog } from "@/hooks/useEnhancedAuditLog";
+import { SaffLogo } from "@/components/SaffLogo";
 
 interface ValidationReportData {
   tb_balance_check?: {
@@ -521,9 +522,7 @@ export default function Dashboard() {
               </Link>
             </Button>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground font-bold text-sm shadow-lg">
-                AX
-              </div>
+              <SaffLogo variant="header" className="h-8 w-auto" />
               <div>
                 <h1 className="text-base font-semibold text-foreground">Results Dashboard</h1>
                 <p className="text-xs text-muted-foreground">Trial Balance Analysis</p>

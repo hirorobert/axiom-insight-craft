@@ -1,8 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { ArrowRight, FileCheck, ShieldCheck } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { BRAND, CTA, HERO } from "@/constants/copy";
 
 export function Hero() {
+  const { user } = useAuth();
+  const ctaHref = user ? "/dashboard" : "/auth";
+
   return (
     <section className="relative pt-28 pb-8 px-6">
       <div className="max-w-7xl mx-auto">
@@ -24,7 +28,7 @@ export function Hero() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10">
             <Button variant="hero" size="xl" asChild>
-              <a href="/auth">
+              <a href={ctaHref}>
                 {CTA.primary}
                 <ArrowRight size={18} />
               </a>

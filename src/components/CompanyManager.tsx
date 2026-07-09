@@ -68,6 +68,7 @@ export const CompanyManager = () => {
   const [formData, setFormData] = useState({
     name: "",
     code: "",
+    tin: "",
     description: "",
     industry: "",
     fiscal_year_end: "12-31",
@@ -100,6 +101,7 @@ export const CompanyManager = () => {
     setFormData({
       name: "",
       code: "",
+      tin: "",
       description: "",
       industry: "",
       fiscal_year_end: "12-31",
@@ -120,6 +122,7 @@ export const CompanyManager = () => {
           .update({
             name: formData.name,
             code: formData.code || null,
+            tin: formData.tin.trim() || null,
             description: formData.description || null,
             industry: formData.industry || null,
             fiscal_year_end: formData.fiscal_year_end,
@@ -144,6 +147,7 @@ export const CompanyManager = () => {
           .insert({
             name: formData.name,
             code: formData.code || null,
+            tin: formData.tin.trim() || null,
             description: formData.description || null,
             industry: formData.industry || null,
             fiscal_year_end: formData.fiscal_year_end,
@@ -180,6 +184,7 @@ export const CompanyManager = () => {
     setFormData({
       name: company.name,
       code: company.code || "",
+      tin: company.tin || "",
       description: company.description || "",
       industry: company.industry || "",
       fiscal_year_end: company.fiscal_year_end,
@@ -318,13 +323,13 @@ export const CompanyManager = () => {
         setFormDialogOpen(open);
         if (!open) resetForm();
       }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>
               {editingCompany ? "Edit Company" : "Add New Company"}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto flex-1 pr-1">
             <div className="space-y-2">
               <Label htmlFor="name">Company Name *</Label>
               <Input
@@ -335,6 +340,21 @@ export const CompanyManager = () => {
                 required
               />
             </div>
+
+            {/* TIN — mandatory for TRA submissions */}
+            <div className="space-y-2">
+              <Label htmlFor="tin">
+                TRA Tax Identification Number (TIN)
+                <span className="ml-1 text-xs text-muted-foreground">(required for TRA documents)</span>
+              </Label>
+              <Input
+                id="tin"
+                value={formData.tin}
+                onChange={(e) => setFormData({ ...formData, tin: e.target.value })}
+                placeholder="e.g. 100-123-456"
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="code">Code</Label>
