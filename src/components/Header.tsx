@@ -36,8 +36,8 @@ export function Header() {
       <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
 
         {/* Logo */}
-        <Link to="/" className="flex items-center">
-          <SaffLogo variant="header" className="h-10 w-auto" />
+        <Link to="/" className="inline-flex items-center" aria-label="SAFF ERP home">
+          <SaffLogo variant="header" className="h-11 w-auto" />
         </Link>
 
         {/* Desktop Nav */}
