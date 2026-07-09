@@ -10,6 +10,7 @@ import { AccountMappingModal } from "@/components/AccountMappingModal";
 import { AccountMappingManager, AccountMappingManagerRef } from "@/components/AccountMappingManager";
 import { ExportStatements, ProcessingResult, TaxResultForExport } from "@/components/ExportStatements";
 import { NoteSynth } from "@/components/NoteSynth";
+import { MgmtLetterPanel } from "@/components/MgmtLetterPanel";
 import { KingaFindingsPanel } from "@/components/KingaFindingsPanel";
 import { KingaTaxPanel } from "@/components/KingaTaxPanel";
 import { KingaComparativePanel } from "@/components/KingaComparativePanel";
@@ -783,6 +784,15 @@ export default function Dashboard() {
                       uploadId={selectedUpload.id}
                       existingNotes={result?.disclosureNotes}
                       onNotesGenerated={fetchUploads}
+                    />
+                  )}
+
+                  {/* Management Letter */}
+                  {mapping && (
+                    <MgmtLetterPanel
+                      uploadId={selectedUpload.id}
+                      existingLetter={result?.managementLetter ?? null}
+                      onLetterGenerated={fetchUploads}
                     />
                   )}
 
