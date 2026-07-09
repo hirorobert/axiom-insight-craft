@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 150" role="img" aria-label="SAFF ERP icon">
+  <!--
+    ICON-ONLY — SIMPLIFIED variant
+    Use for: favicons, browser tabs, anywhere rendered UNDER 32px
+    Assay corner removed deliberately — it does not survive rasterization
+    below 32px and reads as a rendering artifact rather than a design detail.
+  -->
+  <defs>
+    <path id="glyphS" fill-rule="evenodd" d="M0 0 H64 V24 H24 V38 H0 Z M0 38 H64 V100 H0 V76 H40 V62 H0 Z"/>
+  </defs>
+  <path fill="#0E1D30" d="M22 0 H128 L150 22 V120 L120 150 H22 L0 128 V22 Z"/>
+  <use href="#glyphS" transform="translate(49,33) scale(0.82)" fill="#FFFFFF"/>
+</svg>
