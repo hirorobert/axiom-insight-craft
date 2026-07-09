@@ -1,117 +1,56 @@
 // ============================================================
-// SaffLogo — Iron Dome Nuclear Design · Diamond Bank Grade
+// SaffLogo — Iron Dome Nuclear Design · v3 LOCKED
 //
-// Rebuilt from scratch as a true typographic lockup:
-//   • Vault-plate emblem with chamfered corners on all four sides
-//   • Green inner keyline (bank-stationery detail)
-//   • Serif-clean monogram set in Manrope 800
-//   • Wordmark set in Manrope 800 (SAFF navy · ERP green)
+// Thin router around the four approved SVG source files in
+// src/assets/brand/. This component MUST NOT contain any inline
+// SVG paths, <text> nodes, or font references — the wordmark and
+// emblem live only inside the locked SVG bytes.
 //
-// Palette:
-//   Vault Navy   #0A1A2E
-//   Ledger Green #0E6B55
-//   Slate        #55657A
-//
-// Variants:
-//   "header" — emblem + wordmark (compact)
-//   "full"   — emblem + wordmark + tagline
+// Variant → file (per brand handoff §1):
+//   "icon-simple"    saff-icon-simple.svg      12  → 32  px
+//   "icon-detailed"  saff-icon-detailed.svg    32  → 256 px
+//   "header"         saff-lockup-compact.svg   150 → 300 px
+//   "full"           saff-lockup-full.svg      300 → unlimited
 // ============================================================
 
+import iconSimple from "@/assets/brand/saff-icon-simple.svg";
+import iconDetailed from "@/assets/brand/saff-icon-detailed.svg";
+import lockupCompact from "@/assets/brand/saff-lockup-compact.svg";
+import lockupFull from "@/assets/brand/saff-lockup-full.svg";
+
+export type SaffLogoVariant =
+  | "icon-simple"
+  | "icon-detailed"
+  | "header"
+  | "full";
+
 interface Props {
-  variant?: "header" | "full";
+  variant?: SaffLogoVariant;
   className?: string;
+  /** When true, renders as decorative image (empty alt + aria-hidden). */
+  decorative?: boolean;
 }
 
-const NAVY = "#0A1A2E";
-const GREEN = "#0E6B55";
-const SLATE = "#55657A";
+const SRC: Record<SaffLogoVariant, string> = {
+  "icon-simple": iconSimple,
+  "icon-detailed": iconDetailed,
+  header: lockupCompact,
+  full: lockupFull,
+};
 
-// Shield with all four corners chamfered — reads as a vault plate.
-const SHIELD_OUTER = "M6 0 H38 L44 6 V38 L38 44 H6 L0 38 V6 Z";
-// Inset shield for the inner keyline (3px inset all sides).
-const SHIELD_INNER = "M9 3 H35 L41 9 V35 L35 41 H9 L3 35 V9 Z";
-
-function Emblem({ x = 0, y = 0 }: { x?: number; y?: number }) {
+export function SaffLogo({
+  variant = "header",
+  className = "",
+  decorative = false,
+}: Props) {
   return (
-    <g transform={`translate(${x},${y})`}>
-      {/* Navy vault plate */}
-      <path d={SHIELD_OUTER} fill={NAVY} />
-      {/* Green inner keyline */}
-      <path d={SHIELD_INNER} fill="none" stroke={GREEN} strokeWidth="1" opacity="0.55" />
-      {/* Bottom-right corner mitre in green */}
-      <path d="M38 44 L44 38 V44 Z" fill={GREEN} />
-      {/* Monogram S */}
-      <text
-        x="22"
-        y="31"
-        fontFamily='"Manrope", system-ui, sans-serif'
-        fontWeight={800}
-        fontSize="26"
-        fill="#FFFFFF"
-        textAnchor="middle"
-        style={{ letterSpacing: "-0.04em" }}
-      >
-        S
-      </text>
-    </g>
-  );
-}
-
-function Wordmark({ x, y }: { x: number; y: number }) {
-  return (
-    <text
-      x={x}
-      y={y}
-      fontFamily='"Manrope", system-ui, sans-serif'
-      fontWeight={800}
-      fontSize="26"
-      style={{ letterSpacing: "-0.02em" }}
-    >
-      <tspan fill={NAVY}>SAFF</tspan>
-      <tspan fill={GREEN} dx="6">ERP</tspan>
-    </text>
-  );
-}
-
-export function SaffLogo({ variant = "header", className = "" }: Props) {
-  if (variant === "header") {
-    return (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 210 44"
-        aria-label="SAFF ERP"
-        role="img"
-        className={className}
-        style={{ display: "block" }}
-      >
-        <Emblem x={0} y={0} />
-        <Wordmark x={58} y={31} />
-      </svg>
-    );
-  }
-
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 210 64"
-      aria-label="SAFF ERP — Audit-Ready FS & Tax Reporting"
-      role="img"
+    <img
+      src={SRC[variant]}
+      alt={decorative ? "" : "SAFF ERP"}
+      aria-hidden={decorative || undefined}
       className={className}
       style={{ display: "block" }}
-    >
-      <Emblem x={0} y={0} />
-      <Wordmark x={58} y={28} />
-      <text
-        x="58"
-        y="48"
-        fontFamily='"Manrope", system-ui, sans-serif'
-        fontWeight={500}
-        fontSize="7"
-        fill={SLATE}
-        style={{ letterSpacing: "0.22em" }}
-      >
-        AUDIT-READY FS &amp; TAX REPORTING
-      </text>
-    </svg>
+      draggable={false}
+    />
   );
 }

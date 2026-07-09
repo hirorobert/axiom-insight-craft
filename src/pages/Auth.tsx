@@ -229,7 +229,7 @@ export default function Auth() {
         {/* Logo */}
         <div className="text-center mb-8">
           <Link to="/" className="inline-block mb-6">
-            <SaffLogo variant="full" className="h-20 w-auto mx-auto" />
+            <SaffLogo variant="full" className="h-24 w-auto mx-auto" />
           </Link>
           <h1 className="text-2xl font-bold text-foreground">{getTitle()}</h1>
           <p className="text-muted-foreground mt-2">{getSubtitle()}</p>
