@@ -227,10 +227,13 @@ export default function Auth() {
 
         {/* Logo */}
         <div className="text-center mb-8">
-          <Link to="/" className="inline-block">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground font-bold text-2xl mb-4">
-              SE
-            </div>
+          <Link to="/" className="inline-block mb-5">
+            <img
+              src="/saff-erp-logo.svg"
+              alt="SAFF ERP"
+              className="h-14 w-auto mx-auto"
+              draggable={false}
+            />
           </Link>
           <h1 className="text-2xl font-bold text-foreground">{getTitle()}</h1>
           <p className="text-muted-foreground mt-2">{getSubtitle()}</p>

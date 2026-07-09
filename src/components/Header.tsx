@@ -35,11 +35,13 @@ export function Header() {
       <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
 
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground font-bold text-sm shadow-md">
-            SE
-          </div>
-          <span className="text-base font-semibold text-foreground">SAFF ERP</span>
+        <Link to="/" className="flex items-center">
+          <img
+            src="/saff-erp-logo.svg"
+            alt="SAFF ERP"
+            className="h-10 w-auto"
+            draggable={false}
+          />
         </Link>
 
         {/* Desktop Nav */}

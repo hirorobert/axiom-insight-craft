@@ -7,11 +7,13 @@ export function Footer() {
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-8 mb-10">
 
           <div className="max-w-xs">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground font-bold text-sm">
-                AX
-              </div>
-              <span className="text-base font-semibold text-foreground">SAFF ERP</span>
+            <div className="mb-3">
+              <img
+                src="/saff-erp-logo.svg"
+                alt="SAFF ERP"
+                className="h-9 w-auto"
+                draggable={false}
+              />
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
               Tanzania statutory compliance engine.<br />
