@@ -246,6 +246,7 @@ interface KingaTaxPanelProps {
   periodYear: number;
   periodEndMonth?: number;    // D7-FIX: fiscal year-end month (1-12), default 12
   companyName?: string;
+  companyTin?: string;        // TRA Tax Identification Number — appears in instalment schedule
   userId: string;
   onResultChange?: (result: TaxResult | null) => void;
 }
@@ -482,7 +483,7 @@ function WaterfallRow({
 
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────
 export function KingaTaxPanel({
-  companyId, uploadId, periodYear, periodEndMonth = 12, companyName, userId, onResultChange,
+  companyId, uploadId, periodYear, periodEndMonth = 12, companyName, companyTin, userId, onResultChange,
 }: KingaTaxPanelProps) {
   type Phase = "idle" | "running" | "preview" | "committing" | "done";
 
@@ -1021,11 +1022,16 @@ export function KingaTaxPanel({
               ];
               return (
                 <div className="border border-[#0E1D30]/20 rounded-xl overflow-hidden">
-                  <div className="bg-[#0E1D30]/5 px-3 py-2 border-b border-[#0E1D30]/20 flex items-center gap-2">
-                    <Calendar className="w-3.5 h-3.5 text-[#0E1D30]" />
+                  <div className="bg-[#0E1D30]/5 px-3 py-2 border-b border-[#0E1D30]/20 flex items-center gap-2 flex-wrap">
+                    <Calendar className="w-3.5 h-3.5 text-[#0E1D30] flex-shrink-0" />
                     <span className="text-xs font-semibold text-[#0E1D30] uppercase tracking-wide">
                       ITA s.88 — Instalment Tax Schedule (FY{periodYear})
                     </span>
+                    {companyTin && (
+                      <span className="text-[10px] font-mono text-[#0E1D30]/70 bg-[#0E1D30]/10 px-1.5 py-0.5 rounded">
+                        TIN: {companyTin}
+                      </span>
+                    )}
                     <span className="ml-auto text-[10px] text-muted-foreground">
                       Estimated tax TZS {fmt(estTax)} ÷ 4 equal instalments
                     </span>
