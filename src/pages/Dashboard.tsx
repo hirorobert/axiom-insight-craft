@@ -62,6 +62,8 @@ import { FilingCalendarPanel } from "@/components/FilingCalendarPanel";
 import { PaymentLedgerPanel } from "@/components/PaymentLedgerPanel";
 import { TRAFilingChecklist } from "@/components/TRAFilingChecklist";
 import { TransferPricingPanel } from "@/components/TransferPricingPanel";
+import { AdjustingJournalPanel } from "@/components/AdjustingJournalPanel";
+import { ComplianceScorecard } from "@/components/ComplianceScorecard";
 
 interface ValidationReportData {
   tb_balance_check?: {
@@ -889,6 +891,20 @@ export default function Dashboard() {
                     );
                   })()}
 
+                  {/* Adjusting Journal Entries (Sprint 5 Item 1) */}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (() => {
+                    const { periodYear } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
+                    return (
+                      <AdjustingJournalPanel
+                        companyId={selectedUpload.company_id}
+                        uploadId={selectedUpload.id}
+                        periodYear={periodYear}
+                        companyName={selectedUpload.company_name ?? undefined}
+                        userId={user?.id ?? ""}
+                      />
+                    );
+                  })()}
+
                   {/* Processing Notes */}
                   {result?.notes && result.notes.length > 0 && (
                     <Card className="bg-card border-border">
@@ -914,11 +930,14 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* ── Sprint 4: Cross-Company Panels ─────────────────── */}
+          {/* ── Sprint 4 + 5: Cross-Company Panels ───────────────── */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <FilingCalendarPanel />
             <PaymentLedgerPanel />
           </div>
+
+          {/* ── Sprint 5: Compliance Intelligence ────────────────── */}
+          <ComplianceScorecard />
 
           {/* Last Activity strip */}
           {uploads.length > 0 && (

@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import { AuditTrail } from "@/components/AuditTrail";
 import { FirmManagementPanel } from "@/components/FirmManagementPanel";
+import { PeriodCloseManager } from "@/components/PeriodCloseManager";
 import { useAuditLog } from "@/hooks/useAuditLog";
 
 export default function Settings() {
@@ -212,6 +213,9 @@ export default function Settings() {
 
         {/* Team & Access — Firm Member Management */}
         <FirmManagementPanel />
+
+        {/* Period Close Manager — 3-tier sign-off across all companies */}
+        <PeriodCloseManager userId={user?.id ?? ""} />
 
         {/* Audit Trail — admin-level action log */}
         <AuditTrail />
