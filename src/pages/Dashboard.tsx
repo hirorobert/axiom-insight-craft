@@ -378,6 +378,21 @@ export default function Dashboard() {
     }
   }, [user, selectedCompanyId]);
 
+  // Auto-accept firm invitation — runs once on login.
+  // When an invited user logs in for the first time, their firm_members
+  // row has accepted_at = null. We update it here so they become active.
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from("firm_members")
+      .update({ accepted_at: new Date().toISOString() })
+      .eq("user_id", user.id)
+      .is("accepted_at", null)
+      .then(({ error }) => {
+        if (error) console.warn("firm_members auto-accept:", error.message);
+      });
+  }, [user?.id]);
+
   // Real-time subscription for trial balance updates
   useEffect(() => {
     if (!user) return;

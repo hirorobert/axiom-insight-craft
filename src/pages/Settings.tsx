@@ -10,6 +10,7 @@ import { ArrowLeft, User, Building2, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import { AuditTrail } from "@/components/AuditTrail";
+import { FirmManagementPanel } from "@/components/FirmManagementPanel";
 import { useAuditLog } from "@/hooks/useAuditLog";
 
 export default function Settings() {
@@ -208,6 +209,9 @@ export default function Settings() {
             </Button>
           </CardContent>
         </Card>
+
+        {/* Team & Access — Firm Member Management */}
+        <FirmManagementPanel />
 
         {/* Audit Trail — admin-level action log */}
         <AuditTrail />
