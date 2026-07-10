@@ -61,6 +61,7 @@ import { SaffLogo } from "@/components/SaffLogo";
 import { FilingCalendarPanel } from "@/components/FilingCalendarPanel";
 import { PaymentLedgerPanel } from "@/components/PaymentLedgerPanel";
 import { TRAFilingChecklist } from "@/components/TRAFilingChecklist";
+import { TransferPricingPanel } from "@/components/TransferPricingPanel";
 
 interface ValidationReportData {
   tb_balance_check?: {
@@ -859,6 +860,20 @@ export default function Dashboard() {
                       </TabsContent>
                     </Tabs>
                   )}
+
+                  {/* Transfer Pricing Risk Register (5D) */}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (() => {
+                    const { periodYear } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
+                    return (
+                      <TransferPricingPanel
+                        companyId={selectedUpload.company_id}
+                        uploadId={selectedUpload.id}
+                        periodYear={periodYear}
+                        companyName={selectedUpload.company_name ?? undefined}
+                        userId={user?.id ?? ""}
+                      />
+                    );
+                  })()}
 
                   {/* TRA e-Filing Readiness Checklist (5H) */}
                   {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (() => {

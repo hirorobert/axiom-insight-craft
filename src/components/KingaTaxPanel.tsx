@@ -19,6 +19,8 @@ import {
   TrendingUp, ArrowUpDown, PenLine, Calendar,
 } from "lucide-react";
 import { TaxLossPanel } from "@/components/TaxLossPanel";
+import { generateTaxComputationPDF } from "@/lib/generateTaxComputationPDF";
+import { FileDown } from "lucide-react";
 
 // ── ITA CLASS METADATA — VERIFIED: PwC Tanzania (reviewed 14 Jan 2026) ───
 // Source: https://taxsummaries.pwc.com/tanzania/corporate/deductions
@@ -1389,6 +1391,35 @@ export function KingaTaxPanel({
                   <CheckCircle className="w-4 h-4" />
                   Commit Computation
                 </Button>
+                <Button
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={async () => {
+                    const [{ data: allowances }, { data: findings }] = await Promise.all([
+                      supabase
+                        .from("capital_allowances")
+                        .select("asset_description, ita_class, cost_tzs, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, wear_tear_allowance_tzs, ita_wdv_closing_tzs")
+                        .eq("upload_id", uploadId),
+                      supabase
+                        .from("findings")
+                        .select("title, finding_category, exposure_amount_tzs, status")
+                        .eq("company_id", companyId)
+                        .in("status", ["open", "in_progress"]),
+                    ]);
+                    generateTaxComputationPDF({
+                      result,
+                      companyName: companyName ?? "Company",
+                      companyTin,
+                      periodYear,
+                      periodEndMonth: periodEndMonth ?? 12,
+                      allowances: (allowances ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["allowances"],
+                      findings:   (findings   ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["findings"],
+                    });
+                  }}
+                >
+                  <FileDown className="w-3.5 h-3.5" />
+                  Download PDF
+                </Button>
                 <Button variant="outline" onClick={reset}>Discard</Button>
                 <p className="text-xs text-muted-foreground">
                   Saves ITA waterfall + creates finding in the DB.
@@ -1410,11 +1441,44 @@ export function KingaTaxPanel({
             )}
 
             {phase === "done" && (
-              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">
-                <CheckCircle className="w-4 h-4" />
-                Computation saved.
-                {result.finding_created && " CIT gap finding created in findings table."}
-                <Button variant="ghost" size="sm" onClick={reset} className="ml-auto">Run Again</Button>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">
+                  <CheckCircle className="w-4 h-4" />
+                  Computation saved.
+                  {result.finding_created && " CIT gap finding created in findings table."}
+                  <Button variant="ghost" size="sm" onClick={reset} className="ml-auto">Run Again</Button>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 w-full"
+                  onClick={async () => {
+                    // Fetch supporting data for the PDF
+                    const [{ data: allowances }, { data: findings }] = await Promise.all([
+                      supabase
+                        .from("capital_allowances")
+                        .select("asset_description, ita_class, cost_tzs, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, wear_tear_allowance_tzs, ita_wdv_closing_tzs")
+                        .eq("upload_id", uploadId),
+                      supabase
+                        .from("findings")
+                        .select("title, finding_category, exposure_amount_tzs, status")
+                        .eq("company_id", companyId)
+                        .in("status", ["open", "in_progress"]),
+                    ]);
+                    generateTaxComputationPDF({
+                      result,
+                      companyName: companyName ?? "Company",
+                      companyTin,
+                      periodYear,
+                      periodEndMonth: periodEndMonth ?? 12,
+                      allowances: (allowances ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["allowances"],
+                      findings:   (findings   ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["findings"],
+                    });
+                  }}
+                >
+                  <FileDown className="w-3.5 h-3.5" />
+                  Download Tax Computation Report (PDF)
+                </Button>
               </div>
             )}
           </div>
