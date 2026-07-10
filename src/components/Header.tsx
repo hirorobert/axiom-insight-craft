@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { SessionIndicator } from "@/components/SessionIndicator";
+import { NotificationBell } from "@/components/NotificationBell";
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -57,6 +58,7 @@ export function Header() {
         <div className="hidden md:flex items-center gap-3">
           {user ? (
             <>
+              <NotificationBell userId={user?.id} />
               <SessionIndicator />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

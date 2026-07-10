@@ -64,6 +64,8 @@ import { TRAFilingChecklist } from "@/components/TRAFilingChecklist";
 import { TransferPricingPanel } from "@/components/TransferPricingPanel";
 import { AdjustingJournalPanel } from "@/components/AdjustingJournalPanel";
 import { ComplianceScorecard } from "@/components/ComplianceScorecard";
+import { PeriodClosingBalancesPanel } from "@/components/PeriodClosingBalancesPanel";
+import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel";
 
 interface ValidationReportData {
   tb_balance_check?: {
@@ -899,6 +901,29 @@ export default function Dashboard() {
                         companyId={selectedUpload.company_id}
                         uploadId={selectedUpload.id}
                         periodYear={periodYear}
+                        companyName={selectedUpload.company_name ?? undefined}
+                        userId={user?.id ?? ""}
+                      />
+                    );
+                  })()}
+
+                  {/* Period Closing Balances — WDV, DT, Loss Pool (Sprint 6 Item 1) */}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (
+                    <PeriodClosingBalancesPanel
+                      companyId={selectedUpload.company_id}
+                      companyName={selectedUpload.company_name ?? undefined}
+                    />
+                  )}
+
+                  {/* EFDMS Reconciliation — manual entry + engine gap (Sprint 6 Item 3) */}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (() => {
+                    const { periodYear, periodEndMonth } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
+                    return (
+                      <EFDMSReconciliationPanel
+                        companyId={selectedUpload.company_id}
+                        uploadId={selectedUpload.id}
+                        periodYear={periodYear}
+                        periodMonth={periodEndMonth}
                         companyName={selectedUpload.company_name ?? undefined}
                         userId={user?.id ?? ""}
                       />
