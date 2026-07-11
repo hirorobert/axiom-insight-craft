@@ -1,0 +1,17 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pdfplumber==0.11.4
+pandas==2.2.3
+pydantic==2.10.3
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.18
+# Phase C: OCR dependencies (only installed when OCR_ENABLED=true)
+# pytesseract==0.3.13       # Tesseract OCR Python wrapper
+# pdf2image==1.17.0         # PDF page → PIL Image (requires poppler-utils system dep)
+# Dockerfile must install: apt-get install -y tesseract-ocr poppler-utils
+#
+# Phase C+ (MinerU GPU container — separate Dockerfile):
+# magic-pdf>=0.6.1
+# torch>=2.0.0
+# torchvision>=0.15.0
+# Requires: FROM nvidia/cuda:12.1.0-base-ubuntu22.04 base image
