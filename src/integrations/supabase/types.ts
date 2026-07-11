@@ -1220,6 +1220,272 @@ export type Database = {
         }
         Relationships: []
       }
+      safisha_audit_log: {
+        Row: {
+          action: string
+          exception_id: string
+          id: string
+          logged_at: string
+          note: string | null
+          reconciliation_id: string
+          reviewer_id: string
+        }
+        Insert: {
+          action: string
+          exception_id: string
+          id?: string
+          logged_at?: string
+          note?: string | null
+          reconciliation_id: string
+          reviewer_id: string
+        }
+        Update: {
+          action?: string
+          exception_id?: string
+          id?: string
+          logged_at?: string
+          note?: string | null
+          reconciliation_id?: string
+          reviewer_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "safisha_audit_log_exception_id_fkey"
+            columns: ["exception_id"]
+            isOneToOne: false
+            referencedRelation: "safisha_exceptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safisha_audit_log_reconciliation_id_fkey"
+            columns: ["reconciliation_id"]
+            isOneToOne: false
+            referencedRelation: "safisha_reconciliations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      safisha_client_mappings: {
+        Row: {
+          client_id: string
+          column_mapping: Json
+          created_at: string
+          id: string
+          sample_headers: Json | null
+          source_type: string
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          column_mapping: Json
+          created_at?: string
+          id?: string
+          sample_headers?: Json | null
+          source_type: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          column_mapping?: Json
+          created_at?: string
+          id?: string
+          sample_headers?: Json | null
+          source_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      safisha_exceptions: {
+        Row: {
+          account_code: string
+          account_name: string | null
+          age_days: number
+          category: string
+          confidence_score: number | null
+          created_at: string
+          description: string | null
+          evidence_txn_id: string | null
+          id: string
+          match_type: string | null
+          reconciliation_id: string
+          resolved_at: string | null
+          reviewer_action: string
+          reviewer_id: string | null
+          reviewer_note: string | null
+          tb_txn_id: string | null
+          variance: number
+        }
+        Insert: {
+          account_code: string
+          account_name?: string | null
+          age_days?: number
+          category: string
+          confidence_score?: number | null
+          created_at?: string
+          description?: string | null
+          evidence_txn_id?: string | null
+          id?: string
+          match_type?: string | null
+          reconciliation_id: string
+          resolved_at?: string | null
+          reviewer_action?: string
+          reviewer_id?: string | null
+          reviewer_note?: string | null
+          tb_txn_id?: string | null
+          variance: number
+        }
+        Update: {
+          account_code?: string
+          account_name?: string | null
+          age_days?: number
+          category?: string
+          confidence_score?: number | null
+          created_at?: string
+          description?: string | null
+          evidence_txn_id?: string | null
+          id?: string
+          match_type?: string | null
+          reconciliation_id?: string
+          resolved_at?: string | null
+          reviewer_action?: string
+          reviewer_id?: string | null
+          reviewer_note?: string | null
+          tb_txn_id?: string | null
+          variance?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "safisha_exceptions_evidence_txn_id_fkey"
+            columns: ["evidence_txn_id"]
+            isOneToOne: false
+            referencedRelation: "safisha_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safisha_exceptions_reconciliation_id_fkey"
+            columns: ["reconciliation_id"]
+            isOneToOne: false
+            referencedRelation: "safisha_reconciliations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safisha_exceptions_tb_txn_id_fkey"
+            columns: ["tb_txn_id"]
+            isOneToOne: false
+            referencedRelation: "safisha_transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      safisha_reconciliations: {
+        Row: {
+          client_id: string
+          completed_at: string | null
+          confidence_score: number | null
+          created_at: string
+          evidence_files: Json
+          exception_count: number
+          id: string
+          matched_count: number
+          sealed: boolean
+          status: string
+          tb_upload_id: string
+          total_tb_lines: number
+        }
+        Insert: {
+          client_id: string
+          completed_at?: string | null
+          confidence_score?: number | null
+          created_at?: string
+          evidence_files?: Json
+          exception_count?: number
+          id?: string
+          matched_count?: number
+          sealed?: boolean
+          status?: string
+          tb_upload_id: string
+          total_tb_lines?: number
+        }
+        Update: {
+          client_id?: string
+          completed_at?: string | null
+          confidence_score?: number | null
+          created_at?: string
+          evidence_files?: Json
+          exception_count?: number
+          id?: string
+          matched_count?: number
+          sealed?: boolean
+          status?: string
+          tb_upload_id?: string
+          total_tb_lines?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "safisha_reconciliations_tb_upload_id_fkey"
+            columns: ["tb_upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      safisha_transactions: {
+        Row: {
+          account_code: string
+          account_name: string | null
+          created_at: string
+          credit: number | null
+          currency: string
+          debit: number | null
+          id: string
+          raw_row_hash: string
+          raw_row_number: number | null
+          reconciliation_id: string
+          reference: string | null
+          source_id: string
+          txn_date: string | null
+        }
+        Insert: {
+          account_code: string
+          account_name?: string | null
+          created_at?: string
+          credit?: number | null
+          currency?: string
+          debit?: number | null
+          id?: string
+          raw_row_hash: string
+          raw_row_number?: number | null
+          reconciliation_id: string
+          reference?: string | null
+          source_id: string
+          txn_date?: string | null
+        }
+        Update: {
+          account_code?: string
+          account_name?: string | null
+          created_at?: string
+          credit?: number | null
+          currency?: string
+          debit?: number | null
+          id?: string
+          raw_row_hash?: string
+          raw_row_number?: number | null
+          reconciliation_id?: string
+          reference?: string | null
+          source_id?: string
+          txn_date?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "safisha_transactions_reconciliation_id_fkey"
+            columns: ["reconciliation_id"]
+            isOneToOne: false
+            referencedRelation: "safisha_reconciliations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       statement_sign_offs: {
         Row: {
           approver_firm_member_id: string | null
@@ -1726,6 +1992,7 @@ export type Database = {
           period_year: number | null
           processed_at: string | null
           processing_result: Json | null
+          safisha_status: string | null
           status: string
           uploaded_at: string
           user_id: string | null
@@ -1745,6 +2012,7 @@ export type Database = {
           period_year?: number | null
           processed_at?: string | null
           processing_result?: Json | null
+          safisha_status?: string | null
           status?: string
           uploaded_at?: string
           user_id?: string | null
@@ -1764,6 +2032,7 @@ export type Database = {
           period_year?: number | null
           processed_at?: string | null
           processing_result?: Json | null
+          safisha_status?: string | null
           status?: string
           uploaded_at?: string
           user_id?: string | null
@@ -1921,6 +2190,15 @@ export type Database = {
         }[]
       }
       get_member_company_ids: { Args: never; Returns: string[] }
+      safisha_resolve_exception: {
+        Args: {
+          p_action: string
+          p_exception_id: string
+          p_note?: string
+          p_reviewer_id: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       account_classification:
