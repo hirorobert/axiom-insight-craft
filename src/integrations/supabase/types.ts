@@ -1410,6 +1410,9 @@ export type Database = {
           cit_gap_tzs: number | null
           company_id: string
           computation_detail: Json | null
+          cpa_modification_note: string | null
+          cpa_modified_at: string | null
+          cpa_modified_by: string | null
           created_at: string
           debt_equity_ratio: number | null
           deductions: Json
@@ -1449,6 +1452,9 @@ export type Database = {
           cit_gap_tzs?: number | null
           company_id: string
           computation_detail?: Json | null
+          cpa_modification_note?: string | null
+          cpa_modified_at?: string | null
+          cpa_modified_by?: string | null
           created_at?: string
           debt_equity_ratio?: number | null
           deductions?: Json
@@ -1488,6 +1494,9 @@ export type Database = {
           cit_gap_tzs?: number | null
           company_id?: string
           computation_detail?: Json | null
+          cpa_modification_note?: string | null
+          cpa_modified_at?: string | null
+          cpa_modified_by?: string | null
           created_at?: string
           debt_equity_ratio?: number | null
           deductions?: Json
