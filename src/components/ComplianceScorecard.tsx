@@ -21,6 +21,13 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  fetchScoringData,
+  scoreFromData,
+  scoreToGrade as libScoreToGrade,
+  type ScoreFactor,
+  type ComplianceGrade,
+} from "@/lib/computeComplianceScore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -46,22 +53,12 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface ScoreFactor {
-  label: string;
-  score: number;      // 0–100 for this factor
-  weight: number;     // 0–1
-  contribution: number; // score × weight → points earned (0 – maxPts)
-  maxPts: number;
-  detail: string;
-  status: "good" | "warn" | "bad";
-}
-
 interface CompanyScore {
   companyId: string;
   companyName: string;
   tin?: string;
   totalScore: number;        // 0–100
-  grade: "Compliant" | "Monitor" | "At Risk" | "Critical";
+  grade: ComplianceGrade;
   factors: ScoreFactor[];
   computedAt: string;
 }
@@ -97,12 +94,7 @@ const factorStatusIcon = (status: string) => {
   }
 };
 
-const scoreToGrade = (score: number): CompanyScore["grade"] => {
-  if (score >= 90) return "Compliant";
-  if (score >= 70) return "Monitor";
-  if (score >= 50) return "At Risk";
-  return "Critical";
-};
+const scoreToGrade = libScoreToGrade;
 
 const progressColor = (score: number) => {
   if (score >= 90) return "bg-emerald-500";
@@ -112,181 +104,6 @@ const progressColor = (score: number) => {
 };
 
 const fmt = (n: number) => n.toLocaleString("en-TZ", { maximumFractionDigits: 0 });
-
-// ── Score computation ─────────────────────────────────────────────────────────
-
-async function computeCompanyScore(company: { id: string; name: string; tin?: string }): Promise<CompanyScore> {
-  const now = new Date();
-
-  // ── A: Findings (open + in_progress) ─────────────────────────────────────
-  const { data: findings } = await supabase
-    .from("findings")
-    .select("status, exposure_amount_tzs, finding_category")
-    .eq("company_id", company.id)
-    .in("status", ["open", "in_progress"]);
-
-  const openFindings = findings ?? [];
-  const totalExposure = openFindings.reduce((s, f) => s + (Number(f.exposure_amount_tzs) || 0), 0);
-
-  // severity: weight critical categories higher
-  const highCats = ["cit_underpayment", "penalty", "minimum_tax_gap", "management_fee_disallowance"];
-  const highCount = openFindings.filter(f => highCats.includes(f.finding_category)).length;
-  const lowCount = openFindings.length - highCount;
-
-  // Score A: 100 if 0 findings; deduct for each
-  const findingDeduction = Math.min(100, highCount * 15 + lowCount * 8);
-  const scoreA = Math.max(0, 100 - findingDeduction);
-  const factorA: ScoreFactor = {
-    label: "Open Findings",
-    score: scoreA,
-    weight: 0.30,
-    contribution: scoreA * 0.30,
-    maxPts: 30,
-    detail: openFindings.length === 0
-      ? "No open compliance findings"
-      : `${openFindings.length} open finding${openFindings.length > 1 ? "s" : ""} (${highCount} high severity) — TZS ${fmt(totalExposure)} exposure`,
-    status: scoreA >= 80 ? "good" : scoreA >= 50 ? "warn" : "bad",
-  };
-
-  // ── B: Transfer Pricing ───────────────────────────────────────────────────
-  // Detect from findings categories
-  const tpFindings = openFindings.filter(f =>
-    ["management_fee_disallowance", "thin_cap_disallowance", "transfer_pricing"].includes(f.finding_category)
-  );
-  const tpExposure = tpFindings.reduce((s, f) => s + (Number(f.exposure_amount_tzs) || 0), 0);
-
-  // Also check most recent tax computation for TP warnings
-  const { data: taxComps } = await supabase
-    .from("tax_computations")
-    .select("result_json")
-    .eq("company_id", company.id)
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  const lastResult = taxComps?.[0]?.result_json as any;
-  const tpWarnings = (lastResult?.classification_warnings ?? []).filter(
-    (w: any) => ["management_fee", "thin_cap", "transfer_pricing"].includes(w?.category)
-  ).length;
-
-  const scoreB = tpFindings.length === 0 && tpWarnings === 0 ? 100 :
-    Math.max(0, 100 - tpFindings.length * 25 - tpWarnings * 10);
-  const factorB: ScoreFactor = {
-    label: "Transfer Pricing Risk",
-    score: scoreB,
-    weight: 0.20,
-    contribution: scoreB * 0.20,
-    maxPts: 20,
-    detail: tpFindings.length === 0 && tpWarnings === 0
-      ? "No TP risk detected (ITA s.33 + s.12(2))"
-      : `${tpFindings.length} TP finding${tpFindings.length !== 1 ? "s" : ""}, ${tpWarnings} warning${tpWarnings !== 1 ? "s" : ""} — TZS ${fmt(tpExposure)} exposure`,
-    status: scoreB >= 90 ? "good" : scoreB >= 60 ? "warn" : "bad",
-  };
-
-  // ── C: Payment Coverage ───────────────────────────────────────────────────
-  const { data: payments } = await supabase
-    .from("tax_payments")
-    .select("amount_paid_tzs")
-    .eq("company_id", company.id);
-
-  const totalPaid = (payments ?? []).reduce((s, p) => s + (Number(p.amount_paid_tzs) || 0), 0);
-
-  let scoreC: number;
-  let paymentDetail: string;
-  if (totalExposure <= 0) {
-    scoreC = 100;
-    paymentDetail = "No outstanding exposure — no payment required";
-  } else {
-    const coverageRatio = totalPaid / totalExposure;
-    scoreC = Math.min(100, Math.round(coverageRatio * 100));
-    paymentDetail = `TZS ${fmt(totalPaid)} paid vs TZS ${fmt(totalExposure)} exposure (${Math.round(coverageRatio * 100)}% coverage)`;
-  }
-  const factorC: ScoreFactor = {
-    label: "Payment Coverage",
-    score: scoreC,
-    weight: 0.20,
-    contribution: scoreC * 0.20,
-    maxPts: 20,
-    detail: paymentDetail,
-    status: scoreC >= 80 ? "good" : scoreC >= 50 ? "warn" : "bad",
-  };
-
-  // ── D: Overdue Deadlines ──────────────────────────────────────────────────
-  // Count findings that are past their implied due date (period_end + grace)
-  const { data: allFindings } = await supabase
-    .from("findings")
-    .select("period_end, status")
-    .eq("company_id", company.id)
-    .in("status", ["open", "in_progress"]);
-
-  const overdueCount = (allFindings ?? []).filter(f => {
-    if (!f.period_end) return false;
-    const due = new Date(f.period_end);
-    due.setDate(due.getDate() + 30); // 30-day grace
-    return due < now;
-  }).length;
-
-  const scoreD = Math.max(0, 100 - overdueCount * 20);
-  const factorD: ScoreFactor = {
-    label: "Filing Deadlines",
-    score: scoreD,
-    weight: 0.15,
-    contribution: scoreD * 0.15,
-    maxPts: 15,
-    detail: overdueCount === 0
-      ? "All filing deadlines on track"
-      : `${overdueCount} obligation${overdueCount > 1 ? "s" : ""} past the 30-day grace period`,
-    status: scoreD >= 80 ? "good" : scoreD >= 50 ? "warn" : "bad",
-  };
-
-  // ── E: Period Sign-off Status ─────────────────────────────────────────────
-  const { data: signOffs } = await supabase
-    .from("statement_sign_offs")
-    .select("status, locked_at")
-    .eq("company_id", company.id)
-    .order("period_year", { ascending: false })
-    .limit(1);
-
-  const latestSignOff = signOffs?.[0];
-  let scoreE: number;
-  let signOffDetail: string;
-  if (!latestSignOff) {
-    scoreE = 40;
-    signOffDetail = "No sign-off record — statements not yet reviewed";
-  } else {
-    switch (latestSignOff.status) {
-      case "locked":           scoreE = 100; signOffDetail = "Period locked — statements approved and immutable"; break;
-      case "approved":         scoreE = 90;  signOffDetail = "Approver signed — awaiting lock"; break;
-      case "reviewer_signed":  scoreE = 70;  signOffDetail = "Reviewer signed — awaiting approver"; break;
-      case "preparer_signed":  scoreE = 50;  signOffDetail = "Preparer signed — awaiting reviewer"; break;
-      default:                 scoreE = 30;  signOffDetail = "Sign-off in draft — no signatures yet";
-    }
-  }
-  const factorE: ScoreFactor = {
-    label: "Period Sign-off",
-    score: scoreE,
-    weight: 0.15,
-    contribution: scoreE * 0.15,
-    maxPts: 15,
-    detail: signOffDetail,
-    status: scoreE >= 80 ? "good" : scoreE >= 50 ? "warn" : "bad",
-  };
-
-  // ── Aggregate ─────────────────────────────────────────────────────────────
-  const totalScore = Math.round(
-    factorA.contribution + factorB.contribution +
-    factorC.contribution + factorD.contribution + factorE.contribution
-  );
-
-  return {
-    companyId: company.id,
-    companyName: company.name,
-    tin: company.tin,
-    totalScore,
-    grade: scoreToGrade(totalScore),
-    factors: [factorA, factorB, factorC, factorD, factorE],
-    computedAt: now.toISOString(),
-  };
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -309,8 +126,21 @@ export function ComplianceScorecard() {
         return;
       }
 
+      // Iron Dome: all scoring through canonical lib — zero inline computation
       const results = await Promise.all(
-        companies.map((c) => computeCompanyScore({ id: c.id, name: c.name, tin: c.tin ?? undefined }))
+        companies.map(async (c) => {
+          const input = await fetchScoringData(c.id);
+          const score = scoreFromData(input);
+          return {
+            companyId: c.id,
+            companyName: c.name,
+            tin: c.tin ?? undefined,
+            totalScore: score.totalScore,
+            grade: score.grade,
+            factors: score.factors,
+            computedAt: input.now.toISOString(),
+          } satisfies CompanyScore;
+        })
       );
 
       // Sort: Critical first, then by score ascending

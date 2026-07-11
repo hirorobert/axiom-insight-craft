@@ -26,6 +26,11 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  fetchScoringDataBatch,
+  scoreFromData,
+  scoreToGrade as libScoreToGrade,
+} from "@/lib/computeComplianceScore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -92,12 +97,7 @@ const SIGN_OFF_LABEL: Record<string, string> = {
 
 const gradeOrder: Record<Grade, number> = { Critical: 0, "At Risk": 1, Monitor: 2, Compliant: 3 };
 
-const scoreToGrade = (s: number): Grade => {
-  if (s >= 90) return "Compliant";
-  if (s >= 70) return "Monitor";
-  if (s >= 50) return "At Risk";
-  return "Critical";
-};
+const scoreToGrade = libScoreToGrade;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -122,15 +122,16 @@ export function FirmDashboardPanel() {
 
     const companyIds = companies.map(c => c.id);
 
-    // Parallel fetch across all companies
+    // Iron Dome: scoring via canonical batch lib (O(4) queries, correct amount_paid_tzs column)
+    const scoringDataMap = await fetchScoringDataBatch(companyIds);
+
+    // Display-only queries (non-scoring data not covered by scorer lib)
     const [
       { data: taxComps },
-      { data: findings },
-      { data: signOffs },
+      { data: findingsDisplay },
       { data: obligations },
-      { data: payments },
     ] = await Promise.all([
-      // Latest committed tax computation per company
+      // Latest committed tax computation — for CIT payable display only
       supabase
         .from("tax_computations")
         .select("company_id, cit_payable_tzs, period_year, is_committed, created_at")
@@ -138,19 +139,13 @@ export function FirmDashboardPanel() {
         .eq("is_committed", true)
         .order("created_at", { ascending: false }),
 
-      // Open findings per company
+      // Open findings — for severity/criticalFindings display only
+      // (exposure + scoring come from scoringDataMap)
       supabase
         .from("findings")
-        .select("company_id, exposure_amount_tzs, severity")
+        .select("company_id, severity")
         .in("company_id", companyIds)
         .in("status", ["open", "in_progress"]),
-
-      // Latest sign-off per company
-      supabase
-        .from("statement_sign_offs")
-        .select("company_id, period_year, status")
-        .in("company_id", companyIds)
-        .order("period_year", { ascending: false }),
 
       // Upcoming filing obligations
       supabase
@@ -159,15 +154,9 @@ export function FirmDashboardPanel() {
         .in("company_id", companyIds)
         .in("status", ["pending", "overdue"])
         .order("period_end", { ascending: true }),
-
-      // Payments this year for coverage score
-      supabase
-        .from("tax_payments")
-        .select("company_id, amount_tzs")
-        .in("company_id", companyIds),
     ]);
 
-    // Build lookup maps
+    // Build display-only lookup maps
     const taxCompMap = new Map<string, { citPayable: number; periodYear: number }>();
     for (const tc of (taxComps ?? [])) {
       if (!taxCompMap.has(tc.company_id)) {
@@ -178,18 +167,11 @@ export function FirmDashboardPanel() {
       }
     }
 
-    const findingsMap = new Map<string, { exposure: number; critical: number }>();
-    for (const f of (findings ?? [])) {
-      const prev = findingsMap.get(f.company_id) ?? { exposure: 0, critical: 0 };
-      findingsMap.set(f.company_id, {
-        exposure: prev.exposure + Number(f.exposure_amount_tzs ?? 0),
-        critical: prev.critical + (["high", "critical"].includes(f.severity) ? 1 : 0),
-      });
-    }
-
-    const signOffMap = new Map<string, string>();
-    for (const s of (signOffs ?? [])) {
-      if (!signOffMap.has(s.company_id)) signOffMap.set(s.company_id, s.status);
+    // criticalFindings count (display only — uses severity column)
+    const criticalMap = new Map<string, number>();
+    for (const f of (findingsDisplay ?? [])) {
+      const prev = criticalMap.get(f.company_id) ?? 0;
+      criticalMap.set(f.company_id, prev + (["high", "critical"].includes(f.severity) ? 1 : 0));
     }
 
     const deadlineMap = new Map<string, { label: string; date: string }>();
@@ -202,46 +184,35 @@ export function FirmDashboardPanel() {
       }
     }
 
-    const paymentMap = new Map<string, number>();
-    for (const p of (payments ?? [])) {
-      paymentMap.set(p.company_id, (paymentMap.get(p.company_id) ?? 0) + Number(p.amount_tzs ?? 0));
-    }
-
-    // ── Score per company (simplified version of ComplianceScorecard logic) ──
+    // ── Score per company — canonical lib, zero inline computation ─────────────
     const built: CompanyRow[] = companies.map(c => {
-      const tax = taxCompMap.get(c.id);
-      const find = findingsMap.get(c.id) ?? { exposure: 0, critical: 0 };
-      const signOff = signOffMap.get(c.id) ?? null;
+      const tax      = taxCompMap.get(c.id);
       const deadline = deadlineMap.get(c.id) ?? null;
-      const paid = paymentMap.get(c.id) ?? 0;
 
-      // Score factors (matching ComplianceScorecard weights)
-      const findScore   = 100 - Math.min(100, find.critical * 15);          // 30% weight
-      const payScore    = tax?.citPayable
-        ? Math.min(100, (paid / tax.citPayable) * 100) : 100;               // 20% weight
-      const signScore   = !signOff ? 30
-        : signOff === "locked" ? 100
-        : signOff === "approved" ? 90
-        : signOff === "reviewer_signed" ? 70
-        : signOff === "preparer_signed" ? 50
-        : 30;                                                                 // 15% weight
+      // Scoring via canonical lib — same formula as ComplianceScorecard
+      const scoringInput = scoringDataMap.get(c.id) ?? {
+        openFindings: [], taxCompWarnings: [], totalPaid: 0, signOffStatus: null, now: new Date(),
+      };
+      const scored = scoreFromData(scoringInput);
 
-      const score = Math.round(findScore * 0.3 + payScore * 0.2 + signScore * 0.15 + 70 * 0.35);
-      const grade = scoreToGrade(Math.min(100, Math.max(0, score)));
+      // openExposure derived from scoring data (not a separate query)
+      const openExposure = scoringInput.openFindings.reduce(
+        (s, f) => s + f.exposure_amount_tzs, 0
+      );
 
       return {
         companyId: c.id,
         companyName: c.name,
         tin: c.tin ?? null,
         latestPeriodYear: tax?.periodYear ?? null,
-        score: Math.min(100, Math.max(0, score)),
-        grade,
-        signOffStatus: signOff,
+        score: scored.totalScore,
+        grade: scored.grade as Grade,
+        signOffStatus: scoringInput.signOffStatus,
         citPayable: tax?.citPayable ?? 0,
-        openExposure: find.exposure,
+        openExposure,
         nextDeadline: deadline?.date ?? null,
         nextDeadlineLabel: deadline?.label ?? null,
-        criticalFindings: find.critical,
+        criticalFindings: criticalMap.get(c.id) ?? 0,
       };
     });
 
@@ -420,7 +391,7 @@ export function FirmDashboardPanel() {
 
             {!loading && rows.length > 0 && (
               <p className="text-[10px] text-muted-foreground/60 mt-2">
-                Scores computed from live DB: findings (30%), payment coverage (20%), sign-off status (15%), base (35%). All CIT figures from committed computations only.
+                Scores computed via canonical lib: findings (30%), TP risk (20%), payment coverage (20%), filing deadlines (15%), sign-off status (15%). All CIT from committed computations.
               </p>
             )}
           </CardContent>

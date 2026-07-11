@@ -47,6 +47,7 @@ import {
   Zap,
   User,
   RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 
 // ── ITA section references ─────────────────────────────────────────────────────
@@ -85,6 +86,9 @@ interface CompData {
   taxable_income_tzs: number | null;
   cit_at_30pct_tzs: number | null;
   is_committed: boolean;
+  cpa_modified_at: string | null;
+  cpa_modified_by: string | null;
+  cpa_modification_note: string | null;
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -121,7 +125,7 @@ export function AddBacksWorkpaper({ companyId, uploadId, periodYear, companyName
     setLoading(true);
     const { data } = await supabase
       .from("tax_computations")
-      .select("id, accounting_profit_before_tax_tzs, add_backs, deductions, total_add_backs_tzs, total_deductions_tzs, total_wear_tear_tzs, taxable_income_tzs, cit_at_30pct_tzs, is_committed")
+      .select("id, accounting_profit_before_tax_tzs, add_backs, deductions, total_add_backs_tzs, total_deductions_tzs, total_wear_tear_tzs, taxable_income_tzs, cit_at_30pct_tzs, is_committed, cpa_modified_at, cpa_modified_by, cpa_modification_note")
       .eq("company_id", companyId)
       .eq("upload_id", uploadId)
       .order("created_at", { ascending: false })
@@ -139,6 +143,9 @@ export function AddBacksWorkpaper({ companyId, uploadId, periodYear, companyName
         taxable_income_tzs: data[0].taxable_income_tzs !== null ? Number(data[0].taxable_income_tzs) : null,
         cit_at_30pct_tzs: data[0].cit_at_30pct_tzs !== null ? Number(data[0].cit_at_30pct_tzs) : null,
         is_committed: Boolean(data[0].is_committed),
+        cpa_modified_at: (data[0] as any).cpa_modified_at ?? null,
+        cpa_modified_by: (data[0] as any).cpa_modified_by ?? null,
+        cpa_modification_note: (data[0] as any).cpa_modification_note ?? null,
       });
     }
     setLoading(false);
@@ -165,30 +172,32 @@ export function AddBacksWorkpaper({ companyId, uploadId, periodYear, companyName
     const existing: AdjItem[] = formType === "add_back" ? comp.add_backs : comp.deductions;
     const updated = [...existing, newItem];
 
-    // Recompute totals
-    const newAddBacks   = formType === "add_back" ? updated : comp.add_backs;
-    const newDeductions = formType === "deduction" ? updated : comp.deductions;
-    const newTotalAB    = newAddBacks.reduce((s, i) => s + i.amount_tzs, 0);
-    const newTotalDed   = newDeductions.reduce((s, i) => s + i.amount_tzs, 0);
-    const pbt           = comp.accounting_profit_before_tax_tzs ?? 0;
-    const newTaxableInc = pbt + newTotalAB - newTotalDed - comp.total_wear_tear_tzs;
-    const newCIT        = Math.max(0, newTaxableInc) * 0.30;
+    // Iron Dome: only update JSONB arrays + CPA audit trail columns.
+    // NEVER recompute taxable_income_tzs or cit_at_30pct_tzs here.
+    // Only the Kinga Tax Engine writes those totals. Set is_committed=false
+    // to prevent stale committed totals from being treated as authoritative.
+    const totalField = field === "add_backs" ? "total_add_backs_tzs" : "total_deductions_tzs";
+    const newTotal   = updated.reduce((s, i) => s + i.amount_tzs, 0);
+    const note       = `Manual ${formType === "add_back" ? "add-back" : "deduction"} added: ${newItem.description}`;
 
     const { error } = await supabase
       .from("tax_computations")
       .update({
-        [field]: updated,
-        [`total_${field === "add_backs" ? "add_backs" : "deductions"}_tzs`]: field === "add_backs" ? newTotalAB : newTotalDed,
-        taxable_income_tzs: newTaxableInc,
-        cit_at_30pct_tzs: newCIT,
-        // Note: is_committed is NOT changed — this is a CPA adjustment, not a re-run
+        [field]:     updated,
+        [totalField]: newTotal,
+        is_committed:           false,
+        cpa_modified_at:        new Date().toISOString(),
+        cpa_modified_by:        userId,
+        cpa_modification_note:  note,
+        // taxable_income_tzs and cit_at_30pct_tzs intentionally NOT updated here
+        // — engine must recompute them on next run
       })
       .eq("id", comp.id);
 
     if (error) {
       toast.error("Failed to save: " + error.message);
     } else {
-      toast.success(`Manual ${formType === "add_back" ? "add-back" : "deduction"} saved — taxable income updated`);
+      toast.success("CPA modification saved — re-run Tax Engine to update totals, then re-commit.");
       setFDesc(""); setFAmount(""); setFSection("other"); setShowForm(false);
       fetchComp();
     }
@@ -370,6 +379,23 @@ export function AddBacksWorkpaper({ companyId, uploadId, periodYear, companyName
                   <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setShowForm(true)}>
                     <Plus className="w-3.5 h-3.5" />Add Manual Adjustment
                   </Button>
+                )}
+
+                {/* CPA modification banner — shown when JSONB was manually modified */}
+                {comp.cpa_modified_at && (
+                  <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 flex items-start gap-3">
+                    <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-800">CPA modification recorded — engine totals are stale</p>
+                      <p className="text-xs text-amber-700 mt-0.5">
+                        {comp.cpa_modification_note} — {new Date(comp.cpa_modified_at).toLocaleString("en-GB")}.
+                        Taxable Income and CIT shown below are from the last engine run and do not reflect this change.
+                      </p>
+                      <p className="text-xs font-semibold text-amber-800 mt-1">
+                        → Re-run Tax Engine to update totals, then re-commit the period.
+                      </p>
+                    </div>
+                  </div>
                 )}
 
                 {/* Section A — Add-backs */}

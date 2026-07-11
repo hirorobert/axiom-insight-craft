@@ -23,6 +23,11 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  computeWearTear,
+  formatWearTearPreview,
+  type ITAClass,
+} from "@/lib/computeWearTear";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -154,18 +159,8 @@ export function CapitalAllowancesRegister({
     const disposals = parseTZS(fDisposals);
     const accDep   = parseTZS(fAccDep);
 
-    // Pre-compute W&T for display (engine will recompute on next run)
-    let wearTear = 0;
-    if (classInfo && classInfo.rateNum !== null) {
-      if (classInfo.method === "RB") {
-        const pool = openWDV + additions - disposals;
-        wearTear = pool * classInfo.rateNum;
-      } else {
-        wearTear = cost * classInfo.rateNum;
-      }
-    }
-    const closingWDV = Math.max(0, openWDV + additions - disposals - wearTear);
-
+    // Iron Dome: NEVER write computed W&T to DB. Engine is the sole authority.
+    // wear_tear_tzs=0 and ita_wdv_closing_tzs=0 signals "not yet engine-computed".
     const { error } = await supabase.from("capital_allowances").insert({
       company_id: companyId,
       upload_id: uploadId,
@@ -176,8 +171,8 @@ export function CapitalAllowancesRegister({
       ita_wdv_opening_tzs: openWDV,
       additions_tzs: additions,
       disposals_at_tax_cost_tzs: disposals,
-      wear_tear_tzs: wearTear,
-      ita_wdv_closing_tzs: closingWDV,
+      wear_tear_tzs: 0,           // engine writes this on next run
+      ita_wdv_closing_tzs: 0,     // engine writes this on next run
       accounting_depreciation_tzs: accDep,
       source_account: fSourceAccount.trim() || null,
       notes: fNotes.trim() || null,
@@ -187,7 +182,7 @@ export function CapitalAllowancesRegister({
     if (error) {
       toast.error("Failed to save: " + error.message);
     } else {
-      toast.success(`Asset added — W&T: TZS ${fmt(wearTear)} (${classInfo?.rate})`);
+      toast.success("Asset saved — run Tax Engine to compute W&T.");
       setFDesc(""); setFClass("1"); setFCost(""); setFOpenWDV(""); setFAdditions("");
       setFDisposals(""); setFAccDep(""); setFSourceAccount(""); setFNotes("");
       setShowForm(false);
@@ -293,8 +288,8 @@ export function CapitalAllowancesRegister({
           {!loading && assets.length > 0 && (
             <div className="mt-3 grid grid-cols-4 gap-2">
               <div className="rounded-lg bg-muted/30 border border-border px-3 py-2 text-center">
-                <p className="text-xs text-muted-foreground">Total W&T Deduction</p>
-                <p className="text-sm font-bold text-violet-700">TZS {fmt(grand.wearTear)}</p>
+                <p className="text-xs text-muted-foreground">Total W&T (Engine)</p>
+                <p className="text-sm font-bold text-violet-700">{grand.wearTear > 0 ? `TZS ${fmt(grand.wearTear)}` : "Run engine →"}</p>
               </div>
               <div className="rounded-lg bg-muted/30 border border-border px-3 py-2 text-center">
                 <p className="text-xs text-muted-foreground">Closing WDV Pool</p>
@@ -382,11 +377,11 @@ export function CapitalAllowancesRegister({
                     className="bg-violet-700 hover:bg-violet-800 text-white gap-1.5"
                   >
                     {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Calculator className="w-3.5 h-3.5" />}
-                    Save & Compute W&T
+                    Save Asset
                   </Button>
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
                     <Lock className="w-3 h-3" />
-                    W&T auto-computed. Kinga engine re-verifies on next run.
+                    W&T computed by Kinga Tax Engine — run engine after saving assets.
                   </p>
                 </div>
               </div>
@@ -467,8 +462,33 @@ export function CapitalAllowancesRegister({
                                   <td className="py-1.5 px-3 text-right font-mono">{fmt(a.ita_wdv_opening_tzs)}</td>
                                   <td className="py-1.5 px-3 text-right font-mono">{fmt(a.additions_tzs)}</td>
                                   <td className="py-1.5 px-3 text-right font-mono">{a.disposals_at_tax_cost_tzs > 0 ? `(${fmt(a.disposals_at_tax_cost_tzs)})` : "—"}</td>
-                                  <td className={`py-1.5 px-3 text-right font-mono font-semibold ${colorCls.split(" ")[0]}`}>{fmt(a.wear_tear_tzs)}</td>
-                                  <td className="py-1.5 px-3 text-right font-mono font-semibold text-foreground">{fmt(a.ita_wdv_closing_tzs)}</td>
+                                  <td className={`py-1.5 px-3 text-right font-mono ${a.wear_tear_tzs > 0 ? `font-semibold ${colorCls.split(" ")[0]}` : "text-muted-foreground/60 italic text-[10px]"}`}>
+                                    {(() => {
+                                      if (a.wear_tear_tzs > 0) return fmt(a.wear_tear_tzs);
+                                      const preview = computeWearTear({
+                                        itaClass: a.ita_class as ITAClass,
+                                        openingWDV: a.ita_wdv_opening_tzs,
+                                        additions: a.additions_tzs,
+                                        disposals: a.disposals_at_tax_cost_tzs,
+                                        cost: a.cost_tzs,
+                                      });
+                                      return formatWearTearPreview(preview);
+                                    })()}
+                                  </td>
+                                  <td className={`py-1.5 px-3 text-right font-mono ${a.ita_wdv_closing_tzs > 0 ? "font-semibold text-foreground" : "text-muted-foreground/60 italic text-[10px]"}`}>
+                                    {(() => {
+                                      if (a.ita_wdv_closing_tzs > 0) return fmt(a.ita_wdv_closing_tzs);
+                                      const preview = computeWearTear({
+                                        itaClass: a.ita_class as ITAClass,
+                                        openingWDV: a.ita_wdv_opening_tzs,
+                                        additions: a.additions_tzs,
+                                        disposals: a.disposals_at_tax_cost_tzs,
+                                        cost: a.cost_tzs,
+                                      });
+                                      if (preview.closingWDV === null) return "(Engine req'd)";
+                                      return `(${fmt(preview.closingWDV)})`;
+                                    })()}
+                                  </td>
                                   <td className="py-1.5 px-3 text-right font-mono text-muted-foreground">{fmt(a.accounting_depreciation_tzs)}</td>
                                 </tr>
                               ))}
@@ -522,7 +542,7 @@ export function CapitalAllowancesRegister({
             {/* Footer */}
             <p className="text-[10px] text-muted-foreground/60 border-t border-border/40 pt-2 flex items-center gap-1">
               <Lock className="w-3 h-3 flex-shrink-0" />
-              Assets cannot be deleted (Iron Dome audit trail). Record disposals via the Disposals field. Class 4 assets are not recognised under ITA since Finance Act 2016.
+              Assets cannot be deleted (Iron Dome audit trail). Record disposals via the Disposals field. W&T "(preview)" values are client-side estimates — run Tax Engine to write authoritative figures. Class 4 not recognised under ITA (Finance Act 2016).
             </p>
           </CardContent>
         </CollapsibleContent>
