@@ -132,6 +132,53 @@ export type Database = {
           },
         ]
       }
+      account_pl_mapping: {
+        Row: {
+          company_id: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_credit_normal: boolean
+          match_priority: number
+          match_type: string
+          match_value: string
+          pl_category: string
+          source: string
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_credit_normal?: boolean
+          match_priority?: number
+          match_type: string
+          match_value: string
+          pl_category: string
+          source?: string
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_credit_normal?: boolean
+          match_priority?: number
+          match_type?: string
+          match_value?: string
+          pl_category?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_pl_mapping_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       adjusting_journal_entries: {
         Row: {
           aje_number: string
@@ -2069,6 +2116,292 @@ export type Database = {
           },
         ]
       }
+      variance_analyses: {
+        Row: {
+          account_code: string
+          account_name: string | null
+          actual_amount: number
+          budget_amount: number | null
+          company_id: string
+          created_at: string
+          id: string
+          is_credit_normal: boolean
+          is_material: boolean
+          pl_category: string
+          pl_subcategory: string | null
+          pop_variance_pct: number | null
+          pop_variance_tzs: number | null
+          prior_period_amount: number | null
+          prior_year_amount: number | null
+          run_id: string
+          variance_pct: number | null
+          variance_tzs: number | null
+          yoy_variance_pct: number | null
+          yoy_variance_tzs: number | null
+        }
+        Insert: {
+          account_code: string
+          account_name?: string | null
+          actual_amount?: number
+          budget_amount?: number | null
+          company_id: string
+          created_at?: string
+          id?: string
+          is_credit_normal?: boolean
+          is_material?: boolean
+          pl_category: string
+          pl_subcategory?: string | null
+          pop_variance_pct?: number | null
+          pop_variance_tzs?: number | null
+          prior_period_amount?: number | null
+          prior_year_amount?: number | null
+          run_id: string
+          variance_pct?: number | null
+          variance_tzs?: number | null
+          yoy_variance_pct?: number | null
+          yoy_variance_tzs?: number | null
+        }
+        Update: {
+          account_code?: string
+          account_name?: string | null
+          actual_amount?: number
+          budget_amount?: number | null
+          company_id?: string
+          created_at?: string
+          id?: string
+          is_credit_normal?: boolean
+          is_material?: boolean
+          pl_category?: string
+          pl_subcategory?: string | null
+          pop_variance_pct?: number | null
+          pop_variance_tzs?: number | null
+          prior_period_amount?: number | null
+          prior_year_amount?: number | null
+          run_id?: string
+          variance_pct?: number | null
+          variance_tzs?: number | null
+          yoy_variance_pct?: number | null
+          yoy_variance_tzs?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "variance_analyses_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "variance_analyses_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "variance_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      variance_budgets: {
+        Row: {
+          account_code: string
+          account_name: string | null
+          approved_at: string | null
+          approved_by: string | null
+          budget_credit: number | null
+          budget_debit: number | null
+          company_id: string
+          fiscal_year: number
+          id: string
+          import_batch_id: string | null
+          is_active: boolean
+          period_month: number
+          source: string
+          submitted_at: string
+          submitted_by: string
+          superseded_by: string | null
+          version: number
+        }
+        Insert: {
+          account_code: string
+          account_name?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          budget_credit?: number | null
+          budget_debit?: number | null
+          company_id: string
+          fiscal_year: number
+          id?: string
+          import_batch_id?: string | null
+          is_active?: boolean
+          period_month: number
+          source?: string
+          submitted_at?: string
+          submitted_by: string
+          superseded_by?: string | null
+          version?: number
+        }
+        Update: {
+          account_code?: string
+          account_name?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          budget_credit?: number | null
+          budget_debit?: number | null
+          company_id?: string
+          fiscal_year?: number
+          id?: string
+          import_batch_id?: string | null
+          is_active?: boolean
+          period_month?: number
+          source?: string
+          submitted_at?: string
+          submitted_by?: string
+          superseded_by?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "variance_budgets_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "variance_budgets_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "variance_budgets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      variance_materiality: {
+        Row: {
+          abs_threshold_tzs: number
+          cash_critical_days: number
+          cash_warn_days: number
+          company_id: string
+          min_periods_high: number
+          min_periods_medium: number
+          pct_threshold: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          abs_threshold_tzs?: number
+          cash_critical_days?: number
+          cash_warn_days?: number
+          company_id: string
+          min_periods_high?: number
+          min_periods_medium?: number
+          pct_threshold?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          abs_threshold_tzs?: number
+          cash_critical_days?: number
+          cash_warn_days?: number
+          company_id?: string
+          min_periods_high?: number
+          min_periods_medium?: number
+          pct_threshold?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "variance_materiality_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      variance_runs: {
+        Row: {
+          budget_version_ids: string[]
+          company_id: string
+          created_at: string
+          ebitda_variance_tzs: number | null
+          error_message: string | null
+          fiscal_year: number
+          gross_profit_variance_tzs: number | null
+          id: string
+          material_variance_count: number | null
+          net_profit_variance_tzs: number | null
+          period_from: string
+          period_month: number
+          period_to: string
+          safisha_blocked_uploads: string[] | null
+          safisha_gate_passed: boolean | null
+          seasonal_periods_available: number
+          status: string
+          tb_upload_ids: string[]
+          total_accounts: number | null
+          trend_confidence: string
+          trigger_type: string
+          triggered_by: string
+        }
+        Insert: {
+          budget_version_ids?: string[]
+          company_id: string
+          created_at?: string
+          ebitda_variance_tzs?: number | null
+          error_message?: string | null
+          fiscal_year: number
+          gross_profit_variance_tzs?: number | null
+          id?: string
+          material_variance_count?: number | null
+          net_profit_variance_tzs?: number | null
+          period_from: string
+          period_month: number
+          period_to: string
+          safisha_blocked_uploads?: string[] | null
+          safisha_gate_passed?: boolean | null
+          seasonal_periods_available?: number
+          status?: string
+          tb_upload_ids: string[]
+          total_accounts?: number | null
+          trend_confidence?: string
+          trigger_type?: string
+          triggered_by: string
+        }
+        Update: {
+          budget_version_ids?: string[]
+          company_id?: string
+          created_at?: string
+          ebitda_variance_tzs?: number | null
+          error_message?: string | null
+          fiscal_year?: number
+          gross_profit_variance_tzs?: number | null
+          id?: string
+          material_variance_count?: number | null
+          net_profit_variance_tzs?: number | null
+          period_from?: string
+          period_month?: number
+          period_to?: string
+          safisha_blocked_uploads?: string[] | null
+          safisha_gate_passed?: boolean | null
+          seasonal_periods_available?: number
+          status?: string
+          tb_upload_ids?: string[]
+          total_accounts?: number | null
+          trend_confidence?: string
+          trigger_type?: string
+          triggered_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "variance_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       v_aje_balance_check: {
@@ -2190,6 +2523,21 @@ export type Database = {
         }[]
       }
       get_member_company_ids: { Args: never; Returns: string[] }
+      maono_check_safisha_gate: {
+        Args: { p_upload_ids: string[] }
+        Returns: {
+          is_blocked: boolean
+          safisha_status: string
+          upload_id: string
+        }[]
+      }
+      maono_compute_confidence: {
+        Args: { p_company_id: string; p_period_month: number }
+        Returns: {
+          seasonal_periods_available: number
+          trend_confidence: string
+        }[]
+      }
       safisha_append_evidence_file: {
         Args: {
           p_filename: string
