@@ -2190,6 +2190,15 @@ export type Database = {
         }[]
       }
       get_member_company_ids: { Args: never; Returns: string[] }
+      safisha_append_evidence_file: {
+        Args: {
+          p_filename: string
+          p_recon_id: string
+          p_rows: number
+          p_source_type: string
+        }
+        Returns: undefined
+      }
       safisha_resolve_exception: {
         Args: {
           p_action: string
