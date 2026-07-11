@@ -107,7 +107,7 @@ export function ClientSummaryPanel({ companyId, uploadId, periodYear, companyNam
         .limit(1),
       supabase
         .from("tax_payments")
-        .select("amount_tzs")
+        .select("amount_paid_tzs")
         .eq("company_id", companyId)
         .gte("payment_date", `${periodYear}-01-01`)
         .lte("payment_date", `${periodYear}-12-31`),
@@ -117,7 +117,7 @@ export function ClientSummaryPanel({ companyId, uploadId, periodYear, companyNam
         .eq("company_id", companyId)
         .in("severity", ["high", "critical"])
         .in("status", ["open", "in_progress"])
-        .order("exposure_amount_tzs", { ascending: false })
+        .order("exposure_amount_paid_tzs", { ascending: false })
         .limit(3),
       supabase
         .from("findings")
@@ -145,7 +145,7 @@ export function ClientSummaryPanel({ companyId, uploadId, periodYear, companyNam
 
     const comp = taxComps?.[0];
     const citPayable = Number(comp?.cit_payable_tzs ?? 0);
-    const totalPayments = (payments ?? []).reduce((s, p) => s + Number(p.amount_tzs ?? 0), 0);
+    const totalPayments = (payments ?? []).reduce((s, p) => s + Number(p.amount_paid_tzs ?? 0), 0);
     const balanceDue = Math.max(0, citPayable - totalPayments);
 
     const allFindsArr = allFinds ?? [];

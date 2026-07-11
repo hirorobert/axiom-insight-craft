@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { Progress } from "@/components/ui/progress";
 import { useAuditLog } from "@/hooks/useAuditLog";
+import SafishaGate from "@/components/safisha/SafishaGate";
 import {
   Select,
   SelectContent,
@@ -37,6 +38,8 @@ export const TrialBalanceUpload = () => {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  // Safisha gate: set when a TB upload completes and needs verification
+  const [safishaUpload, setSafishaUpload] = useState<{ uploadId: string; fileName: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -200,6 +203,10 @@ export const TrialBalanceUpload = () => {
       });
 
       updateFileStatus(id, { status: "complete", progress: 100 });
+
+      // SAFISHA GATE: open the evidence verification gate for this upload
+      // The tax engine is locked until Safisha clears it (safisha_status = 'clean')
+      setSafishaUpload({ uploadId: uploadRecord.id, fileName: file.name });
     } catch (error) {
       console.error("Upload error:", error);
       updateFileStatus(id, {
@@ -604,6 +611,26 @@ export const TrialBalanceUpload = () => {
                 </Button>
               )}
             </div>
+          </div>
+        )}
+
+        {/* ── SAFISHA GATE ─────────────────────────────────────────────────────
+             Appears immediately after a TB upload completes.
+             The tax engine is locked until this gate clears.
+             Iron Dome: this panel cannot be skipped or dismissed.
+        ──────────────────────────────────────────────────────────────────── */}
+        {safishaUpload && (
+          <div className="mt-6 p-5 rounded-xl border-2 border-[#0E6B55]/40 bg-card shadow-sm">
+            <SafishaGate
+              uploadId={safishaUpload.uploadId}
+              fileName={safishaUpload.fileName}
+              onCleared={() => {
+                toast.success("TB verified — tax engine unlocked for " + safishaUpload.fileName);
+              }}
+              onBlocked={() => {
+                toast.error("Reconciliation blocked — re-upload a corrected TB to proceed.");
+              }}
+            />
           </div>
         )}
 

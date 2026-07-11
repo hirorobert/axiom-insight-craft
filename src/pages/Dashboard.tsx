@@ -132,6 +132,8 @@ interface TrialBalanceUpload {
   // D1-FIX: fiscal period fields (Phase 5A migration adds these to trial_balance_uploads)
   fiscal_year_end?: string | null;   // DATE as ISO string e.g. "2025-12-31"
   period_year?: number | null;       // Sprint 2 migration: derived from fiscal_year_end
+  // Safisha Stage 0 gate (20260711200000_safisha_core migration)
+  safisha_status?: string | null;    // null|processing|needs_review|blocked|clean
 }
 
 // ── D1-FIX + D7-FIX: derive correct period year and year-end month ──────────
@@ -502,9 +504,18 @@ export default function Dashboard() {
   };
 
   // AXIOM: Check if upload is blocked (validation failed)
-  const isBlocked = selectedUpload?.status === "blocked" || 
+  // Iron Dome: tax engine is blocked if TB hasn't cleared Safisha gate
+  // safisha_status = null means Safisha has not yet run (old upload pre-migration)
+  // safisha_status = 'clean' is the ONLY state that allows the engine to run
+  const safishaBlocked =
+    selectedUpload?.safisha_status !== undefined &&   // column exists (post-migration)
+    selectedUpload?.safisha_status !== null     &&   // Safisha has run
+    selectedUpload?.safisha_status !== "clean";      // and did not clear
+
+  const isBlocked = selectedUpload?.status === "blocked" ||
                     selectedUpload?.status === "error" ||
-                    selectedUpload?.is_valid === false;
+                    selectedUpload?.is_valid === false ||
+                    safishaBlocked;
   
   // Scroll ref for validation report
   const validationReportRef = useRef<HTMLDivElement>(null);
@@ -596,15 +607,19 @@ export default function Dashboard() {
               />
             )}
             {selectedUpload && isBlocked && (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                disabled 
+              <Button
+                variant="outline"
+                size="sm"
+                disabled
                 className="gap-2 opacity-50"
-                title="Export disabled: validation failed"
+                title={
+                  safishaBlocked
+                    ? `Safisha gate: status is '${selectedUpload?.safisha_status}'. Complete TB verification to unlock.`
+                    : "Export disabled: validation failed"
+                }
               >
                 <AlertCircle className="w-4 h-4" />
-                Export Blocked
+                {safishaBlocked ? "Safisha gate locked" : "Export Blocked"}
               </Button>
             )}
             <Button variant="outline" size="sm" onClick={fetchUploads} className="gap-2">
