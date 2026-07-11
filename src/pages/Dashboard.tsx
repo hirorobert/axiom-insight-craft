@@ -66,6 +66,12 @@ import { AdjustingJournalPanel } from "@/components/AdjustingJournalPanel";
 import { ComplianceScorecard } from "@/components/ComplianceScorecard";
 import { PeriodClosingBalancesPanel } from "@/components/PeriodClosingBalancesPanel";
 import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel";
+import { TRAAuditReadinessPanel } from "@/components/TRAAuditReadinessPanel";
+import { ClientSummaryPanel } from "@/components/ClientSummaryPanel";
+import { FirmDashboardPanel } from "@/components/FirmDashboardPanel";
+import { CapitalAllowancesRegister } from "@/components/CapitalAllowancesRegister";
+import { ThinCapWorkpaper } from "@/components/ThinCapWorkpaper";
+import { AddBacksWorkpaper } from "@/components/AddBacksWorkpaper";
 
 interface ValidationReportData {
   tb_balance_check?: {
@@ -930,6 +936,76 @@ export default function Dashboard() {
                     );
                   })()}
 
+                  {/* TRA Audit Readiness — 6-gate pre-submission checklist (Sprint 7 Item 1) */}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (() => {
+                    const { periodYear, periodEndMonth } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
+                    return (
+                      <TRAAuditReadinessPanel
+                        companyId={selectedUpload.company_id}
+                        uploadId={selectedUpload.id}
+                        periodYear={periodYear}
+                        periodMonth={periodEndMonth}
+                        companyName={selectedUpload.company_name ?? undefined}
+                        userId={user?.id ?? ""}
+                      />
+                    );
+                  })()}
+
+                  {/* Client Summary Report — client-facing one-pager (Sprint 7 Item 2) */}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (() => {
+                    const { periodYear } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
+                    return (
+                      <ClientSummaryPanel
+                        companyId={selectedUpload.company_id}
+                        uploadId={selectedUpload.id}
+                        periodYear={periodYear}
+                        companyName={selectedUpload.company_name ?? undefined}
+                        userId={user?.id ?? ""}
+                      />
+                    );
+                  })()}
+
+                  {/* Capital Allowances Register — ITA s.34 W&T schedule (Sprint 8 Item 1) */}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (() => {
+                    const { periodYear } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
+                    return (
+                      <CapitalAllowancesRegister
+                        companyId={selectedUpload.company_id}
+                        uploadId={selectedUpload.id}
+                        periodYear={periodYear}
+                        companyName={selectedUpload.company_name ?? undefined}
+                        userId={user?.id ?? ""}
+                      />
+                    );
+                  })()}
+
+                  {/* Thin Cap Workpaper — ITA s.24A interest limitation (Sprint 8 Item 2) */}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (() => {
+                    const { periodYear } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
+                    return (
+                      <ThinCapWorkpaper
+                        companyId={selectedUpload.company_id}
+                        uploadId={selectedUpload.id}
+                        periodYear={periodYear}
+                        companyName={selectedUpload.company_name ?? undefined}
+                      />
+                    );
+                  })()}
+
+                  {/* Tax Adjustment Schedule — add-backs & deductions workpaper (Sprint 8 Item 3) */}
+                  {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (() => {
+                    const { periodYear } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
+                    return (
+                      <AddBacksWorkpaper
+                        companyId={selectedUpload.company_id}
+                        uploadId={selectedUpload.id}
+                        periodYear={periodYear}
+                        companyName={selectedUpload.company_name ?? undefined}
+                        userId={user?.id ?? ""}
+                      />
+                    );
+                  })()}
+
                   {/* Processing Notes */}
                   {result?.notes && result.notes.length > 0 && (
                     <Card className="bg-card border-border">
@@ -963,6 +1039,9 @@ export default function Dashboard() {
 
           {/* ── Sprint 5: Compliance Intelligence ────────────────── */}
           <ComplianceScorecard />
+
+          {/* ── Sprint 7: Firm Dashboard — all-company partner view ──── */}
+          <FirmDashboardPanel />
 
           {/* Last Activity strip */}
           {uploads.length > 0 && (
