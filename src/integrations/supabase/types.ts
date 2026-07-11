@@ -335,6 +335,75 @@ export type Database = {
         }
         Relationships: []
       }
+      board_packs: {
+        Row: {
+          company_id: string
+          context_version: number | null
+          created_at: string
+          generated_by: string
+          generation_model: string | null
+          generation_time: string
+          id: string
+          numeric_validation_passed: boolean
+          pack_type: string
+          pdf_storage_path: string | null
+          period_label: string
+          run_id: string | null
+          sections_json: Json
+          summary_text: string | null
+          xlsx_storage_path: string | null
+        }
+        Insert: {
+          company_id: string
+          context_version?: number | null
+          created_at?: string
+          generated_by: string
+          generation_model?: string | null
+          generation_time?: string
+          id?: string
+          numeric_validation_passed?: boolean
+          pack_type?: string
+          pdf_storage_path?: string | null
+          period_label: string
+          run_id?: string | null
+          sections_json: Json
+          summary_text?: string | null
+          xlsx_storage_path?: string | null
+        }
+        Update: {
+          company_id?: string
+          context_version?: number | null
+          created_at?: string
+          generated_by?: string
+          generation_model?: string | null
+          generation_time?: string
+          id?: string
+          numeric_validation_passed?: boolean
+          pack_type?: string
+          pdf_storage_path?: string | null
+          period_label?: string
+          run_id?: string | null
+          sections_json?: Json
+          summary_text?: string | null
+          xlsx_storage_path?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "board_packs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "board_packs_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "variance_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       canonical_financial_records: {
         Row: {
           adapter_confidence: number
@@ -667,6 +736,81 @@ export type Database = {
         }
         Relationships: []
       }
+      efdms_reconciliation: {
+        Row: {
+          company_id: string
+          created_at: string
+          efdms_gross_sales: number
+          efdms_vat: number
+          fiscal_year: number
+          gap_pct: number | null
+          id: string
+          period_month: number
+          reconciled_at: string | null
+          reconciled_by: string | null
+          return_output_vat: number
+          return_sales: number
+          risk_level: string
+          risk_notes: string | null
+          run_id: string | null
+          sales_gap_tzs: number | null
+          vat_gap_tzs: number | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          efdms_gross_sales?: number
+          efdms_vat?: number
+          fiscal_year: number
+          gap_pct?: number | null
+          id?: string
+          period_month: number
+          reconciled_at?: string | null
+          reconciled_by?: string | null
+          return_output_vat?: number
+          return_sales?: number
+          risk_level?: string
+          risk_notes?: string | null
+          run_id?: string | null
+          sales_gap_tzs?: number | null
+          vat_gap_tzs?: number | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          efdms_gross_sales?: number
+          efdms_vat?: number
+          fiscal_year?: number
+          gap_pct?: number | null
+          id?: string
+          period_month?: number
+          reconciled_at?: string | null
+          reconciled_by?: string | null
+          return_output_vat?: number
+          return_sales?: number
+          risk_level?: string
+          risk_notes?: string | null
+          run_id?: string | null
+          sales_gap_tzs?: number | null
+          vat_gap_tzs?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "efdms_reconciliation_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "efdms_reconciliation_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "variance_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       efdms_records: {
         Row: {
           amount_tzs: number
@@ -728,6 +872,81 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      efdms_z_reports: {
+        Row: {
+          cancelled_count: number
+          company_id: string
+          created_at: string
+          exempt_sales: number
+          gross_sales: number
+          id: string
+          import_source: string
+          imported_by: string | null
+          net_sales: number
+          raw_json: Json | null
+          receipt_count: number
+          report_date: string
+          serial_number: string
+          trader_tin: string
+          upload_id: string | null
+          vat_collected: number
+          zero_rated_sales: number
+        }
+        Insert: {
+          cancelled_count?: number
+          company_id: string
+          created_at?: string
+          exempt_sales?: number
+          gross_sales?: number
+          id?: string
+          import_source?: string
+          imported_by?: string | null
+          net_sales?: number
+          raw_json?: Json | null
+          receipt_count?: number
+          report_date: string
+          serial_number: string
+          trader_tin: string
+          upload_id?: string | null
+          vat_collected?: number
+          zero_rated_sales?: number
+        }
+        Update: {
+          cancelled_count?: number
+          company_id?: string
+          created_at?: string
+          exempt_sales?: number
+          gross_sales?: number
+          id?: string
+          import_source?: string
+          imported_by?: string | null
+          net_sales?: number
+          raw_json?: Json | null
+          receipt_count?: number
+          report_date?: string
+          serial_number?: string
+          trader_tin?: string
+          upload_id?: string | null
+          vat_collected?: number
+          zero_rated_sales?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "efdms_z_reports_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "efdms_z_reports_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
             referencedColumns: ["id"]
           },
         ]
@@ -1306,6 +1525,36 @@ export type Database = {
           },
         ]
       }
+      maono_monitor_runs: {
+        Row: {
+          alerts_written: number
+          companies_scanned: number
+          completed_at: string | null
+          errors_json: Json | null
+          id: string
+          started_at: string
+          trigger_type: string
+        }
+        Insert: {
+          alerts_written?: number
+          companies_scanned?: number
+          completed_at?: string | null
+          errors_json?: Json | null
+          id?: string
+          started_at?: string
+          trigger_type?: string
+        }
+        Update: {
+          alerts_written?: number
+          companies_scanned?: number
+          completed_at?: string | null
+          errors_json?: Json | null
+          id?: string
+          started_at?: string
+          trigger_type?: string
+        }
+        Relationships: []
+      }
       period_closing_balances: {
         Row: {
           accounting_pbt_tzs: number | null
@@ -1674,6 +1923,8 @@ export type Database = {
           credit: number | null
           currency: string
           debit: number | null
+          dqc_polarity_warning: boolean
+          dqc_sign_detail: string | null
           id: string
           raw_row_hash: string
           raw_row_number: number | null
@@ -1689,6 +1940,8 @@ export type Database = {
           credit?: number | null
           currency?: string
           debit?: number | null
+          dqc_polarity_warning?: boolean
+          dqc_sign_detail?: string | null
           id?: string
           raw_row_hash: string
           raw_row_number?: number | null
@@ -1704,6 +1957,8 @@ export type Database = {
           credit?: number | null
           currency?: string
           debit?: number | null
+          dqc_polarity_warning?: boolean
+          dqc_sign_detail?: string | null
           id?: string
           raw_row_hash?: string
           raw_row_number?: number | null
@@ -2719,14 +2974,14 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "fiscal_periods_active_upload_id_fkey"
-            columns: ["current_upload_id"]
+            columns: ["prior_upload_id"]
             isOneToOne: false
             referencedRelation: "trial_balance_uploads"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "fiscal_periods_active_upload_id_fkey"
-            columns: ["prior_upload_id"]
+            columns: ["current_upload_id"]
             isOneToOne: false
             referencedRelation: "trial_balance_uploads"
             referencedColumns: ["id"]
@@ -2789,6 +3044,32 @@ export type Database = {
           seasonal_periods_available: number
           trend_confidence: string
         }[]
+      }
+      maono_write_alert: {
+        Args: {
+          p_account_codes: string[]
+          p_alert_type: string
+          p_company_id: string
+          p_detail?: string
+          p_message: string
+          p_pl_categories: string[]
+          p_run_id: string
+          p_severity: string
+        }
+        Returns: string
+      }
+      maono_write_board_pack: {
+        Args: {
+          p_company_id: string
+          p_context_version: number
+          p_generation_model: string
+          p_pack_type: string
+          p_period_label: string
+          p_run_id: string
+          p_sections_json: Json
+          p_summary_text: string
+        }
+        Returns: string
       }
       safisha_append_evidence_file: {
         Args: {
