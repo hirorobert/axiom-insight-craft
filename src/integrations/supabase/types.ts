@@ -529,6 +529,96 @@ export type Database = {
           },
         ]
       }
+      cashflow_forecasts: {
+        Row: {
+          ar_confidence: string
+          closing_cash: number | null
+          company_id: string
+          created_at: string
+          expected_ap_outflows: number
+          expected_ar_inflows: number
+          expected_other_inflows: number
+          expected_other_outflows: number
+          forecast_week: string
+          id: string
+          opening_cash: number
+          other_statutory_due: number
+          paye_due: number
+          risk_flag: string
+          risk_reason: string | null
+          run_id: string
+          sdl_due: number
+          total_inflows: number | null
+          total_outflows: number | null
+          vat_due: number
+          week_number: number
+          wht_due: number
+        }
+        Insert: {
+          ar_confidence?: string
+          closing_cash?: number | null
+          company_id: string
+          created_at?: string
+          expected_ap_outflows?: number
+          expected_ar_inflows?: number
+          expected_other_inflows?: number
+          expected_other_outflows?: number
+          forecast_week: string
+          id?: string
+          opening_cash?: number
+          other_statutory_due?: number
+          paye_due?: number
+          risk_flag?: string
+          risk_reason?: string | null
+          run_id: string
+          sdl_due?: number
+          total_inflows?: number | null
+          total_outflows?: number | null
+          vat_due?: number
+          week_number: number
+          wht_due?: number
+        }
+        Update: {
+          ar_confidence?: string
+          closing_cash?: number | null
+          company_id?: string
+          created_at?: string
+          expected_ap_outflows?: number
+          expected_ar_inflows?: number
+          expected_other_inflows?: number
+          expected_other_outflows?: number
+          forecast_week?: string
+          id?: string
+          opening_cash?: number
+          other_statutory_due?: number
+          paye_due?: number
+          risk_flag?: string
+          risk_reason?: string | null
+          run_id?: string
+          sdl_due?: number
+          total_inflows?: number | null
+          total_outflows?: number | null
+          vat_due?: number
+          week_number?: number
+          wht_due?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cashflow_forecasts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cashflow_forecasts_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "variance_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       companies: {
         Row: {
           code: string | null
@@ -1113,6 +1203,105 @@ export type Database = {
             columns: ["upload_id"]
             isOneToOne: false
             referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maono_context: {
+        Row: {
+          content: string
+          context_key: string
+          context_version: number
+          id: string
+          is_active: boolean
+          title: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          content: string
+          context_key: string
+          context_version?: number
+          id?: string
+          is_active?: boolean
+          title: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          content?: string
+          context_key?: string
+          context_version?: number
+          id?: string
+          is_active?: boolean
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      maono_insights: {
+        Row: {
+          ai_model_used: string | null
+          ai_output: string
+          company_id: string
+          confidence_level: string
+          context_version: number | null
+          created_at: string
+          id: string
+          input_snapshot: Json
+          insight_type: string
+          numeric_validation_detail: Json | null
+          numeric_validation_passed: boolean
+          run_id: string
+          subject_account_codes: string[] | null
+          subject_pl_categories: string[] | null
+        }
+        Insert: {
+          ai_model_used?: string | null
+          ai_output: string
+          company_id: string
+          confidence_level?: string
+          context_version?: number | null
+          created_at?: string
+          id?: string
+          input_snapshot: Json
+          insight_type: string
+          numeric_validation_detail?: Json | null
+          numeric_validation_passed?: boolean
+          run_id: string
+          subject_account_codes?: string[] | null
+          subject_pl_categories?: string[] | null
+        }
+        Update: {
+          ai_model_used?: string | null
+          ai_output?: string
+          company_id?: string
+          confidence_level?: string
+          context_version?: number | null
+          created_at?: string
+          id?: string
+          input_snapshot?: Json
+          insight_type?: string
+          numeric_validation_detail?: Json | null
+          numeric_validation_passed?: boolean
+          run_id?: string
+          subject_account_codes?: string[] | null
+          subject_pl_categories?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maono_insights_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maono_insights_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "variance_runs"
             referencedColumns: ["id"]
           },
         ]
@@ -2113,6 +2302,69 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_period_pairs"
             referencedColumns: ["prior_period_id"]
+          },
+        ]
+      }
+      variance_alerts: {
+        Row: {
+          account_codes: string[] | null
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          acknowledgment_note: string | null
+          alert_type: string
+          company_id: string
+          created_at: string
+          detail: string | null
+          id: string
+          message: string
+          pl_categories: string[] | null
+          run_id: string | null
+          severity: string
+        }
+        Insert: {
+          account_codes?: string[] | null
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          acknowledgment_note?: string | null
+          alert_type: string
+          company_id: string
+          created_at?: string
+          detail?: string | null
+          id?: string
+          message: string
+          pl_categories?: string[] | null
+          run_id?: string | null
+          severity?: string
+        }
+        Update: {
+          account_codes?: string[] | null
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          acknowledgment_note?: string | null
+          alert_type?: string
+          company_id?: string
+          created_at?: string
+          detail?: string | null
+          id?: string
+          message?: string
+          pl_categories?: string[] | null
+          run_id?: string | null
+          severity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "variance_alerts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "variance_alerts_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "variance_runs"
+            referencedColumns: ["id"]
           },
         ]
       }
