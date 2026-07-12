@@ -165,6 +165,24 @@ serve(async (req) => {
       });
     }
 
+    // ── Authorization: caller must be a firm_member of upload.company_id ──
+    {
+      const { data: member } = await admin
+        .from("firm_members")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("company_id", upload.company_id)
+        .not("accepted_at", "is", null)
+        .limit(1)
+        .maybeSingle();
+      if (!member) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden", message: "Not a member of this company" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
+
     // ── 1b. Company TIN (mandatory for all TRA-facing documents) ─
     const { data: companyRow } = await admin
       .from("companies")

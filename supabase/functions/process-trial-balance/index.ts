@@ -928,6 +928,30 @@ serve(async (req) => {
       .from("trial_balance_uploads").select("*").eq("id", uploadId).single();
     if (uploadError || !upload) throw new Error("Upload not found");
 
+    // ── Authorization: caller must be a firm_member of upload.company_id ──
+    // (or the original uploader for legacy uploads with no company_id)
+    if (upload.company_id) {
+      const { data: member } = await supabase
+        .from("firm_members")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("company_id", upload.company_id)
+        .not("accepted_at", "is", null)
+        .limit(1)
+        .maybeSingle();
+      if (!member) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden", message: "Not a member of this company" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    } else if (upload.uploaded_by && upload.uploaded_by !== userId) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden", message: "You do not own this upload" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("trial-balance-files").download(upload.file_path);
     if (downloadError || !fileData) throw new Error(`Failed to download file: ${downloadError?.message}`);
