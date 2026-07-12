@@ -1034,6 +1034,53 @@ export type Database = {
           },
         ]
       }
+      filing_obligations: {
+        Row: {
+          company_id: string
+          created_at: string
+          due_date: string | null
+          id: string
+          notes: string | null
+          obligation_type: string
+          period_end: string
+          period_year: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          notes?: string | null
+          obligation_type: string
+          period_end: string
+          period_year: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          notes?: string | null
+          obligation_type?: string
+          period_end?: string
+          period_year?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "filing_obligations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       findings: {
         Row: {
           assigned_to_user_id: string | null
@@ -1054,6 +1101,7 @@ export type Database = {
           period_start: string
           related_finding_ids: string[] | null
           response_pack_ready: boolean
+          severity: string
           source_detail: Json
           status: string
           statute_reference: string | null
@@ -1083,6 +1131,7 @@ export type Database = {
           period_start: string
           related_finding_ids?: string[] | null
           response_pack_ready?: boolean
+          severity?: string
           source_detail?: Json
           status?: string
           statute_reference?: string | null
@@ -1112,6 +1161,7 @@ export type Database = {
           period_start?: string
           related_finding_ids?: string[] | null
           response_pack_ready?: boolean
+          severity?: string
           source_detail?: Json
           status?: string
           statute_reference?: string | null
@@ -2165,6 +2215,7 @@ export type Database = {
           amt_3yr_trigger: boolean
           cit_at_30pct_tzs: number | null
           cit_gap_tzs: number | null
+          cit_payable_tzs: number | null
           company_id: string
           computation_detail: Json | null
           cpa_modification_note: string | null
@@ -2179,12 +2230,14 @@ export type Database = {
           id: string
           income_tax_provision_tzs: number
           interest_expense_tzs: number | null
+          is_committed: boolean
           loss_relief_applied_tzs: number
           minimum_tax_applies: boolean
           minimum_tax_tzs: number | null
           months_overdue: number
           penalty_tzs: number
           period_id: string | null
+          period_month: number | null
           period_year: number
           tax_payable_tzs: number | null
           taxable_income_tzs: number | null
@@ -2207,6 +2260,7 @@ export type Database = {
           amt_3yr_trigger?: boolean
           cit_at_30pct_tzs?: number | null
           cit_gap_tzs?: number | null
+          cit_payable_tzs?: number | null
           company_id: string
           computation_detail?: Json | null
           cpa_modification_note?: string | null
@@ -2221,12 +2275,14 @@ export type Database = {
           id?: string
           income_tax_provision_tzs?: number
           interest_expense_tzs?: number | null
+          is_committed?: boolean
           loss_relief_applied_tzs?: number
           minimum_tax_applies?: boolean
           minimum_tax_tzs?: number | null
           months_overdue?: number
           penalty_tzs?: number
           period_id?: string | null
+          period_month?: number | null
           period_year: number
           tax_payable_tzs?: number | null
           taxable_income_tzs?: number | null
@@ -2249,6 +2305,7 @@ export type Database = {
           amt_3yr_trigger?: boolean
           cit_at_30pct_tzs?: number | null
           cit_gap_tzs?: number | null
+          cit_payable_tzs?: number | null
           company_id?: string
           computation_detail?: Json | null
           cpa_modification_note?: string | null
@@ -2263,12 +2320,14 @@ export type Database = {
           id?: string
           income_tax_provision_tzs?: number
           interest_expense_tzs?: number | null
+          is_committed?: boolean
           loss_relief_applied_tzs?: number
           minimum_tax_applies?: boolean
           minimum_tax_tzs?: number | null
           months_overdue?: number
           penalty_tzs?: number
           period_id?: string | null
+          period_month?: number | null
           period_year?: number
           tax_payable_tzs?: number | null
           taxable_income_tzs?: number | null
