@@ -402,6 +402,27 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
+    // ── Authentication: require valid JWT ─────────────────────────────
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const authToken = authHeader.replace("Bearer ", "");
+    const authClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const { data: claims, error: claimsErr } = await authClient.auth.getClaims(authToken);
+    const callerId = claims?.claims?.sub as string | undefined;
+    if (claimsErr || !callerId) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const {
       uploadId, companyId, periodYear, dry_run = true,
       months_overdue = 0, userId = null,
@@ -417,6 +438,24 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // ── Authorization: caller must be a firm_member of companyId ──────
+    {
+      const { data: member } = await supabase
+        .from("firm_members")
+        .select("id")
+        .eq("user_id", callerId)
+        .eq("company_id", companyId)
+        .not("accepted_at", "is", null)
+        .limit(1)
+        .maybeSingle();
+      if (!member) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden", message: "Not a member of this company" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
 
     const warnings: string[]               = [];
     const classificationWarnings: ClassificationWarning[] = [];

@@ -128,3 +128,36 @@ export function handleCors(req: Request): Response | null {
   }
   return null;
 }
+
+/**
+ * Verify the authenticated caller is a firm member of the target company.
+ * Returns a 403 Response if not a member; undefined on success.
+ * Uses the service-role admin client for the lookup so RLS cannot mask denial.
+ */
+export async function assertCompanyMembership(
+  adminClient: ReturnType<typeof createClient>,
+  userId: string,
+  companyId: string,
+): Promise<Response | undefined> {
+  if (!companyId) {
+    return new Response(
+      JSON.stringify({ error: "Forbidden", message: "Missing company context" }),
+      { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+  const { data, error } = await adminClient
+    .from("firm_members")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("company_id", companyId)
+    .not("accepted_at", "is", null)
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) {
+    return new Response(
+      JSON.stringify({ error: "Forbidden", message: "Not a member of this company" }),
+      { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+  return undefined;
+}

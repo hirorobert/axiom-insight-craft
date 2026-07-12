@@ -283,9 +283,55 @@ async function scanCompany(
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  // Accept both scheduled (no auth header from cron) and manual invocations
-  const isManual = req.headers.get("Authorization") !== null;
-  let triggerType: "scheduled" | "manual" = isManual ? "manual" : "scheduled";
+  // ── Auth gate ─────────────────────────────────────────────────────────
+  // Scheduled invocations are authenticated by pg_cron using SUPABASE_SERVICE_ROLE_KEY.
+  // Manual invocations must present a valid JWT for a firm_member (any company).
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  let triggerType: "scheduled" | "manual" = "scheduled";
+
+  if (!bearer) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  if (bearer === serviceKey) {
+    triggerType = "scheduled";
+  } else {
+    // Validate as a user JWT
+    const authClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const { data: claims, error: claimsErr } = await authClient.auth.getClaims(bearer);
+    const callerId = claims?.claims?.sub as string | undefined;
+    if (claimsErr || !callerId) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // Caller must be a firm member of at least one company
+    const adminCheck = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey, {
+      auth: { persistSession: false },
+    });
+    const { data: member } = await adminCheck
+      .from("firm_members")
+      .select("id")
+      .eq("user_id", callerId)
+      .not("accepted_at", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (!member) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    triggerType = "manual";
+  }
 
   try {
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
@@ -295,7 +341,7 @@ serve(async (req: Request) => {
   // Use SERVICE ROLE key — monitor needs to scan all companies
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    serviceKey,
     { auth: { persistSession: false } }
   );
 
