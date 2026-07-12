@@ -3,7 +3,7 @@
 // Transfer Pricing Risk Register + Arm's-Length Evidence Workflow
 //
 // DATA SOURCES (no engine changes):
-//   • tax_computations.result_json → add_backs (requires_review:true)
+//   • tax_computations.computation_detail → add_backs (requires_review:true)
 //     and classification_warnings where category contains TP patterns
 //   • findings table → linked finding if one was already created
 //   • evidence_requests table → existing ER linked to the finding
@@ -173,19 +173,19 @@ export function TransferPricingPanel({
       // 1. Latest tax computation for this upload
       const { data: tc } = await supabase
         .from("tax_computations")
-        .select("result_json")
+        .select("computation_detail")
         .eq("upload_id", uploadId)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (!tc?.result_json) {
+      if (!tc?.computation_detail) {
         setRisks([]);
         setLoading(false);
         return;
       }
 
-      const r = tc.result_json as TaxResultSnapshot;
+      const r = tc.computation_detail as TaxResultSnapshot;
 
       // 2. Existing findings for this company (to link evidence requests)
       const { data: existingFindings } = await supabase
@@ -596,7 +596,4 @@ export function TransferPricingPanel({
             );
           })
         )}
-      </CardContent>
-    </Card>
-  );
-}
+      </CardCont

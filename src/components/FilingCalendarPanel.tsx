@@ -4,7 +4,7 @@
 //
 // Data sources (no new edge function — pure read-and-render):
 //   • findings       → open statutory obligations (SDL, NSSF, service levy…)
-//   • tax_computations.result_json → ITA s.88 CIT instalment dates
+//   • tax_computations.computation_detail → ITA s.88 CIT instalment dates
 //   • companies      → name + TIN
 //
 // Renders: month-grouped table of upcoming obligations across
@@ -61,7 +61,7 @@ interface TaxCompRow {
   upload_id: string;
   period_year: number;
   period_month: number;
-  result_json: Record<string, unknown>;
+  computation_detail: Record<string, unknown>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -156,7 +156,7 @@ export function FilingCalendarPanel() {
       // 3. Latest committed tax computations → CIT instalment dates (ITA s.88)
       const { data: taxRaw } = await supabase
         .from("tax_computations")
-        .select("company_id, upload_id, period_year, period_month, result_json")
+        .select("company_id, upload_id, period_year, period_month, computation_detail")
         .order("created_at", { ascending: false });
 
       // Deduplicate: one per company (latest committed)
@@ -165,7 +165,7 @@ export function FilingCalendarPanel() {
         if (seenCompanyCIT.has(tc.company_id)) continue;
         seenCompanyCIT.add(tc.company_id);
 
-        const r = tc.result_json as Record<string, unknown>;
+        const r = tc.computation_detail as Record<string, unknown>;
         const taxPayable = Number(r.tax_payable_tzs ?? 0);
         if (taxPayable <= 0) continue;
 
@@ -434,7 +434,4 @@ export function FilingCalendarPanel() {
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
-  );
-}
+      </CardCont

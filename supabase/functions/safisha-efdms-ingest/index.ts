@@ -32,13 +32,26 @@
  *     No hardcoded numbers.
  *   - TRA TIN on Z-Report must match company TIN on file (anti-impersonation check).
  *
- * POST /functions/v1/safisha-efdms-ingest
- * Body: multipart/form-data
- *   file:        .csv Z-Report export
+ * Two call modes:
+ *
+ * MODE 1 — CSV upload (multipart/form-data):
+ *   file:        .csv Z-Report export from EFD management software
  *   company_id:  UUID
  *   fiscal_year: integer
  *   period_month:integer (1–12)
- *   format:      'csv' | 'json' (default: 'csv')
+ *
+ * MODE 2 — Manual / API entry (application/json):
+ *   {
+ *     company_id:   UUID,
+ *     fiscal_year:  integer,
+ *     period_month: integer (1–12),
+ *     source_type:  "MANUAL_CONFIRMED" | "API_DIRECT" | "DEVICE_EXPORT" | "DOCUMENT_EXTRACTED"
+ *                   (optional; omit if only requesting reconciliation refresh)
+ *     z_reports?:  ZReportRow[]  (omit to refresh reconciliation from existing rows only)
+ *   }
+ *
+ * If z_reports is absent (or empty), the function runs reconciliation against
+ * existing efdms_z_reports rows and returns 200 — NOT an error.
  */
 
 import { serve }       from "https://deno.land/std@0.168.0/http/server.ts";
@@ -288,14 +301,41 @@ serve(async (req: Request) => {
     const { data: { user }, error: authErr } = await supabase.auth.getUser();
     if (authErr || !user) return json({ error: "Unauthorized" }, 401);
 
-    const form       = await req.formData();
-    const file       = form.get("file") as File | null;
-    const companyId  = form.get("company_id") as string;
-    const fiscalYear = parseInt(form.get("fiscal_year") as string);
-    const periodMonth= parseInt(form.get("period_month") as string);
+    // ── Parse request (multipart/form-data OR application/json) ──────────────
+    const ct = req.headers.get("content-type") ?? "";
+    let file:        File | null    = null;
+    let companyId:   string         = "";
+    let fiscalYear:  number         = NaN;
+    let periodMonth: number         = NaN;
+    let importSource: string        = "csv_adapter";
+    let manualRows:  ZReportRow[]   = [];
 
-    if (!file || !companyId || isNaN(fiscalYear) || isNaN(periodMonth)) {
-      return json({ error: "file, company_id, fiscal_year, period_month are required" }, 400);
+    if (ct.includes("multipart/form-data")) {
+      const form   = await req.formData();
+      file         = form.get("file") as File | null;
+      companyId    = form.get("company_id") as string ?? "";
+      fiscalYear   = parseInt(form.get("fiscal_year") as string ?? "");
+      periodMonth  = parseInt(form.get("period_month") as string ?? "");
+      importSource = "csv_adapter";
+    } else {
+      // JSON body path (manual / API / reconciliation-refresh)
+      const body      = await req.json();
+      companyId       = body.company_id  ?? "";
+      fiscalYear      = parseInt(String(body.fiscal_year  ?? ""));
+      periodMonth     = parseInt(String(body.period_month ?? ""));
+      // Map source_type to schema import_source values
+      const sourceMap: Record<string, string> = {
+        MANUAL_CONFIRMED:   "manual",
+        API_DIRECT:         "api",
+        DEVICE_EXPORT:      "csv_adapter",
+        DOCUMENT_EXTRACTED: "csv_adapter",
+      };
+      importSource  = sourceMap[body.source_type ?? ""] ?? "manual";
+      manualRows    = Array.isArray(body.z_reports) ? body.z_reports : [];
+    }
+
+    if (!companyId || isNaN(fiscalYear) || isNaN(periodMonth)) {
+      return json({ error: "company_id, fiscal_year, period_month are required" }, 400);
     }
     if (periodMonth < 1 || periodMonth > 12) {
       return json({ error: "period_month must be 1–12" }, 400);
@@ -318,16 +358,27 @@ serve(async (req: Request) => {
       .single();
     if (!company) return json({ error: "Company not found" }, 404);
 
-    // Parse Z-Report CSV
-    const text = await file.text();
-    const { rows: zRows, errors: parseErrors } = parseZReportCSV(text);
+    // ── Parse Z-Report rows (CSV path or JSON path) ───────────────────────────
+    let zRows: ZReportRow[] = [];
+    let parseErrors: string[] = [];
 
-    if (parseErrors.length > 0 && zRows.length === 0) {
-      return json({ error: "CSV parse failed", parse_errors: parseErrors }, 422);
+    if (file) {
+      // CSV upload path
+      const text = await file.text();
+      const parsed = parseZReportCSV(text);
+      zRows       = parsed.rows;
+      parseErrors = parsed.errors;
+      if (parseErrors.length > 0 && zRows.length === 0) {
+        return json({ error: "CSV parse failed", parse_errors: parseErrors }, 422);
+      }
+    } else if (manualRows.length > 0) {
+      // JSON manual-entry path: rows already parsed by caller
+      zRows = manualRows;
     }
+    // else: no new rows — reconciliation-refresh-only mode; proceed to recon below
 
     // TIN anti-impersonation: if company has a TIN on file, verify Z-Report TINs match
-    if (company.tin) {
+    if (company.tin && zRows.length > 0) {
       const mismatchedTins = [...new Set(zRows.map(r => r.trader_tin))]
         .filter(tin => tin.replace(/\D/g, "") !== company.tin.replace(/\D/g, ""));
       if (mismatchedTins.length > 0) {
@@ -339,142 +390,72 @@ serve(async (req: Request) => {
       }
     }
 
-    // Aggregate totals for the period
-    const inPeriod = zRows.filter(r => {
-      const d = new Date(r.report_date);
-      return d.getFullYear() === fiscalYear && (d.getMonth() + 1) === periodMonth;
-    });
+    // Insert new Z-Report rows (ON CONFLICT DO NOTHING — dedup by UNIQUE constraint)
+    let inserted = 0;
+    let skipped  = 0;
 
-    if (inPeriod.length === 0) {
+    if (zRows.length > 0) {
+      const toInsert = zRows.map(r => ({
+        company_id:       companyId,
+        serial_number:    r.serial_number,
+        trader_tin:       r.trader_tin,
+        report_date:      r.report_date,
+        gross_sales:      r.gross_sales,
+        net_sales:        r.net_sales,
+        vat_collected:    r.vat_collected,
+        exempt_sales:     r.exempt_sales,
+        zero_rated_sales: r.zero_rated_sales,
+        receipt_count:    r.receipt_count,
+        cancelled_count:  r.cancelled_count,
+        imported_by:      user.id,
+        import_source:    importSource,
+        raw_json:         r,
+      }));
+
+      for (const row of toInsert) {
+        const { error } = await supabase
+          .from("efdms_z_reports")
+          .insert(row);
+        if (error?.code === "23505") skipped++;  // UNIQUE violation = duplicate, safe
+        else if (error) throw new Error("Z-Report insert failed: " + error.message);
+        else inserted++;
+      }
+    }
+
+    // ── Compute period totals from all stored rows for this period ─────────────
+    // (includes rows just inserted + any previously imported rows)
+    const { data: storedPeriodRows } = await supabase
+      .from("efdms_z_reports")
+      .select("gross_sales, vat_collected")
+      .eq("company_id", companyId)
+      .gte("report_date", `${fiscalYear}-${String(periodMonth).padStart(2, "0")}-01`)
+      .lte("report_date", `${fiscalYear}-${String(periodMonth).padStart(2, "0")}-31`);
+
+    const inPeriod = storedPeriodRows ?? [];
+
+    if (inPeriod.length === 0 && zRows.length === 0) {
+      // No file, no manual rows, nothing in DB for this period — return 200, not error
       return json({
-        warning:      "No Z-Report rows found for the specified fiscal_year + period_month",
-        total_rows:   zRows.length,
+        success:      true,
+        no_data:      true,
+        message:      "No Z-Report rows found for the specified period. Import a Z-Report file to begin reconciliation.",
+        company_id:   companyId,
         period:       `${fiscalYear}-${String(periodMonth).padStart(2, "0")}`,
         parse_errors: parseErrors,
       }, 200);
     }
 
-    // Upsert Z-Report rows (ON CONFLICT DO NOTHING — dedup by UNIQUE constraint)
-    const toInsert = zRows.map(r => ({
-      company_id:       companyId,
-      serial_number:    r.serial_number,
-      trader_tin:       r.trader_tin,
-      report_date:      r.report_date,
-      gross_sales:      r.gross_sales,
-      net_sales:        r.net_sales,
-      vat_collected:    r.vat_collected,
-      exempt_sales:     r.exempt_sales,
-      zero_rated_sales: r.zero_rated_sales,
-      receipt_count:    r.receipt_count,
-      cancelled_count:  r.cancelled_count,
-      imported_by:      user.id,
-      import_source:    "csv_adapter",
-      raw_json:         r,
-    }));
-
-    let inserted = 0;
-    let skipped  = 0;
-    for (const row of toInsert) {
-      const { error } = await supabase
-        .from("efdms_z_reports")
-        .insert(row);
-      if (error?.code === "23505") skipped++;  // UNIQUE violation = duplicate, safe
-      else if (error) throw new Error("Z-Report insert failed: " + error.message);
-      else inserted++;
-    }
-
-    // Compute period totals
-    const totalGross  = inPeriod.reduce((s, r) => s + r.gross_sales,  0);
-    const totalVat    = inPeriod.reduce((s, r) => s + r.vat_collected, 0);
+    // Compute period totals from stored rows
+    const totalGross  = inPeriod.reduce((s, r) => s + Number(r.gross_sales),  0);
+    const totalVat    = inPeriod.reduce((s, r) => s + Number(r.vat_collected), 0);
 
     // Load VAT return figures from tax_computations (latest for this company/period)
     const { data: taxComp } = await supabase
       .from("tax_computations")
-      .select("computation_json")
+      .select("computation_detail")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    const returnVat   = taxComp?.computation_json?.vat_liability ?? 0;
-    const returnSales = taxComp?.computation_json?.total_revenue  ?? 0;
-
-    // Load materiality thresholds (per-company)
-    const { data: mat } = await supabase
-      .from("variance_materiality")
-      .select("pct_threshold")
-      .eq("company_id", companyId)
-      .single();
-
-    // Compute gap
-    const recon = computeGap(totalGross, totalVat, returnSales, returnVat, mat);
-
-    // Upsert reconciliation row
-    const { error: reconErr } = await supabase
-      .from("efdms_reconciliation")
-      .upsert({
-        company_id:        companyId,
-        fiscal_year:       fiscalYear,
-        period_month:      periodMonth,
-        efdms_gross_sales: recon.efdms_gross,
-        efdms_vat:         recon.efdms_vat,
-        return_output_vat: recon.return_vat,
-        return_sales:      recon.return_sales,
-        gap_pct:           recon.gap_pct,
-        risk_level:        recon.risk_level,
-        risk_notes:        recon.risk_notes,
-        reconciled_by:     user.id,
-        reconciled_at:     new Date().toISOString(),
-      }, { onConflict: "company_id,fiscal_year,period_month" });
-
-    if (reconErr) throw new Error("Reconciliation upsert failed: " + reconErr.message);
-
-    // Fire TRA risk alert if critical
-    if (recon.risk_level === "critical") {
-      await supabase.rpc("maono_write_alert", {
-        p_company_id:    companyId,
-        p_run_id:        null,
-        p_alert_type:    "tra_risk_signal",
-        p_severity:      "critical",
-        p_pl_categories: ["REVENUE"],
-        p_account_codes: [],
-        p_message:       `EFDMS reconciliation: ${recon.risk_notes}`,
-        p_detail:        `Period: ${fiscalYear}-${String(periodMonth).padStart(2, "0")}. EFDMS VAT TZS ${totalVat.toLocaleString()} vs return TZS ${returnVat.toLocaleString()}.`,
-      });
-    }
-
-    return json({
-      success:          true,
-      company_id:       companyId,
-      period:           `${fiscalYear}-${String(periodMonth).padStart(2, "0")}`,
-      z_reports_in_file: zRows.length,
-      rows_inserted:    inserted,
-      rows_skipped:     skipped,  // duplicates
-      period_totals: {
-        efdms_gross_sales: totalGross,
-        efdms_vat:         totalVat,
-        return_sales:      returnSales,
-        return_vat:        returnVat,
-      },
-      reconciliation: {
-        sales_gap_tzs:  recon.sales_gap,
-        vat_gap_tzs:    recon.vat_gap,
-        gap_pct:        recon.gap_pct,
-        risk_level:     recon.risk_level,
-        risk_notes:     recon.risk_notes,
-      },
-      parse_errors: parseErrors.length > 0 ? parseErrors : undefined,
-    }, 200);
-
-  } catch (err: any) {
-    console.error("safisha-efdms-ingest error:", err);
-    return json({ error: err.message }, 500);
-  }
-});
-
-function json(body: object, status: number): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
+    cons

@@ -2,28 +2,22 @@
  * ThinCapWorkpaper.tsx
  * Sprint 8 Item 2 — Iron Dome Nuclear Design
  *
- * ITA Chapter 332 s.24A Thin Capitalisation Analysis.
+ * ITA Chapter 332 s.12(2) Thin Capitalisation Analysis.
  *
- * Rule: Total qualifying debt must not exceed 70/30 × equity.
- * (i.e. max debt = 2.333× equity)
- * Resident bank debt is excluded from qualifying debt (ITA s.12; Deloitte TZ Aug 2025).
+ * Rule: Total qualifying debt must not exceed 70:30 debt-to-equity ratio for
+ * exempt-controlled resident entities (25%+ non-resident/exempt ownership).
+ * Local bank debt excluded by s.12(5)(ii).
  *
  * Reads latest tax_computations row for pre-filled values.
  * CPA enters resident bank debt (excluded from ratio) manually.
  *
- * Output:
- *   - Total debt (from TB / tax_computations)
- *   - Less: resident bank debt (CPA entry)
- *   - Net qualifying debt
- *   - Equity (from tax_computations)
- *   - Max allowable qualifying debt (70/30 × equity)
- *   - Excess debt (= qualifying debt − allowable, floor 0)
- *   - Interest rate (CPA entry, default 10%)
- *   - Disallowed interest = excess / total qualifying × total interest
- *   - AJE suggestion text
+ * GATED: total_debt_tzs and interest_expense_tzs are null when the thin cap
+ * rate has not been verified in statutory_rules. When gated, the panel shows an
+ * amber GATED notice — no computed tax position is shown. Do not display
+ * "Within limit" when either debt or interest is null.
  *
- * Iron Dome: all DB figures from tax_computations only. No hallucination.
- * Resident bank debt and interest rate are CPA inputs (not persisted here — CPA notes).
+ * Iron Dome: all DB figures from tax_computations only. No hardcoded threshold
+ * used in a tax-position conclusion. Frontend computation is CPA workpaper only.
  */
 
 import { useEffect, useState, useCallback } from "react";
@@ -75,7 +69,9 @@ const fmt = (n: number) =>
 
 const pct = (n: number) => (n * 100).toFixed(1) + "%";
 
-const MAX_RATIO = 70 / 30; // 2.3333...
+// MAX_RATIO is intentionally not a named constant — the rate must be verified in
+// statutory_rules before being used. When total_debt_tzs is null, the panel is
+// GATED and no computation is shown. Do not restore MAX_RATIO as a constant.
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -112,26 +108,34 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
 
   useEffect(() => { fetchComp(); }, [fetchComp]);
 
-  // ── Computation ────────────────────────────────────────────────────────────
-  const totalDebt     = comp?.total_debt_tzs ?? 0;
-  const residentDebt  = parseFloat(residentBankDebt) || 0;
+  // ── Gating check ───────────────────────────────────────────────────────────
+  // When total_debt_tzs or interest_expense_tzs is null, the engine was unable to
+  // compute thin cap because the rate has not been verified in statutory_rules.
+  // Do NOT show a tax position conclusion (e.g. "Within limit") in this case.
+  const isGated = comp !== null
+    && (comp.total_debt_tzs === null || comp.interest_expense_tzs === null);
+
+  // ── Computation (workpaper only — CPA reference, not authoritative tax position) ──
+  // Only run when NOT gated. Uses 70:30 ratio per ITA s.12(2) as CPA reference.
+  const totalDebt      = comp?.total_debt_tzs ?? 0;
+  const residentDebt   = parseFloat(residentBankDebt) || 0;
   const qualifyingDebt = Math.max(0, totalDebt - residentDebt);
-  const equity        = Math.max(0, comp?.total_equity_tzs ?? 0);
-  const maxAllowable  = equity * MAX_RATIO;
-  const excessDebt    = Math.max(0, qualifyingDebt - maxAllowable);
-  const interest      = comp?.interest_expense_tzs ?? 0;
-  const rate          = (parseFloat(interestRate) || 10) / 100;
+  const equity         = Math.max(0, comp?.total_equity_tzs ?? 0);
+  // 70:30 = 2.333 — used only in CPA workpaper, not in any stored tax position
+  const maxAllowable   = equity * (70 / 30);
+  const excessDebt     = Math.max(0, qualifyingDebt - maxAllowable);
+  const interest       = comp?.interest_expense_tzs ?? 0;
 
   // Disallowed interest = (excess debt / qualifying debt) × total interest expense
   const disallowedInterest = qualifyingDebt > 0
     ? Math.min(interest, (excessDebt / qualifyingDebt) * interest)
     : 0;
 
-  const thinCapTriggered = excessDebt > 0.01;
-  const noDebtData = totalDebt === 0 && equity === 0;
+  const thinCapTriggered = !isGated && excessDebt > 0.01;
+  const noDebtData = !isGated && totalDebt === 0 && equity === 0;
 
   // Actual ratio
-  const actualRatio = equity > 0 ? qualifyingDebt / equity : null;
+  const actualRatio = !isGated && equity > 0 ? qualifyingDebt / equity : null;
 
   return (
     <Card className="bg-card border-border">
@@ -151,13 +155,18 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                     {expanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {companyName ? `${companyName} · ` : ""}FY{periodYear} — ITA s.24A interest limitation (70:30 rule)
+                    {companyName ? `${companyName} · ` : ""}FY{periodYear} — ITA s.12(2) thin cap interest limitation (70:30 rule)
                   </p>
                 </div>
               </button>
             </CollapsibleTrigger>
             <div className="flex items-center gap-2">
-              {!loading && !noDebtData && (
+              {!loading && isGated && (
+                <Badge className="text-xs border bg-amber-100 text-amber-800 border-amber-200">
+                  <AlertTriangle className="w-3 h-3 mr-1" />GATED — Rates Unverified
+                </Badge>
+              )}
+              {!loading && !isGated && !noDebtData && (
                 <Badge className={`text-xs border ${thinCapTriggered ? "bg-red-100 text-red-800 border-red-200" : "bg-emerald-100 text-emerald-800 border-emerald-200"}`}>
                   {thinCapTriggered
                     ? <><AlertTriangle className="w-3 h-3 mr-1" />Thin cap triggered</>
@@ -178,6 +187,31 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span className="text-sm">Loading tax computation data…</span>
               </div>
+            ) : isGated ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 flex items-start gap-3">
+                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-amber-800">
+                    GATED — Thin Cap rate not yet verified
+                  </p>
+                  <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                    The thin capitalisation ratio (ITA s.12(2)) has not been confirmed against
+                    the primary source text. The Kinga engine returned null for total_debt and
+                    interest_expense — no tax position has been calculated.
+                  </p>
+                  <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                    <strong>CPA action required:</strong> Confirm the correct debt:equity ratio against
+                    ITA Cap.332 s.12(2) R.E.2023, and whether Finance Act 2026 amended this section.
+                    Once confirmed, set <code className="bg-amber-100 px-1 rounded">verified_at</code> on
+                    the <code className="bg-amber-100 px-1 rounded">thin_cap</code> row in
+                    <code className="bg-amber-100 px-1 rounded">statutory_rules</code> via Supabase admin.
+                    The engine will recompute on next run.
+                  </p>
+                  <p className="text-xs font-semibold text-amber-800 mt-2">
+                    No tax position calculated. Do not conclude "Within limit."
+                  </p>
+                </div>
+              </div>
             ) : noDebtData ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 flex items-start gap-3">
                 <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -186,7 +220,7 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                   <p className="text-xs text-amber-700 mt-0.5">
                     Thin cap data is populated by the Kinga Tax Engine on each run. If total debt and equity
                     are both zero, either (a) the engine has not been run yet, or (b) the company has no
-                    interest-bearing debt — in which case s.24A does not apply.
+                    interest-bearing debt — in which case ITA s.12(2) does not apply.
                   </p>
                 </div>
               </div>
@@ -221,7 +255,7 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-muted/40 border-b border-border text-xs text-muted-foreground">
-                        <th className="text-left py-2 px-4 font-medium">ITA s.24A Computation</th>
+                        <th className="text-left py-2 px-4 font-medium">ITA s.12(2) Computation</th>
                         <th className="text-right py-2 px-4 font-medium">TZS</th>
                         <th className="text-left py-2 px-4 font-medium hidden sm:table-cell">Note</th>
                       </tr>
@@ -261,7 +295,7 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                         {
                           label: "Excess debt (qualifying − max allowable)",
                           value: excessDebt,
-                          note: excessDebt > 0 ? "Thin cap triggered — interest add-back required" : "Within ITA s.24A limit",
+                          note: excessDebt > 0 ? "Thin cap triggered — interest add-back required" : "Within ITA s.12(2) limit",
                           indent: false, bold: true, divider: true,
                           highlight: excessDebt > 0 ? "red" : "green",
                         },
@@ -289,52 +323,4 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                           <td className="py-2.5 px-4 text-xs text-muted-foreground hidden sm:table-cell">{row.note}</td>
                         </tr>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Ratio indicator */}
-                <div className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${thinCapTriggered ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
-                  {thinCapTriggered
-                    ? <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-                    : <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  }
-                  <div>
-                    <p className={`text-sm font-semibold ${thinCapTriggered ? "text-red-800" : "text-emerald-800"}`}>
-                      {actualRatio !== null
-                        ? `Actual ratio: ${actualRatio.toFixed(2)}:1 (limit: 2.33:1)`
-                        : "Ratio: N/A (equity is zero)"}
-                    </p>
-                    {thinCapTriggered ? (
-                      <>
-                        <p className="text-xs text-red-700 mt-0.5">
-                          Thin cap applies — {fmt(disallowedInterest)} of interest expense must be added back to accounting PBT (ITA s.24A).
-                        </p>
-                        <p className="text-xs text-red-700 mt-1 font-medium">
-                          Suggested AJE (if not already booked): Dr Interest Expense add-back / Cr Disallowed interest liability — {fmt(disallowedInterest)}.
-                          Include note: "ITA s.24A thin cap disallowance — FY{periodYear}."
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-xs text-emerald-700 mt-0.5">
-                        Debt:equity ratio is within the ITA s.24A 70:30 limit. All interest expense is deductible.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Footnote */}
-                <p className="text-[10px] text-muted-foreground/70 border-t border-border/40 pt-2">
-                  Source: ITA Chapter 332 s.24A (as amended); Deloitte Tanzania Transfer Pricing Guide Aug 2025.
-                  Resident bank debt exclusion per ITA s.12. Maximum debt:equity ratio 70:30 (2.333:1).
-                  Interest rate assumption is indicative only — use actual weighted average rate from loan agreements.
-                  Kinga engine pre-populates debt/equity from balance sheet; CPA must confirm resident bank debt exclusion.
-                </p>
-              </>
-            )}
-          </CardContent>
-        </CollapsibleContent>
-      </Collapsible>
-    </Card>
-  );
-}
+                 

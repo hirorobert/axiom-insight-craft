@@ -8,7 +8,7 @@
 //
 // Dependencies: jsPDF + jspdf-autotable (already in package.json)
 //
-// IRON DOME: all figures come from result_json and DB rows.
+// IRON DOME: all figures come from computation_detail and DB rows.
 // No number is invented here — the function will throw if
 // key fields are missing rather than silently showing zero.
 //
@@ -584,5 +584,4 @@ export function generateTaxComputationPDF(opts: GeneratePDFOptions): void {
 
   // ── Download ──────────────────────────────────────────────────
   const safeName = companyName.replace(/[^a-zA-Z0-9\s-]/g, "").replace(/\s+/g, "_");
-  doc.save(`SAFF_CIT_${safeName}_${periodYear}.pdf`);
-}
+  doc.save(`SAFF_CIT_${safeName}_${periodYear}.pdf`

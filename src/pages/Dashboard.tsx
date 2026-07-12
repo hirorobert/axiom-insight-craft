@@ -947,6 +947,7 @@ export default function Dashboard() {
                         periodMonth={periodEndMonth}
                         companyName={selectedUpload.company_name ?? undefined}
                         userId={user?.id ?? ""}
+                        isVatRegistered={true}
                       />
                     );
                   })()}
@@ -994,7 +995,7 @@ export default function Dashboard() {
                     );
                   })()}
 
-                  {/* Thin Cap Workpaper — ITA s.24A interest limitation (Sprint 8 Item 2) */}
+                  {/* Thin Cap Workpaper — ITA s.12(2) interest limitation (Sprint 8 Item 2) */}
                   {selectedUpload.status === "complete" && selectedUpload.is_valid === true && selectedUpload.company_id && (() => {
                     const { periodYear } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
                     return (
@@ -1067,9 +1068,4 @@ export default function Dashboard() {
               <span>{formatDate(uploads[0].uploaded_at)}</span>
             </div>
           )}
-        </div>
-        )}
-      </main>
-    </div>
-  );
-}
+        

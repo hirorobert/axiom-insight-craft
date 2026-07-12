@@ -10,7 +10,7 @@
  *   G2 — All AJEs approved (no draft adjusting_journal_entries for this period)
  *   G3 — Period sign-off locked (statement_sign_offs.status = 'locked')
  *   G4 — Findings reviewed (no 'open' findings older than 30 days)
- *   G5 — EFDMS records present (at least one efdms_records row for this period)
+ *   G5 — EFDMS records present (at least one efdms_z_reports row for this period)
  *   G6 — Evidence requests closed (no open evidence_requests for this company)
  *
  * Iron Dome constraints:
@@ -144,13 +144,13 @@ export function TRAAuditReadinessPanel({
         .lt("created_at", new Date(Date.now() - 30 * 86400_000).toISOString())
         .limit(10),
 
-      // G5: EFDMS records for this period/month
+      // G5: EFDMS Z-Reports for this period (data now in efdms_z_reports via safisha-efdms-ingest)
       supabase
-        .from("efdms_records")
+        .from("efdms_z_reports")
         .select("id")
         .eq("company_id", companyId)
-        .eq("period_year", periodYear)
-        .eq("period_month", periodMonth)
+        .gte("report_date", `${periodYear}-${String(periodMonth).padStart(2, "0")}-01`)
+        .lte("report_date", `${periodYear}-${String(periodMonth).padStart(2, "0")}-31`)
         .limit(1),
 
       // G6: Open evidence requests
@@ -433,12 +433,3 @@ export function TRAAuditReadinessPanel({
                     <Printer className="w-3.5 h-3.5" />
                     Download Manifest
                   </Button>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </CollapsibleContent>
-      </Collapsible>
-    </Card>
-  );
-}

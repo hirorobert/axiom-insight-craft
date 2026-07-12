@@ -19,8 +19,9 @@ import {
   TrendingUp, ArrowUpDown, PenLine, Calendar,
 } from "lucide-react";
 import { TaxLossPanel } from "@/components/TaxLossPanel";
+import { HesabuAssurancePanel } from "@/components/HesabuAssurancePanel";
 import { generateTaxComputationPDF } from "@/lib/generateTaxComputationPDF";
-import { FileDown } from "lucide-react";
+import { FileDown, ShieldCheck, ShieldX, ShieldAlert } from "lucide-react";
 
 // ── ITA CLASS METADATA — VERIFIED: PwC Tanzania (reviewed 14 Jan 2026) ───
 // Source: https://taxsummaries.pwc.com/tanzania/corporate/deductions
@@ -505,6 +506,66 @@ export function KingaTaxPanel({
   const [mgmtInputs, setMgmtInputs]         = useState({ dividends: "", shareCapital: "", loanRepaid: "", newBorrowings: "", otherEquity: "" });
   const [savingMgmtInputs, setSavingMgmtInputs] = useState(false);
 
+  // HESABU: gate state
+  // hesabuGatePassed  — latest validation run has gate_satisfied = true
+  // hesabuStale       — latest tax_computations.created_at is AFTER the last validation
+  // hesabuRefreshKey  — incremented after engine commit to force HesabuAssurancePanel reload
+  const [hesabuGatePassed,  setHesabuGatePassed]  = useState<boolean | null>(null);
+  const [hesabuStale,       setHesabuStale]        = useState(false);
+  const [hesabuValidating,  setHesabuValidating]   = useState(false);
+  const [hesabuError,       setHesabuError]        = useState<string | null>(null);
+  const [hesabuRefreshKey,  setHesabuRefreshKey]   = useState(0);
+
+  // HESABU: load gate status from DB (latest validation vs latest computation)
+  const loadHesabuStatus = async () => {
+    const [{ data: valRow }, { data: compRow }] = await Promise.all([
+      supabase
+        .from("hesabu_validations")
+        .select("gate_satisfied, validated_at")
+        .eq("upload_id", uploadId)
+        .order("validated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("tax_computations")
+        .select("created_at")
+        .eq("upload_id", uploadId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (!valRow) {
+      setHesabuGatePassed(null);
+      setHesabuStale(false);
+    } else {
+      setHesabuGatePassed(valRow.gate_satisfied);
+      // Stale if a newer computation exists after the last validation
+      const validatedAt  = new Date(valRow.validated_at).getTime();
+      const computedAt   = compRow ? new Date(compRow.created_at).getTime() : 0;
+      setHesabuStale(computedAt > validatedAt);
+    }
+  };
+
+  // HESABU: run hesabu-validate and reload status
+  const runHesabuValidation = async () => {
+    setHesabuValidating(true);
+    setHesabuError(null);
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("hesabu-validate", {
+        body: { upload_id: uploadId },
+      });
+      if (fnErr) throw fnErr;
+      if (data?.status === "BLOCKED") throw new Error(data.message ?? "HESABU blocked — missing input data");
+      setHesabuGatePassed(data?.gate_satisfied ?? false);
+      setHesabuStale(false);
+      setHesabuRefreshKey(k => k + 1);
+    } catch (e: unknown) {
+      setHesabuError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setHesabuValidating(false);
+    }
+  };
+
   // Load existing computation + sign-off state + firm member role + management inputs
   useEffect(() => {
     supabase
@@ -512,6 +573,8 @@ export function KingaTaxPanel({
       .select("id,period_year,taxable_income_tzs,tax_payable_tzs,cit_gap_tzs,total_exposure_tzs,minimum_tax_applies,effective_tax_rate_pct,engine_version,created_at")
       .eq("company_id", companyId).eq("upload_id", uploadId).maybeSingle()
       .then(({ data }) => { if (data) setStored(data); });
+
+    loadHesabuStatus();
 
     supabase
       .from("statement_sign_offs")
@@ -625,6 +688,10 @@ export function KingaTaxPanel({
           .select("id,period_year,taxable_income_tzs,tax_payable_tzs,cit_gap_tzs,total_exposure_tzs,minimum_tax_applies,effective_tax_rate_pct,engine_version,created_at")
           .eq("company_id", companyId).eq("upload_id", uploadId).maybeSingle();
         if (stored) setStored(stored);
+
+        // Auto-run HESABU validation after successful commit
+        // This keeps the gate status current without requiring a manual step
+        await runHesabuValidation();
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -922,7 +989,7 @@ export function KingaTaxPanel({
 
                 {result.thin_cap_disallowed_tzs > 0 && (
                   <div className="mt-1">
-                    <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1">THIN CAP (ITA s.24A)</div>
+                    <div className="text-xs font-semibold text-muted-foreground uppercase px-2 mb-1">THIN CAP (ITA s.12(2))</div>
                     <WaterfallRow label={`Debt:equity = ${result.debt_equity_ratio.toFixed(2)}:1 (limit 2.33:1)`}
                       value={`+ ${fmt(result.thin_cap_disallowed_tzs)}`} indent={1} />
                   </div>
@@ -1311,6 +1378,57 @@ export function KingaTaxPanel({
               </div>
             )}
 
+            {/* ── HESABU ASSURANCE PANEL ─────────────────────────────────────────── */}
+            {(phase === "done" || stored) && (
+              <div className="space-y-2">
+                <HesabuAssurancePanel
+                  uploadId={uploadId}
+                  companyId={companyId}
+                  refreshKey={hesabuRefreshKey}
+                />
+                {/* HESABU gate controls */}
+                {!isLocked && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {hesabuGatePassed === null && (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+                        <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+                        No HESABU validation yet — sign-off is blocked until validation passes.
+                      </div>
+                    )}
+                    {hesabuGatePassed === false && (
+                      <div className="flex items-center gap-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5">
+                        <ShieldX className="w-3.5 h-3.5 flex-shrink-0" />
+                        HESABU validation failed — resolve all assertions before signing off.
+                      </div>
+                    )}
+                    {hesabuStale && hesabuGatePassed && (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+                        <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+                        Tax computation has changed since last validation — rerun before signing off.
+                      </div>
+                    )}
+                    {hesabuError && (
+                      <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5">
+                        HESABU error: {hesabuError}
+                      </div>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs h-7 gap-1.5 ml-auto"
+                      onClick={runHesabuValidation}
+                      disabled={hesabuValidating}
+                    >
+                      {hesabuValidating
+                        ? <><RefreshCw className="w-3 h-3 animate-spin" />Validating…</>
+                        : <><ShieldCheck className="w-3 h-3" />Run HESABU Validation</>
+                      }
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ── SIGN-OFF CHAIN + PERIOD LOCK ───────────────────────────────────── */}
             {(phase === "done" || stored) && (
               <div className={`border rounded-xl overflow-hidden ${isLocked ? "border-red-300" : "border-slate-200"}`}>
@@ -1324,11 +1442,30 @@ export function KingaTaxPanel({
                   )}
                 </div>
                 <div className="p-3 space-y-2">
-                  {/* Tier 1: Preparer */}
                   {[
-                    { tier: "preparer" as const, label: "Tier 1 — Preparer",  signed: !!signOff?.preparer_signed_at, at: signOff?.preparer_signed_at, enabled: !signOff?.preparer_signed_at && !isLocked },
-                    { tier: "reviewer" as const, label: "Tier 2 — Reviewer",  signed: !!signOff?.reviewer_signed_at, at: signOff?.reviewer_signed_at, enabled: !!signOff?.preparer_signed_at && !signOff?.reviewer_signed_at && !isLocked },
-                    { tier: "approver" as const, label: "Tier 3 — Approver ★ Lock Period", signed: !!signOff?.approver_signed_at, at: signOff?.approver_signed_at, enabled: !!signOff?.reviewer_signed_at && !signOff?.approver_signed_at && !isLocked },
+                    {
+                      tier: "preparer" as const,
+                      label: "Tier 1 — Preparer",
+                      signed: !!signOff?.preparer_signed_at,
+                      at: signOff?.preparer_signed_at,
+                      // HESABU gate: Tier 1 requires gate_satisfied=true and not stale
+                      enabled: !signOff?.preparer_signed_at && !isLocked
+                               && hesabuGatePassed === true && !hesabuStale,
+                    },
+                    {
+                      tier: "reviewer" as const,
+                      label: "Tier 2 — Reviewer",
+                      signed: !!signOff?.reviewer_signed_at,
+                      at: signOff?.reviewer_signed_at,
+                      enabled: !!signOff?.preparer_signed_at && !signOff?.reviewer_signed_at && !isLocked,
+                    },
+                    {
+                      tier: "approver" as const,
+                      label: "Tier 3 — Approver ★ Lock Period",
+                      signed: !!signOff?.approver_signed_at,
+                      at: signOff?.approver_signed_at,
+                      enabled: !!signOff?.reviewer_signed_at && !signOff?.approver_signed_at && !isLocked,
+                    },
                   ].map(({ tier, label, signed, at, enabled }) => (
                     <div key={tier} className={`flex items-center gap-3 text-xs rounded-lg px-3 py-2 ${signed ? "bg-green-50 border border-green-200" : enabled ? "bg-white border border-slate-200" : "bg-muted/20 border border-muted text-muted-foreground"}`}>
                       {signed
@@ -1339,6 +1476,16 @@ export function KingaTaxPanel({
                         <span className={`font-semibold ${signed ? "text-green-800" : enabled ? "text-foreground" : "text-muted-foreground"}`}>{label}</span>
                         {signed && at && (
                           <span className="ml-2 text-green-600">— signed {new Date(at).toLocaleDateString()}</span>
+                        )}
+                        {/* Show HESABU gate reason when Tier 1 is blocked */}
+                        {tier === "preparer" && !signed && !isLocked && (
+                          hesabuGatePassed === null ? (
+                            <span className="ml-2 text-amber-600">— awaiting HESABU validation</span>
+                          ) : hesabuGatePassed === false ? (
+                            <span className="ml-2 text-red-600">— HESABU gate failed</span>
+                          ) : hesabuStale ? (
+                            <span className="ml-2 text-amber-600">— HESABU validation is stale (rerun required)</span>
+                          ) : null
                         )}
                       </div>
                       {enabled && !isLocked && (
@@ -1432,141 +1579,4 @@ export function KingaTaxPanel({
                     Engine {stored.engine_version ?? "unknown"} —
                     Tax payable TZS {stored.tax_payable_tzs?.toLocaleString() ?? "—"} |
                     Gap TZS {stored.cit_gap_tzs?.toLocaleString() ?? "—"}
-                    <span className="ml-1 text-orange-600 font-medium">
-                      (Committing will replace this record)
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {phase === "done" && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">
-                  <CheckCircle className="w-4 h-4" />
-                  Computation saved.
-                  {result.finding_created && " CIT gap finding created in findings table."}
-                  <Button variant="ghost" size="sm" onClick={reset} className="ml-auto">Run Again</Button>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 w-full"
-                  onClick={async () => {
-                    // Fetch supporting data for the PDF
-                    const [{ data: allowances }, { data: findings }] = await Promise.all([
-                      supabase
-                        .from("capital_allowances")
-                        .select("asset_description, ita_class, cost_tzs, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, wear_tear_allowance_tzs, ita_wdv_closing_tzs")
-                        .eq("upload_id", uploadId),
-                      supabase
-                        .from("findings")
-                        .select("title, finding_category, exposure_amount_tzs, status")
-                        .eq("company_id", companyId)
-                        .in("status", ["open", "in_progress"]),
-                    ]);
-                    generateTaxComputationPDF({
-                      result,
-                      companyName: companyName ?? "Company",
-                      companyTin,
-                      periodYear,
-                      periodEndMonth: periodEndMonth ?? 12,
-                      allowances: (allowances ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["allowances"],
-                      findings:   (findings   ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["findings"],
-                    });
-                  }}
-                >
-                  <FileDown className="w-3.5 h-3.5" />
-                  Download Tax Computation Report (PDF)
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
-      </CardContent>
-
-      {/* ── COMMIT CONFIRM DIALOG ─────────────────────────────────── */}
-      {result && (
-        <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-primary" />
-                Confirm — Commit ITA Computation to Database
-              </DialogTitle>
-            </DialogHeader>
-
-            <div className="space-y-3 text-sm">
-              <div className="text-muted-foreground">
-                Committing will write the following computation to the <code>tax_computations</code> table
-                and create a formal finding record in the audit database.
-                {stored && <span className="text-orange-600 font-medium"> This will replace the previous commit from {new Date(stored.created_at).toLocaleDateString()}.</span>}
-              </div>
-
-              <div className="bg-muted/40 border border-border rounded-lg p-3 space-y-1.5 font-mono text-xs">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Company</span>
-                  <span className="font-semibold">{companyName ?? companyId}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Period</span>
-                  <span>FY {periodYear}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Engine</span>
-                  <span>{result.engine_version}</span>
-                </div>
-                <div className="my-1 border-t border-dashed border-muted" />
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Taxable Income</span>
-                  <span>TZS {result.taxable_income_tzs?.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">CIT @ 30%</span>
-                  <span>TZS {result.cit_at_30pct_tzs?.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Tax Provision (booked)</span>
-                  <span>TZS {result.income_tax_provision_tzs?.toLocaleString()}</span>
-                </div>
-                <div className={`flex justify-between font-bold ${Math.abs(result.cit_gap_tzs) > 500_000 ? "text-destructive" : "text-green-700"}`}>
-                  <span>CIT Gap</span>
-                  <span>TZS {result.cit_gap_tzs?.toLocaleString()}</span>
-                </div>
-              </div>
-
-              {result.review_required && (
-                <div className="flex items-start gap-2 text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded px-3 py-2">
-                  <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                  CPA Review Required — {result.classification_warnings?.length ?? 0} classification warning(s) unresolved.
-                  Committing will save this as a provisional computation.
-                </div>
-              )}
-            </div>
-
-            <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setShowConfirm(false)}>Cancel</Button>
-              <Button
-                onClick={() => {
-                  setShowConfirm(false);
-                  runEngine(false);
-                }}
-                className="gap-2"
-              >
-                <CheckCircle className="w-4 h-4" />
-                Yes, Commit to Database
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
-    </Card>
-
-    {/* ── ITA s.19 LOSS CARRY-FORWARD POOL PANEL ──────────────── */}
-    {result && (
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      <TaxLossPanel result={result as any} periodYear={periodYear} companyName={companyName} />
-    )}
-    </div>
-  );
-}
+             

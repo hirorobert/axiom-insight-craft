@@ -72,7 +72,7 @@ export interface ScoringInputData {
     exposure_amount_tzs: number;
     period_end: string | null;
   }>;
-  /** classification_warnings from the latest tax_computations.result_json */
+  /** classification_warnings from the latest tax_computations.computation_detail */
   taxCompWarnings: Array<{ category?: string }>;
   /** Sum of tax_payments.amount_paid_tzs for this company */
   totalPaid: number;
@@ -260,7 +260,7 @@ export async function fetchScoringData(companyId: string): Promise<ScoringInputD
 
     supabase
       .from("tax_computations")
-      .select("result_json")
+      .select("computation_detail")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false })
       .limit(1),
@@ -278,7 +278,7 @@ export async function fetchScoringData(companyId: string): Promise<ScoringInputD
       .limit(1),
   ]);
 
-  const lastResult = (taxComps?.[0]?.result_json as any) ?? null;
+  const lastResult = (taxComps?.[0]?.computation_detail as any) ?? null;
   const taxCompWarnings: Array<{ category?: string }> =
     lastResult?.classification_warnings ?? [];
 
@@ -321,7 +321,7 @@ export async function fetchScoringDataBatch(
 
     supabase
       .from("tax_computations")
-      .select("company_id, result_json, created_at")
+      .select("company_id, computation_detail, created_at")
       .in("company_id", companyIds)
       .order("created_at", { ascending: false }),
 
@@ -341,7 +341,7 @@ export async function fetchScoringDataBatch(
   const taxCompMap = new Map<string, Array<{ category?: string }>>();
   for (const tc of (taxComps ?? [])) {
     if (!taxCompMap.has(tc.company_id)) {
-      const warnings = (tc.result_json as any)?.classification_warnings ?? [];
+      const warnings = (tc.computation_detail as any)?.classification_warnings ?? [];
       taxCompMap.set(tc.company_id, warnings);
     }
   }
@@ -374,8 +374,4 @@ export async function fetchScoringDataBatch(
       taxCompWarnings:  taxCompMap.get(id)  ?? [],
       totalPaid:        paidMap.get(id)     ?? 0,
       signOffStatus:    signOffMap.get(id)  ?? null,
-      now,
-    });
-  }
-  return result;
-}
+      n

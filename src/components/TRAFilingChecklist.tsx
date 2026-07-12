@@ -165,7 +165,7 @@ export function TRAFilingChecklist({
       // ── 2. Check if a committed tax computation exists ─────────────
       const { data: taxRow } = await supabase
         .from("tax_computations")
-        .select("id, period_year, period_month, result_json")
+        .select("id, period_year, period_month, computation_detail")
         .eq("company_id", companyId)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -464,5 +464,4 @@ export function TRAFilingChecklist({
         )}
       </CardContent>
     </Card>
-  );
-}
+  
