@@ -96,11 +96,9 @@ const CIT_RATE = 0.30;
 // Reduced rates: 25% for newly DSE-listed cos (3 yrs); 10% for new vehicle assemblers (5 yrs);
 // 20% for new pharma/leather manufacturers (5 yrs) — engine uses standard 30%; flag others as warnings
 
-const AMT_RATE = 0.01;
-// AMT rate: 1% of TURNOVER. UNCHANGED by FA2026.
-// Trigger: 3 consecutive years of tax losses (current + 2 preceding) — cannot auto-determine from single TB
-// Exemptions: agriculture, health, education, tea processing sectors
-// Engine: flags AMT risk as WARNING only; does NOT apply AMT automatically
+// AMT_RATE removed — not in statutory_rules, no verified_at.
+// Per Iron Dome doctrine: unverified rates must not be computed.
+// CPA must assess ITA First Schedule para 3(3) independently.
 
 /* Loss carry-forward annual shelter cap: 70%.
    Source: Income Tax Act Cap. 332 R.E. 2023, section 19,
@@ -111,11 +109,9 @@ const LOSS_CARRYFORWARD_SHELTER = 0.70;
 // Income after loss deduction shall not fall below 30% of pre-deduction income (s.19(2)).
 // Exception: agricultural business, health, education services corporations (s.19(2) proviso).
 
-const THIN_CAP_RATIO = 70 / 30;
-// 7:3 debt-to-equity (= 2.333:1). UNCHANGED by FA2026.
-// Verified: ITA Cap.332 s.12; Deloitte TZ (Aug 2025)
-// CRITICAL EXCLUSION: "debt obligation owed to a resident financial institution" is EXCLUDED (s.12(5)(ii))
-// Engine cannot auto-identify resident institution loans — flags ALL long-term debt for CPA review
+// THIN_CAP_RATIO removed — not in statutory_rules, no verified_at.
+// Per Iron Dome doctrine: unverified rates must not be computed.
+// CPA must assess ITA s.12(2) independently.
 
 const PENALTY_RATE_PER_MONTH = 0.05;
 // TAA Cap.438 s.76: 5% per month on unpaid tax. UNCHANGED by FA2026.
@@ -285,10 +281,9 @@ const MGMT_FEE_PATTERNS = [
   /royalt(y|ies)/i,
   /\bconsultancy\s+fee\b/i, /\badvisory\s+fee\b/i,
 ];
-// ITA s.33 cap rate: 1% of gross income (verified ITA Cap.332 R.E.2023)
-// Note: A 2% figure circulates in some summaries but the Act specifies 1%.
-// Engine applies 1%; CPA must confirm current TRA interpretation.
-const MGMT_FEE_CAP_RATE = 0.01;
+// MGMT_FEE_CAP_RATE removed — not in statutory_rules, no verified_at.
+// Per Iron Dome doctrine: unverified rates must not be computed or applied.
+// CPA must assess ITA s.33 independently. No disallowance will be auto-generated.
 
 const INCOME_TAX_PROVISION_PATTERNS = [
   /income\s+tax\s+payable/i, /current\s+tax\s+payable/i,
@@ -623,82 +618,39 @@ serve(async (req) => {
       });
     }
 
-    // ── STEP 4f: Management & professional fees cap (ITA s.33) ── D10-FIX ─
-    // ITA s.33: fees paid to foreign related parties for management, technical,
-    // professional or consultancy services are deductible only up to 1% of gross income.
-    // Cap = 1% of turnover (verified ITA Cap.332 R.E.2023).
-    // Engine auto-adds the excess as a requires_review add-back.
+    // ── STEP 4f: Management & professional fees — GATED ──────────────────
+    // ITA s.33 cap rate not present in statutory_rules with verified_at.
+    // Per Iron Dome doctrine: no disallowance computed. CPA must assess independently.
     const { total: mgmtFeeTotal, names: mgmtFeeNames } = sumMatching(allISAccs, MGMT_FEE_PATTERNS);
     if (mgmtFeeTotal > 0) {
-      const mgmtFeeCap = Math.round(turnover * MGMT_FEE_CAP_RATE);  // 1% of gross income
-      if (mgmtFeeTotal > mgmtFeeCap) {
-        const mgmtFeeExcess = mgmtFeeTotal - mgmtFeeCap;
-        addBacks.push({
-          description: `Management/professional fee disallowance: ITA s.33 cap = 1% × TZS ${turnover.toLocaleString()} = TZS ${mgmtFeeCap.toLocaleString()}. ` +
-                       `Detected fees TZS ${mgmtFeeTotal.toLocaleString()} exceed cap by TZS ${mgmtFeeExcess.toLocaleString()}. ` +
-                       `UPPER-BOUND: applies only to fees paid to FOREIGN related parties. ` +
-                       `Fees to Tanzanian entities may be fully deductible — CPA must confirm nature of each payment.`,
-          amount_tzs:      mgmtFeeExcess,
-          ita_section:     "ITA Cap.332 s.33 (R.E.2023)",
-          account_names:   mgmtFeeNames,
-          auto_detected:   true,
-          requires_review: true,  // CPA must confirm foreign vs domestic recipient
-        });
-      } else {
-        // Under cap — still disclose for CPA awareness
-        classificationWarnings.push({
-          category: "Management Fees (ITA s.33)",
-          message: `Management/professional fee accounts TZS ${mgmtFeeTotal.toLocaleString()} detected. ` +
-                   `ITA s.33 cap = 1% × gross income TZS ${turnover.toLocaleString()} = TZS ${mgmtFeeCap.toLocaleString()}. ` +
-                   `Detected amount is WITHIN the cap — no add-back required IF paid to a foreign related party. ` +
-                   `If paid to a domestic entity, full amount is deductible and no cap applies.`,
-          accounts_found:  mgmtFeeNames,
-          action_required: "Confirm whether payee is a foreign related party. If domestic, disregard cap entirely.",
-        });
-      }
-    }
-
-    // ── STEP 5: Thin Capitalisation (ITA s.12(2) — 7:3 ratio) ────────────
-    // PRIMARY SOURCE VERIFIED: ITA Cap.332 s.12(2) (NOT s.24A — that section does not exist).
-    // CRITICAL SCOPE: s.12(2) applies ONLY to "exempt-controlled resident entities" —
-    //   defined as entities where 25%+ of underlying ownership is held by non-resident persons,
-    //   Second Schedule exempt entities, approved retirement funds, or charitable organisations.
-    //   A company with 100% Tanzanian individual shareholders is NOT subject to thin cap at all.
-    // CRITICAL DEBT EXCLUSION: s.12(5)(ii) excludes debt owed to "a resident financial institution"
-    //   and s.12(5)(iii) excludes debt to a non-resident bank subject to WHT in Tanzania.
-    // Engine detects all long-term debt — CPA must (1) confirm thin cap applies, and (2) exclude bank loans.
-    const { total: ltDebt, names: ltDebtNames } = sumMatching([...bsNCL, ...bsCL], LONG_TERM_DEBT_PATTERNS);
-    const { total: stBorrow }                    = sumMatching(bsCL, SHORT_TERM_BORROWING_PATTERNS);
-    const { total: equity }                      = sumMatching(bsEq, EQUITY_PATTERNS);
-    const { total: interestExp, names: intNames }= sumMatching([...allISAccs], INTEREST_EXPENSE_PATTERNS);
-
-    const totalDetectedDebt = ltDebt + stBorrow;
-    let thinCapDisallowed = 0;
-
-    if (totalDetectedDebt > 0 || interestExp > 0) {
       classificationWarnings.push({
-        category: "Thin Capitalisation (s.12(2))",
-        message: `STEP 1 — OWNERSHIP CHECK REQUIRED: Thin cap (ITA s.12(2)) applies ONLY if 25% or more of this company's underlying ownership is held by non-resident persons, exempt entities, approved retirement funds, or charitable organisations. If the company has 100% Tanzanian individual shareholders, thin cap does NOT apply at all — ignore the figures below. | STEP 2 — DEBT CHECK (if thin cap applies): Total debt detected TZS ${totalDetectedDebt.toLocaleString()} | Equity (paid-up share capital) TZS ${equity.toLocaleString()} | Interest expense TZS ${interestExp.toLocaleString()}. Loans from registered Tanzanian financial institutions are EXCLUDED from thin cap debt (s.12(5)(ii)). Engine has included ALL detected debt — subtract local bank loans before using this figure.`,
-        accounts_found: [...ltDebtNames, ...intNames],
-        action_required: "First: confirm whether thin cap applies (25%+ non-resident/exempt ownership?). If NO — disregard this warning entirely. If YES — identify and subtract local bank loans from total debt, then verify whether remaining debt exceeds 7/3 × equity.",
+        category: "Management Fees (ITA s.33) — GATED",
+        message:  `Management/professional fee accounts detected: TZS ${mgmtFeeTotal.toLocaleString()}. ` +
+                  "ITA s.33 cap rate is not verified in statutory_rules. " +
+                  "Engine will not compute or apply a disallowance. " +
+                  "CPA must independently determine: (1) are these fees paid to a foreign related party? " +
+                  "(2) if yes, what is the applicable cap under ITA s.33 R.E.2023? " +
+                  "(3) compute excess manually and enter as a manual add-back.",
+        accounts_found:  mgmtFeeNames,
+        action_required: "CPA manual assessment required. No engine output for this item.",
       });
-
-      if (equity > 0) {
-        const allowableDebt = equity * THIN_CAP_RATIO;
-        const debtEquityRatio = totalDetectedDebt / equity;
-        if (totalDetectedDebt > allowableDebt && interestExp > 0) {
-          const excessDebtPct = (totalDetectedDebt - allowableDebt) / totalDetectedDebt;
-          thinCapDisallowed = Math.round(interestExp * excessDebtPct);
-          addBacks.push({
-            description: `UPPER-BOUND ONLY — confirm ownership before using: Thin cap disallowed interest (ITA s.12(2) — 7:3 ratio; Class 4 removed FA2016). Detected debt TZS ${totalDetectedDebt.toLocaleString()} vs allowable TZS ${allowableDebt.toLocaleString()} (${(debtEquityRatio).toFixed(2)}:1). Does NOT apply if company has 100% Tanzanian ownership. Exclude local bank loans from debt. Disallowed interest (upper-bound): ${(excessDebtPct*100).toFixed(1)}% of TZS ${interestExp.toLocaleString()}.`,
-            amount_tzs: thinCapDisallowed, ita_section: "ITA s.12(2) — verified TRA Cap.332 R.E.2023",
-            account_names: intNames, auto_detected: true, requires_review: true,
-          });
-        }
-      } else {
-        warnings.push("⚠ Equity is zero or not detected — thin cap test skipped. Check equity accounts.");
-      }
     }
+
+    // ── STEP 5: Thin Capitalisation — GATED ──────────────────────────────
+    // Ratio (ITA s.12(2)) not present in statutory_rules with verified_at.
+    // Per Iron Dome doctrine: not computed. CPA must assess independently.
+    const { total: equity } = sumMatching(bsEq, EQUITY_PATTERNS);
+    const thinCapDisallowed = 0;
+    classificationWarnings.push({
+      category: "Thin Capitalisation (ITA s.12(2)) — GATED",
+      message:  "Thin capitalisation ratio not verified in statutory_rules. " +
+                "Engine will not compute a disallowance figure. " +
+                "CPA must independently assess: (1) does s.12(2) apply (25%+ non-resident/exempt ownership)? " +
+                "(2) exclude resident financial institution loans (s.12(5)(ii)); " +
+                "(3) apply 7:3 debt-to-equity ratio to remaining foreign debt.",
+      accounts_found:  [],
+      action_required: "CPA manual assessment required. No engine output for this item.",
+    });
 
     // ── STEP 6: Wear & Tear from capital_allowances table ────────────────
     const { data: wtRows } = await supabase
@@ -820,13 +772,14 @@ serve(async (req) => {
     // ── STEP 9: CIT ───────────────────────────────────────────────────────
     const citAt30 = Math.round(Math.max(0, taxableIncome) * CIT_RATE);
 
-    // AMT: CANNOT auto-apply. Requires 3 years of loss history.
-    // Compute the AMT figure for informational purposes only.
-    const amtIndicative = Math.round(turnover * AMT_RATE);
-    const amtNote = taxableIncome < 0
-      ? `⚠ Company shows a tax loss this period (taxable income: TZS ${taxableIncome.toLocaleString()}). If losses persist for current + 2 preceding years, AMT applies: 1% × turnover = TZS ${amtIndicative.toLocaleString()} (ITA First Schedule para 3(3); rate UNCHANGED by Finance Act 2026). CPA must verify 3-year consecutive loss history. Exempt sectors: agriculture, health, education, tea processing.`
-      : null;
-    if (amtNote) warnings.push(amtNote);
+    // GATED: AMT / Minimum Tax (ITA First Schedule para 3(3)) not computed.
+    // Rate not present in statutory_rules with verified_at. CPA must assess independently.
+    const amtIndicative = 0;
+    warnings.push(
+      "GATED — AMT/Minimum Tax: rate not verified in statutory_rules. " +
+      "CPA must independently assess whether ITA First Schedule para 3(3) applies " +
+      "(3 consecutive years of tax losses) and compute 1% × turnover manually."
+    );
 
     // Standard CIT applies for profitable companies
     const taxPayable = citAt30; // No AMT auto-application; CPA decides based on loss history
@@ -1116,34 +1069,10 @@ serve(async (req) => {
     // Closing pool saved to period_closing_balances (replaces old running-total)
     const closingLossPool       = totalLossPool;
 
-    // ── D8-FIX: AMT 3-year consecutive-loss detection ─────────────────────
-    // AMT (ITA First Schedule para 3(3)): 1% of turnover applies when the entity
-    // has unrelieved tax losses in the current AND preceding 2 years.
-    // Now possible because period_closing_balances stores taxable_income_tzs.
-    const priorYearTaxableIncome     = openingBal?.taxable_income_tzs ?? null;
-    const priorPriorYearTaxableIncome = priorPriorYearBal?.taxable_income_tzs ?? null;
-    const amtThreeYearLosses =
-      taxableIncome < 0 &&
-      priorYearTaxableIncome !== null && priorYearTaxableIncome < 0 &&
-      priorPriorYearTaxableIncome !== null && priorPriorYearTaxableIncome < 0;
-    const amtApplicable = amtThreeYearLosses;
-    const amtComputed   = Math.round(turnover * AMT_RATE);  // 1% of turnover
-    if (amtApplicable) {
-      warnings.push(
-        `⚠ AMT APPLIES: Company has recorded tax losses for 3 consecutive years ` +
-        `(FY${periodYear}: TZS ${taxableIncome.toLocaleString()}, ` +
-        `FY${periodYear - 1}: TZS ${priorYearTaxableIncome!.toLocaleString()}, ` +
-        `FY${periodYear - 2}: TZS ${priorPriorYearTaxableIncome!.toLocaleString()}). ` +
-        `ITA First Schedule para 3(3): Minimum Tax = 1% × turnover = TZS ${amtComputed.toLocaleString()}. ` +
-        `AMT exempt: agriculture, health, education, tea processing. ` +
-        `CPA must confirm sector exemption before applying.`
-      );
-    } else if (taxableIncome < 0 && (priorYearTaxableIncome === null || priorPriorYearTaxableIncome === null)) {
-      warnings.push(
-        `⚠ AMT RISK: Tax loss this period. Prior 2-year history not yet available in period_closing_balances. ` +
-        `AMT check requires 3 years of data. Run engine for FY${periodYear - 1} and FY${periodYear - 2} first to enable auto-detection.`
-      );
-    }
+    // ── D8-FIX: AMT 3-year detection — GATED ─────────────────────────────
+    // AMT rate not in statutory_rules with verified_at. Not computed.
+    const amtApplicable = false;
+    const amtComputed   = 0;
 
     // ── TRUE Deferred Tax Movement (OD-14 RESOLVED when opening data available) ─
     const openingNetDTPosition   = openingBal?.net_deferred_tax_position_tzs ?? 0;
@@ -1392,12 +1321,12 @@ serve(async (req) => {
       total_deductions_tzs:             totalDeductions,
       total_wear_tear_tzs:              totalWearTear,
 
-      // Thin cap
-      total_detected_debt_tzs:          totalDetectedDebt,
+      // Thin cap — GATED: ratio not in statutory_rules; fields nulled
+      total_detected_debt_tzs:          null,
       total_equity_tzs:                 equity,
-      debt_equity_ratio:                equity > 0 ? Math.round((totalDetectedDebt/equity)*1000)/1000 : 0,
-      allowable_debt_tzs:               equity * THIN_CAP_RATIO,
-      interest_expense_tzs:             interestExp,
+      debt_equity_ratio:                null,
+      allowable_debt_tzs:               null,
+      interest_expense_tzs:             null,
       thin_cap_disallowed_tzs:          thinCapDisallowed,
 
       // Tax
@@ -1516,11 +1445,11 @@ serve(async (req) => {
       total_add_backs_tzs:              totalAddBacks,
       total_deductions_tzs:             totalDeductions,
       total_wear_tear_tzs:              totalWearTear,
-      total_debt_tzs:                   totalDetectedDebt,
+      total_debt_tzs:                   null,
       total_equity_tzs:                 equity,
-      debt_equity_ratio:                equity > 0 ? totalDetectedDebt/equity : null,
-      allowable_debt_tzs:               equity * THIN_CAP_RATIO,
-      interest_expense_tzs:             interestExp,
+      debt_equity_ratio:                null,
+      allowable_debt_tzs:               null,
+      interest_expense_tzs:             null,
       thin_cap_disallowed_tzs:          thinCapDisallowed,
       taxable_income_tzs:               taxableIncome,
       cit_at_30pct_tzs:                 citAt30,
