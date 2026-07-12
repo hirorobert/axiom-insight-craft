@@ -523,6 +523,7 @@ export type Database = {
           period_year: number
           source_account: string | null
           updated_at: string
+          wear_tear_allowance_tzs: number
           wear_tear_tzs: number
         }
         Insert: {
@@ -544,6 +545,7 @@ export type Database = {
           period_year: number
           source_account?: string | null
           updated_at?: string
+          wear_tear_allowance_tzs?: number
           wear_tear_tzs?: number
         }
         Update: {
@@ -565,6 +567,7 @@ export type Database = {
           period_year?: number
           source_account?: string | null
           updated_at?: string
+          wear_tear_allowance_tzs?: number
           wear_tear_tzs?: number
         }
         Relationships: [
@@ -2239,6 +2242,7 @@ export type Database = {
           period_id: string | null
           period_month: number | null
           period_year: number
+          result_json: Json
           tax_payable_tzs: number | null
           taxable_income_tzs: number | null
           thin_cap_disallowed_tzs: number
@@ -2284,6 +2288,7 @@ export type Database = {
           period_id?: string | null
           period_month?: number | null
           period_year: number
+          result_json?: Json
           tax_payable_tzs?: number | null
           taxable_income_tzs?: number | null
           thin_cap_disallowed_tzs?: number
@@ -2329,6 +2334,7 @@ export type Database = {
           period_id?: string | null
           period_month?: number | null
           period_year?: number
+          result_json?: Json
           tax_payable_tzs?: number | null
           taxable_income_tzs?: number | null
           thin_cap_disallowed_tzs?: number
