@@ -237,6 +237,27 @@ serve(async (req) => {
   }
 
   try {
+    // ── Authentication: require valid JWT ─────────────────────────────
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const token = authHeader.replace("Bearer ", "");
+    const authClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const { data: claims, error: claimsErr } = await authClient.auth.getClaims(token);
+    const callerId = claims?.claims?.sub as string | undefined;
+    if (claimsErr || !callerId) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
@@ -254,6 +275,24 @@ serve(async (req) => {
         JSON.stringify({ error: "company_id and current_period_id are required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // ── Authorization: caller must be a firm_member of company_id ─────
+    {
+      const { data: member } = await supabase
+        .from("firm_members")
+        .select("id")
+        .eq("user_id", callerId)
+        .eq("company_id", company_id)
+        .not("accepted_at", "is", null)
+        .limit(1)
+        .maybeSingle();
+      if (!member) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden", message: "Not a member of this company" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
     }
 
     // ── STEP 1: Resolve periods ────────────────────────────────────────────────
