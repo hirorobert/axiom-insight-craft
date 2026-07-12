@@ -2909,6 +2909,167 @@ export type Database = {
           },
         ]
       }
+      xbrl_concept_map: {
+        Row: {
+          created_at: string
+          id: string
+          pl_category: string
+          reporting_framework: string
+          taxonomy_version: string
+          xbrl_balance: string
+          xbrl_concept: string
+          xbrl_namespace: string
+          xbrl_period_type: string
+          xbrl_prefix: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          pl_category: string
+          reporting_framework: string
+          taxonomy_version?: string
+          xbrl_balance: string
+          xbrl_concept: string
+          xbrl_namespace: string
+          xbrl_period_type: string
+          xbrl_prefix: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          pl_category?: string
+          reporting_framework?: string
+          taxonomy_version?: string
+          xbrl_balance?: string
+          xbrl_concept?: string
+          xbrl_namespace?: string
+          xbrl_period_type?: string
+          xbrl_prefix?: string
+        }
+        Relationships: []
+      }
+      xbrl_instance_documents: {
+        Row: {
+          company_id: string
+          created_at: string
+          fact_count: number
+          function_version: string
+          generated_at: string
+          generated_by: string
+          id: string
+          instance_sha256: string
+          instance_xml: string
+          output_format: string
+          period_year: number
+          reporting_framework: string
+          request_id: string
+          taxonomy_version: string
+          upload_id: string
+          validation_errors: number
+          validation_info: number
+          validation_passed: boolean
+          validation_warnings: number
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          fact_count?: number
+          function_version?: string
+          generated_at?: string
+          generated_by: string
+          id?: string
+          instance_sha256: string
+          instance_xml: string
+          output_format: string
+          period_year: number
+          reporting_framework: string
+          request_id?: string
+          taxonomy_version: string
+          upload_id: string
+          validation_errors?: number
+          validation_info?: number
+          validation_passed: boolean
+          validation_warnings?: number
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          fact_count?: number
+          function_version?: string
+          generated_at?: string
+          generated_by?: string
+          id?: string
+          instance_sha256?: string
+          instance_xml?: string
+          output_format?: string
+          period_year?: number
+          reporting_framework?: string
+          request_id?: string
+          taxonomy_version?: string
+          upload_id?: string
+          validation_errors?: number
+          validation_info?: number
+          validation_passed?: boolean
+          validation_warnings?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "xbrl_instance_documents_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "xbrl_instance_documents_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      xbrl_validation_issues: {
+        Row: {
+          arelle_code: string | null
+          created_at: string
+          document_id: string
+          fact_value: string | null
+          id: string
+          message: string
+          severity: string
+          xbrl_element: string | null
+        }
+        Insert: {
+          arelle_code?: string | null
+          created_at?: string
+          document_id: string
+          fact_value?: string | null
+          id?: string
+          message: string
+          severity: string
+          xbrl_element?: string | null
+        }
+        Update: {
+          arelle_code?: string | null
+          created_at?: string
+          document_id?: string
+          fact_value?: string | null
+          id?: string
+          message?: string
+          severity?: string
+          xbrl_element?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "xbrl_validation_issues_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "xbrl_instance_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       v_aje_balance_check: {
@@ -3088,6 +3249,27 @@ export type Database = {
           p_reviewer_id: string
         }
         Returns: Json
+      }
+      xbrl_write_instance: {
+        Args: {
+          p_company_id: string
+          p_fact_count: number
+          p_function_version: string
+          p_instance_sha256: string
+          p_instance_xml: string
+          p_issues: Json
+          p_output_format: string
+          p_period_year: number
+          p_reporting_framework: string
+          p_request_id: string
+          p_taxonomy_version: string
+          p_upload_id: string
+          p_validation_errors: number
+          p_validation_info: number
+          p_validation_passed: boolean
+          p_validation_warnings: number
+        }
+        Returns: string
       }
     }
     Enums: {
