@@ -502,15 +502,181 @@ async def ocr_extract(
     })
 
 
+# ── /generate-xbrl endpoint ──────────────────────────────────────────────────
+#
+# Generates an XBRL 2.1 or iXBRL 1.1 instance document from SAFF financial data.
+# Called by the generate-xbrl Deno Edge Function.
+#
+# IRON DOME:
+#   - Requires JWT auth (same as all other endpoints).
+#   - Returns BLOCKED if framework is IPSAS or required data is missing.
+#   - Runs structural validation (always) + Arelle validation (if installed).
+#   - Never silently generates without validation.
+
+class XBRLGenerateRequest(BaseModel):
+    """Request body for /generate-xbrl."""
+    reporting_framework:     str           # 'ifrs_for_smes' | 'full_ifrs'
+    company_tin:             str
+    period_year:             int
+    period_end_month:        int           # 1–12
+    period_end_day:          int = 31
+    computation_detail:      dict          # from tax_computations.computation_detail
+    period_closing_balances: dict          # from period_closing_balances table
+    output_format:           str = "xbrl_2_1"  # 'xbrl_2_1' | 'ixbrl_1_1'
+
+    @field_validator("reporting_framework")
+    @classmethod
+    def validate_framework(cls, v: str) -> str:
+        allowed = {"ifrs_for_smes", "full_ifrs", "ipsas_accrual", "ipsas_cash"}
+        if v not in allowed:
+            raise ValueError(f"reporting_framework must be one of {allowed}")
+        return v
+
+    @field_validator("period_end_month")
+    @classmethod
+    def validate_month(cls, v: int) -> int:
+        if not 1 <= v <= 12:
+            raise ValueError("period_end_month must be between 1 and 12")
+        return v
+
+    @field_validator("output_format")
+    @classmethod
+    def validate_format(cls, v: str) -> str:
+        if v not in {"xbrl_2_1", "ixbrl_1_1"}:
+            raise ValueError("output_format must be 'xbrl_2_1' or 'ixbrl_1_1'")
+        return v
+
+
+@app.post("/generate-xbrl")
+async def generate_xbrl(
+    request:       XBRLGenerateRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Generate XBRL 2.1 or iXBRL 1.1 instance document from SAFF financial data.
+
+    Response:
+      {
+        success:           bool,
+        blocked:           bool,
+        blocked_reason:    str | null,
+        output_format:     'xbrl_2_1' | 'ixbrl_1_1',
+        taxonomy_version:  str,
+        reporting_framework: str,
+        instance_xml:      str | null,     -- the full XML/HTML document
+        instance_sha256:   str | null,     -- SHA-256 hex of instance_xml
+        fact_count:        int,
+        validation_passed: bool,
+        validation_errors: int,
+        validation_warnings: int,
+        validation_info:   int,
+        arelle_available:  bool,
+        issues:            [{severity, arelle_code, message, xbrl_element, fact_value}]
+      }
+    """
+    _user = verify_jwt(authorization)
+
+    from xbrl_engine import XBRLEngine
+
+    engine = XBRLEngine()
+    result = engine.generate_and_validate(
+        reporting_framework=     request.reporting_framework,
+        company_tin=             request.company_tin,
+        period_year=             request.period_year,
+        period_end_month=        request.period_end_month,
+        period_end_day=          request.period_end_day,
+        computation_detail=      request.computation_detail,
+        period_closing_balances= request.period_closing_balances,
+        output_format=           request.output_format,
+    )
+
+    status_code = 422 if result.blocked else 200
+    return JSONResponse(result.to_dict(), status_code=status_code)
+
+
+# ── /validate-xbrl endpoint ───────────────────────────────────────────────────
+#
+# Validates an existing XBRL instance document (already generated).
+# Used when the caller has an XBRL document from another source and wants
+# Arelle + structural validation against the IFRS taxonomy.
+
+class XBRLValidateRequest(BaseModel):
+    """Request body for /validate-xbrl."""
+    instance_xml:        str    # the XBRL or iXBRL document to validate
+    reporting_framework: str    # 'ifrs_for_smes' | 'full_ifrs'
+    output_format:       str = "xbrl_2_1"
+
+
+@app.post("/validate-xbrl")
+async def validate_xbrl(
+    request:       XBRLValidateRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Validate an XBRL or iXBRL document using Arelle + structural checks.
+
+    Returns same issues structure as /generate-xbrl.
+    IRON DOME: Never returns validation_passed=True without running checks.
+    """
+    _user = verify_jwt(authorization)
+
+    from xbrl_engine import ArelleValidator, TAXONOMY_REGISTRY
+
+    if request.reporting_framework not in TAXONOMY_REGISTRY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported framework: {request.reporting_framework}. Use ifrs_for_smes or full_ifrs."
+        )
+
+    taxonomy_url = TAXONOMY_REGISTRY[request.reporting_framework]["schema_ref"]
+    arelle = ArelleValidator()
+    issues = arelle.validate(
+        instance_xml=  request.instance_xml,
+        taxonomy_url=  taxonomy_url,
+        output_format= request.output_format,
+    )
+
+    errors   = sum(1 for i in issues if i.severity == "error")
+    warnings = sum(1 for i in issues if i.severity == "warning")
+    infos    = sum(1 for i in issues if i.severity == "info")
+
+    return JSONResponse({
+        "validation_passed":   errors == 0,
+        "validation_errors":   errors,
+        "validation_warnings": warnings,
+        "validation_info":     infos,
+        "arelle_available":    arelle.available,
+        "issues": [
+            {
+                "severity":     i.severity,
+                "arelle_code":  i.arelle_code,
+                "message":      i.message,
+                "xbrl_element": i.xbrl_element,
+                "fact_value":   i.fact_value,
+            }
+            for i in issues
+        ],
+    })
+
+
 # ── Health check ──────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
+    # Check Arelle availability
+    try:
+        import arelle  # noqa: F401
+        arelle_available = True
+    except ImportError:
+        arelle_available = False
+
     return {
-        "status":       "ok",
-        "service":      "safisha-pdf-worker",
-        "ocr_enabled":  os.environ.get("OCR_ENABLED", "false").lower() == "true",
-        "mineru_ready": False,  # Phase C+ only
+        "status":           "ok",
+        "service":          "safisha-pdf-worker",
+        "ocr_enabled":      os.environ.get("OCR_ENABLED", "false").lower() == "true",
+        "mineru_ready":     False,              # Phase C+ only
+        "xbrl_enabled":     True,               # xbrl_engine.py always present
+        "arelle_available": arelle_available,   # pip install arelle-release for full taxonomy validation
     }
 
 

@@ -5,6 +5,17 @@ pandas==2.2.3
 pydantic==2.10.3
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.18
+
+# XBRL engine dependencies
+lxml==5.3.0                    # XML processing for XBRL (faster than stdlib ET)
+arelle-release==2.31.9         # Open-source XBRL processor (Apache 2.0)
+                               # Used by SEC EDGAR, HMRC, ESMA, ASIC, MAS.
+                               # Validates XBRL 2.1 + iXBRL 1.1 against IFRS taxonomy.
+                               # Taxonomy files downloaded from IFRS CDN on first use
+                               # and cached in ~/.arelle/cache/ (persistent in Cloud Run).
+                               # Install with: pip install arelle-release
+                               # Source: https://github.com/Arelle/Arelle (Apache 2.0)
+
 # Phase C: OCR dependencies (only installed when OCR_ENABLED=true)
 # pytesseract==0.3.13       # Tesseract OCR Python wrapper
 # pdf2image==1.17.0         # PDF page → PIL Image (requires poppler-utils system dep)

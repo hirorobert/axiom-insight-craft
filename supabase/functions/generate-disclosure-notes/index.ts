@@ -536,9 +536,11 @@ serve(async (req) => {
     const companyTin: string = companyRow?.tin ?? "";
 
     // 2. Latest committed tax computation for this upload
+    // IRON DOME: correct column is `computation_detail` (not `result_json`).
+    // `tax_computations` has no `period_month` column — derive from fiscal_year_end.
     const { data: computation, error: compErr } = await admin
       .from("tax_computations")
-      .select("result_json, period_year, period_month, created_at, engine_version")
+      .select("computation_detail, period_year, created_at, engine_version")
       .eq("upload_id", uploadId)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -549,26 +551,27 @@ serve(async (req) => {
     }
 
     // ── Derive period ────────────────────────────────────────
+    // IRON DOME: tax_computations has no period_month column.
+    // fiscal_year_end (format "MM-DD") is the authoritative month source.
     let periodYear: number;
     let periodEndMonth: number;
 
+    const fyeParts = upload.fiscal_year_end?.match(/(\d{1,2})-(\d{1,2})/);
+    const fiscalEndMonth: number = fyeParts ? parseInt(fyeParts[1]) : 12;
+
     if (computation?.period_year) {
-      periodYear = computation.period_year;
-      periodEndMonth = computation.period_month ?? 12;
-    } else if (upload.fiscal_year_end) {
-      const fyeParts = upload.fiscal_year_end.match(/(\d{1,2})-(\d{1,2})/);
-      periodEndMonth = fyeParts ? parseInt(fyeParts[1]) : 12;
-      const uploadDate = new Date(upload.uploaded_at);
-      periodYear = uploadDate.getFullYear();
+      periodYear     = computation.period_year;
+      periodEndMonth = fiscalEndMonth;
     } else {
       const uploadDate = new Date(upload.uploaded_at);
-      periodEndMonth = 12;
-      periodYear = uploadDate.getFullYear();
+      periodYear     = uploadDate.getFullYear();
+      periodEndMonth = fiscalEndMonth;
     }
 
     const companyName: string = upload.company_name ?? "The Company";
     const framework: string = upload.reporting_framework ?? "IFRS for SMEs";
-    const engineResult: EngineResult = (computation?.result_json as EngineResult) ?? {};
+    // IRON DOME: computation_detail is the correct column (not result_json).
+    const engineResult: EngineResult = (computation?.computation_detail as EngineResult) ?? {};
 
     // ── Generate all 8 Tanzania-specific notes ───────────────
     const generatedAt = new Date().toISOString();

@@ -9,7 +9,7 @@
 // Sections (computed from real data):
 //   1. Basis of Engagement
 //   2. Executive Summary
-//   A. Tax Computation Summary     ← tax_computations.result_json
+//   A. Tax Computation Summary     ← tax_computations.computation_detail
 //   B. Material Findings           ← findings table (open + in_progress)
 //   C. Instalment Tax Obligations  ← ITA s.88 from engine result
 //   D. Recommendations             ← derived from findings risk types
@@ -174,17 +174,21 @@ serve(async (req) => {
     const companyTin: string = companyRow?.tin ?? "";
 
     // ── 2. Latest committed tax computation ──────────────────
+    // IRON DOME: correct column is `computation_detail` (not `result_json`).
+    // `tax_computations` has no `period_month` column — derive from fiscal_year_end.
     const { data: computation } = await admin
       .from("tax_computations")
-      .select("result_json, period_year, period_month, engine_version, created_at")
+      .select("computation_detail, period_year, engine_version, created_at")
       .eq("upload_id", uploadId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    const r: EngineResult = (computation?.result_json as EngineResult) ?? {};
+    const r: EngineResult = (computation?.computation_detail as EngineResult) ?? {};
     const periodYear: number = computation?.period_year ?? new Date(upload.uploaded_at).getFullYear();
-    const periodEndMonth: number = computation?.period_month ?? 12;
+    // fiscal_year_end format "MM-DD" — month is the authoritative period-end month
+    const fyePartsML = upload.fiscal_year_end?.match(/(\d{1,2})-(\d{1,2})/);
+    const periodEndMonth: number = fyePartsML ? parseInt(fyePartsML[1]) : 12;
     const engineVersion: string = r.engine_version ?? computation?.engine_version ?? "v2";
 
     // ── 3. Findings (open + in_progress, this upload) ───────
