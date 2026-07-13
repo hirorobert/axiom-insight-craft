@@ -1324,6 +1324,146 @@ export type Database = {
           },
         ]
       }
+      hesabu_validation_assertions: {
+        Row: {
+          actual_value: number | null
+          assertion_id: string
+          assertion_name: string
+          created_at: string
+          detail: string | null
+          difference: number | null
+          expected_value: number | null
+          id: string
+          result: string
+          severity: string
+          skip_reason: string | null
+          source_standard: string
+          tolerance_used: number | null
+          validation_id: string
+          within_tolerance: boolean | null
+        }
+        Insert: {
+          actual_value?: number | null
+          assertion_id: string
+          assertion_name: string
+          created_at?: string
+          detail?: string | null
+          difference?: number | null
+          expected_value?: number | null
+          id?: string
+          result: string
+          severity: string
+          skip_reason?: string | null
+          source_standard: string
+          tolerance_used?: number | null
+          validation_id: string
+          within_tolerance?: boolean | null
+        }
+        Update: {
+          actual_value?: number | null
+          assertion_id?: string
+          assertion_name?: string
+          created_at?: string
+          detail?: string | null
+          difference?: number | null
+          expected_value?: number | null
+          id?: string
+          result?: string
+          severity?: string
+          skip_reason?: string | null
+          source_standard?: string
+          tolerance_used?: number | null
+          validation_id?: string
+          within_tolerance?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hesabu_validation_assertions_validation_id_fkey"
+            columns: ["validation_id"]
+            isOneToOne: false
+            referencedRelation: "hesabu_validations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hesabu_validations: {
+        Row: {
+          assertions_failed: number
+          assertions_passed: number
+          assertions_skipped: number
+          assertions_total: number
+          company_id: string
+          created_at: string
+          function_version: string
+          gate_satisfied: boolean
+          id: string
+          period_year: number
+          request_id: string
+          scf_tolerance_pct_used: number | null
+          sfp_tolerance_tzs_used: number | null
+          socie_tolerance_pct_used: number | null
+          status: string
+          upload_id: string
+          validated_at: string
+          validated_by: string
+        }
+        Insert: {
+          assertions_failed?: number
+          assertions_passed?: number
+          assertions_skipped?: number
+          assertions_total?: number
+          company_id: string
+          created_at?: string
+          function_version?: string
+          gate_satisfied?: boolean
+          id?: string
+          period_year: number
+          request_id?: string
+          scf_tolerance_pct_used?: number | null
+          sfp_tolerance_tzs_used?: number | null
+          socie_tolerance_pct_used?: number | null
+          status: string
+          upload_id: string
+          validated_at?: string
+          validated_by: string
+        }
+        Update: {
+          assertions_failed?: number
+          assertions_passed?: number
+          assertions_skipped?: number
+          assertions_total?: number
+          company_id?: string
+          created_at?: string
+          function_version?: string
+          gate_satisfied?: boolean
+          id?: string
+          period_year?: number
+          request_id?: string
+          scf_tolerance_pct_used?: number | null
+          sfp_tolerance_tzs_used?: number | null
+          socie_tolerance_pct_used?: number | null
+          status?: string
+          upload_id?: string
+          validated_at?: string
+          validated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hesabu_validations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hesabu_validations_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ingestion_batches: {
         Row: {
           company_id: string
@@ -2856,6 +2996,9 @@ export type Database = {
           min_periods_high: number
           min_periods_medium: number
           pct_threshold: number
+          scf_tolerance_pct: number | null
+          sfp_tolerance_tzs: number | null
+          socie_tolerance_pct: number | null
           updated_at: string
           updated_by: string | null
         }
@@ -2867,6 +3010,9 @@ export type Database = {
           min_periods_high?: number
           min_periods_medium?: number
           pct_threshold?: number
+          scf_tolerance_pct?: number | null
+          sfp_tolerance_tzs?: number | null
+          socie_tolerance_pct?: number | null
           updated_at?: string
           updated_by?: string | null
         }
@@ -2878,6 +3024,9 @@ export type Database = {
           min_periods_high?: number
           min_periods_medium?: number
           pct_threshold?: number
+          scf_tolerance_pct?: number | null
+          sfp_tolerance_tzs?: number | null
+          socie_tolerance_pct?: number | null
           updated_at?: string
           updated_by?: string | null
         }
@@ -3256,6 +3405,25 @@ export type Database = {
         }[]
       }
       get_member_company_ids: { Args: never; Returns: string[] }
+      hesabu_write_validation: {
+        Args: {
+          p_assertions: Json
+          p_assertions_failed: number
+          p_assertions_passed: number
+          p_assertions_skipped: number
+          p_assertions_total: number
+          p_company_id: string
+          p_function_version: string
+          p_period_year: number
+          p_request_id: string
+          p_scf_tolerance_used: number
+          p_sfp_tolerance_used: number
+          p_socie_tolerance_used: number
+          p_status: string
+          p_upload_id: string
+        }
+        Returns: string
+      }
       maono_check_safisha_gate: {
         Args: { p_upload_ids: string[] }
         Returns: {
