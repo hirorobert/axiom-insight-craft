@@ -6,35 +6,41 @@
 
 @layer base {
   :root {
-    --background: 0 0% 97%;
-    --foreground: 215 28% 12%;
+    /* Iron Dome Nuclear — Deep Navy palette */
+    --background: 220 20% 97%;
+    --foreground: 209 72% 9%;
 
     --card: 0 0% 100%;
-    --card-foreground: 215 28% 12%;
+    --card-foreground: 209 72% 9%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 215 28% 12%;
+    --popover-foreground: 209 72% 9%;
 
-    --primary: 211 56% 16%;
+    /* Deep Navy #071828 */
+    --primary: 209 72% 9%;
     --primary-foreground: 0 0% 98%;
 
     --secondary: 214 20% 91%;
-    --secondary-foreground: 215 28% 12%;
+    --secondary-foreground: 209 72% 9%;
 
-    --muted: 214 20% 94%;
-    --muted-foreground: 215 16% 47%;
+    --muted: 214 20% 93%;
+    --muted-foreground: 215 18% 44%;
 
-    --accent: 211 56% 16%;
+    --accent: 209 72% 9%;
     --accent-foreground: 0 0% 98%;
 
     --destructive: 0 35% 40%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 214 18% 85%;
-    --input: 214 18% 85%;
-    --ring: 211 56% 16%;
+    --border: 214 18% 86%;
+    --input: 214 18% 86%;
+    --ring: 209 72% 9%;
 
-    --radius: 0.25rem;
+    /* Iron Dome: 2px sharp corners — no rounded softness */
+    --radius: 0.125rem;
+
+    /* Gold — approval-only; do not use on landing page CTAs */
+    --gold: 38 57% 55%;
   }
 
   .dark {

@@ -13,7 +13,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { SessionIndicator } from "@/components/SessionIndicator";
 import { NotificationBell } from "@/components/NotificationBell";
 
 export function Header() {
@@ -44,7 +43,16 @@ export function Header() {
         {/* Desktop Nav */}
         <nav className="hidden md:flex items-center gap-8">
           <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Features
+            Platform
+          </a>
+          <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            Integrity
+          </a>
+          <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            Security
+          </a>
+          <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            Pricing
           </a>
           {user && (
             <Link to="/dashboard" className="text-sm font-medium text-primary hover:text-primary/80 transition-colors flex items-center gap-1.5">
@@ -59,7 +67,6 @@ export function Header() {
           {user ? (
             <>
               <NotificationBell userId={user?.id} />
-              <SessionIndicator />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-9 w-9 rounded-full p-0">

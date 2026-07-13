@@ -1,54 +1,72 @@
+import { ArrowRight, Lock, GitCommit, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, FileCheck, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { BRAND, CTA, HERO } from "@/constants/copy";
+import { HERO, CTA, PIPELINE } from "@/constants/copy";
 
 export function Hero() {
   const { user } = useAuth();
   const ctaHref = user ? "/dashboard" : "/auth";
 
   return (
-    <section className="relative pt-28 pb-8 px-6">
-      <div className="max-w-7xl mx-auto">
-        <div className="max-w-3xl mx-auto text-center">
+    <section className="relative pt-32 pb-16 px-6 bg-background">
+      <div className="max-w-5xl mx-auto">
 
-          {/* Eyebrow */}
-          <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground mb-4">
-            {HERO.eyebrow}
-          </p>
+        {/* Eyebrow */}
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-6 text-center">
+          {HERO.eyebrow}
+        </p>
 
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight mb-6">
-            Tanzania Tax Compliance,{" "}
-            <span className="text-[#0E1D30]">Automated</span>
-          </h1>
+        {/* Headline */}
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-center text-primary mb-6 leading-[1.1]">
+          {HERO.headline}
+        </h1>
 
-          <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
-            {HERO.subhead}
-          </p>
+        {/* Subhead */}
+        <p className="text-lg text-muted-foreground max-w-2xl mx-auto text-center leading-relaxed mb-10">
+          {HERO.subhead}
+        </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10">
-            <Button variant="hero" size="xl" asChild>
-              <a href={ctaHref}>
-                {CTA.primary}
-                <ArrowRight size={18} />
-              </a>
-            </Button>
-            <Button variant="heroOutline" size="xl" asChild>
-              <a href="#features">{CTA.secondary}</a>
-            </Button>
+        {/* Connected Pipeline */}
+        <div className="flex flex-wrap items-stretch justify-center border border-border rounded-sm overflow-hidden mb-10 divide-x divide-border">
+          {PIPELINE.map((step) => (
+            <div
+              key={step}
+              className="px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors whitespace-nowrap"
+            >
+              {step}
+            </div>
+          ))}
+        </div>
+
+        {/* CTAs */}
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-14">
+          <Button variant="hero" size="xl" asChild>
+            <a href={ctaHref}>
+              {CTA.primary}
+              <ArrowRight size={18} />
+            </a>
+          </Button>
+          <Button variant="heroOutline" size="xl" asChild>
+            <a href="#features">{CTA.secondary}</a>
+          </Button>
+        </div>
+
+        {/* Trust signals */}
+        <div className="flex flex-wrap items-center justify-center gap-8 border-t border-border/40 pt-8">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Lock size={14} className="text-primary/50 flex-shrink-0" />
+            <span className="text-xs">Append-only audit records</span>
           </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-8 text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <FileCheck size={18} className="text-accent" />
-              <span className="text-sm">ITA Cap.332 R.E.2023 compliant</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <ShieldCheck size={18} className="text-accent" />
-              <span className="text-sm">Deterministic validation — no guessing</span>
-            </div>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <GitCommit size={14} className="text-primary/50 flex-shrink-0" />
+            <span className="text-xs">Every action signed to actor identity</span>
+          </div>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <FileText size={14} className="text-primary/50 flex-shrink-0" />
+            <span className="text-xs">ITA Cap.332 · Finance Act 2026 enacted</span>
           </div>
         </div>
+
       </div>
     </section>
   );
