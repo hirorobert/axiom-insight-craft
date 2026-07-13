@@ -391,6 +391,16 @@ export default function Dashboard() {
     }
   }, [user, selectedCompanyId]);
 
+  // ── WORKSPACE REDIRECT ────────────────────────────────────────────────────
+  // When a company + upload is resolved, redirect to the workspace.
+  // New users with no uploads remain on /dashboard to see the onboarding CTA.
+  useEffect(() => {
+    if (!loading && selectedUpload && selectedUpload.company_id) {
+      const { periodYear } = deriveFiscalPeriod(selectedUpload, selectedCompanyData);
+      navigate(`/workspace/${selectedUpload.company_id}/${periodYear}`);
+    }
+  }, [loading, selectedUpload, selectedCompanyData, navigate]);
+
   // Auto-accept firm invitation — runs once on login.
   // When an invited user logs in for the first time, their firm_members
   // row has accepted_at = null. We update it here so they become active.
