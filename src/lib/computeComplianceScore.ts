@@ -374,4 +374,8 @@ export async function fetchScoringDataBatch(
       taxCompWarnings:  taxCompMap.get(id)  ?? [],
       totalPaid:        paidMap.get(id)     ?? 0,
       signOffStatus:    signOffMap.get(id)  ?? null,
-      n
+      now,
+    });
+  }
+  return result;
+}
