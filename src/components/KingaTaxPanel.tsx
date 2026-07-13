@@ -1579,4 +1579,14 @@ export function KingaTaxPanel({
                     Engine {stored.engine_version ?? "unknown"} —
                     Tax payable TZS {stored.tax_payable_tzs?.toLocaleString() ?? "—"} |
                     Gap TZS {stored.cit_gap_tzs?.toLocaleString() ?? "—"}
-             
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+    </div>
+  );
+}
