@@ -464,4 +464,5 @@ export function TRAFilingChecklist({
         )}
       </CardContent>
     </Card>
-  
+  );
+}
