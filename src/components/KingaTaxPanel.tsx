@@ -1581,19 +1581,6 @@ export function KingaTaxPanel({
                     Engine {stored.engine_version ?? "unknown"} —
                     Tax payable TZS {stored.tax_payable_tzs?.toLocaleString() ?? "—"} |
                     Gap TZS {stored.cit_gap_tzs?.toLocaleString() ?? "—"}
-<<<<<<< HEAD
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-    </div>
-  );
-}
-=======
                     <span className="ml-1 text-orange-600 font-medium">
                       (Committing will replace this record)
                     </span>
@@ -1732,4 +1719,3 @@ export function KingaTaxPanel({
     </div>
   );
 }
->>>>>>> 331bb78 (fix(platform): enforce member identity, EFDMS controls, and statutory gating)
