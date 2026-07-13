@@ -596,14 +596,7 @@ export function TransferPricingPanel({
             );
           })
         )}
-<<<<<<< HEAD
       </CardContent>
     </Card>
   );
 }
-=======
-      </CardContent>
-    </Card>
-  );
-}
->>>>>>> 331bb78 (fix(platform): enforce member identity, EFDMS controls, and statutory gating)
