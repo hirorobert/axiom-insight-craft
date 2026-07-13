@@ -5,6 +5,25 @@ on:
     branches: [main]
 
 jobs:
+  conflict-marker-check:
+    name: Merge Conflict Marker Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Scan for merge conflict markers
+        run: |
+          set -e
+          # Search tracked files for conflict markers. Exclude this workflow file itself.
+          # Patterns anchored at line start to avoid false positives in prose.
+          if git grep -n -I -E '^(<{7}|={7}|>{7})( |$)' -- ':!.github/workflows/ci.yml'; then
+            echo "::error::Merge conflict markers detected. Resolve before merging."
+            exit 1
+          fi
+          echo "No merge conflict markers found."
+
   lint-build-and-typecheck:
     name: Lint, Build and Type Check
     runs-on: ubuntu-latest
