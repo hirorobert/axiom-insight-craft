@@ -596,4 +596,7 @@ export function TransferPricingPanel({
             );
           })
         )}
-      </CardCont
+      </CardContent>
+    </Card>
+  );
+}
