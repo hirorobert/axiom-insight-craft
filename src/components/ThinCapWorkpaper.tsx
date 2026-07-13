@@ -323,4 +323,14 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                           <td className="py-2.5 px-4 text-xs text-muted-foreground hidden sm:table-cell">{row.note}</td>
                         </tr>
                       ))}
-                 
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </CollapsibleContent>
+      </Collapsible>
+    </Card>
+  );
+}

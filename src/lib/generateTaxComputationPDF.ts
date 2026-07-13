@@ -584,4 +584,5 @@ export function generateTaxComputationPDF(opts: GeneratePDFOptions): void {
 
   // ── Download ──────────────────────────────────────────────────
   const safeName = companyName.replace(/[^a-zA-Z0-9\s-]/g, "").replace(/\s+/g, "_");
-  doc.save(`SAFF_CIT_${safeName}_${periodYear}.pdf`
+  doc.save(`SAFF_CIT_${safeName}_${periodYear}.pdf`);
+}

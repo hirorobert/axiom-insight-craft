@@ -434,4 +434,7 @@ export function FilingCalendarPanel() {
             ))}
           </div>
         )}
-      </CardCont
+      </CardContent>
+    </Card>
+  );
+}
