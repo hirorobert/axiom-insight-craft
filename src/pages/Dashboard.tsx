@@ -1068,4 +1068,10 @@ export default function Dashboard() {
               <span>{formatDate(uploads[0].uploaded_at)}</span>
             </div>
           )}
+        </div>
+        )}
+      </main>
+    </div>
+  );
+}
         
