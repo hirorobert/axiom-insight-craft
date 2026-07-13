@@ -433,3 +433,12 @@ export function TRAAuditReadinessPanel({
                     <Printer className="w-3.5 h-3.5" />
                     Download Manifest
                   </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </CollapsibleContent>
+      </Collapsible>
+    </Card>
+  );
+}
