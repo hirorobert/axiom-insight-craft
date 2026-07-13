@@ -633,9 +633,10 @@ export function KingaTaxPanel({
       tier === "reviewer" ? "reviewer_signed" : "approved";
 
     if (tier === "approver") {
-      updates.locked_at  = now;
-      updates.locked_by  = userId;
-      updates.status     = "locked";
+      updates.locked_at           = now;
+      updates.locked_by           = userId;         // legacy: auth.users.id (Phase 1 → 2 transition)
+      updates.locked_by_member_id = firmMemberId;   // v2.3: firm_members.id
+      updates.status              = "locked";
     } else {
       updates.status = newStatus;
     }
@@ -674,7 +675,8 @@ export function KingaTaxPanel({
     setError(null);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("kinga-tax-engine", {
-        body: { uploadId, companyId, periodYear, periodEndMonth, dry_run: dryRun, months_overdue: monthsOverdue, userId },
+        body: { uploadId, companyId, periodYear, periodEndMonth, dry_run: dryRun, months_overdue: monthsOverdue },
+        // v2.3: userId removed — kinga-tax-engine derives firmMemberId from JWT internally
       });
       if (fnErr) throw fnErr;
       if (!data?.success) throw new Error(data?.error ?? "Engine returned no result");
@@ -1579,6 +1581,7 @@ export function KingaTaxPanel({
                     Engine {stored.engine_version ?? "unknown"} —
                     Tax payable TZS {stored.tax_payable_tzs?.toLocaleString() ?? "—"} |
                     Gap TZS {stored.cit_gap_tzs?.toLocaleString() ?? "—"}
+<<<<<<< HEAD
                   </div>
                 )}
               </div>
@@ -1590,3 +1593,143 @@ export function KingaTaxPanel({
     </div>
   );
 }
+=======
+                    <span className="ml-1 text-orange-600 font-medium">
+                      (Committing will replace this record)
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {phase === "done" && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">
+                  <CheckCircle className="w-4 h-4" />
+                  Computation saved.
+                  {result.finding_created && " CIT gap finding created in findings table."}
+                  <Button variant="ghost" size="sm" onClick={reset} className="ml-auto">Run Again</Button>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 w-full"
+                  onClick={async () => {
+                    // Fetch supporting data for the PDF
+                    const [{ data: allowances }, { data: findings }] = await Promise.all([
+                      supabase
+                        .from("capital_allowances")
+                        .select("asset_description, ita_class, cost_tzs, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, wear_tear_allowance_tzs, ita_wdv_closing_tzs")
+                        .eq("upload_id", uploadId),
+                      supabase
+                        .from("findings")
+                        .select("title, finding_category, exposure_amount_tzs, status")
+                        .eq("company_id", companyId)
+                        .in("status", ["open", "in_progress"]),
+                    ]);
+                    generateTaxComputationPDF({
+                      result,
+                      companyName: companyName ?? "Company",
+                      companyTin,
+                      periodYear,
+                      periodEndMonth: periodEndMonth ?? 12,
+                      allowances: (allowances ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["allowances"],
+                      findings:   (findings   ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["findings"],
+                    });
+                  }}
+                >
+                  <FileDown className="w-3.5 h-3.5" />
+                  Download Tax Computation Report (PDF)
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+
+      {/* ── COMMIT CONFIRM DIALOG ─────────────────────────────────── */}
+      {result && (
+        <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-primary" />
+                Confirm — Commit ITA Computation to Database
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-3 text-sm">
+              <div className="text-muted-foreground">
+                Committing will write the following computation to the <code>tax_computations</code> table
+                and create a formal finding record in the audit database.
+                {stored && <span className="text-orange-600 font-medium"> This will replace the previous commit from {new Date(stored.created_at).toLocaleDateString()}.</span>}
+              </div>
+
+              <div className="bg-muted/40 border border-border rounded-lg p-3 space-y-1.5 font-mono text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Company</span>
+                  <span className="font-semibold">{companyName ?? companyId}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Period</span>
+                  <span>FY {periodYear}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Engine</span>
+                  <span>{result.engine_version}</span>
+                </div>
+                <div className="my-1 border-t border-dashed border-muted" />
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Taxable Income</span>
+                  <span>TZS {result.taxable_income_tzs?.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">CIT @ 30%</span>
+                  <span>TZS {result.cit_at_30pct_tzs?.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tax Provision (booked)</span>
+                  <span>TZS {result.income_tax_provision_tzs?.toLocaleString()}</span>
+                </div>
+                <div className={`flex justify-between font-bold ${Math.abs(result.cit_gap_tzs) > 500_000 ? "text-destructive" : "text-green-700"}`}>
+                  <span>CIT Gap</span>
+                  <span>TZS {result.cit_gap_tzs?.toLocaleString()}</span>
+                </div>
+              </div>
+
+              {result.review_required && (
+                <div className="flex items-start gap-2 text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded px-3 py-2">
+                  <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                  CPA Review Required — {result.classification_warnings?.length ?? 0} classification warning(s) unresolved.
+                  Committing will save this as a provisional computation.
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowConfirm(false)}>Cancel</Button>
+              <Button
+                onClick={() => {
+                  setShowConfirm(false);
+                  runEngine(false);
+                }}
+                className="gap-2"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Yes, Commit to Database
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </Card>
+
+    {/* ── ITA s.19 LOSS CARRY-FORWARD POOL PANEL ──────────────── */}
+    {result && (
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      <TaxLossPanel result={result as any} periodYear={periodYear} companyName={companyName} />
+    )}
+    </div>
+  );
+}
+>>>>>>> 331bb78 (fix(platform): enforce member identity, EFDMS controls, and statutory gating)

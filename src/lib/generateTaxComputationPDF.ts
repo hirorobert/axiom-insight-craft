@@ -584,5 +584,10 @@ export function generateTaxComputationPDF(opts: GeneratePDFOptions): void {
 
   // ── Download ──────────────────────────────────────────────────
   const safeName = companyName.replace(/[^a-zA-Z0-9\s-]/g, "").replace(/\s+/g, "_");
+<<<<<<< HEAD
   doc.save(`SAFF_CIT_${safeName}_${periodYear}.pdf`);
 }
+=======
+  doc.save(`SAFF_CIT_${safeName}_${periodYear}.pdf`);
+}
+>>>>>>> 331bb78 (fix(platform): enforce member identity, EFDMS controls, and statutory gating)

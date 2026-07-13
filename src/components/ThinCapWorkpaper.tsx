@@ -326,6 +326,47 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                     </tbody>
                   </table>
                 </div>
+<<<<<<< HEAD
+=======
+
+                {/* Ratio indicator */}
+                <div className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${thinCapTriggered ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
+                  {thinCapTriggered
+                    ? <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                    : <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  }
+                  <div>
+                    <p className={`text-sm font-semibold ${thinCapTriggered ? "text-red-800" : "text-emerald-800"}`}>
+                      {actualRatio !== null
+                        ? `Actual ratio: ${actualRatio.toFixed(2)}:1 (limit: 2.33:1)`
+                        : "Ratio: N/A (equity is zero)"}
+                    </p>
+                    {thinCapTriggered ? (
+                      <>
+                        <p className="text-xs text-red-700 mt-0.5">
+                          Thin cap applies — {fmt(disallowedInterest)} of interest expense must be added back to accounting PBT (ITA s.12(2)).
+                        </p>
+                        <p className="text-xs text-red-700 mt-1 font-medium">
+                          Suggested AJE (if not already booked): Dr Interest Expense add-back / Cr Disallowed interest liability — {fmt(disallowedInterest)}.
+                          Include note: "ITA s.12(2) thin cap disallowance — FY{periodYear}."
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs text-emerald-700 mt-0.5">
+                        Debt:equity ratio is within the ITA s.12(2) 70:30 limit. All interest expense is deductible.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Footnote */}
+                <p className="text-[10px] text-muted-foreground/70 border-t border-border/40 pt-2">
+                  Source: ITA Chapter 332 s.12(2) (as amended); Deloitte Tanzania Transfer Pricing Guide Aug 2025.
+                  Resident bank debt exclusion per ITA s.12. Maximum debt:equity ratio 70:30 (2.333:1).
+                  Interest rate assumption is indicative only — use actual weighted average rate from loan agreements.
+                  Kinga engine pre-populates debt/equity from balance sheet; CPA must confirm resident bank debt exclusion.
+                </p>
+>>>>>>> 331bb78 (fix(platform): enforce member identity, EFDMS controls, and statutory gating)
               </>
             )}
           </CardContent>
@@ -333,4 +374,8 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
       </Collapsible>
     </Card>
   );
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 331bb78 (fix(platform): enforce member identity, EFDMS controls, and statutory gating)

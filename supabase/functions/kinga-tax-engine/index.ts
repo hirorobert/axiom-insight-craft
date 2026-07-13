@@ -420,7 +420,7 @@ serve(async (req) => {
 
     const {
       uploadId, companyId, periodYear, dry_run = true,
-      months_overdue = 0, userId = null,
+      months_overdue = 0,
       periodEndMonth = 12,   // D7-FIX: fiscal year-end month (1-12). Pass from Dashboard.
     } = await req.json();
     if (!uploadId || !companyId || !periodYear) {
@@ -435,6 +435,9 @@ serve(async (req) => {
     );
 
     // ── Authorization: caller must be a firm_member of companyId ──────
+    // v2.3 Phase 1: firmMemberId (firm_members.id) is the canonical actor identity.
+    // Derived here from JWT callerId — NEVER accepted from request body.
+    let firmMemberId: string;
     {
       const { data: member } = await supabase
         .from("firm_members")
@@ -450,6 +453,7 @@ serve(async (req) => {
           { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
+      firmMemberId = member.id;
     }
 
     const warnings: string[]               = [];
@@ -1551,12 +1555,10 @@ serve(async (req) => {
     }, { onConflict: "company_id,period_year,period_month" });
 
     // ── STEP 13: Auto-generate AJEs for CIT gap and DTL ──────────────────
-    // AJEs are only written when:
-    //   (a) userId is provided (so we have a created_by value), AND
-    //   (b) there is a material gap or deferred tax position
-    // Each AJE is an upsert keyed on (company_id, upload_id, aje_number)
-    // so re-runs are idempotent.
-    if (userId) {
+    // AJEs written using firmMemberId (firm_members.id) derived from JWT above.
+    // v2.3 Iron Dome: actor identity NEVER comes from request body.
+    // Each AJE is an upsert keyed on (company_id, upload_id, aje_number) — idempotent.
+    {
       const ajeInserts: object[] = [];
 
       // AJE-E001: CIT gap → Dr Income Tax Expense / Cr Income Tax Payable
@@ -1570,7 +1572,7 @@ serve(async (req) => {
           aje_type:       "tax",
           source:         "module_e",
           auto_generated: true,
-          created_by:     userId,
+          created_by:     firmMemberId,  // v2.3: firm_members.id from JWT
           status:         "draft",
         };
         const { data: ajeE001Row } = await supabase
@@ -1608,7 +1610,7 @@ serve(async (req) => {
             aje_type:       "deferred_tax",
             source:         "module_d",
             auto_generated: true,
-            created_by:     userId,
+            created_by:     firmMemberId,  // v2.3: firm_members.id from JWT
             status:         "draft",
           };
           const { data: ajeD001Row } = await supabase

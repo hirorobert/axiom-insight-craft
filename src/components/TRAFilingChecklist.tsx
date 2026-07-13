@@ -464,5 +464,10 @@ export function TRAFilingChecklist({
         )}
       </CardContent>
     </Card>
+<<<<<<< HEAD
   );
 }
+=======
+  );
+}
+>>>>>>> 331bb78 (fix(platform): enforce member identity, EFDMS controls, and statutory gating)

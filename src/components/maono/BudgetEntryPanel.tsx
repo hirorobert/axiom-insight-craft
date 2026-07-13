@@ -133,6 +133,15 @@ export function BudgetEntryPanel({ companyId, supabaseUrl, supabaseAnonKey, onSu
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated.");
 
+      // v2.3 Phase 1: resolve firm_members.id for submitted_by_member_id
+      const { data: member } = await supabase
+        .from("firm_members")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("company_id", companyId)
+        .single();
+      const firmMemberId: string | null = member?.id ?? null;
+
       // Determine next version for this period
       const { data: existing } = await supabase
         .from("variance_budgets")
@@ -154,8 +163,9 @@ export function BudgetEntryPanel({ companyId, supabaseUrl, supabaseAnonKey, onSu
         period_month:  r.period_month,
         budget_amount: r.budget_amount,
         version:       nextVersion,
-        submitted_by:  user.id,
-        notes:         notes || null,
+        submitted_by:            user.id,        // legacy: auth.users.id
+        submitted_by_member_id:  firmMemberId,   // v2.3: firm_members.id (null if lookup failed)
+        notes:                   notes || null,
         // approved_by is NULL — requires separate approval action
       }));
 

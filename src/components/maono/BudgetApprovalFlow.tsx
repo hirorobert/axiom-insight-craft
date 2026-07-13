@@ -97,10 +97,22 @@ export function BudgetApprovalFlow({ companyId, supabaseUrl, supabaseAnonKey, on
     setApproving(v.id);
     setError(null);
 
+    // v2.3 Phase 1: resolve firm_members.id for approved_by_member_id
+    const { data: approverMember } = await supabase
+      .from("firm_members")
+      .select("id")
+      .eq("user_id", currentUser)
+      .eq("company_id", companyId)
+      .single();
+    const approverMemberId: string | null = approverMember?.id ?? null;
+
     // Update approved_by for all rows of this version
     const { error } = await supabase
       .from("variance_budgets")
-      .update({ approved_by: currentUser })
+      .update({
+        approved_by:             currentUser,     // legacy: auth.users.id
+        approved_by_member_id:   approverMemberId, // v2.3: firm_members.id
+      })
       .eq("company_id", companyId)
       .eq("fiscal_year", v.fiscal_year)
       .eq("period_month", v.period_month)

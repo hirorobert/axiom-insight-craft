@@ -349,6 +349,8 @@ serve(async (req: Request) => {
       .eq("user_id", user.id)
       .single();
     if (!membership) return json({ error: "Access denied: not a member of this company" }, 403);
+    // v2.3 Phase 1: firmMemberId is the canonical actor identity for imported_by_member_id
+    const firmMemberId: string = membership.id;
 
     // Load company TIN for anti-impersonation check
     const { data: company } = await supabase
@@ -407,8 +409,9 @@ serve(async (req: Request) => {
         zero_rated_sales: r.zero_rated_sales,
         receipt_count:    r.receipt_count,
         cancelled_count:  r.cancelled_count,
-        imported_by:      user.id,
-        import_source:    importSource,
+        imported_by:            user.id,       // legacy: auth.users.id (Phase 1 → 2 transition)
+        imported_by_member_id:  firmMemberId,  // v2.3: firm_members.id
+        import_source:          importSource,
         raw_json:         r,
       }));
 
@@ -458,4 +461,85 @@ serve(async (req: Request) => {
       .limit(1)
       .maybeSingle();
 
-    cons
+    const returnVat   = taxComp?.computation_detail?.vat_liability ?? 0;
+    const returnSales = taxComp?.computation_detail?.total_revenue  ?? 0;
+
+    // Load materiality thresholds (per-company)
+    const { data: mat } = await supabase
+      .from("variance_materiality")
+      .select("pct_threshold")
+      .eq("company_id", companyId)
+      .single();
+
+    // Compute gap
+    const recon = computeGap(totalGross, totalVat, returnSales, returnVat, mat);
+
+    // Upsert reconciliation row
+    const { error: reconErr } = await supabase
+      .from("efdms_reconciliation")
+      .upsert({
+        company_id:        companyId,
+        fiscal_year:       fiscalYear,
+        period_month:      periodMonth,
+        efdms_gross_sales: recon.efdms_gross,
+        efdms_vat:         recon.efdms_vat,
+        return_output_vat: recon.return_vat,
+        return_sales:      recon.return_sales,
+        gap_pct:           recon.gap_pct,
+        risk_level:        recon.risk_level,
+        risk_notes:        recon.risk_notes,
+        reconciled_by:     user.id,
+        reconciled_at:     new Date().toISOString(),
+      }, { onConflict: "company_id,fiscal_year,period_month" });
+
+    if (reconErr) throw new Error("Reconciliation upsert failed: " + reconErr.message);
+
+    // Fire TRA risk alert if critical
+    if (recon.risk_level === "critical") {
+      await supabase.rpc("maono_write_alert", {
+        p_company_id:    companyId,
+        p_run_id:        null,
+        p_alert_type:    "tra_risk_signal",
+        p_severity:      "critical",
+        p_pl_categories: ["REVENUE"],
+        p_account_codes: [],
+        p_message:       `EFDMS reconciliation: ${recon.risk_notes}`,
+        p_detail:        `Period: ${fiscalYear}-${String(periodMonth).padStart(2, "0")}. EFDMS VAT TZS ${totalVat.toLocaleString()} vs return TZS ${returnVat.toLocaleString()}.`,
+      });
+    }
+
+    return json({
+      success:          true,
+      company_id:       companyId,
+      period:           `${fiscalYear}-${String(periodMonth).padStart(2, "0")}`,
+      z_reports_submitted: zRows.length,
+      rows_inserted:    inserted,
+      rows_skipped:     skipped,  // duplicates
+      period_totals: {
+        efdms_gross_sales: totalGross,
+        efdms_vat:         totalVat,
+        return_sales:      returnSales,
+        return_vat:        returnVat,
+      },
+      reconciliation: {
+        sales_gap_tzs:  recon.sales_gap,
+        vat_gap_tzs:    recon.vat_gap,
+        gap_pct:        recon.gap_pct,
+        risk_level:     recon.risk_level,
+        risk_notes:     recon.risk_notes,
+      },
+      parse_errors: parseErrors.length > 0 ? parseErrors : undefined,
+    }, 200);
+
+  } catch (err: any) {
+    console.error("safisha-efdms-ingest error:", err);
+    return json({ error: err.message }, 500);
+  }
+});
+
+function json(body: object, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
