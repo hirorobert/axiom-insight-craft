@@ -378,8 +378,4 @@ export async function fetchScoringDataBatch(
     });
   }
   return result;
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 331bb78 (fix(platform): enforce member identity, EFDMS controls, and statutory gating)

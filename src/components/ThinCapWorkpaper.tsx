@@ -326,8 +326,6 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                     </tbody>
                   </table>
                 </div>
-<<<<<<< HEAD
-=======
 
                 {/* Ratio indicator */}
                 <div className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${thinCapTriggered ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
@@ -366,7 +364,6 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                   Interest rate assumption is indicative only — use actual weighted average rate from loan agreements.
                   Kinga engine pre-populates debt/equity from balance sheet; CPA must confirm resident bank debt exclusion.
                 </p>
->>>>>>> 331bb78 (fix(platform): enforce member identity, EFDMS controls, and statutory gating)
               </>
             )}
           </CardContent>
@@ -374,8 +371,4 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
       </Collapsible>
     </Card>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 331bb78 (fix(platform): enforce member identity, EFDMS controls, and statutory gating)
