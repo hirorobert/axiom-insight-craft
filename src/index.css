@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..800;1,14..32,300..800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,46 +6,48 @@
 
 @layer base {
   :root {
-    /* Iron Dome Nuclear — Deep Navy palette */
-    --background: 220 20% 97%;
-    --foreground: 209 72% 9%;
+    /* IRON DOME NUCLEAR - INSTITUTIONAL GRADE */
+
+    /* Pure white - document-grade background */
+    --background: 0 0% 100%;
+    --foreground: 220 30% 6%;
 
     --card: 0 0% 100%;
-    --card-foreground: 209 72% 9%;
+    --card-foreground: 220 30% 6%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 209 72% 9%;
+    --popover-foreground: 220 30% 6%;
 
-    /* Deep Navy #071828 */
-    --primary: 209 72% 9%;
+    /* Deep navy - primary authority colour */
+    --primary: 218 78% 9%;
     --primary-foreground: 0 0% 98%;
 
-    --secondary: 214 20% 91%;
-    --secondary-foreground: 209 72% 9%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 220 30% 6%;
 
-    --muted: 214 20% 93%;
-    --muted-foreground: 215 18% 44%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 10% 42%;
 
-    --accent: 209 72% 9%;
+    --accent: 218 78% 9%;
     --accent-foreground: 0 0% 98%;
 
-    --destructive: 0 35% 40%;
+    --destructive: 0 35% 38%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 214 18% 86%;
-    --input: 214 18% 86%;
-    --ring: 209 72% 9%;
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --ring: 218 78% 9%;
 
-    /* Iron Dome: 2px sharp corners — no rounded softness */
-    --radius: 0.125rem;
+    /* Zero radius - no softness, no rounding, no toy */
+    --radius: 0rem;
 
-    /* Gold — approval-only; do not use on landing page CTAs */
-    --gold: 38 57% 55%;
+    /* Gold - sign-off and approval states only */
+    --gold: 38 55% 44%;
   }
 
   .dark {
-    --background: 0 0% 97%;
-    --foreground: 215 28% 12%;
+    --background: 0 0% 100%;
+    --foreground: 220 30% 6%;
   }
 }
 
@@ -61,5 +63,7 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
   }
 }

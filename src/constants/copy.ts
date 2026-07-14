@@ -13,6 +13,7 @@ export const BRAND = {
 export const CTA = {
   primary: "Upload Trial Balance",   // THE ONLY label for the start action
   secondary: "See How It Works",
+  primaryHref: "/auth",
 } as const;
 
 export const HERO = {
@@ -94,4 +95,122 @@ export const UPLOAD_SECTION = {
 export const FOOTER = {
   description: BRAND.tagline,
   legal: ["Privacy Policy", "Terms of Service"],
+} as const;
+
+// ─────────────────────────────────────────────────────────────
+// Platform Reference Table (used in Features section 01)
+// ─────────────────────────────────────────────────────────────
+
+export const PLATFORM_TABLE = [
+  {
+    module: "SAFISHA",
+    name: "Data Integrity Layer",
+    functions: [
+      "CSV/XLSX trial balance import with field mapping",
+      "EFDMS Z-Report reconciliation (VAT + SDL)",
+      "Duplicate detection and exception queue",
+      "Confidence score and DQC validation",
+    ],
+    basis: "Income Tax Act Cap.332 s.31 — record keeping obligations",
+  },
+  {
+    module: "HESABU",
+    name: "Statement Engine",
+    functions: [
+      "IAS 1 Statement of Financial Position",
+      "IAS 1 Statement of Comprehensive Income",
+      "IAS 7 Statement of Cash Flows",
+      "IFRS disclosure notes — auto-generated",
+    ],
+    basis: "IFRS as adopted in Tanzania (NBAA Act Cap.286)",
+  },
+  {
+    module: "KINGA",
+    name: "Tax Computation Engine",
+    functions: [
+      "ITA s.34 wear & tear — 6 asset classes",
+      "ITA s.24A thin capitalisation limit",
+      "ITA s.65 minimum tax gate (3-year loss history)",
+      "Finance Act 2026 — all enacted rates applied",
+    ],
+    basis: "Income Tax Act Cap.332 + Finance Act 2026",
+  },
+  {
+    module: "FILING",
+    name: "TRA Submission Pack",
+    functions: [
+      "e-Filing readiness checklist (TRA IDRAS)",
+      "Tax computation PDF (TRA format)",
+      "XBRL instance document generation",
+      "Multi-company filing calendar",
+    ],
+    basis: "TAA Cap.399 s.38 — return filing obligations",
+  },
+  {
+    module: "MAONO",
+    name: "Analytics Engine",
+    functions: [
+      "Comparative financial statements (current vs prior)",
+      "Variance analysis with materiality thresholds",
+      "Cash flow forecast (AR/AP aging + statutory calendar)",
+      "Board-pack PDF with management narrative",
+    ],
+    basis: "IAS 1.38 — comparative information requirements",
+  },
+] as const;
+
+// ─────────────────────────────────────────────────────────────
+// Security Architecture Table (used in Features section 03)
+// ─────────────────────────────────────────────────────────────
+
+export const SECURITY_TABLE = [
+  {
+    constraint: "Identity",
+    spec: "JWT-derived firm-member identity on every write. Server session only — no trust of request body claims.",
+  },
+  {
+    constraint: "Row-Level Security",
+    spec: "Supabase RLS enforced on all tables. Firm isolation is structural — not application-layer configuration.",
+  },
+  {
+    constraint: "Append-only Records",
+    spec: "Audit and computation records cannot be deleted or silently altered. Reversals create new rows.",
+  },
+  {
+    constraint: "Sign-off Controls",
+    spec: "Period sign-off requires dual role enforcement. Locked periods block all upload and recompute paths.",
+  },
+  {
+    constraint: "SECURITY DEFINER",
+    spec: "All privileged functions pin search_path to pg_catalog to block schema injection.",
+  },
+  {
+    constraint: "Edge Function Auth",
+    spec: "Every edge function validates the Supabase auth token before any database write.",
+  },
+] as const;
+
+// ─────────────────────────────────────────────────────────────
+// License Terms Table (used in Features section 04)
+// ─────────────────────────────────────────────────────────────
+
+export const PRICING_TABLE = [
+  { term: "Base",        value: "Annual firm licence — unlimited companies, unlimited periods." },
+  { term: "Engines",     value: "All 5 engines included. No per-module pricing." },
+  { term: "Users",       value: "Unlimited firm members. Role-based access control included." },
+  { term: "Storage",     value: "AES-256 encrypted. Hosted on Supabase infrastructure." },
+  { term: "Updates",     value: "Finance Act updates deployed within 30 days of enactment." },
+  { term: "Support",     value: "Implementation support and TRA query assistance included." },
+] as const;
+
+// ─────────────────────────────────────────────────────────────
+// Pricing / CTA section copy (used in Features section 04)
+// ─────────────────────────────────────────────────────────────
+
+export const PRICING_SECTION = {
+  headline: "One annual licence. Full platform access.",
+  subhead:
+    "No per-engine fees. No per-company limits. No Finance Act update charges. One price for the whole firm.",
+  cta: "Get Started",
+  ctaHref: "/auth",
 } as const;
