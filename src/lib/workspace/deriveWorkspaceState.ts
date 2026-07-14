@@ -87,7 +87,7 @@ export function deriveWorkspaceState(
         id: "import-trial-balance",
         label: "Import Trial Balance",
         description: "Upload the trial balance to start this engagement",
-        href: "/#upload",
+        href: `${b}/safisha`,
         blocked: false,
         mission: "safisha",
         priority: 1,
@@ -206,11 +206,17 @@ export function deriveWorkspaceState(
     upload.safishaStatus !== "clean";
 
   if (safishaBlocked) {
+    // HESABU may have already been validated even while SAFISHA is blocked.
+    // Show the true HESABU state so the workspace reflects what has actually been done.
+    const hesabuInSafishaBlock: MissionState = upload.hesabuPassedAt
+      ? { status: "passed",      label: "HESABU", summary: "Statements validated", href: `${b}/hesabu` }
+      : { status: "in_progress", label: "HESABU", summary: "Available — draft validation can proceed", href: `${b}/hesabu` };
+
     return {
       ...uploadCommon,
       missions: {
         safisha:   { status: "blocked", label: "SAFISHA", summary: `EFDMS reconciliation: ${upload.safishaStatus}`, href: `${b}/safisha`, blocker: upload.safishaStatus ?? undefined },
-        hesabu:    { status: "in_progress", label: "HESABU", summary: "Available — draft validation can proceed", href: `${b}/hesabu` },
+        hesabu:    hesabuInSafishaBlock,
         kinga:     locked("KINGA",  "kinga",  companyId, periodYear, "SAFISHA reconciliation must clear before tax computation (constitutional gate)"),
         filing:    locked("FILING", "filing", companyId, periodYear, "Complete KINGA first"),
         analytics: na("ANALYTICS", "analytics", companyId, periodYear),
@@ -326,7 +332,8 @@ export function deriveWorkspaceState(
       kinga:     { status: "signed", label: "KINGA",   summary: "Tax computed and signed", href: `${b}/kinga` },
       filing:    { status: "signed", label: "FILING",  summary: "Filed with TRA", href: `${b}/filing` },
       analytics: na("ANALYTICS", "analytics", companyId, periodYear),
-      issues:    na("ISSUES",    "issues",    companyId, periodYear),
+      issues:
+    na("ISSUES", "issues", companyId, periodYear),
     },
     nextAction: {
       id: "review-completed-engagement",

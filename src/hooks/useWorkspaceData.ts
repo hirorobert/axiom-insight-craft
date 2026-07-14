@@ -88,6 +88,9 @@ function deriveFiscalPeriod(
 function toUploadSnapshot(
   upload: WorkspaceUpload,
   company: WorkspaceCompany | null,
+  hesabuPassedAt: string | null,
+  kingaSignedAt: string | null,
+  filingSubmittedAt: string | null,
 ): UploadSnapshot {
   const { periodYear } = deriveFiscalPeriod(upload, company);
   return {
@@ -101,10 +104,10 @@ function toUploadSnapshot(
     uploadedAt: upload.uploaded_at,
     processedAt: upload.processed_at,
     hasMapping: !!upload.processing_result?.mapping,
-    // These will be populated from DB sign-off queries in Phase 2
-    hesabuPassedAt: null,
-    kingaSignedAt: null,
-    filingSubmittedAt: null,
+    // Authoritative DB reads — null = NOT_COMPUTED (not false, not inferred)
+    hesabuPassedAt,
+    kingaSignedAt,
+    filingSubmittedAt,
   };
 }
 
@@ -123,6 +126,11 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
   const [upload, setUpload] = useState<WorkspaceUpload | null>(null);
   const [loading, setLoading] = useState(true);
   const companyRef = useRef<WorkspaceCompany | null>(null);
+
+  // Authoritative sign-off timestamps — null = NOT_COMPUTED, never default success
+  const [hesabuPassedAt, setHesabuPassedAt] = useState<string | null>(null);
+  const [kingaSignedAt, setKingaSignedAt] = useState<string | null>(null);
+  const [filingSubmittedAt, setFilingSubmittedAt] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!user || !cId || !pYear) {
@@ -175,6 +183,52 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     }
 
     setUpload(match);
+
+    // ── Authoritative sign-off reads (parallel) ────────────────────────────
+    // Rule: absent = null, stale = null, unsigned = null, no default success.
+    const [hesabuRes, kingaRes, filingRes] = await Promise.all([
+      // HESABU: latest validation where gate_satisfied = true for this upload.
+      // Querying by upload_id scopes to current upload; gate_satisfied=true
+      // means the run passed all assertions. If no such row exists → null.
+      match
+        ? supabase
+            .from("hesabu_validations")
+            .select("validated_at")
+            .eq("upload_id", match.id)
+            .eq("gate_satisfied", true)
+            .order("validated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+
+      // KINGA sign-off: authoritative approver signature on statement_sign_offs.
+      // Do NOT infer from tax_computations existence -- a computation is not a sign-off.
+      supabase
+        .from("statement_sign_offs")
+        .select("approver_signed_at")
+        .eq("company_id", cId)
+        .eq("period_year", pYear)
+        .not("approver_signed_at", "is", null)
+        .maybeSingle(),
+
+      // Filing: authoritative submission evidence from filing_obligations.
+      // status = 'filed' is the only accepted terminal state.
+      // Do NOT infer from XBRL generation, package download, or checklist completion.
+      supabase
+        .from("filing_obligations")
+        .select("updated_at")
+        .eq("company_id", cId)
+        .eq("period_year", pYear)
+        .eq("status", "filed")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    setHesabuPassedAt((hesabuRes.data as { validated_at: string } | null)?.validated_at ?? null);
+    setKingaSignedAt((kingaRes.data as { approver_signed_at: string } | null)?.approver_signed_at ?? null);
+    setFilingSubmittedAt((filingRes.data as { updated_at: string } | null)?.updated_at ?? null);
+
     setLoading(false);
   }, [user, cId, pYear]);
 
@@ -211,7 +265,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
 
   // Derive workspace state
   const snapshot: UploadSnapshot | null = upload
-    ? toUploadSnapshot(upload, company)
+    ? toUploadSnapshot(upload, company, hesabuPassedAt, kingaSignedAt, filingSubmittedAt)
     : null;
 
   const workspaceState = deriveWorkspaceState(cId, company?.name ?? "", pYear, snapshot);
