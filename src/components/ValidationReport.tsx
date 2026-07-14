@@ -69,7 +69,7 @@ const CheckIcon = ({ passed }: { passed: boolean }) =>
     ? <CheckCircle2 className="w-5 h-5 text-accent" />
     : <XCircle className="w-5 h-5 text-destructive" />;
 
-// ── Document-type detector ─────────────────────────────────────────────────
+// -- Document-type detector -------------------------------------------------
 // When the ONLY failure is a massive TB imbalance, the file is almost certainly
 // pre-formatted financial statements (SCI/SFP/SCF), not a raw trial balance.
 // Threshold: difference > TZS 500,000,000 (half a billion) with no other errors.
@@ -96,8 +96,8 @@ export function ValidationReport({
 }: ValidationReportProps) {
   if (!report && errors.length === 0) return null;
 
-  // Valid uploads with no errors, cash reconciliation, or profit→equity
-  // linkage issues render nothing — the Certification Console shows the rest.
+  // Valid uploads with no errors, cash reconciliation, or profit->equity
+  // linkage issues render nothing -- the Certification Console shows the rest.
   if (
     isValid === true &&
     errors.length === 0 &&
@@ -105,7 +105,7 @@ export function ValidationReport({
     !report?.profit_equity_linkage
   ) return null;
 
-  // ── SMART ROUTING: audited accounts detected ─────────────────────────────
+  // -- SMART ROUTING: audited accounts detected ------------------------------
   if (isLikelyAuditedAccounts(errors, report)) {
     return (
       <Card className="border-border bg-card">
@@ -113,7 +113,7 @@ export function ValidationReport({
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <FileSpreadsheet className="w-5 h-5 text-primary" />
-              SAFF ERP — Document Detection
+              SAFF ERP -- Document Detection
             </CardTitle>
             <Badge className="bg-muted text-muted-foreground border-border text-xs">
               REVIEW REQUIRED
@@ -127,7 +127,7 @@ export function ValidationReport({
               This file appears to be formatted financial statements, not a raw trial balance.
             </p>
             <p className="text-sm text-foreground/60">
-              The parser read two numeric columns (e.g. 2025 and 2024 figures) as Debit/Credit —
+              The parser read two numeric columns (e.g. 2025 and 2024 figures) as Debit/Credit --
               producing a difference of{" "}
               <span className="font-medium text-foreground">
                 {formatTZS(report!.tb_balance_check.difference)}
@@ -161,7 +161,7 @@ export function ValidationReport({
               How do you want to proceed?
             </p>
 
-            {/* Path A — process as audited accounts */}
+            {/* Path A -- process as audited accounts */}
             <button
               onClick={onProcessAsAuditedAccounts}
               className="w-full flex items-center justify-between p-4 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors text-left group"
@@ -171,13 +171,13 @@ export function ValidationReport({
                   Process as Audited Financial Statements
                 </p>
                 <p className="text-xs text-foreground/60 mt-0.5">
-                  Reads SCI, SFP, SCE, SCF sheets directly — no trial balance needed
+                  Reads SCI, SFP, SCE, SCF sheets directly -- no trial balance needed
                 </p>
               </div>
               <ArrowRight className="w-4 h-4 text-primary shrink-0 group-hover:translate-x-0.5 transition-transform" />
             </button>
 
-            {/* Path B — upload correct file */}
+            {/* Path B -- upload correct file */}
             <button
               onClick={onUploadNew}
               className="w-full flex items-center justify-between p-4 rounded-lg border border-border hover:border-primary/20 hover:bg-secondary/30 transition-colors text-left group"
@@ -187,7 +187,7 @@ export function ValidationReport({
                   Upload correct Trial Balance
                 </p>
                 <p className="text-xs text-foreground/60 mt-0.5">
-                  Export from Tally, QuickBooks, Sage or Excel — accounts with debit/credit columns
+                  Export from Tally, QuickBooks, Sage or Excel -- accounts with debit/credit columns
                 </p>
               </div>
               <RotateCcw className="w-4 h-4 text-foreground/40 shrink-0 group-hover:text-foreground/60 transition-colors" />
@@ -198,24 +198,32 @@ export function ValidationReport({
     );
   }
 
-  // ── STANDARD VALIDATION REPORT ───────────────────────────────────────────
+  // -- STANDARD VALIDATION REPORT -------------------------------------------
   const isBlocked = status === "blocked" || status === "error" || status === "needs_review";
 
   // TB integrity, mapping completeness, and BS equation are rendered by the
   // Certification Console. This component only surfaces what the console does
-  // not: cash reconciliation, profit→equity linkage, and error/warning detail.
+  // not: cash reconciliation, profit->equity linkage, and error/warning detail.
   const hasCashRecon    = !!report?.cash_reconciliation;
   const hasProfitLink   = !!report?.profit_equity_linkage;
   const hasErrors       = errors.length > 0;
   const hasUniqueContent = hasCashRecon || hasProfitLink || hasErrors;
   if (!hasUniqueContent) return null;
 
+  // Errors take precedence: if any errors exist the status is INVALID
+  // regardless of what the isValid prop says.
   const statusLabel =
-    isValid === true ? "VALID" : isValid === false ? "INVALID" : "PENDING";
-  const statusColor =
-    isValid === true
-      ? "bg-accent/20 text-accent border-accent/30"
+    errors.length > 0
+      ? "INVALID"
+      : isValid === true
+      ? "VALID"
       : isValid === false
+      ? "INVALID"
+      : "PENDING";
+  const statusColor =
+    statusLabel === "VALID"
+      ? "bg-accent/20 text-accent border-accent/30"
+      : statusLabel === "INVALID"
       ? "bg-destructive/20 text-destructive border-destructive/30"
       : "bg-muted text-muted-foreground";
 
@@ -225,12 +233,12 @@ export function ValidationReport({
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
             <FileCheck className="w-5 h-5 text-primary" />
-            SAFF ERP — Validation Report
+            SAFF ERP -- Validation Report
           </CardTitle>
           <Badge className={statusColor}>{statusLabel}</Badge>
         </div>
         <p className="text-sm text-foreground/60">
-          Deterministic accounting validation — all checks must pass for VALID status
+          Deterministic accounting validation -- all checks must pass for VALID status
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -258,7 +266,7 @@ export function ValidationReport({
               </div>
             )}
 
-            {/* Profit → Equity Linkage */}
+            {/* Profit -> Equity Linkage */}
             {report.profit_equity_linkage && (
               <div
                 className={`p-4 rounded-lg border ${
@@ -270,7 +278,7 @@ export function ValidationReport({
                 <div className="flex items-center gap-3">
                   <CheckIcon passed={report.profit_equity_linkage.passed} />
                   <div>
-                    <p className="font-medium text-foreground">Profit → Equity Linkage</p>
+                    <p className="font-medium text-foreground">Profit -&gt; Equity Linkage</p>
                     <p className="text-sm text-foreground/60">
                       {report.profit_equity_linkage.details}
                     </p>
@@ -314,7 +322,7 @@ export function ValidationReport({
           </div>
         )}
 
-        {/* Action Required — only for non-routing blocks */}
+        {/* Action Required -- only for non-routing blocks */}
         {isBlocked && !isLikelyAuditedAccounts(errors, report) && (
           <div className="p-4 border border-border rounded-lg bg-secondary/20">
             <div className="flex items-center gap-2 font-medium text-foreground mb-2 text-sm">
