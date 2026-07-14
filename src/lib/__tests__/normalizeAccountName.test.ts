@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from "vitest";
 import { normalizeAccountName } from "../normalizeAccountName";
-import cases from "../../../../supabase/functions/_shared/normalize-golden.json";
+import cases from "../../../supabase/functions/_shared/normalize-golden.json";
 
 describe("normalizeAccountName — golden fixture", () => {
   for (const { input, expected, note } of cases) {
