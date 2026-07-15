@@ -363,7 +363,7 @@ export function generateTaxComputationPDF(opts: GeneratePDFOptions): void {
   // Thin cap
   if (result.thin_cap_disallowed_tzs > 0) {
     y = wRow(
-      `Thin Capitalisation Disallowance  [ITA s.12 — ratio ${(result as Record<string,number>).debt_equity_ratio?.toFixed(2) ?? "—"}:1]`,
+      `Thin Capitalisation Disallowance  [ITA s.12 — ratio ${(result as unknown as Record<string,number>).debt_equity_ratio?.toFixed(2) ?? "—"}:1]`,
       result.thin_cap_disallowed_tzs, y, { indent: true },
     );
     y += 2;
@@ -400,7 +400,7 @@ export function generateTaxComputationPDF(opts: GeneratePDFOptions): void {
 
   if (result.penalty_tzs > 0) {
     y = wRow(
-      `Estimated Penalty @ 5%/month  [TAA 2015 s.76]  (${(result as Record<string,number>).months_overdue ?? "?"} months)`,
+      `Estimated Penalty @ 5%/month  [TAA 2015 s.76]  (${(result as unknown as Record<string,number>).months_overdue ?? "?"} months)`,
       result.penalty_tzs, y, { redIfNeg: false },
     );
   }

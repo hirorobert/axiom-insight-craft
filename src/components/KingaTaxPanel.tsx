@@ -1544,17 +1544,17 @@ export function KingaTaxPanel({
                   variant="outline"
                   className="gap-1.5"
                   onClick={async () => {
-                    const [{ data: allowances }, { data: findings }] = await Promise.all([
-                      supabase
-                        .from("capital_allowances")
-                        .select("asset_description, ita_class, cost_tzs, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, wear_tear_allowance_tzs, ita_wdv_closing_tzs")
-                        .eq("upload_id", uploadId),
-                      supabase
-                        .from("findings")
-                        .select("title, finding_category, exposure_amount_tzs, status")
-                        .eq("company_id", companyId)
-                        .in("status", ["open", "in_progress"]),
-                    ]);
+                    const sb: any = supabase;
+                    const q1: any = sb
+                      .from("capital_allowances")
+                      .select("asset_description, ita_class, cost_tzs, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, wear_tear_allowance_tzs, ita_wdv_closing_tzs")
+                      .eq("upload_id", uploadId);
+                    const q2: any = sb
+                      .from("findings")
+                      .select("title, finding_category, exposure_amount_tzs, status")
+                      .eq("company_id", companyId)
+                      .in("status", ["open", "in_progress"]);
+                    const [{ data: allowances }, { data: findings }] = await Promise.all([q1, q2]);
                     generateTaxComputationPDF({
                       result,
                       companyName: companyName ?? "Company",
@@ -1603,17 +1603,17 @@ export function KingaTaxPanel({
                   className="gap-1.5 w-full"
                   onClick={async () => {
                     // Fetch supporting data for the PDF
-                    const [{ data: allowances }, { data: findings }] = await Promise.all([
-                      supabase
-                        .from("capital_allowances")
-                        .select("asset_description, ita_class, cost_tzs, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, wear_tear_allowance_tzs, ita_wdv_closing_tzs")
-                        .eq("upload_id", uploadId),
-                      supabase
-                        .from("findings")
-                        .select("title, finding_category, exposure_amount_tzs, status")
-                        .eq("company_id", companyId)
-                        .in("status", ["open", "in_progress"]),
-                    ]);
+                    const sb2: any = supabase;
+                    const qa: any = sb2
+                      .from("capital_allowances")
+                      .select("asset_description, ita_class, cost_tzs, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, wear_tear_allowance_tzs, ita_wdv_closing_tzs")
+                      .eq("upload_id", uploadId);
+                    const qf: any = sb2
+                      .from("findings")
+                      .select("title, finding_category, exposure_amount_tzs, status")
+                      .eq("company_id", companyId)
+                      .in("status", ["open", "in_progress"]);
+                    const [{ data: allowances }, { data: findings }] = await Promise.all([qa, qf]);
                     generateTaxComputationPDF({
                       result,
                       companyName: companyName ?? "Company",

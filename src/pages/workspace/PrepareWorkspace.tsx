@@ -100,7 +100,7 @@ export default function PrepareWorkspace() {
               const { periodYear: newPY } = deriveFiscalPeriod(selected, company?.fiscal_year_end ?? null);
               navigate(`/workspace/${companyId}/${newPY}/prepare`);
             }}
-            onRefresh={refreshUpload}
+            onRefresh={async () => { await refreshUpload(); }}
           />
         </div>
 
@@ -254,6 +254,7 @@ export default function PrepareWorkspace() {
           uploadId={upload.id}
           open={mappingModalOpen}
           onOpenChange={setMappingModalOpen}
+          mapping={(upload.processing_result as any)?.mapping ?? null}
         />
       )}
     </div>

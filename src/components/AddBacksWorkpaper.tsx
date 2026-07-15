@@ -135,8 +135,8 @@ export function AddBacksWorkpaper({ companyId, uploadId, periodYear, companyName
       setComp({
         id: data[0].id,
         accounting_profit_before_tax_tzs: data[0].accounting_profit_before_tax_tzs !== null ? Number(data[0].accounting_profit_before_tax_tzs) : null,
-        add_backs: (data[0].add_backs as AdjItem[]) ?? [],
-        deductions: (data[0].deductions as AdjItem[]) ?? [],
+        add_backs: (data[0].add_backs as unknown as AdjItem[]) ?? [],
+        deductions: (data[0].deductions as unknown as AdjItem[]) ?? [],
         total_add_backs_tzs: Number(data[0].total_add_backs_tzs ?? 0),
         total_deductions_tzs: Number(data[0].total_deductions_tzs ?? 0),
         total_wear_tear_tzs: Number(data[0].total_wear_tear_tzs ?? 0),

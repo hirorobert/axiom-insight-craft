@@ -201,7 +201,7 @@ export function AdjustingJournalPanel({ companyId, uploadId, periodYear, company
       .eq("company_id", companyId)
       .eq("user_id", userId)
       .maybeSingle()
-      .then(({ data }) => setUserRole(data?.role ?? null));
+      .then(({ data }) => setUserRole((data?.role as FirmRole["role"]) ?? null));
   }, [companyId, userId]);
 
   // ── Fetch AJEs ───────────────────────────────────────────────────────────
@@ -239,7 +239,7 @@ export function AdjustingJournalPanel({ companyId, uploadId, periodYear, company
       lineMap.get(l.aje_id)!.push(l);
     });
 
-    setAjeList(ajeData.map((a) => ({ ...a, lines: lineMap.get(a.id) ?? [] })));
+    setAjeList(ajeData.map((a) => ({ ...a, lines: lineMap.get(a.id) ?? [] })) as unknown as AJE[]);
     setLoading(false);
   };
 

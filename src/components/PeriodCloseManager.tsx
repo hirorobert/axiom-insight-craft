@@ -205,7 +205,7 @@ export function PeriodCloseManager({ userId }: Props) {
     // Build maps
     const signOffMap = new Map<string, SignOff>();
     (signOffs ?? []).forEach(s => {
-      if (!signOffMap.has(s.company_id)) signOffMap.set(s.company_id, s);
+      if (!signOffMap.has(s.company_id)) signOffMap.set(s.company_id, s as unknown as SignOff);
     });
 
     const roleMap = new Map<string, string>();
