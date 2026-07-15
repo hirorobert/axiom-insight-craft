@@ -48,10 +48,10 @@ export default function FilingWorkspace() {
   if (mission.status === "locked") {
     return (
       <WorkspaceGate
-        mission="FILING"
+        mission="Prepare Filing"
         blocker={mission.blocker ?? "Complete prerequisites first"}
-        prerequisiteHref={workspaceState.missions.kinga.href}
-        prerequisiteLabel="Go to KINGA"
+        prerequisiteHref={workspaceState.missions.tax.href}
+        prerequisiteLabel="Go to Compute Tax"
       />
     );
   }
@@ -59,10 +59,10 @@ export default function FilingWorkspace() {
   if (!upload || !upload.company_id || upload.status !== "complete" || upload.is_valid !== true) {
     return (
       <WorkspaceGate
-        mission="FILING"
+        mission="Prepare Filing"
         blocker="Valid processed trial balance required"
-        prerequisiteHref={workspaceState.missions.safisha.href}
-        prerequisiteLabel="Go to SAFISHA"
+        prerequisiteHref={workspaceState.missions.prepare.href}
+        prerequisiteLabel="Go to Prepare Data"
       />
     );
   }
