@@ -153,6 +153,7 @@ export default function WorkspaceLayout() {
                 const mission = workspaceState.missions[slug];
                 const isActive = activeSlug === slug;
                 const isLocked = mission.status === "locked";
+                const Icon = config.icon;
 
                 return (
                   <Link
@@ -168,7 +169,7 @@ export default function WorkspaceLayout() {
                     ].join(" ")}
                   >
                     <span className="text-muted-foreground">
-                      {config.icon}
+                      <Icon className="w-3.5 h-3.5" />
                     </span>
                     <span className="tracking-wide">{config.tabLabel}</span>
                     {!loading && <StatusDot status={mission.status} />}

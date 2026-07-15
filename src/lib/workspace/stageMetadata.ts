@@ -6,14 +6,17 @@
  *   - User-visible accounting label
  *   - Tab label (abbreviated)
  *   - Description (tooltip / overview)
- *   - Icon (lucide-react node)
+ *   - Icon (Lucide component reference — NOT a rendered JSX element)
  *   - Canonical sequence order
  *
  * Import from here instead of duplicating arrays across components.
  * Do NOT add engine-name strings (SAFISHA, HESABU, KINGA, MAONO) here.
+ *
+ * Icon usage in consumers:
+ *   const Icon = config.icon;
+ *   <Icon className="w-3.5 h-3.5" />
  */
 
-import React from "react";
 import {
   ShieldCheck,
   GitCompare,
@@ -22,6 +25,7 @@ import {
   ClipboardCheck,
   FileText,
   BarChart3,
+  type LucideIcon,
 } from "lucide-react";
 import type { WorkspaceMission } from "./types";
 
@@ -34,8 +38,8 @@ export interface StageConfig {
   tabLabel: string;
   /** One-line description for tooltips and overview rows */
   description: string;
-  /** Lucide icon rendered in tabs and overview table */
-  icon: React.ReactNode;
+  /** Lucide icon component — assign to a capitalized variable before rendering */
+  icon: LucideIcon;
   /** 1-based sequence number — defines accounting workflow order */
   sequence: number;
 }
@@ -46,7 +50,7 @@ export const STAGE_CONFIGS: Record<WorkspaceMission, StageConfig> = {
     label:       "Prepare Data",
     tabLabel:    "PREPARE",
     description: "Import trial balance, map accounts, verify EFDMS",
-    icon:        <ShieldCheck className="w-3.5 h-3.5" />,
+    icon:        ShieldCheck,
     sequence:    1,
   },
   reconcile: {
@@ -54,7 +58,7 @@ export const STAGE_CONFIGS: Record<WorkspaceMission, StageConfig> = {
     label:       "Reconcile",
     tabLabel:    "RECONCILE",
     description: "EFDMS reconciliation and adjusting journal review",
-    icon:        <GitCompare className="w-3.5 h-3.5" />,
+    icon:        GitCompare,
     sequence:    2,
   },
   statements: {
@@ -62,7 +66,7 @@ export const STAGE_CONFIGS: Record<WorkspaceMission, StageConfig> = {
     label:       "Prepare Statements",
     tabLabel:    "STATEMENTS",
     description: "Validate and sign off financial statements",
-    icon:        <Calculator className="w-3.5 h-3.5" />,
+    icon:        Calculator,
     sequence:    3,
   },
   tax: {
@@ -70,7 +74,7 @@ export const STAGE_CONFIGS: Record<WorkspaceMission, StageConfig> = {
     label:       "Compute Tax",
     tabLabel:    "TAX",
     description: "Corporate income tax computation under ITA Cap.332",
-    icon:        <Scale className="w-3.5 h-3.5" />,
+    icon:        Scale,
     sequence:    4,
   },
   compliance: {
@@ -78,7 +82,7 @@ export const STAGE_CONFIGS: Record<WorkspaceMission, StageConfig> = {
     label:       "Compliance Review",
     tabLabel:    "COMPLIANCE",
     description: "TRA audit readiness, client summaries, evidence packages",
-    icon:        <ClipboardCheck className="w-3.5 h-3.5" />,
+    icon:        ClipboardCheck,
     sequence:    5,
   },
   filing: {
@@ -86,7 +90,7 @@ export const STAGE_CONFIGS: Record<WorkspaceMission, StageConfig> = {
     label:       "Prepare Filing",
     tabLabel:    "FILING",
     description: "Assemble and submit the TRA filing package",
-    icon:        <FileText className="w-3.5 h-3.5" />,
+    icon:        FileText,
     sequence:    6,
   },
   monitor: {
@@ -94,7 +98,7 @@ export const STAGE_CONFIGS: Record<WorkspaceMission, StageConfig> = {
     label:       "Monitor",
     tabLabel:    "MONITOR",
     description: "Portfolio analytics and engagement intelligence",
-    icon:        <BarChart3 className="w-3.5 h-3.5" />,
+    icon:        BarChart3,
     sequence:    7,
   },
 };
