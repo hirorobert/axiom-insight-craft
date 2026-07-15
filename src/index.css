@@ -6,43 +6,68 @@
 
 @layer base {
   :root {
-    /* IRON DOME NUCLEAR - INSTITUTIONAL GRADE */
+    /* ═══════════════════════════════════════════════════════════════
+       NAVY TRUST — Enterprise Financial Infrastructure Palette
+       ───────────────────────────────────────────────────────────────
+       Navy owns the shell, nav, hierarchy, and CTAs.
+       Green = verified / completed states only.
+       Gold  = certifications, approvals, premium trust indicators only.
+       No color is decorative. Every hue carries workflow meaning.
+       ═══════════════════════════════════════════════════════════════ */
 
-    /* Pure white - document-grade background */
+    /* Surfaces — document-grade white on cool navy-tinted neutrals */
     --background: 0 0% 100%;
-    --foreground: 220 30% 6%;
+    --foreground: 224 60% 10%;                 /* #0f1b3d ink */
 
     --card: 0 0% 100%;
-    --card-foreground: 220 30% 6%;
+    --card-foreground: 224 60% 10%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 30% 6%;
+    --popover-foreground: 224 60% 10%;
 
-    /* Deep navy - primary authority colour */
-    --primary: 218 78% 9%;
-    --primary-foreground: 0 0% 98%;
+    /* Primary — deep navy (#0f1b3d). Owns shell, nav, primary CTAs. */
+    --primary: 224 60% 15%;
+    --primary-foreground: 214 27% 96%;         /* #e8edf3 */
 
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 220 30% 6%;
+    /* Secondary surface — navy-tinted stone (#e8edf3) */
+    --secondary: 214 27% 93%;
+    --secondary-foreground: 224 60% 15%;
 
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 10% 42%;
+    /* Muted — quieter navy-tinted neutral for meta / labels */
+    --muted: 214 27% 96%;
+    --muted-foreground: 216 20% 38%;
 
-    --accent: 218 78% 9%;
-    --accent-foreground: 0 0% 98%;
+    /* Accent — mid navy (#1e3a5f) for hover states and structural depth.
+       NOT green. Green is semantic (see --success below). */
+    --accent: 213 52% 25%;
+    --accent-foreground: 214 27% 96%;
 
-    --destructive: 0 35% 38%;
+    /* Info — link navy (#3b6fa0), used for informational links */
+    --info: 210 46% 43%;
+    --info-foreground: 0 0% 100%;
+
+    /* Destructive — muted institutional red, not alarmist */
+    --destructive: 0 55% 38%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 220 13% 88%;
-    --input: 220 13% 88%;
-    --ring: 218 78% 9%;
+    /* Success — Emerald (#0d7a5f). RESERVED for verified / completed /
+       passed / signed / reconciled states. Never used for decoration,
+       branding, or general accent. */
+    --success: 162 80% 26%;
+    --success-foreground: 0 0% 100%;
 
-    /* Zero radius - no softness, no rounding, no toy */
+    /* Gold — (#c9a84c). RESERVED for certifications, sign-off,
+       approvals, premium trust marks. Never a background field, never
+       decorative. */
+    --gold: 43 55% 54%;
+    --gold-foreground: 224 60% 10%;
+
+    --border: 214 25% 88%;
+    --input: 214 25% 88%;
+    --ring: 224 60% 15%;
+
+    /* Zero radius — institutional geometry, no consumer softness */
     --radius: 0rem;
-
-    /* Gold - sign-off and approval states only */
-    --gold: 38 55% 44%;
   }
 
   .dark {
