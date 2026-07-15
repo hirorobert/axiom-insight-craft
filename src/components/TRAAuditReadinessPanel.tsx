@@ -108,7 +108,7 @@ export function TRAAuditReadinessPanel({
       { data: staleFindings },
       { data: efdmsRows },
       { data: openEvidence },
-    ] = await Promise.all([
+    ] = (await Promise.all([
       // G1: Tax computation committed
       supabase
         .from("tax_computations")
@@ -160,7 +160,7 @@ export function TRAAuditReadinessPanel({
         .eq("company_id", companyId)
         .in("status", ["open", "pending"])
         .limit(10),
-    ]);
+    ])) as Array<{ data: any }>;
 
     // G1 evaluation
     const latestComp = taxComps?.[0];

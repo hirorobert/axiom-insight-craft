@@ -185,7 +185,7 @@ export function TransferPricingPanel({
         return;
       }
 
-      const r = tc.computation_detail as TaxResultSnapshot;
+      const r = tc.computation_detail as unknown as TaxResultSnapshot;
 
       // 2. Existing findings for this company (to link evidence requests)
       const { data: existingFindings } = await supabase
@@ -325,7 +325,7 @@ export function TransferPricingPanel({
             exposure_amount_tzs: risk.detectedAmount,
             ita_reference:       risk.itraRef,
             action_required:     risk.actionRequired,
-          })
+          } as any)
           .select("id")
           .single();
 

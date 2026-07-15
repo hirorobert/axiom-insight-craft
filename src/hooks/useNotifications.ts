@@ -128,14 +128,14 @@ export function useNotifications(userId: string | undefined): NotificationState 
         label: "Overdue Obligations",
         count: overdueItems.length,
         items: overdueItems,
-        severity: "critical",
+        severity: "critical" as const,
       },
       {
         key: "findings",
         label: "Open Findings",
         count: findingItems.length,
         items: findingItems,
-        severity: "warn",
+        severity: "warn" as const,
       },
       {
         key: "ajes",

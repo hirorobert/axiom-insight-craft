@@ -74,10 +74,12 @@ export default function FilingWorkspace() {
 
   const mapping = upload.processing_result?.mapping;
   const result = upload.processing_result;
+  const status = upload.status as string;
+  const isValid = upload.is_valid as boolean | null;
   const isBlocked =
-    upload.status === "blocked" ||
-    upload.status === "error" ||
-    upload.is_valid === false;
+    status === "blocked" ||
+    status === "error" ||
+    isValid === false;
 
   return (
     <div className="space-y-6 max-w-5xl">

@@ -176,14 +176,14 @@ export function PaymentLedgerPanel() {
 
       // Index payments by "companyId|category|year|month"
       const paymentIndex = new Map<string, number>();
-      for (const p of (paymentsRaw ?? []) as PaymentRow[]) {
+      for (const p of (paymentsRaw ?? []) as unknown as PaymentRow[]) {
         const key = `${p.company_id}|${p.tax_category}|${p.period_year}|${p.period_month}`;
         paymentIndex.set(key, (paymentIndex.get(key) ?? 0) + Number(p.amount_paid_tzs));
       }
 
       // 4. Enrich findings
       const enriched: EnrichedFinding[] = [];
-      for (const f of (findingsRaw ?? []) as FindingRow[]) {
+      for (const f of (findingsRaw ?? []) as unknown as FindingRow[]) {
         const { year, month } = derivePeriod(f.period_end);
         const cat = f.finding_category ?? "unknown";
         const key = `${f.company_id}|${cat}|${year}|${month}`;

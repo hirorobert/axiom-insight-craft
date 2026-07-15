@@ -1544,7 +1544,7 @@ export function KingaTaxPanel({
                   variant="outline"
                   className="gap-1.5"
                   onClick={async () => {
-                    const [{ data: allowances }, { data: findings }] = await Promise.all([
+                    const [{ data: allowances }, { data: findings }] = (await Promise.all([
                       supabase
                         .from("capital_allowances")
                         .select("asset_description, ita_class, cost_tzs, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, wear_tear_allowance_tzs, ita_wdv_closing_tzs")
@@ -1554,7 +1554,7 @@ export function KingaTaxPanel({
                         .select("title, finding_category, exposure_amount_tzs, status")
                         .eq("company_id", companyId)
                         .in("status", ["open", "in_progress"]),
-                    ]);
+                    ])) as [{ data: unknown }, { data: unknown }];
                     generateTaxComputationPDF({
                       result,
                       companyName: companyName ?? "Company",

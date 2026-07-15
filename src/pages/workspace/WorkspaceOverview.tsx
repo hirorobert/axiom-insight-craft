@@ -163,6 +163,7 @@ export default function WorkspaceOverview() {
             const config = STAGE_CONFIGS[slug];
             const mission = missions[slug];
             const meta = STATUS_META[mission.status];
+            const Icon = config.icon;
             const isLocked = mission.status === "locked";
             const isNA = mission.status === "not_applicable";
             const canOpen = !isLocked;
@@ -174,7 +175,7 @@ export default function WorkspaceOverview() {
               >
                 {/* Icon */}
                 <div className={`text-muted-foreground shrink-0 ${OVERVIEW_ICON_CLASS}`}>
-                  {config.icon}
+                  <Icon className="w-4 h-4" />
                 </div>
 
                 {/* Label + summary */}
