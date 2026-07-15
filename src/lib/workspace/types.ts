@@ -14,13 +14,20 @@ export type MissionStatus =
   | "locked"
   | "not_applicable";
 
+/**
+ * Architecture v3.1 mission slugs.
+ * Follows the professional accounting lifecycle — not engine names.
+ *
+ * Sequence: prepare → reconcile → statements → tax → compliance → filing → monitor
+ */
 export type WorkspaceMission =
-  | "safisha"
-  | "hesabu"
-  | "kinga"
+  | "prepare"
+  | "reconcile"
+  | "statements"
+  | "tax"
+  | "compliance"
   | "filing"
-  | "analytics"
-  | "issues";
+  | "monitor";
 
 export interface NextAction {
   id: string;

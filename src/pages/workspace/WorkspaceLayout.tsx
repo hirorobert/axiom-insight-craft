@@ -2,9 +2,12 @@
  * WorkspaceLayout — Shell for all workspace pages.
  *
  * Renders:
- *   1. Top bar  — logo | company · period breadcrumb | utility links
- *   2. Sub-nav  — 6 engine tabs with status indicators
- *   3. <Outlet> — child route (WorkspaceOverview or engine workspace)
+ *   1. Top bar   — logo | company · period breadcrumb | utility links
+ *   2. Sub-nav   — 7 accounting stage tabs with status indicators
+ *   3. <Outlet>  — child route (WorkspaceOverview or stage workspace)
+ *
+ * Architecture v3.1: stage labels and order are driven by stageMetadata.ts —
+ * no duplicate slug arrays or label maps in this file.
  *
  * Provides WorkspaceContext to all child routes.
  * Handles auth guard — redirects to /auth if not signed in.
@@ -19,12 +22,6 @@ import { SaffLogo } from "@/components/SaffLogo";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  ShieldCheck,
-  Calculator,
-  Scale,
-  FileText,
-  BarChart3,
-  AlertTriangle,
   CheckCircle2,
   XCircle,
   Lock,
@@ -34,6 +31,7 @@ import {
   ArrowLeft,
   RefreshCw,
 } from "lucide-react";
+import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import type { MissionStatus } from "@/lib/workspace/types";
 
 // ── Status indicator ────────────────────────────────────────────────────────
@@ -58,19 +56,6 @@ function StatusDot({ status }: { status: MissionStatus }) {
       return <Minus className="w-3 h-3 text-muted-foreground/40 shrink-0" />;
   }
 }
-
-// ── Mission icons ───────────────────────────────────────────────────────────
-
-const MISSION_ICONS: Record<string, React.ReactNode> = {
-  safisha:   <ShieldCheck className="w-3.5 h-3.5" />,
-  hesabu:    <Calculator className="w-3.5 h-3.5" />,
-  kinga:     <Scale className="w-3.5 h-3.5" />,
-  filing:    <FileText className="w-3.5 h-3.5" />,
-  analytics: <BarChart3 className="w-3.5 h-3.5" />,
-  issues:    <AlertTriangle className="w-3.5 h-3.5" />,
-};
-
-const MISSION_SLUGS = ["safisha", "hesabu", "kinga", "filing", "analytics", "issues"] as const;
 
 // ── Layout ─────────────────────────────────────────────────────────────────
 
@@ -145,7 +130,7 @@ export default function WorkspaceLayout() {
           </div>
         </header>
 
-        {/* ── Engine sub-nav ────────────────────────────────────────────── */}
+        {/* ── Stage sub-nav ─────────────────────────────────────────────── */}
         <nav className="bg-background border-b border-border sticky top-14 z-40">
           <div className="max-w-screen-2xl mx-auto px-6">
             <div className="flex items-center gap-0 overflow-x-auto">
@@ -162,8 +147,9 @@ export default function WorkspaceLayout() {
                 OVERVIEW
               </Link>
 
-              {/* Engine tabs */}
-              {MISSION_SLUGS.map((slug) => {
+              {/* Stage tabs — driven by stageMetadata canonical sequence */}
+              {STAGE_SEQUENCE.map((slug) => {
+                const config = STAGE_CONFIGS[slug];
                 const mission = workspaceState.missions[slug];
                 const isActive = activeSlug === slug;
                 const isLocked = mission.status === "locked";
@@ -182,9 +168,9 @@ export default function WorkspaceLayout() {
                     ].join(" ")}
                   >
                     <span className="text-muted-foreground">
-                      {MISSION_ICONS[slug]}
+                      {config.icon}
                     </span>
-                    <span className="tracking-wide">{slug.toUpperCase()}</span>
+                    <span className="tracking-wide">{config.tabLabel}</span>
                     {!loading && <StatusDot status={mission.status} />}
                   </Link>
                 );

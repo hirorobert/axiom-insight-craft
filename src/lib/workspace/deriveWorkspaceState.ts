@@ -4,18 +4,23 @@
  * Pure function: given company + period + upload snapshot → WorkspaceState.
  * No DB access. No side effects. No async. Fully testable.
  *
+ * Architecture v3.1 mission slugs (professional accounting lifecycle):
+ *   prepare → reconcile → statements → tax → compliance → filing → monitor
+ *
+ * reconcile and compliance are na() in all paths until Phase B adds DB signals.
+ *
  * Paths (ordered by priority — first match wins):
- *  1. No upload                 → Import Trial Balance
- *  2. Upload processing         → Wait / Refresh
- *  3. Upload needs_review       → Resolve Account Classifications
- *  4. Upload error/blocked      → Resolve Upload Error
- *  5. Upload invalid (is_valid = false)  → Fix Validation Errors
- *  6. Safisha blocked/exceptions         → Resolve Reconciliation Exceptions
- *  7. Safisha clean, HESABU not run      → Validate Draft Statements
- *  8. TB valid (pre-safisha), no HESABU  → Validate Draft Statements
- *  9. HESABU passed, KINGA not run       → Compute Corporate Tax
- * 10. KINGA signed, filing not submitted → Prepare Filing Package
- * 11. Filing submitted                   → Review Completed Engagement
+ *  1. No upload                   → Import Trial Balance
+ *  2. Upload processing           → Wait / Refresh
+ *  3. Upload needs_review         → Resolve Account Classifications
+ *  4. Upload error/blocked        → Resolve Upload Error
+ *  5. Upload invalid (is_valid=false)      → Fix Validation Errors
+ *  6. Safisha blocked/exceptions           → Resolve Reconciliation Exceptions
+ *  7. Safisha clean, HESABU not run        → Validate Draft Statements
+ *  8. TB valid (pre-safisha), no HESABU    → Validate Draft Statements
+ *  9. HESABU passed, KINGA not run         → Compute Corporate Tax
+ * 10. KINGA signed, filing not submitted   → Prepare Filing Package
+ * 11. Filing submitted                     → Review Completed Engagement
  */
 
 import type {
@@ -76,20 +81,21 @@ export function deriveWorkspaceState(
       periodYear,
       companyName,
       missions: {
-        safisha:   { status: "not_started", label: "SAFISHA",   summary: "No trial balance imported", href: `${b}/safisha` },
-        hesabu:    locked("HESABU",    "hesabu",    companyId, periodYear, "Import trial balance first"),
-        kinga:     locked("KINGA",     "kinga",     companyId, periodYear, "Complete SAFISHA first"),
-        filing:    locked("FILING",    "filing",    companyId, periodYear, "Complete KINGA first"),
-        analytics: na("ANALYTICS", "analytics", companyId, periodYear),
-        issues:    na("ISSUES",    "issues",    companyId, periodYear),
+        prepare:    { status: "not_started", label: "Prepare Data",     summary: "No trial balance imported",     href: `${b}/prepare` },
+        reconcile:  na("Reconcile",          "reconcile",  companyId, periodYear, "Available — EFDMS and journal review"),
+        statements: locked("Prepare Statements", "statements", companyId, periodYear, "Import trial balance first"),
+        tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
+        compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
+        filing:     locked("Prepare Filing",     "filing",     companyId, periodYear, "Complete Compute Tax first"),
+        monitor:    na("Monitor",            "monitor",    companyId, periodYear),
       },
       nextAction: {
         id: "import-trial-balance",
         label: "Import Trial Balance",
         description: "Upload the trial balance to start this engagement",
-        href: `${b}/safisha`,
+        href: `${b}/prepare`,
         blocked: false,
-        mission: "safisha",
+        mission: "prepare",
         priority: 1,
       },
     };
@@ -108,21 +114,22 @@ export function deriveWorkspaceState(
     return {
       ...uploadCommon,
       missions: {
-        safisha:   { status: "in_progress", label: "SAFISHA", summary: "Parsing and classifying trial balance…", href: `${b}/safisha` },
-        hesabu:    locked("HESABU", "hesabu", companyId, periodYear, "Awaiting SAFISHA"),
-        kinga:     locked("KINGA",  "kinga",  companyId, periodYear, "Awaiting SAFISHA"),
-        filing:    locked("FILING", "filing", companyId, periodYear, "Awaiting KINGA"),
-        analytics: na("ANALYTICS", "analytics", companyId, periodYear),
-        issues:    na("ISSUES",    "issues",    companyId, periodYear),
+        prepare:    { status: "in_progress", label: "Prepare Data",     summary: "Parsing and classifying trial balance…", href: `${b}/prepare` },
+        reconcile:  na("Reconcile",          "reconcile",  companyId, periodYear, "Available — EFDMS and journal review"),
+        statements: locked("Prepare Statements", "statements", companyId, periodYear, "Awaiting Prepare Data"),
+        tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Awaiting Prepare Data"),
+        compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
+        filing:     locked("Prepare Filing",     "filing",     companyId, periodYear, "Awaiting Compute Tax"),
+        monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
         id: "wait-processing",
         label: "Processing in progress",
         description: "Trial balance is being parsed — this takes 30–90 seconds",
-        href: `${b}/safisha`,
+        href: `${b}/prepare`,
         blocked: true,
         blocker: "Engine is running",
-        mission: "safisha",
+        mission: "prepare",
         priority: 2,
       },
     };
@@ -133,20 +140,21 @@ export function deriveWorkspaceState(
     return {
       ...uploadCommon,
       missions: {
-        safisha:   { status: "review_required", label: "SAFISHA", summary: "Account classification review required", href: `${b}/safisha` },
-        hesabu:    locked("HESABU", "hesabu", companyId, periodYear, "Resolve SAFISHA review items first"),
-        kinga:     locked("KINGA",  "kinga",  companyId, periodYear, "Complete SAFISHA first"),
-        filing:    locked("FILING", "filing", companyId, periodYear, "Complete KINGA first"),
-        analytics: na("ANALYTICS", "analytics", companyId, periodYear),
-        issues:    na("ISSUES",    "issues",    companyId, periodYear),
+        prepare:    { status: "review_required", label: "Prepare Data",     summary: "Account classification review required", href: `${b}/prepare` },
+        reconcile:  na("Reconcile",              "reconcile",  companyId, periodYear, "Available — EFDMS and journal review"),
+        statements: locked("Prepare Statements", "statements", companyId, periodYear, "Resolve Prepare Data review items first"),
+        tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
+        compliance: na("Compliance Review",      "compliance", companyId, periodYear, "Available after tax computation"),
+        filing:     locked("Prepare Filing",     "filing",     companyId, periodYear, "Complete Compute Tax first"),
+        monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
         id: "resolve-classifications",
         label: "Resolve Account Classifications",
         description: "Some accounts could not be auto-classified — manual review required before processing can continue",
-        href: `${b}/safisha`,
+        href: `${b}/prepare`,
         blocked: false,
-        mission: "safisha",
+        mission: "prepare",
         priority: 3,
       },
     };
@@ -157,20 +165,21 @@ export function deriveWorkspaceState(
     return {
       ...uploadCommon,
       missions: {
-        safisha:   { status: "blocked", label: "SAFISHA", summary: "Upload processing failed", href: `${b}/safisha` },
-        hesabu:    locked("HESABU", "hesabu", companyId, periodYear, "Resolve SAFISHA error first"),
-        kinga:     locked("KINGA",  "kinga",  companyId, periodYear, "Complete SAFISHA first"),
-        filing:    locked("FILING", "filing", companyId, periodYear, "Complete KINGA first"),
-        analytics: na("ANALYTICS", "analytics", companyId, periodYear),
-        issues:    na("ISSUES",    "issues",    companyId, periodYear),
+        prepare:    { status: "blocked", label: "Prepare Data",     summary: "Upload processing failed", href: `${b}/prepare` },
+        reconcile:  na("Reconcile",      "reconcile",  companyId, periodYear, "Available — EFDMS and journal review"),
+        statements: locked("Prepare Statements", "statements", companyId, periodYear, "Resolve Prepare Data error first"),
+        tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
+        compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
+        filing:     locked("Prepare Filing",     "filing",     companyId, periodYear, "Complete Compute Tax first"),
+        monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
         id: "resolve-upload-error",
         label: "Resolve Upload Error",
         description: "Processing failed — review the validation report and reprocess or upload a corrected file",
-        href: `${b}/safisha`,
+        href: `${b}/prepare`,
         blocked: false,
-        mission: "safisha",
+        mission: "prepare",
         priority: 4,
       },
     };
@@ -181,20 +190,21 @@ export function deriveWorkspaceState(
     return {
       ...uploadCommon,
       missions: {
-        safisha:   { status: "blocked", label: "SAFISHA", summary: "Validation errors present", href: `${b}/safisha` },
-        hesabu:    locked("HESABU", "hesabu", companyId, periodYear, "Clear validation errors first"),
-        kinga:     locked("KINGA",  "kinga",  companyId, periodYear, "Complete SAFISHA first"),
-        filing:    locked("FILING", "filing", companyId, periodYear, "Complete KINGA first"),
-        analytics: na("ANALYTICS", "analytics", companyId, periodYear),
-        issues:    na("ISSUES",    "issues",    companyId, periodYear),
+        prepare:    { status: "blocked", label: "Prepare Data",     summary: "Validation errors present", href: `${b}/prepare` },
+        reconcile:  na("Reconcile",      "reconcile",  companyId, periodYear, "Available — EFDMS and journal review"),
+        statements: locked("Prepare Statements", "statements", companyId, periodYear, "Clear validation errors first"),
+        tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
+        compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
+        filing:     locked("Prepare Filing",     "filing",     companyId, periodYear, "Complete Compute Tax first"),
+        monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
         id: "fix-validation-errors",
         label: "Fix Validation Errors",
         description: "Trial balance has accounting errors that must be resolved before processing can continue",
-        href: `${b}/safisha`,
+        href: `${b}/prepare`,
         blocked: false,
-        mission: "safisha",
+        mission: "prepare",
         priority: 5,
       },
     };
@@ -206,29 +216,30 @@ export function deriveWorkspaceState(
     upload.safishaStatus !== "clean";
 
   if (safishaBlocked) {
-    // HESABU may have already been validated even while SAFISHA is blocked.
-    // Show the true HESABU state so the workspace reflects what has actually been done.
-    const hesabuInSafishaBlock: MissionState = upload.hesabuPassedAt
-      ? { status: "passed",      label: "HESABU", summary: "Statements validated", href: `${b}/hesabu` }
-      : { status: "in_progress", label: "HESABU", summary: "Available — draft validation can proceed", href: `${b}/hesabu` };
+    // Statements may have already been validated even while Prepare Data is blocked.
+    // Show the true statements state so the workspace reflects what has actually been done.
+    const statementsInPrepareBlock: MissionState = upload.hesabuPassedAt
+      ? { status: "passed",      label: "Prepare Statements", summary: "Statements validated",                         href: `${b}/statements` }
+      : { status: "in_progress", label: "Prepare Statements", summary: "Available — draft validation can proceed",     href: `${b}/statements` };
 
     return {
       ...uploadCommon,
       missions: {
-        safisha:   { status: "blocked", label: "SAFISHA", summary: `EFDMS reconciliation: ${upload.safishaStatus}`, href: `${b}/safisha`, blocker: upload.safishaStatus ?? undefined },
-        hesabu:    hesabuInSafishaBlock,
-        kinga:     locked("KINGA",  "kinga",  companyId, periodYear, "SAFISHA reconciliation must clear before tax computation (constitutional gate)"),
-        filing:    locked("FILING", "filing", companyId, periodYear, "Complete KINGA first"),
-        analytics: na("ANALYTICS", "analytics", companyId, periodYear),
-        issues:    na("ISSUES",    "issues",    companyId, periodYear),
+        prepare:    { status: "blocked", label: "Prepare Data", summary: `EFDMS reconciliation: ${upload.safishaStatus}`, href: `${b}/prepare`, blocker: upload.safishaStatus ?? undefined },
+        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — EFDMS and journal review"),
+        statements: statementsInPrepareBlock,
+        tax:        locked("Compute Tax",    "tax",    companyId, periodYear, "Prepare Data reconciliation must clear before tax computation (constitutional gate)"),
+        compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
+        filing:     locked("Prepare Filing", "filing", companyId, periodYear, "Complete Compute Tax first"),
+        monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
         id: "resolve-reconciliation",
         label: "Resolve Reconciliation Exceptions",
         description: `EFDMS matching blocked (${upload.safishaStatus}) — resolve exceptions before tax computation can run`,
-        href: `${b}/safisha`,
+        href: `${b}/prepare`,
         blocked: false,
-        mission: "safisha",
+        mission: "prepare",
         priority: 6,
       },
     };
@@ -238,29 +249,30 @@ export function deriveWorkspaceState(
 
   // ── PATH 7 + 8: TB valid, no HESABU yet ──────────────────────────────────
   if (!upload.hesabuPassedAt) {
-    const safishaSummary = safishaClean
+    const prepareSummary = safishaClean
       ? "TB clean — EFDMS reconciled"
       : "TB validated and processed";
 
     return {
       ...uploadCommon,
       missions: {
-        safisha:   { status: "passed",    label: "SAFISHA", summary: safishaSummary, href: `${b}/safisha` },
-        hesabu:    { status: "ready",     label: "HESABU",  summary: "Ready to validate statements", href: `${b}/hesabu` },
-        kinga:     locked("KINGA",  "kinga",  companyId, periodYear, "Complete HESABU validation first"),
-        filing:    locked("FILING", "filing", companyId, periodYear, "Complete KINGA first"),
-        analytics: na("ANALYTICS", "analytics", companyId, periodYear),
-        issues:    na("ISSUES",    "issues",    companyId, periodYear),
+        prepare:    { status: "passed", label: "Prepare Data",     summary: prepareSummary, href: `${b}/prepare` },
+        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — EFDMS and journal review"),
+        statements: { status: "ready",  label: "Prepare Statements", summary: "Ready to validate statements", href: `${b}/statements` },
+        tax:        locked("Compute Tax",    "tax",    companyId, periodYear, "Complete Prepare Statements validation first"),
+        compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
+        filing:     locked("Prepare Filing", "filing", companyId, periodYear, "Complete Compute Tax first"),
+        monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
         id: "validate-draft-statements",
         label: "Validate Draft Statements",
         description: safishaClean
-          ? "TB is reconciled and clean — run HESABU to validate the financial statements"
-          : "TB is valid — run HESABU to cross-validate the draft financial statements",
-        href: `${b}/hesabu`,
+          ? "TB is reconciled and clean — run statement validation"
+          : "TB is valid — cross-validate the draft financial statements",
+        href: `${b}/statements`,
         blocked: false,
-        mission: "hesabu",
+        mission: "statements",
         priority: 7,
       },
     };
@@ -268,30 +280,31 @@ export function deriveWorkspaceState(
 
   // ── PATH 9: HESABU passed, KINGA not yet run ──────────────────────────────
   if (!upload.kingaSignedAt) {
-    const kingaBlocked = !safishaClean;
+    const taxBlocked = !safishaClean;
     return {
       ...uploadCommon,
       lastUpdatedAt: upload.hesabuPassedAt ?? upload.processedAt ?? upload.uploadedAt,
       missions: {
-        safisha: { status: safishaClean ? "passed" : "blocked", label: "SAFISHA", summary: safishaClean ? "TB clean and reconciled" : "Reconciliation exceptions present", href: `${b}/safisha` },
-        hesabu:  { status: "passed", label: "HESABU", summary: "Statements validated", href: `${b}/hesabu` },
-        kinga:   kingaBlocked
-          ? locked("KINGA", "kinga", companyId, periodYear, "SAFISHA reconciliation must clear first (constitutional gate)")
-          : { status: "ready", label: "KINGA", summary: "Ready to compute corporate tax", href: `${b}/kinga` },
-        filing:    locked("FILING", "filing", companyId, periodYear, "Complete KINGA first"),
-        analytics: na("ANALYTICS", "analytics", companyId, periodYear),
-        issues:    na("ISSUES",    "issues",    companyId, periodYear),
+        prepare:    { status: safishaClean ? "passed" : "blocked", label: "Prepare Data",     summary: safishaClean ? "TB clean and reconciled" : "Reconciliation exceptions present", href: `${b}/prepare` },
+        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — EFDMS and journal review"),
+        statements: { status: "passed", label: "Prepare Statements", summary: "Statements validated", href: `${b}/statements` },
+        tax:        taxBlocked
+          ? locked("Compute Tax", "tax", companyId, periodYear, "Prepare Data reconciliation must clear first (constitutional gate)")
+          : { status: "ready", label: "Compute Tax", summary: "Ready to compute corporate tax", href: `${b}/tax` },
+        compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
+        filing:     locked("Prepare Filing", "filing", companyId, periodYear, "Complete Compute Tax first"),
+        monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
         id: "compute-corporate-tax",
         label: "Compute Corporate Tax",
-        description: kingaBlocked
-          ? "HESABU validated — resolve SAFISHA reconciliation to unlock KINGA"
-          : "HESABU validated — run KINGA to compute corporate income tax (ITA Cap.332)",
-        href: `${b}/kinga`,
-        blocked: kingaBlocked,
-        blocker: kingaBlocked ? "SAFISHA reconciliation must clear first" : undefined,
-        mission: "kinga",
+        description: taxBlocked
+          ? "Statements validated — resolve Prepare Data reconciliation to unlock tax computation"
+          : "Statements validated — compute corporate income tax (ITA Cap.332)",
+        href: `${b}/tax`,
+        blocked: taxBlocked,
+        blocker: taxBlocked ? "Prepare Data reconciliation must clear first" : undefined,
+        mission: "tax",
         priority: 9,
       },
     };
@@ -303,12 +316,13 @@ export function deriveWorkspaceState(
       ...uploadCommon,
       lastUpdatedAt: upload.kingaSignedAt ?? upload.hesabuPassedAt ?? upload.processedAt ?? upload.uploadedAt,
       missions: {
-        safisha:   { status: "passed", label: "SAFISHA", summary: "TB clean and reconciled", href: `${b}/safisha` },
-        hesabu:    { status: "passed", label: "HESABU",  summary: "Statements validated", href: `${b}/hesabu` },
-        kinga:     { status: "signed", label: "KINGA",   summary: "Tax computed and signed", href: `${b}/kinga` },
-        filing:    { status: "ready",  label: "FILING",  summary: "Ready to prepare filing package", href: `${b}/filing` },
-        analytics: na("ANALYTICS", "analytics", companyId, periodYear),
-        issues:    na("ISSUES",    "issues",    companyId, periodYear),
+        prepare:    { status: "passed", label: "Prepare Data",     summary: "TB clean and reconciled",     href: `${b}/prepare` },
+        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — EFDMS and journal review"),
+        statements: { status: "passed", label: "Prepare Statements", summary: "Statements validated",       href: `${b}/statements` },
+        tax:        { status: "signed", label: "Compute Tax",        summary: "Tax computed and signed",    href: `${b}/tax` },
+        compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
+        filing:     { status: "ready",  label: "Prepare Filing",     summary: "Ready to prepare filing package", href: `${b}/filing` },
+        monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
         id: "prepare-filing-package",
@@ -327,21 +341,21 @@ export function deriveWorkspaceState(
     ...uploadCommon,
     lastUpdatedAt: upload.filingSubmittedAt,
     missions: {
-      safisha:   { status: "signed", label: "SAFISHA", summary: "TB clean and reconciled", href: `${b}/safisha` },
-      hesabu:    { status: "signed", label: "HESABU",  summary: "Statements validated and signed", href: `${b}/hesabu` },
-      kinga:     { status: "signed", label: "KINGA",   summary: "Tax computed and signed", href: `${b}/kinga` },
-      filing:    { status: "signed", label: "FILING",  summary: "Filed with TRA", href: `${b}/filing` },
-      analytics: na("ANALYTICS", "analytics", companyId, periodYear),
-      issues:
-    na("ISSUES", "issues", companyId, periodYear),
+      prepare:    { status: "signed", label: "Prepare Data",     summary: "TB clean and reconciled",        href: `${b}/prepare` },
+      reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — EFDMS and journal review"),
+      statements: { status: "signed", label: "Prepare Statements", summary: "Statements validated and signed", href: `${b}/statements` },
+      tax:        { status: "signed", label: "Compute Tax",        summary: "Tax computed and signed",        href: `${b}/tax` },
+      compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
+      filing:     { status: "signed", label: "Prepare Filing",     summary: "Filed with TRA",                 href: `${b}/filing` },
+      monitor:    na("Monitor", "monitor", companyId, periodYear),
     },
     nextAction: {
       id: "review-completed-engagement",
       label: "Review Completed Engagement",
       description: "Filing submitted — engagement is complete. Review analytics or archive.",
-      href: `${b}/analytics`,
+      href: `${b}/monitor`,
       blocked: false,
-      mission: "analytics",
+      mission: "monitor",
       priority: 11,
     },
   };

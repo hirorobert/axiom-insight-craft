@@ -78,9 +78,9 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
 
     expect(result.nextAction.id).toBe("import-trial-balance");
     expect(result.nextAction.blocked).toBe(false);
-    expect(result.missions.safisha.status).toBe("not_started");
-    expect(result.missions.hesabu.status).toBe("locked");
-    expect(result.missions.kinga.status).toBe("locked");
+    expect(result.missions.prepare.status).toBe("not_started");
+    expect(result.missions.statements.status).toBe("locked");
+    expect(result.missions.tax.status).toBe("locked");
     expect(result.missions.filing.status).toBe("locked");
     // I-4: null upload → never shows any completion
     expect(result.nextAction.id).not.toBe("review-completed-engagement");
@@ -95,7 +95,7 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     expect(result.nextAction.id).toBe("wait-processing");
     expect(result.nextAction.blocked).toBe(true);
     expect(result.nextAction.blocker).toBeTruthy();
-    expect(result.missions.safisha.status).toBe("in_progress");
+    expect(result.missions.prepare.status).toBe("in_progress");
     assertInvariants(result);
   });
 
@@ -106,8 +106,8 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
 
     expect(result.nextAction.id).toBe("resolve-classifications");
     expect(result.nextAction.blocked).toBe(false);
-    expect(result.missions.safisha.status).toBe("review_required");
-    expect(result.missions.hesabu.status).toBe("locked");
+    expect(result.missions.prepare.status).toBe("review_required");
+    expect(result.missions.statements.status).toBe("locked");
     assertInvariants(result);
   });
 
@@ -117,8 +117,8 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({ status: "error" }));
 
     expect(result.nextAction.id).toBe("resolve-upload-error");
-    expect(result.missions.safisha.status).toBe("blocked");
-    expect(result.missions.hesabu.status).toBe("locked");
+    expect(result.missions.prepare.status).toBe("blocked");
+    expect(result.missions.statements.status).toBe("locked");
     assertInvariants(result);
   });
 
@@ -128,7 +128,7 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({ status: "blocked" }));
 
     expect(result.nextAction.id).toBe("resolve-upload-error");
-    expect(result.missions.safisha.status).toBe("blocked");
+    expect(result.missions.prepare.status).toBe("blocked");
     assertInvariants(result);
   });
 
@@ -138,10 +138,10 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({ isValid: false }));
 
     expect(result.nextAction.id).toBe("fix-validation-errors");
-    expect(result.missions.safisha.status).toBe("blocked");
-    expect(result.missions.hesabu.status).toBe("locked");
+    expect(result.missions.prepare.status).toBe("blocked");
+    expect(result.missions.statements.status).toBe("locked");
     // I-4: invalid TB must never show HESABU passed
-    expect(result.missions.hesabu.status).not.toBe("passed");
+    expect(result.missions.statements.status).not.toBe("passed");
     assertInvariants(result);
   });
 
@@ -154,10 +154,10 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     );
 
     expect(result.nextAction.id).toBe("resolve-reconciliation");
-    expect(result.missions.safisha.status).toBe("blocked");
+    expect(result.missions.prepare.status).toBe("blocked");
     // HESABU may proceed in parallel but KINGA is constitutionally gated
-    expect(result.missions.kinga.status).toBe("locked");
-    expect(result.missions.kinga.blocker).toContain("constitutional gate");
+    expect(result.missions.tax.status).toBe("locked");
+    expect(result.missions.tax.blocker).toContain("constitutional gate");
     assertInvariants(result);
   });
 
@@ -170,10 +170,10 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     );
 
     expect(result.nextAction.id).toBe("validate-draft-statements");
-    expect(result.nextAction.href).toContain("/hesabu");
-    expect(result.missions.safisha.status).toBe("passed");
-    expect(result.missions.hesabu.status).toBe("ready");
-    expect(result.missions.kinga.status).toBe("locked");
+    expect(result.nextAction.href).toContain("/statements");
+    expect(result.missions.prepare.status).toBe("passed");
+    expect(result.missions.statements.status).toBe("ready");
+    expect(result.missions.tax.status).toBe("locked");
     // I-5: no hesabu → must not show kinga ready or beyond
     expect(result.missions.filing.status).toBe("locked");
     assertInvariants(result);
@@ -188,7 +188,7 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     );
 
     expect(result.nextAction.id).toBe("validate-draft-statements");
-    expect(result.missions.hesabu.status).toBe("ready");
+    expect(result.missions.statements.status).toBe("ready");
     // description should differ from clean path
     expect(result.nextAction.description).toContain("TB is valid");
     assertInvariants(result);
@@ -208,8 +208,8 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
 
     expect(result.nextAction.id).toBe("compute-corporate-tax");
     expect(result.nextAction.blocked).toBe(false);
-    expect(result.missions.hesabu.status).toBe("passed");
-    expect(result.missions.kinga.status).toBe("ready");
+    expect(result.missions.statements.status).toBe("passed");
+    expect(result.missions.tax.status).toBe("ready");
     expect(result.missions.filing.status).toBe("locked");
     // I-6: no kinga sign-off → must not reach filing-ready
     assertInvariants(result);
@@ -235,12 +235,12 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     expect(result.nextAction.id).toBe("resolve-reconciliation");
     expect(result.nextAction.blocked).toBe(false);
     // SAFISHA is blocked
-    expect(result.missions.safisha.status).toBe("blocked");
+    expect(result.missions.prepare.status).toBe("blocked");
     // HESABU is shown as passed (already validated)
-    expect(result.missions.hesabu.status).toBe("passed");
+    expect(result.missions.statements.status).toBe("passed");
     // KINGA is constitutionally locked
-    expect(result.missions.kinga.status).toBe("locked");
-    expect(result.missions.kinga.blocker).toContain("constitutional gate");
+    expect(result.missions.tax.status).toBe("locked");
+    expect(result.missions.tax.blocker).toContain("constitutional gate");
     assertInvariants(result);
   });
 
@@ -258,7 +258,7 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     );
 
     expect(result.nextAction.id).toBe("prepare-filing-package");
-    expect(result.missions.kinga.status).toBe("signed");
+    expect(result.missions.tax.status).toBe("signed");
     expect(result.missions.filing.status).toBe("ready");
     // I-7: no filing → must not show completed engagement
     expect(result.nextAction.id).not.toBe("review-completed-engagement");
@@ -279,9 +279,9 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     );
 
     expect(result.nextAction.id).toBe("review-completed-engagement");
-    expect(result.missions.safisha.status).toBe("signed");
-    expect(result.missions.hesabu.status).toBe("signed");
-    expect(result.missions.kinga.status).toBe("signed");
+    expect(result.missions.prepare.status).toBe("signed");
+    expect(result.missions.statements.status).toBe("signed");
+    expect(result.missions.tax.status).toBe("signed");
     expect(result.missions.filing.status).toBe("signed");
     assertInvariants(result);
   });
@@ -304,7 +304,7 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
 
     // Must fall into the "no hesabu" branch — not into filing-complete
     expect(result.nextAction.id).toBe("validate-draft-statements");
-    expect(result.missions.kinga.status).toBe("locked");
+    expect(result.missions.tax.status).toBe("locked");
     expect(result.missions.filing.status).toBe("locked");
     assertInvariants(result);
   });

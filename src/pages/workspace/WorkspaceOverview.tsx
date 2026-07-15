@@ -26,13 +26,9 @@ import {
   Building2,
   Calendar,
   RefreshCw,
-  ShieldCheck,
-  Calculator,
-  Scale,
-  FileText,
-  BarChart3,
 } from "lucide-react";
-import type { MissionStatus, WorkspaceMission } from "@/lib/workspace/types";
+import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
+import type { MissionStatus } from "@/lib/workspace/types";
 
 // ── Status rendering ────────────────────────────────────────────────────────
 
@@ -51,27 +47,8 @@ const STATUS_META: Record<
   not_applicable: { label: "—",               className: "text-muted-foreground/50",      icon: <Minus className="w-3 h-3" /> },
 };
 
-const MISSION_ICONS: Record<WorkspaceMission, React.ReactNode> = {
-  safisha:   <ShieldCheck className="w-4 h-4" />,
-  hesabu:    <Calculator className="w-4 h-4" />,
-  kinga:     <Scale className="w-4 h-4" />,
-  filing:    <FileText className="w-4 h-4" />,
-  analytics: <BarChart3 className="w-4 h-4" />,
-  issues:    <AlertTriangle className="w-4 h-4" />,
-};
-
-const MISSION_LABELS: Record<WorkspaceMission, string> = {
-  safisha:   "SAFISHA — TB Verification & EFDMS Reconciliation",
-  hesabu:    "HESABU — Financial Statement Validation",
-  kinga:     "KINGA — Corporate Tax Computation (ITA Cap.332)",
-  filing:    "FILING — Regulatory Filing Package",
-  analytics: "ANALYTICS — Portfolio Intelligence",
-  issues:    "ISSUES — Findings & Evidence Requests",
-};
-
-const MISSION_ORDER: WorkspaceMission[] = [
-  "safisha", "hesabu", "kinga", "filing", "analytics", "issues",
-];
+// Icons are sized up (w-4) relative to the tab icons (w-3.5) for the overview table
+const OVERVIEW_ICON_CLASS = "w-4 h-4";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -182,7 +159,8 @@ export default function WorkspaceOverview() {
           MISSION STATUS
         </p>
         <div className="border border-border divide-y divide-border">
-          {MISSION_ORDER.map((slug) => {
+          {STAGE_SEQUENCE.map((slug) => {
+            const config = STAGE_CONFIGS[slug];
             const mission = missions[slug];
             const meta = STATUS_META[mission.status];
             const isLocked = mission.status === "locked";
@@ -195,14 +173,14 @@ export default function WorkspaceOverview() {
                 className="flex items-center gap-4 px-5 py-4 hover:bg-secondary/30 transition-colors"
               >
                 {/* Icon */}
-                <div className="text-muted-foreground shrink-0">
-                  {MISSION_ICONS[slug]}
+                <div className={`text-muted-foreground shrink-0 ${OVERVIEW_ICON_CLASS}`}>
+                  {config.icon}
                 </div>
 
                 {/* Label + summary */}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground">
-                    {MISSION_LABELS[slug]}
+                    {mission.label}
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {mission.blocker ? (
@@ -279,7 +257,7 @@ export default function WorkspaceOverview() {
           </div>
           {uploads.length > 5 && (
             <Link
-              to={`${basePath}/safisha`}
+              to={`${basePath}/prepare`}
               className="block text-xs text-muted-foreground hover:text-foreground pt-2 text-right"
             >
               View all {uploads.length} uploads →

@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
@@ -14,17 +14,33 @@ import Settings from "./pages/Settings";
 import UploadStatus from "./pages/UploadStatus";
 import NotFound from "./pages/NotFound";
 
-// Workspace architecture
+// Workspace architecture — Architecture v3.1
 import WorkspaceLayout from "./pages/workspace/WorkspaceLayout";
 import WorkspaceOverview from "./pages/workspace/WorkspaceOverview";
-import SafishaWorkspace from "./pages/workspace/SafishaWorkspace";
-import HesabuWorkspace from "./pages/workspace/HesabuWorkspace";
-import KingaWorkspace from "./pages/workspace/KingaWorkspace";
+
+// Stage workspaces (sequence: prepare → reconcile → statements → tax → compliance → filing → monitor)
+import PrepareWorkspace from "./pages/workspace/PrepareWorkspace";
+import ReconcileWorkspace from "./pages/workspace/ReconcileWorkspace";
+import StatementsWorkspace from "./pages/workspace/StatementsWorkspace";
+import TaxWorkspace from "./pages/workspace/TaxWorkspace";
+import ComplianceWorkspace from "./pages/workspace/ComplianceWorkspace";
 import FilingWorkspace from "./pages/workspace/FilingWorkspace";
-import AnalyticsWorkspace from "./pages/workspace/AnalyticsWorkspace";
+import MonitorWorkspace from "./pages/workspace/MonitorWorkspace";
+// IssuesWorkspace is retired — /issues redirects to /compliance (Phase D removes file)
 import IssuesWorkspace from "./pages/workspace/IssuesWorkspace";
 
+// Command Center — partner-level cross-engagement view
+import CommandCenter from "./pages/command/CommandCenter";
+
 const queryClient = new QueryClient();
+
+// ── Legacy deep-link redirect: /workspace/:id/:year/safisha → /prepare, etc. ──
+// Handles any bookmarks pointing to engine-named sub-routes.
+
+function LegacySubRouteRedirect({ to }: { to: string }) {
+  const { companyId, periodYear } = useParams<{ companyId: string; periodYear: string }>();
+  return <Navigate to={`/workspace/${companyId}/${periodYear}/${to}`} replace />;
+}
 
 const App = () => (
   <ErrorBoundary>
@@ -36,8 +52,13 @@ const App = () => (
             <Sonner />
             <BrowserRouter>
               <Routes>
+                {/* ── Public landing ── */}
                 <Route path="/" element={<Index />} />
-                {/* Workspace architecture — primary post-login experience */}
+
+                {/* ── Command Center — partner cross-engagement view ── */}
+                <Route path="/command" element={<CommandCenter />} />
+
+                {/* ── Workspace architecture — primary post-login experience ── */}
                 <Route
                   path="/workspace/:companyId/:periodYear"
                   element={
@@ -47,14 +68,26 @@ const App = () => (
                   }
                 >
                   <Route index element={<WorkspaceOverview />} />
-                  <Route path="safisha"   element={<SafishaWorkspace />} />
-                  <Route path="hesabu"    element={<HesabuWorkspace />} />
-                  <Route path="kinga"     element={<KingaWorkspace />} />
-                  <Route path="filing"    element={<FilingWorkspace />} />
-                  <Route path="analytics" element={<AnalyticsWorkspace />} />
-                  <Route path="issues"    element={<IssuesWorkspace />} />
+
+                  {/* Architecture v3.1 canonical routes */}
+                  <Route path="prepare"    element={<PrepareWorkspace />} />
+                  <Route path="reconcile"  element={<ReconcileWorkspace />} />
+                  <Route path="statements" element={<StatementsWorkspace />} />
+                  <Route path="tax"        element={<TaxWorkspace />} />
+                  <Route path="compliance" element={<ComplianceWorkspace />} />
+                  <Route path="filing"     element={<FilingWorkspace />} />
+                  <Route path="monitor"    element={<MonitorWorkspace />} />
+
+                  {/* Compatibility redirects — engine-named sub-routes → accounting slugs */}
+                  <Route path="safisha"   element={<LegacySubRouteRedirect to="prepare" />} />
+                  <Route path="hesabu"    element={<LegacySubRouteRedirect to="statements" />} />
+                  <Route path="kinga"     element={<LegacySubRouteRedirect to="tax" />} />
+                  <Route path="analytics" element={<LegacySubRouteRedirect to="monitor" />} />
+                  <Route path="issues"    element={<LegacySubRouteRedirect to="compliance" />} />
                 </Route>
-                {/* Dashboard — compatibility redirect; select company/period then goes to workspace */}
+
+                {/* ── Compatibility redirects — top-level legacy routes ── */}
+                {/* /dashboard → the company selector (unchanged, then routes to /workspace) */}
                 <Route
                   path="/dashboard"
                   element={
@@ -63,6 +96,8 @@ const App = () => (
                     </PageErrorBoundary>
                   }
                 />
+
+                {/* ── Auth + utility ── */}
                 <Route path="/auth" element={<Auth />} />
                 <Route
                   path="/uploads/status"
@@ -80,6 +115,7 @@ const App = () => (
                     </PageErrorBoundary>
                   }
                 />
+
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
