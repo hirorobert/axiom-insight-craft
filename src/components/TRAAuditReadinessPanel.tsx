@@ -101,41 +101,42 @@ export function TRAAuditReadinessPanel({
     setLoading(true);
 
     // Run all checks in parallel
-    const q1: any = supabase
+    const sb: any = supabase;
+    const q1: any = sb
       .from("tax_computations")
       .select("id, is_committed")
       .eq("company_id", companyId)
       .eq("upload_id", uploadId)
       .order("created_at", { ascending: false })
       .limit(1);
-    const q2: any = supabase
+    const q2: any = sb
       .from("adjusting_journal_entries")
       .select("id, aje_number")
       .eq("company_id", companyId)
       .eq("period_year", periodYear)
       .eq("status", "draft")
       .limit(10);
-    const q3: any = supabase
+    const q3: any = sb
       .from("statement_sign_offs")
       .select("id, status")
       .eq("company_id", companyId)
       .eq("period_year", periodYear)
       .limit(1);
-    const q4: any = supabase
+    const q4: any = sb
       .from("findings")
       .select("id, title")
       .eq("company_id", companyId)
       .eq("status", "open")
       .lt("created_at", new Date(Date.now() - 30 * 86400_000).toISOString())
       .limit(10);
-    const q5: any = supabase
+    const q5: any = sb
       .from("efdms_z_reports")
       .select("id")
       .eq("company_id", companyId)
       .gte("report_date", `${periodYear}-${String(periodMonth).padStart(2, "0")}-01`)
       .lte("report_date", `${periodYear}-${String(periodMonth).padStart(2, "0")}-31`)
       .limit(1);
-    const q6: any = supabase
+    const q6: any = sb
       .from("evidence_requests")
       .select("id, request_title")
       .eq("company_id", companyId)

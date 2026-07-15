@@ -1544,11 +1544,12 @@ export function KingaTaxPanel({
                   variant="outline"
                   className="gap-1.5"
                   onClick={async () => {
-                    const q1: any = supabase
+                    const sb: any = supabase;
+                    const q1: any = sb
                       .from("capital_allowances")
                       .select("asset_description, ita_class, cost_tzs, ita_wdv_opening_tzs, additions_tzs, disposals_at_tax_cost_tzs, wear_tear_allowance_tzs, ita_wdv_closing_tzs")
                       .eq("upload_id", uploadId);
-                    const q2: any = supabase
+                    const q2: any = sb
                       .from("findings")
                       .select("title, finding_category, exposure_amount_tzs, status")
                       .eq("company_id", companyId)
