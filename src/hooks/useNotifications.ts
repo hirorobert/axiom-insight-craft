@@ -142,14 +142,14 @@ export function useNotifications(userId: string | undefined): NotificationState 
         label: "Draft AJEs",
         count: ajeItems.length,
         items: ajeItems,
-        severity: "warn",
+        severity: "warn" as const,
       },
       {
         key: "signoffs",
         label: "Pending Sign-offs",
         count: signOffItems.length,
         items: signOffItems,
-        severity: "info",
+        severity: "info" as const,
       },
     ].filter(c => c.count > 0);
 

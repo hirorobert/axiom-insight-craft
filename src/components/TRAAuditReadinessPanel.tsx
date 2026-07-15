@@ -101,6 +101,47 @@ export function TRAAuditReadinessPanel({
     setLoading(true);
 
     // Run all checks in parallel
+    const q1: any = supabase
+      .from("tax_computations")
+      .select("id, is_committed")
+      .eq("company_id", companyId)
+      .eq("upload_id", uploadId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const q2: any = supabase
+      .from("adjusting_journal_entries")
+      .select("id, aje_number")
+      .eq("company_id", companyId)
+      .eq("period_year", periodYear)
+      .eq("status", "draft")
+      .limit(10);
+    const q3: any = supabase
+      .from("statement_sign_offs")
+      .select("id, status")
+      .eq("company_id", companyId)
+      .eq("period_year", periodYear)
+      .limit(1);
+    const q4: any = supabase
+      .from("findings")
+      .select("id, title")
+      .eq("company_id", companyId)
+      .eq("status", "open")
+      .lt("created_at", new Date(Date.now() - 30 * 86400_000).toISOString())
+      .limit(10);
+    const q5: any = supabase
+      .from("efdms_z_reports")
+      .select("id")
+      .eq("company_id", companyId)
+      .gte("report_date", `${periodYear}-${String(periodMonth).padStart(2, "0")}-01`)
+      .lte("report_date", `${periodYear}-${String(periodMonth).padStart(2, "0")}-31`)
+      .limit(1);
+    const q6: any = supabase
+      .from("evidence_requests")
+      .select("id, request_title")
+      .eq("company_id", companyId)
+      .in("status", ["open", "pending"])
+      .limit(10);
+
     const [
       { data: taxComps },
       { data: draftAjes },
@@ -108,59 +149,7 @@ export function TRAAuditReadinessPanel({
       { data: staleFindings },
       { data: efdmsRows },
       { data: openEvidence },
-    ] = (await Promise.all([
-      // G1: Tax computation committed
-      supabase
-        .from("tax_computations")
-        .select("id, is_committed")
-        .eq("company_id", companyId)
-        .eq("upload_id", uploadId)
-        .order("created_at", { ascending: false })
-        .limit(1),
-
-      // G2: Draft AJEs for this period
-      supabase
-        .from("adjusting_journal_entries")
-        .select("id, aje_number")
-        .eq("company_id", companyId)
-        .eq("period_year", periodYear)
-        .eq("status", "draft")
-        .limit(10),
-
-      // G3: Statement sign-off locked
-      supabase
-        .from("statement_sign_offs")
-        .select("id, status")
-        .eq("company_id", companyId)
-        .eq("period_year", periodYear)
-        .limit(1),
-
-      // G4: Open findings older than 30 days
-      supabase
-        .from("findings")
-        .select("id, title")
-        .eq("company_id", companyId)
-        .eq("status", "open")
-        .lt("created_at", new Date(Date.now() - 30 * 86400_000).toISOString())
-        .limit(10),
-
-      // G5: EFDMS Z-Reports for this period (data now in efdms_z_reports via safisha-efdms-ingest)
-      supabase
-        .from("efdms_z_reports")
-        .select("id")
-        .eq("company_id", companyId)
-        .gte("report_date", `${periodYear}-${String(periodMonth).padStart(2, "0")}-01`)
-        .lte("report_date", `${periodYear}-${String(periodMonth).padStart(2, "0")}-31`)
-        .limit(1),
-
-      // G6: Open evidence requests
-      supabase
-        .from("evidence_requests")
-        .select("id, request_title")
-        .eq("company_id", companyId)
-        .in("status", ["open", "pending"])
-        .limit(10),
-    ])) as Array<{ data: any }>;
+    ] = await Promise.all([q1, q2, q3, q4, q5, q6]);
 
     // G1 evaluation
     const latestComp = taxComps?.[0];
