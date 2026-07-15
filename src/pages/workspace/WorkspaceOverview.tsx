@@ -167,6 +167,7 @@ export default function WorkspaceOverview() {
             const isLocked = mission.status === "locked";
             const isNA = mission.status === "not_applicable";
             const canOpen = !isLocked;
+            const Icon = config.icon;
 
             return (
               <div

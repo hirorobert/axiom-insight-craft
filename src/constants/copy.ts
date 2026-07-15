@@ -1,9 +1,12 @@
 // ─────────────────────────────────────────────────────────────
 // SAFF ERP — Marketing Copy
-// IRON DOME NUCLEAR SPEC · v2 · LOCKED
+// IRON DOME NUCLEAR SPEC · v3 · LOCKED
 //
 // §0  THIS FILE IS THE SINGLE SOURCE OF TRUTH FOR ALL MARKETING STRINGS.
 //     Edit here. Never hard-code copy in components.
+//
+// §1  ENGINE NAMES (SAFISHA, HESABU, KINGA, MAONO) MUST NOT APPEAR HERE.
+//     Users see professional accounting stage names only.
 // ─────────────────────────────────────────────────────────────
 
 export const BRAND = {
@@ -11,148 +14,85 @@ export const BRAND = {
 } as const;
 
 export const CTA = {
-  primary: "Upload Trial Balance",   // THE ONLY label for the start action
-  secondary: "See How It Works",
+  primary:     "Get Started",
+  secondary:   "See How It Works",
   primaryHref: "/auth",
 } as const;
 
 export const HERO = {
-  eyebrow: "SAFF Platform",
+  eyebrow:  "SAFF Platform",
   headline: "Financial Trust Infrastructure",
   subhead:
-    "Every financial statement, tax computation, filing package, and management decision begins with one verifiable source of financial truth.",
+    "Every financial statement, tax computation, and filing package produced from one verified source of financial truth. No spreadsheets. No estimates. No surprises.",
 } as const;
 
+// Accounting lifecycle shown in hero — 7 stages, no engine names, no dead links.
 export const PIPELINE = [
   "Upload Data",
-  "Clean & Reconcile",
-  "Validate",
+  "Reconcile",
   "Statements",
   "Tax",
+  "Compliance",
   "Filing",
   "Monitor",
-  "Decisions",
 ] as const;
-
-export const FEATURES = {
-  sectionKicker: "Financial Missions",
-  sectionSub:
-    "Each mission runs on a dedicated verification engine. Work flows forward. Nothing is approximated.",
-  items: [
-    {
-      title: "Prepare Financial Statements",
-      engine: "Powered by HESABU",
-      summary:
-        "Upload a trial balance. HESABU validates the balance sheet equation, classifies every account, and produces IFRS-compliant financial statements with full disclosure notes.",
-      detail:
-        "Auto-classification of 46+ account types · Assets = Liabilities + Closing Equity · Imbalance detected to TZS 1 · IAS 1 disclosure notes auto-generated",
-    },
-    {
-      title: "Compute Corporate Tax",
-      engine: "Powered by KINGA",
-      summary:
-        "KINGA reads the validated accounts and computes income tax — depreciation add-backs, interest deduction limits, minimum tax gate, loss carry-forward — with statutory citations on every line.",
-      detail:
-        "All 6 ITA asset classes (37.5% to 5% SL) · Thin capitalisation: resident bank exclusion applied · Minimum tax gate: 3-year loss history (ITA s.65) · Finance Act 2026 enacted",
-    },
-    {
-      title: "Assess Compliance Exposure",
-      engine: "Powered by KINGA Findings",
-      summary:
-        "Findings engine scans every account for statutory gaps — SDL, employer contributions, TRA exposure items — and surfaces each risk with the TZS amount and the statutory basis.",
-      detail:
-        "SDL, PAYE-proxy, service levy checks · TRA exposure quantified in TZS · Evidence-linked findings trail · No silent status changes",
-    },
-    {
-      title: "Analyse Period Performance",
-      engine: "Powered by MAONO",
-      summary:
-        "Link two fiscal years. MAONO generates a comparative income statement and balance sheet, identifies material variances, and surfaces the underlying drivers for management review.",
-      detail:
-        "Current vs prior year side-by-side · RE reconciliation per IAS 1.106 · ECL and AMT risk flags · Board-pack PDF with narrative",
-    },
-  ],
-} as const;
-
-export const TRUST_GUARANTEES = [
-  "No silent state changes — every transition is logged with actor identity",
-  "Reviewer identity always from server-side session — never from the request body",
-  "Append-only audit records — no row can be deleted or silently altered",
-  "Budget rows immutable after approval — enforced at trigger level",
-  "AI insights carry numeric citations — no un-sourced claims stored",
-  "Materiality thresholds configurable per company — no hardcoded numbers",
-  "Scheduled operations write through SECURITY DEFINER only",
-  "All SECURITY DEFINER functions pin search_path to block injection",
-  "Actions from decision engines require human confirmation — never auto-execute",
-] as const;
-
-export const UPLOAD_SECTION = {
-  headline: CTA.primary,
-  subhead: "Drag and drop, or browse. CSV, XLS, and XLSX supported.",
-  security: ["AES-256 encrypted storage", "ITA Cap.332 validated output"],
-} as const;
-
-export const FOOTER = {
-  description: BRAND.tagline,
-  legal: ["Privacy Policy", "Terms of Service"],
-} as const;
 
 // ─────────────────────────────────────────────────────────────
-// Platform Reference Table (used in Features section 01)
+// Platform Capability Table (replaces engine-name table)
 // ─────────────────────────────────────────────────────────────
 
 export const PLATFORM_TABLE = [
   {
-    module: "SAFISHA",
-    name: "Data Integrity Layer",
+    module: "Data Preparation",
+    name:   "Import & Verify",
     functions: [
-      "CSV/XLSX trial balance import with field mapping",
-      "EFDMS Z-Report reconciliation (VAT + SDL)",
-      "Duplicate detection and exception queue",
-      "Confidence score and DQC validation",
+      "CSV / XLSX trial balance import with guided field mapping",
+      "EFDMS Z-Report reconciliation — VAT and SDL",
+      "Duplicate detection and data quality exception queue",
+      "Confidence scoring — every account classification is graded",
     ],
-    basis: "Income Tax Act Cap.332 s.31 — record keeping obligations",
+    basis: "Income Tax Act Cap.332 s.31 — record-keeping obligations",
   },
   {
-    module: "HESABU",
-    name: "Statement Engine",
+    module: "Financial Statements",
+    name:   "IFRS Preparation",
     functions: [
       "IAS 1 Statement of Financial Position",
       "IAS 1 Statement of Comprehensive Income",
       "IAS 7 Statement of Cash Flows",
-      "IFRS disclosure notes — auto-generated",
+      "IFRS disclosure notes — auto-generated from account mapping",
     ],
     basis: "IFRS as adopted in Tanzania (NBAA Act Cap.286)",
   },
   {
-    module: "KINGA",
-    name: "Tax Computation Engine",
+    module: "Tax Computation",
+    name:   "Corporate Income Tax",
     functions: [
-      "ITA s.34 wear & tear — 6 asset classes",
-      "ITA s.24A thin capitalisation limit",
-      "ITA s.65 minimum tax gate (3-year loss history)",
-      "Finance Act 2026 — all enacted rates applied",
+      "Wear & tear — 6 ITA asset classes, enacted Finance Act 2026 rates",
+      "Thin capitalisation limit — ITA s.24A, resident bank exclusion",
+      "Minimum tax gate — 3-year loss history (ITA s.65)",
+      "Tax loss carry-forward and comparative workpapers",
     ],
     basis: "Income Tax Act Cap.332 + Finance Act 2026",
   },
   {
-    module: "FILING",
-    name: "TRA Submission Pack",
+    module: "Filing Package",
+    name:   "TRA Submission",
     functions: [
       "e-Filing readiness checklist (TRA IDRAS)",
-      "Tax computation PDF (TRA format)",
+      "Tax computation PDF — TRA-accepted format",
       "XBRL instance document generation",
-      "Multi-company filing calendar",
+      "Multi-company filing calendar and deadline tracker",
     ],
     basis: "TAA Cap.399 s.38 — return filing obligations",
   },
   {
-    module: "MAONO",
-    name: "Analytics Engine",
+    module: "Analytics",
+    name:   "Portfolio Intelligence",
     functions: [
-      "Comparative financial statements (current vs prior)",
-      "Variance analysis with materiality thresholds",
-      "Cash flow forecast (AR/AP aging + statutory calendar)",
+      "Comparative financial statements — current vs prior period",
+      "Variance analysis with configurable materiality thresholds",
+      "Cash flow forecast — AR/AP aging plus statutory calendar",
       "Board-pack PDF with management narrative",
     ],
     basis: "IAS 1.38 — comparative information requirements",
@@ -160,57 +100,97 @@ export const PLATFORM_TABLE = [
 ] as const;
 
 // ─────────────────────────────────────────────────────────────
-// Security Architecture Table (used in Features section 03)
+// Financial Integrity Guarantees
+// ─────────────────────────────────────────────────────────────
+
+export const TRUST_GUARANTEES = [
+  "No silent state changes — every transition is recorded with the identity of the actor who made it",
+  "Reviewer identity is always read from the authenticated server session — never trusted from the request",
+  "Audit and computation records are append-only — no row can be deleted or silently altered",
+  "Budget rows are immutable after approval — enforced at the database trigger level, not application code",
+  "AI-generated insights carry numeric citations — no unsourced claim is stored",
+  "Materiality thresholds are configurable per company — no hardcoded numbers",
+  "Management decision engine outputs require explicit human confirmation before any action executes",
+] as const;
+
+// ─────────────────────────────────────────────────────────────
+// Security Architecture Table
 // ─────────────────────────────────────────────────────────────
 
 export const SECURITY_TABLE = [
   {
-    constraint: "Identity",
-    spec: "JWT-derived firm-member identity on every write. Server session only — no trust of request body claims.",
+    constraint: "Session Identity",
+    spec: "Every write is bound to a verified firm-member identity from the server session. Client-supplied identity claims are never trusted.",
   },
   {
-    constraint: "Row-Level Security",
-    spec: "Supabase RLS enforced on all tables. Firm isolation is structural — not application-layer configuration.",
+    constraint: "Firm Isolation",
+    spec: "Data access is enforced at the database row level for every table. Firm isolation is structural — it cannot be bypassed by application code.",
   },
   {
     constraint: "Append-only Records",
-    spec: "Audit and computation records cannot be deleted or silently altered. Reversals create new rows.",
+    spec: "Audit and computation records cannot be deleted or silently altered. Reversals create new rows with full attribution.",
   },
   {
-    constraint: "Sign-off Controls",
-    spec: "Period sign-off requires dual role enforcement. Locked periods block all upload and recompute paths.",
+    constraint: "Period Sign-off",
+    spec: "Period sign-off requires dual-role enforcement. Locked periods block all upload and recomputation paths.",
   },
   {
-    constraint: "SECURITY DEFINER",
-    spec: "All privileged functions pin search_path to pg_catalog to block schema injection.",
+    constraint: "Privileged Operations",
+    spec: "All privileged database operations are schema-pinned to prevent injection attacks, regardless of how they are invoked.",
   },
   {
-    constraint: "Edge Function Auth",
-    spec: "Every edge function validates the Supabase auth token before any database write.",
+    constraint: "API Authentication",
+    spec: "Every API call validates the authenticated session token before any database write is permitted.",
   },
 ] as const;
 
 // ─────────────────────────────────────────────────────────────
-// License Terms Table (used in Features section 04)
+// License Terms Table
 // ─────────────────────────────────────────────────────────────
 
 export const PRICING_TABLE = [
-  { term: "Base",        value: "Annual firm licence — unlimited companies, unlimited periods." },
-  { term: "Engines",     value: "All 5 engines included. No per-module pricing." },
-  { term: "Users",       value: "Unlimited firm members. Role-based access control included." },
-  { term: "Storage",     value: "AES-256 encrypted. Hosted on Supabase infrastructure." },
-  { term: "Updates",     value: "Finance Act updates deployed within 30 days of enactment." },
-  { term: "Support",     value: "Implementation support and TRA query assistance included." },
+  { term: "Base",     value: "Annual firm licence — unlimited companies, unlimited periods." },
+  { term: "Modules",  value: "All capabilities included. No per-module pricing." },
+  { term: "Users",    value: "Unlimited firm members. Role-based access control included." },
+  { term: "Storage",  value: "Encrypted at rest. Hosted on enterprise-grade infrastructure." },
+  { term: "Updates",  value: "Finance Act updates deployed within 30 days of enactment." },
+  { term: "Support",  value: "Implementation support and TRA query assistance included." },
 ] as const;
 
 // ─────────────────────────────────────────────────────────────
-// Pricing / CTA section copy (used in Features section 04)
+// Pricing Section copy
 // ─────────────────────────────────────────────────────────────
 
 export const PRICING_SECTION = {
   headline: "One annual licence. Full platform access.",
   subhead:
-    "No per-engine fees. No per-company limits. No Finance Act update charges. One price for the whole firm.",
-  cta: "Get Started",
+    "No per-module fees. No per-company limits. No Finance Act update charges. One price covers the entire firm.",
+  cta:     "Get Started",
   ctaHref: "/auth",
+} as const;
+
+// ─────────────────────────────────────────────────────────────
+// Navigation
+// ─────────────────────────────────────────────────────────────
+
+export const NAV = [
+  { label: "Platform",  href: "#features"   },
+  { label: "Integrity", href: "#integrity"  },
+  { label: "Security",  href: "#security"   },
+  { label: "Pricing",   href: "#pricing"    },
+] as const;
+
+// ─────────────────────────────────────────────────────────────
+// Upload section (legacy — kept for any residual reference)
+// ─────────────────────────────────────────────────────────────
+
+export const UPLOAD_SECTION = {
+  headline: "Start with a trial balance",
+  subhead:  "CSV, XLS, and XLSX supported. IFRS statements and tax computation in minutes.",
+  security: ["AES-256 encrypted storage", "ITA Cap.332 validated output"],
+} as const;
+
+export const FOOTER = {
+  description: BRAND.tagline,
+  legal:       ["Privacy Policy", "Terms of Service"],
 } as const;
