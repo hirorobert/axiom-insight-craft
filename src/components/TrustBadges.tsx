@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ShieldCheck,
   Scale,
@@ -77,9 +77,28 @@ function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
+function focusEvidenceSection(id: string, prefersReducedMotion: boolean) {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  el.scrollIntoView({
+    behavior: prefersReducedMotion ? "auto" : "smooth",
+    block: "start",
+  });
+  window.history.pushState(null, "", `#${id}`);
+
+  // Move focus to the evidence section so keyboard users continue from the
+  // destination rather than losing their place in the badge strip.
+  if ("focus" in el && typeof (el as HTMLElement).focus === "function") {
+    el.tabIndex = -1;
+    (el as HTMLElement).focus({ preventScroll: true });
+  }
+}
+
 export function TrustBadges() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const linkRefs = useRef<(HTMLAnchorElement | null)[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
@@ -110,16 +129,44 @@ export function TrustBadges() {
     return () => observer.disconnect();
   }, []);
 
-  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+  const handleActivate = (href: string) => {
     const id = href.replace("#", "");
-    const el = document.getElementById(id);
-    if (el) {
+    focusEvidenceSection(id, prefersReducedMotion);
+  };
+
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    e.preventDefault();
+    handleActivate(href);
+  };
+
+  const handleKeyDown = (
+    e: React.KeyboardEvent<HTMLAnchorElement>,
+    href: string,
+    index: number
+  ) => {
+    if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      el.scrollIntoView({
-        behavior: prefersReducedMotion ? "auto" : "smooth",
-        block: "start",
-      });
-      window.history.pushState(null, "", href);
+      handleActivate(href);
+      return;
+    }
+
+    // Arrow-key navigation keeps keyboard users inside the badge strip.
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      const next = linkRefs.current[index + 1] ?? linkRefs.current[0];
+      next?.focus();
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const prev =
+        linkRefs.current[index - 1] ??
+        linkRefs.current[linkRefs.current.length - 1];
+      prev?.focus();
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      linkRefs.current[0]?.focus();
+    } else if (e.key === "End") {
+      e.preventDefault();
+      linkRefs.current[linkRefs.current.length - 1]?.focus();
     }
   };
 
@@ -139,18 +186,28 @@ export function TrustBadges() {
           </p>
         </div>
 
-        <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-border border border-border">
-          {BADGES.map(({ icon: Icon, title, plain, evidence, href }) => {
+        <ul
+          role="listbox"
+          aria-label="Trust guarantee evidence links"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-border border border-border"
+        >
+          {BADGES.map(({ icon: Icon, title, plain, evidence, href }, index) => {
             const targetId = href.replace("#", "");
             const isActive = activeId === targetId;
 
             return (
-              <li key={title} className="bg-background">
+              <li key={title} className="bg-background" role="none">
                 <a
+                  ref={(el) => {
+                    linkRefs.current[index] = el;
+                  }}
                   href={href}
-                  onClick={(e) => handleClick(e, href)}
+                  role="option"
+                  aria-selected={isActive}
                   aria-current={isActive ? "true" : undefined}
-                  className={`group block h-full p-5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                  onClick={(e) => handleClick(e, href)}
+                  onKeyDown={(e) => handleKeyDown(e, href, index)}
+                  className={`group block h-full p-5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                     isActive
                       ? "bg-muted/60"
                       : "hover:bg-muted/40"
