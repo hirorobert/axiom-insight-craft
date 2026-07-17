@@ -26,7 +26,12 @@ export function Features() {
     <div className="bg-background">
 
       {/* ── 01 · PLATFORM REFERENCE ─────────────────────── */}
-      <section id="features" className="px-6 py-20 border-b border-border">
+      <section
+        id="features"
+        tabIndex={-1}
+        aria-label="Platform reference"
+        className="px-6 py-20 border-b border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset"
+      >
         <div className="max-w-7xl mx-auto">
           <SectionLabel label="Platform Reference" />
 
