@@ -122,7 +122,12 @@ export function Features() {
       </section>
 
       {/* ── 03 · SECURITY ARCHITECTURE ──────────────────── */}
-      <section id="security" className="px-6 py-20 border-b border-border">
+      <section
+        id="security"
+        tabIndex={-1}
+        aria-label="Security architecture"
+        className="px-6 py-20 border-b border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset"
+      >
         <div className="max-w-7xl mx-auto">
           <SectionLabel label="Security Architecture" />
 
