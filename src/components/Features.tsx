@@ -85,7 +85,12 @@ export function Features() {
       </section>
 
       {/* ── 02 · FINANCIAL INTEGRITY ────────────────────── */}
-      <section id="integrity" className="px-6 py-20 border-b border-border">
+      <section
+        id="integrity"
+        tabIndex={-1}
+        aria-label="Financial integrity guarantees"
+        className="px-6 py-20 border-b border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset"
+      >
         <div className="max-w-7xl mx-auto">
           <SectionLabel label="Financial Integrity Guarantees" />
 
