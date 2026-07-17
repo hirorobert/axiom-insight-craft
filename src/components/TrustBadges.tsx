@@ -58,8 +58,28 @@ const BADGES = [
 
 const SECTION_IDS = Array.from(new Set(BADGES.map((b) => b.href.replace("#", ""))));
 
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("matchMedia" in window)) {
+      return;
+    }
+
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mq.matches);
+
+    const onChange = (event: MediaQueryListEvent) => setReduced(event.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  return reduced;
+}
+
 export function TrustBadges() {
   const [activeId, setActiveId] = useState<string | null>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
     if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
@@ -95,7 +115,10 @@ export function TrustBadges() {
     const el = document.getElementById(id);
     if (el) {
       e.preventDefault();
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.scrollIntoView({
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+        block: "start",
+      });
       window.history.pushState(null, "", href);
     }
   };
