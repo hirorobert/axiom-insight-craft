@@ -1,4 +1,12 @@
-import { ShieldCheck, Scale, Lock, FileCheck, GitCommit, Landmark } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  ShieldCheck,
+  Scale,
+  Lock,
+  FileCheck,
+  GitCommit,
+  Landmark,
+} from "lucide-react";
 
 // Plain-language trust guarantees with evidence anchors.
 // Evidence links point to on-page reference sections (Security Architecture,
@@ -48,7 +56,50 @@ const BADGES = [
   },
 ] as const;
 
+const SECTION_IDS = Array.from(new Set(BADGES.map((b) => b.href.replace("#", ""))));
+
 export function TrustBadges() {
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+
+        if (visible.length > 0) {
+          setActiveId(visible[0].target.id);
+        }
+      },
+      {
+        rootMargin: "-40% 0px -40% 0px",
+        threshold: [0, 0.25, 0.5, 0.75, 1],
+      }
+    );
+
+    SECTION_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    const id = href.replace("#", "");
+    const el = document.getElementById(id);
+    if (el) {
+      e.preventDefault();
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.history.pushState(null, "", href);
+    }
+  };
+
   return (
     <section
       aria-label="Certifications and security guarantees"
@@ -66,31 +117,52 @@ export function TrustBadges() {
         </div>
 
         <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-border border border-border">
-          {BADGES.map(({ icon: Icon, title, plain, evidence, href }) => (
-            <li key={title} className="bg-background">
-              <a
-                href={href}
-                className="group block h-full p-5 hover:bg-muted/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-              >
-                <div className="flex items-start gap-3">
-                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-border text-primary/80 group-hover:text-primary">
-                    <Icon size={15} strokeWidth={1.75} aria-hidden="true" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-foreground leading-snug mb-1">
-                      {title}
-                    </p>
-                    <p className="text-xs text-muted-foreground leading-relaxed mb-2">
-                      {plain}
-                    </p>
-                    <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/55">
-                      {evidence}
-                    </p>
+          {BADGES.map(({ icon: Icon, title, plain, evidence, href }) => {
+            const targetId = href.replace("#", "");
+            const isActive = activeId === targetId;
+
+            return (
+              <li key={title} className="bg-background">
+                <a
+                  href={href}
+                  onClick={(e) => handleClick(e, href)}
+                  aria-current={isActive ? "true" : undefined}
+                  className={`group block h-full p-5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                    isActive
+                      ? "bg-muted/60"
+                      : "hover:bg-muted/40"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border transition-colors ${
+                        isActive
+                          ? "border-primary/40 bg-primary/[0.06] text-primary"
+                          : "border-border text-primary/80 group-hover:text-primary"
+                      }`}
+                    >
+                      <Icon size={15} strokeWidth={1.75} aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0">
+                      <p
+                        className={`text-sm font-semibold leading-snug mb-1 ${
+                          isActive ? "text-primary" : "text-foreground"
+                        }`}
+                      >
+                        {title}
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed mb-2">
+                        {plain}
+                      </p>
+                      <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/55">
+                        {evidence}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </a>
-            </li>
-          ))}
+                </a>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </section>
