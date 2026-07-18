@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { Hero } from "@/components/Hero";
 import { Features } from "@/components/Features";
+import { ProductTour } from "@/components/ProductTour";
 import { Footer } from "@/components/Footer";
 
 const Index = () => {
@@ -25,6 +26,7 @@ const Index = () => {
       <Header />
       <main>
         <Hero />
+        <ProductTour />
         <Features />
       </main>
       <Footer />
