@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { Hero } from "@/components/Hero";
-import { TrustBadges } from "@/components/TrustBadges";
 import { Features } from "@/components/Features";
 import { Footer } from "@/components/Footer";
 
@@ -26,7 +25,6 @@ const Index = () => {
       <Header />
       <main>
         <Hero />
-        <TrustBadges />
         <Features />
       </main>
       <Footer />
