@@ -133,14 +133,9 @@ export function Header() {
                 </Button>
               </>
             ) : (
-              <>
-                <Button variant="ghost" size="sm" className="justify-start" asChild>
-                  <Link to="/auth">Sign In</Link>
-                </Button>
-                <Button variant="hero" size="sm" asChild>
-                  <Link to="/auth">Sign Up</Link>
-                </Button>
-              </>
+              <Button variant="hero" size="sm" asChild>
+                <Link to="/auth">Sign In</Link>
+              </Button>
             )}
           </div>
         </div>
