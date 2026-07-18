@@ -42,18 +42,9 @@ export function Header() {
 
         {/* Desktop Nav */}
         <nav className="hidden md:flex items-center gap-8">
-          <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Platform
-          </a>
-          <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Integrity
-          </a>
-          <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Security
-          </a>
-          <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Pricing
-          </a>
+          <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Platform</a>
+          <a href="#security" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Security</a>
+          <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Pricing</a>
           {user && (
             <Link to="/dashboard" className="text-sm font-medium text-primary hover:text-primary/80 transition-colors flex items-center gap-1.5">
               <LayoutDashboard className="w-4 h-4" />
@@ -103,14 +94,9 @@ export function Header() {
               </DropdownMenu>
             </>
           ) : (
-            <>
-              <Button variant="ghost" size="sm" asChild>
-                <Link to="/auth">Sign In</Link>
-              </Button>
-              <Button variant="hero" size="sm" asChild>
-                <Link to="/auth">Sign Up</Link>
-              </Button>
-            </>
+            <Button variant="hero" size="sm" asChild>
+              <Link to="/auth">Sign In</Link>
+            </Button>
           )}
         </div>
 
