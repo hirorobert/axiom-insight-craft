@@ -1,13 +1,12 @@
-import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  CTA,
   TRUST_GUARANTEES,
   PLATFORM_TABLE,
   SECURITY_TABLE,
   PRICING_TABLE,
   PRICING_SECTION,
 } from "@/constants/copy";
+import { ArrowRight } from "lucide-react";
 
 // ── Internal: section label + rule ───────────────────────
 function SectionLabel({ label }: { label: string }) {
