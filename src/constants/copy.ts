@@ -20,10 +20,10 @@ export const CTA = {
 } as const;
 
 export const HERO = {
-  eyebrow:  "SAFF Platform",
-  headline: "Financial Trust Infrastructure",
+  eyebrow:  "SAFF ERP",
+  headline: "Trial balance in. Statements and tax out.",
   subhead:
-    "Every financial statement, tax computation, and filing package produced from one verified source of financial truth. No spreadsheets. No estimates. No surprises.",
+    "IFRS financial statements and a Tanzania corporate tax computation from a single verified trial balance.",
 } as const;
 
 // Accounting lifecycle shown in hero — 7 stages, no engine names, no dead links.
@@ -68,7 +68,7 @@ export const PLATFORM_TABLE = [
     module: "Tax Computation",
     name:   "Corporate Income Tax",
     functions: [
-      "Wear & tear — 6 ITA asset classes, enacted Finance Act 2026 rates",
+      "Wear & tear — 6 ITA asset classes at Finance Act 2026 rates",
       "Thin capitalisation limit — ITA s.24A, resident bank exclusion",
       "Minimum tax gate — 3-year loss history (ITA s.65)",
       "Tax loss carry-forward and comparative workpapers",
