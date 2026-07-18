@@ -205,26 +205,6 @@ export function Features() {
         </div>
       </section>
 
-      {/* ── Final CTA strip ──────────────────────────────── */}
-      <section className="px-6 py-14">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
-          <div>
-            <p className="text-sm font-semibold text-foreground mb-0.5">
-              Ready to begin?
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Upload a trial balance. IFRS statements and tax computation in minutes.
-            </p>
-          </div>
-          <Button variant="hero" size="lg" asChild>
-            <a href={CTA.primaryHref}>
-              {CTA.primary}
-              <ArrowRight size={15} />
-            </a>
-          </Button>
-        </div>
-      </section>
-
     </div>
   );
 }
