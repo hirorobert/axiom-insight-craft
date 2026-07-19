@@ -9,7 +9,9 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:rls": "node scripts/rls_regression.mjs",
+    "test:smoke": "node scripts/smoke_test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
