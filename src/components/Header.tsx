@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { SaffLogo } from "@/components/SaffLogo";
 import { Button } from "@/components/ui/button";
-import { Menu, X, LogOut, Settings, LayoutDashboard } from "lucide-react";
+import { Menu, X, LogOut, Settings, LayoutDashboard, RotateCcw } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
