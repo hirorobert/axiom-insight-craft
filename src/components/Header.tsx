@@ -19,11 +19,19 @@ export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isLanding = location.pathname === "/";
 
   const handleSignOut = async () => {
     await signOut();
     toast.success("Signed out successfully");
     navigate("/");
+  };
+
+  const handleResetTour = () => {
+    window.dispatchEvent(new CustomEvent("saff-reset-product-tour"));
+    const tour = document.getElementById("tour");
+    if (tour) tour.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const getUserInitials = () => {
