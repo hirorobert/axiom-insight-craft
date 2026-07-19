@@ -72,3 +72,36 @@ jobs:
         # Tests cover: computeComplianceScore (pure scoring engine, all grade boundaries,
         # 5 factors, 6 FA2026 fixtures) + computeWearTear (ITA s.34 all 7 classes).
         # These are pure-function tests — no DB, no network, no mocks except supabase client.
+
+  rls-regression:
+    name: RLS Regression Suite
+    runs-on: ubuntu-latest
+    # Requires live DB credentials — only runs when secrets are configured
+    if: ${{ github.event_name == 'pull_request' }}
+    needs: []
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run RLS regression suite
+        # Skips silently if secrets not configured. Otherwise exercises
+        # cross-tenant + cross-role isolation on every sensitive table.
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::warning::RLS regression skipped — Supabase secrets not configured on this runner."
+            exit 0
+          fi
+          bun run test:rls
