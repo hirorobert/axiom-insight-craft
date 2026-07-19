@@ -63,6 +63,12 @@ export function Header() {
 
         {/* Right actions */}
         <div className="hidden md:flex items-center gap-3">
+          {isLanding && (
+            <Button variant="ghost" size="sm" onClick={handleResetTour} className="gap-1.5">
+              <RotateCcw className="w-4 h-4" />
+              Reset tour
+            </Button>
+          )}
           {user ? (
             <>
               <NotificationBell userId={user?.id} />
