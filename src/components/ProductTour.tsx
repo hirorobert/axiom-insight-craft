@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Pause, Play, RotateCcw } from "lucide-react";
+import { Pause, Play, RotateCcw, SkipForward } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────
 // SAFF ERP — 60-Second Inline Product Tour
@@ -10,6 +10,7 @@ import { Pause, Play, RotateCcw } from "lucide-react";
 
 const STAGE_MS = 12_000;
 const TICK_MS  = 50;
+const SKIP_STORAGE_KEY = "saff.productTour.skipped";
 
 type Stage = {
   id:       string;
@@ -197,6 +198,11 @@ const STAGES: Stage[] = [
 ];
 
 export function ProductTour() {
+  const [skipped, setSkipped] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try { return window.localStorage.getItem(SKIP_STORAGE_KEY) === "1"; }
+    catch { return false; }
+  });
   const [active,  setActive]  = useState(0);
   const [elapsed, setElapsed] = useState(0);   // ms into current stage
   const [playing, setPlaying] = useState(true);
@@ -205,7 +211,7 @@ export function ProductTour() {
   const clear = () => { if (timerRef.current) window.clearInterval(timerRef.current); timerRef.current = null; };
 
   useEffect(() => {
-    if (!playing) { clear(); return; }
+    if (!playing || skipped) { clear(); return; }
     timerRef.current = window.setInterval(() => {
       setElapsed((prev) => {
         const next = prev + TICK_MS;
@@ -217,7 +223,7 @@ export function ProductTour() {
       });
     }, TICK_MS);
     return clear;
-  }, [playing]);
+  }, [playing, skipped]);
 
   const jump = useCallback((i: number) => {
     setActive(i);
@@ -225,6 +231,41 @@ export function ProductTour() {
   }, []);
 
   const restart = useCallback(() => { setActive(0); setElapsed(0); setPlaying(true); }, []);
+
+  const skip = useCallback(() => {
+    try { window.localStorage.setItem(SKIP_STORAGE_KEY, "1"); } catch {}
+    setSkipped(true);
+  }, []);
+
+  const resume = useCallback(() => {
+    try { window.localStorage.removeItem(SKIP_STORAGE_KEY); } catch {}
+    setSkipped(false);
+    setActive(0);
+    setElapsed(0);
+    setPlaying(true);
+  }, []);
+
+  if (skipped) {
+    return (
+      <section
+        id="tour"
+        aria-label="Product tour skipped"
+        className="px-6 py-10 border-b border-border bg-background"
+      >
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            Product tour hidden. We'll remember your choice on this device.
+          </p>
+          <button
+            onClick={resume}
+            className="text-[11px] font-mono uppercase tracking-widest px-3 py-2 border border-border hover:bg-muted transition-colors"
+          >
+            Show tour again
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   const stage = STAGES[active];
   const Frame = stage.Frame;
@@ -265,6 +306,14 @@ export function ProductTour() {
               className="w-8 h-8 flex items-center justify-center border border-border hover:bg-muted transition-colors"
             >
               <RotateCcw size={13} />
+            </button>
+            <button
+              onClick={skip}
+              aria-label="Skip tour and remember choice"
+              className="h-8 flex items-center gap-1.5 px-3 border border-border hover:bg-muted transition-colors text-[10px] font-mono uppercase tracking-widest"
+            >
+              <SkipForward size={12} />
+              Skip tour
             </button>
           </div>
         </div>
