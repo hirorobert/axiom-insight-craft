@@ -225,6 +225,7 @@ export function ProductTour() {
     return clear;
   }, [playing, skipped]);
 
+
   const jump = useCallback((i: number) => {
     setActive(i);
     setElapsed(0);
@@ -244,6 +245,12 @@ export function ProductTour() {
     setElapsed(0);
     setPlaying(true);
   }, []);
+
+  useEffect(() => {
+    const onReset = () => resume();
+    window.addEventListener("saff-reset-product-tour", onReset);
+    return () => window.removeEventListener("saff-reset-product-tour", onReset);
+  }, [resume]);
 
   if (skipped) {
     return (

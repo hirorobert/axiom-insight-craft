@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { SaffLogo } from "@/components/SaffLogo";
 import { Button } from "@/components/ui/button";
-import { Menu, X, LogOut, Settings, LayoutDashboard } from "lucide-react";
+import { Menu, X, LogOut, Settings, LayoutDashboard, RotateCcw } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
@@ -19,11 +19,19 @@ export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isLanding = location.pathname === "/";
 
   const handleSignOut = async () => {
     await signOut();
     toast.success("Signed out successfully");
     navigate("/");
+  };
+
+  const handleResetTour = () => {
+    window.dispatchEvent(new CustomEvent("saff-reset-product-tour"));
+    const tour = document.getElementById("tour");
+    if (tour) tour.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const getUserInitials = () => {
@@ -55,6 +63,12 @@ export function Header() {
 
         {/* Right actions */}
         <div className="hidden md:flex items-center gap-3">
+          {isLanding && (
+            <Button variant="ghost" size="sm" onClick={handleResetTour} className="gap-1.5">
+              <RotateCcw className="w-4 h-4" />
+              Reset tour
+            </Button>
+          )}
           {user ? (
             <>
               <NotificationBell userId={user?.id} />
@@ -115,6 +129,15 @@ export function Header() {
           <a href="#features" className="block text-sm text-muted-foreground hover:text-foreground">
             Features
           </a>
+          {isLanding && (
+            <button
+              onClick={() => { handleResetTour(); setMobileOpen(false); }}
+              className="flex items-center gap-2 text-sm font-medium text-primary"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Reset tour
+            </button>
+          )}
           {user && (
             <Link to="/dashboard" className="flex items-center gap-2 text-sm font-medium text-primary">
               <LayoutDashboard className="w-4 h-4" />
