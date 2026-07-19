@@ -225,6 +225,12 @@ export function ProductTour() {
     return clear;
   }, [playing, skipped]);
 
+  useEffect(() => {
+    const onReset = () => resume();
+    window.addEventListener("saff-reset-product-tour", onReset);
+    return () => window.removeEventListener("saff-reset-product-tour", onReset);
+  }, [resume]);
+
   const jump = useCallback((i: number) => {
     setActive(i);
     setElapsed(0);
