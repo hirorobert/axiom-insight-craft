@@ -246,6 +246,12 @@ export function ProductTour() {
     setPlaying(true);
   }, []);
 
+  useEffect(() => {
+    const onReset = () => resume();
+    window.addEventListener("saff-reset-product-tour", onReset);
+    return () => window.removeEventListener("saff-reset-product-tour", onReset);
+  }, [resume]);
+
   if (skipped) {
     return (
       <section
