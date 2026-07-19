@@ -129,6 +129,15 @@ export function Header() {
           <a href="#features" className="block text-sm text-muted-foreground hover:text-foreground">
             Features
           </a>
+          {isLanding && (
+            <button
+              onClick={() => { handleResetTour(); setMobileOpen(false); }}
+              className="flex items-center gap-2 text-sm font-medium text-primary"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Reset tour
+            </button>
+          )}
           {user && (
             <Link to="/dashboard" className="flex items-center gap-2 text-sm font-medium text-primary">
               <LayoutDashboard className="w-4 h-4" />
