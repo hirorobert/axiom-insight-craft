@@ -301,36 +301,12 @@ serve(async (req: Request) => {
   if (bearer === serviceKey) {
     triggerType = "scheduled";
   } else {
-    // Validate as a user JWT
-    const authClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } },
-    );
-    const { data: claims, error: claimsErr } = await authClient.auth.getClaims(bearer);
-    const callerId = claims?.claims?.sub as string | undefined;
-    if (claimsErr || !callerId) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    // Caller must be a firm member of at least one company
-    const adminCheck = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey, {
-      auth: { persistSession: false },
+    // Manual invocation is not exposed to tenant users. System-wide monitor
+    // scans every company; only the scheduler (service role) may trigger it.
+    // A platform admin surface can be added later via a dedicated allowlist.
+    return new Response(JSON.stringify({ error: "Forbidden" }), {
+      status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-    const { data: member } = await adminCheck
-      .from("firm_members")
-      .select("id")
-      .eq("user_id", callerId)
-      .not("accepted_at", "is", null)
-      .limit(1)
-      .maybeSingle();
-    if (!member) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    triggerType = "manual";
   }
 
   try {
@@ -399,7 +375,7 @@ serve(async (req: Request) => {
       trigger_type:       triggerType,
       companies_scanned:  companiesScanned,
       alerts_written:     totalAlerts,
-      errors:             allErrors,
+      error_count:        allErrors.length,
       elapsed_ms:         elapsed,
     }), {
       status:  200,
@@ -419,7 +395,7 @@ serve(async (req: Request) => {
         .eq("id", monitorRunId);
     }
 
-    return new Response(JSON.stringify({ error: err.message, errors: allErrors }), {
+    return new Response(JSON.stringify({ error: "Monitor run failed", error_count: allErrors.length + 1 }), {
       status:  500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
