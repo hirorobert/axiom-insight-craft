@@ -922,8 +922,6 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase    = createClient(supabaseUrl, supabaseKey);
 
-    await supabase.from("trial_balance_uploads").update({ status: "validating" }).eq("id", uploadId);
-
     const { data: upload, error: uploadError } = await supabase
       .from("trial_balance_uploads").select("*").eq("id", uploadId).single();
     if (uploadError || !upload) throw new Error("Upload not found");
@@ -951,6 +949,9 @@ serve(async (req) => {
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
+
+    // Only after ownership is confirmed do we mutate the upload row.
+    await supabase.from("trial_balance_uploads").update({ status: "validating" }).eq("id", uploadId);
 
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("trial-balance-files").download(upload.file_path);
