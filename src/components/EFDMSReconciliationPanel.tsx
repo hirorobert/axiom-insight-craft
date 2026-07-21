@@ -116,12 +116,15 @@ interface Props {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function EFDMSReconciliationPanel({
+export function EFDMSReconciliationPanel(props: Props) {
+  // Not shown for non-VAT-registered companies — no EFDMS obligation
+  if (!props.isVatRegistered) return null;
+  return <EFDMSReconciliationPanelInner {...props} />;
+}
+
+function EFDMSReconciliationPanelInner({
   companyId, uploadId, periodYear, periodMonth, companyName, userId, isVatRegistered,
 }: Props) {
-  // Not shown for non-VAT-registered companies — no EFDMS obligation
-  if (!isVatRegistered) return null;
-
   const [records,     setRecords]     = useState<EFDMSZReport[]>([]);
   const [findings,    setFindings]    = useState<Array<{ finding_category: string; exposure_amount_tzs: number }>>([]);
   const [loading,     setLoading]     = useState(true);
