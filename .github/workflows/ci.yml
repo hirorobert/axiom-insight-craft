@@ -3,8 +3,31 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
 
 jobs:
+  migration-audit:
+    name: Supabase Migration Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run migration auditor (strict)
+        run: |
+          set -o pipefail
+          node scripts/audit_migrations.mjs --strict | tee audit.log
+          if ! grep -q '^VERDICT: CLEAN$' audit.log; then
+            echo "::error::Migration audit did not report CLEAN."
+            exit 1
+          fi
+
   conflict-marker-check:
     name: Merge Conflict Marker Check
     runs-on: ubuntu-latest
