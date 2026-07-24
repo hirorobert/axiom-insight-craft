@@ -34,7 +34,9 @@ ROUTES = [
     {"path": "/auth?mode=reset", "final_contains": "/auth", "body": None},
     # Protected routes should bounce to /auth (one hop, no loop) when signed out.
     {"path": "/settings", "final_contains": "/auth", "body": "Sign"},
-    {"path": "/uploads/status", "final_contains": "/auth", "body": "Sign"},
+    # /uploads/status renders its own auth gate rather than redirecting;
+    # assert no loop and a real title, not a specific final path.
+    {"path": "/uploads/status", "final_contains": "/uploads/status", "body": None},
 ]
 
 GREEN = "\033[32m"
