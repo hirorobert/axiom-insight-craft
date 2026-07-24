@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:rls": "node scripts/rls_regression.mjs",
-    "test:smoke": "node scripts/smoke_test.mjs"
+    "test:smoke": "node scripts/smoke_test.mjs",
+    "test:routes": "node scripts/route_smoke.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
