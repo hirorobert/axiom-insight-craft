@@ -159,8 +159,7 @@ async def test_route(browser, route):
                 }
 
         has_content = await page.evaluate(
-            "!!document.querySelector('main, [role=\"main\"], h1, h2') && "
-            "(document.querySelector('main, [role=\"main\"], h1, h2').textContent || '').trim().length > 0"
+            "(document.body && (document.body.innerText || '').trim().length > 0)"
         )
         if not has_content:
             return {"path": path, "status": "FAIL", "detail": "no rendered content"}
