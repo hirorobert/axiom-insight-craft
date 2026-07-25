@@ -163,6 +163,8 @@ async def main():
             r = await test_route(browser, route)
             results.append(r)
             print(f"  {color(r['status']):>18}  {r['path']:<32}  {r.get('detail', '')}")
+            for kind, p in (r.get("artifacts") or {}).items():
+                print(f"      · {kind}: {p}")
         await browser.close()
 
     passed = sum(1 for r in results if r["status"] == "PASS")
