@@ -29,16 +29,24 @@ interface Company {
 
 /**
  * Return the most recently completed fiscal year for a company.
- * Accounting firms in mid-year are typically working on the prior closed year.
- * If fiscal_year_end is set, use its year (e.g. "2025-12-31" → 2025).
- * Otherwise fall back to current calendar year − 1.
+ * Guards against implausible years (e.g. "2001" from bad date pickers).
+ * Accepts years within a ±5 year window of today; falls back to current year − 1.
  */
-function resolvePeriodYear(fiscalYearEnd: string | null): number {
+function resolvePeriodYear(fiscalYearEnd: string | null, uploadPeriodYear?: number | null): number {
+  const currentYear = new Date().getFullYear();
+  const MIN_YEAR = currentYear - 10;
+  const MAX_YEAR = currentYear + 1;
+
+  // Prefer the upload's own period_year when it's a plausible value
+  if (uploadPeriodYear && uploadPeriodYear >= MIN_YEAR && uploadPeriodYear <= MAX_YEAR) {
+    return uploadPeriodYear;
+  }
+  // Fall back to fiscal_year_end date
   if (fiscalYearEnd) {
     const year = new Date(fiscalYearEnd).getFullYear();
-    if (year > 2000) return year;
+    if (year >= MIN_YEAR && year <= MAX_YEAR) return year;
   }
-  return new Date().getFullYear() - 1;
+  return currentYear - 1;
 }
 
 export default function Dashboard() {
@@ -89,7 +97,19 @@ export default function Dashboard() {
 
       if (data && data.length > 0) {
         const latest = data[0] as Company;
-        const year = resolvePeriodYear(latest.fiscal_year_end);
+
+        // Prefer period_year from the most recent complete/valid upload — avoids
+        // routing to a bad year derived from a mis-set fiscal_year_end date.
+        const { data: recentUp } = await supabase
+          .from("trial_balance_uploads")
+          .select("period_year")
+          .eq("company_id", latest.id)
+          .in("status", ["complete", "valid"])
+          .order("uploaded_at", { ascending: false })
+          .limit(1);
+
+        const uploadYear = (recentUp?.[0] as { period_year?: number | null } | undefined)?.period_year ?? null;
+        const year = resolvePeriodYear(latest.fiscal_year_end, uploadYear);
         navigate(`/workspace/${latest.id}/${year}`, { replace: true });
         // leave loading=true — route change unmounts this component
       } else {

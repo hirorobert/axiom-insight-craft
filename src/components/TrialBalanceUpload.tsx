@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight, Loader2, Trash2, Building2, ChevronDown } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight, Loader2, Trash2, Building2, ChevronDown, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -16,6 +16,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+/** A real TRA TIN is 9 or 11 digits — anything else (including "PUT-REAL-TRA-TIN-HERE") is missing */
+function isTinMissing(tin: string | null | undefined): boolean {
+  if (!tin) return true;
+  if (/PUT-REAL|placeholder/i.test(tin)) return true;
+  return !/^\d{9,12}$/.test(tin.replace(/-/g, ""));
+}
+
 interface FileUpload {
   id: string;
   file: File;
@@ -29,6 +36,7 @@ interface Company {
   id: string;
   name: string;
   code: string | null;
+  tin: string | null;
 }
 
 export const TrialBalanceUpload = () => {
@@ -40,6 +48,12 @@ export const TrialBalanceUpload = () => {
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   // Safisha gate: set when a TB upload completes and needs verification
   const [safishaUpload, setSafishaUpload] = useState<{ uploadId: string; fileName: string } | null>(null);
+  // Duplicate filename warning — list of duplicates found + the files waiting to be processed.
+  // Shown as a confirmation banner before re-uploading an already-processed file.
+  const [duplicateWarning, setDuplicateWarning] = useState<{
+    duplicates: Array<{ fileName: string; existingDate: string }>;
+    pendingFiles: FileUpload[];
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -52,7 +66,7 @@ export const TrialBalanceUpload = () => {
       setLoadingCompanies(true);
       const { data, error } = await supabase
         .from("companies")
-        .select("id, name, code")
+        .select("id, name, code, tin")
         .eq("is_active", true)
         .order("name");
 
@@ -216,6 +230,20 @@ export const TrialBalanceUpload = () => {
     }
   };
 
+  // Run a batch of files through the pipeline (called after duplicate confirmation too)
+  const runBatch = async (queuedFiles: FileUpload[]) => {
+    toast.info(`Processing ${queuedFiles.length} file(s)...`);
+    const batchSize = 3;
+    for (let i = 0; i < queuedFiles.length; i += batchSize) {
+      const batch = queuedFiles.slice(i, i + batchSize);
+      await Promise.all(batch.map(processFile));
+    }
+    const done = queuedFiles.filter((f) => f.status !== "error").length;
+    if (done > 0) {
+      toast.success(`${done} file(s) processed successfully!`);
+    }
+  };
+
   const startProcessing = async () => {
     if (!user) {
       toast.error("Please sign in to upload files");
@@ -228,27 +256,63 @@ export const TrialBalanceUpload = () => {
       return;
     }
 
+    // ── Fix 2: TIN gate ───────────────────────────────────────────────────────
+    // A real TRA TIN is required before any trial balance can be submitted.
+    // If the company has no TIN (or still has the placeholder), block the upload
+    // and direct the user to Settings so they can enter the real number.
+    const selectedCompany = companies.find((c) => c.id === (selectedCompanyId ?? companies[0]?.id));
+    if (isTinMissing(selectedCompany?.tin)) {
+      toast.error("Enter the company's TRA TIN in Settings before uploading.", {
+        action: {
+          label: "Open Settings",
+          onClick: () => navigate("/settings"),
+        },
+      });
+      return;
+    }
+
     const queuedFiles = files.filter((f) => f.status === "queued");
     if (queuedFiles.length === 0) {
       toast.error("No files to process");
       return;
     }
 
-    toast.info(`Processing ${queuedFiles.length} file(s)...`);
+    // ── Fix 8: Duplicate filename detection ───────────────────────────────────
+    // Before processing, check whether any queued file has already been
+    // successfully uploaded for this company. Show a confirmation banner so
+    // the user can decide — don't silently re-process or silently block.
+    const companyId = selectedCompanyId ?? companies[0]?.id ?? null;
+    if (companyId) {
+      const fileNames = queuedFiles.map((f) => f.file.name);
 
-    // Process files in parallel (max 3 at a time)
-    const batchSize = 3;
-    for (let i = 0; i < queuedFiles.length; i += batchSize) {
-      const batch = queuedFiles.slice(i, i + batchSize);
-      await Promise.all(batch.map(processFile));
+      const { data: existing } = await supabase
+        .from("trial_balance_uploads")
+        .select("file_name, uploaded_at")
+        .eq("company_id", companyId)
+        .in("file_name", fileNames)
+        .in("status", ["complete", "valid"])
+        .order("uploaded_at", { ascending: false });
+
+      if (existing && existing.length > 0) {
+        // Deduplicate by filename — only the most recent match per name
+        const seen = new Set<string>();
+        const duplicates: Array<{ fileName: string; existingDate: string }> = [];
+        for (const row of existing) {
+          if (!seen.has(row.file_name)) {
+            seen.add(row.file_name);
+            duplicates.push({
+              fileName: row.file_name,
+              existingDate: row.uploaded_at,
+            });
+          }
+        }
+        // Pause — let the user confirm before re-processing
+        setDuplicateWarning({ duplicates, pendingFiles: queuedFiles });
+        return;
+      }
     }
 
-    const completedCount = files.filter((f) => f.status === "complete").length + 
-      queuedFiles.filter((f) => f.status !== "error").length;
-    
-    if (completedCount > 0) {
-      toast.success(`${completedCount} file(s) processed successfully!`);
-    }
+    await runBatch(queuedFiles);
   };
 
   const clearCompleted = useCallback(() => {
@@ -352,11 +416,23 @@ export const TrialBalanceUpload = () => {
               <p className="text-xs text-destructive mt-1">
                 Select a company before uploading.
               </p>
-            ) : (
-              <p className="text-xs text-muted-foreground mt-1">
-                Associate uploads with a company for better organization
-              </p>
-            )}
+            ) : (() => {
+              const sel = companies.find((c) => c.id === (selectedCompanyId ?? companies[0]?.id));
+              return isTinMissing(sel?.tin) ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  TRA TIN not set.{" "}
+                  <Link to="/settings" className="underline underline-offset-2 hover:text-amber-700">
+                    Add it in Settings
+                  </Link>{" "}
+                  before uploading.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Associate uploads with a company for better organization
+                </p>
+              );
+            })()}
           </div>
         )}
 
@@ -579,9 +655,65 @@ export const TrialBalanceUpload = () => {
               ))}
             </div>
 
+            {/* ── Fix 8: Duplicate filename confirmation banner ────────────────
+                 Appears when startProcessing() detects a file already uploaded
+                 for this company. The user can cancel or proceed anyway.
+            ──────────────────────────────────────────────────────────────── */}
+            {duplicateWarning && (
+              <div className="border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 rounded-xl p-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                      {duplicateWarning.duplicates.length === 1
+                        ? "This file was already uploaded"
+                        : `${duplicateWarning.duplicates.length} files were already uploaded`}
+                    </p>
+                    <ul className="mt-1 space-y-0.5">
+                      {duplicateWarning.duplicates.map((d) => (
+                        <li key={d.fileName} className="text-xs text-amber-700 dark:text-amber-400 font-mono truncate">
+                          {d.fileName}
+                          <span className="font-sans ml-2 opacity-70">
+                            — previously uploaded {new Date(d.existingDate).toLocaleDateString("en-TZ", {
+                              day: "numeric", month: "short", year: "numeric"
+                            })}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-1.5">
+                      Re-uploading will create a new version. The previous upload will remain in history.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => setDuplicateWarning(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs border-amber-400 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                    onClick={async () => {
+                      const pending = duplicateWarning.pendingFiles;
+                      setDuplicateWarning(null);
+                      await runBatch(pending);
+                    }}
+                  >
+                    Upload anyway
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Action Buttons */}
             <div className="flex items-center justify-center gap-4 pt-4">
-              {queuedCount > 0 && (
+              {queuedCount > 0 && !duplicateWarning && (
                 <Button
                   variant="hero"
                   onClick={startProcessing}
