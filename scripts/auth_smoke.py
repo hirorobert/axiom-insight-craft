@@ -22,6 +22,15 @@ import sys
 from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright
+from _playwright_artifacts import (
+    context_options,
+    finalize_video,
+    save_on_failure,
+    slugify,
+    start_trace,
+)
+
+SCRIPT_NAME = "auth_smoke"
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8080")
 MAX_REDIRECTS = 3
@@ -53,8 +62,13 @@ def color(status: str) -> str:
 async def test_route(browser, route):
     path = route["path"]
     url = f"{BASE_URL}{path}"
+    slug = slugify(path)
 
-    context = await browser.new_context(viewport={"width": 1280, "height": 900})
+    context = await browser.new_context(
+        viewport={"width": 1280, "height": 900},
+        **context_options(SCRIPT_NAME, slug),
+    )
+    await start_trace(context)
     page = await context.new_page()
 
     page_errors: list[str] = []
@@ -68,18 +82,22 @@ async def test_route(browser, route):
         else None,
     )
 
+    result: dict = {}
     try:
         resp = await page.goto(url, wait_until="domcontentloaded", timeout=15000)
         if resp is None:
-            return {"path": path, "status": "FAIL", "detail": "no response"}
+            result = {"path": path, "status": "FAIL", "detail": "no response"}
+            return result
         if resp.status != 200:
-            return {"path": path, "status": "FAIL", "detail": f"HTTP {resp.status}"}
+            result = {"path": path, "status": "FAIL", "detail": f"HTTP {resp.status}"}
+            return result
         if len(redirects) > MAX_REDIRECTS:
-            return {
+            result = {
                 "path": path,
                 "status": "FAIL",
                 "detail": f"redirect loop ({len(redirects)})",
             }
+            return result
 
         try:
             await page.wait_for_load_state("networkidle", timeout=6000)
@@ -88,39 +106,52 @@ async def test_route(browser, route):
 
         title = (await page.title()).strip()
         if not title:
-            return {"path": path, "status": "FAIL", "detail": "empty <title>"}
+            result = {"path": path, "status": "FAIL", "detail": "empty <title>"}
+            return result
 
         final_path = urlparse(page.url).path
         if route["final_contains"] not in final_path:
-            return {
+            result = {
                 "path": path,
                 "status": "FAIL",
                 "detail": f"unexpected final path {final_path}",
             }
+            return result
 
         if route.get("body"):
             body_text = await page.evaluate(
                 "(document.body && document.body.innerText) || ''"
             )
             if route["body"] not in body_text:
-                return {
+                result = {
                     "path": path,
                     "status": "FAIL",
                     "detail": f"expected body substring {route['body']!r} not found",
                 }
+                return result
 
         if page_errors:
-            return {
+            result = {
                 "path": path,
                 "status": "FAIL",
                 "detail": "pageerror: " + " | ".join(page_errors[:2]),
             }
+            return result
 
-        return {"path": path, "status": "PASS", "detail": title[:60]}
+        result = {"path": path, "status": "PASS", "detail": title[:60]}
+        return result
     except Exception as e:
-        return {"path": path, "status": "FAIL", "detail": str(e)[:200]}
+        result = {"path": path, "status": "FAIL", "detail": str(e)[:200]}
+        return result
     finally:
+        status = result.get("status", "FAIL")
+        artifacts = await save_on_failure(SCRIPT_NAME, slug, page, context, status)
         await context.close()
+        video_path = await finalize_video(SCRIPT_NAME, slug, page, status)
+        if video_path:
+            artifacts["video"] = video_path
+        if artifacts and status == "FAIL":
+            result["artifacts"] = artifacts
 
 
 async def main():
