@@ -14,6 +14,7 @@
     "test:smoke": "node scripts/smoke_test.mjs",
     "test:routes": "python3 scripts/route_smoke.py",
     "test:routes:auth": "python3 scripts/route_smoke_authed.py",
+    "test:routes:auto": "bash scripts/route_smoke_auto.sh",
     "test:auth": "python3 scripts/auth_smoke.py"
   },
   "dependencies": {
