@@ -37,6 +37,16 @@ import sys
 from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright
+from _playwright_artifacts import (
+    context_options,
+    finalize_video,
+    save_on_failure,
+    slugify,
+    start_trace,
+    start_trace_chunk,
+)
+
+SCRIPT_NAME = "route_smoke_authed"
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8080")
 COMPANY_ID = os.environ.get("SMOKE_COMPANY_ID", "00000000-0000-0000-0000-000000000001")
@@ -134,6 +144,8 @@ async def establish_session(context, page) -> str:
 async def test_route(context, route):
     path = route["path"]
     url = f"{BASE_URL}{path}"
+    slug = slugify(path)
+    await start_trace_chunk(context)
     page = await context.new_page()
 
     page_errors: list[str] = []
@@ -152,18 +164,22 @@ async def test_route(context, route):
         else None,
     )
 
+    result: dict = {}
     try:
         resp = await page.goto(url, wait_until="domcontentloaded", timeout=15000)
         if resp is None:
-            return {"path": path, "status": "FAIL", "detail": "no response"}
+            result = {"path": path, "status": "FAIL", "detail": "no response"}
+            return result
         if resp.status != 200:
-            return {"path": path, "status": "FAIL", "detail": f"HTTP {resp.status}"}
+            result = {"path": path, "status": "FAIL", "detail": f"HTTP {resp.status}"}
+            return result
         if len(redirects) > MAX_REDIRECTS:
-            return {
+            result = {
                 "path": path,
                 "status": "FAIL",
                 "detail": f"redirect loop ({len(redirects)})",
             }
+            return result
 
         try:
             await page.wait_for_load_state("networkidle", timeout=6000)
@@ -172,32 +188,46 @@ async def test_route(context, route):
 
         title = (await page.title()).strip()
         if not title:
-            return {"path": path, "status": "FAIL", "detail": "empty <title>"}
+            result = {"path": path, "status": "FAIL", "detail": "empty <title>"}
+            return result
 
         final_path = urlparse(page.url).path
         if "/auth" in final_path:
-            return {"path": path, "status": "FAIL", "detail": f"kicked to /auth → session lost"}
+            result = {"path": path, "status": "FAIL", "detail": "kicked to /auth → session lost"}
+            return result
 
         if route["check_params"]:
             if COMPANY_ID not in final_path:
-                return {"path": path, "status": "FAIL", "detail": f"companyId lost → {final_path}"}
+                result = {"path": path, "status": "FAIL", "detail": f"companyId lost → {final_path}"}
+                return result
             if f"/{PERIOD_YEAR}" not in final_path:
-                return {"path": path, "status": "FAIL", "detail": f"periodYear lost → {final_path}"}
+                result = {"path": path, "status": "FAIL", "detail": f"periodYear lost → {final_path}"}
+                return result
 
         has_content = await page.evaluate(
             "(document.body && (document.body.innerText || '').trim().length > 0)"
         )
         if not has_content:
-            return {"path": path, "status": "FAIL", "detail": "no rendered content"}
+            result = {"path": path, "status": "FAIL", "detail": "no rendered content"}
+            return result
 
         errs = page_errors + console_errors
         if errs:
-            return {"path": path, "status": "FAIL", "detail": "errors: " + " | ".join(errs[:2])}
+            result = {"path": path, "status": "FAIL", "detail": "errors: " + " | ".join(errs[:2])}
+            return result
 
-        return {"path": path, "status": "PASS", "detail": title[:60]}
+        result = {"path": path, "status": "PASS", "detail": title[:60]}
+        return result
     except Exception as e:
-        return {"path": path, "status": "FAIL", "detail": str(e)[:200]}
+        result = {"path": path, "status": "FAIL", "detail": str(e)[:200]}
+        return result
     finally:
+        status = result.get("status", "FAIL")
+        artifacts = await save_on_failure(
+            SCRIPT_NAME, slug, page, context, status, chunked=True
+        )
+        if artifacts and status == "FAIL":
+            result["artifacts"] = artifacts
         await page.close()
 
 
@@ -206,7 +236,11 @@ async def main():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(viewport={"width": 1280, "height": 900})
+        context = await browser.new_context(
+            viewport={"width": 1280, "height": 900},
+            **context_options(SCRIPT_NAME, "session"),
+        )
+        await start_trace(context)
         page = await context.new_page()
 
         mode = await establish_session(context, page)
@@ -229,6 +263,8 @@ async def main():
             r = await test_route(context, route)
             results.append(r)
             print(f"  {color(r['status']):>18}  {r['path']:<60}  {r.get('detail', '')}")
+            for kind, pth in (r.get("artifacts") or {}).items():
+                print(f"      · {kind}: {pth}")
 
         await browser.close()
 
