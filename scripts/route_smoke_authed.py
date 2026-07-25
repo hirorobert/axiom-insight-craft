@@ -37,6 +37,16 @@ import sys
 from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright
+from _playwright_artifacts import (
+    context_options,
+    finalize_video,
+    save_on_failure,
+    slugify,
+    start_trace,
+    start_trace_chunk,
+)
+
+SCRIPT_NAME = "route_smoke_authed"
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8080")
 COMPANY_ID = os.environ.get("SMOKE_COMPANY_ID", "00000000-0000-0000-0000-000000000001")
@@ -206,7 +216,11 @@ async def main():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(viewport={"width": 1280, "height": 900})
+        context = await browser.new_context(
+            viewport={"width": 1280, "height": 900},
+            **context_options(SCRIPT_NAME, "session"),
+        )
+        await start_trace(context)
         page = await context.new_page()
 
         mode = await establish_session(context, page)
@@ -229,6 +243,8 @@ async def main():
             r = await test_route(context, route)
             results.append(r)
             print(f"  {color(r['status']):>18}  {r['path']:<60}  {r.get('detail', '')}")
+            for kind, pth in (r.get("artifacts") or {}).items():
+                print(f"      · {kind}: {pth}")
 
         await browser.close()
 
