@@ -15,6 +15,7 @@
  *   - One dominant action button per screen
  */
 
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,9 +33,14 @@ import {
   RefreshCw,
   Upload,
   Info,
+  Sparkles,
+  X,
+  ChevronDown,
 } from "lucide-react";
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import type { MissionStatus } from "@/lib/workspace/types";
+
+const COACH_STORAGE_KEY = "saff-workspace-coach-dismissed";
 
 // ── Status badge metadata ────────────────────────────────────────────────────
 //
@@ -116,6 +122,23 @@ export default function WorkspaceOverview() {
   } = useWorkspace();
   const navigate = useNavigate();
 
+  // ── First-run coach layer state (persisted) ───────────────────────────────
+  const [coachDismissed, setCoachDismissed] = useState(true);
+  const [uploadsOpen, setUploadsOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      setCoachDismissed(localStorage.getItem(COACH_STORAGE_KEY) === "1");
+    } catch {
+      /* localStorage unavailable — leave coach hidden */
+    }
+  }, []);
+
+  const dismissCoach = () => {
+    setCoachDismissed(true);
+    try { localStorage.setItem(COACH_STORAGE_KEY, "1"); } catch { /* noop */ }
+  };
+
   if (loading) {
     return (
       <div className="space-y-8 max-w-5xl">
@@ -135,13 +158,26 @@ export default function WorkspaceOverview() {
     /PUT-REAL|placeholder/i.test(company.tin) ||
     !/^\d+$/.test(company.tin.replace(/-/g, ""));
 
-  return (
-    <div className="space-y-10 max-w-5xl">
+  // Show coach when the workflow has not started yet (no uploads, prepare not started)
+  const isFirstRun = uploads.length === 0 && missions.prepare.status === "not_started";
+  const showCoach = isFirstRun && !coachDismissed;
 
-      {/* ── 1. Client header ────────────────────────────────────────────── */}
+  // Determine active stage index (first non-passed, non-locked, non-NA stage)
+  const activeIndex = STAGE_SEQUENCE.findIndex((slug) => {
+    const s = missions[slug].status;
+    return s !== "passed" && s !== "signed" && s !== "locked" && s !== "not_applicable";
+  });
+
+  const blockedUploadsCount = uploads.filter(
+    (u) => u.status === "blocked" || u.status === "error"
+  ).length;
+
+  return (
+    <div className="space-y-8 max-w-5xl">
+
+      {/* ── 1. Client identity strip ────────────────────────────────────── */}
       <div className="flex items-start justify-between pb-6 border-b border-border">
         <div className="min-w-0">
-          {/* Company name — no "ENGAGEMENT" label, no section header */}
           <h1 className="text-2xl font-semibold tracking-tight text-foreground leading-tight">
             {company?.name ?? "—"}
           </h1>
@@ -154,7 +190,6 @@ export default function WorkspaceOverview() {
               </span>
             </div>
 
-            {/* TIN — show real value or a clear action prompt */}
             {tinMissing ? (
               <Link
                 to="/settings"
@@ -182,23 +217,42 @@ export default function WorkspaceOverview() {
         </Button>
       </div>
 
-      {/* ── 2. Next required action ─────────────────────────────────────── */}
-      {/*
-       *  ONE card. ONE button. No repeated heading text.
-       *  The heading describes the situation; the button names the action.
-       */}
-      <div className="border border-border p-6 space-y-3">
-        <p className="text-xs font-semibold text-muted-foreground tracking-widest uppercase">
+      {/* ── 2. First-run coach layer ────────────────────────────────────── */}
+      {showCoach && (
+        <div className="relative flex items-start gap-4 rounded-md border border-primary/25 bg-primary/[0.04] p-5">
+          <div className="shrink-0 rounded-md bg-primary p-2 text-primary-foreground">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div className="flex-1 pr-8">
+            <p className="text-sm font-semibold text-foreground">Welcome — start here.</p>
+            <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
+              Upload your <strong className="text-foreground">Trial Balance</strong>. Reconcile, statements, tax, filing and monitoring unlock automatically as each stage passes.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={dismissCoach}
+            className="absolute top-3 right-3 rounded p-1 text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+            aria-label="Dismiss guide"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* ── 3. Hero action — one dominant CTA ───────────────────────────── */}
+      <div className="rounded-md border border-border bg-card p-8">
+        <p className="text-[11px] font-semibold text-muted-foreground tracking-[0.18em] uppercase">
           Next step
         </p>
-        <div className="flex items-start justify-between gap-6">
-          <div className="min-w-0">
-            <p className="text-base font-semibold text-foreground leading-snug">
+        <div className="mt-3 flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+          <div className="min-w-0 md:max-w-2xl">
+            <p className="text-xl md:text-2xl font-semibold text-foreground leading-snug tracking-tight">
               {nextAction.description}
             </p>
             {nextAction.blocker && (
-              <p className="mt-1.5 text-xs text-muted-foreground flex items-center gap-1.5">
-                <Lock className="w-3 h-3 shrink-0" />
+              <p className="mt-2 text-sm text-muted-foreground flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 shrink-0" />
                 {nextAction.blocker}
               </p>
             )}
@@ -206,8 +260,9 @@ export default function WorkspaceOverview() {
           <Button
             onClick={() => navigate(nextAction.href)}
             disabled={nextAction.blocked}
+            size="lg"
             variant={nextAction.blocked ? "outline" : "default"}
-            className="shrink-0 whitespace-nowrap"
+            className="shrink-0 whitespace-nowrap h-12 px-6 text-base font-semibold shadow-sm"
           >
             {nextAction.label}
             {!nextAction.blocked && <ArrowRight className="w-4 h-4 ml-2" />}
@@ -215,102 +270,103 @@ export default function WorkspaceOverview() {
         </div>
       </div>
 
-      {/* ── 3. Stage progress table ─────────────────────────────────────── */}
-      {/*
-       *  One consistent row layout for all 7 stages:
-       *    [icon] [label + status subtitle]          [badge]  [action]
-       *
-       *  Status subtitle is always present — locked rows explain the blocker,
-       *  not_started rows say "not yet started", etc.
-       *  No row ever shows blank status or "— —".
-       */}
+      {/* ── 4. Linear stage rail — 7 canonical stages ───────────────────── */}
       <div>
-        <p className="text-xs font-semibold text-muted-foreground tracking-widest uppercase mb-3">
-          Workflow progress
-        </p>
-        <div className="border border-border divide-y divide-border">
-          {STAGE_SEQUENCE.map((slug) => {
+        <div className="flex items-baseline justify-between mb-3">
+          <p className="text-[11px] font-semibold text-muted-foreground tracking-[0.18em] uppercase">
+            Workflow
+          </p>
+          <p className="text-[11px] text-muted-foreground/70 tracking-wide">
+            {activeIndex >= 0 ? `Step ${activeIndex + 1} of ${STAGE_SEQUENCE.length}` : "All stages complete"}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+          {STAGE_SEQUENCE.map((slug, i) => {
             const config  = STAGE_CONFIGS[slug];
             const mission = missions[slug];
             const meta    = STATUS_META[mission.status];
             const Icon    = config.icon;
 
-            const isLocked = mission.status === "locked" || mission.status === "not_applicable";
-            const canOpen  = !isLocked;
+            const isLocked   = mission.status === "locked" || mission.status === "not_applicable";
+            const isActive   = i === activeIndex;
+            const isComplete = mission.status === "passed" || mission.status === "signed";
+            const canOpen    = !isLocked;
 
-            // Subtitle: prefer blocker message for locked/blocked, else summary
-            const subtitle = mission.status === "locked"
-              ? (mission.blocker ?? "Complete earlier stages first")
-              : mission.status === "not_applicable"
-              ? "Not required for this engagement"
-              : mission.status === "not_started"
-              ? config.description
-              : (mission.summary ?? config.description);
-
-            return (
+            const stageContent = (
               <div
-                key={slug}
                 className={[
-                  "flex items-center gap-4 px-5 py-4 transition-colors",
-                  canOpen ? "hover:bg-secondary/30" : "opacity-60",
+                  "h-full rounded-md border p-3 flex flex-col gap-2 transition-all",
+                  isActive
+                    ? "border-primary bg-primary/[0.06] shadow-sm"
+                    : isComplete
+                    ? "border-accent/40 bg-accent/[0.04]"
+                    : isLocked
+                    ? "border-border bg-muted/20 opacity-60"
+                    : "border-border bg-card hover:border-primary/40 hover:bg-secondary/20",
                 ].join(" ")}
               >
-                {/* Stage icon */}
-                <div className="text-muted-foreground shrink-0">
-                  <Icon className="w-4 h-4" />
-                </div>
-
-                {/* Label + subtitle */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground">
-                    {mission.label}
-                  </p>
-                  <p className={[
-                    "text-xs mt-0.5 leading-relaxed",
-                    mission.status === "blocked" ? "text-destructive/80" : "text-muted-foreground",
+                <div className="flex items-center justify-between">
+                  <span className={[
+                    "text-[10px] font-bold tracking-[0.15em] uppercase",
+                    isActive ? "text-primary" : "text-muted-foreground/60",
                   ].join(" ")}>
-                    {subtitle}
-                  </p>
+                    Step {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <Icon className={[
+                    "w-3.5 h-3.5 shrink-0",
+                    isActive ? "text-primary" : isComplete ? "text-accent" : "text-muted-foreground/50",
+                  ].join(" ")} />
                 </div>
-
-                {/* Status badge — always has text, never blank */}
-                <div className={`flex items-center gap-1.5 text-xs font-medium tabular-nums shrink-0 ${meta.className}`}>
+                <p className={[
+                  "text-sm font-semibold leading-tight",
+                  isLocked ? "text-muted-foreground" : "text-foreground",
+                ].join(" ")}>
+                  {mission.label}
+                </p>
+                <div className={`mt-auto flex items-center gap-1 text-[11px] font-medium ${meta.className}`}>
                   {meta.icon}
-                  <span className="hidden sm:inline">{meta.label}</span>
-                </div>
-
-                {/* Action — Open for available stages, nothing for locked/NA */}
-                <div className="shrink-0 w-14 sm:w-16 text-right">
-                  {canOpen ? (
-                    <Link
-                      to={mission.href}
-                      className="text-xs text-primary hover:text-primary/80 flex items-center justify-end gap-0.5"
-                    >
-                      Open
-                      <ChevronRight className="w-3 h-3" />
-                    </Link>
-                  ) : (
-                    <span className="text-xs text-muted-foreground/30 select-none">—</span>
-                  )}
+                  <span className="truncate">{meta.label}</span>
                 </div>
               </div>
+            );
+
+            return canOpen ? (
+              <Link key={slug} to={mission.href} className="block">
+                {stageContent}
+              </Link>
+            ) : (
+              <div key={slug} title={mission.blocker ?? "Not available"}>{stageContent}</div>
             );
           })}
         </div>
       </div>
 
-      {/* ── 4. Recent uploads ───────────────────────────────────────────── */}
-      {/*
-       *  Active upload is highlighted with a border.
-       *  BLOCKED rows show the specific reason (not just the word "BLOCKED")
-       *  and a "Re-upload" button so the user knows exactly what to do.
-       */}
+      {/* ── 5. Recent uploads (secondary, collapsible) ──────────────────── */}
       {uploads.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold text-muted-foreground tracking-widest uppercase mb-3">
-            Trial balance uploads
-          </p>
-          <div className="border border-border divide-y divide-border">
+        <div className="border-t border-border pt-6">
+          <button
+            type="button"
+            onClick={() => setUploadsOpen((v) => !v)}
+            className="w-full flex items-center justify-between text-left group"
+          >
+            <div className="flex items-center gap-3">
+              <p className="text-[11px] font-semibold text-muted-foreground tracking-[0.18em] uppercase">
+                Recent uploads
+              </p>
+              <span className="text-xs text-muted-foreground/70">
+                {uploads.length} file{uploads.length === 1 ? "" : "s"}
+              </span>
+              {blockedUploadsCount > 0 && (
+                <span className="text-[10px] font-semibold text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">
+                  {blockedUploadsCount} blocked
+                </span>
+              )}
+            </div>
+            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${uploadsOpen ? "rotate-180" : ""}`} />
+          </button>
+
+          {uploadsOpen && (
+          <div className="mt-3 border border-border rounded-md divide-y divide-border">
             {uploads.slice(0, 5).map((u) => {
               const isActive  = u.id === upload?.id;
               const isBlocked = u.status === "blocked" || u.status === "error";
@@ -385,8 +441,9 @@ export default function WorkspaceOverview() {
               );
             })}
           </div>
+          )}
 
-          {uploads.length > 5 && (
+          {uploadsOpen && uploads.length > 5 && (
             <Link
               to={`${basePath}/prepare`}
               className="block text-xs text-muted-foreground hover:text-foreground pt-2 text-right"
