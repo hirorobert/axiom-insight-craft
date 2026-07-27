@@ -237,9 +237,33 @@ export default function WorkspaceOverview() {
               <Sparkles className="w-4 h-4" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-foreground">
-                {hasUpload ? "Continue where you left off." : "Welcome — start here."}
-              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-foreground">
+                  {hasUpload ? "Continue where you left off." : "Welcome — start here."}
+                </p>
+                {hasUpload && upload && (() => {
+                  const s = upload.status;
+                  const isReady = s === "complete" || s === "valid";
+                  const isFailed = s === "blocked" || s === "error";
+                  const isProcessing = s === "processing" || s === "needs_review";
+                  const badge = isReady
+                    ? { label: "Ready", cls: "text-accent bg-accent/10 border-accent/30", icon: <CheckCircle2 className="w-3 h-3" /> }
+                    : isFailed
+                    ? { label: s === "blocked" ? "Blocked" : "Failed", cls: "text-destructive bg-destructive/10 border-destructive/30", icon: <XCircle className="w-3 h-3" /> }
+                    : isProcessing
+                    ? { label: "Processing", cls: "text-primary bg-primary/10 border-primary/30", icon: <Clock className="w-3 h-3 animate-pulse" /> }
+                    : { label: String(s), cls: "text-muted-foreground bg-muted border-border", icon: <Minus className="w-3 h-3" /> };
+                  return (
+                    <span
+                      className={`inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${badge.cls}`}
+                      title={`Trial Balance status: ${badge.label}`}
+                    >
+                      {badge.icon}
+                      Trial Balance · {badge.label}
+                    </span>
+                  );
+                })()}
+              </div>
               <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
                 {hasUpload ? (
                   <>
