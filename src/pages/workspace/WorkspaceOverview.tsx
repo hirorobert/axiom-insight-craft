@@ -256,7 +256,8 @@ export default function WorkspaceOverview() {
         </div>
       )}
 
-      {/* ── 3. Hero action — one dominant CTA ───────────────────────────── */}
+      {/* ── 3. Hero action — one dominant CTA (suppressed during first-run coach) ── */}
+      {!showCoach && (
       <div className="rounded-md border border-border bg-card p-8">
         <p className="text-[11px] font-semibold text-muted-foreground tracking-[0.18em] uppercase">
           Next step
@@ -285,6 +286,7 @@ export default function WorkspaceOverview() {
           </Button>
         </div>
       </div>
+      )}
 
       {/* ── 4. Linear stage rail — 7 canonical stages ───────────────────── */}
       <div>
