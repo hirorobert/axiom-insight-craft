@@ -134,6 +134,24 @@ export default function WorkspaceOverview() {
     }
   }, []);
 
+  // Auto-refresh: while the active Trial Balance upload is still processing,
+  // poll every 4s so the status badge (Processing → Ready/Blocked/Failed)
+  // updates in real time without requiring the user to click Refresh.
+  const activeUploadStatus = upload?.status;
+  useEffect(() => {
+    if (!activeUploadStatus) return;
+    const isPolling =
+      activeUploadStatus === "processing" ||
+      activeUploadStatus === "needs_review" ||
+      activeUploadStatus === "pending" ||
+      activeUploadStatus === "queued";
+    if (!isPolling) return;
+    const interval = setInterval(() => {
+      refreshUpload();
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [activeUploadStatus, refreshUpload]);
+
   const dismissCoach = () => {
     setCoachDismissed(true);
     try { localStorage.setItem(COACH_STORAGE_KEY, "1"); } catch { /* noop */ }
