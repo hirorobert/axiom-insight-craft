@@ -219,16 +219,7 @@ export default function WorkspaceOverview() {
 
       {/* ── 2. First-run coach layer ────────────────────────────────────── */}
       {showCoach && (
-        <div className="relative flex items-start gap-4 rounded-md border border-primary/25 bg-primary/[0.04] p-5">
-          <div className="shrink-0 rounded-md bg-primary p-2 text-primary-foreground">
-            <Sparkles className="w-4 h-4" />
-          </div>
-          <div className="flex-1 pr-8">
-            <p className="text-sm font-semibold text-foreground">Welcome — start here.</p>
-            <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
-              Upload your <strong className="text-foreground">Trial Balance</strong>. Reconcile, statements, tax, filing and monitoring unlock automatically as each stage passes.
-            </p>
-          </div>
+        <div className="relative rounded-md border border-primary/25 bg-primary/[0.04] p-6">
           <button
             type="button"
             onClick={dismissCoach}
@@ -237,10 +228,36 @@ export default function WorkspaceOverview() {
           >
             <X className="w-4 h-4" />
           </button>
+          <div className="flex items-start gap-4 pr-8">
+            <div className="shrink-0 rounded-md bg-primary p-2 text-primary-foreground">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground">Welcome — start here.</p>
+              <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
+                Upload your <strong className="text-foreground">Trial Balance</strong> to validate it. Reconcile, statements, tax, filing and monitoring unlock automatically as each stage passes.
+              </p>
+              <div className="mt-4">
+                <Button
+                  onClick={() => navigate(`${basePath}/prepare`)}
+                  size="lg"
+                  className="h-11 px-5 text-sm font-semibold shadow-sm"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload Trial Balance
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Validates against Tanzania chart of accounts and ITA Cap.332 before anything else runs.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* ── 3. Hero action — one dominant CTA ───────────────────────────── */}
+      {/* ── 3. Hero action — one dominant CTA (suppressed during first-run coach) ── */}
+      {!showCoach && (
       <div className="rounded-md border border-border bg-card p-8">
         <p className="text-[11px] font-semibold text-muted-foreground tracking-[0.18em] uppercase">
           Next step
@@ -269,6 +286,7 @@ export default function WorkspaceOverview() {
           </Button>
         </div>
       </div>
+      )}
 
       {/* ── 4. Linear stage rail — 7 canonical stages ───────────────────── */}
       <div>
