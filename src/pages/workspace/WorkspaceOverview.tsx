@@ -158,8 +158,12 @@ export default function WorkspaceOverview() {
     /PUT-REAL|placeholder/i.test(company.tin) ||
     !/^\d+$/.test(company.tin.replace(/-/g, ""));
 
-  // Show coach when the workflow has not started yet (no uploads, prepare not started)
-  const isFirstRun = uploads.length === 0 && missions.prepare.status === "not_started";
+  // Show coach until Prepare has passed — covers both "no upload yet" and
+  // "upload exists but validation not yet cleared" first-run states.
+  const prepareStatus = missions.prepare.status;
+  const prepareDone = prepareStatus === "passed" || prepareStatus === "signed";
+  const hasUpload = uploads.length > 0;
+  const isFirstRun = !prepareDone;
   const showCoach = isFirstRun && !coachDismissed;
 
   // Determine active stage index (first non-passed, non-locked, non-NA stage)
@@ -233,9 +237,19 @@ export default function WorkspaceOverview() {
               <Sparkles className="w-4 h-4" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-foreground">Welcome — start here.</p>
+              <p className="text-sm font-semibold text-foreground">
+                {hasUpload ? "Continue where you left off." : "Welcome — start here."}
+              </p>
               <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
-                Upload your <strong className="text-foreground">Trial Balance</strong> to validate it. Reconcile, statements, tax, filing and monitoring unlock automatically as each stage passes.
+                {hasUpload ? (
+                  <>
+                    A <strong className="text-foreground">Trial Balance</strong> is already uploaded for FY{periodYear}. Continue to finish validation — Reconcile, statements, tax, filing and monitoring unlock as each stage passes.
+                  </>
+                ) : (
+                  <>
+                    Upload your <strong className="text-foreground">Trial Balance</strong> to validate it. Reconcile, statements, tax, filing and monitoring unlock automatically as each stage passes.
+                  </>
+                )}
               </p>
               <div className="mt-4">
                 <Button
@@ -243,8 +257,12 @@ export default function WorkspaceOverview() {
                   size="lg"
                   className="h-11 px-5 text-sm font-semibold shadow-sm"
                 >
-                  <Upload className="w-4 h-4 mr-2" />
-                  Upload Trial Balance
+                  {hasUpload ? (
+                    <ArrowRight className="w-4 h-4 mr-2" />
+                  ) : (
+                    <Upload className="w-4 h-4 mr-2" />
+                  )}
+                  {hasUpload ? "Continue Trial Balance" : "Upload Trial Balance"}
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
                 <p className="mt-2 text-xs text-muted-foreground">
