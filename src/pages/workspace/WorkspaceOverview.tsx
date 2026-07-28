@@ -39,6 +39,8 @@ import {
 } from "lucide-react";
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import type { MissionStatus } from "@/lib/workspace/types";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const COACH_STORAGE_KEY = "saff-workspace-coach-dismissed";
 
@@ -126,6 +128,7 @@ export default function WorkspaceOverview() {
   const [coachDismissed, setCoachDismissed] = useState(true);
   const [uploadsOpen, setUploadsOpen] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
     try {
@@ -146,6 +149,39 @@ export default function WorkspaceOverview() {
   const handleRefreshUpload = () => {
     refreshUpload();
     setLastRefreshedAt(new Date());
+  };
+
+  // Re-run the trial balance processing pipeline for the active upload
+  // when it has landed in a Failed / Blocked state. Mirrors the retry
+  // logic used in UploadsStatusPanel so behaviour stays consistent.
+  const handleRetryProcessing = async () => {
+    if (!upload?.id || retrying) return;
+    setRetrying(true);
+    toast.info(`Retrying: ${upload.file_name ?? "Trial Balance"}…`);
+    try {
+      await supabase
+        .from("trial_balance_uploads")
+        .update({
+          status: "processing",
+          processing_result: null,
+          accounting_errors: null,
+          is_valid: null,
+        })
+        .eq("id", upload.id);
+
+      const { error: fnErr } = await supabase.functions.invoke("process-trial-balance", {
+        body: { uploadId: upload.id },
+      });
+      if (fnErr) throw fnErr;
+
+      handleRefreshUpload();
+      toast.success("Re-processing started. Status will update automatically.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Retry failed";
+      toast.error(`Retry failed: ${msg}`);
+    } finally {
+      setRetrying(false);
+    }
   };
 
   // Auto-refresh: while the active Trial Balance upload is still processing,
@@ -305,6 +341,19 @@ export default function WorkspaceOverview() {
                           <RefreshCw className="w-3 h-3" />
                           Refresh
                         </button>
+                        {isFailed && (
+                          <button
+                            type="button"
+                            onClick={handleRetryProcessing}
+                            disabled={retrying}
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-destructive hover:text-destructive/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            aria-label="Retry Trial Balance processing"
+                            title="Re-run processing"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${retrying ? "animate-spin" : ""}`} />
+                            {retrying ? "Retrying…" : "Retry processing"}
+                          </button>
+                        )}
                       </span>
                       {lastRefreshedAt && (
                         <span className="text-[10px] text-muted-foreground/70 tabular-nums">
