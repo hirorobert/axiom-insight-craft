@@ -125,6 +125,7 @@ export default function WorkspaceOverview() {
   // ── First-run coach layer state (persisted) ───────────────────────────────
   const [coachDismissed, setCoachDismissed] = useState(true);
   const [uploadsOpen, setUploadsOpen] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     try {
@@ -133,6 +134,11 @@ export default function WorkspaceOverview() {
       /* localStorage unavailable — leave coach hidden */
     }
   }, []);
+
+  const handleRefreshUpload = () => {
+    refreshUpload();
+    setLastRefreshedAt(new Date());
+  };
 
   // Auto-refresh: while the active Trial Balance upload is still processing,
   // poll every 4s so the status badge (Processing → Ready/Blocked/Failed)
@@ -147,10 +153,10 @@ export default function WorkspaceOverview() {
       activeUploadStatus === "queued";
     if (!isPolling) return;
     const interval = setInterval(() => {
-      refreshUpload();
+      handleRefreshUpload();
     }, 4000);
     return () => clearInterval(interval);
-  }, [activeUploadStatus, refreshUpload]);
+  }, [activeUploadStatus]);
 
   const dismissCoach = () => {
     setCoachDismissed(true);
