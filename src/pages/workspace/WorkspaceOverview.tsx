@@ -272,12 +272,24 @@ export default function WorkspaceOverview() {
                     ? { label: "Processing", cls: "text-primary bg-primary/10 border-primary/30", icon: <Clock className="w-3 h-3 animate-pulse" /> }
                     : { label: String(s), cls: "text-muted-foreground bg-muted border-border", icon: <Minus className="w-3 h-3" /> };
                   return (
-                    <span
-                      className={`inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${badge.cls}`}
-                      title={`Trial Balance status: ${badge.label}`}
-                    >
-                      {badge.icon}
-                      Trial Balance · {badge.label}
+                    <span className="inline-flex items-center gap-2">
+                      <span
+                        className={`inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${badge.cls}`}
+                        title={`Trial Balance status: ${badge.label}`}
+                      >
+                        {badge.icon}
+                        Trial Balance · {badge.label}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={refreshUpload}
+                        className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+                        aria-label="Refresh Trial Balance status"
+                        title="Refresh status"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        Refresh
+                      </button>
                     </span>
                   );
                 })()}
