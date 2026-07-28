@@ -135,6 +135,14 @@ export default function WorkspaceOverview() {
     }
   }, []);
 
+  // Stamp the first time we see an upload so the badge has a "last updated" time
+  // even before the user clicks Refresh or polling fires.
+  useEffect(() => {
+    if (upload?.id && !lastRefreshedAt) {
+      setLastRefreshedAt(new Date());
+    }
+  }, [upload?.id, lastRefreshedAt]);
+
   const handleRefreshUpload = () => {
     refreshUpload();
     setLastRefreshedAt(new Date());
