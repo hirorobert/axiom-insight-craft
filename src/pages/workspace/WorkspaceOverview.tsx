@@ -240,7 +240,7 @@ export default function WorkspaceOverview() {
           </div>
         </div>
 
-        <Button variant="ghost" size="sm" onClick={refreshUpload} title="Refresh" className="shrink-0 ml-4">
+        <Button variant="ghost" size="sm" onClick={handleRefreshUpload} title="Refresh" className="shrink-0 ml-4">
           <RefreshCw className="w-3.5 h-3.5" />
         </Button>
       </div>
