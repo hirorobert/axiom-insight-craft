@@ -125,6 +125,7 @@ export default function WorkspaceOverview() {
   // ── First-run coach layer state (persisted) ───────────────────────────────
   const [coachDismissed, setCoachDismissed] = useState(true);
   const [uploadsOpen, setUploadsOpen] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     try {
@@ -133,6 +134,19 @@ export default function WorkspaceOverview() {
       /* localStorage unavailable — leave coach hidden */
     }
   }, []);
+
+  // Stamp the first time we see an upload so the badge has a "last updated" time
+  // even before the user clicks Refresh or polling fires.
+  useEffect(() => {
+    if (upload?.id && !lastRefreshedAt) {
+      setLastRefreshedAt(new Date());
+    }
+  }, [upload?.id, lastRefreshedAt]);
+
+  const handleRefreshUpload = () => {
+    refreshUpload();
+    setLastRefreshedAt(new Date());
+  };
 
   // Auto-refresh: while the active Trial Balance upload is still processing,
   // poll every 4s so the status badge (Processing → Ready/Blocked/Failed)
@@ -147,10 +161,10 @@ export default function WorkspaceOverview() {
       activeUploadStatus === "queued";
     if (!isPolling) return;
     const interval = setInterval(() => {
-      refreshUpload();
+      handleRefreshUpload();
     }, 4000);
     return () => clearInterval(interval);
-  }, [activeUploadStatus, refreshUpload]);
+  }, [activeUploadStatus]);
 
   const dismissCoach = () => {
     setCoachDismissed(true);
@@ -234,7 +248,7 @@ export default function WorkspaceOverview() {
           </div>
         </div>
 
-        <Button variant="ghost" size="sm" onClick={refreshUpload} title="Refresh" className="shrink-0 ml-4">
+        <Button variant="ghost" size="sm" onClick={handleRefreshUpload} title="Refresh" className="shrink-0 ml-4">
           <RefreshCw className="w-3.5 h-3.5" />
         </Button>
       </div>
@@ -272,25 +286,32 @@ export default function WorkspaceOverview() {
                     ? { label: "Processing", cls: "text-primary bg-primary/10 border-primary/30", icon: <Clock className="w-3 h-3 animate-pulse" /> }
                     : { label: String(s), cls: "text-muted-foreground bg-muted border-border", icon: <Minus className="w-3 h-3" /> };
                   return (
-                    <span className="inline-flex items-center gap-2">
-                      <span
-                        className={`inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${badge.cls}`}
-                        title={`Trial Balance status: ${badge.label}`}
-                      >
-                        {badge.icon}
-                        Trial Balance · {badge.label}
+                    <div className="flex flex-col items-start gap-1">
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${badge.cls}`}
+                          title={`Trial Balance status: ${badge.label}`}
+                        >
+                          {badge.icon}
+                          Trial Balance · {badge.label}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleRefreshUpload}
+                          className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+                          aria-label="Refresh Trial Balance status"
+                          title="Refresh status"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          Refresh
+                        </button>
                       </span>
-                      <button
-                        type="button"
-                        onClick={refreshUpload}
-                        className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
-                        aria-label="Refresh Trial Balance status"
-                        title="Refresh status"
-                      >
-                        <RefreshCw className="w-3 h-3" />
-                        Refresh
-                      </button>
-                    </span>
+                      {lastRefreshedAt && (
+                        <span className="text-[10px] text-muted-foreground/70 tabular-nums">
+                          Last updated {formatRelative(lastRefreshedAt.toISOString())}
+                        </span>
+                      )}
+                    </div>
                   );
                 })()}
               </div>
