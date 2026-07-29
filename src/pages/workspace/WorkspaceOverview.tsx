@@ -1,18 +1,17 @@
 /**
- * WorkspaceOverview — Command center.
+ * WorkspaceOverview — Command surface (editorial grade).
  *
- * Renders exactly:
- *   1. Client header  — company name, fiscal year, TIN (no "ENGAGEMENT" label)
- *   2. Next action    — ONE primary CTA with human-readable description
- *   3. Mission table  — 7 rows, one consistent layout: icon | label + status line | badge | action
- *   4. Recent uploads — active upload highlighted; BLOCKED rows show reason + re-upload button
+ * One page, one resting place, one directive, one action.
+ *   1. Masthead      — client name (display), fiscal year, TIN, updated stamp
+ *   2. Directive     — the single sentence + the single button (absorbs coach)
+ *   3. Ledger        — 7-row workflow as a numbered ledger, not card grid
+ *   4. Files         — collapsed by default, quiet
  *
- * Design rules enforced here:
- *   - No jargon labels ("ENGAGEMENT", "MISSION STATUS")
- *   - Status badge always has text — never "— —"
- *   - Locked stages show why they are locked (blocker text)
- *   - BLOCKED upload shows the specific validation failure, not just the word "BLOCKED"
- *   - One dominant action button per screen
+ * Design law:
+ *   - No coloured status pills competing with content. One dot, one word.
+ *   - No card grid for stages. A ledger is what accountants read.
+ *   - Only ONE button carries visual weight per screen.
+ *   - Generous vertical rhythm. Type is the interface.
  */
 
 import { useState, useEffect } from "react";
