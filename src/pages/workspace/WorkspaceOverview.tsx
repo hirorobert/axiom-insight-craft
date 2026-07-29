@@ -26,14 +26,10 @@ import {
   Lock,
   Minus,
   ArrowRight,
-  ChevronRight,
   AlertTriangle,
-  Calendar,
   RefreshCw,
   Upload,
   Info,
-  Sparkles,
-  X,
   ChevronDown,
 } from "lucide-react";
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
@@ -41,26 +37,39 @@ import type { MissionStatus } from "@/lib/workspace/types";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-const COACH_STORAGE_KEY = "saff-workspace-coach-dismissed";
-
-// ── Status badge metadata ────────────────────────────────────────────────────
-//
-// Every status has a human-readable label, a colour class, and an icon.
-// Nothing is ever just "—" or blank — the user always knows what state they are in.
-
+// Single-dot status vocabulary — one word, one colour, no chips.
+// The eye should never have to decode a badge to know where a stage stands.
 const STATUS_META: Record<
   MissionStatus,
-  { label: string; className: string; icon: React.ReactNode }
+  { label: string; tone: "muted" | "active" | "done" | "warn" | "bad" | "off" }
 > = {
-  not_started:    { label: "Not started",      className: "text-muted-foreground",           icon: <Minus className="w-3.5 h-3.5" /> },
-  in_progress:    { label: "In progress",      className: "text-primary",                    icon: <Clock className="w-3.5 h-3.5 animate-pulse" /> },
-  ready:          { label: "Ready",            className: "text-primary font-semibold",      icon: <ChevronRight className="w-3.5 h-3.5" /> },
-  passed:         { label: "Passed",           className: "text-accent",                     icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
-  review_required:{ label: "Review required",  className: "text-amber-600 dark:text-amber-400", icon: <AlertTriangle className="w-3.5 h-3.5" /> },
-  blocked:        { label: "Blocked",          className: "text-destructive",                icon: <XCircle className="w-3.5 h-3.5" /> },
-  signed:         { label: "Signed off",       className: "text-accent",                     icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
-  locked:         { label: "Locked",           className: "text-muted-foreground/50",        icon: <Lock className="w-3 h-3" /> },
-  not_applicable: { label: "Not applicable",   className: "text-muted-foreground/40",        icon: <Minus className="w-3 h-3" /> },
+  not_started:    { label: "Not started",     tone: "muted"  },
+  in_progress:    { label: "In progress",     tone: "active" },
+  ready:          { label: "Ready",           tone: "active" },
+  passed:         { label: "Passed",          tone: "done"   },
+  review_required:{ label: "Review required", tone: "warn"   },
+  blocked:        { label: "Blocked",         tone: "bad"    },
+  signed:         { label: "Signed off",      tone: "done"   },
+  locked:         { label: "Locked",          tone: "off"    },
+  not_applicable: { label: "Not applicable",  tone: "off"    },
+};
+
+const DOT_TONE: Record<"muted" | "active" | "done" | "warn" | "bad" | "off", string> = {
+  muted:  "bg-muted-foreground/40",
+  active: "bg-primary",
+  done:   "bg-success",
+  warn:   "bg-amber-500",
+  bad:    "bg-destructive",
+  off:    "bg-muted-foreground/20",
+};
+
+const TEXT_TONE: Record<"muted" | "active" | "done" | "warn" | "bad" | "off", string> = {
+  muted:  "text-muted-foreground",
+  active: "text-primary",
+  done:   "text-success",
+  warn:   "text-amber-600 dark:text-amber-500",
+  bad:    "text-destructive",
+  off:    "text-muted-foreground/50",
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
