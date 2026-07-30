@@ -329,6 +329,17 @@ export default function WorkspaceOverview() {
   return (
     <div className="max-w-4xl">
 
+      {company && (
+        <CompanyTinDialog
+          open={tinDialogOpen}
+          onOpenChange={setTinDialogOpen}
+          companyId={company.id}
+          companyName={company.name}
+          currentTin={effectiveTin}
+          onSaved={(tin) => setTinOverride(tin)}
+        />
+      )}
+
       {/* ── 1. Masthead ─────────────────────────────────────────────────── */}
       <header className="pb-8 mb-10 border-b border-border">
         <div className="flex items-start justify-between gap-6">
