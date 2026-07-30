@@ -37,6 +37,7 @@ import type { MissionStatus } from "@/lib/workspace/types";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
+import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
 
 // Single-dot status vocabulary — one word, one colour, no chips.
 // The eye should never have to decode a badge to know where a stage stands.
@@ -94,6 +95,20 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Year-end label derived from the company record — never hardcoded.
+// Accepts "MM-DD", "--MM-DD" or a full date string.
+function formatYearEnd(fiscalYearEnd: string | null | undefined, year: number): string {
+  if (!fiscalYearEnd || year <= 2000) return "—";
+  const m = fiscalYearEnd.match(/(\d{1,2})-(\d{1,2})$/);
+  if (!m) return "—";
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  if (!month || !day) return "—";
+  const d = new Date(Date.UTC(year, month - 1, day));
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+}
+
 // Extract a human-readable reason from a blocked/errored upload
 function blockedReason(u: {
   status: string;
@@ -137,6 +152,8 @@ export default function WorkspaceOverview() {
   const [uploadsOpen, setUploadsOpen] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [tinDialogOpen, setTinDialogOpen] = useState(false);
+  const [tinOverride, setTinOverride] = useState<string | null>(null);
 
   // Stamp the first time we see an upload so the "updated" line has a value.
   useEffect(() => {
@@ -207,10 +224,11 @@ export default function WorkspaceOverview() {
   const { nextAction, missions, lastUpdatedAt } = workspaceState;
   const basePath = `/workspace/${companyId}/${periodYear}`;
 
+  const effectiveTin = tinOverride ?? company?.tin ?? null;
   const tinMissing =
-    !company?.tin ||
-    /PUT-REAL|placeholder/i.test(company.tin) ||
-    !/^\d+$/.test(company.tin.replace(/-/g, ""));
+    !effectiveTin ||
+    /PUT-REAL|placeholder|todo|tbd/i.test(effectiveTin) ||
+    !/^\d+$/.test(effectiveTin.replace(/-/g, ""));
 
   const prepareStatus = missions.prepare.status;
   const prepareDone = prepareStatus === "passed" || prepareStatus === "signed";
@@ -311,6 +329,17 @@ export default function WorkspaceOverview() {
   return (
     <div className="max-w-4xl">
 
+      {company && (
+        <CompanyTinDialog
+          open={tinDialogOpen}
+          onOpenChange={setTinDialogOpen}
+          companyId={company.id}
+          companyName={company.name}
+          currentTin={effectiveTin}
+          onSaved={(tin) => setTinOverride(tin)}
+        />
+      )}
+
       {/* ── 1. Masthead ─────────────────────────────────────────────────── */}
       <header className="pb-8 mb-10 border-b border-border">
         <div className="flex items-start justify-between gap-6">
@@ -323,18 +352,26 @@ export default function WorkspaceOverview() {
             </h1>
             <div className="flex flex-wrap items-center gap-x-6 gap-y-1 mt-4 text-[13px] text-muted-foreground">
               <span className="tabular-nums">
-                Year ended {periodYear > 2000 ? `30 June ${periodYear}` : "—"}
+                Year ended {formatYearEnd(company?.fiscal_year_end, periodYear)}
               </span>
               {tinMissing ? (
-                <Link
-                  to="/settings"
+                <button
+                  type="button"
+                  onClick={() => setTinDialogOpen(true)}
                   className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-500 hover:underline underline-offset-4"
                 >
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  TIN not set
-                </Link>
+                  TIN not set — add it
+                </button>
               ) : (
-                <span className="font-mono text-[12px]">TIN {company!.tin}</span>
+                <button
+                  type="button"
+                  onClick={() => setTinDialogOpen(true)}
+                  className="font-mono text-[12px] hover:text-foreground transition-colors"
+                  title="Edit TIN"
+                >
+                  TIN {effectiveTin}
+                </button>
               )}
               {lastUpdatedAt && (
                 <span className="tabular-nums">Updated {formatRelative(lastUpdatedAt)}</span>

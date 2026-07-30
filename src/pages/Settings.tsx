@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import { AuditTrail } from "@/components/AuditTrail";
 import { FirmManagementPanel } from "@/components/FirmManagementPanel";
+import { CompanyManager } from "@/components/CompanyManager";
 import { PeriodCloseManager } from "@/components/PeriodCloseManager";
 import { useAuditLog } from "@/hooks/useAuditLog";
 
@@ -213,6 +214,23 @@ export default function Settings() {
 
         {/* Team & Access — Firm Member Management */}
         <FirmManagementPanel />
+
+        {/* Companies & TRA TIN — the entry point the TIN warnings point to */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Building2 className="w-5 h-5" />
+              Companies & TRA TIN
+            </CardTitle>
+            <CardDescription>
+              Add clients and set each company's TRA Tax Identification Number. A TIN is required
+              before trial balances can be uploaded or TRA documents produced.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CompanyManager />
+          </CardContent>
+        </Card>
 
         {/* Period Close Manager — 3-tier sign-off across all companies */}
         <PeriodCloseManager userId={user?.id ?? ""} />
