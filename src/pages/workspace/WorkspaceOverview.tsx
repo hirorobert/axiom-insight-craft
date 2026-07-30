@@ -438,6 +438,11 @@ export default function WorkspaceOverview() {
       </section>
 
       {/* ── 3. Workflow ledger — 7 rows, numbered, no cards ─────────────── */}
+      {/* ── 2b. Live trial balance ingestion ledger ─────────────────────── */}
+      {upload && !prepareDone && (
+        <TrialBalanceProgressLedger upload={upload} lastRefreshedAt={lastRefreshedAt} />
+      )}
+
       <section className="mb-14">
         <div className="flex items-baseline justify-between mb-5">
           <p className="text-[10px] font-semibold text-muted-foreground tracking-[0.22em] uppercase">
