@@ -152,6 +152,8 @@ export default function WorkspaceOverview() {
   const [uploadsOpen, setUploadsOpen] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [tinDialogOpen, setTinDialogOpen] = useState(false);
+  const [tinOverride, setTinOverride] = useState<string | null>(null);
 
   // Stamp the first time we see an upload so the "updated" line has a value.
   useEffect(() => {
@@ -222,10 +224,11 @@ export default function WorkspaceOverview() {
   const { nextAction, missions, lastUpdatedAt } = workspaceState;
   const basePath = `/workspace/${companyId}/${periodYear}`;
 
+  const effectiveTin = tinOverride ?? company?.tin ?? null;
   const tinMissing =
-    !company?.tin ||
-    /PUT-REAL|placeholder/i.test(company.tin) ||
-    !/^\d+$/.test(company.tin.replace(/-/g, ""));
+    !effectiveTin ||
+    /PUT-REAL|placeholder|todo|tbd/i.test(effectiveTin) ||
+    !/^\d+$/.test(effectiveTin.replace(/-/g, ""));
 
   const prepareStatus = missions.prepare.status;
   const prepareDone = prepareStatus === "passed" || prepareStatus === "signed";
@@ -338,18 +341,26 @@ export default function WorkspaceOverview() {
             </h1>
             <div className="flex flex-wrap items-center gap-x-6 gap-y-1 mt-4 text-[13px] text-muted-foreground">
               <span className="tabular-nums">
-                Year ended {periodYear > 2000 ? `30 June ${periodYear}` : "—"}
+                Year ended {formatYearEnd(company?.fiscal_year_end, periodYear)}
               </span>
               {tinMissing ? (
-                <Link
-                  to="/settings"
+                <button
+                  type="button"
+                  onClick={() => setTinDialogOpen(true)}
                   className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-500 hover:underline underline-offset-4"
                 >
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  TIN not set
-                </Link>
+                  TIN not set — add it
+                </button>
               ) : (
-                <span className="font-mono text-[12px]">TIN {company!.tin}</span>
+                <button
+                  type="button"
+                  onClick={() => setTinDialogOpen(true)}
+                  className="font-mono text-[12px] hover:text-foreground transition-colors"
+                  title="Edit TIN"
+                >
+                  TIN {effectiveTin}
+                </button>
               )}
               {lastUpdatedAt && (
                 <span className="tabular-nums">Updated {formatRelative(lastUpdatedAt)}</span>
