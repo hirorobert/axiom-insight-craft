@@ -36,6 +36,7 @@ import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import type { MissionStatus } from "@/lib/workspace/types";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
 
 // Single-dot status vocabulary — one word, one colour, no chips.
 // The eye should never have to decode a badge to know where a stage stands.
@@ -437,6 +438,11 @@ export default function WorkspaceOverview() {
       </section>
 
       {/* ── 3. Workflow ledger — 7 rows, numbered, no cards ─────────────── */}
+      {/* ── 2b. Live trial balance ingestion ledger ─────────────────────── */}
+      {upload && !prepareDone && (
+        <TrialBalanceProgressLedger upload={upload} lastRefreshedAt={lastRefreshedAt} />
+      )}
+
       <section className="mb-14">
         <div className="flex items-baseline justify-between mb-5">
           <p className="text-[10px] font-semibold text-muted-foreground tracking-[0.22em] uppercase">
