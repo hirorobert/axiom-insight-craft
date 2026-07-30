@@ -37,6 +37,7 @@ import type { MissionStatus } from "@/lib/workspace/types";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
+import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
 
 // Single-dot status vocabulary — one word, one colour, no chips.
 // The eye should never have to decode a badge to know where a stage stands.
@@ -92,6 +93,20 @@ function formatRelative(dateStr: string): string {
 function formatFileSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Year-end label derived from the company record — never hardcoded.
+// Accepts "MM-DD", "--MM-DD" or a full date string.
+function formatYearEnd(fiscalYearEnd: string | null | undefined, year: number): string {
+  if (!fiscalYearEnd || year <= 2000) return "—";
+  const m = fiscalYearEnd.match(/(\d{1,2})-(\d{1,2})$/);
+  if (!m) return "—";
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  if (!month || !day) return "—";
+  const d = new Date(Date.UTC(year, month - 1, day));
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 }
 
 // Extract a human-readable reason from a blocked/errored upload
