@@ -79,6 +79,7 @@ export default function OnboardingFlow({
   companyDone,
   statementsDone,
   onSetTin,
+  onVisibilityChange,
 }: {
   companyId: string;
   periodYear: number;
@@ -92,6 +93,8 @@ export default function OnboardingFlow({
   /** Statements prepared (passed or signed). */
   statementsDone: boolean;
   onSetTin: () => void;
+  /** Lets the parent restore its normal directive when the guide hides itself. */
+  onVisibilityChange?: (visible: boolean) => void;
 }) {
   const [persisted, setPersisted] = useState<Persisted>(() => readPersisted(companyId, periodYear));
 
@@ -134,7 +137,14 @@ export default function OnboardingFlow({
     writePersisted(companyId, periodYear, next);
   };
 
-  if (persisted.dismissed || allDone) return null;
+  const visible = !persisted.dismissed && !allDone;
+
+  useEffect(() => {
+    onVisibilityChange?.(visible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  if (!visible) return null;
 
   const completedCount = STEP_ORDER.filter((s) => done[s]).length;
 
