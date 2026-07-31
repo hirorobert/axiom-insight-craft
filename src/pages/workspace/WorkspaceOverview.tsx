@@ -253,7 +253,6 @@ export default function WorkspaceOverview() {
     upload?.status === "needs_review" ||
     upload?.status === "pending" ||
     upload?.status === "queued";
-  const onboardingComplete = prepareDone && !tinMissing && statementsDone;
   const showOnboarding = !!companyId && onboardingVisible;
 
   // ── Directive: the ONE sentence + ONE button on this screen ────────────
