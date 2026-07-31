@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Settings, Plus, Pencil, Trash2, Building2 } from "lucide-react";
 import { useAuditLog } from "@/hooks/useAuditLog";
+import { validateTin } from "@/components/workspace/CompanyTinDialog";
 
 const FRAMEWORK_LABELS: Record<string, string> = {
   ifrs_for_smes: "IFRS for SMEs",
@@ -62,6 +63,7 @@ export const CompanyManager = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
+  const [tinTouched, setTinTouched] = useState(false);
   const { user } = useAuth();
   const { logAction } = useAuditLog();
 
@@ -109,11 +111,18 @@ export const CompanyManager = () => {
       reporting_framework: "ifrs_for_smes",
     });
     setEditingCompany(null);
+    setTinTouched(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+
+    if (formData.tin.trim() && tinError) {
+      setTinTouched(true);
+      toast.error(tinError);
+      return;
+    }
 
     try {
       if (editingCompany) {
@@ -193,6 +202,9 @@ export const CompanyManager = () => {
     });
     setFormDialogOpen(true);
   };
+
+  const tinError = formData.tin.trim() ? validateTin(formData.tin) : null;
+  const showTinError = tinTouched && !!tinError;
 
   const handleDelete = async (company: Company) => {
     if (!confirm(`Are you sure you want to delete "${company.name}"?`)) return;
@@ -350,9 +362,23 @@ export const CompanyManager = () => {
               <Input
                 id="tin"
                 value={formData.tin}
-                onChange={(e) => setFormData({ ...formData, tin: e.target.value })}
+                inputMode="numeric"
+                maxLength={11}
+                aria-invalid={showTinError}
+                className={showTinError ? "border-destructive focus-visible:ring-destructive" : undefined}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, "").slice(0, 9);
+                  const parts = [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6, 9)].filter(Boolean);
+                  setFormData({ ...formData, tin: parts.join("-") });
+                }}
+                onBlur={() => setTinTouched(true)}
                 placeholder="e.g. 100-123-456"
               />
+              {showTinError ? (
+                <p role="alert" className="text-xs text-destructive">{tinError}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">Exactly 9 digits, formatted as 123-456-789.</p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -446,7 +472,7 @@ export const CompanyManager = () => {
               <Button type="button" variant="outline" onClick={() => setFormDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit">
+              <Button type="submit" disabled={showTinError}>
                 {editingCompany ? "Update" : "Create"}
               </Button>
             </div>
