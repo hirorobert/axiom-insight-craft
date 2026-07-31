@@ -254,7 +254,7 @@ export default function WorkspaceOverview() {
     upload?.status === "pending" ||
     upload?.status === "queued";
   const onboardingComplete = prepareDone && !tinMissing && statementsDone;
-  const showOnboarding = !onboardingComplete && !!companyId && onboardingVisible;
+  const showOnboarding = !!companyId && onboardingVisible;
 
   // ── Directive: the ONE sentence + ONE button on this screen ────────────
   // Absorbs first-run coach, next-action, and retry-on-failure into a single
