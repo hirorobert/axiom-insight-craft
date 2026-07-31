@@ -155,6 +155,7 @@ export default function WorkspaceOverview() {
   const [retrying, setRetrying] = useState(false);
   const [tinDialogOpen, setTinDialogOpen] = useState(false);
   const [tinOverride, setTinOverride] = useState<string | null>(null);
+  const [onboardingVisible, setOnboardingVisible] = useState(true);
 
   // Stamp the first time we see an upload so the "updated" line has a value.
   useEffect(() => {
@@ -253,7 +254,7 @@ export default function WorkspaceOverview() {
     upload?.status === "pending" ||
     upload?.status === "queued";
   const onboardingComplete = prepareDone && !tinMissing && statementsDone;
-  const showOnboarding = !onboardingComplete && !!companyId;
+  const showOnboarding = !onboardingComplete && !!companyId && onboardingVisible;
 
   // ── Directive: the ONE sentence + ONE button on this screen ────────────
   // Absorbs first-run coach, next-action, and retry-on-failure into a single
@@ -404,7 +405,7 @@ export default function WorkspaceOverview() {
         </div>
       </header>
 
-      {showOnboarding && (
+      {!onboardingComplete && !!companyId && (
         <OnboardingFlow
           companyId={companyId}
           periodYear={periodYear}
@@ -414,6 +415,7 @@ export default function WorkspaceOverview() {
           companyDone={!tinMissing}
           statementsDone={statementsDone}
           onSetTin={() => setTinDialogOpen(true)}
+          onVisibilityChange={setOnboardingVisible}
         />
       )}
 
