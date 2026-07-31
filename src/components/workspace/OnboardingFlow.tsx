@@ -16,9 +16,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, Upload, Building2, FileText, X } from "lucide-react";
+import { ArrowRight, Check, Upload, Building2, FileText, Eye, X } from "lucide-react";
 
-export type OnboardingStepId = "upload" | "company" | "statements";
+export type OnboardingStepId = "upload" | "company" | "statements" | "review";
 
 type Persisted = {
   /** Step the user was last working on — restored on refresh. */
@@ -27,10 +27,12 @@ type Persisted = {
   dismissed: boolean;
   /** Steps the user has explicitly marked as reached, for resume ordering. */
   reached: OnboardingStepId[];
+  /** True once the user has previewed the mapped statements + compliance notes. */
+  reviewed: boolean;
   updatedAt: string;
 };
 
-const STEP_ORDER: OnboardingStepId[] = ["upload", "company", "statements"];
+const STEP_ORDER: OnboardingStepId[] = ["upload", "company", "statements", "review"];
 
 function storageKey(companyId: string, periodYear: number) {
   return `saff.onboarding.v1.${companyId}.${periodYear}`;
@@ -41,6 +43,7 @@ function readPersisted(companyId: string, periodYear: number): Persisted {
     currentStep: "upload",
     dismissed: false,
     reached: ["upload"],
+    reviewed: false,
     updatedAt: new Date().toISOString(),
   };
   try {
@@ -52,6 +55,7 @@ function readPersisted(companyId: string, periodYear: number): Persisted {
         ? (parsed.currentStep as OnboardingStepId)
         : fallback.currentStep,
       dismissed: parsed.dismissed === true,
+      reviewed: parsed.reviewed === true,
       reached: Array.isArray(parsed.reached)
         ? parsed.reached.filter((s): s is OnboardingStepId => STEP_ORDER.includes(s as OnboardingStepId))
         : fallback.reached,
@@ -104,15 +108,20 @@ export default function OnboardingFlow({
   }, [companyId, periodYear]);
 
   const done: Record<OnboardingStepId, boolean> = useMemo(
-    () => ({ upload: uploadDone, company: companyDone, statements: statementsDone }),
-    [uploadDone, companyDone, statementsDone]
+    () => ({
+      upload: uploadDone,
+      company: companyDone,
+      statements: statementsDone,
+      review: statementsDone && persisted.reviewed,
+    }),
+    [uploadDone, companyDone, statementsDone, persisted.reviewed]
   );
 
   const allDone = STEP_ORDER.every((s) => done[s]);
 
   // The live step: first incomplete step, but never behind where the user
   // already was (so a resumed session lands where they left off).
-  const firstIncomplete = STEP_ORDER.find((s) => !done[s]) ?? "statements";
+  const firstIncomplete = STEP_ORDER.find((s) => !done[s]) ?? "review";
   const rememberedIndex = STEP_ORDER.indexOf(persisted.currentStep);
   const incompleteIndex = STEP_ORDER.indexOf(firstIncomplete);
   const activeStep = STEP_ORDER[Math.max(incompleteIndex, done[persisted.currentStep] ? incompleteIndex : rememberedIndex)];
@@ -137,6 +146,13 @@ export default function OnboardingFlow({
     writePersisted(companyId, periodYear, next);
   };
 
+  const markReviewed = () => {
+    if (persisted.reviewed) return;
+    const next: Persisted = { ...persisted, reviewed: true, updatedAt: new Date().toISOString() };
+    setPersisted(next);
+    writePersisted(companyId, periodYear, next);
+  };
+
   const visible = !persisted.dismissed && !allDone;
 
   useEffect(() => {
@@ -154,6 +170,7 @@ export default function OnboardingFlow({
     detail: string;
     icon: React.ReactNode;
     action: { label: string; href?: string; onClick?: () => void };
+    secondary?: { label: string; href: string; onClick?: () => void };
   }> = [
     {
       id: "upload",
@@ -177,6 +194,15 @@ export default function OnboardingFlow({
       detail: "Statement of financial position, profit or loss, and the disclosure notes.",
       icon: <FileText className="w-4 h-4" />,
       action: { label: "Open Statements", href: `${basePath}/statements` },
+    },
+    {
+      id: "review",
+      title: "Preview the mapped statements and compliance notes",
+      detail:
+        "Check every mapped account, the drafted statements, and the compliance notes before anything is signed or filed.",
+      icon: <Eye className="w-4 h-4" />,
+      action: { label: "Preview statements", href: `${basePath}/statements`, onClick: markReviewed },
+      secondary: { label: "View compliance notes", href: `${basePath}/compliance`, onClick: markReviewed },
     },
   ];
 
@@ -268,14 +294,14 @@ export default function OnboardingFlow({
                   )}
 
                   {isActive && (
-                    <div className="mt-4">
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
                       {step.action.href ? (
                         <Button
                           asChild
                           size="lg"
                           className="h-11 px-5 text-[14px] font-semibold rounded-none shadow-none"
                         >
-                          <Link to={step.action.href}>
+                          <Link to={step.action.href} onClick={step.action.onClick}>
                             <span className="mr-2">{step.action.label}</span>
                             <ArrowRight className="w-4 h-4" />
                           </Link>
@@ -289,6 +315,15 @@ export default function OnboardingFlow({
                           <span className="mr-2">{step.action.label}</span>
                           <ArrowRight className="w-4 h-4" />
                         </Button>
+                      )}
+                      {step.secondary && (
+                        <Link
+                          to={step.secondary.href}
+                          onClick={step.secondary.onClick}
+                          className="text-[13px] font-medium text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors"
+                        >
+                          {step.secondary.label}
+                        </Link>
                       )}
                     </div>
                   )}
