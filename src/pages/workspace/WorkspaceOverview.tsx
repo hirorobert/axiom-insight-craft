@@ -38,6 +38,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
 import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
+import OnboardingFlow from "@/components/workspace/OnboardingFlow";
 
 // Single-dot status vocabulary — one word, one colour, no chips.
 // The eye should never have to decode a badge to know where a stage stands.
@@ -154,6 +155,7 @@ export default function WorkspaceOverview() {
   const [retrying, setRetrying] = useState(false);
   const [tinDialogOpen, setTinDialogOpen] = useState(false);
   const [tinOverride, setTinOverride] = useState<string | null>(null);
+  const [onboardingVisible, setOnboardingVisible] = useState(true);
 
   // Stamp the first time we see an upload so the "updated" line has a value.
   useEffect(() => {
@@ -242,6 +244,17 @@ export default function WorkspaceOverview() {
   const blockedUploadsCount = uploads.filter(
     (u) => u.status === "blocked" || u.status === "error"
   ).length;
+
+  // ── Onboarding: 3 steps, derived from DB, position saved in localStorage ──
+  const statementsStatus = missions.statements.status;
+  const statementsDone = statementsStatus === "passed" || statementsStatus === "signed";
+  const uploadPending =
+    upload?.status === "processing" ||
+    upload?.status === "needs_review" ||
+    upload?.status === "pending" ||
+    upload?.status === "queued";
+  const onboardingComplete = prepareDone && !tinMissing && statementsDone;
+  const showOnboarding = !onboardingComplete && !!companyId && onboardingVisible;
 
   // ── Directive: the ONE sentence + ONE button on this screen ────────────
   // Absorbs first-run coach, next-action, and retry-on-failure into a single
@@ -392,8 +405,22 @@ export default function WorkspaceOverview() {
         </div>
       </header>
 
+      {!onboardingComplete && !!companyId && (
+        <OnboardingFlow
+          companyId={companyId}
+          periodYear={periodYear}
+          basePath={basePath}
+          uploadDone={prepareDone}
+          uploadPending={!!uploadPending}
+          companyDone={!tinMissing}
+          statementsDone={statementsDone}
+          onSetTin={() => setTinDialogOpen(true)}
+          onVisibilityChange={setOnboardingVisible}
+        />
+      )}
+
       {/* ── 2. Directive — the single resting place ─────────────────────── */}
-      <section className="mb-14">
+      <section className={showOnboarding ? "hidden" : "mb-14"}>
         <p className={[
           "text-[10px] font-semibold tracking-[0.22em] uppercase mb-4",
           directive.tone === "warn" ? "text-destructive" :
