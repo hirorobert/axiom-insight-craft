@@ -13,10 +13,31 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-/** A real TRA TIN is 9 digits, conventionally shown as 123-456-789. */
+/** A real TRA TIN is exactly 9 digits, conventionally shown as 123-456-789. */
 export function isTinValid(raw: string): boolean {
-  const digits = raw.replace(/\D/g, "");
-  return digits.length >= 9 && digits.length <= 12;
+  return /^\d{9}$/.test(raw.replace(/\D/g, ""));
+}
+
+/**
+ * Single source of truth for TIN input feedback. Returns null when the value is
+ * acceptable, otherwise a plain-language reason the Save button stays disabled.
+ */
+export function validateTin(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return "Enter the 9-digit TIN issued by the Tanzania Revenue Authority.";
+  if (/[^0-9\s-]/.test(trimmed)) return "Digits, spaces and dashes only — no letters or symbols.";
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 9) return `Too short — ${digits.length} of 9 digits entered.`;
+  if (digits.length > 9) return `Too long — ${digits.length} digits entered, a TRA TIN has exactly 9.`;
+  if (/^0+$/.test(digits)) return "A TIN cannot be all zeros.";
+  return null;
+}
+
+/** Formats to 123-456-789 as the user types, without fighting the caret. */
+function formatTinInput(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 9);
+  const parts = [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6, 9)].filter(Boolean);
+  return parts.join("-");
 }
 
 export default function CompanyTinDialog({
@@ -36,21 +57,27 @@ export default function CompanyTinDialog({
 }) {
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
+  const [touched, setTouched] = useState(false);
 
   useEffect(() => {
-    if (open) setValue(currentTin && /\d/.test(currentTin) ? currentTin : "");
+    if (open) {
+      setValue(currentTin && /\d/.test(currentTin) ? formatTinInput(currentTin) : "");
+      setTouched(false);
+    }
   }, [open, currentTin]);
 
-  const valid = isTinValid(value);
+  const error = validateTin(value);
+  const valid = error === null;
+  const showError = touched && !valid;
 
   const save = async () => {
-    if (!valid || saving) return;
+    if (!valid || saving) {
+      setTouched(true);
+      return;
+    }
     setSaving(true);
     try {
-      const digits = value.replace(/\D/g, "");
-      const formatted = digits.length === 9
-        ? `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`
-        : digits;
+      const formatted = formatTinInput(value);
       const { error } = await supabase
         .from("companies")
         .update({ tin: formatted })
@@ -83,13 +110,24 @@ export default function CompanyTinDialog({
             value={value}
             inputMode="numeric"
             autoFocus
+            maxLength={11}
+            aria-invalid={showError}
+            aria-describedby="workspace-tin-help"
             placeholder="123-456-789"
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") save(); }}
+            className={showError ? "border-destructive focus-visible:ring-destructive" : undefined}
+            onChange={(e) => setValue(formatTinInput(e.target.value))}
+            onBlur={() => setTouched(true)}
+            onKeyDown={(e) => { if (e.key === "Enter") { setTouched(true); save(); } }}
           />
-          <p className="text-[12px] text-muted-foreground">
-            9 digits as issued by the Tanzania Revenue Authority. Dashes optional.
-          </p>
+          {showError ? (
+            <p id="workspace-tin-help" role="alert" className="text-[12px] text-destructive">
+              {error}
+            </p>
+          ) : (
+            <p id="workspace-tin-help" className="text-[12px] text-muted-foreground">
+              Exactly 9 digits, formatted as 123-456-789 while you type.
+            </p>
+          )}
         </div>
 
         <DialogFooter>
