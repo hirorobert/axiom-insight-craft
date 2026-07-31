@@ -202,6 +202,7 @@ export default function OnboardingFlow({
         "Check every mapped account, the drafted statements, and the compliance notes before anything is signed or filed.",
       icon: <Eye className="w-4 h-4" />,
       action: { label: "Preview statements", href: `${basePath}/statements`, onClick: markReviewed },
+      secondary: { label: "View compliance notes", href: `${basePath}/compliance`, onClick: markReviewed },
     },
   ];
 
@@ -293,14 +294,14 @@ export default function OnboardingFlow({
                   )}
 
                   {isActive && (
-                    <div className="mt-4">
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
                       {step.action.href ? (
                         <Button
                           asChild
                           size="lg"
                           className="h-11 px-5 text-[14px] font-semibold rounded-none shadow-none"
                         >
-                          <Link to={step.action.href}>
+                          <Link to={step.action.href} onClick={step.action.onClick}>
                             <span className="mr-2">{step.action.label}</span>
                             <ArrowRight className="w-4 h-4" />
                           </Link>
@@ -314,6 +315,15 @@ export default function OnboardingFlow({
                           <span className="mr-2">{step.action.label}</span>
                           <ArrowRight className="w-4 h-4" />
                         </Button>
+                      )}
+                      {step.secondary && (
+                        <Link
+                          to={step.secondary.href}
+                          onClick={step.secondary.onClick}
+                          className="text-[13px] font-medium text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors"
+                        >
+                          {step.secondary.label}
+                        </Link>
                       )}
                     </div>
                   )}
