@@ -405,7 +405,7 @@ export default function WorkspaceOverview() {
         </div>
       </header>
 
-      {!onboardingComplete && !!companyId && (
+      {!!companyId && onboardingVisible && (
         <OnboardingFlow
           companyId={companyId}
           periodYear={periodYear}
