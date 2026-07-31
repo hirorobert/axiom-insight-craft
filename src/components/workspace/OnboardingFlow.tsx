@@ -16,7 +16,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, Upload, Building2, FileText, X } from "lucide-react";
+import { ArrowRight, Check, Upload, Building2, FileText, Eye, X } from "lucide-react";
 
 export type OnboardingStepId = "upload" | "company" | "statements" | "review";
 
@@ -170,6 +170,7 @@ export default function OnboardingFlow({
     detail: string;
     icon: React.ReactNode;
     action: { label: string; href?: string; onClick?: () => void };
+    secondary?: { label: string; href: string; onClick?: () => void };
   }> = [
     {
       id: "upload",
