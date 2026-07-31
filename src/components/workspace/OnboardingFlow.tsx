@@ -108,15 +108,20 @@ export default function OnboardingFlow({
   }, [companyId, periodYear]);
 
   const done: Record<OnboardingStepId, boolean> = useMemo(
-    () => ({ upload: uploadDone, company: companyDone, statements: statementsDone }),
-    [uploadDone, companyDone, statementsDone]
+    () => ({
+      upload: uploadDone,
+      company: companyDone,
+      statements: statementsDone,
+      review: statementsDone && persisted.reviewed,
+    }),
+    [uploadDone, companyDone, statementsDone, persisted.reviewed]
   );
 
   const allDone = STEP_ORDER.every((s) => done[s]);
 
   // The live step: first incomplete step, but never behind where the user
   // already was (so a resumed session lands where they left off).
-  const firstIncomplete = STEP_ORDER.find((s) => !done[s]) ?? "statements";
+  const firstIncomplete = STEP_ORDER.find((s) => !done[s]) ?? "review";
   const rememberedIndex = STEP_ORDER.indexOf(persisted.currentStep);
   const incompleteIndex = STEP_ORDER.indexOf(firstIncomplete);
   const activeStep = STEP_ORDER[Math.max(incompleteIndex, done[persisted.currentStep] ? incompleteIndex : rememberedIndex)];
@@ -137,6 +142,13 @@ export default function OnboardingFlow({
 
   const dismiss = () => {
     const next: Persisted = { ...persisted, dismissed: true, updatedAt: new Date().toISOString() };
+    setPersisted(next);
+    writePersisted(companyId, periodYear, next);
+  };
+
+  const markReviewed = () => {
+    if (persisted.reviewed) return;
+    const next: Persisted = { ...persisted, reviewed: true, updatedAt: new Date().toISOString() };
     setPersisted(next);
     writePersisted(companyId, periodYear, next);
   };
@@ -181,6 +193,14 @@ export default function OnboardingFlow({
       detail: "Statement of financial position, profit or loss, and the disclosure notes.",
       icon: <FileText className="w-4 h-4" />,
       action: { label: "Open Statements", href: `${basePath}/statements` },
+    },
+    {
+      id: "review",
+      title: "Preview the mapped statements and compliance notes",
+      detail:
+        "Check every mapped account, the drafted statements, and the compliance notes before anything is signed or filed.",
+      icon: <Eye className="w-4 h-4" />,
+      action: { label: "Preview statements", href: `${basePath}/statements`, onClick: markReviewed },
     },
   ];
 
