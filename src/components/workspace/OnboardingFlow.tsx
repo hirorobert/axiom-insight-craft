@@ -18,7 +18,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Check, Upload, Building2, FileText, X } from "lucide-react";
 
-export type OnboardingStepId = "upload" | "company" | "statements";
+export type OnboardingStepId = "upload" | "company" | "statements" | "review";
 
 type Persisted = {
   /** Step the user was last working on — restored on refresh. */
@@ -27,10 +27,12 @@ type Persisted = {
   dismissed: boolean;
   /** Steps the user has explicitly marked as reached, for resume ordering. */
   reached: OnboardingStepId[];
+  /** True once the user has previewed the mapped statements + compliance notes. */
+  reviewed: boolean;
   updatedAt: string;
 };
 
-const STEP_ORDER: OnboardingStepId[] = ["upload", "company", "statements"];
+const STEP_ORDER: OnboardingStepId[] = ["upload", "company", "statements", "review"];
 
 function storageKey(companyId: string, periodYear: number) {
   return `saff.onboarding.v1.${companyId}.${periodYear}`;
@@ -41,6 +43,7 @@ function readPersisted(companyId: string, periodYear: number): Persisted {
     currentStep: "upload",
     dismissed: false,
     reached: ["upload"],
+    reviewed: false,
     updatedAt: new Date().toISOString(),
   };
   try {
@@ -52,6 +55,7 @@ function readPersisted(companyId: string, periodYear: number): Persisted {
         ? (parsed.currentStep as OnboardingStepId)
         : fallback.currentStep,
       dismissed: parsed.dismissed === true,
+      reviewed: parsed.reviewed === true,
       reached: Array.isArray(parsed.reached)
         ? parsed.reached.filter((s): s is OnboardingStepId => STEP_ORDER.includes(s as OnboardingStepId))
         : fallback.reached,
