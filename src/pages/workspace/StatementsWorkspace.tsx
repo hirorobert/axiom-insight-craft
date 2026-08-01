@@ -12,6 +12,7 @@ import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { HesabuAssurancePanel } from "@/components/HesabuAssurancePanel";
 import { PeriodClosingBalancesPanel } from "@/components/PeriodClosingBalancesPanel";
 import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
+import { MappingSourcePreview } from "@/components/workspace/MappingSourcePreview";
 
 export default function StatementsWorkspace() {
   const { upload, workspaceState } = useWorkspace();
@@ -33,6 +34,10 @@ export default function StatementsWorkspace() {
     <div className="space-y-6 max-w-5xl">
       {upload?.company_id && (
         <>
+          <MappingSourcePreview
+            processingResult={upload.processing_result}
+            fileName={upload.file_name}
+          />
           <HesabuAssurancePanel uploadId={upload.id} companyId={upload.company_id} />
           <PeriodClosingBalancesPanel
             companyId={upload.company_id}
