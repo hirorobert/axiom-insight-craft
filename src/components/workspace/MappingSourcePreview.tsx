@@ -8,7 +8,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { ArrowLeftRight } from "lucide-react";
+import { ArrowLeftRight, Search, X } from "lucide-react";
 import { fmtNum } from "@/components/certification/types";
 
 interface SourceRow {
@@ -39,6 +39,13 @@ const STATEMENT_LABELS: Record<string, string> = {
   cash_flow: "Cash Flow",
 };
 
+const STATEMENT_OPTIONS = [
+  { key: "all", label: "All statements" },
+  { key: "balance_sheet", label: "Balance Sheet" },
+  { key: "income_statement", label: "Income Statement" },
+  { key: "cash_flow", label: "Cash Flow" },
+] as const;
+
 const humanize = (key: string) =>
   key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -46,6 +53,10 @@ interface Props {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   processingResult: any;
   fileName?: string | null;
+}
+
+function normalizeSearch(value: string) {
+  return value.trim().toLowerCase();
 }
 
 export function MappingSourcePreview({ processingResult, fileName }: Props) {
@@ -71,30 +82,130 @@ export function MappingSourcePreview({ processingResult, fileName }: Props) {
   }, [processingResult]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
-  const active = lines.find((l) => l.id === activeId) ?? lines[0] ?? null;
+  const [query, setQuery] = useState("");
+  const [statementFilter, setStatementFilter] = useState<string>("all");
+
+  const normalizedQuery = normalizeSearch(query);
+
+  const filteredLines = useMemo(() => {
+    return lines.filter((line) => {
+      const matchesStatement =
+        statementFilter === "all" || line.id.startsWith(`${statementFilter}.`);
+      if (!matchesStatement) return false;
+      if (!normalizedQuery) return true;
+
+      const haystack = [
+        line.classification,
+        line.statement,
+        line.accounts
+          .map((a) => [a.account_code, a.account_name, a.name].filter(Boolean).join(" "))
+          .join(" "),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(normalizedQuery);
+    });
+  }, [lines, normalizedQuery, statementFilter]);
+
+  const active = filteredLines.find((l) => l.id === activeId) ?? filteredLines[0] ?? null;
+
+  const filteredActiveAccounts = useMemo(() => {
+    if (!active) return [];
+    if (!normalizedQuery) return active.accounts;
+    return active.accounts.filter((row) => {
+      const haystack = [
+        row.account_code,
+        row.account_name,
+        row.name,
+        active.classification,
+        active.statement,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalizedQuery);
+    });
+  }, [active, normalizedQuery]);
 
   if (lines.length === 0) return null;
 
   return (
     <section className="border border-border bg-card">
-      <header className="flex items-center gap-2 border-b border-border px-6 py-3">
-        <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-foreground">
-          Mapped statements vs source trial balance
-        </h2>
-        {fileName && (
-          <span className="ml-auto truncate text-xs text-muted-foreground">{fileName}</span>
-        )}
+      <header className="flex flex-col gap-3 border-b border-border px-6 py-3 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-2">
+          <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-foreground">
+            Mapped statements vs source trial balance
+          </h2>
+        </div>
+
+        <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search code, account, or statement"
+              className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-7 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary sm:w-64"
+              aria-label="Search mappings and source rows"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-1">
+            {STATEMENT_OPTIONS.map((opt) => {
+              const activeFilter = statementFilter === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setStatementFilter(opt.key)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    activeFilter
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                  }`}
+                  aria-pressed={activeFilter}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {fileName && (
+            <span className="hidden truncate text-xs text-muted-foreground sm:block sm:max-w-[12rem]">
+              {fileName}
+            </span>
+          )}
+        </div>
       </header>
 
       <div className="grid grid-cols-1 divide-y divide-border md:grid-cols-2 md:divide-x md:divide-y-0">
         {/* Left — mapped statement lines */}
         <div>
-          <div className="border-b border-border px-6 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
-            Mapped statement lines
+          <div className="flex items-center justify-between border-b border-border px-6 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+            <span>Mapped statement lines</span>
+            <span className="tabular-nums">{filteredLines.length}</span>
           </div>
           <ul className="max-h-[26rem] overflow-y-auto">
-            {lines.map((line) => {
+            {filteredLines.length === 0 && (
+              <li className="px-6 py-8 text-center text-sm text-muted-foreground">
+                No mappings match your filters.
+              </li>
+            )}
+            {filteredLines.map((line) => {
               const isActive = active?.id === line.id;
               return (
                 <li key={line.id}>
@@ -127,8 +238,9 @@ export function MappingSourcePreview({ processingResult, fileName }: Props) {
 
         {/* Right — source trial balance rows for the selected mapping */}
         <div>
-          <div className="border-b border-border px-6 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
-            Source rows — {active?.classification}
+          <div className="flex items-center justify-between border-b border-border px-6 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+            <span>Source rows — {active?.classification ?? "—"}</span>
+            <span className="tabular-nums">{filteredActiveAccounts.length}</span>
           </div>
           <div className="max-h-[26rem] overflow-auto">
             <table className="w-full text-sm">
@@ -142,8 +254,31 @@ export function MappingSourcePreview({ processingResult, fileName }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {(active?.accounts ?? []).map((row, i) => (
-                  <tr key={`${row.account_code ?? ""}-${i}`} className="border-b border-border last:border-0">
+                {filteredActiveAccounts.length === 0 && active && (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-6 py-8 text-center text-sm text-muted-foreground"
+                    >
+                      No source rows match your search.
+                    </td>
+                  </tr>
+                )}
+                {!active && (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-6 py-8 text-center text-sm text-muted-foreground"
+                    >
+                      Select a mapped statement line to view its source rows.
+                    </td>
+                  </tr>
+                )}
+                {filteredActiveAccounts.map((row, i) => (
+                  <tr
+                    key={`${row.account_code ?? ""}-${i}`}
+                    className="border-b border-border last:border-0"
+                  >
                     <td className="px-6 py-2.5 tabular-nums text-muted-foreground">
                       {row.account_code || "—"}
                     </td>
@@ -162,14 +297,20 @@ export function MappingSourcePreview({ processingResult, fileName }: Props) {
                   </tr>
                 ))}
               </tbody>
-              {active && (
+              {active && filteredActiveAccounts.length > 0 && (
                 <tfoot>
                   <tr className="border-t border-border">
-                    <td className="px-6 py-2.5 text-xs uppercase tracking-wider text-muted-foreground" colSpan={4}>
+                    <td
+                      className="px-6 py-2.5 text-xs uppercase tracking-wider text-muted-foreground"
+                      colSpan={4}
+                    >
                       Mapped total
                     </td>
                     <td className="px-6 py-2.5 text-right text-sm font-semibold tabular-nums text-foreground">
-                      {fmtNum(active.total, 2)}
+                      {fmtNum(
+                        filteredActiveAccounts.reduce((sum, r) => sum + (r.balance ?? 0), 0),
+                        2
+                      )}
                     </td>
                   </tr>
                 </tfoot>
