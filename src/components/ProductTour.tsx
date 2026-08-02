@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { Fragment, useEffect, useRef, useState, useCallback } from "react";
 import { Pause, Play, RotateCcw, SkipForward } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────
@@ -40,11 +40,11 @@ const UploadFrame: React.FC = () => (
         ["Sales revenue",             "", "9,396,638,868"],
         ["Cost of goods sold",        "5,812,440,220", ""],
       ].map(([a, d, c]) => (
-        <React.Fragment key={a}>
+        <Fragment key={a}>
           <span className="truncate">{a}</span>
           <span className="text-right tabular-nums">{d}</span>
           <span className="text-right tabular-nums">{c}</span>
-        </React.Fragment>
+        </Fragment>
       ))}
     </div>
     <div className="mt-3 pt-2 border-t border-border grid grid-cols-[1fr_90px_90px] gap-x-4 font-semibold">
