@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { SaffLogo } from "@/components/SaffLogo";
 import { Button } from "@/components/ui/button";
-import { Menu, X, LogOut, Settings, LayoutDashboard, RotateCcw } from "lucide-react";
+import { Menu, X, LogOut, Settings, LayoutDashboard } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { NotificationBell } from "@/components/NotificationBell";
+import { NAV } from "@/constants/copy";
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -26,12 +27,6 @@ export function Header() {
     await signOut();
     toast.success("Signed out successfully");
     navigate("/");
-  };
-
-  const handleResetTour = () => {
-    window.dispatchEvent(new CustomEvent("saff-reset-product-tour"));
-    const tour = document.getElementById("tour");
-    if (tour) tour.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const getUserInitials = () => {
@@ -50,9 +45,15 @@ export function Header() {
 
         {/* Desktop Nav */}
         <nav className="hidden md:flex items-center gap-8">
-          <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Platform</a>
-          <a href="#security" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Security</a>
-          <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Pricing</a>
+          {isLanding && NAV.map((item) => (
+            <a
+              key={item.href}
+              href={item.href}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {item.label}
+            </a>
+          ))}
           {user && (
             <Link to="/dashboard" className="text-sm font-medium text-primary hover:text-primary/80 transition-colors flex items-center gap-1.5">
               <LayoutDashboard className="w-4 h-4" />
@@ -63,12 +64,6 @@ export function Header() {
 
         {/* Right actions */}
         <div className="hidden md:flex items-center gap-3">
-          {isLanding && (
-            <Button variant="ghost" size="sm" onClick={handleResetTour} className="gap-1.5">
-              <RotateCcw className="w-4 h-4" />
-              Reset tour
-            </Button>
-          )}
           {user ? (
             <>
               <NotificationBell userId={user?.id} />
@@ -126,18 +121,16 @@ export function Header() {
       {/* Mobile Menu */}
       {mobileOpen && (
         <div className="md:hidden bg-card border-t border-border px-6 py-4 space-y-4">
-          <a href="#features" className="block text-sm text-muted-foreground hover:text-foreground">
-            Features
-          </a>
-          {isLanding && (
-            <button
-              onClick={() => { handleResetTour(); setMobileOpen(false); }}
-              className="flex items-center gap-2 text-sm font-medium text-primary"
+          {isLanding && NAV.map((item) => (
+            <a
+              key={item.href}
+              href={item.href}
+              onClick={() => setMobileOpen(false)}
+              className="block text-sm text-muted-foreground hover:text-foreground"
             >
-              <RotateCcw className="w-4 h-4" />
-              Reset tour
-            </button>
-          )}
+              {item.label}
+            </a>
+          ))}
           {user && (
             <Link to="/dashboard" className="flex items-center gap-2 text-sm font-medium text-primary">
               <LayoutDashboard className="w-4 h-4" />

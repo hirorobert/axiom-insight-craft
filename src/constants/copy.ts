@@ -26,6 +26,29 @@ export const HERO = {
     "IFRS financial statements and a Tanzania corporate tax computation from a single verified trial balance.",
 } as const;
 
+// Above-the-fold proof ledger. Three columns, one truth: what goes in,
+// what is enforced, what comes out. No metrics, no claims that are not built.
+export const HERO_LEDGER = [
+  {
+    key:    "Input",
+    value:  "One trial balance",
+    detail: "CSV or XLSX. Balance-checked and duplicate-screened on ingest.",
+  },
+  {
+    key:    "Enforcement",
+    value:  "Seven reviewed stages",
+    detail: "Each stage is gated. Nothing advances on unverified data.",
+  },
+  {
+    key:    "Output",
+    value:  "Statements and tax",
+    detail: "IAS 1 / IAS 7 statements and an ITA Cap.332 computation.",
+  },
+] as const;
+
+export const HERO_FOOTING =
+  "Prepared under IFRS as adopted in Tanzania (NBAA Act Cap.286) and the Income Tax Act Cap.332 as amended by Finance Act 2026.";
+
 // Accounting lifecycle shown in hero — 7 stages, no engine names, no dead links.
 export const PIPELINE = [
   "Upload Data",
