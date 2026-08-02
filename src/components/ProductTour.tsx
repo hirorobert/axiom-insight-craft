@@ -290,7 +290,7 @@ export function ProductTour() {
     >
       <div className="max-w-7xl mx-auto">
 
-        <div className="flex items-end justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
           <div>
             <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted-foreground/55 mb-3">
               Product Tour · 60 seconds
@@ -299,7 +299,7 @@ export function ProductTour() {
               Trial balance to filing package, end to end.
             </h2>
           </div>
-          <div className="hidden sm:flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setPlaying((p) => !p)}
               aria-label={playing ? "Pause tour" : "Play tour"}
@@ -325,8 +325,8 @@ export function ProductTour() {
           </div>
         </div>
 
-        {/* Stage rail */}
-        <div className="grid grid-cols-5 gap-0 border-t border-border">
+        {/* Stage rail — scrolls horizontally on narrow viewports */}
+        <div className="flex sm:grid sm:grid-cols-5 gap-0 border-t border-border overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {STAGES.map((s, i) => {
             const isActive = i === active;
             const isDone   = i < active;
@@ -336,7 +336,7 @@ export function ProductTour() {
                 key={s.id}
                 onClick={() => jump(i)}
                 aria-current={isActive ? "step" : undefined}
-                className={`relative text-left px-4 py-4 border-r border-border last:border-r-0 transition-colors ${
+                className={`relative text-left px-4 py-4 border-r border-border last:border-r-0 transition-colors min-w-[9.5rem] sm:min-w-0 shrink-0 sm:shrink ${
                   isActive ? "bg-muted/40" : "hover:bg-muted/20"
                 }`}
               >
@@ -360,7 +360,7 @@ export function ProductTour() {
 
         {/* Stage viewport */}
         <div className="grid grid-cols-1 lg:grid-cols-5 border-l border-r border-b border-border">
-          <div className="lg:col-span-2 p-8 border-b lg:border-b-0 lg:border-r border-border">
+          <div className="lg:col-span-2 p-6 sm:p-8 border-b lg:border-b-0 lg:border-r border-border">
             <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-primary/70 mb-3">
               {stage.label}
             </p>
@@ -371,7 +371,7 @@ export function ProductTour() {
               {stage.detail}
             </p>
           </div>
-          <div className="lg:col-span-3 h-[360px] overflow-hidden">
+          <div className="lg:col-span-3 h-[300px] sm:h-[360px] overflow-hidden">
             <div key={stage.id} className="w-full h-full animate-fade-in">
               <Frame />
             </div>
