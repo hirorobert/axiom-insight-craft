@@ -16,10 +16,9 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { CompanyManager } from "@/components/CompanyManager";
+import FirstRunEngagement from "@/components/workspace/FirstRunEngagement";
 import { SaffLogo } from "@/components/SaffLogo";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2 } from "lucide-react";
 
 interface Company {
   id: string;
@@ -134,38 +133,21 @@ export default function Dashboard() {
     );
   }
 
-  // ── Onboarding: no companies yet ──────────────────────────────────────────
+  // ── First run: no companies yet ────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border h-14 flex items-center px-6">
         <SaffLogo variant="header" className="h-7 w-auto" />
       </header>
 
-      <main className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-6">
-        <div className="w-full max-w-sm space-y-6 text-center">
-          <div className="mx-auto w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
-            <Building2 className="w-5 h-5 text-muted-foreground" />
-          </div>
-
-          <div>
-            <h1 className="text-lg font-semibold text-foreground">
-              No engagements yet
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
-              Add your first client company to begin preparing financial
-              statements and tax computations.
-            </p>
-          </div>
-
-          {/* CompanyManager opens a dialog to create the first company.
-              After creation, reload the page — the gateway will then
-              find the new company and route to its workspace. */}
-          <CompanyManager />
-
-          <p className="text-xs text-muted-foreground">
-            After adding a company, reload the page to open the workspace.
-          </p>
-        </div>
+      <main className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-5 py-10">
+        {/* One inline form. On success we route straight into the workspace —
+            no nested dialogs, no "reload the page" dead end. */}
+        <FirstRunEngagement
+          onCreated={(companyId, year) =>
+            navigate(`/workspace/${companyId}/${year}`, { replace: true })
+          }
+        />
       </main>
     </div>
   );
