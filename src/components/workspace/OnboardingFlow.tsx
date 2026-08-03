@@ -163,6 +163,14 @@ export default function OnboardingFlow({
   if (!visible) return null;
 
   const completedCount = STEP_ORDER.filter((s) => done[s]).length;
+  const activeIndex = STEP_ORDER.indexOf(activeStep);
+
+  const STEP_TITLES: Record<OnboardingStepId, string> = {
+    upload: "Trial balance",
+    company: "TIN & company",
+    statements: "Statements",
+    review: "Review",
+  };
 
   const steps: Array<{
     id: OnboardingStepId;
@@ -211,10 +219,10 @@ export default function OnboardingFlow({
       <header className="flex items-start justify-between gap-6 px-5 py-4 border-b border-border">
         <div>
           <p className="text-[10px] font-semibold text-primary tracking-[0.22em] uppercase">
-            Getting started
+            Getting started · Step {activeIndex + 1} of {STEP_ORDER.length}
           </p>
           <p className="mt-2 text-[15px] font-medium text-foreground tracking-tight">
-            Three steps from trial balance to statements.
+            {STEP_TITLES[activeStep]} — {completedCount === STEP_ORDER.length ? "all steps complete" : "in progress"}
           </p>
         </div>
         <div className="flex items-center gap-4 shrink-0">
@@ -233,18 +241,60 @@ export default function OnboardingFlow({
         </div>
       </header>
 
-      {/* Progress rail */}
-      <div className="flex h-0.5">
-        {STEP_ORDER.map((s) => (
-          <div
-            key={s}
-            className={[
-              "flex-1",
-              done[s] ? "bg-success" : s === activeStep ? "bg-primary" : "bg-border",
-            ].join(" ")}
-          />
-        ))}
-      </div>
+      {/* Progress indicator — labelled segments with explicit completion state */}
+      <ol className="grid grid-cols-4 border-b border-border" aria-label="Onboarding progress">
+        {STEP_ORDER.map((s, i) => {
+          const isDone = done[s];
+          const isActive = !isDone && s === activeStep;
+          return (
+            <li
+              key={s}
+              aria-current={isActive ? "step" : undefined}
+              className={[
+                "px-3 pt-3 pb-2.5 border-r border-border last:border-r-0",
+                isActive ? "bg-primary/[0.04]" : "",
+              ].join(" ")}
+            >
+              <div className="flex items-center gap-1.5">
+                {isDone ? (
+                  <Check className="w-3 h-3 text-success shrink-0" />
+                ) : (
+                  <span
+                    className={[
+                      "text-[10px] font-mono tabular-nums shrink-0",
+                      isActive ? "text-primary font-semibold" : "text-muted-foreground/50",
+                    ].join(" ")}
+                  >
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                )}
+                <span
+                  className={[
+                    "text-[11px] truncate tracking-tight",
+                    isDone ? "text-success" : isActive ? "text-primary font-medium" : "text-muted-foreground/60",
+                  ].join(" ")}
+                >
+                  {STEP_TITLES[s]}
+                </span>
+              </div>
+              <div
+                className={[
+                  "mt-2 h-0.5",
+                  isDone ? "bg-success" : isActive ? "bg-primary" : "bg-border",
+                ].join(" ")}
+              />
+              <p
+                className={[
+                  "mt-1.5 text-[10px] uppercase tracking-[0.14em] font-semibold",
+                  isDone ? "text-success" : isActive ? "text-primary" : "text-muted-foreground/40",
+                ].join(" ")}
+              >
+                {isDone ? "Done" : isActive ? "Current" : "Pending"}
+              </p>
+            </li>
+          );
+        })}
+      </ol>
 
       <ol>
         {steps.map((step, i) => {
