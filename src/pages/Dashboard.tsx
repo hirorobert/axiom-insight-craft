@@ -16,10 +16,9 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { CompanyManager } from "@/components/CompanyManager";
+import FirstRunEngagement from "@/components/workspace/FirstRunEngagement";
 import { SaffLogo } from "@/components/SaffLogo";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2 } from "lucide-react";
 
 interface Company {
   id: string;
