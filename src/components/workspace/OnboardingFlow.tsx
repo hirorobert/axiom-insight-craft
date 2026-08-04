@@ -467,16 +467,20 @@ export default function OnboardingFlow({
               Saving
             </span>
           )}
-          {sync === "error" && (
-            <span className="flex items-center gap-1.5 text-[11px] text-destructive whitespace-nowrap" aria-live="polite">
+          {sync === "pending" && (
+            <span
+              className="flex items-center gap-1.5 text-[11px] text-muted-foreground whitespace-nowrap"
+              aria-live="polite"
+              title="Your progress is saved on this device and will sync automatically when you are back online."
+            >
               <CloudOff className="w-3 h-3" />
-              Not saved
+              Saved offline
               <button
                 type="button"
-                onClick={retry}
-                className="underline underline-offset-2 font-medium hover:opacity-80"
+                onClick={() => void flush()}
+                className="underline underline-offset-2 font-medium hover:text-foreground transition-colors"
               >
-                Retry
+                Sync now
               </button>
             </span>
           )}
