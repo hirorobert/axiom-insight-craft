@@ -373,6 +373,28 @@ export default function OnboardingFlow({
           <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
             {completedCount} of {STEP_ORDER.length} done
           </span>
+          {sync === "saving" && (
+            <span
+              className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 whitespace-nowrap"
+              aria-live="polite"
+            >
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Saving
+            </span>
+          )}
+          {sync === "error" && (
+            <span className="flex items-center gap-1.5 text-[11px] text-destructive whitespace-nowrap" aria-live="polite">
+              <CloudOff className="w-3 h-3" />
+              Not saved
+              <button
+                type="button"
+                onClick={retry}
+                className="underline underline-offset-2 font-medium hover:opacity-80"
+              >
+                Retry
+              </button>
+            </span>
+          )}
           <button
             type="button"
             onClick={dismiss}
