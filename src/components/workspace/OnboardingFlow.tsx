@@ -76,6 +76,53 @@ function writePersisted(companyId: string, periodYear: number, value: Persisted)
   }
 }
 
+/* ── Offline outbox ───────────────────────────────────────────────────────────
+ * A step change made without connectivity is never lost and never rolled back:
+ * the local record stays authoritative and the exact state that still owes a
+ * backend write is parked here. It survives a refresh, and the flusher drains
+ * it the moment the browser reports connectivity again.
+ */
+
+function pendingKey(companyId: string, periodYear: number) {
+  return `${storageKey(companyId, periodYear)}.pending`;
+}
+
+function readPending(companyId: string, periodYear: number): Persisted | null {
+  try {
+    const raw = localStorage.getItem(pendingKey(companyId, periodYear));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<Persisted>;
+    if (!STEP_ORDER.includes(parsed.currentStep as OnboardingStepId)) return null;
+    return {
+      currentStep: parsed.currentStep as OnboardingStepId,
+      dismissed: parsed.dismissed === true,
+      reviewed: parsed.reviewed === true,
+      reached: Array.isArray(parsed.reached)
+        ? parsed.reached.filter((s): s is OnboardingStepId => STEP_ORDER.includes(s as OnboardingStepId))
+        : [],
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writePending(companyId: string, periodYear: number, value: Persisted) {
+  try {
+    localStorage.setItem(pendingKey(companyId, periodYear), JSON.stringify(value));
+  } catch {
+    /* storage unavailable — the write simply cannot be deferred */
+  }
+}
+
+function clearPending(companyId: string, periodYear: number) {
+  try {
+    localStorage.removeItem(pendingKey(companyId, periodYear));
+  } catch {
+    /* nothing to do */
+  }
+}
+
 /**
  * Backend copy of the same state, so the indicator survives a new device or a
  * cleared browser. localStorage stays as the instant-read cache; the row in
