@@ -17,6 +17,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Check, Upload, Building2, FileText, Eye, X } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 export type OnboardingStepId = "upload" | "company" | "statements" | "review";
 
@@ -74,6 +76,42 @@ function writePersisted(companyId: string, periodYear: number, value: Persisted)
   }
 }
 
+/**
+ * Backend copy of the same state, so the indicator survives a new device or a
+ * cleared browser. localStorage stays as the instant-read cache; the row in
+ * `onboarding_progress` is the durable truth and wins on conflict.
+ */
+async function fetchRemote(userId: string, companyId: string, periodYear: number) {
+  const { data, error } = await supabase
+    .from("onboarding_progress")
+    .select("current_step, dismissed, reviewed, updated_at")
+    .eq("user_id", userId)
+    .eq("company_id", companyId)
+    .eq("period_year", periodYear)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data;
+}
+
+async function saveRemote(
+  userId: string,
+  companyId: string,
+  periodYear: number,
+  value: Persisted
+) {
+  await supabase.from("onboarding_progress").upsert(
+    {
+      user_id: userId,
+      company_id: companyId,
+      period_year: periodYear,
+      current_step: value.currentStep,
+      dismissed: value.dismissed,
+      reviewed: value.reviewed,
+    },
+    { onConflict: "user_id,company_id,period_year" }
+  );
+}
+
 export default function OnboardingFlow({
   companyId,
   periodYear,
@@ -100,12 +138,53 @@ export default function OnboardingFlow({
   /** Lets the parent restore its normal directive when the guide hides itself. */
   onVisibilityChange?: (visible: boolean) => void;
 }) {
+  const { user } = useAuth();
   const [persisted, setPersisted] = useState<Persisted>(() => readPersisted(companyId, periodYear));
+  /** Blocks writes until the durable row has been read, so we never clobber it. */
+  const [hydrated, setHydrated] = useState(false);
 
   // Re-read when the engagement changes — progress is per company + year.
   useEffect(() => {
     setPersisted(readPersisted(companyId, periodYear));
+    setHydrated(false);
   }, [companyId, periodYear]);
+
+  // Hydrate from the backend — durable across refreshes and devices.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    (async () => {
+      const remote = await fetchRemote(user.id, companyId, periodYear);
+      if (cancelled) return;
+      if (remote) {
+        const next: Persisted = {
+          currentStep: STEP_ORDER.includes(remote.current_step as OnboardingStepId)
+            ? (remote.current_step as OnboardingStepId)
+            : "upload",
+          dismissed: remote.dismissed === true,
+          reviewed: remote.reviewed === true,
+          reached: [],
+          updatedAt: remote.updated_at ?? new Date().toISOString(),
+        };
+        next.reached = Array.from(
+          new Set([...STEP_ORDER.slice(0, STEP_ORDER.indexOf(next.currentStep) + 1)])
+        );
+        setPersisted(next);
+        writePersisted(companyId, periodYear, next);
+      }
+      setHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, companyId, periodYear]);
+
+  /** Single write path: local cache + durable row. */
+  const commit = (next: Persisted) => {
+    setPersisted(next);
+    writePersisted(companyId, periodYear, next);
+    if (user && hydrated) void saveRemote(user.id, companyId, periodYear, next);
+  };
 
   const done: Record<OnboardingStepId, boolean> = useMemo(
     () => ({
@@ -128,6 +207,7 @@ export default function OnboardingFlow({
 
   // Persist the resolved position so a refresh restores it.
   useEffect(() => {
+    if (!hydrated) return;
     if (persisted.currentStep === activeStep && persisted.reached.includes(activeStep)) return;
     const next: Persisted = {
       ...persisted,
@@ -135,22 +215,19 @@ export default function OnboardingFlow({
       reached: Array.from(new Set([...persisted.reached, activeStep])),
       updatedAt: new Date().toISOString(),
     };
-    setPersisted(next);
-    writePersisted(companyId, periodYear, next);
+    commit(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeStep, companyId, periodYear]);
+  }, [activeStep, companyId, periodYear, hydrated]);
 
   const dismiss = () => {
     const next: Persisted = { ...persisted, dismissed: true, updatedAt: new Date().toISOString() };
-    setPersisted(next);
-    writePersisted(companyId, periodYear, next);
+    commit(next);
   };
 
   const markReviewed = () => {
     if (persisted.reviewed) return;
     const next: Persisted = { ...persisted, reviewed: true, updatedAt: new Date().toISOString() };
-    setPersisted(next);
-    writePersisted(companyId, periodYear, next);
+    commit(next);
   };
 
   const visible = !persisted.dismissed && !allDone;

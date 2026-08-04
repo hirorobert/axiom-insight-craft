@@ -1748,6 +1748,50 @@ export type Database = {
         }
         Relationships: []
       }
+      onboarding_progress: {
+        Row: {
+          company_id: string
+          created_at: string
+          current_step: string
+          dismissed: boolean
+          id: string
+          period_year: number
+          reviewed: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          current_step?: string
+          dismissed?: boolean
+          id?: string
+          period_year: number
+          reviewed?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          current_step?: string
+          dismissed?: boolean
+          id?: string
+          period_year?: number
+          reviewed?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "onboarding_progress_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       period_closing_balances: {
         Row: {
           accounting_pbt_tzs: number | null
