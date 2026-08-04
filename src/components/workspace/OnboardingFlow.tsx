@@ -13,10 +13,10 @@
  * Design law: exactly ONE primary button on screen. The current step owns it.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, Upload, Building2, FileText, Eye, X } from "lucide-react";
+import { ArrowRight, Check, Upload, Building2, FileText, Eye, X, Loader2, CloudOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -98,8 +98,8 @@ async function saveRemote(
   companyId: string,
   periodYear: number,
   value: Persisted
-) {
-  await supabase.from("onboarding_progress").upsert(
+): Promise<{ error: unknown }> {
+  const { error } = await supabase.from("onboarding_progress").upsert(
     {
       user_id: userId,
       company_id: companyId,
@@ -110,6 +110,7 @@ async function saveRemote(
     },
     { onConflict: "user_id,company_id,period_year" }
   );
+  return { error };
 }
 
 export default function OnboardingFlow({
@@ -140,13 +141,24 @@ export default function OnboardingFlow({
 }) {
   const { user } = useAuth();
   const [persisted, setPersisted] = useState<Persisted>(() => readPersisted(companyId, periodYear));
-  /** Blocks writes until the durable row has been read, so we never clobber it. */
+  /** True once the durable row has been read, so a save cannot clobber it. */
   const [hydrated, setHydrated] = useState(false);
+  /** Optimistic write status — the UI never waits on this. */
+  const [sync, setSync] = useState<"idle" | "saving" | "error">("idle");
+  /** Monotonic write counter: only the newest save may alter UI state. */
+  const seqRef = useRef(0);
+  /** State the user asked for, kept so a failed save can be retried verbatim. */
+  const failedRef = useRef<Persisted | null>(null);
+  /** Writes made before hydration finished, flushed once it does. */
+  const queuedRef = useRef<Persisted | null>(null);
 
   // Re-read when the engagement changes — progress is per company + year.
   useEffect(() => {
     setPersisted(readPersisted(companyId, periodYear));
     setHydrated(false);
+    setSync("idle");
+    failedRef.current = null;
+    queuedRef.current = null;
   }, [companyId, periodYear]);
 
   // Hydrate from the backend — durable across refreshes and devices.
@@ -179,12 +191,68 @@ export default function OnboardingFlow({
     };
   }, [user, companyId, periodYear]);
 
-  /** Single write path: local cache + durable row. */
-  const commit = (next: Persisted) => {
-    setPersisted(next);
-    writePersisted(companyId, periodYear, next);
-    if (user && hydrated) void saveRemote(user.id, companyId, periodYear, next);
-  };
+  /**
+   * Fire the durable write in the background. The optimistic state is already
+   * on screen; if the write loses, we roll back to `rollbackTo` and offer retry.
+   * Stale responses are discarded so a slow earlier save cannot undo a newer one.
+   */
+  const push = useCallback(
+    async (next: Persisted, rollbackTo: Persisted) => {
+      if (!user) return;
+      const seq = ++seqRef.current;
+      setSync("saving");
+      const { error } = await saveRemote(user.id, companyId, periodYear, next);
+      if (seq !== seqRef.current) return; // superseded by a newer write
+      if (error) {
+        failedRef.current = next;
+        setPersisted(rollbackTo);
+        writePersisted(companyId, periodYear, rollbackTo);
+        setSync("error");
+        return;
+      }
+      failedRef.current = null;
+      setSync("idle");
+    },
+    [user, companyId, periodYear]
+  );
+
+  /**
+   * Single write path. State and the local cache update synchronously so the
+   * indicator moves on the same frame as the click; the backend catches up.
+   */
+  const commit = useCallback(
+    (next: Persisted) => {
+      const rollbackTo = persisted;
+      setPersisted(next);
+      writePersisted(companyId, periodYear, next);
+      if (!user) return;
+      if (!hydrated) {
+        queuedRef.current = next;
+        return;
+      }
+      void push(next, rollbackTo);
+    },
+    [persisted, companyId, periodYear, user, hydrated, push]
+  );
+
+  // Flush anything the user did while the durable row was still loading.
+  useEffect(() => {
+    if (!hydrated || !user) return;
+    const queued = queuedRef.current;
+    if (!queued) return;
+    queuedRef.current = null;
+    void push(queued, persisted);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, user]);
+
+  const retry = useCallback(() => {
+    const failed = failedRef.current;
+    if (!failed) return;
+    const rollbackTo = persisted;
+    setPersisted(failed);
+    writePersisted(companyId, periodYear, failed);
+    void push(failed, rollbackTo);
+  }, [persisted, companyId, periodYear, push]);
 
   const done: Record<OnboardingStepId, boolean> = useMemo(
     () => ({
@@ -207,7 +275,6 @@ export default function OnboardingFlow({
 
   // Persist the resolved position so a refresh restores it.
   useEffect(() => {
-    if (!hydrated) return;
     if (persisted.currentStep === activeStep && persisted.reached.includes(activeStep)) return;
     const next: Persisted = {
       ...persisted,
@@ -306,6 +373,28 @@ export default function OnboardingFlow({
           <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
             {completedCount} of {STEP_ORDER.length} done
           </span>
+          {sync === "saving" && (
+            <span
+              className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 whitespace-nowrap"
+              aria-live="polite"
+            >
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Saving
+            </span>
+          )}
+          {sync === "error" && (
+            <span className="flex items-center gap-1.5 text-[11px] text-destructive whitespace-nowrap" aria-live="polite">
+              <CloudOff className="w-3 h-3" />
+              Not saved
+              <button
+                type="button"
+                onClick={retry}
+                className="underline underline-offset-2 font-medium hover:opacity-80"
+              >
+                Retry
+              </button>
+            </span>
+          )}
           <button
             type="button"
             onClick={dismiss}
