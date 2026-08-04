@@ -98,8 +98,8 @@ async function saveRemote(
   companyId: string,
   periodYear: number,
   value: Persisted
-) {
-  await supabase.from("onboarding_progress").upsert(
+): Promise<{ error: unknown }> {
+  const { error } = await supabase.from("onboarding_progress").upsert(
     {
       user_id: userId,
       company_id: companyId,
@@ -110,6 +110,7 @@ async function saveRemote(
     },
     { onConflict: "user_id,company_id,period_year" }
   );
+  return { error };
 }
 
 export default function OnboardingFlow({
