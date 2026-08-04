@@ -190,21 +190,26 @@ export default function OnboardingFlow({
   const [persisted, setPersisted] = useState<Persisted>(() => readPersisted(companyId, periodYear));
   /** True once the durable row has been read, so a save cannot clobber it. */
   const [hydrated, setHydrated] = useState(false);
-  /** Optimistic write status — the UI never waits on this. */
-  const [sync, setSync] = useState<"idle" | "saving" | "error">("idle");
+  /**
+   * Optimistic write status — the UI never waits on this.
+   *  idle    — local and backend agree
+   *  saving  — backend write in flight
+   *  pending — held in the offline outbox, will sync automatically
+   */
+  const [sync, setSync] = useState<"idle" | "saving" | "pending">("idle");
   /** Monotonic write counter: only the newest save may alter UI state. */
   const seqRef = useRef(0);
-  /** State the user asked for, kept so a failed save can be retried verbatim. */
-  const failedRef = useRef<Persisted | null>(null);
   /** Writes made before hydration finished, flushed once it does. */
   const queuedRef = useRef<Persisted | null>(null);
+  /** Guard so overlapping flush triggers (online + interval) don't double-send. */
+  const flushingRef = useRef(false);
 
   // Re-read when the engagement changes — progress is per company + year.
   useEffect(() => {
-    setPersisted(readPersisted(companyId, periodYear));
+    const pending = readPending(companyId, periodYear);
+    setPersisted(pending ?? readPersisted(companyId, periodYear));
     setHydrated(false);
-    setSync("idle");
-    failedRef.current = null;
+    setSync(pending ? "pending" : "idle");
     queuedRef.current = null;
   }, [companyId, periodYear]);
 
@@ -213,6 +218,12 @@ export default function OnboardingFlow({
     if (!user) return;
     let cancelled = false;
     (async () => {
+      // An unsynced local write is newer than anything on the server: keep it
+      // and let the flusher push it, rather than hydrating over the top.
+      if (readPending(companyId, periodYear)) {
+        setHydrated(true);
+        return;
+      }
       const remote = await fetchRemote(user.id, companyId, periodYear);
       if (cancelled) return;
       if (remote) {
@@ -239,25 +250,29 @@ export default function OnboardingFlow({
   }, [user, companyId, periodYear]);
 
   /**
-   * Fire the durable write in the background. The optimistic state is already
-   * on screen; if the write loses, we roll back to `rollbackTo` and offer retry.
+   * Fire the durable write in the background. The optimistic state is already on
+   * screen and stays there: if the device is offline or the write fails, the
+   * state moves to the outbox instead of being rolled back.
    * Stale responses are discarded so a slow earlier save cannot undo a newer one.
    */
   const push = useCallback(
-    async (next: Persisted, rollbackTo: Persisted) => {
+    async (next: Persisted) => {
       if (!user) return;
       const seq = ++seqRef.current;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        writePending(companyId, periodYear, next);
+        setSync("pending");
+        return;
+      }
       setSync("saving");
       const { error } = await saveRemote(user.id, companyId, periodYear, next);
       if (seq !== seqRef.current) return; // superseded by a newer write
       if (error) {
-        failedRef.current = next;
-        setPersisted(rollbackTo);
-        writePersisted(companyId, periodYear, rollbackTo);
-        setSync("error");
+        writePending(companyId, periodYear, next);
+        setSync("pending");
         return;
       }
-      failedRef.current = null;
+      clearPending(companyId, periodYear);
       setSync("idle");
     },
     [user, companyId, periodYear]
@@ -269,7 +284,6 @@ export default function OnboardingFlow({
    */
   const commit = useCallback(
     (next: Persisted) => {
-      const rollbackTo = persisted;
       setPersisted(next);
       writePersisted(companyId, periodYear, next);
       if (!user) return;
@@ -277,9 +291,9 @@ export default function OnboardingFlow({
         queuedRef.current = next;
         return;
       }
-      void push(next, rollbackTo);
+      void push(next);
     },
-    [persisted, companyId, periodYear, user, hydrated, push]
+    [companyId, periodYear, user, hydrated, push]
   );
 
   // Flush anything the user did while the durable row was still loading.
@@ -288,18 +302,42 @@ export default function OnboardingFlow({
     const queued = queuedRef.current;
     if (!queued) return;
     queuedRef.current = null;
-    void push(queued, persisted);
+    void push(queued);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, user]);
 
-  const retry = useCallback(() => {
-    const failed = failedRef.current;
-    if (!failed) return;
-    const rollbackTo = persisted;
-    setPersisted(failed);
-    writePersisted(companyId, periodYear, failed);
-    void push(failed, rollbackTo);
-  }, [persisted, companyId, periodYear, push]);
+  /** Drain the offline outbox. Safe to call repeatedly. */
+  const flush = useCallback(async () => {
+    if (!user || flushingRef.current) return;
+    const pending = readPending(companyId, periodYear);
+    if (!pending) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    flushingRef.current = true;
+    try {
+      await push(pending);
+    } finally {
+      flushingRef.current = false;
+    }
+  }, [user, companyId, periodYear, push]);
+
+  // Automatic sync: on reconnect, on tab focus, and on a slow poll while the
+  // outbox is non-empty (covers flaky links where `online` never fires).
+  useEffect(() => {
+    if (!hydrated || !user) return;
+    void flush();
+    const onOnline = () => void flush();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void flush();
+    };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = window.setInterval(() => void flush(), 20_000);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(timer);
+    };
+  }, [hydrated, user, flush]);
 
   const done: Record<OnboardingStepId, boolean> = useMemo(
     () => ({
