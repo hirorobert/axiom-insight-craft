@@ -76,6 +76,42 @@ function writePersisted(companyId: string, periodYear: number, value: Persisted)
   }
 }
 
+/**
+ * Backend copy of the same state, so the indicator survives a new device or a
+ * cleared browser. localStorage stays as the instant-read cache; the row in
+ * `onboarding_progress` is the durable truth and wins on conflict.
+ */
+async function fetchRemote(userId: string, companyId: string, periodYear: number) {
+  const { data, error } = await supabase
+    .from("onboarding_progress")
+    .select("current_step, dismissed, reviewed, updated_at")
+    .eq("user_id", userId)
+    .eq("company_id", companyId)
+    .eq("period_year", periodYear)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data;
+}
+
+async function saveRemote(
+  userId: string,
+  companyId: string,
+  periodYear: number,
+  value: Persisted
+) {
+  await supabase.from("onboarding_progress").upsert(
+    {
+      user_id: userId,
+      company_id: companyId,
+      period_year: periodYear,
+      current_step: value.currentStep,
+      dismissed: value.dismissed,
+      reviewed: value.reviewed,
+    },
+    { onConflict: "user_id,company_id,period_year" }
+  );
+}
+
 export default function OnboardingFlow({
   companyId,
   periodYear,
