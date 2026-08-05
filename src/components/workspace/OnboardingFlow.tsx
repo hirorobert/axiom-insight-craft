@@ -311,9 +311,10 @@ export default function OnboardingFlow({
   // Re-read when the engagement changes — progress is per company + year.
   useEffect(() => {
     const pending = readPending(companyId, periodYear);
-    setPersisted(pending ?? readPersisted(companyId, periodYear));
+    setOutbox(pending);
+    setPersisted(pending.length > 0 ? pending[pending.length - 1].persisted : readPersisted(companyId, periodYear));
     setHydrated(false);
-    setSync(pending ? "pending" : "idle");
+    setSync(pending.length > 0 ? "pending" : "idle");
     queuedRef.current = null;
   }, [companyId, periodYear]);
 
