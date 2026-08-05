@@ -197,6 +197,10 @@ export default function OnboardingFlow({
    *  pending — held in the offline outbox, will sync automatically
    */
   const [sync, setSync] = useState<"idle" | "saving" | "pending">("idle");
+  /** Timestamp of the last confirmed backend sync. Displayed to the user. */
+  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
+  /** True while the user explicitly pressed Sync now. */
+  const [isForceSyncing, setIsForceSyncing] = useState(false);
   /** Monotonic write counter: only the newest save may alter UI state. */
   const seqRef = useRef(0);
   /** Writes made before hydration finished, flushed once it does. */
