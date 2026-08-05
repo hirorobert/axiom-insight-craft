@@ -81,38 +81,117 @@ function writePersisted(companyId: string, periodYear: number, value: Persisted)
  * the local record stays authoritative and the exact state that still owes a
  * backend write is parked here. It survives a refresh, and the flusher drains
  * it the moment the browser reports connectivity again.
+ *
+ * The outbox keeps a small log of pending updates so the user can inspect what
+ * is queued, how many times each item has been retried, and what the last
+ * failure was. Only the newest item needs to reach the server — older entries
+ * are superseded but remain visible until the queue drains.
  */
+
+type OutboxEntry = {
+  /** Stable id so the UI can key rows and retry individual items. */
+  id: string;
+  /** Snapshot of the onboarding state at the time it was queued. */
+  persisted: Persisted;
+  /** ISO timestamp when this snapshot entered the outbox. */
+  enqueuedAt: string;
+  /** Number of times this snapshot has been sent to the backend. */
+  attempts: number;
+  /** Human-readable error from the last failed attempt, if any. */
+  lastError: string | null;
+  /** Current outbox status for this snapshot. */
+  status: "pending" | "failed";
+};
 
 function pendingKey(companyId: string, periodYear: number) {
   return `${storageKey(companyId, periodYear)}.pending`;
 }
 
-function readPending(companyId: string, periodYear: number): Persisted | null {
+function normalizePersisted(value: Partial<Persisted>): Persisted | null {
+  if (!STEP_ORDER.includes(value.currentStep as OnboardingStepId)) return null;
+  return {
+    currentStep: value.currentStep as OnboardingStepId,
+    dismissed: value.dismissed === true,
+    reviewed: value.reviewed === true,
+    reached: Array.isArray(value.reached)
+      ? value.reached.filter((s): s is OnboardingStepId => STEP_ORDER.includes(s as OnboardingStepId))
+      : [],
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : new Date().toISOString(),
+  };
+}
+
+function readPending(companyId: string, periodYear: number): OutboxEntry[] {
   try {
     const raw = localStorage.getItem(pendingKey(companyId, periodYear));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<Persisted>;
-    if (!STEP_ORDER.includes(parsed.currentStep as OnboardingStepId)) return null;
-    return {
-      currentStep: parsed.currentStep as OnboardingStepId,
-      dismissed: parsed.dismissed === true,
-      reviewed: parsed.reviewed === true,
-      reached: Array.isArray(parsed.reached)
-        ? parsed.reached.filter((s): s is OnboardingStepId => STEP_ORDER.includes(s as OnboardingStepId))
-        : [],
-      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date().toISOString(),
-    };
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+
+    // Backward compatibility: the legacy outbox stored a single Persisted object.
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const normalized = normalizePersisted(parsed as Partial<Persisted>);
+      if (!normalized) return [];
+      return [
+        {
+          id: `legacy-${Date.now()}`,
+          persisted: normalized,
+          enqueuedAt: normalized.updatedAt,
+          attempts: 0,
+          lastError: null,
+          status: "pending",
+        },
+      ];
+    }
+
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry: unknown) => {
+        const e = entry as Partial<OutboxEntry>;
+        const persisted = normalizePersisted((e.persisted ?? {}) as Partial<Persisted>);
+        if (!persisted) return null;
+        return {
+          id: typeof e.id === "string" ? e.id : crypto.randomUUID(),
+          persisted,
+          enqueuedAt: typeof e.enqueuedAt === "string" ? e.enqueuedAt : persisted.updatedAt,
+          attempts: typeof e.attempts === "number" ? Math.max(0, e.attempts) : 0,
+          lastError: typeof e.lastError === "string" ? e.lastError : null,
+          status: e.status === "failed" ? "failed" : "pending",
+        };
+      })
+      .filter((e): e is OutboxEntry => e !== null);
   } catch {
-    return null;
+    return [];
   }
 }
 
-function writePending(companyId: string, periodYear: number, value: Persisted) {
+function writePendingEntries(companyId: string, periodYear: number, entries: OutboxEntry[]) {
   try {
-    localStorage.setItem(pendingKey(companyId, periodYear), JSON.stringify(value));
+    localStorage.setItem(pendingKey(companyId, periodYear), JSON.stringify(entries));
   } catch {
     /* storage unavailable — the write simply cannot be deferred */
   }
+}
+
+function appendPending(companyId: string, periodYear: number, value: Persisted, error?: unknown) {
+  const entries = readPending(companyId, periodYear);
+  const last = entries[entries.length - 1];
+  // If the newest queued snapshot matches this one, update its attempt/error
+  // metadata instead of creating a duplicate row.
+  if (last && last.persisted.updatedAt === value.updatedAt) {
+    last.attempts += 1;
+    last.lastError = error ? String(error) : last.lastError;
+    last.status = error ? "failed" : "pending";
+    writePendingEntries(companyId, periodYear, entries);
+    return;
+  }
+  entries.push({
+    id: crypto.randomUUID(),
+    persisted: value,
+    enqueuedAt: new Date().toISOString(),
+    attempts: 1,
+    lastError: error ? String(error) : null,
+    status: error ? "failed" : "pending",
+  });
+  writePendingEntries(companyId, periodYear, entries);
 }
 
 function clearPending(companyId: string, periodYear: number) {
@@ -121,6 +200,11 @@ function clearPending(companyId: string, periodYear: number) {
   } catch {
     /* nothing to do */
   }
+}
+
+function removePendingEntry(companyId: string, periodYear: number, id: string) {
+  const entries = readPending(companyId, periodYear).filter((e) => e.id !== id);
+  writePendingEntries(companyId, periodYear, entries);
 }
 
 /** Human-readable relative sync time (e.g. "just now", "2m ago"). */
