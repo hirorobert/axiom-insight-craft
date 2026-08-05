@@ -278,6 +278,7 @@ export default function OnboardingFlow({
       }
       clearPending(companyId, periodYear);
       setSync("idle");
+      setLastSyncAt(new Date());
     },
     [user, companyId, periodYear]
   );
