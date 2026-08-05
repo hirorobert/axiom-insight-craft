@@ -367,7 +367,8 @@ export default function OnboardingFlow({
       if (!user) return;
       const seq = ++seqRef.current;
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        writePending(companyId, periodYear, next);
+        appendPending(companyId, periodYear, next);
+        setOutbox(readPending(companyId, periodYear));
         setSync("pending");
         return;
       }
@@ -375,11 +376,13 @@ export default function OnboardingFlow({
       const { error } = await saveRemote(user.id, companyId, periodYear, next);
       if (seq !== seqRef.current) return; // superseded by a newer write
       if (error) {
-        writePending(companyId, periodYear, next);
+        appendPending(companyId, periodYear, next, error);
+        setOutbox(readPending(companyId, periodYear));
         setSync("pending");
         return;
       }
       clearPending(companyId, periodYear);
+      setOutbox([]);
       setSync("idle");
       setLastSyncAt(new Date());
     },
