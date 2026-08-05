@@ -721,6 +721,114 @@ export default function OnboardingFlow({
         })}
       </ol>
 
+      {/* Detailed offline outbox queue */}
+      {outboxOpen && outbox.length > 0 && (
+        <div
+          id="onboarding-outbox-panel"
+          className="border-b border-border bg-amber-50/30 dark:bg-amber-950/10 px-5 py-4"
+        >
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <div>
+              <p className="text-[12px] font-semibold text-foreground tracking-tight">Offline outbox queue</p>
+              <p className="text-[11px] text-muted-foreground">
+                {outbox.length} pending update{outbox.length === 1 ? "" : "s"} waiting to sync
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isForceSyncing || (typeof navigator !== "undefined" && navigator.onLine === false)}
+              onClick={() => void forceSync()}
+              className="h-8 px-3 text-[12px] font-semibold rounded-none gap-1.5"
+            >
+              {isForceSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Retry all
+            </Button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="py-2 pr-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Step</th>
+                  <th className="py-2 pr-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Queued</th>
+                  <th className="py-2 pr-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Attempts</th>
+                  <th className="py-2 pr-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+                  <th className="py-2 pr-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Last error</th>
+                  <th className="py-2 text-right text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {outbox.map((entry) => (
+                  <tr key={entry.id} className="border-b border-border last:border-b-0">
+                    <td className="py-2.5 pr-4 text-[12px] font-medium text-foreground whitespace-nowrap">
+                      {STEP_TITLES[entry.persisted.currentStep]}
+                    </td>
+                    <td className="py-2.5 pr-4 text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
+                      {formatSyncTime(new Date(entry.enqueuedAt))}
+                    </td>
+                    <td className="py-2.5 pr-4 text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
+                      {entry.attempts}
+                    </td>
+                    <td className="py-2.5 pr-4 whitespace-nowrap">
+                      <span
+                        className={[
+                          "inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide",
+                          entry.status === "failed" ? "text-destructive" : "text-amber-600",
+                        ].join(" ")}
+                      >
+                        {entry.status === "failed" ? (
+                          <>
+                            <X className="w-3 h-3" /> Failed
+                          </>
+                        ) : (
+                          <>
+                            <CloudOff className="w-3 h-3" /> Pending
+                          </>
+                        )}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-4 text-[11px] text-destructive max-w-[200px] truncate" title={entry.lastError ?? undefined}>
+                      {entry.lastError ?? "—"}
+                    </td>
+                    <td className="py-2.5 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          disabled={isForceSyncing || (typeof navigator !== "undefined" && navigator.onLine === false)}
+                          onClick={() => void retryEntry(entry)}
+                          className="text-[11px] font-medium text-primary hover:text-foreground underline underline-offset-2 disabled:opacity-50 disabled:no-underline transition-colors"
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            removePendingEntry(companyId, periodYear, entry.id);
+                            setOutbox(readPending(companyId, periodYear));
+                          }}
+                          className="text-[11px] font-medium text-muted-foreground hover:text-destructive underline underline-offset-2 transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {typeof navigator !== "undefined" && navigator.onLine === false && (
+            <p className="mt-3 text-[11px] text-amber-600 flex items-center gap-1.5">
+              <CloudOff className="w-3 h-3" />
+              Device is offline. Retries will resume automatically when connectivity returns.
+            </p>
+          )}
+        </div>
+      )}
+
       <ol>
         {steps.map((step, i) => {
           const isDone = done[step.id];
