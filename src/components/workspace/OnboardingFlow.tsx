@@ -509,6 +509,7 @@ export default function OnboardingFlow({
   useEffect(() => {
     const pending = readPending(companyId, periodYear);
     setOutbox(pending);
+    setHistory(readHistory(companyId, periodYear));
     setPersisted(pending.length > 0 ? pending[pending.length - 1].persisted : readPersisted(companyId, periodYear));
     setHydrated(false);
     setSync(pending.length > 0 ? "pending" : "idle");
