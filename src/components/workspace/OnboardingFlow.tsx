@@ -325,7 +325,9 @@ export default function OnboardingFlow({
     (async () => {
       // An unsynced local write is newer than anything on the server: keep it
       // and let the flusher push it, rather than hydrating over the top.
-      if (readPending(companyId, periodYear)) {
+      const pending = readPending(companyId, periodYear);
+      if (pending.length > 0) {
+        setOutbox(pending);
         setHydrated(true);
         return;
       }
