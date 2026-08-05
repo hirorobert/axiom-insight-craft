@@ -753,6 +753,17 @@ export default function OnboardingFlow({
   const completedCount = STEP_ORDER.filter((s) => done[s]).length;
   const activeIndex = STEP_ORDER.indexOf(activeStep);
 
+  const exportMeta: Record<string, unknown> = {
+    exportedAt: new Date().toISOString(),
+    sync,
+    lastSyncAt: lastSyncAt ? lastSyncAt.toISOString() : null,
+    online: typeof navigator !== "undefined" ? navigator.onLine : null,
+    currentStep: persisted.currentStep,
+    reached: persisted.reached,
+    dismissed: persisted.dismissed,
+    reviewed: persisted.reviewed,
+  };
+
   const STEP_TITLES: Record<OnboardingStepId, string> = {
     upload: "Trial balance",
     company: "TIN & company",
