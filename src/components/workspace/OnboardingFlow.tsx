@@ -624,6 +624,18 @@ export default function OnboardingFlow({
               </span>
             ) : null}
 
+            {outbox.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setOutboxOpen((v) => !v)}
+                className="text-[11px] font-medium text-primary underline underline-offset-2 hover:text-foreground transition-colors whitespace-nowrap"
+                aria-expanded={outboxOpen}
+                aria-controls="onboarding-outbox-panel"
+              >
+                View queue ({outbox.length})
+              </button>
+            )}
+
             <Button
               type="button"
               variant={sync === "pending" ? "default" : "outline"}
