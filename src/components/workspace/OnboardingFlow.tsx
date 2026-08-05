@@ -325,6 +325,17 @@ export default function OnboardingFlow({
     }
   }, [user, companyId, periodYear, push]);
 
+  /** Explicit user-triggered sync. Shows its own loading state and records the time on success. */
+  const forceSync = useCallback(async () => {
+    if (!user) return;
+    setIsForceSyncing(true);
+    try {
+      await flush();
+    } finally {
+      setIsForceSyncing(false);
+    }
+  }, [user, flush]);
+
   // Automatic sync: on reconnect, on tab focus, and on a slow poll while the
   // outbox is non-empty (covers flaky links where `online` never fires).
   useEffect(() => {
