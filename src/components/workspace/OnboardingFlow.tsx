@@ -16,7 +16,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, Upload, Building2, FileText, Eye, X, Loader2, CloudOff, RefreshCw } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  Upload,
+  Building2,
+  FileText,
+  Eye,
+  X,
+  Loader2,
+  CloudOff,
+  RefreshCw,
+  Download,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -219,6 +231,189 @@ function formatSyncTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+/* ── Sync attempt history ───────────────────────────────────────────────────
+ * A rolling log of every backend save attempt so support can see not just what
+ * is queued now, but how we got here. Capped at 100 entries to avoid unbounded
+ * growth in localStorage.
+ */
+
+type SyncHistoryEntry = {
+  id: string;
+  attemptedAt: string;
+  success: boolean;
+  error: string | null;
+  online: boolean;
+  step: OnboardingStepId;
+};
+
+function historyKey(companyId: string, periodYear: number) {
+  return `${storageKey(companyId, periodYear)}.history`;
+}
+
+function readHistory(companyId: string, periodYear: number): SyncHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(historyKey(companyId, periodYear));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry: unknown) => {
+        const e = entry as Partial<SyncHistoryEntry>;
+        const step = e.step as OnboardingStepId;
+        if (!STEP_ORDER.includes(step)) return null;
+        return {
+          id: typeof e.id === "string" ? e.id : crypto.randomUUID(),
+          attemptedAt: typeof e.attemptedAt === "string" ? e.attemptedAt : new Date().toISOString(),
+          success: e.success === true,
+          error: typeof e.error === "string" ? e.error : null,
+          online: e.online === true,
+          step,
+        };
+      })
+      .filter((e): e is SyncHistoryEntry => e !== null);
+  } catch {
+    return [];
+  }
+}
+
+function writeHistory(companyId: string, periodYear: number, entries: SyncHistoryEntry[]) {
+  try {
+    localStorage.setItem(historyKey(companyId, periodYear), JSON.stringify(entries));
+  } catch {
+    /* storage unavailable — history simply won't persist */
+  }
+}
+
+function appendHistory(
+  companyId: string,
+  periodYear: number,
+  entry: Omit<SyncHistoryEntry, "id">
+) {
+  const entries = readHistory(companyId, periodYear);
+  entries.unshift({ id: crypto.randomUUID(), ...entry });
+  if (entries.length > 100) entries.length = 100;
+  writeHistory(companyId, periodYear, entries);
+}
+
+/* ── Export helpers ───────────────────────────────────────────────────────────
+ * Produce a support bundle of the current outbox queue and recent sync history
+ * as CSV or JSON. No secrets or tokens are included.
+ */
+
+function escapeCsvCell(value: string): string {
+  const s = String(value ?? "");
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function buildOutboxCsv(entries: OutboxEntry[], history: SyncHistoryEntry[]): string {
+  const lines: string[] = [];
+  lines.push(
+    ["Queue ID", "Step", "Enqueued At", "Attempts", "Status", "Last Error", "Dismissed", "Reviewed", "Updated At"]
+      .map(escapeCsvCell)
+      .join(",")
+  );
+  entries.forEach((entry) => {
+    lines.push(
+      [
+        entry.id,
+        entry.persisted.currentStep,
+        entry.enqueuedAt,
+        String(entry.attempts),
+        entry.status,
+        entry.lastError ?? "",
+        entry.persisted.dismissed ? "yes" : "no",
+        entry.persisted.reviewed ? "yes" : "no",
+        entry.persisted.updatedAt,
+      ]
+        .map(escapeCsvCell)
+        .join(",")
+    );
+  });
+  lines.push("");
+  lines.push("Sync attempt history");
+  lines.push(["Attempted At", "Step", "Success", "Online", "Error"].map(escapeCsvCell).join(","));
+  history.forEach((entry) => {
+    lines.push(
+      [entry.attemptedAt, entry.step, entry.success ? "yes" : "no", entry.online ? "yes" : "no", entry.error ?? ""]
+        .map(escapeCsvCell)
+        .join(",")
+    );
+  });
+  return lines.join("\n");
+}
+
+function buildSupportBundle(
+  companyId: string,
+  periodYear: number,
+  entries: OutboxEntry[],
+  history: SyncHistoryEntry[],
+  meta: Record<string, unknown>
+): string {
+  return JSON.stringify(
+    {
+      exportedAt: new Date().toISOString(),
+      companyId,
+      periodYear,
+      meta,
+      queue: entries.map((entry) => ({
+        id: entry.id,
+        step: entry.persisted.currentStep,
+        enqueuedAt: entry.enqueuedAt,
+        attempts: entry.attempts,
+        status: entry.status,
+        lastError: entry.lastError,
+        dismissed: entry.persisted.dismissed,
+        reviewed: entry.persisted.reviewed,
+        updatedAt: entry.persisted.updatedAt,
+      })),
+      history: history.map((entry) => ({
+        id: entry.id,
+        attemptedAt: entry.attemptedAt,
+        step: entry.step,
+        success: entry.success,
+        online: entry.online,
+        error: entry.error,
+      })),
+    },
+    null,
+    2
+  );
+}
+
+function triggerDownload(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function downloadSupportBundle(
+  type: "csv" | "json",
+  companyId: string,
+  periodYear: number,
+  entries: OutboxEntry[],
+  history: SyncHistoryEntry[],
+  meta: Record<string, unknown>
+) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const slug = `saff-onboarding-${companyId.slice(0, 8)}-${periodYear}-${stamp}`;
+  if (type === "csv") {
+    triggerDownload(buildOutboxCsv(entries, history), `${slug}.csv`, "text/csv;charset=utf-8;");
+  } else {
+    triggerDownload(
+      buildSupportBundle(companyId, periodYear, entries, history, meta),
+      `${slug}.json`,
+      "application/json"
+    );
+  }
+}
+
 /**
  * Backend copy of the same state, so the indicator survives a new device or a
  * cleared browser. localStorage stays as the instant-read cache; the row in
@@ -299,6 +494,8 @@ export default function OnboardingFlow({
   const [isForceSyncing, setIsForceSyncing] = useState(false);
   /** Live view of the offline outbox for the detailed queue UI. */
   const [outbox, setOutbox] = useState<OutboxEntry[]>(() => readPending(companyId, periodYear));
+  /** Recent sync attempt history for support export. */
+  const [history, setHistory] = useState<SyncHistoryEntry[]>(() => readHistory(companyId, periodYear));
   /** Whether the detailed outbox queue panel is expanded. */
   const [outboxOpen, setOutboxOpen] = useState(false);
   /** Monotonic write counter: only the newest save may alter UI state. */
@@ -312,6 +509,7 @@ export default function OnboardingFlow({
   useEffect(() => {
     const pending = readPending(companyId, periodYear);
     setOutbox(pending);
+    setHistory(readHistory(companyId, periodYear));
     setPersisted(pending.length > 0 ? pending[pending.length - 1].persisted : readPersisted(companyId, periodYear));
     setHydrated(false);
     setSync(pending.length > 0 ? "pending" : "idle");
@@ -368,7 +566,15 @@ export default function OnboardingFlow({
       const seq = ++seqRef.current;
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         appendPending(companyId, periodYear, next);
+        appendHistory(companyId, periodYear, {
+          attemptedAt: new Date().toISOString(),
+          success: false,
+          error: "Device offline",
+          online: false,
+          step: next.currentStep,
+        });
         setOutbox(readPending(companyId, periodYear));
+        setHistory(readHistory(companyId, periodYear));
         setSync("pending");
         return;
       }
@@ -377,12 +583,28 @@ export default function OnboardingFlow({
       if (seq !== seqRef.current) return; // superseded by a newer write
       if (error) {
         appendPending(companyId, periodYear, next, error);
+        appendHistory(companyId, periodYear, {
+          attemptedAt: new Date().toISOString(),
+          success: false,
+          error: String(error),
+          online: true,
+          step: next.currentStep,
+        });
         setOutbox(readPending(companyId, periodYear));
+        setHistory(readHistory(companyId, periodYear));
         setSync("pending");
         return;
       }
       clearPending(companyId, periodYear);
+      appendHistory(companyId, periodYear, {
+        attemptedAt: new Date().toISOString(),
+        success: true,
+        error: null,
+        online: true,
+        step: next.currentStep,
+      });
       setOutbox([]);
+      setHistory(readHistory(companyId, periodYear));
       setSync("idle");
       setLastSyncAt(new Date());
     },
@@ -530,6 +752,17 @@ export default function OnboardingFlow({
 
   const completedCount = STEP_ORDER.filter((s) => done[s]).length;
   const activeIndex = STEP_ORDER.indexOf(activeStep);
+
+  const exportMeta: Record<string, unknown> = {
+    exportedAt: new Date().toISOString(),
+    sync,
+    lastSyncAt: lastSyncAt ? lastSyncAt.toISOString() : null,
+    online: typeof navigator !== "undefined" ? navigator.onLine : null,
+    currentStep: persisted.currentStep,
+    reached: persisted.reached,
+    dismissed: persisted.dismissed,
+    reviewed: persisted.reviewed,
+  };
 
   const STEP_TITLES: Record<OnboardingStepId, string> = {
     upload: "Trial balance",
@@ -734,17 +967,39 @@ export default function OnboardingFlow({
                 {outbox.length} pending update{outbox.length === 1 ? "" : "s"} waiting to sync
               </p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={isForceSyncing || (typeof navigator !== "undefined" && navigator.onLine === false)}
-              onClick={() => void forceSync()}
-              className="h-8 px-3 text-[12px] font-semibold rounded-none gap-1.5"
-            >
-              {isForceSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              Retry all
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 text-[12px] font-semibold rounded-none gap-1.5"
+                onClick={() => downloadSupportBundle("csv", companyId, periodYear, outbox, history, exportMeta)}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export CSV
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 text-[12px] font-semibold rounded-none gap-1.5"
+                onClick={() => downloadSupportBundle("json", companyId, periodYear, outbox, history, exportMeta)}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export JSON
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isForceSyncing || (typeof navigator !== "undefined" && navigator.onLine === false)}
+                onClick={() => void forceSync()}
+                className="h-8 px-3 text-[12px] font-semibold rounded-none gap-1.5"
+              >
+                {isForceSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                Retry all
+              </Button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
