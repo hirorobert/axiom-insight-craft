@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, Upload, Building2, FileText, Eye, X, Loader2, CloudOff } from "lucide-react";
+import { ArrowRight, Check, Upload, Building2, FileText, Eye, X, Loader2, CloudOff, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -123,6 +123,18 @@ function clearPending(companyId: string, periodYear: number) {
   }
 }
 
+/** Human-readable relative sync time (e.g. "just now", "2m ago"). */
+function formatSyncTime(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 10) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 /**
  * Backend copy of the same state, so the indicator survives a new device or a
  * cleared browser. localStorage stays as the instant-read cache; the row in
@@ -197,6 +209,10 @@ export default function OnboardingFlow({
    *  pending — held in the offline outbox, will sync automatically
    */
   const [sync, setSync] = useState<"idle" | "saving" | "pending">("idle");
+  /** Timestamp of the last confirmed backend sync. Displayed to the user. */
+  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
+  /** True while the user explicitly pressed Sync now. */
+  const [isForceSyncing, setIsForceSyncing] = useState(false);
   /** Monotonic write counter: only the newest save may alter UI state. */
   const seqRef = useRef(0);
   /** Writes made before hydration finished, flushed once it does. */
@@ -274,6 +290,7 @@ export default function OnboardingFlow({
       }
       clearPending(companyId, periodYear);
       setSync("idle");
+      setLastSyncAt(new Date());
     },
     [user, companyId, periodYear]
   );
@@ -319,6 +336,17 @@ export default function OnboardingFlow({
       flushingRef.current = false;
     }
   }, [user, companyId, periodYear, push]);
+
+  /** Explicit user-triggered sync. Shows its own loading state and records the time on success. */
+  const forceSync = useCallback(async () => {
+    if (!user) return;
+    setIsForceSyncing(true);
+    try {
+      await flush();
+    } finally {
+      setIsForceSyncing(false);
+    }
+  }, [user, flush]);
 
   // Automatic sync: on reconnect, on tab focus, and on a slow poll while the
   // outbox is non-empty (covers flaky links where `online` never fires).
@@ -458,32 +486,53 @@ export default function OnboardingFlow({
           <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
             {completedCount} of {STEP_ORDER.length} done
           </span>
-          {sync === "saving" && (
-            <span
-              className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 whitespace-nowrap"
-              aria-live="polite"
-            >
-              <Loader2 className="w-3 h-3 animate-spin" />
-              Saving
-            </span>
-          )}
-          {sync === "pending" && (
-            <span
-              className="flex items-center gap-1.5 text-[11px] text-muted-foreground whitespace-nowrap"
-              aria-live="polite"
-              title="Your progress is saved on this device and will sync automatically when you are back online."
-            >
-              <CloudOff className="w-3 h-3" />
-              Saved offline
-              <button
-                type="button"
-                onClick={() => void flush()}
-                className="underline underline-offset-2 font-medium hover:text-foreground transition-colors"
+
+          {/* Sync status + explicit drain control */}
+          <div className="flex items-center gap-3">
+            {sync === "saving" || isForceSyncing ? (
+              <span
+                className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 whitespace-nowrap"
+                aria-live="polite"
               >
-                Sync now
-              </button>
-            </span>
-          )}
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {isForceSyncing ? "Syncing now" : "Saving"}
+              </span>
+            ) : sync === "pending" ? (
+              <span
+                className="flex items-center gap-1.5 text-[11px] text-amber-600 whitespace-nowrap"
+                aria-live="polite"
+                title="Your progress is saved on this device and will sync automatically when you are back online."
+              >
+                <CloudOff className="w-3 h-3" />
+                Saved offline
+              </span>
+            ) : lastSyncAt ? (
+              <span
+                className="hidden sm:inline text-[11px] text-muted-foreground/70 whitespace-nowrap"
+                aria-live="polite"
+              >
+                Last synced {formatSyncTime(lastSyncAt)}
+              </span>
+            ) : null}
+
+            <Button
+              type="button"
+              variant={sync === "pending" ? "default" : "outline"}
+              size="sm"
+              disabled={!user || sync === "saving" || isForceSyncing || (typeof navigator !== "undefined" && navigator.onLine === false)}
+              onClick={() => void forceSync()}
+              className="h-8 px-3 text-[12px] font-semibold rounded-none gap-1.5"
+              aria-label="Sync onboarding progress now"
+            >
+              {isForceSyncing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+              Sync now
+            </Button>
+          </div>
+
           <button
             type="button"
             onClick={dismiss}
