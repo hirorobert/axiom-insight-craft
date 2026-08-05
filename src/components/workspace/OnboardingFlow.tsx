@@ -231,6 +231,189 @@ function formatSyncTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+/* ── Sync attempt history ───────────────────────────────────────────────────
+ * A rolling log of every backend save attempt so support can see not just what
+ * is queued now, but how we got here. Capped at 100 entries to avoid unbounded
+ * growth in localStorage.
+ */
+
+type SyncHistoryEntry = {
+  id: string;
+  attemptedAt: string;
+  success: boolean;
+  error: string | null;
+  online: boolean;
+  step: OnboardingStepId;
+};
+
+function historyKey(companyId: string, periodYear: number) {
+  return `${storageKey(companyId, periodYear)}.history`;
+}
+
+function readHistory(companyId: string, periodYear: number): SyncHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(historyKey(companyId, periodYear));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry: unknown) => {
+        const e = entry as Partial<SyncHistoryEntry>;
+        const step = e.step as OnboardingStepId;
+        if (!STEP_ORDER.includes(step)) return null;
+        return {
+          id: typeof e.id === "string" ? e.id : crypto.randomUUID(),
+          attemptedAt: typeof e.attemptedAt === "string" ? e.attemptedAt : new Date().toISOString(),
+          success: e.success === true,
+          error: typeof e.error === "string" ? e.error : null,
+          online: e.online === true,
+          step,
+        };
+      })
+      .filter((e): e is SyncHistoryEntry => e !== null);
+  } catch {
+    return [];
+  }
+}
+
+function writeHistory(companyId: string, periodYear: number, entries: SyncHistoryEntry[]) {
+  try {
+    localStorage.setItem(historyKey(companyId, periodYear), JSON.stringify(entries));
+  } catch {
+    /* storage unavailable — history simply won't persist */
+  }
+}
+
+function appendHistory(
+  companyId: string,
+  periodYear: number,
+  entry: Omit<SyncHistoryEntry, "id">
+) {
+  const entries = readHistory(companyId, periodYear);
+  entries.unshift({ id: crypto.randomUUID(), ...entry });
+  if (entries.length > 100) entries.length = 100;
+  writeHistory(companyId, periodYear, entries);
+}
+
+/* ── Export helpers ───────────────────────────────────────────────────────────
+ * Produce a support bundle of the current outbox queue and recent sync history
+ * as CSV or JSON. No secrets or tokens are included.
+ */
+
+function escapeCsvCell(value: string): string {
+  const s = String(value ?? "");
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function buildOutboxCsv(entries: OutboxEntry[], history: SyncHistoryEntry[]): string {
+  const lines: string[] = [];
+  lines.push(
+    ["Queue ID", "Step", "Enqueued At", "Attempts", "Status", "Last Error", "Dismissed", "Reviewed", "Updated At"]
+      .map(escapeCsvCell)
+      .join(",")
+  );
+  entries.forEach((entry) => {
+    lines.push(
+      [
+        entry.id,
+        entry.persisted.currentStep,
+        entry.enqueuedAt,
+        String(entry.attempts),
+        entry.status,
+        entry.lastError ?? "",
+        entry.persisted.dismissed ? "yes" : "no",
+        entry.persisted.reviewed ? "yes" : "no",
+        entry.persisted.updatedAt,
+      ]
+        .map(escapeCsvCell)
+        .join(",")
+    );
+  });
+  lines.push("");
+  lines.push("Sync attempt history");
+  lines.push(["Attempted At", "Step", "Success", "Online", "Error"].map(escapeCsvCell).join(","));
+  history.forEach((entry) => {
+    lines.push(
+      [entry.attemptedAt, entry.step, entry.success ? "yes" : "no", entry.online ? "yes" : "no", entry.error ?? ""]
+        .map(escapeCsvCell)
+        .join(",")
+    );
+  });
+  return lines.join("\n");
+}
+
+function buildSupportBundle(
+  companyId: string,
+  periodYear: number,
+  entries: OutboxEntry[],
+  history: SyncHistoryEntry[],
+  meta: Record<string, unknown>
+): string {
+  return JSON.stringify(
+    {
+      exportedAt: new Date().toISOString(),
+      companyId,
+      periodYear,
+      meta,
+      queue: entries.map((entry) => ({
+        id: entry.id,
+        step: entry.persisted.currentStep,
+        enqueuedAt: entry.enqueuedAt,
+        attempts: entry.attempts,
+        status: entry.status,
+        lastError: entry.lastError,
+        dismissed: entry.persisted.dismissed,
+        reviewed: entry.persisted.reviewed,
+        updatedAt: entry.persisted.updatedAt,
+      })),
+      history: history.map((entry) => ({
+        id: entry.id,
+        attemptedAt: entry.attemptedAt,
+        step: entry.step,
+        success: entry.success,
+        online: entry.online,
+        error: entry.error,
+      })),
+    },
+    null,
+    2
+  );
+}
+
+function triggerDownload(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function downloadSupportBundle(
+  type: "csv" | "json",
+  companyId: string,
+  periodYear: number,
+  entries: OutboxEntry[],
+  history: SyncHistoryEntry[],
+  meta: Record<string, unknown>
+) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const slug = `saff-onboarding-${companyId.slice(0, 8)}-${periodYear}-${stamp}`;
+  if (type === "csv") {
+    triggerDownload(buildOutboxCsv(entries, history), `${slug}.csv`, "text/csv;charset=utf-8;");
+  } else {
+    triggerDownload(
+      buildSupportBundle(companyId, periodYear, entries, history, meta),
+      `${slug}.json`,
+      "application/json"
+    );
+  }
+}
+
 /**
  * Backend copy of the same state, so the indicator survives a new device or a
  * cleared browser. localStorage stays as the instant-read cache; the row in
