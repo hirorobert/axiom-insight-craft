@@ -566,7 +566,15 @@ export default function OnboardingFlow({
       const seq = ++seqRef.current;
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         appendPending(companyId, periodYear, next);
+        appendHistory(companyId, periodYear, {
+          attemptedAt: new Date().toISOString(),
+          success: false,
+          error: "Device offline",
+          online: false,
+          step: next.currentStep,
+        });
         setOutbox(readPending(companyId, periodYear));
+        setHistory(readHistory(companyId, periodYear));
         setSync("pending");
         return;
       }
@@ -575,12 +583,28 @@ export default function OnboardingFlow({
       if (seq !== seqRef.current) return; // superseded by a newer write
       if (error) {
         appendPending(companyId, periodYear, next, error);
+        appendHistory(companyId, periodYear, {
+          attemptedAt: new Date().toISOString(),
+          success: false,
+          error: String(error),
+          online: true,
+          step: next.currentStep,
+        });
         setOutbox(readPending(companyId, periodYear));
+        setHistory(readHistory(companyId, periodYear));
         setSync("pending");
         return;
       }
       clearPending(companyId, periodYear);
+      appendHistory(companyId, periodYear, {
+        attemptedAt: new Date().toISOString(),
+        success: true,
+        error: null,
+        online: true,
+        step: next.currentStep,
+      });
       setOutbox([]);
+      setHistory(readHistory(companyId, periodYear));
       setSync("idle");
       setLastSyncAt(new Date());
     },
