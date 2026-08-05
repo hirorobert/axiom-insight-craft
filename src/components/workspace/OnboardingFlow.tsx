@@ -967,17 +967,39 @@ export default function OnboardingFlow({
                 {outbox.length} pending update{outbox.length === 1 ? "" : "s"} waiting to sync
               </p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={isForceSyncing || (typeof navigator !== "undefined" && navigator.onLine === false)}
-              onClick={() => void forceSync()}
-              className="h-8 px-3 text-[12px] font-semibold rounded-none gap-1.5"
-            >
-              {isForceSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              Retry all
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 text-[12px] font-semibold rounded-none gap-1.5"
+                onClick={() => downloadSupportBundle("csv", companyId, periodYear, outbox, history, exportMeta)}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export CSV
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 text-[12px] font-semibold rounded-none gap-1.5"
+                onClick={() => downloadSupportBundle("json", companyId, periodYear, outbox, history, exportMeta)}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export JSON
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isForceSyncing || (typeof navigator !== "undefined" && navigator.onLine === false)}
+                onClick={() => void forceSync()}
+                className="h-8 px-3 text-[12px] font-semibold rounded-none gap-1.5"
+              >
+                {isForceSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                Retry all
+              </Button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
