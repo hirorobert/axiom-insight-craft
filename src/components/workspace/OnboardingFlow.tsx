@@ -421,11 +421,12 @@ export default function OnboardingFlow({
   const flush = useCallback(async () => {
     if (!user || flushingRef.current) return;
     const pending = readPending(companyId, periodYear);
-    if (!pending) return;
+    if (pending.length === 0) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
     flushingRef.current = true;
     try {
-      await push(pending);
+      // Only the newest snapshot matters — older entries are superseded.
+      await push(pending[pending.length - 1].persisted);
     } finally {
       flushingRef.current = false;
     }
@@ -441,6 +442,20 @@ export default function OnboardingFlow({
       setIsForceSyncing(false);
     }
   }, [user, flush]);
+
+  /** Retry one specific outbox entry (useful when the user wants to retry an older snapshot). */
+  const retryEntry = useCallback(
+    async (entry: OutboxEntry) => {
+      if (!user) return;
+      setIsForceSyncing(true);
+      try {
+        await push(entry.persisted);
+      } finally {
+        setIsForceSyncing(false);
+      }
+    },
+    [user, push]
+  );
 
   // Automatic sync: on reconnect, on tab focus, and on a slow poll while the
   // outbox is non-empty (covers flaky links where `online` never fires).
