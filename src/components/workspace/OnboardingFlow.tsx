@@ -474,32 +474,53 @@ export default function OnboardingFlow({
           <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
             {completedCount} of {STEP_ORDER.length} done
           </span>
-          {sync === "saving" && (
-            <span
-              className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 whitespace-nowrap"
-              aria-live="polite"
-            >
-              <Loader2 className="w-3 h-3 animate-spin" />
-              Saving
-            </span>
-          )}
-          {sync === "pending" && (
-            <span
-              className="flex items-center gap-1.5 text-[11px] text-muted-foreground whitespace-nowrap"
-              aria-live="polite"
-              title="Your progress is saved on this device and will sync automatically when you are back online."
-            >
-              <CloudOff className="w-3 h-3" />
-              Saved offline
-              <button
-                type="button"
-                onClick={() => void flush()}
-                className="underline underline-offset-2 font-medium hover:text-foreground transition-colors"
+
+          {/* Sync status + explicit drain control */}
+          <div className="flex items-center gap-3">
+            {sync === "saving" || isForceSyncing ? (
+              <span
+                className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 whitespace-nowrap"
+                aria-live="polite"
               >
-                Sync now
-              </button>
-            </span>
-          )}
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {isForceSyncing ? "Syncing now" : "Saving"}
+              </span>
+            ) : sync === "pending" ? (
+              <span
+                className="flex items-center gap-1.5 text-[11px] text-amber-600 whitespace-nowrap"
+                aria-live="polite"
+                title="Your progress is saved on this device and will sync automatically when you are back online."
+              >
+                <CloudOff className="w-3 h-3" />
+                Saved offline
+              </span>
+            ) : lastSyncAt ? (
+              <span
+                className="hidden sm:inline text-[11px] text-muted-foreground/70 whitespace-nowrap"
+                aria-live="polite"
+              >
+                Last synced {formatSyncTime(lastSyncAt)}
+              </span>
+            ) : null}
+
+            <Button
+              type="button"
+              variant={sync === "pending" ? "default" : "outline"}
+              size="sm"
+              disabled={!user || sync === "saving" || isForceSyncing || (typeof navigator !== "undefined" && navigator.onLine === false)}
+              onClick={() => void forceSync()}
+              className="h-8 px-3 text-[12px] font-semibold rounded-none gap-1.5"
+              aria-label="Sync onboarding progress now"
+            >
+              {isForceSyncing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+              Sync now
+            </Button>
+          </div>
+
           <button
             type="button"
             onClick={dismiss}
