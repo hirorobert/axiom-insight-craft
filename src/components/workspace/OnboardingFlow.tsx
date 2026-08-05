@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, Upload, Building2, FileText, Eye, X, Loader2, CloudOff } from "lucide-react";
+import { ArrowRight, Check, Upload, Building2, FileText, Eye, X, Loader2, CloudOff, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
