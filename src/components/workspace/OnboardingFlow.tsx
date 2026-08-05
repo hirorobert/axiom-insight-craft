@@ -81,38 +81,117 @@ function writePersisted(companyId: string, periodYear: number, value: Persisted)
  * the local record stays authoritative and the exact state that still owes a
  * backend write is parked here. It survives a refresh, and the flusher drains
  * it the moment the browser reports connectivity again.
+ *
+ * The outbox keeps a small log of pending updates so the user can inspect what
+ * is queued, how many times each item has been retried, and what the last
+ * failure was. Only the newest item needs to reach the server — older entries
+ * are superseded but remain visible until the queue drains.
  */
+
+type OutboxEntry = {
+  /** Stable id so the UI can key rows and retry individual items. */
+  id: string;
+  /** Snapshot of the onboarding state at the time it was queued. */
+  persisted: Persisted;
+  /** ISO timestamp when this snapshot entered the outbox. */
+  enqueuedAt: string;
+  /** Number of times this snapshot has been sent to the backend. */
+  attempts: number;
+  /** Human-readable error from the last failed attempt, if any. */
+  lastError: string | null;
+  /** Current outbox status for this snapshot. */
+  status: "pending" | "failed";
+};
 
 function pendingKey(companyId: string, periodYear: number) {
   return `${storageKey(companyId, periodYear)}.pending`;
 }
 
-function readPending(companyId: string, periodYear: number): Persisted | null {
+function normalizePersisted(value: Partial<Persisted>): Persisted | null {
+  if (!STEP_ORDER.includes(value.currentStep as OnboardingStepId)) return null;
+  return {
+    currentStep: value.currentStep as OnboardingStepId,
+    dismissed: value.dismissed === true,
+    reviewed: value.reviewed === true,
+    reached: Array.isArray(value.reached)
+      ? value.reached.filter((s): s is OnboardingStepId => STEP_ORDER.includes(s as OnboardingStepId))
+      : [],
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : new Date().toISOString(),
+  };
+}
+
+function readPending(companyId: string, periodYear: number): OutboxEntry[] {
   try {
     const raw = localStorage.getItem(pendingKey(companyId, periodYear));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<Persisted>;
-    if (!STEP_ORDER.includes(parsed.currentStep as OnboardingStepId)) return null;
-    return {
-      currentStep: parsed.currentStep as OnboardingStepId,
-      dismissed: parsed.dismissed === true,
-      reviewed: parsed.reviewed === true,
-      reached: Array.isArray(parsed.reached)
-        ? parsed.reached.filter((s): s is OnboardingStepId => STEP_ORDER.includes(s as OnboardingStepId))
-        : [],
-      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date().toISOString(),
-    };
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+
+    // Backward compatibility: the legacy outbox stored a single Persisted object.
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const normalized = normalizePersisted(parsed as Partial<Persisted>);
+      if (!normalized) return [];
+      return [
+        {
+          id: `legacy-${Date.now()}`,
+          persisted: normalized,
+          enqueuedAt: normalized.updatedAt,
+          attempts: 0,
+          lastError: null,
+          status: "pending",
+        },
+      ];
+    }
+
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry: unknown) => {
+        const e = entry as Partial<OutboxEntry>;
+        const persisted = normalizePersisted((e.persisted ?? {}) as Partial<Persisted>);
+        if (!persisted) return null;
+        return {
+          id: typeof e.id === "string" ? e.id : crypto.randomUUID(),
+          persisted,
+          enqueuedAt: typeof e.enqueuedAt === "string" ? e.enqueuedAt : persisted.updatedAt,
+          attempts: typeof e.attempts === "number" ? Math.max(0, e.attempts) : 0,
+          lastError: typeof e.lastError === "string" ? e.lastError : null,
+          status: e.status === "failed" ? "failed" : "pending",
+        };
+      })
+      .filter((e): e is OutboxEntry => e !== null);
   } catch {
-    return null;
+    return [];
   }
 }
 
-function writePending(companyId: string, periodYear: number, value: Persisted) {
+function writePendingEntries(companyId: string, periodYear: number, entries: OutboxEntry[]) {
   try {
-    localStorage.setItem(pendingKey(companyId, periodYear), JSON.stringify(value));
+    localStorage.setItem(pendingKey(companyId, periodYear), JSON.stringify(entries));
   } catch {
     /* storage unavailable — the write simply cannot be deferred */
   }
+}
+
+function appendPending(companyId: string, periodYear: number, value: Persisted, error?: unknown) {
+  const entries = readPending(companyId, periodYear);
+  const last = entries[entries.length - 1];
+  // If the newest queued snapshot matches this one, update its attempt/error
+  // metadata instead of creating a duplicate row.
+  if (last && last.persisted.updatedAt === value.updatedAt) {
+    last.attempts += 1;
+    last.lastError = error ? String(error) : last.lastError;
+    last.status = error ? "failed" : "pending";
+    writePendingEntries(companyId, periodYear, entries);
+    return;
+  }
+  entries.push({
+    id: crypto.randomUUID(),
+    persisted: value,
+    enqueuedAt: new Date().toISOString(),
+    attempts: 1,
+    lastError: error ? String(error) : null,
+    status: error ? "failed" : "pending",
+  });
+  writePendingEntries(companyId, periodYear, entries);
 }
 
 function clearPending(companyId: string, periodYear: number) {
@@ -121,6 +200,11 @@ function clearPending(companyId: string, periodYear: number) {
   } catch {
     /* nothing to do */
   }
+}
+
+function removePendingEntry(companyId: string, periodYear: number, id: string) {
+  const entries = readPending(companyId, periodYear).filter((e) => e.id !== id);
+  writePendingEntries(companyId, periodYear, entries);
 }
 
 /** Human-readable relative sync time (e.g. "just now", "2m ago"). */
@@ -213,6 +297,10 @@ export default function OnboardingFlow({
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
   /** True while the user explicitly pressed Sync now. */
   const [isForceSyncing, setIsForceSyncing] = useState(false);
+  /** Live view of the offline outbox for the detailed queue UI. */
+  const [outbox, setOutbox] = useState<OutboxEntry[]>(() => readPending(companyId, periodYear));
+  /** Whether the detailed outbox queue panel is expanded. */
+  const [outboxOpen, setOutboxOpen] = useState(false);
   /** Monotonic write counter: only the newest save may alter UI state. */
   const seqRef = useRef(0);
   /** Writes made before hydration finished, flushed once it does. */
@@ -223,9 +311,10 @@ export default function OnboardingFlow({
   // Re-read when the engagement changes — progress is per company + year.
   useEffect(() => {
     const pending = readPending(companyId, periodYear);
-    setPersisted(pending ?? readPersisted(companyId, periodYear));
+    setOutbox(pending);
+    setPersisted(pending.length > 0 ? pending[pending.length - 1].persisted : readPersisted(companyId, periodYear));
     setHydrated(false);
-    setSync(pending ? "pending" : "idle");
+    setSync(pending.length > 0 ? "pending" : "idle");
     queuedRef.current = null;
   }, [companyId, periodYear]);
 
@@ -236,7 +325,9 @@ export default function OnboardingFlow({
     (async () => {
       // An unsynced local write is newer than anything on the server: keep it
       // and let the flusher push it, rather than hydrating over the top.
-      if (readPending(companyId, periodYear)) {
+      const pending = readPending(companyId, periodYear);
+      if (pending.length > 0) {
+        setOutbox(pending);
         setHydrated(true);
         return;
       }
@@ -276,7 +367,8 @@ export default function OnboardingFlow({
       if (!user) return;
       const seq = ++seqRef.current;
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        writePending(companyId, periodYear, next);
+        appendPending(companyId, periodYear, next);
+        setOutbox(readPending(companyId, periodYear));
         setSync("pending");
         return;
       }
@@ -284,11 +376,13 @@ export default function OnboardingFlow({
       const { error } = await saveRemote(user.id, companyId, periodYear, next);
       if (seq !== seqRef.current) return; // superseded by a newer write
       if (error) {
-        writePending(companyId, periodYear, next);
+        appendPending(companyId, periodYear, next, error);
+        setOutbox(readPending(companyId, periodYear));
         setSync("pending");
         return;
       }
       clearPending(companyId, periodYear);
+      setOutbox([]);
       setSync("idle");
       setLastSyncAt(new Date());
     },
@@ -327,11 +421,12 @@ export default function OnboardingFlow({
   const flush = useCallback(async () => {
     if (!user || flushingRef.current) return;
     const pending = readPending(companyId, periodYear);
-    if (!pending) return;
+    if (pending.length === 0) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
     flushingRef.current = true;
     try {
-      await push(pending);
+      // Only the newest snapshot matters — older entries are superseded.
+      await push(pending[pending.length - 1].persisted);
     } finally {
       flushingRef.current = false;
     }
@@ -347,6 +442,20 @@ export default function OnboardingFlow({
       setIsForceSyncing(false);
     }
   }, [user, flush]);
+
+  /** Retry one specific outbox entry (useful when the user wants to retry an older snapshot). */
+  const retryEntry = useCallback(
+    async (entry: OutboxEntry) => {
+      if (!user) return;
+      setIsForceSyncing(true);
+      try {
+        await push(entry.persisted);
+      } finally {
+        setIsForceSyncing(false);
+      }
+    },
+    [user, push]
+  );
 
   // Automatic sync: on reconnect, on tab focus, and on a slow poll while the
   // outbox is non-empty (covers flaky links where `online` never fires).
@@ -515,6 +624,18 @@ export default function OnboardingFlow({
               </span>
             ) : null}
 
+            {outbox.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setOutboxOpen((v) => !v)}
+                className="text-[11px] font-medium text-primary underline underline-offset-2 hover:text-foreground transition-colors whitespace-nowrap"
+                aria-expanded={outboxOpen}
+                aria-controls="onboarding-outbox-panel"
+              >
+                View queue ({outbox.length})
+              </button>
+            )}
+
             <Button
               type="button"
               variant={sync === "pending" ? "default" : "outline"}
@@ -599,6 +720,114 @@ export default function OnboardingFlow({
           );
         })}
       </ol>
+
+      {/* Detailed offline outbox queue */}
+      {outboxOpen && outbox.length > 0 && (
+        <div
+          id="onboarding-outbox-panel"
+          className="border-b border-border bg-amber-50/30 dark:bg-amber-950/10 px-5 py-4"
+        >
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <div>
+              <p className="text-[12px] font-semibold text-foreground tracking-tight">Offline outbox queue</p>
+              <p className="text-[11px] text-muted-foreground">
+                {outbox.length} pending update{outbox.length === 1 ? "" : "s"} waiting to sync
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isForceSyncing || (typeof navigator !== "undefined" && navigator.onLine === false)}
+              onClick={() => void forceSync()}
+              className="h-8 px-3 text-[12px] font-semibold rounded-none gap-1.5"
+            >
+              {isForceSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Retry all
+            </Button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="py-2 pr-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Step</th>
+                  <th className="py-2 pr-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Queued</th>
+                  <th className="py-2 pr-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Attempts</th>
+                  <th className="py-2 pr-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+                  <th className="py-2 pr-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Last error</th>
+                  <th className="py-2 text-right text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {outbox.map((entry) => (
+                  <tr key={entry.id} className="border-b border-border last:border-b-0">
+                    <td className="py-2.5 pr-4 text-[12px] font-medium text-foreground whitespace-nowrap">
+                      {STEP_TITLES[entry.persisted.currentStep]}
+                    </td>
+                    <td className="py-2.5 pr-4 text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
+                      {formatSyncTime(new Date(entry.enqueuedAt))}
+                    </td>
+                    <td className="py-2.5 pr-4 text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
+                      {entry.attempts}
+                    </td>
+                    <td className="py-2.5 pr-4 whitespace-nowrap">
+                      <span
+                        className={[
+                          "inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide",
+                          entry.status === "failed" ? "text-destructive" : "text-amber-600",
+                        ].join(" ")}
+                      >
+                        {entry.status === "failed" ? (
+                          <>
+                            <X className="w-3 h-3" /> Failed
+                          </>
+                        ) : (
+                          <>
+                            <CloudOff className="w-3 h-3" /> Pending
+                          </>
+                        )}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-4 text-[11px] text-destructive max-w-[200px] truncate" title={entry.lastError ?? undefined}>
+                      {entry.lastError ?? "—"}
+                    </td>
+                    <td className="py-2.5 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          disabled={isForceSyncing || (typeof navigator !== "undefined" && navigator.onLine === false)}
+                          onClick={() => void retryEntry(entry)}
+                          className="text-[11px] font-medium text-primary hover:text-foreground underline underline-offset-2 disabled:opacity-50 disabled:no-underline transition-colors"
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            removePendingEntry(companyId, periodYear, entry.id);
+                            setOutbox(readPending(companyId, periodYear));
+                          }}
+                          className="text-[11px] font-medium text-muted-foreground hover:text-destructive underline underline-offset-2 transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {typeof navigator !== "undefined" && navigator.onLine === false && (
+            <p className="mt-3 text-[11px] text-amber-600 flex items-center gap-1.5">
+              <CloudOff className="w-3 h-3" />
+              Device is offline. Retries will resume automatically when connectivity returns.
+            </p>
+          )}
+        </div>
+      )}
 
       <ol>
         {steps.map((step, i) => {
