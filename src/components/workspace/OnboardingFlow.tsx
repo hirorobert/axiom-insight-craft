@@ -494,6 +494,8 @@ export default function OnboardingFlow({
   const [isForceSyncing, setIsForceSyncing] = useState(false);
   /** Live view of the offline outbox for the detailed queue UI. */
   const [outbox, setOutbox] = useState<OutboxEntry[]>(() => readPending(companyId, periodYear));
+  /** Recent sync attempt history for support export. */
+  const [history, setHistory] = useState<SyncHistoryEntry[]>(() => readHistory(companyId, periodYear));
   /** Whether the detailed outbox queue panel is expanded. */
   const [outboxOpen, setOutboxOpen] = useState(false);
   /** Monotonic write counter: only the newest save may alter UI state. */
