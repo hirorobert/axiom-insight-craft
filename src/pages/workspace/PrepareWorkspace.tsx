@@ -24,7 +24,6 @@ import { ClassificationBreakdown } from "@/components/certification/Classificati
 import { ValidationReport } from "@/components/ValidationReport";
 import { AccountReviewPanel } from "@/components/AccountReviewPanel";
 import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel";
-import { EmptyCertificationState } from "@/components/certification/EmptyCertificationState";
 import { TrialBalanceUpload } from "@/components/TrialBalanceUpload";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
