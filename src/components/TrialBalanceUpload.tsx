@@ -389,25 +389,51 @@ export const TrialBalanceUpload = ({
   const completedCount = files.filter((f) => f.status === "complete").length;
   const isProcessing = processingCount > 0;
 
+  const lockedCompany = lockedCompanyId
+    ? companies.find((c) => c.id === lockedCompanyId)
+    : undefined;
+
   return (
-    <section id="upload" className="py-10 px-6 relative overflow-hidden">
-      {/* Background glow */}
-      <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
+    <section
+      id="upload"
+      className={embedded ? "relative" : "py-10 px-6 relative overflow-hidden"}
+    >
+      {!embedded && <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />}
 
-      <div className="max-w-4xl mx-auto relative z-10">
-        {/* Section header */}
-        <div className="text-center mb-12">
+      <div className={embedded ? "relative z-10" : "max-w-4xl mx-auto relative z-10"}>
+        {/* Section header — marketing surface only */}
+        {!embedded && (
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+              Upload Multiple Trial Balances
+            </h2>
+            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+              Upload CSV or Excel. SAFF ERP validates, classifies every account, and produces statutory-grade output.
+            </p>
+          </div>
+        )}
 
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            Upload Multiple Trial Balances
-          </h2>
-          <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-            Upload CSV or Excel. SAFF ERP validates, classifies every account, and produces statutory-grade output.
-          </p>
-        </div>
+        {/* Locked destination line — one truth, no picker */}
+        {embedded && lockedCompanyId && (
+          <div className="mb-4 border border-border bg-secondary/20 px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Uploading for</p>
+            <p className="mt-0.5 text-sm font-semibold text-foreground">
+              {lockedCompany?.name ?? lockedCompanyName ?? "This company"}
+              {periodYear ? <span className="text-muted-foreground font-normal"> · FY{periodYear}</span> : null}
+            </p>
+            {isTinMissing(lockedCompany?.tin) && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3 shrink-0" />
+                TRA TIN not set —{" "}
+                <Link to="/settings" className="underline underline-offset-2">add it in Settings</Link>{" "}
+                before uploading.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Company Selector */}
-        {user && companies.length > 0 && (
+        {!lockedCompanyId && user && companies.length > 0 && (
           <div className="mb-6">
             <label className="block text-sm font-medium text-foreground mb-2">
               Select Company{companies.length > 1 ? " (Required)" : ""}
