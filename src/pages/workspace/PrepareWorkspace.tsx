@@ -25,6 +25,7 @@ import { ValidationReport } from "@/components/ValidationReport";
 import { AccountReviewPanel } from "@/components/AccountReviewPanel";
 import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel";
 import { EmptyCertificationState } from "@/components/certification/EmptyCertificationState";
+import { TrialBalanceUpload } from "@/components/TrialBalanceUpload";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -65,6 +66,7 @@ export default function PrepareWorkspace() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
+  const [showUploader, setShowUploader] = useState(false);
 
   const { periodYear: fpYear, periodEndMonth: fpMonth } = upload
     ? deriveFiscalPeriod(upload, company?.fiscal_year_end ?? null)
@@ -106,8 +108,43 @@ export default function PrepareWorkspace() {
 
         {/* Main content */}
         <div className="lg:col-span-3 space-y-6">
+          {/* Upload surface — the one thing to do when nothing is here yet. */}
+          {(!upload || showUploader) && (
+            <section className="border border-border bg-card">
+              <header className="flex items-center justify-between border-b border-border px-6 py-3">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-foreground">
+                  Upload trial balance
+                </h2>
+                {upload && (
+                  <Button variant="ghost" size="sm" onClick={() => setShowUploader(false)}>
+                    Close
+                  </Button>
+                )}
+              </header>
+              <div className="px-6 py-5">
+                <TrialBalanceUpload
+                  embedded
+                  lockedCompanyId={companyId}
+                  lockedCompanyName={company?.name ?? undefined}
+                  periodYear={periodYear}
+                  onUploaded={() => {
+                    setShowUploader(false);
+                    refreshUpload();
+                  }}
+                />
+              </div>
+            </section>
+          )}
+
           {upload ? (
             <>
+              {!showUploader && (
+                <div className="flex justify-end">
+                  <Button variant="outline" size="sm" onClick={() => setShowUploader(true)}>
+                    Upload another trial balance
+                  </Button>
+                </div>
+              )}
               <div>
                 <CertificationHeader upload={upload} />
                 <CertificationSummaryStrip upload={upload} />
@@ -243,9 +280,7 @@ export default function PrepareWorkspace() {
                 />
               )}
             </>
-          ) : (
-            <EmptyCertificationState />
-          )}
+          ) : null}
         </div>
       </div>
 
