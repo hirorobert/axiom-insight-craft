@@ -151,6 +151,7 @@ export default function WorkspaceOverview() {
   const navigate = useNavigate();
 
   const [uploadsOpen, setUploadsOpen] = useState(false);
+  const [workflowExpanded, setWorkflowExpanded] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [tinDialogOpen, setTinDialogOpen] = useState(false);
