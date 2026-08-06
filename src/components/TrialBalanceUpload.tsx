@@ -39,7 +39,25 @@ interface Company {
   tin: string | null;
 }
 
-export const TrialBalanceUpload = () => {
+export interface TrialBalanceUploadProps {
+  /** Render as an in-workspace panel: no marketing header, no company picker. */
+  embedded?: boolean;
+  /** Force uploads to this company — hides the selector entirely. */
+  lockedCompanyId?: string;
+  lockedCompanyName?: string;
+  /** Financial year the upload belongs to (written to period_year). */
+  periodYear?: number;
+  /** Called after a batch finishes so the parent can refresh. */
+  onUploaded?: () => void;
+}
+
+export const TrialBalanceUpload = ({
+  embedded = false,
+  lockedCompanyId,
+  lockedCompanyName,
+  periodYear,
+  onUploaded,
+}: TrialBalanceUploadProps = {}) => {
   const [files, setFiles] = useState<FileUpload[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -72,8 +90,11 @@ export const TrialBalanceUpload = () => {
 
       if (!error && data) {
         setCompanies(data);
-        // Auto-select the only active company so uploads are never unassigned.
-        if (data.length === 1) {
+        // Locked company (workspace context) always wins.
+        if (lockedCompanyId) {
+          setSelectedCompanyId(lockedCompanyId);
+        } else if (data.length === 1) {
+          // Auto-select the only active company so uploads are never unassigned.
           setSelectedCompanyId(data[0].id);
         }
       }
@@ -81,7 +102,7 @@ export const TrialBalanceUpload = () => {
     };
 
     fetchCompanies();
-  }, [user]);
+  }, [user, lockedCompanyId]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -171,7 +192,8 @@ export const TrialBalanceUpload = () => {
       updateFileStatus(id, { progress: 40 });
 
       // Get selected company name for the record
-      const selectedCompany = companies.find((c) => c.id === selectedCompanyId);
+      const targetCompanyId = lockedCompanyId ?? selectedCompanyId;
+      const selectedCompany = companies.find((c) => c.id === targetCompanyId);
 
       // Create database record
       const { data: uploadRecord, error: dbError } = await supabase
@@ -182,8 +204,9 @@ export const TrialBalanceUpload = () => {
           file_size: file.size,
           status: "processing",
           user_id: user!.id,
-          company_id: selectedCompanyId,
-          company_name: selectedCompany?.name || null,
+          company_id: targetCompanyId,
+          company_name: selectedCompany?.name || lockedCompanyName || null,
+          ...(periodYear ? { period_year: periodYear } : {}),
         })
         .select()
         .single();
