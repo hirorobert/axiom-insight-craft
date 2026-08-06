@@ -517,79 +517,134 @@ export default function WorkspaceOverview() {
           </p>
         </div>
 
+        {/* Live step only — the one resting place for attention */}
         <ol className="border-t border-border">
-          {STAGE_SEQUENCE.map((slug, i) => {
-            const config  = STAGE_CONFIGS[slug];
+          {activeIndex >= 0 ? (() => {
+            const slug = STAGE_SEQUENCE[activeIndex];
+            const config = STAGE_CONFIGS[slug];
             const mission = missions[slug];
-            const meta    = STATUS_META[mission.status];
-            const Icon    = config.icon;
-
-            const isLocked   = mission.status === "locked" || mission.status === "not_applicable";
-            const isActive   = i === activeIndex;
-            const isComplete = mission.status === "passed" || mission.status === "signed";
-            const canOpen    = !isLocked;
-
-            const rowInner = (
-              <div className={[
-                "group grid grid-cols-[3.5rem_1.5rem_1fr_auto_1.5rem] items-center gap-4 py-4 border-b border-border transition-colors",
-                canOpen ? "hover:bg-secondary/30 cursor-pointer" : "cursor-default",
-                isActive ? "bg-primary/[0.03]" : "",
-              ].join(" ")}>
-                <span className={[
-                  "text-[11px] font-mono tabular-nums pl-1",
-                  isActive ? "text-primary font-semibold" : isComplete ? "text-success" : "text-muted-foreground/60",
-                ].join(" ")}>
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-
-                <Icon className={[
-                  "w-4 h-4",
-                  isActive ? "text-primary" : isComplete ? "text-success" : isLocked ? "text-muted-foreground/30" : "text-muted-foreground",
-                ].join(" ")} />
-
-                <div className="min-w-0">
-                  <p className={[
-                    "text-[15px] font-medium leading-tight tracking-tight",
-                    isLocked ? "text-muted-foreground" : "text-foreground",
-                  ].join(" ")}>
-                    {mission.label}
-                  </p>
-                  {isLocked && mission.blocker && (
-                    <p className="mt-1 text-[12px] text-muted-foreground/70 leading-snug truncate">
-                      {mission.blocker}
-                    </p>
-                  )}
-                </div>
-
-                <span className={`inline-flex items-center gap-2 text-[12px] ${TEXT_TONE[meta.tone]}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[meta.tone]}`} />
-                  <span className="whitespace-nowrap">{meta.label}</span>
-                </span>
-
-                {canOpen ? (
-                  <ArrowRight className={[
-                    "w-4 h-4 transition-transform",
-                    isActive ? "text-primary" : "text-muted-foreground/40 group-hover:text-foreground group-hover:translate-x-0.5",
-                  ].join(" ")} />
-                ) : (
-                  <Lock className="w-3.5 h-3.5 text-muted-foreground/30" />
-                )}
-              </div>
-            );
-
+            const meta = STATUS_META[mission.status];
+            const Icon = config.icon;
             return (
               <li key={slug}>
-                {canOpen ? (
-                  <Link to={mission.href} className="block">
-                    {rowInner}
-                  </Link>
-                ) : (
-                  <div title={mission.blocker ?? "Not available"}>{rowInner}</div>
-                )}
+                <Link to={mission.href} className="block">
+                  <div className="group grid grid-cols-[3.5rem_1.5rem_1fr_auto_1.5rem] items-center gap-4 py-4 border-b border-border transition-colors hover:bg-secondary/30 bg-primary/[0.03]">
+                    <span className="text-[11px] font-mono tabular-nums pl-1 text-primary font-semibold">
+                      {String(activeIndex + 1).padStart(2, "0")}
+                    </span>
+                    <Icon className="w-4 h-4 text-primary" />
+                    <div className="min-w-0">
+                      <p className="text-[15px] font-medium leading-tight tracking-tight text-foreground">
+                        {mission.label}
+                      </p>
+                      {mission.blocker && (
+                        <p className="mt-1 text-[12px] text-muted-foreground/70 leading-snug truncate">
+                          {mission.blocker}
+                        </p>
+                      )}
+                    </div>
+                    <span className={`inline-flex items-center gap-2 text-[12px] ${TEXT_TONE[meta.tone]}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[meta.tone]}`} />
+                      <span className="whitespace-nowrap">{meta.label}</span>
+                    </span>
+                    <ArrowRight className="w-4 h-4 text-primary transition-transform group-hover:translate-x-0.5" />
+                  </div>
+                </Link>
               </li>
             );
-          })}
+          })() : (
+            <li>
+              <div className="grid grid-cols-[3.5rem_1fr_auto] items-center gap-4 py-4 border-b border-border">
+                <CheckCircle2 className="w-4 h-4 text-success" />
+                <p className="text-[15px] font-medium text-foreground">All workflow stages complete</p>
+                <span className="text-[12px] text-muted-foreground/70">Done</span>
+              </div>
+            </li>
+          )}
         </ol>
+
+        {/* Folded later stages — one expandable section, one decision */}
+        <button
+          type="button"
+          onClick={() => setWorkflowExpanded((v) => !v)}
+          className="w-full flex items-center justify-between text-left py-3 group"
+        >
+          <span className="text-[12px] text-muted-foreground group-hover:text-foreground transition-colors">
+            {workflowExpanded ? "Hide all stages" : "View all stages"}
+          </span>
+          <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${workflowExpanded ? "rotate-180" : ""}`} />
+        </button>
+
+        {workflowExpanded && (
+          <ol className="border-t border-border">
+            {STAGE_SEQUENCE.map((slug, i) => {
+              const config = STAGE_CONFIGS[slug];
+              const mission = missions[slug];
+              const meta = STATUS_META[mission.status];
+              const Icon = config.icon;
+              const isLocked = mission.status === "locked" || mission.status === "not_applicable";
+              const isActive = i === activeIndex;
+              const isComplete = mission.status === "passed" || mission.status === "signed";
+              const canOpen = !isLocked;
+
+              const rowInner = (
+                <div className={[
+                  "group grid grid-cols-[3.5rem_1.5rem_1fr_auto_1.5rem] items-center gap-4 py-3 border-b border-border transition-colors",
+                  canOpen ? "hover:bg-secondary/30 cursor-pointer" : "cursor-default",
+                  isActive ? "bg-primary/[0.03]" : "",
+                ].join(" ")}>
+                  <span className={[
+                    "text-[11px] font-mono tabular-nums pl-1",
+                    isActive ? "text-primary font-semibold" : isComplete ? "text-success" : "text-muted-foreground/60",
+                  ].join(" ")}>
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <Icon className={[
+                    "w-4 h-4",
+                    isActive ? "text-primary" : isComplete ? "text-success" : isLocked ? "text-muted-foreground/30" : "text-muted-foreground",
+                  ].join(" ")} />
+                  <div className="min-w-0">
+                    <p className={[
+                      "text-[14px] font-medium leading-tight tracking-tight",
+                      isLocked ? "text-muted-foreground" : "text-foreground",
+                    ].join(" ")}>
+                      {mission.label}
+                    </p>
+                    {isLocked && mission.blocker && (
+                      <p className="mt-1 text-[11px] text-muted-foreground/70 leading-snug truncate">
+                        {mission.blocker}
+                      </p>
+                    )}
+                  </div>
+                  <span className={`inline-flex items-center gap-2 text-[12px] ${TEXT_TONE[meta.tone]}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[meta.tone]}`} />
+                    <span className="whitespace-nowrap">{meta.label}</span>
+                  </span>
+                  {canOpen ? (
+                    <ArrowRight className={[
+                      "w-4 h-4 transition-transform",
+                      isActive ? "text-primary" : "text-muted-foreground/40 group-hover:text-foreground group-hover:translate-x-0.5",
+                    ].join(" ")} />
+                  ) : (
+                    <Lock className="w-3.5 h-3.5 text-muted-foreground/30" />
+                  )}
+                </div>
+              );
+
+              return (
+                <li key={slug}>
+                  {canOpen ? (
+                    <Link to={mission.href} className="block">
+                      {rowInner}
+                    </Link>
+                  ) : (
+                    <div title={mission.blocker ?? "Not available"}>{rowInner}</div>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        )}
       </section>
 
       {/* ── 4. Files — quiet, collapsed, secondary ──────────────────────── */}
