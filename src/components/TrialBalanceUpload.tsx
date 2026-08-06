@@ -265,6 +265,7 @@ export const TrialBalanceUpload = ({
     if (done > 0) {
       toast.success(`${done} file(s) processed successfully!`);
     }
+    onUploaded?.();
   };
 
   const startProcessing = async () => {
@@ -274,7 +275,7 @@ export const TrialBalanceUpload = ({
       return;
     }
 
-    if (companies.length > 1 && !selectedCompanyId) {
+    if (!lockedCompanyId && companies.length > 1 && !selectedCompanyId) {
       toast.error("Select a company before uploading.");
       return;
     }
@@ -283,7 +284,9 @@ export const TrialBalanceUpload = ({
     // A real TRA TIN is required before any trial balance can be submitted.
     // If the company has no TIN (or still has the placeholder), block the upload
     // and direct the user to Settings so they can enter the real number.
-    const selectedCompany = companies.find((c) => c.id === (selectedCompanyId ?? companies[0]?.id));
+    const selectedCompany = companies.find(
+      (c) => c.id === (lockedCompanyId ?? selectedCompanyId ?? companies[0]?.id),
+    );
     if (isTinMissing(selectedCompany?.tin)) {
       toast.error("Enter the company's TRA TIN in Settings before uploading.", {
         action: {
@@ -304,7 +307,7 @@ export const TrialBalanceUpload = ({
     // Before processing, check whether any queued file has already been
     // successfully uploaded for this company. Show a confirmation banner so
     // the user can decide — don't silently re-process or silently block.
-    const companyId = selectedCompanyId ?? companies[0]?.id ?? null;
+    const companyId = lockedCompanyId ?? selectedCompanyId ?? companies[0]?.id ?? null;
     if (companyId) {
       const fileNames = queuedFiles.map((f) => f.file.name);
 
