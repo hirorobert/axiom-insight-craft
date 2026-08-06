@@ -39,7 +39,25 @@ interface Company {
   tin: string | null;
 }
 
-export const TrialBalanceUpload = () => {
+export interface TrialBalanceUploadProps {
+  /** Render as an in-workspace panel: no marketing header, no company picker. */
+  embedded?: boolean;
+  /** Force uploads to this company — hides the selector entirely. */
+  lockedCompanyId?: string;
+  lockedCompanyName?: string;
+  /** Financial year the upload belongs to (written to period_year). */
+  periodYear?: number;
+  /** Called after a batch finishes so the parent can refresh. */
+  onUploaded?: () => void;
+}
+
+export const TrialBalanceUpload = ({
+  embedded = false,
+  lockedCompanyId,
+  lockedCompanyName,
+  periodYear,
+  onUploaded,
+}: TrialBalanceUploadProps = {}) => {
   const [files, setFiles] = useState<FileUpload[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -72,8 +90,11 @@ export const TrialBalanceUpload = () => {
 
       if (!error && data) {
         setCompanies(data);
-        // Auto-select the only active company so uploads are never unassigned.
-        if (data.length === 1) {
+        // Locked company (workspace context) always wins.
+        if (lockedCompanyId) {
+          setSelectedCompanyId(lockedCompanyId);
+        } else if (data.length === 1) {
+          // Auto-select the only active company so uploads are never unassigned.
           setSelectedCompanyId(data[0].id);
         }
       }
@@ -81,7 +102,7 @@ export const TrialBalanceUpload = () => {
     };
 
     fetchCompanies();
-  }, [user]);
+  }, [user, lockedCompanyId]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -171,7 +192,8 @@ export const TrialBalanceUpload = () => {
       updateFileStatus(id, { progress: 40 });
 
       // Get selected company name for the record
-      const selectedCompany = companies.find((c) => c.id === selectedCompanyId);
+      const targetCompanyId = lockedCompanyId ?? selectedCompanyId;
+      const selectedCompany = companies.find((c) => c.id === targetCompanyId);
 
       // Create database record
       const { data: uploadRecord, error: dbError } = await supabase
@@ -182,8 +204,9 @@ export const TrialBalanceUpload = () => {
           file_size: file.size,
           status: "processing",
           user_id: user!.id,
-          company_id: selectedCompanyId,
-          company_name: selectedCompany?.name || null,
+          company_id: targetCompanyId,
+          company_name: selectedCompany?.name || lockedCompanyName || null,
+          ...(periodYear ? { period_year: periodYear } : {}),
         })
         .select()
         .single();
@@ -242,6 +265,7 @@ export const TrialBalanceUpload = () => {
     if (done > 0) {
       toast.success(`${done} file(s) processed successfully!`);
     }
+    onUploaded?.();
   };
 
   const startProcessing = async () => {
@@ -251,7 +275,7 @@ export const TrialBalanceUpload = () => {
       return;
     }
 
-    if (companies.length > 1 && !selectedCompanyId) {
+    if (!lockedCompanyId && companies.length > 1 && !selectedCompanyId) {
       toast.error("Select a company before uploading.");
       return;
     }
@@ -260,7 +284,9 @@ export const TrialBalanceUpload = () => {
     // A real TRA TIN is required before any trial balance can be submitted.
     // If the company has no TIN (or still has the placeholder), block the upload
     // and direct the user to Settings so they can enter the real number.
-    const selectedCompany = companies.find((c) => c.id === (selectedCompanyId ?? companies[0]?.id));
+    const selectedCompany = companies.find(
+      (c) => c.id === (lockedCompanyId ?? selectedCompanyId ?? companies[0]?.id),
+    );
     if (isTinMissing(selectedCompany?.tin)) {
       toast.error("Enter the company's TRA TIN in Settings before uploading.", {
         action: {
@@ -281,7 +307,7 @@ export const TrialBalanceUpload = () => {
     // Before processing, check whether any queued file has already been
     // successfully uploaded for this company. Show a confirmation banner so
     // the user can decide — don't silently re-process or silently block.
-    const companyId = selectedCompanyId ?? companies[0]?.id ?? null;
+    const companyId = lockedCompanyId ?? selectedCompanyId ?? companies[0]?.id ?? null;
     if (companyId) {
       const fileNames = queuedFiles.map((f) => f.file.name);
 
@@ -363,25 +389,51 @@ export const TrialBalanceUpload = () => {
   const completedCount = files.filter((f) => f.status === "complete").length;
   const isProcessing = processingCount > 0;
 
+  const lockedCompany = lockedCompanyId
+    ? companies.find((c) => c.id === lockedCompanyId)
+    : undefined;
+
   return (
-    <section id="upload" className="py-10 px-6 relative overflow-hidden">
-      {/* Background glow */}
-      <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
+    <section
+      id="upload"
+      className={embedded ? "relative" : "py-10 px-6 relative overflow-hidden"}
+    >
+      {!embedded && <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />}
 
-      <div className="max-w-4xl mx-auto relative z-10">
-        {/* Section header */}
-        <div className="text-center mb-12">
+      <div className={embedded ? "relative z-10" : "max-w-4xl mx-auto relative z-10"}>
+        {/* Section header — marketing surface only */}
+        {!embedded && (
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+              Upload Multiple Trial Balances
+            </h2>
+            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+              Upload CSV or Excel. SAFF ERP validates, classifies every account, and produces statutory-grade output.
+            </p>
+          </div>
+        )}
 
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            Upload Multiple Trial Balances
-          </h2>
-          <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-            Upload CSV or Excel. SAFF ERP validates, classifies every account, and produces statutory-grade output.
-          </p>
-        </div>
+        {/* Locked destination line — one truth, no picker */}
+        {embedded && lockedCompanyId && (
+          <div className="mb-4 border border-border bg-secondary/20 px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Uploading for</p>
+            <p className="mt-0.5 text-sm font-semibold text-foreground">
+              {lockedCompany?.name ?? lockedCompanyName ?? "This company"}
+              {periodYear ? <span className="text-muted-foreground font-normal"> · FY{periodYear}</span> : null}
+            </p>
+            {isTinMissing(lockedCompany?.tin) && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3 shrink-0" />
+                TRA TIN not set —{" "}
+                <Link to="/settings" className="underline underline-offset-2">add it in Settings</Link>{" "}
+                before uploading.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Company Selector */}
-        {user && companies.length > 0 && (
+        {!lockedCompanyId && user && companies.length > 0 && (
           <div className="mb-6">
             <label className="block text-sm font-medium text-foreground mb-2">
               Select Company{companies.length > 1 ? " (Required)" : ""}
