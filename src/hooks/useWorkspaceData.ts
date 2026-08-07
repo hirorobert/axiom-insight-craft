@@ -12,6 +12,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { deriveWorkspaceState } from "@/lib/workspace/deriveWorkspaceState";
+import { resolveActiveUpload } from "@/lib/workspace/resolveActiveUpload";
 import type { WorkspaceState, UploadSnapshot } from "@/lib/workspace/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -164,33 +165,15 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     const uploadsData = (ups ?? []) as WorkspaceUpload[];
     setUploads(uploadsData);
 
-    // Find upload matching pYear
-    let match: WorkspaceUpload | null = null;
-
-    // 0. Explicit selection via ?upload=<id> — always wins, so clicking a
-    //    trial balance never resolves to a different (or empty) record.
-    if (requestedUploadId) {
-      match = uploadsData.find((u) => u.id === requestedUploadId) ?? null;
-    }
-
-    // 1. Exact period_year column match (fastest)
-    if (!match) {
-      match = uploadsData.find((u) => u.period_year === pYear) ?? null;
-    }
-
-    // 2. Fall back to deriveFiscalPeriod for old uploads
-    if (!match) {
-      match =
-        uploadsData.find((u) => {
-          const { periodYear } = deriveFiscalPeriod(u, coData);
-          return periodYear === pYear;
-        }) ?? null;
-    }
-
-    // 3. If still no match, use most recent upload
-    if (!match && uploadsData.length > 0) {
-      match = uploadsData[0];
-    }
+    // Find the active upload — pinned ?upload=<id> always wins so a clicked
+    // trial balance can never resolve to a different (or empty) record.
+    // Pure, regression-tested logic lives in resolveActiveUpload.ts.
+    const match: WorkspaceUpload | null = resolveActiveUpload<WorkspaceUpload>({
+      uploads: uploadsData,
+      requestedUploadId,
+      periodYear: pYear,
+      derivePeriodYear: (u) => deriveFiscalPeriod(u, coData).periodYear,
+    });
 
     setUpload(match);
 
