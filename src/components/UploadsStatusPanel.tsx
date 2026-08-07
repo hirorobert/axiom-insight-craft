@@ -489,6 +489,9 @@ function UploadRow({
       {/* Main row */}
       <button
         onClick={() => onSelect(u)}
+        data-testid="upload-row"
+        data-upload-id={u.id}
+        data-selected={selected ? "true" : "false"}
         className={[
           "w-full text-left px-3 py-2.5 border-l-2 transition-colors",
           selected
