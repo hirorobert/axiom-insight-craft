@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { buildPrepareUploadRoute } from "@/lib/workspace/resolveActiveUpload";
 import { toast } from "sonner";
 
 import { UploadsStatusPanel } from "@/components/UploadsStatusPanel";
