@@ -96,10 +96,14 @@ export default function PrepareWorkspace() {
             uploads={uploads}
             selectedId={upload?.id ?? null}
             onSelect={(u) => {
-              // Navigate to the period year of the selected upload
+              // Navigate to the selected upload's period AND pin the exact
+              // record via ?upload=<id>. Without the id, clicking a sibling
+              // upload in the same year was a no-op (the row appeared to
+              // "disappear" instead of loading its certification ledger).
               const selected = u as WorkspaceUpload;
               const { periodYear: newPY } = deriveFiscalPeriod(selected, company?.fiscal_year_end ?? null);
-              navigate(`/workspace/${companyId}/${newPY}/prepare`);
+              setShowUploader(false);
+              navigate(`/workspace/${companyId}/${newPY}/prepare?upload=${selected.id}`);
             }}
             onRefresh={async () => { await refreshUpload(); }}
           />
