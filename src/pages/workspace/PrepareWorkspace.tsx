@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { buildPrepareUploadRoute } from "@/lib/workspace/resolveActiveUpload";
 import { toast } from "sonner";
 
 import { UploadsStatusPanel } from "@/components/UploadsStatusPanel";
@@ -103,7 +104,7 @@ export default function PrepareWorkspace() {
               const selected = u as WorkspaceUpload;
               const { periodYear: newPY } = deriveFiscalPeriod(selected, company?.fiscal_year_end ?? null);
               setShowUploader(false);
-              navigate(`/workspace/${companyId}/${newPY}/prepare?upload=${selected.id}`);
+              navigate(buildPrepareUploadRoute(companyId, newPY, selected.id));
             }}
             onRefresh={async () => { await refreshUpload(); }}
           />
@@ -133,7 +134,7 @@ export default function PrepareWorkspace() {
                   onUploaded={() => {
                     setShowUploader(false);
                     // Drop any pinned ?upload=<id> so the newest upload shows.
-                    navigate(`/workspace/${companyId}/${periodYear}/prepare`, { replace: true });
+                    navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
                     refreshUpload();
                   }}
                 />
