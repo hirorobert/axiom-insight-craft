@@ -132,6 +132,8 @@ export default function PrepareWorkspace() {
                   periodYear={periodYear}
                   onUploaded={() => {
                     setShowUploader(false);
+                    // Drop any pinned ?upload=<id> so the newest upload shows.
+                    navigate(`/workspace/${companyId}/${periodYear}/prepare`, { replace: true });
                     refreshUpload();
                   }}
                 />
