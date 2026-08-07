@@ -15,7 +15,8 @@
     "test:routes": "python3 scripts/route_smoke.py",
     "test:routes:auth": "python3 scripts/route_smoke_authed.py",
     "test:routes:auto": "bash scripts/route_smoke_auto.sh",
-    "test:auth": "python3 scripts/auth_smoke.py"
+    "test:auth": "python3 scripts/auth_smoke.py",
+    "test:tb-click": "python3 scripts/tb_click_e2e.py"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

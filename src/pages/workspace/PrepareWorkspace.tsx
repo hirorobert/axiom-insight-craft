@@ -151,7 +151,7 @@ export default function PrepareWorkspace() {
                   </Button>
                 </div>
               )}
-              <div>
+              <div data-testid="certification-ledger" data-active-upload-id={upload.id}>
                 <CertificationHeader upload={upload} />
                 <CertificationSummaryStrip upload={upload} />
               </div>
