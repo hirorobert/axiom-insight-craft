@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { deriveWorkspaceState } from "@/lib/workspace/deriveWorkspaceState";
@@ -116,6 +116,8 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     companyId: string;
     periodYear: string;
   }>();
+  const [searchParams] = useSearchParams();
+  const requestedUploadId = searchParams.get("upload");
   const { user } = useAuth();
 
   const cId = companyId ?? "";
@@ -165,8 +167,16 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     // Find upload matching pYear
     let match: WorkspaceUpload | null = null;
 
+    // 0. Explicit selection via ?upload=<id> — always wins, so clicking a
+    //    trial balance never resolves to a different (or empty) record.
+    if (requestedUploadId) {
+      match = uploadsData.find((u) => u.id === requestedUploadId) ?? null;
+    }
+
     // 1. Exact period_year column match (fastest)
-    match = uploadsData.find((u) => u.period_year === pYear) ?? null;
+    if (!match) {
+      match = uploadsData.find((u) => u.period_year === pYear) ?? null;
+    }
 
     // 2. Fall back to deriveFiscalPeriod for old uploads
     if (!match) {
@@ -230,7 +240,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     setFilingSubmittedAt((filingRes.data as { updated_at: string } | null)?.updated_at ?? null);
 
     setLoading(false);
-  }, [user, cId, pYear]);
+  }, [user, cId, pYear, requestedUploadId]);
 
   useEffect(() => {
     fetchData();
