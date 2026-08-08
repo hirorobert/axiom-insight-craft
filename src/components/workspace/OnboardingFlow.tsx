@@ -822,7 +822,12 @@ export default function OnboardingFlow({
             Getting started · Step {activeIndex + 1} of {STEP_ORDER.length}
           </p>
           <p className="mt-2 text-[15px] font-medium text-foreground tracking-tight">
-            {STEP_TITLES[activeStep]} — {completedCount === STEP_ORDER.length ? "all steps complete" : "in progress"}
+            {STEP_TITLES[activeStep]} —{" "}
+            {completedCount === STEP_ORDER.length
+              ? "all steps complete"
+              : activeStep === "upload" && uploadPending
+                ? "validating now"
+                : "waiting on you"}
           </p>
         </div>
         <div className="flex items-center gap-4 shrink-0">
