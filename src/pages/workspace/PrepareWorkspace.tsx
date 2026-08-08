@@ -32,6 +32,11 @@ import { DiscardUploadDialog } from "@/components/workspace/DiscardUploadDialog"
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  SurfaceCard,
+  SurfaceCardHeader,
+  SurfaceCardBody,
+} from "@/components/workspace/ui/Surface";
+import {
   Eye,
   BarChart3,
   TrendingUp,
@@ -121,18 +126,18 @@ export default function PrepareWorkspace() {
         <div className="lg:col-span-3 space-y-6">
           {/* Upload surface — the one thing to do when nothing is here yet. */}
           {(!upload || showUploader) && (
-            <section className="border border-border bg-card">
-              <header className="flex items-center justify-between border-b border-border px-6 py-3">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-foreground">
-                  Upload trial balance
-                </h2>
-                {upload && (
-                  <Button variant="ghost" size="sm" onClick={() => setShowUploader(false)}>
-                    Close
-                  </Button>
-                )}
-              </header>
-              <div className="px-6 py-5">
+            <SurfaceCard>
+              <SurfaceCardHeader
+                label="Upload trial balance"
+                action={
+                  upload ? (
+                    <Button variant="ghost" size="sm" onClick={() => setShowUploader(false)}>
+                      Close
+                    </Button>
+                  ) : undefined
+                }
+              />
+              <SurfaceCardBody>
                 <TrialBalanceUpload
                   embedded
                   lockedCompanyId={companyId}
@@ -145,8 +150,8 @@ export default function PrepareWorkspace() {
                     refreshUpload();
                   }}
                 />
-              </div>
-            </section>
+              </SurfaceCardBody>
+            </SurfaceCard>
           )}
 
           {upload ? (
@@ -212,20 +217,22 @@ export default function PrepareWorkspace() {
 
               {/* Account Classifications */}
               {mapping && (
-                <Card className="bg-card border-border">
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle className="text-base">Account Classifications</CardTitle>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setMappingModalOpen(true)}
-                      className="gap-2"
-                    >
-                      <Eye className="w-4 h-4" />
-                      View Details
-                    </Button>
-                  </CardHeader>
-                  <CardContent className="space-y-5">
+                <SurfaceCard>
+                  <SurfaceCardHeader
+                    label="Account classifications"
+                    action={
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setMappingModalOpen(true)}
+                        className="gap-2 rounded-none"
+                      >
+                        <Eye className="w-4 h-4" />
+                        View details
+                      </Button>
+                    }
+                  />
+                  <SurfaceCardBody className="space-y-5">
                     {/* Balance Sheet */}
                     <div>
                       <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
@@ -294,8 +301,8 @@ export default function PrepareWorkspace() {
                         ))}
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
+                  </SurfaceCardBody>
+                </SurfaceCard>
               )}
 
               {/* EFDMS Reconciliation */}

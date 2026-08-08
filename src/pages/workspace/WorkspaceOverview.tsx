@@ -40,6 +40,14 @@ import { toast } from "sonner";
 import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
 import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
 import OnboardingFlow from "@/components/workspace/OnboardingFlow";
+import {
+  SurfaceCard,
+  SurfaceCardHeader,
+  SurfaceCardBody,
+  LedgerRow,
+  StatusMark,
+  LockNote,
+} from "@/components/workspace/ui/Surface";
 
 // Single-dot status vocabulary — one word, one colour, no chips.
 // The eye should never have to decode a badge to know where a stage stands.
@@ -422,7 +430,8 @@ export default function WorkspaceOverview() {
       )}
 
       {/* ── 2. Directive — the single resting place ─────────────────────── */}
-      <section className={showOnboarding ? "hidden" : "mb-14"}>
+      <section className={showOnboarding ? "hidden" : "mb-10"}>
+        <SurfaceCard className="px-6 py-7">
         <p className={[
           "text-[10px] font-semibold tracking-[0.22em] uppercase mb-4",
           directive.tone === "warn" ? "text-destructive" :
@@ -475,32 +484,8 @@ export default function WorkspaceOverview() {
             </Button>
           )}
 
-          {/* Secondary: only when trial balance status is worth showing */}
-          {upload && !prepareDone && (() => {
-            const s = upload.status;
-            const tone: "muted" | "active" | "done" | "warn" | "bad" | "off" =
-              s === "complete" || s === "valid" ? "done" :
-              s === "blocked" || s === "error" ? "bad" :
-              s === "processing" || s === "needs_review" || s === "pending" || s === "queued" ? "active" :
-              "muted";
-            const label =
-              s === "complete" || s === "valid" ? "Trial balance ready" :
-              s === "blocked" ? "Trial balance blocked" :
-              s === "error" ? "Trial balance failed" :
-              s === "processing" ? "Trial balance processing" :
-              s === "needs_review" ? "Trial balance needs review" :
-              `Trial balance ${s}`;
-            return (
-              <span className="inline-flex items-center gap-2 text-[12px] text-muted-foreground">
-                <span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[tone]}`} />
-                <span className={TEXT_TONE[tone]}>{label}</span>
-                {lastRefreshedAt && (
-                  <span className="text-muted-foreground/60 tabular-nums">· {formatRelative(lastRefreshedAt.toISOString())}</span>
-                )}
-              </span>
-            );
-          })()}
         </div>
+        </SurfaceCard>
       </section>
 
       {/* ── 3. Workflow ledger — 7 rows, numbered, no cards ─────────────── */}
@@ -509,18 +494,15 @@ export default function WorkspaceOverview() {
         <TrialBalanceProgressLedger upload={upload} lastRefreshedAt={lastRefreshedAt} />
       )}
 
-      <section className="mb-14">
-        <div className="flex items-baseline justify-between mb-5">
-          <p className="text-[10px] font-semibold text-muted-foreground tracking-[0.22em] uppercase">
-            Workflow
-          </p>
-          <p className="text-[11px] text-muted-foreground/70 tabular-nums tracking-wide">
-            {activeIndex >= 0 ? `Step ${activeIndex + 1} of ${STAGE_SEQUENCE.length}` : "All stages complete"}
-          </p>
-        </div>
+      <section className="mb-10">
+        <SurfaceCard>
+        <SurfaceCardHeader
+          label="Workflow"
+          meta={activeIndex >= 0 ? `Step ${activeIndex + 1} of ${STAGE_SEQUENCE.length}` : "All stages complete"}
+        />
 
         {/* Live step only — the one resting place for attention */}
-        <ol className="border-t border-border">
+        <ol>
           {activeIndex >= 0 ? (() => {
             const slug = STAGE_SEQUENCE[activeIndex];
             const config = STAGE_CONFIGS[slug];
@@ -529,38 +511,27 @@ export default function WorkspaceOverview() {
             const Icon = config.icon;
             return (
               <li key={slug}>
-                <Link to={mission.href} className="block">
-                  <div className="group grid grid-cols-[3.5rem_1.5rem_1fr_auto_1.5rem] items-center gap-4 py-4 border-b border-border transition-colors hover:bg-secondary/30 bg-primary/[0.03]">
-                    <span className="text-[11px] font-mono tabular-nums pl-1 text-primary font-semibold">
-                      {String(activeIndex + 1).padStart(2, "0")}
-                    </span>
-                    <Icon className="w-4 h-4 text-primary" />
-                    <div className="min-w-0">
-                      <p className="text-[15px] font-medium leading-tight tracking-tight text-foreground">
-                        {mission.label}
-                      </p>
-                      {mission.blocker && (
-                        <p className="mt-1 text-[12px] text-muted-foreground/70 leading-snug truncate">
-                          {mission.blocker}
-                        </p>
-                      )}
-                    </div>
-                    <span className={`inline-flex items-center gap-2 text-[12px] ${TEXT_TONE[meta.tone]}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[meta.tone]}`} />
-                      <span className="whitespace-nowrap">{meta.label}</span>
-                    </span>
-                    <ArrowRight className="w-4 h-4 text-primary transition-transform group-hover:translate-x-0.5" />
-                  </div>
+                <Link to={mission.href} className="block hover:bg-secondary/30 transition-colors">
+                  <LedgerRow
+                    highlight
+                    step={String(activeIndex + 1).padStart(2, "0")}
+                    stepTone="active"
+                    icon={<Icon className="w-4 h-4 text-primary" />}
+                    title={mission.label}
+                    note={mission.blocker ?? undefined}
+                    status={<StatusMark tone={meta.tone} label={meta.label} />}
+                    trailing={<ArrowRight className="w-4 h-4 text-primary" />}
+                  />
                 </Link>
               </li>
             );
           })() : (
             <li>
-              <div className="grid grid-cols-[3.5rem_1fr_auto] items-center gap-4 py-4 border-b border-border">
-                <CheckCircle2 className="w-4 h-4 text-success" />
-                <p className="text-[15px] font-medium text-foreground">All workflow stages complete</p>
-                <span className="text-[12px] text-muted-foreground/70">Done</span>
-              </div>
+              <LedgerRow
+                icon={<CheckCircle2 className="w-4 h-4 text-success" />}
+                title="All workflow stages complete"
+                status={<StatusMark tone="done" label="Done" />}
+              />
             </li>
           )}
         </ol>
@@ -569,7 +540,7 @@ export default function WorkspaceOverview() {
         <button
           type="button"
           onClick={() => setWorkflowExpanded((v) => !v)}
-          className="w-full flex items-center justify-between text-left py-3 group"
+          className="w-full flex items-center justify-between text-left px-5 py-3 group"
         >
           <span className="text-[12px] text-muted-foreground group-hover:text-foreground transition-colors">
             {workflowExpanded ? "Hide all stages" : "View all stages"}
@@ -590,47 +561,30 @@ export default function WorkspaceOverview() {
               const canOpen = !isLocked;
 
               const rowInner = (
-                <div className={[
-                  "group grid grid-cols-[3.5rem_1.5rem_1fr_auto_1.5rem] items-center gap-4 py-3 border-b border-border transition-colors",
-                  canOpen ? "hover:bg-secondary/30 cursor-pointer" : "cursor-default",
-                  isActive ? "bg-primary/[0.03]" : "",
-                ].join(" ")}>
-                  <span className={[
-                    "text-[11px] font-mono tabular-nums pl-1",
-                    isActive ? "text-primary font-semibold" : isComplete ? "text-success" : "text-muted-foreground/60",
-                  ].join(" ")}>
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                  <Icon className={[
-                    "w-4 h-4",
-                    isActive ? "text-primary" : isComplete ? "text-success" : isLocked ? "text-muted-foreground/30" : "text-muted-foreground",
-                  ].join(" ")} />
-                  <div className="min-w-0">
-                    <p className={[
-                      "text-[14px] font-medium leading-tight tracking-tight",
-                      isLocked ? "text-muted-foreground" : "text-foreground",
-                    ].join(" ")}>
-                      {mission.label}
-                    </p>
-                    {isLocked && mission.blocker && (
-                      <p className="mt-1 text-[11px] text-muted-foreground/70 leading-snug truncate">
-                        {mission.blocker}
-                      </p>
-                    )}
-                  </div>
-                  <span className={`inline-flex items-center gap-2 text-[12px] ${TEXT_TONE[meta.tone]}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[meta.tone]}`} />
-                    <span className="whitespace-nowrap">{meta.label}</span>
-                  </span>
-                  {canOpen ? (
-                    <ArrowRight className={[
-                      "w-4 h-4 transition-transform",
-                      isActive ? "text-primary" : "text-muted-foreground/40 group-hover:text-foreground group-hover:translate-x-0.5",
+                <LedgerRow
+                  highlight={isActive}
+                  className={canOpen ? "hover:bg-secondary/30 cursor-pointer" : "cursor-default"}
+                  step={String(i + 1).padStart(2, "0")}
+                  stepTone={isActive ? "active" : isComplete ? "done" : "muted"}
+                  icon={
+                    <Icon className={[
+                      "w-4 h-4",
+                      isActive ? "text-primary" : isComplete ? "text-success" : isLocked ? "text-muted-foreground/30" : "text-muted-foreground",
                     ].join(" ")} />
-                  ) : (
-                    <Lock className="w-3.5 h-3.5 text-muted-foreground/30" />
-                  )}
-                </div>
+                  }
+                  title={mission.label}
+                  titleMuted={isLocked}
+                  note={isLocked ? <LockNote reason={mission.blocker} /> : undefined}
+                  status={isLocked ? undefined : <StatusMark tone={meta.tone} label={meta.label} />}
+                  trailing={
+                    canOpen ? (
+                      <ArrowRight className={[
+                        "w-4 h-4",
+                        isActive ? "text-primary" : "text-muted-foreground/40",
+                      ].join(" ")} />
+                    ) : undefined
+                  }
+                />
               );
 
               return (
@@ -640,22 +594,24 @@ export default function WorkspaceOverview() {
                       {rowInner}
                     </Link>
                   ) : (
-                    <div title={mission.blocker ?? "Not available"}>{rowInner}</div>
+                    <div>{rowInner}</div>
                   )}
                 </li>
               );
             })}
           </ol>
         )}
+        </SurfaceCard>
       </section>
 
       {/* ── 4. Files — quiet, collapsed, secondary ──────────────────────── */}
       {uploads.length > 0 && (
-        <section className="pt-2">
+        <section>
+          <SurfaceCard>
           <button
             type="button"
             onClick={() => setUploadsOpen((v) => !v)}
-            className="w-full flex items-center justify-between text-left group py-2"
+            className="w-full flex items-center justify-between text-left group px-5 py-3"
           >
             <div className="flex items-center gap-4">
               <p className="text-[10px] font-semibold text-muted-foreground tracking-[0.22em] uppercase">
@@ -664,18 +620,12 @@ export default function WorkspaceOverview() {
               <span className="text-[12px] text-muted-foreground/70 tabular-nums">
                 {uploads.length}
               </span>
-              {blockedUploadsCount > 0 && (
-                <span className="inline-flex items-center gap-1.5 text-[11px] text-destructive">
-                  <span className="w-1.5 h-1.5 rounded-full bg-destructive" />
-                  {blockedUploadsCount} blocked
-                </span>
-              )}
             </div>
             <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${uploadsOpen ? "rotate-180" : ""}`} />
           </button>
 
           {uploadsOpen && (
-            <ol className="mt-2 border-t border-border">
+            <ol className="border-t border-border">
               {uploads.slice(0, 5).map((u) => {
                 const isActive  = u.id === upload?.id;
                 const isBlocked = u.status === "blocked" || u.status === "error";
@@ -692,41 +642,38 @@ export default function WorkspaceOverview() {
                   u.status === "processing" ? "active" : "muted";
 
                 return (
-                  <li key={u.id} className="border-b border-border">
-                    <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-6 py-3">
-                      <p className={[
-                        "text-[13px] font-mono truncate",
-                        isActive ? "text-foreground" : "text-muted-foreground",
-                      ].join(" ")}>
-                        {isActive && <span className="text-primary font-sans text-[10px] font-semibold tracking-wider uppercase mr-2">Active</span>}
-                        {u.file_name}
-                      </p>
-                      <span className="text-[12px] text-muted-foreground/70 tabular-nums">
-                        {formatFileSize(u.file_size)}
-                      </span>
-                      <span className={`inline-flex items-center gap-2 text-[12px] ${TEXT_TONE[tone]}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[tone]}`} />
-                        {statusLabel}
-                      </span>
-                      <span className="text-[12px] text-muted-foreground/60 tabular-nums whitespace-nowrap">
-                        {formatRelative(u.uploaded_at)}
-                      </span>
-                    </div>
-                    {isBlocked && reason && (
-                      <div className="pb-3 flex items-start justify-between gap-6">
-                        <p className="text-[12px] text-destructive/90 flex items-start gap-2 leading-relaxed">
-                          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                          {reason}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => navigate(`${basePath}/prepare`)}
-                          className="text-[12px] font-medium text-destructive hover:underline underline-offset-4 whitespace-nowrap"
-                        >
-                          Re-upload →
-                        </button>
-                      </div>
-                    )}
+                  <li key={u.id}>
+                    <LedgerRow
+                      highlight={isActive}
+                      icon={<span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[tone]}`} />}
+                      title={
+                        <span className="font-mono text-[13px] font-normal truncate block">
+                          {u.file_name}
+                        </span>
+                      }
+                      titleMuted={!isActive}
+                      note={
+                        <span className="tabular-nums">
+                          {formatFileSize(u.file_size)} · {formatRelative(u.uploaded_at)}
+                          {isActive ? " · Active file" : ""}
+                          {isBlocked && reason ? ` · ${reason}` : ""}
+                        </span>
+                      }
+                      status={<StatusMark tone={tone} label={statusLabel} />}
+                      trailing={
+                        isBlocked ? (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`${basePath}/prepare`)}
+                            className="text-muted-foreground hover:text-foreground"
+                            aria-label="Re-upload this file"
+                            title="Re-upload this file"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                          </button>
+                        ) : undefined
+                      }
+                    />
                   </li>
                 );
               })}
@@ -736,11 +683,12 @@ export default function WorkspaceOverview() {
           {uploadsOpen && uploads.length > 5 && (
             <Link
               to={`${basePath}/prepare`}
-              className="mt-3 inline-block text-[12px] text-muted-foreground hover:text-foreground"
+              className="block px-5 py-3 text-[12px] text-muted-foreground hover:text-foreground"
             >
               View all {uploads.length} files →
             </Link>
           )}
+          </SurfaceCard>
         </section>
       )}
     </div>

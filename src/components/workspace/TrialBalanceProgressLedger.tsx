@@ -12,6 +12,13 @@
 import { useEffect, useState } from "react";
 import { Check, X, Loader2, Minus, AlertTriangle } from "lucide-react";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
+import {
+  SurfaceCard,
+  SurfaceCardHeader,
+  LedgerRow,
+  StatusMark,
+  type Tone,
+} from "@/components/workspace/ui/Surface";
 
 type StepState = "pending" | "running" | "done" | "failed" | "attention";
 
@@ -135,12 +142,12 @@ const STATE_LABEL: Record<StepState, string> = {
   attention: "Needs review",
 };
 
-const STATE_TEXT: Record<StepState, string> = {
-  done: "text-success",
-  failed: "text-destructive",
-  running: "text-primary",
-  pending: "text-muted-foreground/60",
-  attention: "text-amber-600",
+const STATE_TONE: Record<StepState, Tone> = {
+  done: "done",
+  failed: "bad",
+  running: "active",
+  pending: "muted",
+  attention: "warn",
 };
 
 function formatElapsed(ms: number): string {
@@ -180,20 +187,20 @@ export default function TrialBalanceProgressLedger({
   const phase = failed ? "Failed" : doneCount === steps.length ? "Completed" : running ? "Processing" : "Uploaded";
 
   return (
-    <section className="mb-14" aria-live="polite">
-      <div className="flex items-baseline justify-between mb-5">
-        <p className="text-[10px] font-semibold text-muted-foreground tracking-[0.22em] uppercase">
-          Trial balance progress
-        </p>
-        <p className="text-[11px] text-muted-foreground/70 tabular-nums tracking-wide">
-          {phase} · {doneCount} of {steps.length}
-          {elapsedMs !== null && <span> · {formatElapsed(elapsedMs)} elapsed</span>}
-          {lastRefreshedAt && <span className="text-muted-foreground/50"> · live</span>}
-        </p>
-      </div>
+    <section className="mb-10" aria-live="polite">
+      <SurfaceCard>
+      <SurfaceCardHeader
+        label="Trial balance progress"
+        meta={
+          <>
+            {phase} · {doneCount} of {steps.length}
+            {elapsedMs !== null && <span> · {formatElapsed(elapsedMs)} elapsed</span>}
+          </>
+        }
+      />
 
       {/* Thin progress rule — no bars, no chrome */}
-      <div className="h-px w-full bg-border mb-1">
+      <div className="h-px w-full bg-border">
         <div
           className={`h-px transition-all duration-500 ${failed ? "bg-destructive" : attention ? "bg-amber-500" : doneCount === steps.length ? "bg-success" : "bg-primary"}`}
           style={{ width: `${(doneCount / steps.length) * 100}%` }}
@@ -201,14 +208,14 @@ export default function TrialBalanceProgressLedger({
       </div>
 
       {slow && (
-        <p className="mt-3 text-[12px] text-muted-foreground">
+        <p className="px-5 pt-3 text-[12px] text-muted-foreground">
           Still running. You can leave this page — the run continues on the server and this
           ledger picks up exactly where it is when you come back.
         </p>
       )}
 
       {attention && (
-        <p className="mt-3 text-[12px] text-amber-700 dark:text-amber-500">
+        <p className="px-5 pt-3 pb-1 text-[12px] text-amber-600">
           Some accounts have no mapping decision yet. Resolve them in Prepare Data before the
           statements are trusted — an unmapped account is a wrong statement, not a small gap.
         </p>
@@ -217,47 +224,20 @@ export default function TrialBalanceProgressLedger({
       <ol className="border-t border-border">
         {steps.map((s, i) => (
           <li key={s.key}>
-            <div
-              className={[
-                "grid grid-cols-[3.5rem_1.25rem_1fr_auto] items-center gap-4 py-3 border-b border-border transition-colors",
-                s.state === "running" ? "bg-primary/[0.03]" : "",
-              ].join(" ")}
-            >
-              <span
-                className={[
-                  "text-[11px] font-mono tabular-nums pl-1",
-                  s.state === "done" ? "text-success"
-                    : s.state === "running" ? "text-primary font-semibold"
-                    : s.state === "failed" ? "text-destructive font-semibold"
-                    : "text-muted-foreground/50",
-                ].join(" ")}
-              >
-                {String(i + 1).padStart(2, "0")}
-              </span>
-
-              <span className="inline-flex items-center justify-center">{ICONS[s.state]}</span>
-
-              <div className="min-w-0">
-                <p
-                  className={[
-                    "text-[14px] leading-tight tracking-tight",
-                    s.state === "pending" ? "text-muted-foreground" : "text-foreground",
-                  ].join(" ")}
-                >
-                  {s.label}
-                </p>
-                {s.detail && (
-                  <p className="mt-0.5 text-[12px] text-muted-foreground/70 truncate">{s.detail}</p>
-                )}
-              </div>
-
-              <span className={`text-[12px] whitespace-nowrap ${STATE_TEXT[s.state]}`}>
-                {STATE_LABEL[s.state]}
-              </span>
-            </div>
+            <LedgerRow
+              highlight={s.state === "running"}
+              step={String(i + 1).padStart(2, "0")}
+              stepTone={STATE_TONE[s.state]}
+              icon={ICONS[s.state]}
+              title={s.label}
+              titleMuted={s.state === "pending"}
+              note={s.detail}
+              status={<StatusMark tone={STATE_TONE[s.state]} label={STATE_LABEL[s.state]} />}
+            />
           </li>
         ))}
       </ol>
+      </SurfaceCard>
     </section>
   );
 }

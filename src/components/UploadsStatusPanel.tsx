@@ -302,10 +302,11 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
           <Button
             variant="ghost" size="sm"
             onClick={onRefresh}
-            className="h-7 px-2"
+            className="h-7 gap-1 text-[11px] px-2"
             title="Refresh list"
+            aria-label="Refresh list"
           >
-            <RefreshCw className="w-3 h-3" />
+            <RefreshCw className="w-3 h-3" /> Refresh
           </Button>
         </div>
       </div>
