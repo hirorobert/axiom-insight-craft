@@ -4,6 +4,7 @@
 // export CSV, live timestamps, expandable failure rows.
 // ============================================================
 import { useState, useMemo, useCallback } from "react";
+import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

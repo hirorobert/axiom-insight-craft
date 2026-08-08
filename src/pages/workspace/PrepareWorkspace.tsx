@@ -9,6 +9,7 @@
  */
 
 import { useState } from "react";
+import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";

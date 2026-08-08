@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { Link, useNavigate } from "react-router-dom";
 import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight, Loader2, Trash2, Building2, ChevronDown, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
