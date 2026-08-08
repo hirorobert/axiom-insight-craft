@@ -146,7 +146,7 @@ export function computePreflight(input: PreflightInput | null): PreflightResult 
 
   if (failed.length > 0) {
     verdict = "blocked";
-    headline = "Checks failed — the trial balance does not hold";
+    headline = "Not certified — the trial balance does not hold";
     blocker = failed[0].detail;
   } else if (pending.length > 0 && review.length === 0) {
     verdict = "pending";

@@ -23,6 +23,15 @@ const VERDICT_LABEL = {
   pending: "Checking",
 } as const;
 
+/**
+ * Presentation-layer wording for the verdict sentence. The domain function
+ * keeps its own semantic headline; user-facing terminology is translated here
+ * only, keyed off the unchanged verdict value.
+ */
+const VERDICT_HEADLINE: Partial<Record<keyof typeof VERDICT_LABEL, string>> = {
+  blocked: "Checks failed — the trial balance does not hold",
+};
+
 function StateGlyph({ state }: { state: PreflightCheckState }) {
   if (state === "passed") return <Check className="h-3.5 w-3.5 text-success" strokeWidth={3} />;
   if (state === "failed") return <X className="h-3.5 w-3.5 text-destructive" strokeWidth={3} />;
@@ -53,6 +62,8 @@ export function TrialBalancePreflight({ upload, resolveHref }: Props) {
           ? "text-gold"
           : "text-muted-foreground";
 
+  const displayHeadline = VERDICT_HEADLINE[result.verdict] ?? result.headline;
+
   return (
     <section
       data-testid="tb-preflight"
@@ -72,7 +83,7 @@ export function TrialBalancePreflight({ upload, resolveHref }: Props) {
       </header>
 
       <div className="px-6 py-5">
-        <p className="text-base font-semibold tracking-tight text-foreground">{result.headline}</p>
+        <p className="text-base font-semibold tracking-tight text-foreground">{displayHeadline}</p>
         {result.blocker && (
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{result.blocker}</p>
         )}

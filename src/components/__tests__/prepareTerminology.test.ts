@@ -20,7 +20,6 @@ const SURFACES = [
   "src/components/certification/CertificationHeader.tsx",
   "src/components/certification/RecentUploadsList.tsx",
   "src/components/UploadsStatusPanel.tsx",
-  "src/lib/workspace/computePreflight.ts",
 ];
 
 const DEPRECATED = ["Pre-flight certification", "Certification Console", "Not certified"];
@@ -68,7 +67,19 @@ describe("Prepare/assessment terminology", () => {
     }
   });
 
-  it("computePreflight emits approved user-facing headlines without renaming verdicts", () => {
+  it("pre-flight surface maps every verdict to the approved wording", () => {
+    const code = read("src/components/workspace/TrialBalancePreflight.tsx");
+    for (const phrase of ["Checks passed", "Needs review", "Checks failed", "Checking"]) {
+      expect(code).toContain(phrase);
+    }
+    // the domain headline is translated in the presentation layer
+    expect(code).toContain("VERDICT_HEADLINE");
+    expect(code).toContain("displayHeadline");
+  });
+});
+
+describe("computePreflight domain semantics (unchanged)", () => {
+  it("still returns its original verdict and headline for a failed run", () => {
     const blocked = computePreflight({
       status: "failed",
       isValid: false,
@@ -79,7 +90,13 @@ describe("Prepare/assessment terminology", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
     expect(blocked.verdict).toBe("blocked");
-    expect(blocked.headline).not.toContain("Not certified");
-    expect(blocked.headline).toContain("Checks failed");
+    expect(blocked.headline).toBe("Not certified — the trial balance does not hold");
+    expect(blocked.totalCount).toBe(5);
+  });
+
+  it("returns pending with no checks when there is no upload", () => {
+    const none = computePreflight(null);
+    expect(none.verdict).toBe("pending");
+    expect(none.checks).toHaveLength(0);
   });
 });
