@@ -9,10 +9,11 @@
  *   Uploaded → Processing → Completed | Failed
  */
 
-import { Check, X, Loader2, Minus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, X, Loader2, Minus, AlertTriangle } from "lucide-react";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
-type StepState = "pending" | "running" | "done" | "failed";
+type StepState = "pending" | "running" | "done" | "failed" | "attention";
 
 export interface LedgerStep {
   key: string;
@@ -96,11 +97,23 @@ export function deriveTrialBalanceSteps(upload: WorkspaceUpload | null): LedgerS
     state: reached[s.key] ? "done" : "pending",
   }));
 
+  // Classification coverage is a real gate, not a footnote. If the classifier
+  // left accounts unresolved, the step is NOT "Done" — every downstream
+  // statement built on an unmapped account is wrong at source.
+  if (autoClassified !== null && totalAccounts !== null && autoClassified < totalAccounts) {
+    const unresolved = totalAccounts - autoClassified;
+    const idx = steps.findIndex((s) => s.key === "classified");
+    if (idx >= 0) {
+      steps[idx].state = "attention";
+      steps[idx].detail = `${unresolved.toLocaleString("en-TZ")} of ${totalAccounts.toLocaleString("en-TZ")} accounts still need a mapping decision`;
+    }
+  }
+
   // First unreached step carries the live marker.
   const firstOpen = steps.findIndex((s) => s.state !== "done");
   if (firstOpen >= 0) {
     if (isFailed) steps[firstOpen].state = "failed";
-    else if (isProcessing) steps[firstOpen].state = "running";
+    else if (isProcessing && steps[firstOpen].state === "pending") steps[firstOpen].state = "running";
   }
 
   return steps;
@@ -111,6 +124,7 @@ const ICONS: Record<StepState, JSX.Element> = {
   failed:  <X className="w-3 h-3 text-destructive" />,
   running: <Loader2 className="w-3 h-3 text-primary animate-spin" />,
   pending: <Minus className="w-3 h-3 text-muted-foreground/40" />,
+  attention: <AlertTriangle className="w-3 h-3 text-amber-600" />,
 };
 
 const STATE_LABEL: Record<StepState, string> = {
@@ -118,6 +132,7 @@ const STATE_LABEL: Record<StepState, string> = {
   failed: "Failed",
   running: "Running",
   pending: "Waiting",
+  attention: "Needs review",
 };
 
 const STATE_TEXT: Record<StepState, string> = {
@@ -125,7 +140,16 @@ const STATE_TEXT: Record<StepState, string> = {
   failed: "text-destructive",
   running: "text-primary",
   pending: "text-muted-foreground/60",
+  attention: "text-amber-600",
 };
+
+function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
 
 export default function TrialBalanceProgressLedger({
   upload,
@@ -138,6 +162,20 @@ export default function TrialBalanceProgressLedger({
   const doneCount = steps.filter((s) => s.state === "done").length;
   const failed = steps.some((s) => s.state === "failed");
   const running = steps.some((s) => s.state === "running");
+  const attention = steps.some((s) => s.state === "attention");
+
+  // Elapsed clock — an unbounded spinner is the single worst thing a financial
+  // engine can show. The user always sees how long the run has been going.
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [running]);
+
+  const startedAt = upload?.uploaded_at ? new Date(upload.uploaded_at).getTime() : null;
+  const elapsedMs = running && startedAt ? now - startedAt : null;
+  const slow = elapsedMs !== null && elapsedMs > 120_000;
 
   const phase = failed ? "Failed" : doneCount === steps.length ? "Completed" : running ? "Processing" : "Uploaded";
 
@@ -149,6 +187,7 @@ export default function TrialBalanceProgressLedger({
         </p>
         <p className="text-[11px] text-muted-foreground/70 tabular-nums tracking-wide">
           {phase} · {doneCount} of {steps.length}
+          {elapsedMs !== null && <span> · {formatElapsed(elapsedMs)} elapsed</span>}
           {lastRefreshedAt && <span className="text-muted-foreground/50"> · live</span>}
         </p>
       </div>
@@ -156,10 +195,24 @@ export default function TrialBalanceProgressLedger({
       {/* Thin progress rule — no bars, no chrome */}
       <div className="h-px w-full bg-border mb-1">
         <div
-          className={`h-px transition-all duration-500 ${failed ? "bg-destructive" : doneCount === steps.length ? "bg-success" : "bg-primary"}`}
+          className={`h-px transition-all duration-500 ${failed ? "bg-destructive" : attention ? "bg-amber-500" : doneCount === steps.length ? "bg-success" : "bg-primary"}`}
           style={{ width: `${(doneCount / steps.length) * 100}%` }}
         />
       </div>
+
+      {slow && (
+        <p className="mt-3 text-[12px] text-muted-foreground">
+          Still running. You can leave this page — the run continues on the server and this
+          ledger picks up exactly where it is when you come back.
+        </p>
+      )}
+
+      {attention && (
+        <p className="mt-3 text-[12px] text-amber-700 dark:text-amber-500">
+          Some accounts have no mapping decision yet. Resolve them in Prepare Data before the
+          statements are trusted — an unmapped account is a wrong statement, not a small gap.
+        </p>
+      )}
 
       <ol className="border-t border-border">
         {steps.map((s, i) => (
