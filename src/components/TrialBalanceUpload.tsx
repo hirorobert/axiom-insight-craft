@@ -48,6 +48,13 @@ export interface TrialBalanceUploadProps {
   lockedCompanyName?: string;
   /** Financial year the upload belongs to (written to period_year). */
   periodYear?: number;
+  /**
+   * Seed the queue with a file the user already picked elsewhere
+   * (one-tap discard-and-reupload). Queued, not uploaded, unless autoProcess.
+   */
+  initialFile?: File | null;
+  /** Start processing the seeded file immediately — no second click. */
+  autoProcess?: boolean;
   /** Called after a batch finishes so the parent can refresh. */
   onUploaded?: () => void;
 }
@@ -57,6 +64,8 @@ export const TrialBalanceUpload = ({
   lockedCompanyId,
   lockedCompanyName,
   periodYear,
+  initialFile = null,
+  autoProcess = false,
   onUploaded,
 }: TrialBalanceUploadProps = {}) => {
   const [files, setFiles] = useState<FileUpload[]>([]);
