@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -191,6 +192,7 @@ export function AccountReviewPanel({
         .update({ status: "processing", processing_result: null })
         .eq("id", uploadId);
 
+      await ensureFreshSession();
       const { error: fnError } = await supabase.functions.invoke(
         "process-trial-balance",
         { body: { uploadId } }

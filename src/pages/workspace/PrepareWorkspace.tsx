@@ -9,6 +9,7 @@
  */
 
 import { useState } from "react";
+import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -77,13 +78,14 @@ export default function PrepareWorkspace() {
     if (!upload) return;
     toast.info("Re-processing as Audited Financial Statements…");
     try {
+      await ensureFreshSession();
       const { error } = await supabase.functions.invoke("process-trial-balance", {
         body: { uploadId: upload.id, mode: "audited_accounts" },
       });
       if (error) throw error;
       toast.success("Processing started — results will appear shortly.");
-    } catch {
-      toast.error("Failed to start processing. Please try again.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to start processing. Please try again.");
     }
   };
 
