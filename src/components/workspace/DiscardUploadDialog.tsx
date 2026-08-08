@@ -29,6 +29,42 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
+/**
+ * CountdownUndoToast — live 15-second undo window with a shrinking progress bar
+ * and a second-by-second read-out so the user knows exactly how long they have.
+ */
+function CountdownUndoToast({ receipt }: { receipt: DiscardReceipt }) {
+  const [remaining, setRemaining] = useState(UNDO_WINDOW_MS);
+
+  useEffect(() => {
+    const start = Date.now();
+    const tick = setInterval(() => {
+      const left = Math.max(0, UNDO_WINDOW_MS - (Date.now() - start));
+      setRemaining(left);
+      if (left <= 0) clearInterval(tick);
+    }, 50);
+    return () => clearInterval(tick);
+  }, []);
+
+  const seconds = Math.ceil(remaining / 1000);
+  const pct = (remaining / UNDO_WINDOW_MS) * 100;
+
+  return (
+    <div className="w-full min-w-[16rem]">
+      <div className="flex items-center justify-between text-[13px]">
+        <span className="text-muted-foreground">Undo window</span>
+        <span className="tabular-nums font-medium">{seconds}s</span>
+      </div>
+      <div className="mt-2 h-1 w-full bg-secondary overflow-hidden rounded-full">
+        <div
+          className="h-full bg-primary transition-[width] duration-75 ease-linear rounded-full"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export interface DiscardTarget {
   id: string;
   file_name: string;
@@ -120,28 +156,34 @@ export async function restoreUpload(receipt: DiscardReceipt): Promise<void> {
  * discard is final.
  */
 export function offerUndo(receipt: DiscardReceipt, onRestored?: () => void) {
-  toast.success(`Discarded ${receipt.fileName}`, {
-    description: "You have a few seconds to put it back.",
-    duration: UNDO_WINDOW_MS,
-    action: {
-      label: "Undo",
-      onClick: () => {
-        void (async () => {
-          try {
-            await restoreUpload(receipt);
-            toast.success(`${receipt.fileName} restored.`);
-            onRestored?.();
-          } catch (err) {
-            toast.error(
-              err instanceof Error
-                ? `Could not restore: ${err.message}`
-                : "Could not restore this trial balance.",
-            );
-          }
-        })();
+  const toastId = toast.success(
+    <div className="flex flex-col gap-1">
+      <span className="font-medium">Discarded {receipt.fileName}</span>
+      <CountdownUndoToast receipt={receipt} />
+    </div>,
+    {
+      duration: UNDO_WINDOW_MS,
+      action: {
+        label: "Undo",
+        onClick: () => {
+          toast.dismiss(toastId);
+          void (async () => {
+            try {
+              await restoreUpload(receipt);
+              toast.success(`${receipt.fileName} restored.`);
+              onRestored?.();
+            } catch (err) {
+              toast.error(
+                err instanceof Error
+                  ? `Could not restore: ${err.message}`
+                  : "Could not restore this trial balance.",
+              );
+            }
+          })();
+        },
       },
     },
-  });
+  );
 }
 
 export function DiscardUploadDialog({
