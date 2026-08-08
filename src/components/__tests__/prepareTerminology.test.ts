@@ -70,7 +70,7 @@ describe("Prepare/assessment terminology", () => {
 
   it("computePreflight emits approved user-facing headlines without renaming verdicts", () => {
     const blocked = computePreflight({
-      status: "error",
+      status: "failed",
       isValid: false,
       processedAt: null,
       processingResult: null,
