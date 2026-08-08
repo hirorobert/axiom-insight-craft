@@ -36,6 +36,7 @@ import {
   BarChart3,
   TrendingUp,
   PieChart,
+  Trash2,
 } from "lucide-react";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
