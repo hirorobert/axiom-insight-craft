@@ -40,6 +40,14 @@ import { toast } from "sonner";
 import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
 import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
 import OnboardingFlow from "@/components/workspace/OnboardingFlow";
+import {
+  SurfaceCard,
+  SurfaceCardHeader,
+  SurfaceCardBody,
+  LedgerRow,
+  StatusMark,
+  LockNote,
+} from "@/components/workspace/ui/Surface";
 
 // Single-dot status vocabulary — one word, one colour, no chips.
 // The eye should never have to decode a badge to know where a stage stands.
@@ -422,7 +430,8 @@ export default function WorkspaceOverview() {
       )}
 
       {/* ── 2. Directive — the single resting place ─────────────────────── */}
-      <section className={showOnboarding ? "hidden" : "mb-14"}>
+      <section className={showOnboarding ? "hidden" : "mb-10"}>
+        <SurfaceCard className="px-6 py-7">
         <p className={[
           "text-[10px] font-semibold tracking-[0.22em] uppercase mb-4",
           directive.tone === "warn" ? "text-destructive" :
@@ -475,32 +484,8 @@ export default function WorkspaceOverview() {
             </Button>
           )}
 
-          {/* Secondary: only when trial balance status is worth showing */}
-          {upload && !prepareDone && (() => {
-            const s = upload.status;
-            const tone: "muted" | "active" | "done" | "warn" | "bad" | "off" =
-              s === "complete" || s === "valid" ? "done" :
-              s === "blocked" || s === "error" ? "bad" :
-              s === "processing" || s === "needs_review" || s === "pending" || s === "queued" ? "active" :
-              "muted";
-            const label =
-              s === "complete" || s === "valid" ? "Trial balance ready" :
-              s === "blocked" ? "Trial balance blocked" :
-              s === "error" ? "Trial balance failed" :
-              s === "processing" ? "Trial balance processing" :
-              s === "needs_review" ? "Trial balance needs review" :
-              `Trial balance ${s}`;
-            return (
-              <span className="inline-flex items-center gap-2 text-[12px] text-muted-foreground">
-                <span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[tone]}`} />
-                <span className={TEXT_TONE[tone]}>{label}</span>
-                {lastRefreshedAt && (
-                  <span className="text-muted-foreground/60 tabular-nums">· {formatRelative(lastRefreshedAt.toISOString())}</span>
-                )}
-              </span>
-            );
-          })()}
         </div>
+        </SurfaceCard>
       </section>
 
       {/* ── 3. Workflow ledger — 7 rows, numbered, no cards ─────────────── */}
