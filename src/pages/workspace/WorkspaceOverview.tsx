@@ -561,47 +561,30 @@ export default function WorkspaceOverview() {
               const canOpen = !isLocked;
 
               const rowInner = (
-                <div className={[
-                  "group grid grid-cols-[3.5rem_1.5rem_1fr_auto_1.5rem] items-center gap-4 py-3 border-b border-border transition-colors",
-                  canOpen ? "hover:bg-secondary/30 cursor-pointer" : "cursor-default",
-                  isActive ? "bg-primary/[0.03]" : "",
-                ].join(" ")}>
-                  <span className={[
-                    "text-[11px] font-mono tabular-nums pl-1",
-                    isActive ? "text-primary font-semibold" : isComplete ? "text-success" : "text-muted-foreground/60",
-                  ].join(" ")}>
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                  <Icon className={[
-                    "w-4 h-4",
-                    isActive ? "text-primary" : isComplete ? "text-success" : isLocked ? "text-muted-foreground/30" : "text-muted-foreground",
-                  ].join(" ")} />
-                  <div className="min-w-0">
-                    <p className={[
-                      "text-[14px] font-medium leading-tight tracking-tight",
-                      isLocked ? "text-muted-foreground" : "text-foreground",
-                    ].join(" ")}>
-                      {mission.label}
-                    </p>
-                    {isLocked && mission.blocker && (
-                      <p className="mt-1 text-[11px] text-muted-foreground/70 leading-snug truncate">
-                        {mission.blocker}
-                      </p>
-                    )}
-                  </div>
-                  <span className={`inline-flex items-center gap-2 text-[12px] ${TEXT_TONE[meta.tone]}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[meta.tone]}`} />
-                    <span className="whitespace-nowrap">{meta.label}</span>
-                  </span>
-                  {canOpen ? (
-                    <ArrowRight className={[
-                      "w-4 h-4 transition-transform",
-                      isActive ? "text-primary" : "text-muted-foreground/40 group-hover:text-foreground group-hover:translate-x-0.5",
+                <LedgerRow
+                  highlight={isActive}
+                  className={canOpen ? "hover:bg-secondary/30 cursor-pointer" : "cursor-default"}
+                  step={String(i + 1).padStart(2, "0")}
+                  stepTone={isActive ? "active" : isComplete ? "done" : "muted"}
+                  icon={
+                    <Icon className={[
+                      "w-4 h-4",
+                      isActive ? "text-primary" : isComplete ? "text-success" : isLocked ? "text-muted-foreground/30" : "text-muted-foreground",
                     ].join(" ")} />
-                  ) : (
-                    <Lock className="w-3.5 h-3.5 text-muted-foreground/30" />
-                  )}
-                </div>
+                  }
+                  title={mission.label}
+                  titleMuted={isLocked}
+                  note={isLocked ? <LockNote reason={mission.blocker} /> : undefined}
+                  status={isLocked ? undefined : <StatusMark tone={meta.tone} label={meta.label} />}
+                  trailing={
+                    canOpen ? (
+                      <ArrowRight className={[
+                        "w-4 h-4",
+                        isActive ? "text-primary" : "text-muted-foreground/40",
+                      ].join(" ")} />
+                    ) : undefined
+                  }
+                />
               );
 
               return (
@@ -611,22 +594,24 @@ export default function WorkspaceOverview() {
                       {rowInner}
                     </Link>
                   ) : (
-                    <div title={mission.blocker ?? "Not available"}>{rowInner}</div>
+                    <div>{rowInner}</div>
                   )}
                 </li>
               );
             })}
           </ol>
         )}
+        </SurfaceCard>
       </section>
 
       {/* ── 4. Files — quiet, collapsed, secondary ──────────────────────── */}
       {uploads.length > 0 && (
-        <section className="pt-2">
+        <section>
+          <SurfaceCard>
           <button
             type="button"
             onClick={() => setUploadsOpen((v) => !v)}
-            className="w-full flex items-center justify-between text-left group py-2"
+            className="w-full flex items-center justify-between text-left group px-5 py-3"
           >
             <div className="flex items-center gap-4">
               <p className="text-[10px] font-semibold text-muted-foreground tracking-[0.22em] uppercase">
@@ -635,12 +620,6 @@ export default function WorkspaceOverview() {
               <span className="text-[12px] text-muted-foreground/70 tabular-nums">
                 {uploads.length}
               </span>
-              {blockedUploadsCount > 0 && (
-                <span className="inline-flex items-center gap-1.5 text-[11px] text-destructive">
-                  <span className="w-1.5 h-1.5 rounded-full bg-destructive" />
-                  {blockedUploadsCount} blocked
-                </span>
-              )}
             </div>
             <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${uploadsOpen ? "rotate-180" : ""}`} />
           </button>
