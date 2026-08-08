@@ -1,5 +1,5 @@
 /**
- * TrialBalancePreflight — the certification gate the eye lands on first.
+ * TrialBalancePreflight — the pre-flight gate the eye lands on first.
  *
  * One verdict, one sentence, five checks. Nothing competes with the verdict.
  * Read-only projection of computePreflight(). No writes.
@@ -17,9 +17,9 @@ interface Props {
 }
 
 const VERDICT_LABEL = {
-  certified: "Certified",
+  certified: "Checks passed",
   review: "Needs review",
-  blocked: "Not certified",
+  blocked: "Checks failed",
   pending: "Checking",
 } as const;
 
@@ -63,7 +63,7 @@ export function TrialBalancePreflight({ upload, resolveHref }: Props) {
         <div className="flex items-center gap-2.5">
           <ShieldCheck className="h-4 w-4 text-muted-foreground" />
           <h2 className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-            Pre-flight certification
+            Pre-flight status
           </h2>
         </div>
         <span className={`font-mono text-[11px] uppercase tracking-[0.18em] ${accentText}`}>
