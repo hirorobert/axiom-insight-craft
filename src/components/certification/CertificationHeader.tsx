@@ -12,7 +12,7 @@ function toneFor(u: CertUpload): { tone: Tone; label: string } {
     return { tone: "blocked", label: "Blocked" };
   }
   if (u.status === "needs_review") return { tone: "review", label: "Review Required" };
-  if (u.status === "complete" || u.is_valid === true) return { tone: "valid", label: "Certified" };
+  if (u.status === "complete" || u.is_valid === true) return { tone: "valid", label: "Checks passed" };
   return { tone: "processing", label: "Processing" };
 }
 
@@ -38,7 +38,7 @@ export function CertificationHeader({ upload, action }: Props) {
               {label}
             </span>
             <span className="text-xs uppercase tracking-wider text-muted-foreground">
-              Certification Console
+              Trial balance status
             </span>
           </div>
           <h1 className="truncate text-xl font-semibold text-foreground">
