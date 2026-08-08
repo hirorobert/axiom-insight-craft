@@ -146,6 +146,12 @@ export default function WorkspaceOverview() {
     upload?.processing_result as Record<string, unknown> | null,
   );
 
+  // TIN is an exception only when it is missing/invalid AND the current
+  // canonical next action cannot proceed without it (the upload gate requires
+  // it, or the derived next action names it as the blocker).
+  const tinBlocksNextAction =
+    tinMissing && (!hasUpload || /tin/i.test(nextAction.blocker ?? ""));
+
   // ── The single decision on this screen ────────────────────────────────────
   type Decision = {
     eyebrow: string;
@@ -213,8 +219,8 @@ export default function WorkspaceOverview() {
       headline: `${num(unresolved)} ${unresolved === 1 ? "account requires" : "accounts require"} review`,
       detail:
         total !== null && classified !== null
-          ? `SAFF processed ${num(total)} accounts and classified ${num(classified)} safely. Review only the accounts it could not classify with confidence.`
-          : "Review the accounts SAFF could not classify with confidence.",
+          ? `${num(total)} accounts processed · ${num(classified)} classified · ${num(unresolved)} require professional review.`
+          : "These accounts have no reliable classification and need a professional decision.",
       button: {
         label: `Review ${num(unresolved)} ${unresolved === 1 ? "account" : "accounts"}`,
         href: buildPrepareReviewRoute(companyId, periodYear, upload?.id ?? null),
@@ -275,7 +281,15 @@ export default function WorkspaceOverview() {
           repeating them here would be a second representation of the same fact.
           Zone A therefore carries only what is actionable: a blocking TIN.
           TIN never appears merely because the record holds a value. */}
-      {tinMissing && (
+      {company && (
+        <p className="mb-6 text-[12px] text-muted-foreground tracking-wide">
+          <span className="text-foreground/80">{company.name}</span>
+          <span className="px-1.5 text-muted-foreground/50">·</span>
+          <span className="tabular-nums">FY{periodYear}</span>
+        </p>
+      )}
+
+      {tinBlocksNextAction && (
         <header className="mb-6">
           <button
             type="button"

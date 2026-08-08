@@ -38,6 +38,14 @@ import {
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import type { MissionStatus } from "@/lib/workspace/types";
 
+/**
+ * Tab word in professional sentence case, derived from the canonical metadata
+ * (`tabLabel`) without modifying it: "RECONCILE" → "Reconcile".
+ */
+function tabWord(tabLabel: string): string {
+  return tabLabel.charAt(0) + tabLabel.slice(1).toLowerCase();
+}
+
 // ── Status dot — tooltip explains the symbol ───────────────────────────────
 
 const STATUS_TITLES: Record<MissionStatus, string> = {
@@ -192,12 +200,8 @@ export default function WorkspaceLayout() {
                   <span className="text-muted-foreground tabular-nums shrink-0 font-mono text-xs">
                     {periodLabel}
                   </span>
-                  {/* TIN warning inline — never a placeholder string */}
-                  {company && company.tin && /PUT-REAL|placeholder/i.test(company.tin) && (
-                    <span className="hidden sm:inline text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                      TIN missing
-                    </span>
-                  )}
+                  {/* TIN is an exception surface, not header chrome — the
+                      Overview owns it and shows it only when it blocks. */}
                 </div>
               )}
             </div>
@@ -227,8 +231,8 @@ export default function WorkspaceLayout() {
          *    - Active tab has a 2px bottom accent line
          */}
         <nav className="bg-background border-b border-border sticky top-14 z-40">
-          <div className="max-w-screen-2xl mx-auto px-4 sm:px-6">
-            <div className="flex items-stretch">
+          <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex items-stretch min-w-max">
 
               {/* Overview tab */}
               <Link
@@ -240,8 +244,8 @@ export default function WorkspaceLayout() {
                     : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
                 ].join(" ")}
               >
-                <span className="hidden xl:inline">OVERVIEW</span>
-                <span className="xl:hidden">OVW</span>
+                <span className="hidden md:inline">Overview</span>
+                <span className="md:hidden sr-only">Overview</span>
               </Link>
 
               {/* Stage tabs */}
@@ -257,6 +261,7 @@ export default function WorkspaceLayout() {
                     key={slug}
                     to={`${basePath}/${slug}`}
                     title={config.description}
+                    aria-label={config.label}
                     className={[
                       "flex items-center gap-1 px-2 sm:px-3 xl:px-4 py-3 text-[11px] sm:text-xs font-medium border-b-2 transition-colors shrink-0",
                       isActive
@@ -267,9 +272,12 @@ export default function WorkspaceLayout() {
                     ].join(" ")}
                   >
                     <Icon className="w-3.5 h-3.5 shrink-0" />
-                    {/* Short label on medium, full on xl */}
-                    <span className="hidden sm:inline xl:hidden">{config.shortLabel}</span>
-                    <span className="hidden xl:inline">{config.tabLabel}</span>
+                    {/* Full professional stage language from md upward; below
+                        768px the tab compresses to icon + status with the name
+                        carried by aria-label/title. */}
+                    <span className="hidden md:inline xl:hidden">{tabWord(config.tabLabel)}</span>
+                    <span className="hidden xl:inline">{config.label}</span>
+                    <span className="md:hidden sr-only">{config.label}</span>
                     {!loading && <StatusDot status={mission.status} />}
                   </Link>
                 );
