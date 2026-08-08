@@ -905,6 +905,9 @@ export default function OnboardingFlow({
         {STEP_ORDER.map((s, i) => {
           const isDone = done[s];
           const isActive = !isDone && s === activeStep;
+          // A step the engine is still working on reads "In progress", never
+          // "Pending" — pending means nothing has started.
+          const isRunning = isActive && s === "upload" && uploadPending;
           return (
             <li
               key={s}
@@ -949,6 +952,7 @@ export default function OnboardingFlow({
                 ].join(" ")}
               >
                 {isDone ? "Done" : isActive ? "Current" : "Pending"}
+                {""}
               </p>
             </li>
           );
