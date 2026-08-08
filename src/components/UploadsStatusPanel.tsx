@@ -34,6 +34,7 @@ import {
   Filter,
   Loader2,
   Calendar,
+  Trash2,
 } from "lucide-react";
 import { CertUpload, fmtNum } from "./certification/types";
 import { toast } from "sonner";
@@ -95,9 +96,11 @@ interface Props {
   selectedId: string | null;
   onSelect: (u: CertUpload) => void;
   onRefresh: () => Promise<void>;
+  /** Opens the discard confirmation for this upload. Omit to hide the action. */
+  onDiscard?: (u: CertUpload) => void;
 }
 
-export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh }: Props) {
+export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, onDiscard }: Props) {
   const [search,       setSearch]       = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [dateFrom,     setDateFrom]     = useState("");
@@ -443,6 +446,7 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh }:
               isExpanded={expanded.has(u.id)}
               onSelect={onSelect}
               onRetry={handleRetry}
+              onDiscard={onDiscard}
               onToggleExpand={toggleExpand}
             />
           ))}
@@ -460,6 +464,7 @@ interface RowProps {
   isExpanded: boolean;
   onSelect: (u: CertUpload) => void;
   onRetry: (u: CertUpload, e: React.MouseEvent) => void;
+  onDiscard?: (u: CertUpload) => void;
   onToggleExpand: (id: string, e: React.MouseEvent) => void;
 }
 
@@ -470,6 +475,7 @@ function UploadRow({
   isExpanded,
   onSelect,
   onRetry,
+  onDiscard,
   onToggleExpand,
 }: RowProps) {
   const { tone, label } = toneFor(u);
@@ -525,6 +531,21 @@ function UploadRow({
           )}
           {isRetrying && (
             <span className="text-[9.5px] text-muted-foreground italic">live…</span>
+          )}
+
+          {/* Discard — always available, never the loudest thing in the row */}
+          {onDiscard && !isRetrying && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDiscard(u);
+              }}
+              title="Discard this trial balance and start fresh"
+              aria-label={`Discard ${u.file_name}`}
+              className="text-muted-foreground/60 hover:text-destructive transition-colors p-0.5"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
           )}
 
           {/* Expand toggle */}
