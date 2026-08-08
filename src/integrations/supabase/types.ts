@@ -3518,6 +3518,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      safisha_recon_visible: { Args: { _recon_id: string }; Returns: boolean }
       safisha_resolve_exception: {
         Args: {
           p_action: string
