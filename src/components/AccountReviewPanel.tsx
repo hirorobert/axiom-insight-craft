@@ -421,6 +421,11 @@ export function AccountReviewPanel({
       <p className="px-5 py-3 text-[13px] text-muted-foreground border-b border-border leading-relaxed">
         SAFF could not map these accounts on evidence it can defend. Set a classification,
         or exclude the account explicitly. Nothing is written until you save.
+        {/* Mobile equivalent of the column-header affordance — the stacked
+            records have no header row to hang it on. */}
+        <span className="md:hidden ml-1.5">
+          <AssessmentHelp />
+        </span>
       </p>
 
       {/* Desktop: workpaper table */}
@@ -438,6 +443,11 @@ export function AccountReviewPanel({
                   ].join(" ")}
                 >
                   {h}
+                  {i === 2 && (
+                    <span className="ml-1.5">
+                      <AssessmentHelp />
+                    </span>
+                  )}
                 </th>
               ))}
             </tr>
