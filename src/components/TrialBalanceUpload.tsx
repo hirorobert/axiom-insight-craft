@@ -130,7 +130,7 @@ export const TrialBalanceUpload = ({
     return validExtensions.includes(extension);
   };
 
-  const addFiles = useCallback((newFiles: FileList) => {
+  const addFiles = useCallback((newFiles: FileList | File[]) => {
     const validFiles: FileUpload[] = [];
     
     Array.from(newFiles).forEach((file) => {
