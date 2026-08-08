@@ -8,6 +8,9 @@
  *    can never happen by accident.
  *  - Storage object removal is best effort; the authoritative act is deleting
  *    the row (RLS scopes it to the uploader).
+ *  - A discard is reversible for a short undo window: the row snapshot and the
+ *    stored file are captured *before* deletion, so a mis-tap can be undone
+ *    exactly (same id, same file, same results) from the toast.
  */
 
 import { useEffect, useState } from "react";
@@ -39,13 +42,41 @@ export function isCertifiedRun(target: DiscardTarget | null | undefined): boolea
   return target?.status === "complete" || target?.is_valid === true;
 }
 
+/** How long a discard stays reversible. */
+export const UNDO_WINDOW_MS = 15000;
+
+/**
+ * Everything needed to put a discarded run back exactly as it was: the full
+ * row snapshot plus the stored file bytes.
+ */
+export interface DiscardReceipt {
+  id: string;
+  fileName: string;
+  row: Record<string, unknown> | null;
+  filePath: string | null;
+  fileBlob: Blob | null;
+}
+
 /**
  * discardUpload — the single authoritative removal act, shared by the
  * confirmation dialog and the one-tap replace flow.
  * Storage cleanup is best effort; deleting the row is what counts.
+ * Returns a receipt that makes the act reversible for the undo window.
  */
-export async function discardUpload(target: DiscardTarget): Promise<void> {
+export async function discardUpload(target: DiscardTarget): Promise<DiscardReceipt> {
+  // Capture before destroying — this is what makes undo exact.
+  const { data: row } = await supabase
+    .from("trial_balance_uploads")
+    .select("*")
+    .eq("id", target.id)
+    .maybeSingle();
+
+  let fileBlob: Blob | null = null;
   if (target.file_path) {
+    const { data } = await supabase.storage
+      .from("trial-balance-files")
+      .download(target.file_path);
+    fileBlob = data ?? null;
     await supabase.storage.from("trial-balance-files").remove([target.file_path]);
   }
   const { error } = await supabase
@@ -53,6 +84,64 @@ export async function discardUpload(target: DiscardTarget): Promise<void> {
     .delete()
     .eq("id", target.id);
   if (error) throw error;
+
+  return {
+    id: target.id,
+    fileName: target.file_name,
+    row: (row as Record<string, unknown> | null) ?? null,
+    filePath: target.file_path ?? null,
+    fileBlob,
+  };
+}
+
+/**
+ * restoreUpload — puts a discarded run back: the file first (so processing can
+ * re-read it), then the row with its original id and results.
+ */
+export async function restoreUpload(receipt: DiscardReceipt): Promise<void> {
+  if (!receipt.row) {
+    throw new Error("This discard can no longer be undone.");
+  }
+  if (receipt.filePath && receipt.fileBlob) {
+    const { error: upErr } = await supabase.storage
+      .from("trial-balance-files")
+      .upload(receipt.filePath, receipt.fileBlob, { upsert: true });
+    if (upErr) throw upErr;
+  }
+  const { error } = await supabase
+    .from("trial_balance_uploads")
+    .insert(receipt.row as never);
+  if (error) throw error;
+}
+
+/**
+ * offerUndo — the toast that holds the undo window open. One action, one
+ * outcome: the prior trial balance is back, or the toast expires and the
+ * discard is final.
+ */
+export function offerUndo(receipt: DiscardReceipt, onRestored?: () => void) {
+  toast.success(`Discarded ${receipt.fileName}`, {
+    description: "You have a few seconds to put it back.",
+    duration: UNDO_WINDOW_MS,
+    action: {
+      label: "Undo",
+      onClick: () => {
+        void (async () => {
+          try {
+            await restoreUpload(receipt);
+            toast.success(`${receipt.fileName} restored.`);
+            onRestored?.();
+          } catch (err) {
+            toast.error(
+              err instanceof Error
+                ? `Could not restore: ${err.message}`
+                : "Could not restore this trial balance.",
+            );
+          }
+        })();
+      },
+    },
+  });
 }
 
 export function DiscardUploadDialog({
@@ -65,7 +154,7 @@ export function DiscardUploadDialog({
   target: DiscardTarget | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onDiscarded: (id: string) => void;
+  onDiscarded: (id: string, receipt: DiscardReceipt) => void;
   /** Set when the user already picked the file that replaces this run. */
   replacementFileName?: string | null;
 }) {
@@ -83,13 +172,11 @@ export function DiscardUploadDialog({
     if (!target || busy || !gateSatisfied) return;
     setBusy(true);
     try {
-      await discardUpload(target);
-      toast.success(
-        replacementFileName
-          ? `Discarded. Uploading ${replacementFileName}…`
-          : "Trial balance discarded. You can upload a fresh file now.",
-      );
-      onDiscarded(target.id);
+      const receipt = await discardUpload(target);
+      if (replacementFileName) {
+        toast.success(`Discarded. Uploading ${replacementFileName}…`);
+      }
+      onDiscarded(target.id, receipt);
       onOpenChange(false);
     } catch (err) {
       toast.error(
@@ -113,13 +200,14 @@ export function DiscardUploadDialog({
             {target?.file_name ?? "This upload"}
           </AlertDialogTitle>
           <AlertDialogDescription className="text-[13px] leading-relaxed">
-            This removes the file and every result derived from it. Nothing is kept.
+            This removes the file and every result derived from it.
             {isCertified
               ? " This run is certified evidence — statements and tax outputs built on it will lose their source."
               : " No later stage has used this run yet, so nothing downstream is affected."}
             {replacementFileName
               ? ` Once discarded, ${replacementFileName} is uploaded straight away.`
               : ""}
+            {" You get a short undo window afterwards in case this was a mis-tap."}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
