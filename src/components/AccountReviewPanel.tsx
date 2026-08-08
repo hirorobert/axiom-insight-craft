@@ -134,8 +134,19 @@ function assessment(a: NeedsReviewAccount): { headline: string; note: string; re
       resolved: true,
     };
   }
+  // Two distinct machine states, never collapsed into one message:
+  //   CONFLICT  — the engine found competing evidence and refused to choose
+  //   NO_MATCH  — the engine found no evidence at all
+  const isConflict = /conflict/i.test(a.reason ?? "");
+  if (isConflict) {
+    return {
+      headline: "Conflicting evidence — review required",
+      note: a.reason,
+      resolved: false,
+    };
+  }
   return {
-    headline: "Could not be classified safely",
+    headline: "No reliable suggestion",
     note: reason || "No deterministic evidence for this account.",
     resolved: false,
   };
