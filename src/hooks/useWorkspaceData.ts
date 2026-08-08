@@ -158,8 +158,12 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
       .single();
 
     const coData = co as WorkspaceCompany | null;
-    setCompany(coData);
-    companyRef.current = coData;
+    // Keep the last known company on a transient read failure — never blank
+    // the masthead mid-session.
+    if (coData) {
+      setCompany(coData);
+      companyRef.current = coData;
+    }
 
     // Fetch uploads for this company, most recent first
     const { data: ups } = await supabase
