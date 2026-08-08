@@ -120,16 +120,23 @@ function money(n: number): string {
  * suggestion is stated plainly rather than dressed up.
  */
 function assessment(a: NeedsReviewAccount): { headline: string; note: string; resolved: boolean } {
+  // The engine's reason often restates the account name verbatim; repeating it
+  // beside the name is noise, not evidence.
+  const restatesName =
+    !!a.reason && a.reason.includes(a.account_name) && /no classification found/i.test(a.reason);
+  const reason = restatesName
+    ? "No rule, saved mapping or dictionary match"
+    : a.reason;
   if (a.suggested_classification) {
     return {
       headline: CLASS_LABEL[a.suggested_classification] ?? a.suggested_classification,
-      note: a.reason || (a.confidence_source ? `Source: ${a.confidence_source}` : ""),
+      note: reason || (a.confidence_source ? `Source: ${a.confidence_source}` : ""),
       resolved: true,
     };
   }
   return {
     headline: "Could not be classified safely",
-    note: a.reason || "No deterministic evidence for this account.",
+    note: reason || "No deterministic evidence for this account.",
     resolved: false,
   };
 }
