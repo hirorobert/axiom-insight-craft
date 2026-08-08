@@ -54,7 +54,7 @@ function toneFor(u: CertUpload): { tone: Tone; label: string } {
   )
     return { tone: "blocked", label: "Blocked" };
   if (u.status === "needs_review") return { tone: "review",  label: "Review Required" };
-  if (u.status === "complete" || u.is_valid === true) return { tone: "valid", label: "Certified" };
+  if (u.status === "complete" || u.is_valid === true) return { tone: "valid", label: "Checks passed" };
   return { tone: "processing", label: "Processing" };
 }
 
@@ -314,11 +314,11 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
       {/* ── Summary strip ──────────────────────────────────────────────── */}
       <div className="grid grid-cols-4 divide-x divide-border border-b border-border text-[10px]">
         {([
-          ["Certified", counts.certified, "text-emerald-700 font-semibold"],
-          ["Blocked",   counts.blocked,   "text-red-700 font-semibold"],
-          ["Review",    counts.review,    "text-amber-700 font-semibold"],
-          ["Running",   counts.processing,"text-slate-600"],
-        ] as const).map(([label, count, cls]) => (
+          ["Certified", "Checks passed", counts.certified, "text-emerald-700 font-semibold"],
+          ["Blocked",   "Blocked",       counts.blocked,   "text-red-700 font-semibold"],
+          ["Review",    "Review",        counts.review,    "text-amber-700 font-semibold"],
+          ["Running",   "Running",       counts.processing,"text-slate-600"],
+        ] as const).map(([label, display, count, cls]) => (
           <button
             key={label}
             onClick={() => setStatusFilter(
@@ -331,7 +331,7 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
             className="flex flex-col items-center py-2 hover:bg-muted/40 transition-colors"
           >
             <span className={cls}>{count}</span>
-            <span className="text-muted-foreground mt-0.5">{label}</span>
+            <span className="text-muted-foreground mt-0.5">{display}</span>
           </button>
         ))}
       </div>
@@ -368,7 +368,7 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
-                <SelectItem value="certified">Certified</SelectItem>
+                <SelectItem value="certified">Checks passed</SelectItem>
                 <SelectItem value="blocked">Blocked</SelectItem>
                 <SelectItem value="review">Review Required</SelectItem>
                 <SelectItem value="processing">Processing</SelectItem>
