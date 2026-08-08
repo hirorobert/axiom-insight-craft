@@ -8,7 +8,7 @@
  *   EFDMSReconciliationPanel
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
@@ -28,7 +28,11 @@ import { AccountReviewPanel } from "@/components/AccountReviewPanel";
 import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel";
 import { TrialBalanceUpload } from "@/components/TrialBalanceUpload";
 import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
-import { DiscardUploadDialog } from "@/components/workspace/DiscardUploadDialog";
+import {
+  DiscardUploadDialog,
+  discardUpload,
+  isCertifiedRun,
+} from "@/components/workspace/DiscardUploadDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -42,6 +46,8 @@ import {
   TrendingUp,
   PieChart,
   Trash2,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
@@ -77,6 +83,45 @@ export default function PrepareWorkspace() {
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
   const [discardTarget, setDiscardTarget] = useState<WorkspaceUpload | null>(null);
+  // One-tap replace: the file the user picked to take over from the prior run.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [replacing, setReplacing] = useState(false);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  // Set when the dialog discard succeeded, so closing it does not drop the
+  // replacement file that is about to be uploaded.
+  const keepPendingFileRef = useRef(false);
+
+  /**
+   * One tap: pick a file → the prior trial balance is discarded and the new
+   * file is uploaded immediately. Certified runs still pass the DISCARD gate.
+   */
+  const handleReplacePicked = async (file: File | undefined) => {
+    if (!file || !upload) return;
+    setPendingFile(file);
+
+    if (isCertifiedRun(upload)) {
+      setDiscardTarget(upload);
+      return;
+    }
+
+    setReplacing(true);
+    try {
+      await discardUpload(upload);
+      toast.success(`Prior trial balance discarded. Uploading ${file.name}…`);
+      navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
+      setShowUploader(true);
+      refreshUpload();
+    } catch (err) {
+      setPendingFile(null);
+      toast.error(
+        err instanceof Error
+          ? `Could not discard the prior trial balance: ${err.message}`
+          : "Could not discard the prior trial balance.",
+      );
+    } finally {
+      setReplacing(false);
+    }
+  };
 
   const { periodYear: fpYear, periodEndMonth: fpMonth } = upload
     ? deriveFiscalPeriod(upload, company?.fiscal_year_end ?? null)
@@ -143,8 +188,11 @@ export default function PrepareWorkspace() {
                   lockedCompanyId={companyId}
                   lockedCompanyName={company?.name ?? undefined}
                   periodYear={periodYear}
+                  initialFile={pendingFile}
+                  autoProcess={!!pendingFile}
                   onUploaded={() => {
                     setShowUploader(false);
+                    setPendingFile(null);
                     // Drop any pinned ?upload=<id> so the newest upload shows.
                     navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
                     refreshUpload();
@@ -158,6 +206,17 @@ export default function PrepareWorkspace() {
             <>
               {!showUploader && (
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
+                  <input
+                    ref={replaceInputRef}
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      void handleReplacePicked(file);
+                    }}
+                  />
                   <Button
                     variant="ghost"
                     size="sm"
@@ -174,6 +233,20 @@ export default function PrepareWorkspace() {
                     className="w-full sm:w-auto justify-center"
                   >
                     Upload another trial balance
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={replacing}
+                    onClick={() => replaceInputRef.current?.click()}
+                    title="Discard this trial balance and upload a fresh file in one step"
+                    className="w-full sm:w-auto justify-center"
+                  >
+                    {replacing ? (
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                    )}
+                    {replacing ? "Replacing…" : "Replace with fresh file"}
                   </Button>
                 </div>
               )}
@@ -334,8 +407,19 @@ export default function PrepareWorkspace() {
       <DiscardUploadDialog
         target={discardTarget}
         open={!!discardTarget}
-        onOpenChange={(o) => { if (!o) setDiscardTarget(null); }}
+        replacementFileName={discardTarget?.id === upload?.id ? pendingFile?.name ?? null : null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDiscardTarget(null);
+            if (keepPendingFileRef.current) {
+              keepPendingFileRef.current = false;
+            } else {
+              setPendingFile(null);
+            }
+          }
+        }}
         onDiscarded={() => {
+          keepPendingFileRef.current = !!pendingFile;
           setDiscardTarget(null);
           // Drop any pinned ?upload=<id> so the list resolves to what remains,
           // then open the uploader — the one next action after a discard.

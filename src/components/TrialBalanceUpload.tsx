@@ -48,6 +48,13 @@ export interface TrialBalanceUploadProps {
   lockedCompanyName?: string;
   /** Financial year the upload belongs to (written to period_year). */
   periodYear?: number;
+  /**
+   * Seed the queue with a file the user already picked elsewhere
+   * (one-tap discard-and-reupload). Queued, not uploaded, unless autoProcess.
+   */
+  initialFile?: File | null;
+  /** Start processing the seeded file immediately — no second click. */
+  autoProcess?: boolean;
   /** Called after a batch finishes so the parent can refresh. */
   onUploaded?: () => void;
 }
@@ -57,6 +64,8 @@ export const TrialBalanceUpload = ({
   lockedCompanyId,
   lockedCompanyName,
   periodYear,
+  initialFile = null,
+  autoProcess = false,
   onUploaded,
 }: TrialBalanceUploadProps = {}) => {
   const [files, setFiles] = useState<FileUpload[]>([]);
@@ -121,7 +130,7 @@ export const TrialBalanceUpload = ({
     return validExtensions.includes(extension);
   };
 
-  const addFiles = useCallback((newFiles: FileList) => {
+  const addFiles = useCallback((newFiles: FileList | File[]) => {
     const validFiles: FileUpload[] = [];
     
     Array.from(newFiles).forEach((file) => {
@@ -346,6 +355,28 @@ export const TrialBalanceUpload = ({
   const clearCompleted = useCallback(() => {
     setFiles((prev) => prev.filter((f) => f.status !== "complete" && f.status !== "error"));
   }, []);
+
+  // ── One-tap reupload ───────────────────────────────────────────────────────
+  // A file picked on the prep screen (right after discarding the prior run) is
+  // seeded here and, when autoProcess is set, submitted without a second click.
+  const seededFileRef = useRef<File | null>(null);
+  const autoStartRef = useRef(false);
+
+  useEffect(() => {
+    if (!initialFile || seededFileRef.current === initialFile) return;
+    seededFileRef.current = initialFile;
+    setFiles([]);
+    addFiles([initialFile]);
+    autoStartRef.current = autoProcess;
+  }, [initialFile, autoProcess, addFiles]);
+
+  useEffect(() => {
+    if (!autoStartRef.current) return;
+    if (!files.some((f) => f.status === "queued")) return;
+    if (!user || loadingCompanies) return;
+    autoStartRef.current = false;
+    void startProcessing();
+  }, [files, user, loadingCompanies]);
 
   const clearAll = useCallback(() => {
     setFiles([]);
