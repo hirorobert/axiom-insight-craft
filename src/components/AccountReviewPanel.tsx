@@ -1,9 +1,20 @@
-import { useState, useCallback } from "react";
+/**
+ * AccountReviewPanel — the exception workbench.
+ *
+ * A financial workpaper, not a card feed: one row per unresolved account, with
+ * SAFF's assessment and the accountant's decision on the same line. Unresolved
+ * items sort first. Under 768px each row becomes a structured stacked record.
+ *
+ * Presentation change only. The save payload, `user_approved` provenance, the
+ * exclusion semantics and the reprocess polling are byte-for-byte the prior
+ * behaviour: a suggestion is never silently promoted to an authoritative
+ * mapping — the accountant's decision is what gets written.
+ */
+
+import { useMemo, useState, useCallback } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -11,16 +22,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { AlertCircle, HelpCircle, Loader2, CheckCircle } from "lucide-react";
+import { Loader2, CheckCircle } from "lucide-react";
 import { normalizeAccountName } from "@/lib/normalizeAccountName";
+import {
+  SurfaceCard,
+  SurfaceCardHeader,
+  StatusMark,
+} from "@/components/workspace/ui/Surface";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +51,8 @@ interface AccountReviewPanelProps {
   companyId: string;
   userId: string;
   needsReviewAccounts: NeedsReviewAccount[];
+  /** Deep-linked from the Overview exception count: show unresolved only. */
+  focusUnresolved?: boolean;
   onReprocessed: () => void;
 }
 
@@ -58,6 +70,10 @@ const CLASSIFICATIONS = [
   { value: "other_income",            label: "Other Income" },
   { value: "taxes",                   label: "Taxes" },
 ] as const;
+
+const CLASS_LABEL: Record<string, string> = Object.fromEntries(
+  CLASSIFICATIONS.map((c) => [c.value, c.label]),
+);
 
 interface ClassMeta {
   statement: string;
@@ -91,6 +107,40 @@ function isCoded(a: NeedsReviewAccount): boolean {
   return !!(a.account_code && a.account_code !== a.account_name);
 }
 
+function money(n: number): string {
+  return n.toLocaleString("en-TZ", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/**
+ * SAFF's read on the account, rendered as evidence — never as a decision.
+ * A suggestion carries the classifier's own confidence source; absence of a
+ * suggestion is stated plainly rather than dressed up.
+ */
+function assessment(a: NeedsReviewAccount): { headline: string; note: string; resolved: boolean } {
+  // The engine's reason often restates the account name verbatim; repeating it
+  // beside the name is noise, not evidence.
+  const restatesName =
+    !!a.reason && a.reason.includes(a.account_name) && /no classification found/i.test(a.reason);
+  const reason = restatesName
+    ? "No rule, saved mapping or dictionary match"
+    : a.reason;
+  if (a.suggested_classification) {
+    return {
+      headline: CLASS_LABEL[a.suggested_classification] ?? a.suggested_classification,
+      note: reason || (a.confidence_source ? `Source: ${a.confidence_source}` : ""),
+      resolved: true,
+    };
+  }
+  return {
+    headline: "Could not be classified safely",
+    note: reason || "No deterministic evidence for this account.",
+    resolved: false,
+  };
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 
 export function AccountReviewPanel({
@@ -98,6 +148,7 @@ export function AccountReviewPanel({
   companyId,
   userId,
   needsReviewAccounts,
+  focusUnresolved = false,
   onReprocessed,
 }: AccountReviewPanelProps) {
   // Pre-select suggestion where it exists; otherwise empty (Save stays disabled).
@@ -112,6 +163,7 @@ export function AccountReviewPanel({
   const [excluded,     setExcluded]     = useState<Set<string>>(new Set());
   const [saving,       setSaving]       = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
+  const [unresolvedOnly, setUnresolvedOnly] = useState(focusUnresolved);
 
   const setChoice = useCallback((key: string, val: string) => {
     setChoices((prev) => ({ ...prev, [key]: val }));
@@ -137,6 +189,24 @@ export function AccountReviewPanel({
     ? resolvedCount === pendingRows.length
     : excluded.size > 0; // all rows excluded is also valid
   const isWorking = saving || reprocessing;
+  const remaining = pendingRows.length - resolvedCount;
+
+  /** Unresolved first — the accountant's queue, in queue order. */
+  const ordered = useMemo(() => {
+    const rank = (a: NeedsReviewAccount) => {
+      const key = rowKey(a);
+      if (excluded.has(key)) return 2;
+      return choices[key] ? 1 : 0;
+    };
+    return [...needsReviewAccounts].sort((a, b) => rank(a) - rank(b));
+  }, [needsReviewAccounts, choices, excluded]);
+
+  const visible = unresolvedOnly
+    ? ordered.filter((a) => {
+        const key = rowKey(a);
+        return !excluded.has(key) && !choices[key];
+      })
+    : ordered;
 
   // ── Save & Reprocess ──────────────────────────────────────────────────────
 
@@ -239,147 +309,200 @@ export function AccountReviewPanel({
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  const decisionControls = (key: string, isExcluded: boolean, choice?: string) => (
+    <div className="flex flex-col items-stretch gap-2 md:items-end">
+      <Select
+        value={isExcluded ? "" : (choice ?? "")}
+        onValueChange={(val) => setChoice(key, val)}
+        disabled={isExcluded || isWorking}
+      >
+        <SelectTrigger className="w-full md:w-[13.5rem] h-9 text-[13px] rounded-none">
+          <SelectValue placeholder="Classify…" />
+        </SelectTrigger>
+        <SelectContent>
+          {CLASSIFICATIONS.map((cls) => (
+            <SelectItem key={cls.value} value={cls.value}>
+              {cls.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <label className="inline-flex items-center gap-2 cursor-pointer">
+        <Checkbox
+          checked={isExcluded}
+          onCheckedChange={() => toggleExclude(key)}
+          disabled={isWorking}
+          className="border-border"
+        />
+        <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+          Exclude from import
+        </span>
+      </label>
+    </div>
+  );
+
   return (
-    <Card className="bg-card border-amber-500/30 ring-1 ring-amber-500/20">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-lg flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 text-amber-500" />
-          Account Review Required
-          <Badge
-            variant="outline"
-            className="bg-amber-500/10 text-amber-500 border-amber-500/30 ml-2"
+    <SurfaceCard data-testid="account-review-workbench" id="account-review">
+      <SurfaceCardHeader
+        label="Accounts requiring review"
+        meta={
+          <>
+            {remaining} of {needsReviewAccounts.length} undecided
+            {excluded.size > 0 && <span> · {excluded.size} excluded</span>}
+          </>
+        }
+        action={
+          <button
+            type="button"
+            onClick={() => setUnresolvedOnly((v) => !v)}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
           >
-            {needsReviewAccounts.length} unresolved
-          </Badge>
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">
-          These accounts could not be mapped automatically. Assign a classification
-          to each, or mark it "Exclude from import" to skip it. All rows must be
-          resolved before reprocessing.
-        </p>
-      </CardHeader>
+            {unresolvedOnly ? "Show all accounts" : "Show undecided only"}
+          </button>
+        }
+      />
 
-      <CardContent className="space-y-3">
-        <TooltipProvider>
-          {needsReviewAccounts.map((account) => {
-            const key        = rowKey(account);
-            const isExcluded = excluded.has(key);
-            const choice     = choices[key];
-            const hasChoice  = !!choice;
+      <p className="px-5 py-3 text-[13px] text-muted-foreground border-b border-border leading-relaxed">
+        SAFF could not map these accounts on evidence it can defend. Set a classification,
+        or exclude the account explicitly. Nothing is written until you save.
+      </p>
 
-            return (
-              <div
-                key={key}
-                className={`rounded-lg border p-3 transition-colors ${
-                  isExcluded
-                    ? "border-border bg-muted/30 opacity-60"
-                    : hasChoice
-                    ? "border-accent/30 bg-accent/5"
-                    : "border-amber-500/20 bg-amber-500/5"
-                }`}
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  {/* Account identity */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-foreground truncate">
-                        {account.account_name}
-                      </span>
-                      {isCoded(account) && (
-                        <Badge variant="outline" className="text-xs shrink-0">
-                          {account.account_code}
-                        </Badge>
-                      )}
-                      {/* Reason / confidence tooltip */}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button type="button" className="shrink-0">
-                            <HelpCircle className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground transition-colors" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs">
-                          <p className="text-xs">{account.reason}</p>
-                          {account.confidence_source && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Source: {account.confidence_source}
-                            </p>
-                          )}
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Balance:{" "}
-                      {account.balance.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+      {/* Desktop: workpaper table */}
+      <div className="hidden md:block">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-border">
+              {["Account", "Balance", "SAFF assessment", "Decision"].map((h, i) => (
+                <th
+                  key={h}
+                  className={[
+                    "px-5 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground",
+                    i === 1 ? "text-right" : "",
+                    i === 3 ? "text-right w-[15rem]" : "",
+                  ].join(" ")}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((account) => {
+              const key        = rowKey(account);
+              const isExcluded = excluded.has(key);
+              const choice     = choices[key];
+              const a          = assessment(account);
+
+              return (
+                <tr
+                  key={key}
+                  className={[
+                    "border-b border-border align-top",
+                    isExcluded ? "opacity-50" : "",
+                  ].join(" ")}
+                >
+                  <td className="px-5 py-4 max-w-[18rem]">
+                    <p className="text-[13px] font-medium text-foreground leading-snug">
+                      {account.account_name}
                     </p>
-                  </div>
+                    {isCoded(account) && (
+                      <p className="mt-1 font-mono text-[11px] text-muted-foreground/70">
+                        {account.account_code}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-5 py-4 text-right text-[13px] tabular-nums text-foreground whitespace-nowrap">
+                    {money(account.balance)}
+                  </td>
+                  <td className="px-5 py-4 max-w-[20rem]">
+                    <StatusMark
+                      tone={a.resolved ? "active" : "warn"}
+                      label={a.headline}
+                    />
+                    {a.note && (
+                      <p className="mt-1 text-[11px] text-muted-foreground/80 leading-snug">
+                        {a.note}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-5 py-4">
+                    {decisionControls(key, isExcluded, choice)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
-                  {/* Controls */}
-                  <div className="flex items-center gap-3 shrink-0">
-                    <Select
-                      value={isExcluded ? "" : (choice ?? "")}
-                      onValueChange={(val) => setChoice(key, val)}
-                      disabled={isExcluded || isWorking}
-                    >
-                      <SelectTrigger className="w-52 text-sm">
-                        <SelectValue placeholder="Select classification…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CLASSIFICATIONS.map((cls) => (
-                          <SelectItem key={cls.value} value={cls.value}>
-                            {cls.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+      {/* Mobile: structured stacked records — account, balance, assessment, decision */}
+      <div className="md:hidden divide-y divide-border">
+        {visible.map((account) => {
+          const key        = rowKey(account);
+          const isExcluded = excluded.has(key);
+          const choice     = choices[key];
+          const a          = assessment(account);
 
-                    <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
-                      <Checkbox
-                        checked={isExcluded}
-                        onCheckedChange={() => toggleExclude(key)}
-                        disabled={isWorking}
-                        className="border-border"
-                      />
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        Exclude from import
-                      </span>
-                    </label>
-                  </div>
-                </div>
+          return (
+            <div key={key} className={`px-5 py-4 ${isExcluded ? "opacity-50" : ""}`}>
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[13px] font-medium text-foreground leading-snug min-w-0">
+                  {account.account_name}
+                  {isCoded(account) && (
+                    <span className="block mt-1 font-mono text-[11px] text-muted-foreground/70">
+                      {account.account_code}
+                    </span>
+                  )}
+                </p>
+                <span className="text-[13px] tabular-nums text-foreground whitespace-nowrap shrink-0">
+                  {money(account.balance)}
+                </span>
               </div>
-            );
-          })}
-        </TooltipProvider>
+              <div className="mt-3">
+                <StatusMark tone={a.resolved ? "active" : "warn"} label={a.headline} />
+                {a.note && (
+                  <p className="mt-1 text-[11px] text-muted-foreground/80 leading-snug">
+                    {a.note}
+                  </p>
+                )}
+              </div>
+              <div className="mt-4">{decisionControls(key, isExcluded, choice)}</div>
+            </div>
+          );
+        })}
+      </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between pt-3 border-t border-border">
-          <p className="text-xs text-muted-foreground">
-            {excluded.size > 0 && (
-              <span>{excluded.size} excluded · </span>
-            )}
-            {pendingRows.length - resolvedCount} remaining
-          </p>
-          <Button
-            onClick={handleSaveAndReprocess}
-            disabled={!allResolved || isWorking}
-            className="gap-2"
-          >
-            {isWorking ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {saving ? "Saving…" : "Reprocessing…"}
-              </>
-            ) : (
-              <>
-                <CheckCircle className="w-4 h-4" />
-                Save & Reprocess
-              </>
-            )}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      {visible.length === 0 && (
+        <p className="px-5 py-6 text-[13px] text-muted-foreground">
+          Every account has a decision. Save and reprocess to rebuild the statements.
+        </p>
+      )}
+
+      {/* Footer — the one action on this panel */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-border px-5 py-4">
+        <p className="text-[12px] text-muted-foreground tabular-nums">
+          {remaining > 0
+            ? `${remaining} account${remaining === 1 ? "" : "s"} still need a decision`
+            : "All decisions recorded"}
+        </p>
+        <Button
+          onClick={handleSaveAndReprocess}
+          disabled={!allResolved || isWorking}
+          className="gap-2 rounded-none w-full sm:w-auto"
+        >
+          {isWorking ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              {saving ? "Saving…" : "Reprocessing…"}
+            </>
+          ) : (
+            <>
+              <CheckCircle className="w-4 h-4" />
+              Save &amp; reprocess
+            </>
+          )}
+        </Button>
+      </div>
+    </SurfaceCard>
   );
 }

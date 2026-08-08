@@ -8,9 +8,9 @@
  *   EFDMSReconciliationPanel
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,6 +28,7 @@ import { AccountReviewPanel } from "@/components/AccountReviewPanel";
 import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel";
 import { TrialBalanceUpload } from "@/components/TrialBalanceUpload";
 import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
+import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
 import {
   DiscardUploadDialog,
   discardUpload,
@@ -49,6 +50,7 @@ import {
   Trash2,
   RefreshCw,
   Loader2,
+  ChevronDown,
 } from "lucide-react";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
@@ -81,6 +83,12 @@ export default function PrepareWorkspace() {
   const { upload, uploads, company, companyId, periodYear, refreshUpload } = useWorkspace();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Deep link from the Overview exception count: land directly on the
+  // unresolved accounts, no second hunt.
+  const focusUnresolved = searchParams.get("review") === "unresolved";
+  const reviewRef = useRef<HTMLDivElement>(null);
+  const [processingOpen, setProcessingOpen] = useState(false);
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
   const [discardTarget, setDiscardTarget] = useState<WorkspaceUpload | null>(null);
@@ -150,6 +158,23 @@ export default function PrepareWorkspace() {
   };
 
   const mapping = upload?.processing_result?.mapping;
+
+  const reviewAccounts = Array.isArray(upload?.processing_result?.needs_review_accounts)
+    ? upload!.processing_result!.needs_review_accounts
+    : [];
+  const showReviewPanel =
+    upload?.status === "needs_review" &&
+    reviewAccounts.length > 0 &&
+    !!upload?.company_id &&
+    !!user;
+
+  useEffect(() => {
+    if (!focusUnresolved || !showReviewPanel) return;
+    const t = window.setTimeout(() => {
+      reviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [focusUnresolved, showReviewPanel]);
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -262,6 +287,29 @@ export default function PrepareWorkspace() {
                 <CertificationSummaryStrip upload={upload} />
               </div>
 
+              {/* Machine telemetry — evidence, not first-screen content. Closed
+                  by default so the accountant sees it only when it is useful. */}
+              <SurfaceCard>
+                <button
+                  type="button"
+                  onClick={() => setProcessingOpen((v) => !v)}
+                  aria-expanded={processingOpen}
+                  className="w-full flex items-center justify-between gap-4 px-5 py-3 text-left group"
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground group-hover:text-foreground transition-colors">
+                    Processing details
+                  </span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${processingOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                {processingOpen && (
+                  <div className="border-t border-border px-5 py-4 [&>section]:mb-0">
+                    <TrialBalanceProgressLedger upload={upload} />
+                  </div>
+                )}
+              </SurfaceCard>
+
               {/* SAFISHA pre-flight — certification comes BEFORE classification
                   is trusted downstream. One verdict, top of the stack. */}
               <TrialBalancePreflight upload={upload} />
@@ -281,19 +329,18 @@ export default function PrepareWorkspace() {
               />
 
               {/* Account review — only when classifier has unresolved accounts */}
-              {upload.status === "needs_review" &&
-                Array.isArray(upload.processing_result?.needs_review_accounts) &&
-                upload.processing_result.needs_review_accounts.length > 0 &&
-                upload.company_id &&
-                user && (
+              {showReviewPanel && upload.company_id && user && (
+                <div ref={reviewRef}>
                   <AccountReviewPanel
                     uploadId={upload.id}
                     companyId={upload.company_id}
                     userId={user.id}
-                    needsReviewAccounts={upload.processing_result.needs_review_accounts}
+                    needsReviewAccounts={reviewAccounts}
+                    focusUnresolved={focusUnresolved}
                     onReprocessed={refreshUpload}
                   />
-                )}
+                </div>
+              )}
 
               {/* Account Classifications */}
               {mapping && (
