@@ -183,7 +183,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
       uploads: uploadsData,
       requestedUploadId,
       periodYear: pYear,
-      derivePeriodYear: (u) => deriveFiscalPeriod(u, coData).periodYear,
+      derivePeriodYear: (u) => deriveFiscalPeriod(u, coData ?? companyRef.current).periodYear,
     });
 
     setUpload(match);
