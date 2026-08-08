@@ -87,6 +87,9 @@ export default function PrepareWorkspace() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [replacing, setReplacing] = useState(false);
   const replaceInputRef = useRef<HTMLInputElement>(null);
+  // Set when the dialog discard succeeded, so closing it does not drop the
+  // replacement file that is about to be uploaded.
+  const keepPendingFileRef = useRef(false);
 
   /**
    * One tap: pick a file → the prior trial balance is discarded and the new
@@ -408,10 +411,15 @@ export default function PrepareWorkspace() {
         onOpenChange={(o) => {
           if (!o) {
             setDiscardTarget(null);
-            setPendingFile(null);
+            if (keepPendingFileRef.current) {
+              keepPendingFileRef.current = false;
+            } else {
+              setPendingFile(null);
+            }
           }
         }}
         onDiscarded={() => {
+          keepPendingFileRef.current = !!pendingFile;
           setDiscardTarget(null);
           // Drop any pinned ?upload=<id> so the list resolves to what remains,
           // then open the uploader — the one next action after a discard.
