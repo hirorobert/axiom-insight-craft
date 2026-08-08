@@ -13,11 +13,26 @@ import { HesabuAssurancePanel } from "@/components/HesabuAssurancePanel";
 import { PeriodClosingBalancesPanel } from "@/components/PeriodClosingBalancesPanel";
 import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
 import { MappingSourcePreview } from "@/components/workspace/MappingSourcePreview";
+import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
+import { computePreflight } from "@/lib/workspace/computePreflight";
 
 export default function StatementsWorkspace() {
-  const { upload, workspaceState } = useWorkspace();
+  const { upload, workspaceState, companyId, periodYear } = useWorkspace();
 
   const mission = workspaceState.missions.statements;
+  const preflight = computePreflight(
+    upload
+      ? {
+          status: upload.status,
+          isValid: upload.is_valid,
+          processedAt: upload.processed_at,
+          processingResult: upload.processing_result,
+          validationReport: upload.validation_report,
+          accountingErrors: upload.accounting_errors,
+        }
+      : null,
+  );
+  const prepareHref = `/workspace/${companyId}/${periodYear}/prepare`;
 
   if (mission.status === "locked") {
     return (
@@ -27,6 +42,22 @@ export default function StatementsWorkspace() {
         prerequisiteHref={workspaceState.missions.prepare.href}
         prerequisiteLabel="Go to Prepare Data"
       />
+    );
+  }
+
+  // Statements are only trustworthy once the trial balance is certified.
+  // Show the exact reason and the one route that clears it.
+  if (upload && preflight.verdict !== "certified") {
+    return (
+      <div className="max-w-2xl space-y-6 pt-2">
+        <TrialBalancePreflight upload={upload} resolveHref={prepareHref} />
+        <WorkspaceGate
+          mission="Prepare Statements"
+          blocker={preflight.blocker ?? "The trial balance is not certified yet."}
+          prerequisiteHref={prepareHref}
+          prerequisiteLabel="Certify the trial balance"
+        />
+      </div>
     );
   }
 
