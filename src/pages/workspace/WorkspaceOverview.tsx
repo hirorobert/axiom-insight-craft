@@ -1,149 +1,55 @@
 /**
- * WorkspaceOverview — Command surface (editorial grade).
+ * WorkspaceOverview — the authenticated first screen. One decision, nothing else.
  *
- * One page, one resting place, one directive, one action.
- *   1. Masthead      — client name (display), fiscal year, TIN, updated stamp
- *   2. Directive     — the single sentence + the single button (absorbs coach)
- *   3. Ledger        — 7-row workflow as a numbered ledger, not card grid
- *   4. Files         — collapsed by default, quiet
+ * Three zones only:
+ *   A. Engagement identity  — company · fiscal year, quiet. TIN only when it blocks.
+ *   B. Current decision     — the ONE dominant CTA on this screen.
+ *   C. Engagement path      — the canonical 7 stages as quiet orientation.
  *
- * Design law:
- *   - No coloured status pills competing with content. One dot, one word.
- *   - No card grid for stages. A ledger is what accountants read.
- *   - Only ONE button carries visual weight per screen.
- *   - Generous vertical rhythm. Type is the interface.
+ * Presentation only. Every count, status, lock reason and next action is read
+ * from workspaceState / upload.processing_result. No accounting state is derived
+ * here, nothing is written here, and no stage gate is evaluated here.
  */
 
 import { useState, useEffect } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import {
-  CheckCircle2,
-  XCircle,
-  Clock,
-  Lock,
-  Minus,
-  ArrowRight,
-  AlertTriangle,
-  RefreshCw,
-  Upload,
-  Info,
-  ChevronDown,
-} from "lucide-react";
+import { ArrowRight, AlertTriangle, RefreshCw, Upload, Check, Lock } from "lucide-react";
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
-import type { MissionStatus } from "@/lib/workspace/types";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
 import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
-import OnboardingFlow from "@/components/workspace/OnboardingFlow";
-import {
-  SurfaceCard,
-  SurfaceCardHeader,
-  SurfaceCardBody,
-  LedgerRow,
-  StatusMark,
-  LockNote,
-} from "@/components/workspace/ui/Surface";
-
-// Single-dot status vocabulary — one word, one colour, no chips.
-// The eye should never have to decode a badge to know where a stage stands.
-const STATUS_META: Record<
-  MissionStatus,
-  { label: string; tone: "muted" | "active" | "done" | "warn" | "bad" | "off" }
-> = {
-  not_started:    { label: "Not started",     tone: "muted"  },
-  in_progress:    { label: "In progress",     tone: "active" },
-  ready:          { label: "Ready",           tone: "active" },
-  passed:         { label: "Passed",          tone: "done"   },
-  review_required:{ label: "Review required", tone: "warn"   },
-  blocked:        { label: "Blocked",         tone: "bad"    },
-  signed:         { label: "Signed off",      tone: "done"   },
-  locked:         { label: "Locked",          tone: "off"    },
-  not_applicable: { label: "Not applicable",  tone: "off"    },
-};
-
-const DOT_TONE: Record<"muted" | "active" | "done" | "warn" | "bad" | "off", string> = {
-  muted:  "bg-muted-foreground/40",
-  active: "bg-primary",
-  done:   "bg-success",
-  warn:   "bg-amber-500",
-  bad:    "bg-destructive",
-  off:    "bg-muted-foreground/20",
-};
-
-const TEXT_TONE: Record<"muted" | "active" | "done" | "warn" | "bad" | "off", string> = {
-  muted:  "text-muted-foreground",
-  active: "text-primary",
-  done:   "text-success",
-  warn:   "text-amber-600 dark:text-amber-500",
-  bad:    "text-destructive",
-  off:    "text-muted-foreground/50",
-};
+import { buildPrepareReviewRoute } from "@/lib/workspace/resolveActiveUpload";
+import { SurfaceCard } from "@/components/workspace/ui/Surface";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function formatRelative(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.round(diff / 60000);
-  if (mins < 2) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.round(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString("en-TZ", {
-    day: "numeric", month: "short", year: "numeric"
-  });
+function countUnresolved(
+  processingResult: Record<string, unknown> | null | undefined,
+): { unresolved: number; total: number | null; classified: number | null } {
+  const pr = (processingResult ?? null) as
+    | { summary?: Record<string, unknown>; needs_review_accounts?: unknown }
+    | null;
+  const list = Array.isArray(pr?.needs_review_accounts) ? pr!.needs_review_accounts : null;
+  const summary = pr?.summary ?? null;
+  const total =
+    summary && typeof summary.total_accounts === "number" ? summary.total_accounts : null;
+  const classified =
+    summary && typeof summary.auto_classified === "number" ? summary.auto_classified : null;
+  const unresolved =
+    list !== null
+      ? list.length
+      : total !== null && classified !== null
+        ? Math.max(0, total - classified)
+        : 0;
+  return { unresolved, total, classified };
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+const num = (n: number) => n.toLocaleString("en-TZ");
 
-// Year-end label derived from the company record — never hardcoded.
-// Accepts "MM-DD", "--MM-DD" or a full date string.
-function formatYearEnd(fiscalYearEnd: string | null | undefined, year: number): string {
-  if (!fiscalYearEnd || year <= 2000) return "—";
-  const m = fiscalYearEnd.match(/(\d{1,2})-(\d{1,2})$/);
-  if (!m) return "—";
-  const month = Number(m[1]);
-  const day = Number(m[2]);
-  if (!month || !day) return "—";
-  const d = new Date(Date.UTC(year, month - 1, day));
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
-}
-
-// Extract a human-readable reason from a blocked/errored upload
-function blockedReason(u: {
-  status: string;
-  validation_report?: Record<string, unknown> | null;
-  accounting_errors?: Record<string, unknown> | null;
-}): string {
-  // Try accounting_errors first (structured engine error)
-  if (u.accounting_errors) {
-    const errs = u.accounting_errors as Record<string, unknown>;
-    if (typeof errs.message === "string") return errs.message;
-    if (Array.isArray(errs.errors) && errs.errors.length > 0) {
-      return String(errs.errors[0]);
-    }
-  }
-  // Try validation_report
-  if (u.validation_report) {
-    const vr = u.validation_report as Record<string, unknown>;
-    if (typeof vr.error === "string") return vr.error;
-    if (typeof vr.message === "string") return vr.message;
-    if (Array.isArray(vr.errors) && vr.errors.length > 0) return String(vr.errors[0]);
-  }
-  return "File could not be processed. Check the format and re-upload.";
-}
-
-// ── Component ───────────────────────────────────────────────────────────────
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function WorkspaceOverview() {
@@ -157,27 +63,12 @@ export default function WorkspaceOverview() {
     companyId,
     refreshUpload,
   } = useWorkspace();
-  const navigate = useNavigate();
 
-  const [uploadsOpen, setUploadsOpen] = useState(false);
-  const [workflowExpanded, setWorkflowExpanded] = useState(false);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [tinDialogOpen, setTinDialogOpen] = useState(false);
   const [tinOverride, setTinOverride] = useState<string | null>(null);
-  const [onboardingVisible, setOnboardingVisible] = useState(true);
 
-  // Stamp the first time we see an upload so the "updated" line has a value.
-  useEffect(() => {
-    if (upload?.id && !lastRefreshedAt) setLastRefreshedAt(new Date());
-  }, [upload?.id, lastRefreshedAt]);
-
-  const handleRefreshUpload = () => {
-    refreshUpload();
-    setLastRefreshedAt(new Date());
-  };
-
-  // Retry the ingest pipeline when the active upload is Blocked/Failed.
+  // Retry the ingest pipeline when the active upload failed.
   const handleRetryProcessing = async () => {
     if (!upload?.id || retrying) return;
     setRetrying(true);
@@ -199,7 +90,7 @@ export default function WorkspaceOverview() {
       });
       if (fnErr) throw fnErr;
 
-      handleRefreshUpload();
+      refreshUpload();
       toast.success("Re-processing started. Status will update automatically.");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Retry failed";
@@ -215,26 +106,25 @@ export default function WorkspaceOverview() {
     if (!activeUploadStatus) return;
     const isPolling =
       activeUploadStatus === "processing" ||
-      activeUploadStatus === "needs_review" ||
       activeUploadStatus === "pending" ||
       activeUploadStatus === "queued";
     if (!isPolling) return;
-    const interval = setInterval(() => handleRefreshUpload(), 4000);
+    const interval = setInterval(() => refreshUpload(), 4000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeUploadStatus]);
 
   if (loading) {
     return (
-      <div className="space-y-10 max-w-4xl">
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-80 w-full" />
+      <div className="space-y-8 max-w-3xl">
+        <Skeleton className="h-6 w-56" />
+        <Skeleton className="h-56 w-full" />
+        <Skeleton className="h-14 w-full" />
       </div>
     );
   }
 
-  const { nextAction, missions, lastUpdatedAt } = workspaceState;
+  const { nextAction, missions } = workspaceState;
   const basePath = `/workspace/${companyId}/${periodYear}`;
 
   const effectiveTin = tinOverride ?? company?.tin ?? null;
@@ -252,38 +142,38 @@ export default function WorkspaceOverview() {
     return s !== "passed" && s !== "signed" && s !== "locked" && s !== "not_applicable";
   });
 
-  const blockedUploadsCount = uploads.filter(
-    (u) => u.status === "blocked" || u.status === "error"
-  ).length;
+  const { unresolved, total, classified } = countUnresolved(
+    upload?.processing_result as Record<string, unknown> | null,
+  );
 
-  // ── Onboarding: 3 steps, derived from DB, position saved in localStorage ──
-  const statementsStatus = missions.statements.status;
-  const statementsDone = statementsStatus === "passed" || statementsStatus === "signed";
-  const uploadPending =
-    upload?.status === "processing" ||
-    upload?.status === "needs_review" ||
-    upload?.status === "pending" ||
-    upload?.status === "queued";
-  const showOnboarding = !!companyId && onboardingVisible;
-
-  // ── Directive: the ONE sentence + ONE button on this screen ────────────
-  // Absorbs first-run coach, next-action, and retry-on-failure into a single
-  // resting place. The user never has to choose between two primary CTAs.
-  type Directive = {
+  // ── The single decision on this screen ────────────────────────────────────
+  type Decision = {
     eyebrow: string;
     headline: string;
-    hint?: string;
-    button: { label: string; href?: string; onClick?: () => void; icon: React.ReactNode; disabled?: boolean };
+    detail?: string;
+    button: {
+      label: string;
+      href?: string;
+      onClick?: () => void;
+      icon: React.ReactNode;
+      disabled?: boolean;
+    };
     tone: "primary" | "warn" | "muted";
   };
 
-  let directive: Directive;
+  let decision: Decision;
 
-  if (!prepareDone && !hasUpload) {
-    directive = {
-      eyebrow: "Start here",
-      headline: "Upload the trial balance to begin.",
-      hint: "Validated against Tanzania chart of accounts and ITA Cap.332 before anything else runs.",
+  const s = upload?.status;
+  const isFailed = s === "blocked" || s === "error";
+  const isProcessing = s === "processing" || s === "pending" || s === "queued";
+  const needsReview = s === "needs_review" && unresolved > 0;
+
+  if (!hasUpload) {
+    decision = {
+      eyebrow: STAGE_CONFIGS.prepare.label,
+      headline: "Upload the trial balance to open this engagement.",
+      detail:
+        "SAFF parses the workbook, checks that it balances, and classifies every account it can defend before anything downstream runs.",
       button: {
         label: "Upload trial balance",
         href: `${basePath}/prepare`,
@@ -291,54 +181,65 @@ export default function WorkspaceOverview() {
       },
       tone: "primary",
     };
-  } else if (!prepareDone && hasUpload) {
-    const s = upload?.status;
-    const isFailed = s === "blocked" || s === "error";
-    const isProcessing = s === "processing" || s === "needs_review" || s === "pending" || s === "queued";
-    if (isFailed) {
-      directive = {
-        eyebrow: "Action required",
-        headline: "The trial balance could not be processed.",
-        hint: "Re-run processing, or upload a corrected file.",
-        button: {
-          label: retrying ? "Retrying…" : "Retry processing",
-          onClick: handleRetryProcessing,
-          disabled: retrying,
-          icon: <RefreshCw className={`w-4 h-4 ${retrying ? "animate-spin" : ""}`} />,
-        },
-        tone: "warn",
-      };
-    } else if (isProcessing) {
-      directive = {
-        eyebrow: "In progress",
-        headline: "Trial balance is processing.",
-        hint: "Status updates automatically. You can open Prepare Data to watch validation as it runs.",
-        button: {
-          label: "Open Prepare Data",
-          href: `${basePath}/prepare`,
-          icon: <ArrowRight className="w-4 h-4" />,
-        },
-        tone: "muted",
-      };
-    } else {
-      directive = {
-        eyebrow: "Continue",
-        headline: "Finish validating the trial balance.",
-        hint: "Reconcile, statements, tax, filing and monitoring unlock as each stage passes.",
-        button: {
-          label: "Continue trial balance",
-          href: `${basePath}/prepare`,
-          icon: <ArrowRight className="w-4 h-4" />,
-        },
-        tone: "primary",
-      };
-    }
+  } else if (isFailed) {
+    decision = {
+      eyebrow: STAGE_CONFIGS.prepare.label,
+      headline: "The trial balance could not be processed.",
+      detail: "Re-run processing, or replace the file in Prepare Data.",
+      button: {
+        label: retrying ? "Retrying…" : "Retry processing",
+        onClick: handleRetryProcessing,
+        disabled: retrying,
+        icon: <RefreshCw className={`w-4 h-4 ${retrying ? "animate-spin" : ""}`} />,
+      },
+      tone: "warn",
+    };
+  } else if (isProcessing) {
+    decision = {
+      eyebrow: STAGE_CONFIGS.prepare.label,
+      headline: "Trial balance is processing.",
+      detail:
+        "This screen updates itself. The run continues on the server if you leave the page.",
+      button: {
+        label: "Open Prepare Data",
+        href: `${basePath}/prepare`,
+        icon: <ArrowRight className="w-4 h-4" />,
+      },
+      tone: "muted",
+    };
+  } else if (needsReview) {
+    decision = {
+      eyebrow: STAGE_CONFIGS.prepare.label,
+      headline: `${num(unresolved)} ${unresolved === 1 ? "account requires" : "accounts require"} review`,
+      detail:
+        total !== null && classified !== null
+          ? `SAFF processed ${num(total)} accounts and classified ${num(classified)} safely. Review only the accounts it could not classify with confidence.`
+          : "Review the accounts SAFF could not classify with confidence.",
+      button: {
+        label: `Review ${num(unresolved)} ${unresolved === 1 ? "account" : "accounts"}`,
+        href: buildPrepareReviewRoute(companyId, periodYear, upload?.id ?? null),
+        icon: <ArrowRight className="w-4 h-4" />,
+      },
+      tone: "primary",
+    };
+  } else if (!prepareDone) {
+    decision = {
+      eyebrow: STAGE_CONFIGS.prepare.label,
+      headline: "Finish preparing the trial balance.",
+      detail: "Later stages open as each one passes.",
+      button: {
+        label: "Open Prepare Data",
+        href: `${basePath}/prepare`,
+        icon: <ArrowRight className="w-4 h-4" />,
+      },
+      tone: "primary",
+    };
   } else {
-    // Prepare is done — hand off to the workspaceState's next action.
-    directive = {
-      eyebrow: "Next",
+    const activeSlug = activeIndex >= 0 ? STAGE_SEQUENCE[activeIndex] : null;
+    decision = {
+      eyebrow: activeSlug ? STAGE_CONFIGS[activeSlug].label : "Engagement complete",
       headline: nextAction.description,
-      hint: nextAction.blocker ?? undefined,
+      detail: nextAction.blocker ?? undefined,
       button: {
         label: nextAction.label,
         href: nextAction.href,
@@ -349,9 +250,15 @@ export default function WorkspaceOverview() {
     };
   }
 
-  return (
-    <div className="max-w-4xl">
+  const eyebrowTone =
+    decision.tone === "warn"
+      ? "text-destructive"
+      : decision.tone === "muted"
+        ? "text-muted-foreground"
+        : "text-primary";
 
+  return (
+    <div className="max-w-3xl">
       {company && (
         <CompanyTinDialog
           open={tinDialogOpen}
@@ -363,334 +270,137 @@ export default function WorkspaceOverview() {
         />
       )}
 
-      {/* ── 1. Masthead ─────────────────────────────────────────────────── */}
-      <header className="pb-8 mb-10 border-b border-border">
-        <div className="flex items-start justify-between gap-6">
-          <div className="min-w-0">
-            <p className="text-[10px] font-semibold text-muted-foreground tracking-[0.22em] uppercase mb-3">
-              Engagement · FY{periodYear > 2000 ? periodYear : "—"}
-            </p>
-            <h1 className="text-3xl md:text-[2.25rem] font-semibold tracking-tight text-foreground leading-[1.15]">
-              {company?.name ?? "—"}
-            </h1>
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 mt-4 text-[13px] text-muted-foreground">
-              <span className="tabular-nums">
-                Year ended {formatYearEnd(company?.fiscal_year_end, periodYear)}
-              </span>
-              {tinMissing ? (
-                <button
-                  type="button"
-                  onClick={() => setTinDialogOpen(true)}
-                  className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-500 hover:underline underline-offset-4"
-                >
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  TIN not set — add it
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setTinDialogOpen(true)}
-                  className="font-mono text-[12px] hover:text-foreground transition-colors"
-                  title="Edit TIN"
-                >
-                  TIN {effectiveTin}
-                </button>
-              )}
-              {lastUpdatedAt && (
-                <span className="tabular-nums">Updated {formatRelative(lastUpdatedAt)}</span>
-              )}
-            </div>
-          </div>
-
+      {/* ── ZONE A · Engagement identity ─────────────────────────────────────
+          The company and fiscal year already live in the workspace header, so
+          repeating them here would be a second representation of the same fact.
+          Zone A therefore carries only what is actionable: a blocking TIN.
+          TIN never appears merely because the record holds a value. */}
+      {tinMissing && (
+        <header className="mb-6">
           <button
             type="button"
-            onClick={handleRefreshUpload}
-            className="shrink-0 inline-flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors mt-1"
-            title="Refresh"
-            aria-label="Refresh"
+            onClick={() => setTinDialogOpen(true)}
+            className="inline-flex items-center gap-2 text-[13px] text-amber-600 dark:text-amber-500 hover:underline underline-offset-4"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Refresh</span>
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            TIN required — add it
           </button>
-        </div>
-      </header>
-
-      {!!companyId && onboardingVisible && (
-        <OnboardingFlow
-          companyId={companyId}
-          periodYear={periodYear}
-          basePath={basePath}
-          uploadDone={prepareDone}
-          uploadPending={!!uploadPending}
-          companyDone={!tinMissing}
-          statementsDone={statementsDone}
-          onSetTin={() => setTinDialogOpen(true)}
-          onVisibilityChange={setOnboardingVisible}
-        />
+        </header>
       )}
 
-      {/* ── 2. Directive — the single resting place ─────────────────────── */}
-      <section className={showOnboarding ? "hidden" : "mb-10"}>
-        <SurfaceCard className="px-6 py-7">
-        <p className={[
-          "text-[10px] font-semibold tracking-[0.22em] uppercase mb-4",
-          directive.tone === "warn" ? "text-destructive" :
-          directive.tone === "muted" ? "text-muted-foreground" :
-          "text-primary",
-        ].join(" ")}>
-          {directive.eyebrow}
-        </p>
-        <h2 className="text-2xl md:text-[1.75rem] font-semibold tracking-tight text-foreground leading-[1.25] max-w-2xl">
-          {directive.headline}
-        </h2>
-        {directive.hint && (
-          <p className="mt-3 text-[14px] text-muted-foreground leading-relaxed max-w-2xl">
-            {directive.hint}
+      {/* ── ZONE B · Current decision — the one centre of gravity ────────── */}
+      <section className="mb-10 sm:mb-14" data-testid="current-decision">
+        <SurfaceCard className="px-5 py-8 sm:px-8 sm:py-10">
+          <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-5 ${eyebrowTone}`}>
+            {decision.eyebrow}
           </p>
-        )}
-
-        <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3">
-          {directive.button.href ? (
-            <Button
-              asChild={!directive.button.disabled}
-              disabled={directive.button.disabled}
-              size="lg"
-              variant={directive.tone === "muted" ? "outline" : "default"}
-              className="h-12 px-6 text-[14px] font-semibold rounded-none shadow-none"
-            >
-              {directive.button.disabled ? (
-                <span>
-                  {directive.button.icon}
-                  <span className="mx-2">{directive.button.label}</span>
-                </span>
-              ) : (
-                <Link to={directive.button.href}>
-                  {directive.button.icon}
-                  <span className="mx-2">{directive.button.label}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </Link>
-              )}
-            </Button>
-          ) : (
-            <Button
-              onClick={directive.button.onClick}
-              disabled={directive.button.disabled}
-              size="lg"
-              variant={directive.tone === "warn" ? "destructive" : "default"}
-              className="h-12 px-6 text-[14px] font-semibold rounded-none shadow-none"
-            >
-              {directive.button.icon}
-              <span className="mx-2">{directive.button.label}</span>
-            </Button>
+          <h2 className="text-2xl sm:text-[2rem] font-semibold tracking-tight text-foreground leading-[1.2] max-w-xl">
+            {decision.headline}
+          </h2>
+          {decision.detail && (
+            <p className="mt-4 text-[14px] text-muted-foreground leading-relaxed max-w-xl">
+              {decision.detail}
+            </p>
           )}
 
-        </div>
+          <div className="mt-8">
+            {decision.button.href && !decision.button.disabled ? (
+              <Button
+                asChild
+                size="lg"
+                data-testid="primary-cta"
+                variant={decision.tone === "muted" ? "outline" : "default"}
+                className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
+              >
+                <Link to={decision.button.href}>
+                  {decision.button.icon}
+                  <span className="mx-2">{decision.button.label}</span>
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                onClick={decision.button.onClick}
+                disabled={decision.button.disabled}
+                size="lg"
+                data-testid="primary-cta"
+                variant={decision.tone === "warn" ? "destructive" : "default"}
+                className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
+              >
+                {decision.button.icon}
+                <span className="mx-2">{decision.button.label}</span>
+              </Button>
+            )}
+          </div>
         </SurfaceCard>
       </section>
 
-      {/* ── 3. Workflow ledger — 7 rows, numbered, no cards ─────────────── */}
-      {/* ── 2b. Live trial balance ingestion ledger ─────────────────────── */}
-      {upload && !prepareDone && (
-        <TrialBalanceProgressLedger upload={upload} lastRefreshedAt={lastRefreshedAt} />
-      )}
-
-      <section className="mb-10">
-        <SurfaceCard>
-        <SurfaceCardHeader
-          label="Workflow"
-          meta={activeIndex >= 0 ? `Step ${activeIndex + 1} of ${STAGE_SEQUENCE.length}` : "All stages complete"}
-        />
-
-        {/* Live step only — the one resting place for attention */}
-        <ol>
-          {activeIndex >= 0 ? (() => {
-            const slug = STAGE_SEQUENCE[activeIndex];
-            const config = STAGE_CONFIGS[slug];
+      {/* ── ZONE C · Engagement path — quiet orientation, zero CTA weight ── */}
+      <nav aria-label="Engagement path" data-testid="engagement-path">
+        <ol className="flex flex-wrap items-center gap-x-1 gap-y-2 -mx-1">
+          {STAGE_SEQUENCE.map((slug, i) => {
             const mission = missions[slug];
-            const meta = STATUS_META[mission.status];
-            const Icon = config.icon;
+            const isLocked = mission.status === "locked" || mission.status === "not_applicable";
+            const isComplete = mission.status === "passed" || mission.status === "signed";
+            const isCurrent = i === activeIndex;
+            const label = STAGE_CONFIGS[slug].label;
+
+            const inner = (
+              <span
+                className={[
+                  "inline-flex items-center gap-1.5 px-2 py-1 text-[12px] whitespace-nowrap",
+                  isCurrent
+                    ? "text-foreground font-medium"
+                    : isComplete
+                      ? "text-muted-foreground"
+                      : isLocked
+                        ? "text-muted-foreground/45"
+                        : "text-muted-foreground/70",
+                ].join(" ")}
+              >
+                {isComplete && <Check className="w-3 h-3 text-success shrink-0" />}
+                {isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                {isLocked && <Lock className="w-3 h-3 shrink-0 text-muted-foreground/40" />}
+                {label}
+              </span>
+            );
+
             return (
-              <li key={slug}>
-                <Link to={mission.href} className="block hover:bg-secondary/30 transition-colors">
-                  <LedgerRow
-                    highlight
-                    step={String(activeIndex + 1).padStart(2, "0")}
-                    stepTone="active"
-                    icon={<Icon className="w-4 h-4 text-primary" />}
-                    title={mission.label}
-                    note={mission.blocker ?? undefined}
-                    status={<StatusMark tone={meta.tone} label={meta.label} />}
-                    trailing={<ArrowRight className="w-4 h-4 text-primary" />}
-                  />
-                </Link>
+              <li key={slug} className="flex items-center">
+                {isLocked ? (
+                  <span
+                    title={
+                      mission.blocker
+                        ? `Locked — ${mission.blocker}`
+                        : "Locked — an earlier stage must pass first"
+                    }
+                    aria-label={
+                      mission.blocker
+                        ? `${label}. Locked — ${mission.blocker}`
+                        : `${label}. Locked.`
+                    }
+                    className="cursor-default"
+                  >
+                    {inner}
+                  </span>
+                ) : (
+                  <Link
+                    to={mission.href}
+                    title={STAGE_CONFIGS[slug].description}
+                    className="hover:text-foreground transition-colors"
+                  >
+                    {inner}
+                  </Link>
+                )}
+                {i < STAGE_SEQUENCE.length - 1 && (
+                  <span aria-hidden className="text-muted-foreground/25 text-[11px] px-0.5">
+                    /
+                  </span>
+                )}
               </li>
             );
-          })() : (
-            <li>
-              <LedgerRow
-                icon={<CheckCircle2 className="w-4 h-4 text-success" />}
-                title="All workflow stages complete"
-                status={<StatusMark tone="done" label="Done" />}
-              />
-            </li>
-          )}
+          })}
         </ol>
-
-        {/* Folded later stages — one expandable section, one decision */}
-        <button
-          type="button"
-          onClick={() => setWorkflowExpanded((v) => !v)}
-          className="w-full flex items-center justify-between text-left px-5 py-3 group"
-        >
-          <span className="text-[12px] text-muted-foreground group-hover:text-foreground transition-colors">
-            {workflowExpanded ? "Hide all stages" : "View all stages"}
-          </span>
-          <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${workflowExpanded ? "rotate-180" : ""}`} />
-        </button>
-
-        {workflowExpanded && (
-          <ol className="border-t border-border">
-            {STAGE_SEQUENCE.map((slug, i) => {
-              const config = STAGE_CONFIGS[slug];
-              const mission = missions[slug];
-              const meta = STATUS_META[mission.status];
-              const Icon = config.icon;
-              const isLocked = mission.status === "locked" || mission.status === "not_applicable";
-              const isActive = i === activeIndex;
-              const isComplete = mission.status === "passed" || mission.status === "signed";
-              const canOpen = !isLocked;
-
-              const rowInner = (
-                <LedgerRow
-                  highlight={isActive}
-                  className={canOpen ? "hover:bg-secondary/30 cursor-pointer" : "cursor-default"}
-                  step={String(i + 1).padStart(2, "0")}
-                  stepTone={isActive ? "active" : isComplete ? "done" : "muted"}
-                  icon={
-                    <Icon className={[
-                      "w-4 h-4",
-                      isActive ? "text-primary" : isComplete ? "text-success" : isLocked ? "text-muted-foreground/30" : "text-muted-foreground",
-                    ].join(" ")} />
-                  }
-                  title={mission.label}
-                  titleMuted={isLocked}
-                  note={isLocked ? <LockNote reason={mission.blocker} /> : undefined}
-                  status={isLocked ? undefined : <StatusMark tone={meta.tone} label={meta.label} />}
-                  trailing={
-                    canOpen ? (
-                      <ArrowRight className={[
-                        "w-4 h-4",
-                        isActive ? "text-primary" : "text-muted-foreground/40",
-                      ].join(" ")} />
-                    ) : undefined
-                  }
-                />
-              );
-
-              return (
-                <li key={slug}>
-                  {canOpen ? (
-                    <Link to={mission.href} className="block">
-                      {rowInner}
-                    </Link>
-                  ) : (
-                    <div>{rowInner}</div>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        )}
-        </SurfaceCard>
-      </section>
-
-      {/* ── 4. Files — quiet, collapsed, secondary ──────────────────────── */}
-      {uploads.length > 0 && (
-        <section>
-          <SurfaceCard>
-          <button
-            type="button"
-            onClick={() => setUploadsOpen((v) => !v)}
-            className="w-full flex items-center justify-between text-left group px-5 py-3"
-          >
-            <div className="flex items-center gap-4">
-              <p className="text-[10px] font-semibold text-muted-foreground tracking-[0.22em] uppercase">
-                Files
-              </p>
-              <span className="text-[12px] text-muted-foreground/70 tabular-nums">
-                {uploads.length}
-              </span>
-            </div>
-            <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${uploadsOpen ? "rotate-180" : ""}`} />
-          </button>
-
-          {uploadsOpen && (
-            <ol className="border-t border-border">
-              {uploads.slice(0, 5).map((u) => {
-                const isActive  = u.id === upload?.id;
-                const isBlocked = u.status === "blocked" || u.status === "error";
-                const reason    = isBlocked ? blockedReason(u as Parameters<typeof blockedReason>[0]) : null;
-                const statusLabel =
-                  u.status === "complete" ? "Complete" :
-                  u.status === "valid" ? "Valid" :
-                  u.status === "blocked" ? "Blocked" :
-                  u.status === "error" ? "Failed" :
-                  u.status === "processing" ? "Processing" : u.status;
-                const tone: "muted" | "active" | "done" | "warn" | "bad" | "off" =
-                  u.status === "complete" || u.status === "valid" ? "done" :
-                  isBlocked ? "bad" :
-                  u.status === "processing" ? "active" : "muted";
-
-                return (
-                  <li key={u.id}>
-                    <LedgerRow
-                      highlight={isActive}
-                      icon={<span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[tone]}`} />}
-                      title={
-                        <span className="font-mono text-[13px] font-normal truncate block">
-                          {u.file_name}
-                        </span>
-                      }
-                      titleMuted={!isActive}
-                      note={
-                        <span className="tabular-nums">
-                          {formatFileSize(u.file_size)} · {formatRelative(u.uploaded_at)}
-                          {isActive ? " · Active file" : ""}
-                          {isBlocked && reason ? ` · ${reason}` : ""}
-                        </span>
-                      }
-                      status={<StatusMark tone={tone} label={statusLabel} />}
-                      trailing={
-                        isBlocked ? (
-                          <button
-                            type="button"
-                            onClick={() => navigate(`${basePath}/prepare`)}
-                            className="text-muted-foreground hover:text-foreground"
-                            aria-label="Re-upload this file"
-                            title="Re-upload this file"
-                          >
-                            <Upload className="w-3.5 h-3.5" />
-                          </button>
-                        ) : undefined
-                      }
-                    />
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-
-          {uploadsOpen && uploads.length > 5 && (
-            <Link
-              to={`${basePath}/prepare`}
-              className="block px-5 py-3 text-[12px] text-muted-foreground hover:text-foreground"
-            >
-              View all {uploads.length} files →
-            </Link>
-          )}
-          </SurfaceCard>
-        </section>
-      )}
+      </nav>
     </div>
   );
 }

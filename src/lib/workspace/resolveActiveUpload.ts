@@ -56,3 +56,19 @@ export function buildPrepareUploadRoute(
   const base = `/workspace/${companyId}/${periodYear}/prepare`;
   return uploadId ? `${base}?upload=${uploadId}` : base;
 }
+
+/**
+ * Canonical route for "take me straight to the unresolved accounts".
+ *
+ * The exception count on the Overview and this route are the same control:
+ * status → reason → action is one interaction surface, so the accountant never
+ * reads a count on one screen and then hunts for the panel on another.
+ */
+export function buildPrepareReviewRoute(
+  companyId: string,
+  periodYear: number,
+  uploadId?: string | null,
+): string {
+  const base = buildPrepareUploadRoute(companyId, periodYear, uploadId);
+  return `${base}${base.includes("?") ? "&" : "?"}review=unresolved`;
+}
