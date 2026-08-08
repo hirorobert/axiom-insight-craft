@@ -156,28 +156,34 @@ export async function restoreUpload(receipt: DiscardReceipt): Promise<void> {
  * discard is final.
  */
 export function offerUndo(receipt: DiscardReceipt, onRestored?: () => void) {
-  toast.success(`Discarded ${receipt.fileName}`, {
-    description: "You have a few seconds to put it back.",
-    duration: UNDO_WINDOW_MS,
-    action: {
-      label: "Undo",
-      onClick: () => {
-        void (async () => {
-          try {
-            await restoreUpload(receipt);
-            toast.success(`${receipt.fileName} restored.`);
-            onRestored?.();
-          } catch (err) {
-            toast.error(
-              err instanceof Error
-                ? `Could not restore: ${err.message}`
-                : "Could not restore this trial balance.",
-            );
-          }
-        })();
+  const toastId = toast.success(
+    <div className="flex flex-col gap-1">
+      <span className="font-medium">Discarded {receipt.fileName}</span>
+      <CountdownUndoToast receipt={receipt} />
+    </div>,
+    {
+      duration: UNDO_WINDOW_MS,
+      action: {
+        label: "Undo",
+        onClick: () => {
+          toast.dismiss(toastId);
+          void (async () => {
+            try {
+              await restoreUpload(receipt);
+              toast.success(`${receipt.fileName} restored.`);
+              onRestored?.();
+            } catch (err) {
+              toast.error(
+                err instanceof Error
+                  ? `Could not restore: ${err.message}`
+                  : "Could not restore this trial balance.",
+              );
+            }
+          })();
+        },
       },
     },
-  });
+  );
 }
 
 export function DiscardUploadDialog({
