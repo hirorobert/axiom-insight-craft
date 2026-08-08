@@ -710,12 +710,13 @@ export default function OnboardingFlow({
 
   const allDone = STEP_ORDER.every((s) => done[s]);
 
-  // The live step: first incomplete step, but never behind where the user
-  // already was (so a resumed session lands where they left off).
+  // The live step is ALWAYS the first incomplete step. It can never run ahead
+  // of an unfinished earlier step — that is what produced the contradictory
+  // "Trial balance PENDING / Statements CURRENT" reading. One book, one truth:
+  // Done comes first, Current is the earliest unfinished step, everything
+  // after it is Pending. No exceptions, no remembered position override.
   const firstIncomplete = STEP_ORDER.find((s) => !done[s]) ?? "review";
-  const rememberedIndex = STEP_ORDER.indexOf(persisted.currentStep);
-  const incompleteIndex = STEP_ORDER.indexOf(firstIncomplete);
-  const activeStep = STEP_ORDER[Math.max(incompleteIndex, done[persisted.currentStep] ? incompleteIndex : rememberedIndex)];
+  const activeStep = firstIncomplete;
 
   // Persist the resolved position so a refresh restores it.
   useEffect(() => {
@@ -821,7 +822,12 @@ export default function OnboardingFlow({
             Getting started · Step {activeIndex + 1} of {STEP_ORDER.length}
           </p>
           <p className="mt-2 text-[15px] font-medium text-foreground tracking-tight">
-            {STEP_TITLES[activeStep]} — {completedCount === STEP_ORDER.length ? "all steps complete" : "in progress"}
+            {STEP_TITLES[activeStep]} —{" "}
+            {completedCount === STEP_ORDER.length
+              ? "all steps complete"
+              : activeStep === "upload" && uploadPending
+                ? "validating now"
+                : "waiting on you"}
           </p>
         </div>
         <div className="flex items-center gap-4 shrink-0">
@@ -904,6 +910,9 @@ export default function OnboardingFlow({
         {STEP_ORDER.map((s, i) => {
           const isDone = done[s];
           const isActive = !isDone && s === activeStep;
+          // A step the engine is still working on reads "In progress", never
+          // "Pending" — pending means nothing has started.
+          const isRunning = isActive && s === "upload" && uploadPending;
           return (
             <li
               key={s}
@@ -947,7 +956,7 @@ export default function OnboardingFlow({
                   isDone ? "text-success" : isActive ? "text-primary" : "text-muted-foreground/40",
                 ].join(" ")}
               >
-                {isDone ? "Done" : isActive ? "Current" : "Pending"}
+                {isDone ? "Done" : isRunning ? "In progress" : isActive ? "Current" : "Pending"}
               </p>
             </li>
           );
