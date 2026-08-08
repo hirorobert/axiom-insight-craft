@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
@@ -14,6 +14,13 @@ interface AvatarUploadProps {
   currentAvatarUrl: string | null;
   displayName: string | null;
   onAvatarChange: (url: string | null) => void;
+}
+
+/** avatars is a PRIVATE bucket — stored value is an object path, not a URL. */
+function toObjectPath(stored: string | null): string | null {
+  if (!stored) return null;
+  if (stored.includes("/avatars/")) return stored.split("/avatars/")[1].split("?")[0];
+  return stored;
 }
 
 function centerAspectCrop(mediaWidth: number, mediaHeight: number, aspect: number) {
@@ -69,6 +76,25 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
   const imgRef = useRef<HTMLImageElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { logAction } = useAuditLog();
+  const [displayUrl, setDisplayUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const path = toObjectPath(currentAvatarUrl);
+    if (!path) {
+      setDisplayUrl(null);
+      return;
+    }
+    supabase.storage
+      .from("avatars")
+      .createSignedUrl(path, 3600)
+      .then(({ data }) => {
+        if (!cancelled) setDisplayUrl(data?.signedUrl ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentAvatarUrl]);
 
   const onSelectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -95,11 +121,9 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
       const fileName = `${userId}/avatar-${Date.now()}.jpg`;
 
       // Delete old avatar if exists
-      if (currentAvatarUrl) {
-        const oldPath = currentAvatarUrl.split("/avatars/")[1];
-        if (oldPath) {
-          await supabase.storage.from("avatars").remove([oldPath]);
-        }
+      const oldPath = toObjectPath(currentAvatarUrl);
+      if (oldPath) {
+        await supabase.storage.from("avatars").remove([oldPath]);
       }
 
       // Upload new avatar
@@ -109,20 +133,15 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from("avatars")
-        .getPublicUrl(fileName);
-
-      // Update profile
+      // Store the object path — reads go through short-lived signed URLs
       const { error: updateError } = await supabase
         .from("profiles")
-        .update({ avatar_url: publicUrl })
+        .update({ avatar_url: fileName })
         .eq("user_id", userId);
 
       if (updateError) throw updateError;
 
-      onAvatarChange(publicUrl);
+      onAvatarChange(fileName);
       toast.success("Avatar updated successfully");
       setIsOpen(false);
       setImgSrc("");
@@ -139,7 +158,7 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
 
     setDeleting(true);
     try {
-      const path = currentAvatarUrl.split("/avatars/")[1];
+      const path = toObjectPath(currentAvatarUrl);
       if (path) {
         await supabase.storage.from("avatars").remove([path]);
       }
@@ -175,7 +194,7 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
     <div className="flex flex-col items-center gap-4">
       <div className="relative group">
         <Avatar className="w-24 h-24 border-4 border-border">
-          <AvatarImage src={currentAvatarUrl || undefined} alt="Avatar" />
+          <AvatarImage src={displayUrl || undefined} alt="Avatar" />
           <AvatarFallback className="text-2xl bg-primary/10 text-primary">
             {getInitials()}
           </AvatarFallback>
