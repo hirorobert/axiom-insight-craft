@@ -494,18 +494,15 @@ export default function WorkspaceOverview() {
         <TrialBalanceProgressLedger upload={upload} lastRefreshedAt={lastRefreshedAt} />
       )}
 
-      <section className="mb-14">
-        <div className="flex items-baseline justify-between mb-5">
-          <p className="text-[10px] font-semibold text-muted-foreground tracking-[0.22em] uppercase">
-            Workflow
-          </p>
-          <p className="text-[11px] text-muted-foreground/70 tabular-nums tracking-wide">
-            {activeIndex >= 0 ? `Step ${activeIndex + 1} of ${STAGE_SEQUENCE.length}` : "All stages complete"}
-          </p>
-        </div>
+      <section className="mb-10">
+        <SurfaceCard>
+        <SurfaceCardHeader
+          label="Workflow"
+          meta={activeIndex >= 0 ? `Step ${activeIndex + 1} of ${STAGE_SEQUENCE.length}` : "All stages complete"}
+        />
 
         {/* Live step only — the one resting place for attention */}
-        <ol className="border-t border-border">
+        <ol>
           {activeIndex >= 0 ? (() => {
             const slug = STAGE_SEQUENCE[activeIndex];
             const config = STAGE_CONFIGS[slug];
@@ -514,38 +511,27 @@ export default function WorkspaceOverview() {
             const Icon = config.icon;
             return (
               <li key={slug}>
-                <Link to={mission.href} className="block">
-                  <div className="group grid grid-cols-[3.5rem_1.5rem_1fr_auto_1.5rem] items-center gap-4 py-4 border-b border-border transition-colors hover:bg-secondary/30 bg-primary/[0.03]">
-                    <span className="text-[11px] font-mono tabular-nums pl-1 text-primary font-semibold">
-                      {String(activeIndex + 1).padStart(2, "0")}
-                    </span>
-                    <Icon className="w-4 h-4 text-primary" />
-                    <div className="min-w-0">
-                      <p className="text-[15px] font-medium leading-tight tracking-tight text-foreground">
-                        {mission.label}
-                      </p>
-                      {mission.blocker && (
-                        <p className="mt-1 text-[12px] text-muted-foreground/70 leading-snug truncate">
-                          {mission.blocker}
-                        </p>
-                      )}
-                    </div>
-                    <span className={`inline-flex items-center gap-2 text-[12px] ${TEXT_TONE[meta.tone]}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[meta.tone]}`} />
-                      <span className="whitespace-nowrap">{meta.label}</span>
-                    </span>
-                    <ArrowRight className="w-4 h-4 text-primary transition-transform group-hover:translate-x-0.5" />
-                  </div>
+                <Link to={mission.href} className="block hover:bg-secondary/30 transition-colors">
+                  <LedgerRow
+                    highlight
+                    step={String(activeIndex + 1).padStart(2, "0")}
+                    stepTone="active"
+                    icon={<Icon className="w-4 h-4 text-primary" />}
+                    title={mission.label}
+                    note={mission.blocker ?? undefined}
+                    status={<StatusMark tone={meta.tone} label={meta.label} />}
+                    trailing={<ArrowRight className="w-4 h-4 text-primary" />}
+                  />
                 </Link>
               </li>
             );
           })() : (
             <li>
-              <div className="grid grid-cols-[3.5rem_1fr_auto] items-center gap-4 py-4 border-b border-border">
-                <CheckCircle2 className="w-4 h-4 text-success" />
-                <p className="text-[15px] font-medium text-foreground">All workflow stages complete</p>
-                <span className="text-[12px] text-muted-foreground/70">Done</span>
-              </div>
+              <LedgerRow
+                icon={<CheckCircle2 className="w-4 h-4 text-success" />}
+                title="All workflow stages complete"
+                status={<StatusMark tone="done" label="Done" />}
+              />
             </li>
           )}
         </ol>
@@ -554,7 +540,7 @@ export default function WorkspaceOverview() {
         <button
           type="button"
           onClick={() => setWorkflowExpanded((v) => !v)}
-          className="w-full flex items-center justify-between text-left py-3 group"
+          className="w-full flex items-center justify-between text-left px-5 py-3 group"
         >
           <span className="text-[12px] text-muted-foreground group-hover:text-foreground transition-colors">
             {workflowExpanded ? "Hide all stages" : "View all stages"}
