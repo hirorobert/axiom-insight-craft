@@ -1,70 +1,133 @@
-# Ω∞ North Star Workspace Reconstruction — Phase 0 Discovery + Implementation Map
+# Amended Phase 0 Report — Ω∞ North Star Workspace Reconstruction
 
-## A. Discovery evidence (verified, not assumed)
+All eight mandatory corrections are accepted. Every claim below is backed by a live schema/data query or a file read performed before writing this report. No code has been modified.
 
-**State sources (authoritative — must not be duplicated)**
-- `src/lib/workspace/deriveWorkspaceState.ts` — pure engine producing `missions` (7 stages) + `nextAction`.
-- `src/lib/workspace/computePreflight.ts` — trial-balance certification verdict/blocker.
-- `src/hooks/useWorkspaceData.ts` — sole DB reader (company, uploads, HESABU/sign-off/filing timestamps).
-- `supabase/functions/process-trial-balance` — sole writer of classification results into `trial_balance_uploads.processing_result`.
+## A. Authoritative vs derived entity context
 
-**Duplicated presentations on the Overview** (confirmed by reading `WorkspaceOverview.tsx`, 696 lines):
-1. `OnboardingFlow` (Getting Started · Step 1 of 4, with its own "Open Prepare Data" CTA)
-2. Directive `SurfaceCard` (second CTA)
-3. `TrialBalanceProgressLedger` (7 processing rows, own warning banner, own resolve link)
-4. Compact mission strip
-5. Expandable Workflow list (7 stages, each a link)
-6. Files/uploads list
-7. Stage tabs from `WorkspaceLayout`
+`public.companies` columns (queried): `id, user_id, name, code, description, industry, fiscal_year_end, currency, is_active, created_at, updated_at, reporting_framework, tin`.
 
-That is three CTA-bearing surfaces and three renderings of the same workflow state.
+There is **no** authoritative sector, entity_type, legal_form, or jurisdiction column anywhere in the schema. `industry` is free text and NULL for Arusha DC. So:
 
-**Why 105 accounts need review** (live query, upload `c8a8ede6…`):
-- 104 items have `confidence_source = none` — Tier 6 fall-through in `classifyAccountTiered`: no company mapping, no global mapping, no dictionary hit, no rule hit.
-- 1 item is `dictionary_contains_conflict` (Spare Parts – Vehicles…), a legitimate ambiguity.
-- Cause: the dictionary and rule tiers are commercial/IFRS-only. The only `levy` rules present are commercial service-levy expense/payable. There are zero public-sector rules (subvention, government grant, user fee, CHF, DRF, personal emoluments, other charges, own-source revenue).
+- `reporting_framework = 'ipsas_accrual'` is **one evidence source only**, not sector identity. The earlier claim is withdrawn.
+- `EntityContext` is therefore **DERIVED, NOT AUTHORITATIVE**, and must be labelled that way in code, in the audit record, and in the UI.
 
-**Entity / reporting-context capability today**
-- `companies.reporting_framework` exists and for Arusha DC is already `ipsas_accrual` (set via `FirstRunEngagement`).
-- There is no `sector`, `entity_type`, or confidence/provenance column on `companies`. `industry` exists but is NULL.
-- `process-trial-balance` never reads `reporting_framework` — classification is framework-blind. This is the root architectural gap.
+Derivation precedence (highest first): explicit entity type/sector (does not exist yet) → reporting framework → jurisdiction/legal form (does not exist yet) → account vocabulary and source-file metadata → resulting confidence. With only tier 2 and tier 4 available today, derived sector confidence can never exceed `medium`, and `medium` derived sector may support REVIEW_SUGGESTED but **never** AUTO_CLASSIFIED_CERTIFIED.
 
-**Classification vocabulary constraint**
-- `account_classification` is a Postgres enum with exactly 13 labels (current/non-current assets, current/non-current liabilities, equity, revenue, COGS, operating_expenses, other_income, taxes, and 3 cash-flow labels).
-- IPSAS semantics must therefore be expressed as `line_item` text plus statement and normal_balance on top of existing enum labels. No new enum labels, no parallel chart of accounts.
+Consequence: certified auto-classification requires an explicit, persisted, user-confirmed sector/entity type. That makes the migration answer YES (see J).
 
-**Migration requirement: NO.** `reporting_framework` already carries the sector signal, EntityContext can be derived deterministically in code, and provenance fits in the existing `processing_result` JSONB and `account_mappings.confidence_source` text column. A migration would only be needed to persist a dedicated `sector` column, which this directive does not require.
+## B. Period-aware reporting-standard rules
 
-**Files that MUST NOT change:** `deriveWorkspaceState.ts`, `stageMetadata.ts`, `src/integrations/supabase/client.ts` / `types.ts`, all migrations, KINGA/HESABU/SAFISHA functions, sign-off and gate triggers, and the route table in `App.tsx`.
+The classifier must key its vocabulary and basis to the period, not to a static IPSAS dialect:
 
-**Risk register**
-- R1 Over-classifying public-sector credits as revenue — mitigated: sign is evidence only; every public-sector rule requires name semantics AND framework context, and fund/payable/reserve/deferred/retention terms are excluded from revenue rules.
-- R2 Silent authoritative mapping — mitigated: suggestions remain `needs_review`; the review screen stays the sole writer.
-- R3 Hiding uncertainty — mitigated: the Overview shows the exception count and links straight to it; telemetry is re-homed, not deleted.
+```text
+period_start < 2026-01-01  → IPSAS 9 / 11 / 23 basis (exchange / non-exchange distinction)
+period_start >= 2026-01-01 → IPSAS 47 Revenue (binding-arrangement distinction)
+                             IPSAS 48 Transfer Expenses where applicable
+early_adoption flag        → overrides the date test, must be explicitly recorded, never inferred
+```
 
-## B. Implementation map (atomic slices)
+Rules carry a `standard_basis` field resolved at classification time (e.g. `IPSAS 23` for FY2025, `IPSAS 47` for FY2026+). "Exchange / non-exchange" wording is data on a rule, never hard-coded in the engine. There is currently no `early_adoption` storage — until one exists, early adoption is unavailable and must not be assumed.
 
-**Slice 1 — Overview hierarchy (presentation only).** Rebuild `WorkspaceOverview.tsx` into three zones: a quiet identity header (name · FY; TIN surfaced only when missing/invalid and blocking), one Current Decision surface (state, one sentence, one material number, ONE CTA), and a subordinate 7-stage engagement path carrying lock reasons and zero CTA authority. `OnboardingFlow` and `TrialBalanceProgressLedger` leave the Overview; the second CTA, duplicated sync chrome, and the Files list leave the first screen.
+## C. Three-state classification outcome model
 
-**Slice 2 — Status → reason → action.** The Current Decision CTA routes directly to the unresolved account set in Prepare (pinned `?upload=<id>` with the review panel filtered to unresolved), so "N accounts need review" is itself the action.
+Replaces the earlier two-state proposal.
 
-**Slice 3 — Re-home what leaves the Overview.** `TrialBalanceProgressLedger` moves into Prepare behind a collapsed "Processing details"; files stay in Prepare's existing `UploadsStatusPanel`; onboarding guidance becomes implicit in the Current Decision copy.
+| Outcome | Condition | Human action | Record |
+| --- | --- | --- | --- |
+| `AUTO_CLASSIFIED_CERTIFIED` | explicit sector + framework + period resolved, single matching certified rule, normal balance compatible, all negative tests pass, no competing rule | none | rule id, version, standard basis, evidence, actor, reversible via existing correction workflow |
+| `REVIEW_SUGGESTED` | strong but incomplete evidence (derived sector, or rule matched with one missing corroborator) | confirm or change | suggestion + reason + confidence |
+| `UNRESOLVED` | conflicting, insufficient, or no rule | classify | reason string |
 
-**Slice 4 — Prepare exception workbench.** Rework `AccountReviewPanel` into a workpaper table: Account · Balance · Suggested classification · Confidence/reason · Decision (Accept / Change), unresolved first, stacked records below 768px. Bulk accept only per shared deterministic rule, with a preview of exactly what changes; exclusions stay explicit.
+Only the last two enter the workbench. Certified rules are deterministic, explainable, framework-aware, period-aware, auditable, reversible, and covered by positive **and** negative tests. No ML, no probability thresholds, no silent acceptance.
 
-**Slice 5 — EntityContext (no migration).** New pure module `src/lib/accounting/entityContext.ts` plus a mirror under `supabase/functions/_shared`, deriving `{ sector, reportingFramework, jurisdiction, entityType, confidence, provenance }` from `companies.reporting_framework` and existing evidence. `process-trial-balance` reads the company row and passes context into classification; context and provenance are recorded in `processing_result`.
+## D. Enum consumer graph — result: **B, authoritative presentation taxonomy. This is a blocker.**
 
-**Slice 6 — Public-sector / IPSAS rule tier.** A context-gated rule set, active only when sector is public, mapping levies, taxes, user fees, subventions/grants, transfers, personal emoluments, other charges and CHF/DRF-style funds onto existing enum classifications with IPSAS `line_item` wording (non-exchange revenue · levies, employee costs, goods and services, and so on). Sign never decides alone; fund/payable/reserve/deferred terms route to liability or to human review. Deterministic hits become suggestions tagged `confidence_source = "ipsas_rule"`; genuinely ambiguous accounts (for example Drug Revolving Fund) stay unresolved with a stated reason.
+Traced in `process-trial-balance/index.ts`: the enum value is the **key** of the emitted statement object — `processing_result.statements.income_statement.operating_expenses.accounts / .total`, and the same for `balance_sheet`. Consumers of those keys: `ExportStatements.tsx`, `MappingSourcePreview.tsx`, `AccountReviewPanel.tsx`, `AccountMappingManager/Modal.tsx`, `PeriodClosingBalancesPanel`, `computeComplianceScore.ts`, `kinga-findings-engine`, `generate-management-letter`, `maono-compute`, `maono-cashflow`, `maono-decide`.
 
-**Slice 7 — Responsive pass** at 390 / 768 / 1024 / 1440 px, with no horizontal overflow in the primary workflow.
+So `account_classification` is not a coarse internal class — it **is** the financial-statement taxonomy. Forcing local-government IPSAS presentation (taxes, transfers, grants/subventions, employee costs, goods and services, net assets) through `revenue / cost_of_goods_sold / operating_expenses / equity` would produce an IFRS-shaped statement for a public-sector entity. Reporting this limitation and stopping, per correction 6.
 
-**Slice 8 — Certification.** Unit tests for `entityContext` and the public-sector classifier (including explicit "credit is not revenue" and "debit is not expense" cases), a single-dominant-CTA assertion for the Overview, `bunx vitest run`, `npm run build`, conflict-marker scan, then the Section XIX certification report. No push to main.
+Incidental finding: `maono-compute` and `maono-cashflow` read a table `account_classifications` that does not exist in the schema. Pre-existing defect, out of scope, logged.
 
-## C. Technical notes
-- Zero changes to `deriveWorkspaceState`, `stageMetadata`, the route table, gates, RLS, or migrations.
-- Only `process-trial-balance` changes server-side; it remains the sole writer and keeps `needs_review` semantics and NULL-means-not-computed.
-- Public-sector classification maps into the existing `account_classification` enum; IPSAS specificity lives in `line_item`.
-- Redeploy scope: `process-trial-balance` only.
+## E. Server-authority rule boundary
 
-## D. Open decision
-Slice 6 changes engine behaviour by adding a suggestion tier. It writes no authoritative mapping — suggestions still require human acceptance. Confirm this is authorised, or restrict the work to Slices 1–4 and 7 (UI only) with the classification gap reported instead.
+One implementation only. `process-trial-balance` (server) is the sole classifier and sole writer. The frontend renders `classification`, `line_item`, `standard_basis`, `outcome`, `confidence`, `reason`, `provenance` from the server payload and never re-runs accounting rules. The previously proposed `src/lib/accounting/entityContext.ts` mirror is **withdrawn**; any shared code lives only under `supabase/functions/_shared`.
+
+## F. Positive and negative rule strategy
+
+Every rule is a conjunction, never a token match:
+
+```text
+IF sector evidence sufficient for the intended outcome
+AND account semantics match the rule's phrase set
+AND normal balance is compatible with the target classification
+AND no exclusion term present
+AND code hierarchy / prior confirmed mapping does not contradict
+AND exactly one rule matches
+THEN auto-classify (certified) ELSE suggest ELSE unresolved
+```
+
+Exclusion vocabulary (blocks naive revenue/expense): fund, fund balance, payable, receivable, reserve, deferred, retention, deposit, advance, clearing, suspense, control, accrual, prepaid, provision, contra, surplus, equity, net assets. Sign is corroborating evidence only — never determinative in either direction. Negative tests are mandatory per rule.
+
+## G. Breakdown of the 105 unresolved accounts (live query, upload `c8a8ede6…`)
+
+Summary block: 240 accounts, 135 auto-classified, 105 needs_review. 104 have `confidence_source = null` (tier-6 fall-through: no company mapping, no global mapping, no dictionary hit, no rule hit); 1 is `dictionary_contains_conflict`.
+
+| Group | Count | Value (TZS bn) | Examples |
+| --- | --- | --- | --- |
+| G1 own-source revenue candidates (credit, fee/levy/royalty/grant vocabulary) | 19 | 74.20 | Levy -Service; User Fee; Forest Royalties; Market Fees and Charges |
+| G2 public expenditure candidates (debit, PE/OC vocabulary) | 69 | 122.65 | Civil Servants; Extra-Duty; Honoraria; Food and Refreshment |
+| G3 ambiguous fund constructs | 3 | 0.06 | Drug Revolving Fund - DRF; Community Health Fund - CHF/TIKA |
+| G4 balance-sheet / exclusion-term hits | 5 | 2.20 | payable / reserve / deposit style names |
+| G5 no rule, no vocabulary signal | 9 | 3.07 | miscellaneous |
+
+Grouping is diagnostic only — it is a triage query, not a classifier, and no row here is treated as classified.
+
+## H. Predicted human-review count after safe deterministic rules
+
+Two scenarios, stated before any rule is written:
+
+- **Without an explicit persisted sector** (derived context only, max confidence medium): 0 certified, ~88 REVIEW_SUGGESTED (G1+G2), ~17 UNRESOLVED (G3+G4+G5). Human touches stay ~105. This is exactly the failure mode the review identified, which is why the migration is now required.
+- **With explicit confirmed sector + period basis + certified rules**: target 60–75 certified in G2 (PE/OC salary and operating vocabulary is the most deterministic set), 15–25 suggested, 15–20 unresolved → **expected human-review queue 30–45, driven to ~20–30 as the certified rule set is extended engagement by engagement.** Any rule that cannot pass its negative tests stays a suggestion rather than being promoted to hit a number.
+
+## I. Exact files to change
+
+UI slices (1–4, 7): `src/pages/workspace/WorkspaceOverview.tsx`, `src/pages/workspace/PrepareWorkspace.tsx`, `src/components/AccountReviewPanel.tsx`, `src/components/workspace/TrialBalanceProgressLedger.tsx` (re-home + collapse), `src/components/workspace/ui/Surface.tsx` (extend primitives only).
+
+Server slices (not yet authorised): `supabase/functions/process-trial-balance/index.ts`, new `supabase/functions/_shared/entityContext.ts` and `_shared/publicSectorRules.ts`, plus Deno tests.
+
+Must NOT change: `deriveWorkspaceState.ts`, `stageMetadata.ts`, `computePreflight.ts`, `src/integrations/supabase/client.ts` / `types.ts`, existing migrations, KINGA/HESABU/SAFISHA/XBRL functions, sign-off and gate triggers, `App.tsx` route table.
+
+## J. Migration requirement — reassessed to **YES** (for the server-side work only)
+
+The earlier "NO" is withdrawn. Certified auto-classification cannot rest on derived context, and the enum cannot express public-sector presentation. Minimum needed before Slice 6:
+
+1. `companies`: explicit `sector`, `entity_type`, `jurisdiction`, plus provenance of who set them (user-confirmed, never inferred).
+2. A presentation-taxonomy resolution for public-sector statements — either a `presentation_group` + `standard_basis` layer on `account_mappings` consumed by the statement builder, or a framework-aware statement section map. This is a schema design decision that must be settled before any rule is written.
+3. Classification outcome + rule provenance fields (`outcome`, `rule_id`, `rule_version`, `standard_basis`, `evidence`) so certified decisions are auditable and reversible.
+
+UI slices 1–4 and 7 require **no** migration.
+
+## K. Revised atomic slices
+
+Authorised to implement on approval (UI only, zero logic/data/route/permission change):
+
+- **S1** Overview → three zones: quiet identity (TIN only when missing/invalid and blocking), one Current Decision surface with one dominant CTA, subordinate 7-stage path with lock reasons and zero CTA authority.
+- **S2** Status → reason → action: the exception count itself navigates to exactly the unresolved set (pinned upload, unresolved-first filter).
+- **S3** Re-home telemetry: `TrialBalanceProgressLedger` into Prepare behind a quiet "Processing details" disclosure; Files stay in Prepare. `OnboardingFlow` leaves the authenticated workspace.
+- **S4** Exception workbench: compact workpaper table (Account · Balance · Suggested · Confidence/reason · Decision), unresolved first, stacked records under 768px, explicit exclusions.
+- **S7** Responsive pass at 390 / 768 / 1024 / 1440 px.
+- **S8a** UI regression: `npm run build`, `bunx vitest run`, conflict-marker scan, single-CTA assertion.
+
+Held pending separate authorisation, in this order: **S5a** persist explicit sector/entity type (migration + confirmation UI) → **S5b** derived `EntityContext` with provenance, server-only → **S6a** presentation-taxonomy decision → **S6b** period-aware certified rule set with positive/negative tests → **S6c** three-state outcome plumbing and provenance → **S8b** accounting-invariant certification.
+
+## L. Blockers
+
+1. **B1 (hard)** `account_classification` is an authoritative presentation taxonomy, so IPSAS classification cannot be expressed within it. Blocks S6 until the taxonomy decision in J.2 is made.
+2. **B2 (hard)** No persisted authoritative sector/entity type. Blocks `AUTO_CLASSIFIED_CERTIFIED` entirely.
+3. **B3 (hard)** No early-adoption storage, so IPSAS 47/48 early adoption cannot be established for any engagement.
+4. **B4 (medium)** `maono-compute` / `maono-cashflow` reference a non-existent `account_classifications` table — pre-existing, logged, out of scope.
+5. **B5 (medium)** Live authenticated screenshot verification of the Arusha DC workspace still requires a signed-in Lovable preview session.
+
+## Requested authorisation
+
+Approve S1–S4 + S7 + S8a (UI only, no migration, no engine change) and I will implement those. S5/S6 stay blocked until B1–B3 are resolved, each needing its own decision from you.
