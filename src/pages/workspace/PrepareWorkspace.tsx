@@ -28,6 +28,7 @@ import { AccountReviewPanel } from "@/components/AccountReviewPanel";
 import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel";
 import { TrialBalanceUpload } from "@/components/TrialBalanceUpload";
 import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
+import { DiscardUploadDialog } from "@/components/workspace/DiscardUploadDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -69,6 +70,7 @@ export default function PrepareWorkspace() {
   const navigate = useNavigate();
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
+  const [discardTarget, setDiscardTarget] = useState<WorkspaceUpload | null>(null);
 
   const { periodYear: fpYear, periodEndMonth: fpMonth } = upload
     ? deriveFiscalPeriod(upload, company?.fiscal_year_end ?? null)
@@ -110,6 +112,7 @@ export default function PrepareWorkspace() {
               navigate(buildPrepareUploadRoute(companyId, newPY, selected.id));
             }}
             onRefresh={async () => { await refreshUpload(); }}
+            onDiscard={(u) => setDiscardTarget(u as WorkspaceUpload)}
           />
         </div>
 
@@ -148,8 +151,22 @@ export default function PrepareWorkspace() {
           {upload ? (
             <>
               {!showUploader && (
-                <div className="flex justify-end">
-                  <Button variant="outline" size="sm" onClick={() => setShowUploader(true)}>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDiscardTarget(upload)}
+                    className="text-muted-foreground hover:text-destructive w-full sm:w-auto justify-center"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                    Discard this trial balance
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowUploader(true)}
+                    className="w-full sm:w-auto justify-center"
+                  >
                     Upload another trial balance
                   </Button>
                 </div>
@@ -305,6 +322,20 @@ export default function PrepareWorkspace() {
           mapping={(upload.processing_result as any)?.mapping ?? null}
         />
       )}
+
+      <DiscardUploadDialog
+        target={discardTarget}
+        open={!!discardTarget}
+        onOpenChange={(o) => { if (!o) setDiscardTarget(null); }}
+        onDiscarded={() => {
+          setDiscardTarget(null);
+          // Drop any pinned ?upload=<id> so the list resolves to what remains,
+          // then open the uploader — the one next action after a discard.
+          navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
+          setShowUploader(true);
+          refreshUpload();
+        }}
+      />
     </div>
   );
 }
