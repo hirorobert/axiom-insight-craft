@@ -32,6 +32,7 @@ import {
   DiscardUploadDialog,
   discardUpload,
   isCertifiedRun,
+  offerUndo,
 } from "@/components/workspace/DiscardUploadDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -106,8 +107,14 @@ export default function PrepareWorkspace() {
 
     setReplacing(true);
     try {
-      await discardUpload(upload);
+      const receipt = await discardUpload(upload);
       toast.success(`Prior trial balance discarded. Uploading ${file.name}…`);
+      offerUndo(receipt, () => {
+        setPendingFile(null);
+        setShowUploader(false);
+        navigate(buildPrepareUploadRoute(companyId, periodYear, receipt.id), { replace: true });
+        refreshUpload();
+      });
       navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
       setShowUploader(true);
       refreshUpload();
@@ -418,9 +425,15 @@ export default function PrepareWorkspace() {
             }
           }
         }}
-        onDiscarded={() => {
+        onDiscarded={(_id, receipt) => {
           keepPendingFileRef.current = !!pendingFile;
           setDiscardTarget(null);
+          offerUndo(receipt, () => {
+            setPendingFile(null);
+            setShowUploader(false);
+            navigate(buildPrepareUploadRoute(companyId, periodYear, receipt.id), { replace: true });
+            refreshUpload();
+          });
           // Drop any pinned ?upload=<id> so the list resolves to what remains,
           // then open the uploader — the one next action after a discard.
           navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
