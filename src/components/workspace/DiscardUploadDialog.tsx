@@ -34,16 +34,40 @@ export interface DiscardTarget {
   is_valid?: boolean | null;
 }
 
+/** True when a run is certified evidence and must not be discarded casually. */
+export function isCertifiedRun(target: DiscardTarget | null | undefined): boolean {
+  return target?.status === "complete" || target?.is_valid === true;
+}
+
+/**
+ * discardUpload — the single authoritative removal act, shared by the
+ * confirmation dialog and the one-tap replace flow.
+ * Storage cleanup is best effort; deleting the row is what counts.
+ */
+export async function discardUpload(target: DiscardTarget): Promise<void> {
+  if (target.file_path) {
+    await supabase.storage.from("trial-balance-files").remove([target.file_path]);
+  }
+  const { error } = await supabase
+    .from("trial_balance_uploads")
+    .delete()
+    .eq("id", target.id);
+  if (error) throw error;
+}
+
 export function DiscardUploadDialog({
   target,
   open,
   onOpenChange,
   onDiscarded,
+  replacementFileName,
 }: {
   target: DiscardTarget | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDiscarded: (id: string) => void;
+  /** Set when the user already picked the file that replaces this run. */
+  replacementFileName?: string | null;
 }) {
   const [confirmText, setConfirmText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -52,23 +76,19 @@ export function DiscardUploadDialog({
     if (open) setConfirmText("");
   }, [open, target?.id]);
 
-  const isCertified = target?.status === "complete" || target?.is_valid === true;
+  const isCertified = isCertifiedRun(target);
   const gateSatisfied = !isCertified || confirmText.trim().toUpperCase() === "DISCARD";
 
   const handleDiscard = async () => {
     if (!target || busy || !gateSatisfied) return;
     setBusy(true);
     try {
-      if (target.file_path) {
-        await supabase.storage.from("trial-balance-files").remove([target.file_path]);
-      }
-      const { error } = await supabase
-        .from("trial_balance_uploads")
-        .delete()
-        .eq("id", target.id);
-      if (error) throw error;
-
-      toast.success("Trial balance discarded. You can upload a fresh file now.");
+      await discardUpload(target);
+      toast.success(
+        replacementFileName
+          ? `Discarded. Uploading ${replacementFileName}…`
+          : "Trial balance discarded. You can upload a fresh file now.",
+      );
       onDiscarded(target.id);
       onOpenChange(false);
     } catch (err) {
@@ -97,6 +117,9 @@ export function DiscardUploadDialog({
             {isCertified
               ? " This run is certified evidence — statements and tax outputs built on it will lose their source."
               : " No later stage has used this run yet, so nothing downstream is affected."}
+            {replacementFileName
+              ? ` Once discarded, ${replacementFileName} is uploaded straight away.`
+              : ""}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -132,7 +155,7 @@ export function DiscardUploadDialog({
                 <Loader2 className="w-3.5 h-3.5 animate-spin" /> Discarding…
               </span>
             ) : (
-              "Discard and start fresh"
+              replacementFileName ? "Discard and upload fresh file" : "Discard and start fresh"
             )}
           </AlertDialogAction>
         </AlertDialogFooter>
