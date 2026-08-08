@@ -225,6 +225,7 @@ export const TrialBalanceUpload = ({
       });
 
       // Call edge function to process with AI
+      await ensureFreshSession();
       const { error: processError } = await supabase.functions.invoke(
         "process-trial-balance",
         { body: { uploadId: uploadRecord.id } }

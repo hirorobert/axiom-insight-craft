@@ -192,6 +192,7 @@ export function AccountReviewPanel({
         .update({ status: "processing", processing_result: null })
         .eq("id", uploadId);
 
+      await ensureFreshSession();
       const { error: fnError } = await supabase.functions.invoke(
         "process-trial-balance",
         { body: { uploadId } }

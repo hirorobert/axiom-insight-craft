@@ -185,6 +185,7 @@ export default function WorkspaceOverview() {
         })
         .eq("id", upload.id);
 
+      await ensureFreshSession();
       const { error: fnErr } = await supabase.functions.invoke("process-trial-balance", {
         body: { uploadId: upload.id },
       });

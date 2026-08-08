@@ -169,6 +169,7 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh }:
         .update({ status: "processing", processing_result: null, accounting_errors: null, is_valid: null })
         .eq("id", u.id);
 
+      await ensureFreshSession();
       const { error: fnErr } = await supabase.functions.invoke("process-trial-balance", {
         body: { uploadId: u.id },
       });
