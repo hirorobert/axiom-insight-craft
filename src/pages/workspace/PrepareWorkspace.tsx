@@ -26,6 +26,7 @@ import { ValidationReport } from "@/components/ValidationReport";
 import { AccountReviewPanel } from "@/components/AccountReviewPanel";
 import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel";
 import { TrialBalanceUpload } from "@/components/TrialBalanceUpload";
+import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -155,6 +156,10 @@ export default function PrepareWorkspace() {
                 <CertificationHeader upload={upload} />
                 <CertificationSummaryStrip upload={upload} />
               </div>
+
+              {/* SAFISHA pre-flight — certification comes BEFORE classification
+                  is trusted downstream. One verdict, top of the stack. */}
+              <TrialBalancePreflight upload={upload} />
 
               <TrialBalanceIntegrityCard upload={upload} />
               <BalanceSheetEquationCard upload={upload} />
