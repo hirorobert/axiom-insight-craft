@@ -24,13 +24,58 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Loader2, CheckCircle } from "lucide-react";
+import { Loader2, CheckCircle, Info } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { normalizeAccountName } from "@/lib/normalizeAccountName";
 import {
   SurfaceCard,
   SurfaceCardHeader,
   StatusMark,
 } from "@/components/workspace/ui/Surface";
+
+/**
+ * AssessmentHelp — the only new affordance on this workpaper. Explains the two
+ * machine states without adding a card, a banner or a per-row paragraph.
+ * Click/tap and Enter/Space open it; Escape closes and returns focus to the
+ * trigger (Radix Popover). `title` is supplemental hover text only.
+ */
+function AssessmentHelp() {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="What these assessments mean"
+          title="What these assessments mean"
+          className="inline-flex items-center align-middle text-muted-foreground/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors"
+        >
+          <Info className="w-3.5 h-3.5" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[19rem] rounded-none p-4 text-[12px] leading-relaxed text-muted-foreground space-y-3"
+      >
+        <p>
+          <span className="block font-medium text-foreground normal-case tracking-normal">
+            No reliable suggestion
+          </span>
+          SAFF did not find enough reliable evidence to suggest a classification.
+        </p>
+        <p>
+          <span className="block font-medium text-foreground normal-case tracking-normal">
+            Conflicting evidence — review required
+          </span>
+          SAFF found competing signals and will not choose between them.
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
