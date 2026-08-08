@@ -951,8 +951,7 @@ export default function OnboardingFlow({
                   isDone ? "text-success" : isActive ? "text-primary" : "text-muted-foreground/40",
                 ].join(" ")}
               >
-                {isDone ? "Done" : isActive ? "Current" : "Pending"}
-                {""}
+                {isDone ? "Done" : isRunning ? "In progress" : isActive ? "Current" : "Pending"}
               </p>
             </li>
           );
