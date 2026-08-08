@@ -38,6 +38,14 @@ import {
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import type { MissionStatus } from "@/lib/workspace/types";
 
+/**
+ * Tab word in professional sentence case, derived from the canonical metadata
+ * (`tabLabel`) without modifying it: "RECONCILE" → "Reconcile".
+ */
+function tabWord(tabLabel: string): string {
+  return tabLabel.charAt(0) + tabLabel.slice(1).toLowerCase();
+}
+
 // ── Status dot — tooltip explains the symbol ───────────────────────────────
 
 const STATUS_TITLES: Record<MissionStatus, string> = {
@@ -267,7 +275,8 @@ export default function WorkspaceLayout() {
                     {/* Full professional stage language from md upward; below
                         768px the tab compresses to icon + status with the name
                         carried by aria-label/title. */}
-                    <span className="hidden md:inline">{config.label}</span>
+                    <span className="hidden md:inline lg:hidden">{tabWord(config.tabLabel)}</span>
+                    <span className="hidden lg:inline">{config.label}</span>
                     <span className="md:hidden sr-only">{config.label}</span>
                     {!loading && <StatusDot status={mission.status} />}
                   </Link>
