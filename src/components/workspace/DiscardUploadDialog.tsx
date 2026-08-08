@@ -29,6 +29,42 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
+/**
+ * CountdownUndoToast — live 15-second undo window with a shrinking progress bar
+ * and a second-by-second read-out so the user knows exactly how long they have.
+ */
+function CountdownUndoToast({ receipt }: { receipt: DiscardReceipt }) {
+  const [remaining, setRemaining] = useState(UNDO_WINDOW_MS);
+
+  useEffect(() => {
+    const start = Date.now();
+    const tick = setInterval(() => {
+      const left = Math.max(0, UNDO_WINDOW_MS - (Date.now() - start));
+      setRemaining(left);
+      if (left <= 0) clearInterval(tick);
+    }, 50);
+    return () => clearInterval(tick);
+  }, []);
+
+  const seconds = Math.ceil(remaining / 1000);
+  const pct = (remaining / UNDO_WINDOW_MS) * 100;
+
+  return (
+    <div className="w-full min-w-[16rem]">
+      <div className="flex items-center justify-between text-[13px]">
+        <span className="text-muted-foreground">Undo window</span>
+        <span className="tabular-nums font-medium">{seconds}s</span>
+      </div>
+      <div className="mt-2 h-1 w-full bg-secondary overflow-hidden rounded-full">
+        <div
+          className="h-full bg-primary transition-[width] duration-75 ease-linear rounded-full"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export interface DiscardTarget {
   id: string;
   file_name: string;
