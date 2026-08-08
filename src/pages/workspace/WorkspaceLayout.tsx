@@ -231,8 +231,8 @@ export default function WorkspaceLayout() {
          *    - Active tab has a 2px bottom accent line
          */}
         <nav className="bg-background border-b border-border sticky top-14 z-40">
-          <div className="max-w-screen-2xl mx-auto px-4 sm:px-6">
-            <div className="flex items-stretch">
+          <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex items-stretch min-w-max">
 
               {/* Overview tab */}
               <Link
@@ -275,8 +275,8 @@ export default function WorkspaceLayout() {
                     {/* Full professional stage language from md upward; below
                         768px the tab compresses to icon + status with the name
                         carried by aria-label/title. */}
-                    <span className="hidden md:inline lg:hidden">{tabWord(config.tabLabel)}</span>
-                    <span className="hidden lg:inline">{config.label}</span>
+                    <span className="hidden md:inline xl:hidden">{tabWord(config.tabLabel)}</span>
+                    <span className="hidden xl:inline">{config.label}</span>
                     <span className="md:hidden sr-only">{config.label}</span>
                     {!loading && <StatusDot status={mission.status} />}
                   </Link>
