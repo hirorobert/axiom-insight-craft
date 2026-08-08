@@ -625,7 +625,7 @@ export default function WorkspaceOverview() {
           </button>
 
           {uploadsOpen && (
-            <ol className="mt-2 border-t border-border">
+            <ol className="border-t border-border">
               {uploads.slice(0, 5).map((u) => {
                 const isActive  = u.id === upload?.id;
                 const isBlocked = u.status === "blocked" || u.status === "error";
@@ -642,41 +642,38 @@ export default function WorkspaceOverview() {
                   u.status === "processing" ? "active" : "muted";
 
                 return (
-                  <li key={u.id} className="border-b border-border">
-                    <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-6 py-3">
-                      <p className={[
-                        "text-[13px] font-mono truncate",
-                        isActive ? "text-foreground" : "text-muted-foreground",
-                      ].join(" ")}>
-                        {isActive && <span className="text-primary font-sans text-[10px] font-semibold tracking-wider uppercase mr-2">Active</span>}
-                        {u.file_name}
-                      </p>
-                      <span className="text-[12px] text-muted-foreground/70 tabular-nums">
-                        {formatFileSize(u.file_size)}
-                      </span>
-                      <span className={`inline-flex items-center gap-2 text-[12px] ${TEXT_TONE[tone]}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[tone]}`} />
-                        {statusLabel}
-                      </span>
-                      <span className="text-[12px] text-muted-foreground/60 tabular-nums whitespace-nowrap">
-                        {formatRelative(u.uploaded_at)}
-                      </span>
-                    </div>
-                    {isBlocked && reason && (
-                      <div className="pb-3 flex items-start justify-between gap-6">
-                        <p className="text-[12px] text-destructive/90 flex items-start gap-2 leading-relaxed">
-                          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                          {reason}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => navigate(`${basePath}/prepare`)}
-                          className="text-[12px] font-medium text-destructive hover:underline underline-offset-4 whitespace-nowrap"
-                        >
-                          Re-upload →
-                        </button>
-                      </div>
-                    )}
+                  <li key={u.id}>
+                    <LedgerRow
+                      highlight={isActive}
+                      icon={<span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[tone]}`} />}
+                      title={
+                        <span className="font-mono text-[13px] font-normal truncate block">
+                          {u.file_name}
+                        </span>
+                      }
+                      titleMuted={!isActive}
+                      note={
+                        <span className="tabular-nums">
+                          {formatFileSize(u.file_size)} · {formatRelative(u.uploaded_at)}
+                          {isActive ? " · Active file" : ""}
+                          {isBlocked && reason ? ` · ${reason}` : ""}
+                        </span>
+                      }
+                      status={<StatusMark tone={tone} label={statusLabel} />}
+                      trailing={
+                        isBlocked ? (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`${basePath}/prepare`)}
+                            className="text-muted-foreground hover:text-foreground"
+                            aria-label="Re-upload this file"
+                            title="Re-upload this file"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                          </button>
+                        ) : undefined
+                      }
+                    />
                   </li>
                 );
               })}
@@ -686,11 +683,12 @@ export default function WorkspaceOverview() {
           {uploadsOpen && uploads.length > 5 && (
             <Link
               to={`${basePath}/prepare`}
-              className="mt-3 inline-block text-[12px] text-muted-foreground hover:text-foreground"
+              className="block px-5 py-3 text-[12px] text-muted-foreground hover:text-foreground"
             >
               View all {uploads.length} files →
             </Link>
           )}
+          </SurfaceCard>
         </section>
       )}
     </div>
