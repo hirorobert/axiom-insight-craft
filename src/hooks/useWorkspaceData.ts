@@ -55,6 +55,8 @@ export interface UseWorkspaceDataReturn {
   uploads: WorkspaceUpload[];
   workspaceState: WorkspaceState;
   loading: boolean;
+  /** True while a background re-read is in flight. Never blanks the UI. */
+  refreshing: boolean;
   refreshUpload: () => void;
 }
 
@@ -127,7 +129,11 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
   const [company, setCompany] = useState<WorkspaceCompany | null>(null);
   const [uploads, setUploads] = useState<WorkspaceUpload[]>([]);
   const [upload, setUpload] = useState<WorkspaceUpload | null>(null);
+  // `loading` is the FIRST-PAINT gate only. Background polls set `refreshing`
+  // so the screen never flashes back to skeletons (one book, one truth).
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
   const companyRef = useRef<WorkspaceCompany | null>(null);
 
   // Authoritative sign-off timestamps — null = NOT_COMPUTED, never default success
@@ -141,7 +147,8 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
       return;
     }
 
-    setLoading(true);
+    if (hasLoadedRef.current) setRefreshing(true);
+    else setLoading(true);
 
     // Fetch company
     const { data: co } = await supabase
@@ -222,8 +229,15 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     setKingaSignedAt((kingaRes.data as { approver_signed_at: string } | null)?.approver_signed_at ?? null);
     setFilingSubmittedAt((filingRes.data as { updated_at: string } | null)?.updated_at ?? null);
 
+    hasLoadedRef.current = true;
     setLoading(false);
+    setRefreshing(false);
   }, [user, cId, pYear, requestedUploadId]);
+
+  // A different company/period is a genuinely new book — gate first paint again.
+  useEffect(() => {
+    hasLoadedRef.current = false;
+  }, [cId, pYear]);
 
   useEffect(() => {
     fetchData();
@@ -271,6 +285,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     uploads,
     workspaceState,
     loading,
+    refreshing,
     refreshUpload: fetchData,
   };
 }
