@@ -182,6 +182,10 @@ export function offerUndo(receipt: DiscardReceipt, onRestored?: () => void) {
           })();
         },
       },
+      cancel: {
+        label: "Dismiss",
+        onClick: () => toast.dismiss(toastId),
+      },
     },
   );
 }
