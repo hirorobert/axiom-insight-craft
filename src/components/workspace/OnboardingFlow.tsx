@@ -710,12 +710,13 @@ export default function OnboardingFlow({
 
   const allDone = STEP_ORDER.every((s) => done[s]);
 
-  // The live step: first incomplete step, but never behind where the user
-  // already was (so a resumed session lands where they left off).
+  // The live step is ALWAYS the first incomplete step. It can never run ahead
+  // of an unfinished earlier step — that is what produced the contradictory
+  // "Trial balance PENDING / Statements CURRENT" reading. One book, one truth:
+  // Done comes first, Current is the earliest unfinished step, everything
+  // after it is Pending. No exceptions, no remembered position override.
   const firstIncomplete = STEP_ORDER.find((s) => !done[s]) ?? "review";
-  const rememberedIndex = STEP_ORDER.indexOf(persisted.currentStep);
-  const incompleteIndex = STEP_ORDER.indexOf(firstIncomplete);
-  const activeStep = STEP_ORDER[Math.max(incompleteIndex, done[persisted.currentStep] ? incompleteIndex : rememberedIndex)];
+  const activeStep = firstIncomplete;
 
   // Persist the resolved position so a refresh restores it.
   useEffect(() => {
