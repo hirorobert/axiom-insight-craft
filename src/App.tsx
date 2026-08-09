@@ -29,6 +29,9 @@ import MonitorWorkspace from "./pages/workspace/MonitorWorkspace";
 // IssuesWorkspace is retired — /issues redirects to /compliance (Phase D removes file)
 import IssuesWorkspace from "./pages/workspace/IssuesWorkspace";
 
+// Engagement mandate — scope-aware route guard (routes always exist)
+import StageScopeGate from "./components/workspace/StageScopeGate";
+
 // Command Center — partner-level cross-engagement view
 import CommandCenter from "./pages/command/CommandCenter";
 
@@ -70,13 +73,13 @@ const App = () => (
                   <Route index element={<WorkspaceOverview />} />
 
                   {/* Architecture v3.1 canonical routes */}
-                  <Route path="prepare"    element={<PrepareWorkspace />} />
-                  <Route path="reconcile"  element={<ReconcileWorkspace />} />
-                  <Route path="statements" element={<StatementsWorkspace />} />
-                  <Route path="tax"        element={<TaxWorkspace />} />
-                  <Route path="compliance" element={<ComplianceWorkspace />} />
-                  <Route path="filing"     element={<FilingWorkspace />} />
-                  <Route path="monitor"    element={<MonitorWorkspace />} />
+                  <Route path="prepare"    element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />
+                  <Route path="reconcile"  element={<StageScopeGate stage="reconcile"><ReconcileWorkspace /></StageScopeGate>} />
+                  <Route path="statements" element={<StageScopeGate stage="statements"><StatementsWorkspace /></StageScopeGate>} />
+                  <Route path="tax"        element={<StageScopeGate stage="tax"><TaxWorkspace /></StageScopeGate>} />
+                  <Route path="compliance" element={<StageScopeGate stage="compliance"><ComplianceWorkspace /></StageScopeGate>} />
+                  <Route path="filing"     element={<StageScopeGate stage="filing"><FilingWorkspace /></StageScopeGate>} />
+                  <Route path="monitor"    element={<StageScopeGate stage="monitor"><MonitorWorkspace /></StageScopeGate>} />
 
                   {/* Compatibility redirects — engine-named sub-routes → accounting slugs */}
                   <Route path="safisha"   element={<LegacySubRouteRedirect to="prepare" />} />
