@@ -220,6 +220,9 @@ export function AccountReviewPanel({
   const [saving,       setSaving]       = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
   const [unresolvedOnly, setUnresolvedOnly] = useState(focusUnresolved);
+  /** Focus mode: one undecided account on screen at a time. Presentation only. */
+  const [focusMode, setFocusMode] = useState(true);
+  const [skipped, setSkipped] = useState<string[]>([]);
 
   const setChoice = useCallback((key: string, val: string) => {
     setChoices((prev) => ({ ...prev, [key]: val }));
@@ -263,6 +266,28 @@ export function AccountReviewPanel({
         return !excluded.has(key) && !choices[key];
       })
     : ordered;
+
+  /**
+   * In focus mode the queue is the undecided accounts only, deferred ones last,
+   * and exactly one row is on screen. Nothing about saving changes.
+   */
+  const focusQueue = useMemo(() => {
+    const undecided = ordered.filter((a) => {
+      const key = rowKey(a);
+      return !excluded.has(key) && !choices[key];
+    });
+    const rank = (a: NeedsReviewAccount) => (skipped.includes(rowKey(a)) ? 1 : 0);
+    return [...undecided].sort((a, b) => rank(a) - rank(b));
+  }, [ordered, excluded, choices, skipped]);
+
+  const focusRow = focusQueue[0];
+  const displayed = focusMode ? (focusRow ? [focusRow] : []) : visible;
+
+  const deferCurrent = useCallback(() => {
+    if (!focusRow) return;
+    const key = rowKey(focusRow);
+    setSkipped((prev) => (prev.includes(key) ? prev : [...prev, key]));
+  }, [focusRow]);
 
   // ── Save & Reprocess ──────────────────────────────────────────────────────
 
