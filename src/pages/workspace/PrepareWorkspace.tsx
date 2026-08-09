@@ -76,7 +76,11 @@ function deriveFiscalPeriod(
 }
 
 export default function PrepareWorkspace() {
-  const { upload, uploads, company, companyId, periodYear, refreshUpload } = useWorkspace();
+  const { upload: rawUpload, uploads: rawUploads, company, companyId, periodYear, refreshUpload } = useWorkspace();
+  // Discarded runs must vanish immediately — no residue while the refetch lands.
+  const [discardedIds, setDiscardedIds] = useState<string[]>([]);
+  const upload = rawUpload && discardedIds.includes(rawUpload.id) ? null : rawUpload;
+  const uploads = rawUploads.filter((u) => !discardedIds.includes(u.id));
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -113,8 +117,10 @@ export default function PrepareWorkspace() {
     setReplacing(true);
     try {
       const receipt = await discardUpload(upload);
+      setDiscardedIds((prev) => [...prev, upload.id]);
       toast.success(`Prior trial balance discarded. Uploading ${file.name}…`);
       offerUndo(receipt, () => {
+        setDiscardedIds((prev) => prev.filter((id) => id !== receipt.id));
         setPendingFile(null);
         setShowUploader(false);
         navigate(buildPrepareUploadRoute(companyId, periodYear, receipt.id), { replace: true });
@@ -187,8 +193,8 @@ export default function PrepareWorkspace() {
               Prepare data · FY{periodYear}
             </p>
             <h1 className="mt-1 text-xl font-semibold text-foreground">Trial balance preparation</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {frameworkLabel}{upload ? ` · ${upload.file_name}` : ""}
+            <p className="mt-1 truncate text-sm text-muted-foreground">
+              {upload ? upload.file_name : frameworkLabel}
             </p>
           </div>
           {upload && !showUploader && (
@@ -204,12 +210,17 @@ export default function PrepareWorkspace() {
                   void handleReplacePicked(file);
                 }}
               />
-              <Button variant="outline" size="sm" onClick={() => setShowUploader(true)}>
-                Upload another
-              </Button>
               <Button variant="outline" size="sm" disabled={replacing} onClick={() => replaceInputRef.current?.click()}>
                 {replacing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
-                {replacing ? "Replacing…" : "Replace file"}
+                {replacing ? "Replacing…" : "Replace trial balance"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDiscardTarget(upload)}
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remove
               </Button>
             </div>
           )}
@@ -271,6 +282,7 @@ export default function PrepareWorkspace() {
               {showReviewPanel && upload.company_id && user && (
                 <div ref={reviewRef}>
                   <AccountReviewPanel
+                    key={upload.id}
                     uploadId={upload.id}
                     companyId={upload.company_id}
                     userId={user.id}
@@ -350,12 +362,6 @@ export default function PrepareWorkspace() {
                 )}
               </SurfaceCard>
 
-              <div className="flex justify-end">
-                <Button variant="ghost" size="sm" onClick={() => setDiscardTarget(upload)} className="text-muted-foreground hover:text-destructive">
-                  <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Discard trial balance
-                </Button>
-              </div>
-
               {/* EFDMS Reconciliation */}
               {upload.status === "complete" && upload.is_valid === true && upload.company_id && (
                 <EFDMSReconciliationPanel
@@ -397,8 +403,10 @@ export default function PrepareWorkspace() {
         }}
         onDiscarded={(_id, receipt) => {
           keepPendingFileRef.current = !!pendingFile;
+          setDiscardedIds((prev) => [...prev, receipt.id]);
           setDiscardTarget(null);
           offerUndo(receipt, () => {
+            setDiscardedIds((prev) => prev.filter((id) => id !== receipt.id));
             setPendingFile(null);
             setShowUploader(false);
             navigate(buildPrepareUploadRoute(companyId, periodYear, receipt.id), { replace: true });

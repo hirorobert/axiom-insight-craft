@@ -446,23 +446,15 @@ export const TrialBalanceUpload = ({
           </div>
         )}
 
-        {/* Locked destination line — one truth, no picker */}
-        {embedded && lockedCompanyId && (
-          <div className="mb-4 border border-border bg-secondary/20 px-4 py-3">
-            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Uploading for</p>
-            <p className="mt-0.5 text-sm font-semibold text-foreground">
-              {lockedCompany?.name ?? lockedCompanyName ?? "This company"}
-              {periodYear ? <span className="text-muted-foreground font-normal"> · FY{periodYear}</span> : null}
-            </p>
-            {isTinMissing(lockedCompany?.tin) && (
-              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3 shrink-0" />
-                TRA TIN not set —{" "}
-                <Link to="/settings" className="underline underline-offset-2">add it in Settings</Link>{" "}
-                before uploading.
-              </p>
-            )}
-          </div>
+        {/* Destination is already stated once in the workspace bar — the only
+            thing worth saying here is a blocking gap. */}
+        {embedded && lockedCompanyId && isTinMissing(lockedCompany?.tin) && (
+          <p className="mb-4 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+            <AlertTriangle className="w-3 h-3 shrink-0" />
+            TRA TIN not set —{" "}
+            <Link to="/settings" className="underline underline-offset-2">add it in Settings</Link>{" "}
+            before uploading.
+          </p>
         )}
 
         {/* Company Selector */}
