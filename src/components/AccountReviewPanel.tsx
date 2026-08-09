@@ -433,25 +433,56 @@ export function AccountReviewPanel({
           </>
         }
         action={
-          <button
-            type="button"
-            onClick={() => setUnresolvedOnly((v) => !v)}
-            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {unresolvedOnly ? "Show all accounts" : "Show undecided only"}
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => setFocusMode((v) => !v)}
+              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {focusMode ? "Show the full list" : "Focus on one account"}
+            </button>
+            {!focusMode && (
+              <button
+                type="button"
+                onClick={() => setUnresolvedOnly((v) => !v)}
+                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {unresolvedOnly ? "Show all accounts" : "Show undecided only"}
+              </button>
+            )}
+          </div>
         }
       />
 
       <p className="px-5 py-3 text-[13px] text-muted-foreground border-b border-border leading-relaxed">
-        SAFF could not map these accounts on evidence it can defend. Set a classification,
-        or exclude the account explicitly. Nothing is written until you save.
+        {focusMode
+          ? "One account at a time. Set a classification, or exclude it. Nothing is written until you save."
+          : "SAFF could not map these accounts on evidence it can defend. Set a classification, or exclude the account explicitly. Nothing is written until you save."}
         {/* Mobile equivalent of the column-header affordance — the stacked
             records have no header row to hang it on. */}
         <span className="md:hidden ml-1.5">
           <AssessmentHelp />
         </span>
       </p>
+
+      {focusMode && focusRow && (
+        <div className="flex items-center justify-between gap-3 px-5 py-2 border-b border-border">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground tabular-nums">
+            Decision {Math.max(1, needsReviewAccounts.length - excluded.size - focusQueue.length + 1)} of{" "}
+            {needsReviewAccounts.length - excluded.size}
+          </p>
+          {focusQueue.length > 1 && (
+            <button
+              type="button"
+              onClick={deferCurrent}
+              disabled={isWorking}
+              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              Decide later
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Desktop: workpaper table */}
       <div className="hidden md:block">
@@ -478,7 +509,7 @@ export function AccountReviewPanel({
             </tr>
           </thead>
           <tbody>
-            {visible.map((account) => {
+            {displayed.map((account) => {
               const key        = rowKey(account);
               const isExcluded = excluded.has(key);
               const choice     = choices[key];
@@ -528,7 +559,7 @@ export function AccountReviewPanel({
 
       {/* Mobile: structured stacked records — account, balance, assessment, decision */}
       <div className="md:hidden divide-y divide-border">
-        {visible.map((account) => {
+        {displayed.map((account) => {
           const key        = rowKey(account);
           const isExcluded = excluded.has(key);
           const choice     = choices[key];
@@ -563,7 +594,7 @@ export function AccountReviewPanel({
         })}
       </div>
 
-      {visible.length === 0 && (
+      {displayed.length === 0 && (
         <p className="px-5 py-6 text-[13px] text-muted-foreground">
           Every account has a decision. Save and reprocess to rebuild the statements.
         </p>
