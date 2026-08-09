@@ -193,8 +193,8 @@ export default function PrepareWorkspace() {
               Prepare data · FY{periodYear}
             </p>
             <h1 className="mt-1 text-xl font-semibold text-foreground">Trial balance preparation</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {frameworkLabel}{upload ? ` · ${upload.file_name}` : ""}
+            <p className="mt-1 truncate text-sm text-muted-foreground">
+              {upload ? upload.file_name : frameworkLabel}
             </p>
           </div>
           {upload && !showUploader && (
@@ -403,8 +403,10 @@ export default function PrepareWorkspace() {
         }}
         onDiscarded={(_id, receipt) => {
           keepPendingFileRef.current = !!pendingFile;
+          setDiscardedIds((prev) => [...prev, receipt.id]);
           setDiscardTarget(null);
           offerUndo(receipt, () => {
+            setDiscardedIds((prev) => prev.filter((id) => id !== receipt.id));
             setPendingFile(null);
             setShowUploader(false);
             navigate(buildPrepareUploadRoute(companyId, periodYear, receipt.id), { replace: true });
