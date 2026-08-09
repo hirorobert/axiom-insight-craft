@@ -182,12 +182,6 @@ export default function PrepareWorkspace() {
     reviewAccounts.length > 0 &&
     !!upload?.company_id &&
     !!user;
-  const frameworkLabel = company?.reporting_framework === "ipsas_accrual"
-    ? "IPSAS Accrual · public sector"
-    : company?.reporting_framework === "ipsas_cash"
-      ? "IPSAS Cash · public sector"
-      : "IFRS for SMEs · private sector";
-
   useEffect(() => {
     if (!focusUnresolved || !showReviewPanel) return;
     const t = window.setTimeout(() => {

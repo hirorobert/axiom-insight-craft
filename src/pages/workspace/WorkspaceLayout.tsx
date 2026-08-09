@@ -30,7 +30,6 @@ import {
   Clock,
   Minus,
   Settings,
-  ArrowLeft,
   RefreshCw,
   LogOut,
   ChevronDown,
