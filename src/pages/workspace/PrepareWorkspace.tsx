@@ -29,6 +29,7 @@ import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel"
 import { TrialBalanceUpload } from "@/components/TrialBalanceUpload";
 import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
 import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
+import TrialBalanceTemplateGuide from "@/components/workspace/TrialBalanceTemplateGuide";
 import {
   DiscardUploadDialog,
   discardUpload,
@@ -218,6 +219,7 @@ export default function PrepareWorkspace() {
       <div className="space-y-5">
           {/* Upload surface — the one thing to do when nothing is here yet. */}
           {(!upload || showUploader) && (
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:items-start">
             <SurfaceCard>
               <SurfaceCardHeader
                 label="Upload trial balance"
@@ -247,6 +249,11 @@ export default function PrepareWorkspace() {
                 />
               </SurfaceCardBody>
             </SurfaceCard>
+            <TrialBalanceTemplateGuide
+              companyName={company?.name ?? undefined}
+              periodYear={periodYear}
+            />
+            </div>
           )}
 
           {upload ? (
