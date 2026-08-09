@@ -118,7 +118,8 @@ export function computePreflight(input: PreflightInput | null): PreflightResult 
         : `${unmapped.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} accounts still need a mapping decision.`,
   });
 
-  // 5 — Accounting errors raised by the engine
+  // 5 — Import errors raised by the engine. A statement-equation difference is
+  // downstream review evidence, not proof that the source trial balance failed.
   const errs: unknown[] | null = Array.isArray(input.accountingErrors)
     ? input.accountingErrors
     : Array.isArray(input.processingResult?.accounting_errors)

@@ -36,17 +36,12 @@ import {
   offerUndo,
 } from "@/components/workspace/DiscardUploadDialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   SurfaceCard,
   SurfaceCardHeader,
   SurfaceCardBody,
 } from "@/components/workspace/ui/Surface";
 import {
-  Eye,
-  BarChart3,
-  TrendingUp,
-  PieChart,
   Trash2,
   RefreshCw,
   Loader2,

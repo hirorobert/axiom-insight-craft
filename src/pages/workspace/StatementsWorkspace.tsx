@@ -48,8 +48,8 @@ export default function StatementsWorkspace() {
     );
   }
 
-  // Statements are only trustworthy once the trial balance is certified.
-  // Show the exact reason and the one route that clears it.
+  // Import integrity and unresolved mapping decisions are blocking. A computed
+  // statement-equation difference is advisory and belongs inside Statements.
   if (upload && (preflight.verdict === "pending" || hasBlockingPreflightIssue)) {
     return (
       <div className="max-w-2xl space-y-6 pt-2">
