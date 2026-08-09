@@ -89,6 +89,7 @@ export default function PrepareWorkspace() {
   const focusUnresolved = searchParams.get("review") === "unresolved";
   const reviewRef = useRef<HTMLDivElement>(null);
   const [processingOpen, setProcessingOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
   const [discardTarget, setDiscardTarget] = useState<WorkspaceUpload | null>(null);
@@ -167,6 +168,11 @@ export default function PrepareWorkspace() {
     reviewAccounts.length > 0 &&
     !!upload?.company_id &&
     !!user;
+  const frameworkLabel = company?.reporting_framework === "ipsas_accrual"
+    ? "IPSAS Accrual · public sector"
+    : company?.reporting_framework === "ipsas_cash"
+      ? "IPSAS Cash · public sector"
+      : "IFRS for SMEs · private sector";
 
   useEffect(() => {
     if (!focusUnresolved || !showReviewPanel) return;
@@ -177,30 +183,44 @@ export default function PrepareWorkspace() {
   }, [focusUnresolved, showReviewPanel]);
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Uploads sidebar */}
-        <div className="lg:col-span-1">
-          <UploadsStatusPanel
-            uploads={uploads}
-            selectedId={upload?.id ?? null}
-            onSelect={(u) => {
-              // Navigate to the selected upload's period AND pin the exact
-              // record via ?upload=<id>. Without the id, clicking a sibling
-              // upload in the same year was a no-op (the row appeared to
-              // "disappear" instead of loading its certification ledger).
-              const selected = u as WorkspaceUpload;
-              const { periodYear: newPY } = deriveFiscalPeriod(selected, company?.fiscal_year_end ?? null);
-              setShowUploader(false);
-              navigate(buildPrepareUploadRoute(companyId, newPY, selected.id));
-            }}
-            onRefresh={async () => { await refreshUpload(); }}
-            onDiscard={(u) => setDiscardTarget(u as WorkspaceUpload)}
-          />
+    <div className="mx-auto max-w-5xl space-y-5 pb-10">
+      <header className="border-b border-border pb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Prepare data · FY{periodYear}
+            </p>
+            <h1 className="mt-1 text-xl font-semibold text-foreground">Trial balance preparation</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {frameworkLabel}{upload ? ` · ${upload.file_name}` : ""}
+            </p>
+          </div>
+          {upload && !showUploader && (
+            <div className="flex flex-wrap gap-2">
+              <input
+                ref={replaceInputRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  void handleReplacePicked(file);
+                }}
+              />
+              <Button variant="outline" size="sm" onClick={() => setShowUploader(true)}>
+                Upload another
+              </Button>
+              <Button variant="outline" size="sm" disabled={replacing} onClick={() => replaceInputRef.current?.click()}>
+                {replacing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
+                {replacing ? "Replacing…" : "Replace file"}
+              </Button>
+            </div>
+          )}
         </div>
+      </header>
 
-        {/* Main content */}
-        <div className="lg:col-span-3 space-y-6">
+      <div className="space-y-5">
           {/* Upload surface — the one thing to do when nothing is here yet. */}
           {(!upload || showUploader) && (
             <SurfaceCard>
@@ -236,97 +256,7 @@ export default function PrepareWorkspace() {
 
           {upload ? (
             <>
-              {!showUploader && (
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
-                  <input
-                    ref={replaceInputRef}
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = "";
-                      void handleReplacePicked(file);
-                    }}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDiscardTarget(upload)}
-                    className="text-muted-foreground hover:text-destructive w-full sm:w-auto justify-center"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-                    Discard this trial balance
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowUploader(true)}
-                    className="w-full sm:w-auto justify-center"
-                  >
-                    Upload another trial balance
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={replacing}
-                    onClick={() => replaceInputRef.current?.click()}
-                    title="Discard this trial balance and upload a fresh file in one step"
-                    className="w-full sm:w-auto justify-center"
-                  >
-                    {replacing ? (
-                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-                    )}
-                    {replacing ? "Replacing…" : "Replace with fresh file"}
-                  </Button>
-                </div>
-              )}
-              <div data-testid="certification-ledger" data-active-upload-id={upload.id}>
-                <CertificationHeader upload={upload} />
-                <CertificationSummaryStrip upload={upload} />
-              </div>
-
-              {/* Machine telemetry — evidence, not first-screen content. Closed
-                  by default so the accountant sees it only when it is useful. */}
-              <SurfaceCard>
-                <button
-                  type="button"
-                  onClick={() => setProcessingOpen((v) => !v)}
-                  aria-expanded={processingOpen}
-                  className="w-full flex items-center justify-between gap-4 px-5 py-3 text-left group"
-                >
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground group-hover:text-foreground transition-colors">
-                    Processing details
-                  </span>
-                  <ChevronDown
-                    className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${processingOpen ? "rotate-180" : ""}`}
-                  />
-                </button>
-                {processingOpen && (
-                  <div className="border-t border-border px-5 py-4 [&>section]:mb-0">
-                    <TrialBalanceProgressLedger upload={upload} />
-                  </div>
-                )}
-              </SurfaceCard>
-
-              {/* SAFISHA pre-flight — certification comes BEFORE classification
-                  is trusted downstream. One verdict, top of the stack. */}
               <TrialBalancePreflight upload={upload} />
-
-              <TrialBalanceIntegrityCard upload={upload} />
-              <BalanceSheetEquationCard upload={upload} />
-              <ClassificationBreakdown upload={upload} />
-
-              <ValidationReport
-                report={upload.validation_report}
-                errors={upload.accounting_errors || []}
-                isValid={upload.is_valid}
-                status={upload.status}
-                fileName={upload.file_name}
-                onProcessAsAuditedAccounts={handleProcessAsAuditedAccounts}
-                onUploadNew={() => navigate(`/workspace/${companyId}/${periodYear}/prepare`)}
-              />
 
               {/* Account review — only when classifier has unresolved accounts */}
               {showReviewPanel && upload.company_id && user && (
@@ -342,95 +272,80 @@ export default function PrepareWorkspace() {
                 </div>
               )}
 
-              {/* Account Classifications */}
-              {mapping && (
-                <SurfaceCard>
-                  <SurfaceCardHeader
-                    label="Account classifications"
-                    action={
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setMappingModalOpen(true)}
-                        className="gap-2 rounded-none"
-                      >
-                        <Eye className="w-4 h-4" />
-                        View details
+              {/* Evidence is available without competing with the decision. */}
+              <SurfaceCard>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setProcessingOpen((v) => !v)}
+                  aria-expanded={processingOpen}
+                  className="h-auto w-full justify-between rounded-none px-5 py-3"
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Evidence and processing details</span>
+                  <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${processingOpen ? "rotate-180" : ""}`} />
+                </Button>
+                {processingOpen && (
+                  <div className="space-y-4 border-t border-border p-4">
+                    <div data-testid="certification-ledger" data-active-upload-id={upload.id}>
+                      <CertificationHeader upload={upload} />
+                      <CertificationSummaryStrip upload={upload} />
+                    </div>
+                    <TrialBalanceProgressLedger upload={upload} />
+                    <TrialBalanceIntegrityCard upload={upload} />
+                    <BalanceSheetEquationCard upload={upload} />
+                    <ClassificationBreakdown upload={upload} />
+                    <ValidationReport
+                      report={upload.validation_report}
+                      errors={upload.accounting_errors || []}
+                      isValid={upload.is_valid}
+                      status={upload.status}
+                      fileName={upload.file_name}
+                      onProcessAsAuditedAccounts={handleProcessAsAuditedAccounts}
+                      onUploadNew={() => navigate(`/workspace/${companyId}/${periodYear}/prepare`)}
+                    />
+                    {mapping && (
+                      <Button variant="outline" size="sm" onClick={() => setMappingModalOpen(true)}>
+                        View mapped accounts
                       </Button>
-                    }
-                  />
-                  <SurfaceCardBody className="space-y-5">
-                    {/* Balance Sheet */}
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                        <BarChart3 className="w-4 h-4 text-primary" />
-                        Balance Sheet
-                      </h3>
-                      <div className="grid grid-cols-3 gap-4">
-                        {["Assets", "Liabilities", "Equity"].map((label) => {
-                          const key = label.toLowerCase() as "assets" | "liabilities" | "equity";
-                          const bs = mapping.balanceSheet;
-                          const count =
-                            key === "equity"
-                              ? (bs?.equity?.length ?? 0)
-                              : (bs?.[key]?.current?.length ?? 0) + (bs?.[key]?.nonCurrent?.length ?? 0);
-                          return (
-                            <div key={label} className="p-4 border border-border bg-secondary/20">
-                              <p className="text-xs text-muted-foreground mb-1">{label}</p>
-                              <p className="text-lg font-semibold text-foreground tabular-nums">{count}</p>
-                              {key !== "equity" && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  {bs?.[key]?.current?.length ?? 0} current · {bs?.[key]?.nonCurrent?.length ?? 0} non-current
-                                </p>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    {/* Income Statement */}
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                        <TrendingUp className="w-4 h-4 text-accent" />
-                        Income Statement
-                      </h3>
-                      <div className="grid grid-cols-5 gap-3">
-                        {[
-                          ["Revenue", mapping.incomeStatement?.revenue?.length ?? 0],
-                          ["COGS", mapping.incomeStatement?.costOfGoodsSold?.length ?? 0],
-                          ["OpEx", mapping.incomeStatement?.operatingExpenses?.length ?? 0],
-                          ["Other", mapping.incomeStatement?.otherIncome?.length ?? 0],
-                          ["Taxes", mapping.incomeStatement?.taxes?.length ?? 0],
-                        ].map(([label, count]) => (
-                          <div key={label as string} className="p-3 border border-border bg-secondary/20">
-                            <p className="text-xs text-muted-foreground">{label}</p>
-                            <p className="text-lg font-semibold text-foreground tabular-nums">{count}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    {/* Cash Flow */}
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                        <PieChart className="w-4 h-4 text-muted-foreground" />
-                        Cash Flow Statement
-                      </h3>
-                      <div className="grid grid-cols-3 gap-3">
-                        {[
-                          ["Operating", mapping.cashFlow?.operating?.length ?? 0],
-                          ["Investing", mapping.cashFlow?.investing?.length ?? 0],
-                          ["Financing", mapping.cashFlow?.financing?.length ?? 0],
-                        ].map(([label, count]) => (
-                          <div key={label as string} className="p-3 border border-border bg-secondary/20">
-                            <p className="text-xs text-muted-foreground">{label}</p>
-                            <p className="text-lg font-semibold text-foreground tabular-nums">{count}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </SurfaceCardBody>
-                </SurfaceCard>
-              )}
+                    )}
+                  </div>
+                )}
+              </SurfaceCard>
+
+              <SurfaceCard>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setHistoryOpen((v) => !v)}
+                  aria-expanded={historyOpen}
+                  className="h-auto w-full justify-between rounded-none px-5 py-3"
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Previous trial balances · {uploads.length}</span>
+                  <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${historyOpen ? "rotate-180" : ""}`} />
+                </Button>
+                {historyOpen && (
+                  <div className="border-t border-border p-4">
+                    <UploadsStatusPanel
+                      uploads={uploads}
+                      selectedId={upload.id}
+                      onSelect={(u) => {
+                        const selected = u as WorkspaceUpload;
+                        const { periodYear: newPY } = deriveFiscalPeriod(selected, company?.fiscal_year_end ?? null);
+                        setShowUploader(false);
+                        navigate(buildPrepareUploadRoute(companyId, newPY, selected.id));
+                      }}
+                      onRefresh={async () => { await refreshUpload(); }}
+                      onDiscard={(u) => setDiscardTarget(u as WorkspaceUpload)}
+                    />
+                  </div>
+                )}
+              </SurfaceCard>
+
+              <div className="flex justify-end">
+                <Button variant="ghost" size="sm" onClick={() => setDiscardTarget(upload)} className="text-muted-foreground hover:text-destructive">
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Discard trial balance
+                </Button>
+              </div>
 
               {/* EFDMS Reconciliation */}
               {upload.status === "complete" && upload.is_valid === true && upload.company_id && (
@@ -446,7 +361,6 @@ export default function PrepareWorkspace() {
               )}
             </>
           ) : null}
-        </div>
       </div>
 
       {upload && (
