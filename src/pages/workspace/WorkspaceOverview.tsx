@@ -22,6 +22,9 @@ import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
+import EngagementScopeDialog from "@/components/workspace/EngagementScopeDialog";
+import PreviousEngagementWork from "@/components/workspace/PreviousEngagementWork";
+import { useEngagement } from "@/contexts/EngagementContext";
 import { buildPrepareReviewRoute } from "@/lib/workspace/resolveActiveUpload";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 
@@ -67,6 +70,16 @@ export default function WorkspaceOverview() {
   const [retrying, setRetrying] = useState(false);
   const [tinDialogOpen, setTinDialogOpen] = useState(false);
   const [tinOverride, setTinOverride] = useState<string | null>(null);
+  const [scopeDialogOpen, setScopeDialogOpen] = useState(false);
+
+  const {
+    engagement,
+    mandate,
+    missionViews,
+    events,
+    canAmend,
+    loading: mandateLoading,
+  } = useEngagement();
 
   // Retry the ingest pipeline when the active upload failed.
   const handleRetryProcessing = async () => {
@@ -137,7 +150,13 @@ export default function WorkspaceOverview() {
   const prepareDone = prepareStatus === "passed" || prepareStatus === "signed";
   const hasUpload = uploads.length > 0;
 
-  const activeIndex = STAGE_SEQUENCE.findIndex((slug) => {
+  // The active path is the mandate's path. Stages outside the mandate are not
+  // part of orientation; retained work has its own read-only section.
+  const pathStages = STAGE_SEQUENCE.filter((slug) =>
+    missionViews.some((v) => v.stage === slug && v.visible),
+  );
+
+  const activeIndex = pathStages.findIndex((slug) => {
     const s = missions[slug].status;
     return s !== "passed" && s !== "signed" && s !== "locked" && s !== "not_applicable";
   });
@@ -174,7 +193,25 @@ export default function WorkspaceOverview() {
   const isProcessing = s === "processing" || s === "pending" || s === "queued";
   const needsReview = s === "needs_review" && unresolved > 0;
 
-  if (!hasUpload) {
+  const mandateUndeclared = !mandateLoading && (!engagement || !mandate || mandate.granted.length === 0);
+
+  if (mandateUndeclared) {
+    // Scope is declared, never inferred. Until it is declared there is no
+    // defensible next accounting action, so this is the one decision.
+    decision = {
+      eyebrow: "Engagement",
+      headline: "What are you preparing for this client?",
+      detail:
+        "Record the outcomes you were engaged to deliver for this period. SAFF then shows only the stages that mandate requires.",
+      button: {
+        label: canAmend ? "Declare engagement scope" : "Ask a partner to open the engagement",
+        onClick: canAmend ? () => setScopeDialogOpen(true) : undefined,
+        disabled: !canAmend,
+        icon: <ArrowRight className="w-4 h-4" />,
+      },
+      tone: canAmend ? "primary" : "muted",
+    };
+  } else if (!hasUpload) {
     decision = {
       eyebrow: STAGE_CONFIGS.prepare.label,
       headline: "Upload the trial balance to open this engagement.",
@@ -241,7 +278,7 @@ export default function WorkspaceOverview() {
       tone: "primary",
     };
   } else {
-    const activeSlug = activeIndex >= 0 ? STAGE_SEQUENCE[activeIndex] : null;
+    const activeSlug = activeIndex >= 0 ? pathStages[activeIndex] : null;
     decision = {
       eyebrow: activeSlug ? STAGE_CONFIGS[activeSlug].label : "Engagement complete",
       headline: nextAction.description,
@@ -275,6 +312,12 @@ export default function WorkspaceOverview() {
           onSaved={(tin) => setTinOverride(tin)}
         />
       )}
+
+      <EngagementScopeDialog
+        open={scopeDialogOpen}
+        onOpenChange={setScopeDialogOpen}
+        mode={engagement ? "amend" : "declare"}
+      />
 
       {/* ── ZONE A · Engagement identity ─────────────────────────────────────
           The company and fiscal year already live in the workspace header, so
@@ -351,7 +394,7 @@ export default function WorkspaceOverview() {
       {/* ── ZONE C · Engagement path — quiet orientation, zero CTA weight ── */}
       <nav aria-label="Engagement path" data-testid="engagement-path">
         <ol className="flex flex-wrap items-center gap-x-1 gap-y-2 -mx-1">
-          {STAGE_SEQUENCE.map((slug, i) => {
+          {pathStages.map((slug, i) => {
             const mission = missions[slug];
             const isLocked = mission.status === "locked" || mission.status === "not_applicable";
             const isComplete = mission.status === "passed" || mission.status === "signed";
@@ -405,7 +448,7 @@ export default function WorkspaceOverview() {
                     {inner}
                   </Link>
                 )}
-                {i < STAGE_SEQUENCE.length - 1 && (
+                {i < pathStages.length - 1 && (
                   <span aria-hidden className="text-muted-foreground/25 text-[11px] px-0.5">
                     /
                   </span>
@@ -415,6 +458,28 @@ export default function WorkspaceOverview() {
           })}
         </ol>
       </nav>
+
+      {/* Mandate footnote — one quiet line, and the only amend affordance. */}
+      {engagement && mandate && mandate.granted.length > 0 && (
+        <p className="mt-4 text-[12px] text-muted-foreground/80">
+          This engagement covers {mandate.granted.length}{" "}
+          {mandate.granted.length === 1 ? "outcome" : "outcomes"}.
+          {canAmend && (
+            <>
+              {" "}
+              <button
+                type="button"
+                onClick={() => setScopeDialogOpen(true)}
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                Amend scope
+              </button>
+            </>
+          )}
+        </p>
+      )}
+
+      <PreviousEngagementWork views={missionViews} events={events} />
     </div>
   );
 }

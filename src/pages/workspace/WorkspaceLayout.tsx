@@ -19,7 +19,10 @@ import { useEffect, useRef, useState } from "react";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { WorkspaceContext } from "@/contexts/WorkspaceContext";
+import { EngagementContext } from "@/contexts/EngagementContext";
 import { useWorkspaceData } from "@/hooks/useWorkspaceData";
+import { useEngagementMandate } from "@/hooks/useEngagementMandate";
+import { projectMandate } from "@/lib/workspace/mandate";
 import { SaffLogo } from "@/components/SaffLogo";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -155,6 +158,13 @@ export default function WorkspaceLayout() {
   const workspaceData = useWorkspaceData();
 
   const { companyId, periodYear, company, workspaceState, loading } = workspaceData;
+  const engagementApi = useEngagementMandate(companyId, periodYear);
+  const missionViews = projectMandate(workspaceState.missions, engagementApi.mandate);
+
+  // Stages the mandate keeps in the active rail. While the mandate is loading or
+  // undeclared, projectMandate returns every stage — nothing is ever hidden on
+  // unknown scope.
+  const visibleStages = missionViews.filter((v) => v.visible).map((v) => v.stage);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -173,6 +183,7 @@ export default function WorkspaceLayout() {
 
   return (
     <WorkspaceContext.Provider value={workspaceData}>
+     <EngagementContext.Provider value={{ ...engagementApi, missionViews }}>
       <div className="min-h-screen bg-background flex flex-col">
 
         {/* ── Top bar ──────────────────────────────────────────────────────── */}
@@ -251,9 +262,10 @@ export default function WorkspaceLayout() {
               </Link>
 
               {/* Stage tabs */}
-              {STAGE_SEQUENCE.map((slug) => {
+              {STAGE_SEQUENCE.filter((slug) => visibleStages.includes(slug)).map((slug) => {
                 const config = STAGE_CONFIGS[slug];
                 const mission = workspaceState.missions[slug];
+                const view = missionViews.find((v) => v.stage === slug);
                 const isActive = activeSlug === slug;
                 const isLocked = mission.status === "locked";
                 const Icon = config.icon;
@@ -262,7 +274,11 @@ export default function WorkspaceLayout() {
                   <Link
                     key={slug}
                     to={`${basePath}/${slug}`}
-                    title={config.description}
+                    title={
+                      view?.prerequisiteOnly
+                        ? `${config.description} — input evidence for this engagement`
+                        : config.description
+                    }
                     aria-label={config.label}
                     className={[
                       "flex items-center gap-1 px-2 sm:px-3 xl:px-4 py-3 text-[11px] sm:text-xs font-medium border-b-2 transition-colors shrink-0",
@@ -295,6 +311,7 @@ export default function WorkspaceLayout() {
         </main>
 
       </div>
+     </EngagementContext.Provider>
     </WorkspaceContext.Provider>
   );
 }
