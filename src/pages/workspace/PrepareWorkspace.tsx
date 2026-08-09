@@ -79,8 +79,15 @@ export default function PrepareWorkspace() {
   const { upload: rawUpload, uploads: rawUploads, company, companyId, periodYear, refreshUpload } = useWorkspace();
   // Discarded runs must vanish immediately — no residue while the refetch lands.
   const [discardedIds, setDiscardedIds] = useState<string[]>([]);
-  const upload = rawUpload && discardedIds.includes(rawUpload.id) ? null : rawUpload;
-  const uploads = rawUploads.filter((u) => !discardedIds.includes(u.id));
+  const {
+    upload,
+    uploads,
+    reviewAccounts: suppressedReviewAccounts,
+  } = applyDiscardSuppression({
+    upload: rawUpload,
+    uploads: rawUploads,
+    suppressed: discardedIds,
+  });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -117,10 +124,12 @@ export default function PrepareWorkspace() {
     setReplacing(true);
     try {
       const receipt = await discardUpload(upload);
-      setDiscardedIds((prev) => [...prev, upload.id]);
+      setDiscardedIds((prev) => suppressUpload(prev, upload.id));
       toast.success(`Prior trial balance discarded. Uploading ${file.name}…`);
       offerUndo(receipt, () => {
-        setDiscardedIds((prev) => prev.filter((id) => id !== receipt.id));
+        // Unsuppress first, then refetch — the restored run is on screen for
+        // the whole undo→refresh window, so no empty frame appears.
+        setDiscardedIds((prev) => restoreUploadId(prev, receipt.id));
         setPendingFile(null);
         setShowUploader(false);
         navigate(buildPrepareUploadRoute(companyId, periodYear, receipt.id), { replace: true });
@@ -162,9 +171,9 @@ export default function PrepareWorkspace() {
 
   const mapping = upload?.processing_result?.mapping;
 
-  const reviewAccounts = Array.isArray(upload?.processing_result?.needs_review_accounts)
-    ? upload!.processing_result!.needs_review_accounts
-    : [];
+  const reviewAccounts = suppressedReviewAccounts as typeof rawUpload extends never
+    ? never[]
+    : any[];
   const showReviewPanel =
     upload?.status === "needs_review" &&
     reviewAccounts.length > 0 &&
@@ -403,10 +412,10 @@ export default function PrepareWorkspace() {
         }}
         onDiscarded={(_id, receipt) => {
           keepPendingFileRef.current = !!pendingFile;
-          setDiscardedIds((prev) => [...prev, receipt.id]);
+          setDiscardedIds((prev) => suppressUpload(prev, receipt.id));
           setDiscardTarget(null);
           offerUndo(receipt, () => {
-            setDiscardedIds((prev) => prev.filter((id) => id !== receipt.id));
+            setDiscardedIds((prev) => restoreUploadId(prev, receipt.id));
             setPendingFile(null);
             setShowUploader(false);
             navigate(buildPrepareUploadRoute(companyId, periodYear, receipt.id), { replace: true });
