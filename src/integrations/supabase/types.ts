@@ -954,6 +954,208 @@ export type Database = {
           },
         ]
       }
+      engagement_authority_events: {
+        Row: {
+          action: string
+          actor_member_id: string
+          authority_type: string
+          effective_from: string | null
+          engagement_id: string
+          expires_at: string | null
+          filing_type: string | null
+          granted_to_member_id: string | null
+          id: string
+          jurisdiction: string | null
+          occurred_at: string
+          reason: string | null
+          sequence_no: number
+          source: string
+        }
+        Insert: {
+          action: string
+          actor_member_id: string
+          authority_type: string
+          effective_from?: string | null
+          engagement_id: string
+          expires_at?: string | null
+          filing_type?: string | null
+          granted_to_member_id?: string | null
+          id?: string
+          jurisdiction?: string | null
+          occurred_at?: string
+          reason?: string | null
+          sequence_no: number
+          source?: string
+        }
+        Update: {
+          action?: string
+          actor_member_id?: string
+          authority_type?: string
+          effective_from?: string | null
+          engagement_id?: string
+          expires_at?: string | null
+          filing_type?: string | null
+          granted_to_member_id?: string | null
+          id?: string
+          jurisdiction?: string | null
+          occurred_at?: string
+          reason?: string | null
+          sequence_no?: number
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engagement_authority_events_actor_member_id_fkey"
+            columns: ["actor_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "engagement_authority_events_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "engagement_authority_events_granted_to_member_id_fkey"
+            columns: ["granted_to_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      engagement_mandate_events: {
+        Row: {
+          action: string
+          actor_member_id: string
+          capability: string
+          engagement_id: string
+          id: string
+          occurred_at: string
+          reason: string | null
+          sequence_no: number
+          source: string
+        }
+        Insert: {
+          action: string
+          actor_member_id: string
+          capability: string
+          engagement_id: string
+          id?: string
+          occurred_at?: string
+          reason?: string | null
+          sequence_no: number
+          source?: string
+        }
+        Update: {
+          action?: string
+          actor_member_id?: string
+          capability?: string
+          engagement_id?: string
+          id?: string
+          occurred_at?: string
+          reason?: string | null
+          sequence_no?: number
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engagement_mandate_events_actor_member_id_fkey"
+            columns: ["actor_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "engagement_mandate_events_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      engagements: {
+        Row: {
+          closed_at: string | null
+          company_id: string
+          created_at: string
+          created_by_member_id: string
+          engagement_type: string
+          firm_id: string | null
+          fiscal_period_id: string
+          id: string
+          opened_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          closed_at?: string | null
+          company_id: string
+          created_at?: string
+          created_by_member_id: string
+          engagement_type: string
+          firm_id?: string | null
+          fiscal_period_id: string
+          id?: string
+          opened_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          closed_at?: string | null
+          company_id?: string
+          created_at?: string
+          created_by_member_id?: string
+          engagement_type?: string
+          firm_id?: string | null
+          fiscal_period_id?: string
+          id?: string
+          opened_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engagements_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "engagements_created_by_member_id_fkey"
+            columns: ["created_by_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "engagements_fiscal_period_id_fkey"
+            columns: ["fiscal_period_id"]
+            isOneToOne: false
+            referencedRelation: "fiscal_periods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "engagements_fiscal_period_id_fkey"
+            columns: ["fiscal_period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["current_period_id"]
+          },
+          {
+            foreignKeyName: "engagements_fiscal_period_id_fkey"
+            columns: ["fiscal_period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["prior_period_id"]
+          },
+        ]
+      }
       evidence_requests: {
         Row: {
           created_at: string
@@ -1255,6 +1457,9 @@ export type Database = {
           period_label: string
           prior_period_id: string | null
           reporting_currency: string
+          reporting_end: string | null
+          reporting_framework: string | null
+          reporting_start: string | null
           status: string
           updated_at: string
         }
@@ -1269,6 +1474,9 @@ export type Database = {
           period_label: string
           prior_period_id?: string | null
           reporting_currency?: string
+          reporting_end?: string | null
+          reporting_framework?: string | null
+          reporting_start?: string | null
           status?: string
           updated_at?: string
         }
@@ -1283,6 +1491,9 @@ export type Database = {
           period_label?: string
           prior_period_id?: string | null
           reporting_currency?: string
+          reporting_end?: string | null
+          reporting_framework?: string | null
+          reporting_start?: string | null
           status?: string
           updated_at?: string
         }
@@ -3438,6 +3649,10 @@ export type Database = {
       }
     }
     Functions: {
+      assert_engagement_write_authority: {
+        Args: { p_engagement_id: string }
+        Returns: string
+      }
       carry_forward_wdv: {
         Args: { p_company_id: string; p_from_year: number; p_to_year: number }
         Returns: {
@@ -3448,7 +3663,50 @@ export type Database = {
           wdv_opening_new: number
         }[]
       }
+      fold_engagement_authority: {
+        Args: { p_engagement_id: string }
+        Returns: {
+          authority_type: string
+          effective_from: string
+          expires_at: string
+          filing_type: string
+          granted: boolean
+          granted_to_member_id: string
+          jurisdiction: string
+          sequence_no: number
+        }[]
+      }
+      fold_engagement_mandate: {
+        Args: { p_engagement_id: string }
+        Returns: {
+          capability: string
+          granted: boolean
+          occurred_at: string
+          sequence_no: number
+        }[]
+      }
       get_member_company_ids: { Args: never; Returns: string[] }
+      grant_engagement_authority: {
+        Args: {
+          p_authority_type: string
+          p_effective_from?: string
+          p_engagement_id: string
+          p_expires_at?: string
+          p_filing_type?: string
+          p_granted_to_member_id: string
+          p_jurisdiction?: string
+          p_reason?: string
+        }
+        Returns: string
+      }
+      grant_engagement_capability: {
+        Args: {
+          p_capability: string
+          p_engagement_id: string
+          p_reason?: string
+        }
+        Returns: string
+      }
       hesabu_write_validation: {
         Args: {
           p_assertions: Json
@@ -3506,6 +3764,26 @@ export type Database = {
           p_run_id: string
           p_sections_json: Json
           p_summary_text: string
+        }
+        Returns: string
+      }
+      next_engagement_sequence: {
+        Args: { p_engagement_id: string }
+        Returns: number
+      }
+      revoke_engagement_authority: {
+        Args: {
+          p_authority_type: string
+          p_engagement_id: string
+          p_reason?: string
+        }
+        Returns: string
+      }
+      revoke_engagement_capability: {
+        Args: {
+          p_capability: string
+          p_engagement_id: string
+          p_reason?: string
         }
         Returns: string
       }
