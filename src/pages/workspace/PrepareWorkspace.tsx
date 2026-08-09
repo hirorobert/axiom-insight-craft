@@ -14,7 +14,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { buildPrepareUploadRoute } from "@/lib/workspace/resolveActiveUpload";
+import { buildPrepareUploadRoute, buildPrepareReviewRoute } from "@/lib/workspace/resolveActiveUpload";
 import { toast } from "sonner";
 
 import { UploadsStatusPanel } from "@/components/UploadsStatusPanel";
@@ -251,7 +251,14 @@ export default function PrepareWorkspace() {
 
           {upload ? (
             <>
-              <TrialBalancePreflight upload={upload} />
+              <TrialBalancePreflight
+                upload={upload}
+                resolveHref={
+                  showReviewPanel
+                    ? buildPrepareReviewRoute(companyId, periodYear, upload.id)
+                    : undefined
+                }
+              />
 
               {/* Account review — only when classifier has unresolved accounts */}
               {showReviewPanel && upload.company_id && user && (
