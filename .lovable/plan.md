@@ -1,107 +1,149 @@
-# Engagement Scope — read-only architecture audit and verdict
+# Engagement Mandate Architecture — final model
 
-ZERO code written. ZERO migration issued. The frozen state engine
-(`deriveWorkspaceState.ts`) was read, not touched.
+Every critique is accepted. Scope is a **declared professional mandate**, never
+an inference from framework, TIN, or artefacts. This plan replaces the derived
+Phase 1 outright.
 
-## A. Verdict first
+## New evidence that changes the shape of the answer
 
-1. **One column is NOT sufficient.** Proven below. A single ordered enum cannot
-   express "compliance review without filing authority", and cannot carry
-   amendment history.
-2. **No migration is authorised yet — and none is needed for the UI fix.**
-   The quiet-rail outcome can ship as a *presentation-only* projection derived
-   from data that already exists. Persisted scope becomes necessary only when a
-   professional must *declare* scope before any artefact exists.
-3. Recommended sequence: **Phase 1 (UI-only, derived scope) → prove → Phase 2
-   (append-only scope table, not a column)**.
+- `fiscal_periods` has **0 rows**, `trial_balance_uploads` has 0 rows, and no
+  upload has ever carried `period_id`. So the table intended as the engagement
+  container has never been used; today the de-facto identity is the
+  `(company_id, period_year)` pair in the URL.
+- No `tax_computations`, `statement_sign_offs`, `filing_obligations`, `findings`
+  or `variance_runs` exist.
 
-## B. Evidence from the codebase
+Read correctly: there is no history to protect and no identity to unwind. This
+is the cheapest moment in the product's life to install the correct authority
+model, so we install it now rather than shipping a presentation illusion.
 
-| Question | Finding |
-| --- | --- |
-| Existing scope field on `companies`? | None. Columns: code, currency, description, fiscal_year_end, industry, is_active, name, reporting_framework, tin, user_id. `reporting_framework` is framework, not scope. |
-| Per-period engagement entity? | Yes — `fiscal_periods` (company_id, fiscal_year_end, period_label, prior_period_id, active_upload_id, status, reporting_currency, accounting_basis). This, not `companies`, is the engagement grain. |
-| `MissionStatus.not_applicable` | Exists in `types.ts`; produced by `na()` in the engine and already used for reconcile / compliance / monitor in **every** path. Rendered as a grey dash in `WorkspaceLayout` and treated as non-actionable in `WorkspaceOverview` (lines 142, 356). So `not_applicable` is currently overloaded to mean "always available" — the opposite of out-of-scope. |
-| Consumers of the state | `useWorkspaceData`, `WorkspaceLayout` (tab rail), `WorkspaceOverview` (path table), `StatementsWorkspace`, `TaxWorkspace`, `FilingWorkspace`, plus the 14-path test file. Any status-semantics change breaks 4 pages and the test suite. |
-| Stage routes | All 7 stage routes are unconditional in `App.tsx`. Out-of-scope stages stay reachable by URL regardless of rail rendering. |
-| Downstream artefacts in live data | `tax_computations` 0, `statement_sign_offs` 0, `filing_obligations` 0, `findings` 0, `variance_runs` 0. Frameworks present: `ifrs_for_smes`, `ipsas_accrual`. |
-
-**Consequence of the last row:** there is currently *no* historical downstream
-evidence anywhere in the system. Scope-reduction-versus-immutability is a future
-invariant to design, not a live migration hazard.
-
-## C. Why one column fails
-
-Each engagement outcome mapped against a single ordered enum:
+## The model
 
 ```text
-                        TAX   COMPLIANCE   FILING   MONITOR
-Statements only          -        -          -        -
-Statements + tax         Y        -          -        -
-Compliance, no filing    Y        Y          -        -      fits an order
-Compliance, no tax       -        Y          -        -      BREAKS the order
-Filing only (agent)      Y        -          Y        -      BREAKS the order
-Ongoing monitoring       -        -          -        Y      orthogonal
+COMPANY              reporting entity, sector, master identity
+   |
+ENGAGEMENT           one fiscal_periods row = one engagement of record
+   |                 reporting framework, accounting basis, active source data
+   +-- MANDATE       what the professional was retained to perform (declared)
+   +-- AUTHORITY     what this actor may actually do (permission)
+   |
+WORKFLOW ENGINE      derives required stages + gates from mandate + accounting truth
+   |
+ARTIFACTS            immutable evidence of work actually performed
 ```
 
-Two rows break any monotonic ladder, and `monitor` is orthogonal to the tax
-chain. An ordered enum also cannot record *who* amended scope, *when*, or *why*
-— which a professional engagement file requires.
+### Capabilities are professional, not routes
 
-## D. The dimensions that must never be merged
+`FINANCIAL_STATEMENTS`, `TAX_COMPUTATION`, `COMPLIANCE_REVIEW`,
+`FILING_PREPARATION`, `MONITORING`. Stage requirements are a code-side mapping,
+so the rail can evolve without rewriting historical mandates:
 
 ```text
-ENTITY CONTEXT        public / private / NGO      -> classification interpretation
-REPORTING FRAMEWORK   IPSAS / IFRS / IFRS-SME     -> reporting treatment
-ENGAGEMENT SCOPE      capabilities engaged        -> which stages exist at all
-WORKFLOW STATE        ready/review/blocked/signed -> progress within scope
-FILING AUTHORITY      may SAFF submit to TRA      -> a permission, not a stage
+FINANCIAL_STATEMENTS -> prepare, reconcile, statements
+TAX_COMPUTATION      -> statements, tax
+COMPLIANCE_REVIEW    -> compliance
+FILING_PREPARATION   -> compliance, filing
+MONITORING           -> monitor
 ```
 
-Filing authority is split out deliberately: "prepare the filing pack" and
-"submit it" are different mandates. Arusha DC being IPSAS public sector implies
-nothing about Tanzanian corporate tax filing.
+`REGULATORY_SUBMISSION` is **authority**, not a capability, and never a stage.
+Preparing a return and being permitted to submit it are separate mandates.
 
-## E. Canonical model (proposed, unbuilt)
-
-- **Mandatory spine, never forkable:** `prepare → reconcile → statements`.
-  These derive from the accounting truth and stay ungated by scope.
-- **Elective capabilities:** `tax`, `compliance`, `filing`, `monitor` — a *set*,
-  not a ladder.
-- **Rail rule:** primary navigation renders the spine plus engaged capabilities
-  only. Out-of-scope stages are omitted, not padlocked. `not_applicable` stays
-  an internal engine value and is never rendered as a rail row.
-- **Gates untouched:** SAFISHA stays unskippable; statements still require a
-  balanced TB; adding a capability can never bypass a prerequisite.
-- **Amendment, not downgrade-lock:** scope changes are append-only. Removing
-  `filing` hides the stage prospectively while every completed artefact,
-  sign-off and audit row stays readable, attributed and unaltered. A stage that
-  already holds artefacts renders as "out of scope · completed work retained".
-
-## F. Migration verdict
-
-**Phase 1 — no migration, no engine change.** Derive scope in a new pure helper
-(`computeEngagementScope`) from data already present: reporting framework, TIN
-presence, and existence of tax / filing / compliance / variance artefacts.
-Consume it only in `WorkspaceLayout` (which tabs render) and
-`WorkspaceOverview` (which rows render). `deriveWorkspaceState` keeps emitting
-all seven missions; the rail becomes a filtered projection. Add one restrained
-"Add tax & compliance work" affordance so scope widens by intent, and keep
-direct URLs working.
-
-**Phase 2 — only if Phase 1 proves declared scope is needed.** The correct shape
-is then a child table, not a column:
+### Scope is event-sourced, truly append-only
 
 ```text
-engagement_scopes(id, company_id, period_year, capability, granted_by,
-                  granted_at, revoked_by, revoked_at, reason)
+engagement_scope_events(
+  id, fiscal_period_id, capability, action GRANT|REVOKE,
+  actor_member_id, occurred_at, reason, source, supersedes_event_id
+)
 ```
 
-Append-only, one row per grant or revocation, filing authority as its own
-capability. Effective scope = capabilities with no live revocation. This
-survives new capabilities, records amendment history, and satisfies audit.
+No row is ever updated or deleted. Effective mandate = a fold over the event
+stream, newest event per capability wins. Revocation is a new event, so the
+ledger reads as a professional file:
 
-## G. Out of scope for this audit
+```text
+08 Aug 09:00  GRANT   FINANCIAL_STATEMENTS   partner
+08 Aug 09:00  GRANT   TAX_COMPUTATION        partner
+12 Aug 16:20  REVOKE  TAX_COMPUTATION        partner  "client withdrew tax mandate"
+```
 
-No entity-type work. No classification changes. No microcopy changes. No change
-to the frozen state engine, the gates, or the schema.
+Authority is a sibling stream (`engagement_authority_events`) with the same
+shape, so submission rights can be granted and withdrawn without touching scope.
+
+### Two distinct quiet statuses — no overloading
+
+`not_applicable` keeps its current meaning (not part of the deterministic
+workflow calculation). A new value `out_of_scope` carries the contractual
+meaning. Both render quietly; they are never the same value.
+
+### Historical work survives scope reduction
+
+Revoking a capability never hides or restates evidence. A stage with artefacts
+that leaves scope disappears from the active rail and appears under
+**Previous engagement work** — read-only, attributed, timestamped. Nothing is
+deleted, nothing re-enters the active workflow.
+
+### Route behaviour: guard, never silently open, never rely on hiding
+
+```text
+/workspace/:id/:year/tax
+   -> in mandate      : render normally, existing gates unchanged
+   -> out of mandate  : restrained boundary page
+                        "Tax computation is not included in this engagement"
+                        [Amend engagement scope]  (only if authorised)
+```
+
+Hiding is not security; the guard reads the same authoritative mandate the rail
+reads. RLS remains the enforcement boundary.
+
+## Implementation
+
+**Step 1 — Engagement of record.** Create a `fiscal_periods` row whenever an
+engagement is created (`FirstRunEngagement`, `OnboardingFlow`) and stamp
+`period_id` on every upload. `fiscal_period_id` becomes the identity everything
+else references. No reconstruction from company + year.
+
+**Step 2 — Migration (the two event tables).** Append-only, `authenticated`
+grants, RLS scoped through `get_member_company_ids()`, INSERT restricted to
+partner/manager `firm_members`, UPDATE and DELETE blocked by trigger. A
+`fold_engagement_scope(fiscal_period_id)` security-definer function returns the
+effective capability set.
+
+**Step 3 — Mandate declaration at engagement creation.** One quiet checklist on
+the engagement form, `FINANCIAL_STATEMENTS` pre-selected. Selections write GRANT
+events. Amendment happens from an Engagement scope panel and writes further
+events with a reason.
+
+**Step 4 — Scope-aware projection.** `deriveWorkspaceState` keeps emitting all
+seven missions; a new pure `projectMandate(state, mandate, artefacts)` marks
+out-of-mandate stages `out_of_scope` and reports which carry retained work.
+`WorkspaceLayout` renders only in-mandate stages; `WorkspaceOverview` shows the
+in-mandate path plus a **Previous engagement work** section when applicable.
+No gate is weakened: SAFISHA stays unskippable, statements still require a
+balanced trial balance, and granting a capability never bypasses a prerequisite.
+
+**Step 5 — Route guards.** Each stage page consults the mandate and renders the
+boundary page when out of scope.
+
+**Step 6 — Tests.** Fold correctness (grant, revoke, re-grant, superseding);
+mandate matrix over statements-only, statements+tax, compliance-without-filing,
+filing-preparation-without-submission-authority, monitoring-only, public-sector
+IPSAS; append-only rejection of UPDATE/DELETE; retained-work rendering after
+revocation; existing 14-path engine tests unchanged.
+
+## UX outcome
+
+```text
+Arusha DC · FY2025
+Prepare -> Reconcile -> Statements
+Current action: Review 105 accounts
+```
+
+No padlocks for work nobody was hired to do. Tax appears only when the tax
+mandate exists. Monitor appears only when monitoring is contracted.
+
+## Explicitly not in this plan
+
+Entity-type classification changes, microcopy changes, and any weakening of the
+existing accounting gates or RLS.
