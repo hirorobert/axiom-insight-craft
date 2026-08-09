@@ -3518,6 +3518,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      safisha_recon_company_scoped: {
+        Args: { _recon_id: string }
+        Returns: boolean
+      }
       safisha_recon_visible: { Args: { _recon_id: string }; Returns: boolean }
       safisha_resolve_exception: {
         Args: {
@@ -3527,6 +3531,10 @@ export type Database = {
           p_reviewer_id: string
         }
         Returns: Json
+      }
+      safisha_upload_company_scoped: {
+        Args: { _upload_id: string }
+        Returns: boolean
       }
       xbrl_write_instance: {
         Args: {
