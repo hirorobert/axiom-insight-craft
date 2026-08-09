@@ -513,7 +513,10 @@ export const TrialBalanceUpload = ({
           </div>
         )}
 
-        {/* Formatting guide — collapsed by default */}
+        {/* Formatting guide — collapsed by default.
+            Suppressed when embedded: the workspace shows one authoritative
+            file-requirements surface beside the uploader, never two. */}
+        {!embedded && (
         <div className="mb-6">
           <button
             onClick={() => setIsGuideOpen(!isGuideOpen)}
@@ -605,6 +608,7 @@ export const TrialBalanceUpload = ({
             </div>
           )}
         </div>
+        )}
 
         {/* Upload area */}
         <div
@@ -843,16 +847,11 @@ export const TrialBalanceUpload = ({
           </div>
         )}
 
-        {/* Trust indicators */}
-        <div className="mt-8 flex items-center justify-center gap-8 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-4 h-4 text-accent" />
-            <span>AES-256 encrypted storage</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-4 h-4 text-accent" />
-            <span>ITA Cap.332 validated output</span>
-          </div>
+        {/* Trust indicator — one fact that is true at import time.
+            Tax-output claims belong to the Tax stage, not to this screen. */}
+        <div className="mt-6 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+          <CheckCircle className="w-3.5 h-3.5 text-accent" />
+          <span>Encrypted storage · your file is never shared</span>
         </div>
       </div>
     </section>

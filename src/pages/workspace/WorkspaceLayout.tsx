@@ -30,7 +30,6 @@ import {
   Clock,
   Minus,
   Settings,
-  ArrowLeft,
   RefreshCw,
   LogOut,
   ChevronDown,
@@ -180,14 +179,17 @@ export default function WorkspaceLayout() {
         <header className="sticky top-0 z-50 bg-background border-b border-border">
           <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
 
-            {/* Left: back arrow + logo + breadcrumb */}
+            {/* Left: logo (home) + breadcrumb — the logo is the only way back,
+                so there is no competing back arrow. */}
             <div className="flex items-center gap-3 min-w-0">
-              <Button variant="ghost" size="sm" asChild className="shrink-0 -ml-1 p-1.5">
-                <Link to="/" title="Back to home">
-                  <ArrowLeft className="w-4 h-4" />
-                </Link>
-              </Button>
-              <SaffLogo variant="header" className="h-6 w-auto shrink-0" />
+              <Link
+                to="/dashboard"
+                title="SAFF ERP — back to your workspaces"
+                aria-label="SAFF ERP home"
+                className="shrink-0 -ml-1 rounded px-1 py-1 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <SaffLogo variant="header" className="h-6 w-auto" />
+              </Link>
               <div className="h-4 w-px bg-border shrink-0" />
               {loading ? (
                 <Skeleton className="h-4 w-36" />

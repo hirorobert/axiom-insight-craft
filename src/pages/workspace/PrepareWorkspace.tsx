@@ -182,12 +182,6 @@ export default function PrepareWorkspace() {
     reviewAccounts.length > 0 &&
     !!upload?.company_id &&
     !!user;
-  const frameworkLabel = company?.reporting_framework === "ipsas_accrual"
-    ? "IPSAS Accrual · public sector"
-    : company?.reporting_framework === "ipsas_cash"
-      ? "IPSAS Cash · public sector"
-      : "IFRS for SMEs · private sector";
-
   useEffect(() => {
     if (!focusUnresolved || !showReviewPanel) return;
     const t = window.setTimeout(() => {
@@ -205,9 +199,9 @@ export default function PrepareWorkspace() {
               Prepare data · FY{periodYear}
             </p>
             <h1 className="mt-1 text-xl font-semibold text-foreground">Trial balance preparation</h1>
-            <p className="mt-1 truncate text-sm text-muted-foreground">
-              {upload ? upload.file_name : frameworkLabel}
-            </p>
+            {upload && (
+              <p className="mt-1 truncate text-sm text-muted-foreground">{upload.file_name}</p>
+            )}
           </div>
           {upload && !showUploader && (
             <div className="flex flex-wrap gap-2">
