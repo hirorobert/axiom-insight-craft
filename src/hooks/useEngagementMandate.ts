@@ -185,6 +185,7 @@ export function useEngagementMandate(
             reporting_start: `${periodYear}-01-01`,
             reporting_end: `${periodYear}-12-31`,
             period_label: `FY${periodYear}`,
+            created_by: user!.id,
           })
           .select("id")
           .single();
@@ -215,7 +216,7 @@ export function useEngagementMandate(
 
       await load();
     },
-    [companyId, periodYear, memberId, load],
+    [companyId, periodYear, memberId, user, load],
   );
 
   const grantCapability = useCallback(
