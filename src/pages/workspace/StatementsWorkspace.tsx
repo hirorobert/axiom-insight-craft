@@ -33,6 +33,9 @@ export default function StatementsWorkspace() {
       : null,
   );
   const prepareHref = `/workspace/${companyId}/${periodYear}/prepare`;
+  const hasBlockingPreflightIssue = preflight.checks.some(
+    (check) => check.state === "failed" || (check.state === "review" && check.id !== "bs_equation"),
+  );
 
   if (mission.status === "locked") {
     return (
@@ -47,7 +50,7 @@ export default function StatementsWorkspace() {
 
   // Statements are only trustworthy once the trial balance is certified.
   // Show the exact reason and the one route that clears it.
-  if (upload && preflight.verdict !== "certified") {
+  if (upload && (preflight.verdict === "pending" || hasBlockingPreflightIssue)) {
     return (
       <div className="max-w-2xl space-y-6 pt-2">
         <TrialBalancePreflight upload={upload} resolveHref={prepareHref} />

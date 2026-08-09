@@ -162,6 +162,10 @@ export function computePreflight(input: PreflightInput | null): PreflightResult 
     verdict = "review";
     headline = "Needs your decision before statements";
     blocker = blockingReview[0].detail;
+  } else if (review.length > 0) {
+    verdict = "review";
+    headline = "Draft statement equation needs review";
+    blocker = null;
   } else {
     verdict = "certified";
     headline = "Certified — safe to prepare statements";
