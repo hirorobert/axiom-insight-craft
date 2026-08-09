@@ -205,9 +205,9 @@ export default function PrepareWorkspace() {
               Prepare data · FY{periodYear}
             </p>
             <h1 className="mt-1 text-xl font-semibold text-foreground">Trial balance preparation</h1>
-            <p className="mt-1 truncate text-sm text-muted-foreground">
-              {upload ? upload.file_name : frameworkLabel}
-            </p>
+            {upload && (
+              <p className="mt-1 truncate text-sm text-muted-foreground">{upload.file_name}</p>
+            )}
           </div>
           {upload && !showUploader && (
             <div className="flex flex-wrap gap-2">
