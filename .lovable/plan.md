@@ -1,47 +1,107 @@
-# Post-certification microcopy cleanup (presentation only)
+# Engagement Scope — read-only architecture audit and verdict
 
-Two terminology/affordance refinements. No structural, logic, data, or route changes. The certified North Star layout is untouched.
+ZERO code written. ZERO migration issued. The frozen state engine
+(`deriveWorkspaceState.ts`) was read, not touched.
 
-## 1. Prepare pre-flight wording
+## A. Verdict first
 
-`src/components/workspace/TrialBalancePreflight.tsx` is the only surface that renders the pre-flight verdict labels.
+1. **One column is NOT sufficient.** Proven below. A single ordered enum cannot
+   express "compliance review without filing authority", and cannot carry
+   amendment history.
+2. **No migration is authorised yet — and none is needed for the UI fix.**
+   The quiet-rail outcome can ship as a *presentation-only* projection derived
+   from data that already exists. Persisted scope becomes necessary only when a
+   professional must *declare* scope before any artefact exists.
+3. Recommended sequence: **Phase 1 (UI-only, derived scope) → prove → Phase 2
+   (append-only scope table, not a column)**.
 
-- Section heading: "Pre-flight certification" -> "Pre-flight status"
-- Verdict labels (display strings only, keyed by the unchanged backend verdict values):
-  - `certified` -> "Certified" becomes "Checks passed"
-  - `review` -> "Needs review" stays "Needs review"
-  - `blocked` -> "Not certified" becomes "Checks failed"
-  - `pending` -> "Checking" stays "Checking"
+## B. Evidence from the codebase
 
-The `data-verdict` attribute, `computePreflight()`, check states, counts, headline, blocker text and the "Resolve in this trial balance" link all stay exactly as they are.
+| Question | Finding |
+| --- | --- |
+| Existing scope field on `companies`? | None. Columns: code, currency, description, fiscal_year_end, industry, is_active, name, reporting_framework, tin, user_id. `reporting_framework` is framework, not scope. |
+| Per-period engagement entity? | Yes — `fiscal_periods` (company_id, fiscal_year_end, period_label, prior_period_id, active_upload_id, status, reporting_currency, accounting_basis). This, not `companies`, is the engagement grain. |
+| `MissionStatus.not_applicable` | Exists in `types.ts`; produced by `na()` in the engine and already used for reconcile / compliance / monitor in **every** path. Rendered as a grey dash in `WorkspaceLayout` and treated as non-actionable in `WorkspaceOverview` (lines 142, 356). So `not_applicable` is currently overloaded to mean "always available" — the opposite of out-of-scope. |
+| Consumers of the state | `useWorkspaceData`, `WorkspaceLayout` (tab rail), `WorkspaceOverview` (path table), `StatementsWorkspace`, `TaxWorkspace`, `FilingWorkspace`, plus the 14-path test file. Any status-semantics change breaks 4 pages and the test suite. |
+| Stage routes | All 7 stage routes are unconditional in `App.tsx`. Out-of-scope stages stay reachable by URL regardless of rail rendering. |
+| Downstream artefacts in live data | `tax_computations` 0, `statement_sign_offs` 0, `filing_obligations` 0, `findings` 0, `variance_runs` 0. Frameworks present: `ifrs_for_smes`, `ipsas_accrual`. |
 
-Second surface with the same wording problem, same file-local fix in `src/components/certification/CertificationHeader.tsx`:
+**Consequence of the last row:** there is currently *no* historical downstream
+evidence anywhere in the system. Scope-reduction-versus-immutability is a future
+invariant to design, not a live migration hazard.
 
-- Console eyebrow: "Certification Console" -> "Trial balance status"
-- Status chip/`Status` value for a valid run: "Certified" -> "Checks passed"
+## C. Why one column fails
 
-Tone classes, `toneFor()` branching, and the `blocked`/`review`/`processing` labels are unchanged, so colours and status logic are identical.
+Each engagement outcome mapped against a single ordered enum:
 
-Not touched anywhere: backend verdict values, pre-flight logic, `computePreflight`, gate conditions, database, Edge Functions, routing, statement/tax/compliance semantics, and the internal `isCertifiedRun()` discard gate (function name and behaviour stay; it is not user-facing copy).
+```text
+                        TAX   COMPLIANCE   FILING   MONITOR
+Statements only          -        -          -        -
+Statements + tax         Y        -          -        -
+Compliance, no filing    Y        Y          -        -      fits an order
+Compliance, no tax       -        Y          -        -      BREAKS the order
+Filing only (agent)      Y        -          Y        -      BREAKS the order
+Ongoing monitoring       -        -          -        Y      orthogonal
+```
 
-## 2. Workpaper explanation of the two machine states
+Two rows break any monotonic ladder, and `monitor` is orthogonal to the tax
+chain. An ordered enum also cannot record *who* amended scope, *when*, or *why*
+— which a professional engagement file requires.
 
-One small help affordance in `src/components/AccountReviewPanel.tsx`, attached to the existing "SAFF assessment" column header (and its mobile-record equivalent label), not to individual rows.
+## D. The dimensions that must never be merged
 
-- An icon-only button (`Info`, 3.5 units, muted) with `aria-label="What these assessments mean"`.
-- Opens the existing `Popover` primitive containing two short definitions:
-  - "No reliable suggestion — SAFF did not find classification evidence strong enough to defend."
-  - "Conflicting evidence — review required — SAFF found competing signals and will not choose between them."
-- Accessibility: Popover opens on click and on Enter/Space when focused (Radix handles focus trap and Escape), so keyboard and touch both work; a `title` attribute gives the hover affordance on pointer devices.
+```text
+ENTITY CONTEXT        public / private / NGO      -> classification interpretation
+REPORTING FRAMEWORK   IPSAS / IFRS / IFRS-SME     -> reporting treatment
+ENGAGEMENT SCOPE      capabilities engaged        -> which stages exist at all
+WORKFLOW STATE        ready/review/blocked/signed -> progress within scope
+FILING AUTHORITY      may SAFF submit to TRA      -> a permission, not a stage
+```
 
-No new card, no per-row paragraph, no banner, no modal, no new status colour, no change to `assessment()`, to the row layout, to the save payload, or to the outcome states.
+Filing authority is split out deliberately: "prepare the filing pack" and
+"submit it" are different mandates. Arusha DC being IPSAS public sector implies
+nothing about Tanzanian corporate tax filing.
 
-## Verification to run afterwards
+## E. Canonical model (proposed, unbuilt)
 
-`git diff --check`, `npm run build`, `bunx vitest run`, conflict-marker scan, plus a live check of the Prepare surface at 390 and 1440 to confirm the popover opens and the layout is byte-identical in structure.
+- **Mandatory spine, never forkable:** `prepare → reconcile → statements`.
+  These derive from the accounting truth and stay ungated by scope.
+- **Elective capabilities:** `tax`, `compliance`, `filing`, `monitor` — a *set*,
+  not a ladder.
+- **Rail rule:** primary navigation renders the spine plus engaged capabilities
+  only. Out-of-scope stages are omitted, not padlocked. `not_applicable` stays
+  an internal engine value and is never rendered as a rail row.
+- **Gates untouched:** SAFISHA stays unskippable; statements still require a
+  balanced TB; adding a capability can never bypass a prerequisite.
+- **Amendment, not downgrade-lock:** scope changes are append-only. Removing
+  `filing` hides the stage prospectively while every completed artefact,
+  sign-off and audit row stays readable, attributed and unaltered. A stage that
+  already holds artefacts renders as "out of scope · completed work retained".
 
-## Technical notes
+## F. Migration verdict
 
-- Files changed: `TrialBalancePreflight.tsx`, `CertificationHeader.tsx`, `AccountReviewPanel.tsx`. Nothing else.
-- `TooltipProvider` is already mounted in `App.tsx`; `Popover` is already available in `src/components/ui/popover.tsx` — no new dependency.
-- Existing test selectors (`tb-preflight`, `certification-ledger`, `account-review-workbench`, `data-verdict`, `data-active-upload-id`) are all preserved.
+**Phase 1 — no migration, no engine change.** Derive scope in a new pure helper
+(`computeEngagementScope`) from data already present: reporting framework, TIN
+presence, and existence of tax / filing / compliance / variance artefacts.
+Consume it only in `WorkspaceLayout` (which tabs render) and
+`WorkspaceOverview` (which rows render). `deriveWorkspaceState` keeps emitting
+all seven missions; the rail becomes a filtered projection. Add one restrained
+"Add tax & compliance work" affordance so scope widens by intent, and keep
+direct URLs working.
+
+**Phase 2 — only if Phase 1 proves declared scope is needed.** The correct shape
+is then a child table, not a column:
+
+```text
+engagement_scopes(id, company_id, period_year, capability, granted_by,
+                  granted_at, revoked_by, revoked_at, reason)
+```
+
+Append-only, one row per grant or revocation, filing authority as its own
+capability. Effective scope = capabilities with no live revocation. This
+survives new capabilities, records amendment history, and satisfies audit.
+
+## G. Out of scope for this audit
+
+No entity-type work. No classification changes. No microcopy changes. No change
+to the frozen state engine, the gates, or the schema.
