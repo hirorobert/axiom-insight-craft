@@ -7,8 +7,17 @@
  * validates, or writes anything.
  */
 
+import { useState } from "react";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 interface FieldSpec {
   column: string;
@@ -83,6 +92,7 @@ export default function TrialBalanceTemplateGuide({
   companyName?: string;
   periodYear?: number;
 }) {
+  const [open, setOpen] = useState(false);
   const download = () => {
     const blob = new Blob([toCsv(TEMPLATE_ROWS)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -99,56 +109,98 @@ export default function TrialBalanceTemplateGuide({
     URL.revokeObjectURL(url);
   };
 
+  const required = FIELDS.filter((f) => f.requirement === "Required").map((f) => f.column);
+
   return (
-    <section data-testid="tb-template-guide" className="border border-border bg-card">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3">
-        <h2 className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+    <aside data-testid="tb-template-guide" className="border border-border bg-card">
+      <header className="border-b border-border px-5 py-3">
+        <h2 className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
           File requirements
         </h2>
-        <Button variant="outline" size="sm" onClick={download} className="gap-1.5">
-          <Download className="h-3.5 w-3.5" />
-          Download CSV template
-        </Button>
       </header>
 
-      <div className="px-5 py-4">
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          One row per ledger account. CSV, XLSX or XLS. Header names are matched
-          automatically, so an export from your accounting system usually needs no editing.
+      {/* Quiet by design: four columns, one line of reassurance, two actions.
+          Everything else lives one click away so the eye stays on the upload. */}
+      <div className="space-y-3 px-5 py-4">
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
+          One row per ledger account. CSV, XLSX or XLS.
         </p>
-
-        <ul className="mt-4 divide-y divide-border border-t border-border">
-          {FIELDS.map((f) => (
-            <li key={f.column} className="py-3">
-              <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-                <span className="text-sm font-medium text-foreground">{f.column}</span>
-                <span
-                  className={`font-mono text-[10px] uppercase tracking-[0.16em] ${
-                    f.requirement === "Required" ? "text-foreground" : "text-muted-foreground"
-                  }`}
-                >
-                  {f.requirement}
-                </span>
-              </div>
-              <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{f.rule}</p>
-              <p className="mt-1 font-mono text-[11px] text-muted-foreground/80">
-                Accepted headers: {f.accepted}
-              </p>
+        <ul className="flex flex-wrap gap-1.5">
+          {required.map((c) => (
+            <li
+              key={c}
+              className="border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-foreground"
+            >
+              {c}
             </li>
           ))}
         </ul>
+        <p className="text-[12px] leading-relaxed text-muted-foreground">
+          Header names are matched automatically — an export from your accounting
+          system usually needs no editing.
+        </p>
 
-        <div className="mt-4 border-t border-border pt-3">
-          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-            Leave out
-          </p>
-          <ul className="mt-2 space-y-1 text-[12px] leading-relaxed text-muted-foreground">
-            <li>Total, subtotal and balance-check rows — these are removed automatically.</li>
-            <li>Merged cells, blank spacer rows and multi-row headers.</li>
-            <li>Thousands separators, currency symbols and bracketed negatives.</li>
-          </ul>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Button variant="outline" size="sm" onClick={download} className="gap-1.5">
+            <Download className="h-3.5 w-3.5" />
+            CSV template
+          </Button>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-muted-foreground">
+                Full specification
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Trial balance file specification</DialogTitle>
+                <DialogDescription>
+                  Every column the importer reads, and what it does with it.
+                </DialogDescription>
+              </DialogHeader>
+
+              <ul className="divide-y divide-border border-t border-border">
+                {FIELDS.map((f) => (
+                  <li key={f.column} className="py-3">
+                    <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+                      <span className="text-sm font-medium text-foreground">{f.column}</span>
+                      <span
+                        className={`font-mono text-[10px] uppercase tracking-[0.16em] ${
+                          f.requirement === "Required" ? "text-foreground" : "text-muted-foreground"
+                        }`}
+                      >
+                        {f.requirement}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{f.rule}</p>
+                    <p className="mt-1 font-mono text-[11px] text-muted-foreground/80">
+                      Accepted headers: {f.accepted}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="border-t border-border pt-3">
+                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Leave out
+                </p>
+                <ul className="mt-2 space-y-1 text-[12px] leading-relaxed text-muted-foreground">
+                  <li>Total, subtotal and balance-check rows — these are removed automatically.</li>
+                  <li>Merged cells, blank spacer rows and multi-row headers.</li>
+                  <li>Thousands separators, currency symbols and bracketed negatives.</li>
+                </ul>
+              </div>
+
+              <div className="pt-2">
+                <Button variant="outline" size="sm" onClick={download} className="gap-1.5">
+                  <Download className="h-3.5 w-3.5" />
+                  Download CSV template
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
-    </section>
+    </aside>
   );
 }
