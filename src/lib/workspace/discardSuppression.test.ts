@@ -9,7 +9,7 @@ import {
   suppressUpload,
   restoreUploadId,
   isSuppressed,
-} from "../discardSuppression";
+} from "./discardSuppression";
 
 const run = (id: string, reviewCount = 0) => ({
   id,
