@@ -5,7 +5,7 @@
  * Read-only projection of computePreflight(). No writes.
  */
 
-import { Check, X, AlertTriangle, Clock3, ShieldCheck } from "lucide-react";
+import { Check, X, AlertTriangle, Clock3, ShieldCheck, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { computePreflight, type PreflightCheckState } from "@/lib/workspace/computePreflight";
 
@@ -109,9 +109,11 @@ export function TrialBalancePreflight({ upload, resolveHref }: Props) {
         {resolveHref && (result.verdict === "review" || result.verdict === "blocked") && (
           <Link
             to={resolveHref}
-            className="mt-5 inline-flex text-sm text-primary underline underline-offset-4 hover:text-primary/80"
+            data-testid="tb-preflight-resolve"
+            className="mt-5 inline-flex items-center gap-2 bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Resolve in this trial balance
+            Resolve now
+            <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         )}
       </div>
