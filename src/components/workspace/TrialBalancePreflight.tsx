@@ -5,7 +5,7 @@
  * Read-only projection of computePreflight(). No writes.
  */
 
-import { Check, X, AlertTriangle, Clock3, ShieldCheck } from "lucide-react";
+import { Check, X, AlertTriangle, Clock3, ShieldCheck, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { computePreflight, type PreflightCheckState } from "@/lib/workspace/computePreflight";
 
