@@ -25,6 +25,11 @@ import { BalanceSheetEquationCard } from "@/components/certification/BalanceShee
 import { ClassificationBreakdown } from "@/components/certification/ClassificationBreakdown";
 import { ValidationReport } from "@/components/ValidationReport";
 import { AccountReviewPanel } from "@/components/AccountReviewPanel";
+import {
+  applyDiscardSuppression,
+  suppressUpload,
+  restoreUploadId,
+} from "@/lib/workspace/discardSuppression";
 import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel";
 import { TrialBalanceUpload } from "@/components/TrialBalanceUpload";
 import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
@@ -171,9 +176,7 @@ export default function PrepareWorkspace() {
 
   const mapping = upload?.processing_result?.mapping;
 
-  const reviewAccounts = suppressedReviewAccounts as typeof rawUpload extends never
-    ? never[]
-    : any[];
+  const reviewAccounts = suppressedReviewAccounts as any[];
   const showReviewPanel =
     upload?.status === "needs_review" &&
     reviewAccounts.length > 0 &&
