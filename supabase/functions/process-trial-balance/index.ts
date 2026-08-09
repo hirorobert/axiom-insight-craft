@@ -639,6 +639,21 @@ function classifyAccountTiered(
     if (companyByName.has(normName)) {
       return { status: "classified", mapping: companyByName.get(normName)!, confidence: "high", confidence_source: "mapping" };
     }
+    const fuzzyC = fuzzyMapLookup(normName, companyByName);
+    if (fuzzyC) return { status: "classified", mapping: fuzzyC, confidence: "high", confidence_source: "mapping" };
+  }
+
+  // ── Tier 3: global mapping (company_id IS NULL) — code exact, then name exact/fuzzy ─
+  if (code && globalByCode.has(code)) {
+    return { status: "classified", mapping: globalByCode.get(code)!, confidence: "high", confidence_source: "mapping" };
+  }
+  if (normName) {
+    if (globalByName.has(normName)) {
+      return { status: "classified", mapping: globalByName.get(normName)!, confidence: "high", confidence_source: "mapping" };
+    }
+    const fuzzyG = fuzzyMapLookup(normName, globalByName);
+    if (fuzzyG) return { status: "classified", mapping: fuzzyG, confidence: "high", confidence_source: "mapping" };
+  }
 
   // ── Framework vocabulary: IPSAS/GFRS only ────────────────────────────────
   // A public-sector chart is not a private-company chart with unusual labels.
@@ -663,21 +678,6 @@ function classifyAccountTiered(
       confidence: "high",
       confidence_source: "rule",
     };
-  }
-    const fuzzyC = fuzzyMapLookup(normName, companyByName);
-    if (fuzzyC) return { status: "classified", mapping: fuzzyC, confidence: "high", confidence_source: "mapping" };
-  }
-
-  // ── Tier 3: global mapping (company_id IS NULL) — code exact, then name exact/fuzzy ─
-  if (code && globalByCode.has(code)) {
-    return { status: "classified", mapping: globalByCode.get(code)!, confidence: "high", confidence_source: "mapping" };
-  }
-  if (normName) {
-    if (globalByName.has(normName)) {
-      return { status: "classified", mapping: globalByName.get(normName)!, confidence: "high", confidence_source: "mapping" };
-    }
-    const fuzzyG = fuzzyMapLookup(normName, globalByName);
-    if (fuzzyG) return { status: "classified", mapping: fuzzyG, confidence: "high", confidence_source: "mapping" };
   }
 
   // ── Tier 4a: keyword_dictionary — exact match ──────────────────────────────
