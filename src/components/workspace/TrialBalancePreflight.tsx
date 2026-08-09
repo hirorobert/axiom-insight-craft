@@ -5,7 +5,7 @@
  * Read-only projection of computePreflight(). No writes.
  */
 
-import { Check, X, AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
+import { Check, X, AlertTriangle, Clock3, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { computePreflight, type PreflightCheckState } from "@/lib/workspace/computePreflight";
 
@@ -36,7 +36,7 @@ function StateGlyph({ state }: { state: PreflightCheckState }) {
   if (state === "passed") return <Check className="h-3.5 w-3.5 text-success" strokeWidth={3} />;
   if (state === "failed") return <X className="h-3.5 w-3.5 text-destructive" strokeWidth={3} />;
   if (state === "review") return <AlertTriangle className="h-3.5 w-3.5 text-gold" strokeWidth={2.5} />;
-  return <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" strokeWidth={2.5} />;
+  return <Clock3 className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.5} />;
 }
 
 export function TrialBalancePreflight({ upload, resolveHref }: Props) {

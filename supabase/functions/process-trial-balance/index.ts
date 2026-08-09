@@ -27,6 +27,7 @@ import {
   parseAuditedAccounts,
   getAuditedAccountsMetadata,
 } from "./auditedAccountsAdapter.ts";
+import { classifyPublicSectorAccount } from "./publicSectorClassification.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -617,6 +618,7 @@ function classificationMeta(cls: string): { statement: string; normal_balance: "
 
 function classifyAccountTiered(
   account:       RawAccount,
+  reportingFramework: string | null,
   companyByCode: Map<string, AccountMapping>,
   companyByName: Map<string, AccountMapping>,
   globalByCode:  Map<string, AccountMapping>,
@@ -651,6 +653,31 @@ function classifyAccountTiered(
     }
     const fuzzyG = fuzzyMapLookup(normName, globalByName);
     if (fuzzyG) return { status: "classified", mapping: fuzzyG, confidence: "high", confidence_source: "mapping" };
+  }
+
+  // ── Framework vocabulary: IPSAS/GFRS only ────────────────────────────────
+  // A public-sector chart is not a private-company chart with unusual labels.
+  // Apply deterministic government vocabulary only when the engagement has
+  // explicitly declared an IPSAS/GFRS framework. Unknown terms still go to
+  // review; there is no balance-sign guessing.
+  const publicSector = classifyPublicSectorAccount(account.account_name, reportingFramework);
+  if (publicSector) {
+    return {
+      status: "classified",
+      mapping: {
+        account_code: account.account_code,
+        account_name: account.account_name,
+        statement: publicSector.statement,
+        classification: publicSector.classification,
+        line_item: publicSector.line_item,
+        normal_balance: publicSector.normal_balance,
+        is_cash_account: publicSector.is_cash ?? false,
+        is_retained_earnings: false,
+        is_payroll_account: false,
+      },
+      confidence: "high",
+      confidence_source: "rule",
+    };
   }
 
   // ── Tier 4a: keyword_dictionary — exact match ──────────────────────────────
@@ -1050,10 +1077,20 @@ serve(async (req) => {
     const companyId: string | null = upload.company_id ?? null;
     console.log(`[PTB] company_id: ${companyId ?? "none"}`);
 
+    const { data: company } = companyId
+      ? await supabase
+          .from("companies")
+          .select("reporting_framework")
+          .eq("id", companyId)
+          .single()
+      : { data: null };
+    const reportingFramework = company?.reporting_framework ?? null;
+    console.log(`[PTB] reporting_framework: ${reportingFramework ?? "not set"}`);
+
     const { data: rawMappings } = await supabase
       .from("account_mappings")
       .select("*")
-      .eq("user_id", userId);
+      .or(companyId ? `company_id.eq.${companyId},company_id.is.null` : "company_id.is.null");
 
     const companyByCode = new Map<string, AccountMapping>(); // Tier 1
     const companyByName = new Map<string, AccountMapping>(); // Tier 2
@@ -1107,6 +1144,7 @@ serve(async (req) => {
     for (const account of rawAccounts) {
       const result = classifyAccountTiered(
         account,
+        reportingFramework,
         companyByCode, companyByName,
         globalByCode,  globalByName,
         kwdExact, kwdContains,

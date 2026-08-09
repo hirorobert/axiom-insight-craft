@@ -87,18 +87,19 @@ export function computePreflight(input: PreflightInput | null): PreflightResult 
       : "Not checked yet.",
   });
 
-  // 3 — Balance sheet equation
+  // 3 — Statement equation. This can only be evaluated after every account has
+  // a classification. It is not an upload-integrity prerequisite: Dr = Cr is.
   const eq = report?.balance_sheet_equation ?? null;
-  checks.push({
-    id: "bs_equation",
-    label: "Assets equal liabilities plus equity",
-    state: eq ? (eq.passed ? "passed" : "failed") : "pending",
-    detail: eq
-      ? eq.passed
-        ? "The statement of financial position closes."
-        : `Out by ${fmt(Number(eq.difference ?? 0))} — the position does not close.`
-      : "Not checked yet.",
-  });
+  if (eq) {
+    checks.push({
+      id: "bs_equation",
+      label: "Statement equation",
+      state: eq.passed ? "passed" : "review",
+      detail: eq.passed
+        ? "Assets equal liabilities plus closing equity."
+        : `Out by ${fmt(Number(eq.difference ?? 0))} — review classifications in the draft statements.`,
+    });
+  }
 
   // 4 — Every account has a mapping decision
   const mc = report?.mapping_completeness ?? null;
@@ -117,26 +118,32 @@ export function computePreflight(input: PreflightInput | null): PreflightResult 
         : `${unmapped.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} accounts still need a mapping decision.`,
   });
 
-  // 5 — Accounting errors raised by the engine
-  const errs = Array.isArray(input.accountingErrors)
+  // 5 — Import errors raised by the engine. A statement-equation difference is
+  // downstream review evidence, not proof that the source trial balance failed.
+  const errs: unknown[] | null = Array.isArray(input.accountingErrors)
     ? input.accountingErrors
     : Array.isArray(input.processingResult?.accounting_errors)
       ? input.processingResult.accounting_errors
       : null;
+  const blockingErrors = errs?.filter((error) => {
+    if (!error || typeof error !== "object") return true;
+    return (error as { code?: string }).code !== "BALANCE_SHEET_EQUATION_FAILED";
+  }) ?? null;
   checks.push({
     id: "errors",
-    label: "No accounting errors raised",
-    state: errs === null ? "pending" : errs.length === 0 ? "passed" : "review",
+    label: "No import errors raised",
+    state: blockingErrors === null ? "pending" : blockingErrors.length === 0 ? "passed" : "review",
     detail:
-      errs === null
+      blockingErrors === null
         ? "Not checked yet."
-        : errs.length === 0
-          ? "The engine raised no accounting errors."
-          : `${errs.length} item${errs.length === 1 ? "" : "s"} to look at before statements.`,
+        : blockingErrors.length === 0
+          ? "No errors prevent this trial balance from continuing."
+          : `${blockingErrors.length} item${blockingErrors.length === 1 ? "" : "s"} to look at before statements.`,
   });
 
   const failed = checks.filter((c) => c.state === "failed");
   const review = checks.filter((c) => c.state === "review");
+  const blockingReview = review.filter((c) => c.id !== "bs_equation");
   const pending = checks.filter((c) => c.state === "pending");
   const passedCount = checks.filter((c) => c.state === "passed").length;
 
@@ -148,14 +155,18 @@ export function computePreflight(input: PreflightInput | null): PreflightResult 
     verdict = "blocked";
     headline = "Not certified — the trial balance does not hold";
     blocker = failed[0].detail;
-  } else if (pending.length > 0 && review.length === 0) {
+  } else if (pending.length > 0 && blockingReview.length === 0) {
     verdict = "pending";
     headline = "Pre-flight check running";
     blocker = "Statements open once this trial balance is certified.";
-  } else if (review.length > 0) {
+  } else if (blockingReview.length > 0) {
     verdict = "review";
     headline = "Needs your decision before statements";
-    blocker = review[0].detail;
+    blocker = blockingReview[0].detail;
+  } else if (review.length > 0) {
+    verdict = "review";
+    headline = "Draft statement equation needs review";
+    blocker = null;
   } else {
     verdict = "certified";
     headline = "Certified — safe to prepare statements";

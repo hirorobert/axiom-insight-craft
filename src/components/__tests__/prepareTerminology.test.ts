@@ -91,12 +91,49 @@ describe("computePreflight domain semantics (unchanged)", () => {
     } as any);
     expect(blocked.verdict).toBe("blocked");
     expect(blocked.headline).toBe("Not certified — the trial balance does not hold");
-    expect(blocked.totalCount).toBe(5);
+    expect(blocked.totalCount).toBe(4);
   });
 
   it("returns pending with no checks when there is no upload", () => {
     const none = computePreflight(null);
     expect(none.verdict).toBe("pending");
     expect(none.checks).toHaveLength(0);
+  });
+
+  it("does not invent a pending statement equation before classification finishes", () => {
+    const review = computePreflight({
+      status: "needs_review",
+      processedAt: "2026-08-09T04:30:00Z",
+      processingResult: {
+        validation_report: {
+          tb_balance_check: { passed: true, difference: 0 },
+          mapping_completeness: { total_accounts: 248, mapped_accounts: 147 },
+        },
+        accounting_errors: [],
+      },
+      accountingErrors: [],
+    });
+    expect(review.checks.find((check) => check.id === "bs_equation")).toBeUndefined();
+    expect(review.checks.find((check) => check.id === "mapping")?.state).toBe("review");
+    expect(review.verdict).toBe("review");
+  });
+
+  it("treats a computed statement-equation difference as advisory, not corrupt input", () => {
+    const result = computePreflight({
+      status: "complete",
+      processedAt: "2026-08-09T04:30:00Z",
+      processingResult: {
+        validation_report: {
+          tb_balance_check: { passed: true, difference: 0 },
+          mapping_completeness: { total_accounts: 248, mapped_accounts: 248 },
+          balance_sheet_equation: { passed: false, difference: 250 },
+        },
+        accounting_errors: [{ code: "BALANCE_SHEET_EQUATION_FAILED" }],
+      },
+      accountingErrors: [{ code: "BALANCE_SHEET_EQUATION_FAILED" }],
+    });
+    expect(result.checks.find((check) => check.id === "bs_equation")?.state).toBe("review");
+    expect(result.checks.find((check) => check.id === "errors")?.state).toBe("passed");
+    expect(result.blocker).toBeNull();
   });
 });
