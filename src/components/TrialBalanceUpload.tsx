@@ -227,6 +227,8 @@ export const TrialBalanceUpload = ({
           company_id: targetCompanyId,
           company_name: selectedCompany?.name || lockedCompanyName || null,
           ...(periodYear ? { period_year: periodYear } : {}),
+          ...(periodId ? { period_id: periodId } : {}),
+          ...(engagementId ? { engagement_id: engagementId } : {}),
         })
         .select()
         .single();
