@@ -3030,6 +3030,53 @@ export type Database = {
           },
         ]
       }
+      upload_integrity_findings: {
+        Row: {
+          company_id: string
+          created_at: string
+          detail: Json
+          detected_at: string
+          engagement_id: string | null
+          id: string
+          issue_type: string
+          resolved_at: string | null
+          updated_at: string
+          upload_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          detail?: Json
+          detected_at?: string
+          engagement_id?: string | null
+          id?: string
+          issue_type: string
+          resolved_at?: string | null
+          updated_at?: string
+          upload_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          detail?: Json
+          detected_at?: string
+          engagement_id?: string | null
+          id?: string
+          issue_type?: string
+          resolved_at?: string | null
+          updated_at?: string
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "upload_integrity_findings_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       variance_alerts: {
         Row: {
           account_codes: string[] | null
@@ -3823,6 +3870,13 @@ export type Database = {
       safisha_upload_company_scoped: {
         Args: { _upload_id: string }
         Returns: boolean
+      }
+      scan_upload_engagement_integrity: {
+        Args: never
+        Returns: {
+          opened: number
+          resolved: number
+        }[]
       }
       xbrl_write_instance: {
         Args: {
