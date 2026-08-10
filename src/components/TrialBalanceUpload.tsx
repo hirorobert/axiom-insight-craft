@@ -49,6 +49,14 @@ export interface TrialBalanceUploadProps {
   /** Financial year the upload belongs to (written to period_year). */
   periodYear?: number;
   /**
+   * Engagement the upload belongs to. Uploads attach to the professional
+   * engagement, not only the reporting period. A DB trigger rejects an
+   * engagement that belongs to a different company or reporting period.
+   */
+  engagementId?: string | null;
+  /** Reporting period of record for the engagement (fiscal_periods.id). */
+  periodId?: string | null;
+  /**
    * Seed the queue with a file the user already picked elsewhere
    * (one-tap discard-and-reupload). Queued, not uploaded, unless autoProcess.
    */
@@ -64,6 +72,8 @@ export const TrialBalanceUpload = ({
   lockedCompanyId,
   lockedCompanyName,
   periodYear,
+  engagementId = null,
+  periodId = null,
   initialFile = null,
   autoProcess = false,
   onUploaded,
