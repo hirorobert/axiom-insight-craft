@@ -254,6 +254,8 @@ export default function PrepareWorkspace() {
                   lockedCompanyId={companyId}
                   lockedCompanyName={company?.name ?? undefined}
                   periodYear={periodYear}
+                  engagementId={engagement?.id ?? null}
+                  periodId={engagement?.fiscal_period_id ?? null}
                   initialFile={pendingFile}
                   autoProcess={!!pendingFile}
                   onUploaded={() => {
