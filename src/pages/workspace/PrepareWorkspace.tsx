@@ -32,6 +32,7 @@ import {
 } from "@/lib/workspace/discardSuppression";
 import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel";
 import { TrialBalanceUpload } from "@/components/TrialBalanceUpload";
+import { useEngagement } from "@/contexts/EngagementContext";
 import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
 import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
 import TrialBalanceTemplateGuide from "@/components/workspace/TrialBalanceTemplateGuide";
@@ -82,6 +83,7 @@ function deriveFiscalPeriod(
 
 export default function PrepareWorkspace() {
   const { upload: rawUpload, uploads: rawUploads, company, companyId, periodYear, refreshUpload } = useWorkspace();
+  const { engagement } = useEngagement();
   // Discarded runs must vanish immediately — no residue while the refetch lands.
   const [discardedIds, setDiscardedIds] = useState<string[]>([]);
   const {
@@ -254,6 +256,8 @@ export default function PrepareWorkspace() {
                   lockedCompanyId={companyId}
                   lockedCompanyName={company?.name ?? undefined}
                   periodYear={periodYear}
+                  engagementId={engagement?.id ?? null}
+                  periodId={engagement?.fiscal_period_id ?? null}
                   initialFile={pendingFile}
                   autoProcess={!!pendingFile}
                   onUploaded={() => {

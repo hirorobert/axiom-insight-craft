@@ -2933,6 +2933,7 @@ export type Database = {
           accounting_errors: Json | null
           company_id: string | null
           company_name: string | null
+          engagement_id: string | null
           file_name: string
           file_path: string
           file_size: number
@@ -2953,6 +2954,7 @@ export type Database = {
           accounting_errors?: Json | null
           company_id?: string | null
           company_name?: string | null
+          engagement_id?: string | null
           file_name: string
           file_path: string
           file_size: number
@@ -2973,6 +2975,7 @@ export type Database = {
           accounting_errors?: Json | null
           company_id?: string | null
           company_name?: string | null
+          engagement_id?: string | null
           file_name?: string
           file_path?: string
           file_size?: number
@@ -2995,6 +2998,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_balance_uploads_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
             referencedColumns: ["id"]
           },
           {
