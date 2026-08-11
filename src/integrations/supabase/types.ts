@@ -61,6 +61,87 @@ export type Database = {
           },
         ]
       }
+      account_mapping_memory: {
+        Row: {
+          account_nature: string
+          audit_status: string
+          cash_flow_class: string | null
+          company_id: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          created_at: string
+          effective_period_year: number
+          evidence_source: string
+          id: string
+          natural_account_code: string | null
+          normalized_account_name: string
+          note_code: string | null
+          presentation_code: string
+          presentation_label: string | null
+          reporting_framework: string
+          rule_id: string | null
+          rule_version: string | null
+          source_system: string
+        }
+        Insert: {
+          account_nature: string
+          audit_status?: string
+          cash_flow_class?: string | null
+          company_id: string
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          effective_period_year: number
+          evidence_source: string
+          id?: string
+          natural_account_code?: string | null
+          normalized_account_name: string
+          note_code?: string | null
+          presentation_code: string
+          presentation_label?: string | null
+          reporting_framework: string
+          rule_id?: string | null
+          rule_version?: string | null
+          source_system?: string
+        }
+        Update: {
+          account_nature?: string
+          audit_status?: string
+          cash_flow_class?: string | null
+          company_id?: string
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          effective_period_year?: number
+          evidence_source?: string
+          id?: string
+          natural_account_code?: string | null
+          normalized_account_name?: string
+          note_code?: string | null
+          presentation_code?: string
+          presentation_label?: string | null
+          reporting_framework?: string
+          rule_id?: string | null
+          rule_version?: string | null
+          source_system?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_amm_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_amm_confirmed_by"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       account_mappings: {
         Row: {
           account_code: string | null
@@ -3617,6 +3698,45 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_latest_account_mapping_memory: {
+        Row: {
+          account_nature: string | null
+          audit_status: string | null
+          cash_flow_class: string | null
+          company_id: string | null
+          confirmed_at: string | null
+          confirmed_by: string | null
+          created_at: string | null
+          effective_period_year: number | null
+          evidence_source: string | null
+          id: string | null
+          natural_account_code: string | null
+          normalized_account_name: string | null
+          note_code: string | null
+          presentation_code: string | null
+          presentation_label: string | null
+          reporting_framework: string | null
+          rule_id: string | null
+          rule_version: string | null
+          source_system: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_amm_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_amm_confirmed_by"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
             referencedColumns: ["id"]
           },
         ]
