@@ -1,11 +1,12 @@
 /**
- * SafishaWorkspace — TB Verification & EFDMS Reconciliation.
+ * SafishaWorkspace — TB Verification & Certification.
  *
  * Re-homes from Dashboard:
  *   UploadsStatusPanel, CertificationHeader, CertificationSummaryStrip,
  *   TrialBalanceIntegrityCard, BalanceSheetEquationCard, ClassificationBreakdown,
- *   ValidationReport, AccountReviewPanel, Account Classifications card,
- *   EFDMSReconciliationPanel
+ *   ValidationReport, AccountReviewPanel, Account Classifications card
+ *
+ * EFDMSReconciliationPanel moved to ReconcileWorkspace (Phase C).
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -30,7 +31,6 @@ import {
   suppressUpload,
   restoreUploadId,
 } from "@/lib/workspace/discardSuppression";
-import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel";
 import { TrialBalanceUpload } from "@/components/TrialBalanceUpload";
 import { useEngagement } from "@/contexts/EngagementContext";
 import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
@@ -156,10 +156,6 @@ export default function PrepareWorkspace() {
       setReplacing(false);
     }
   };
-
-  const { periodYear: fpYear, periodEndMonth: fpMonth } = upload
-    ? deriveFiscalPeriod(upload, company?.fiscal_year_end ?? null)
-    : { periodYear, periodEndMonth: 12 };
 
   const handleProcessAsAuditedAccounts = async () => {
     if (!upload) return;
@@ -371,19 +367,6 @@ export default function PrepareWorkspace() {
                   </div>
                 )}
               </SurfaceCard>
-
-              {/* EFDMS Reconciliation */}
-              {upload.status === "complete" && upload.is_valid === true && upload.company_id && (
-                <EFDMSReconciliationPanel
-                  companyId={upload.company_id}
-                  uploadId={upload.id}
-                  periodYear={fpYear}
-                  periodMonth={fpMonth}
-                  companyName={upload.company_name ?? undefined}
-                  userId={user?.id ?? ""}
-                  isVatRegistered={true}
-                />
-              )}
             </>
           ) : null}
       </div>

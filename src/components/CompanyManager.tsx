@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { Settings, Plus, Pencil, Trash2, Building2 } from "lucide-react";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { validateTin } from "@/components/workspace/CompanyTinDialog";
+import { FrameworkConfirmationBanner } from "@/components/FrameworkConfirmationBanner";
 
 const FRAMEWORK_LABELS: Record<string, string> = {
   ifrs_for_smes: "IFRS for SMEs",
@@ -384,6 +385,11 @@ export const CompanyManager = () => {
             {/* Reporting Framework — set once at company level */}
             <div className="space-y-2">
               <Label htmlFor="reporting_framework">Reporting Framework</Label>
+              {editingCompany && (
+                <FrameworkConfirmationBanner
+                  reportingFrameworkDbValue={formData.reporting_framework}
+                />
+              )}
               <Select
                 value={formData.reporting_framework}
                 onValueChange={(value) => setFormData({ ...formData, reporting_framework: value })}
