@@ -70,6 +70,7 @@ export type Database = {
           confirmed_at: string | null
           confirmed_by: string | null
           created_at: string
+          decision_kind: string | null
           effective_period_year: number
           evidence_source: string
           id: string
@@ -82,6 +83,7 @@ export type Database = {
           rule_id: string | null
           rule_version: string | null
           source_system: string
+          suggestion_shown: Json | null
         }
         Insert: {
           account_nature: string
@@ -91,6 +93,7 @@ export type Database = {
           confirmed_at?: string | null
           confirmed_by?: string | null
           created_at?: string
+          decision_kind?: string | null
           effective_period_year: number
           evidence_source: string
           id?: string
@@ -103,6 +106,7 @@ export type Database = {
           rule_id?: string | null
           rule_version?: string | null
           source_system?: string
+          suggestion_shown?: Json | null
         }
         Update: {
           account_nature?: string
@@ -112,6 +116,7 @@ export type Database = {
           confirmed_at?: string | null
           confirmed_by?: string | null
           created_at?: string
+          decision_kind?: string | null
           effective_period_year?: number
           evidence_source?: string
           id?: string
@@ -124,6 +129,7 @@ export type Database = {
           rule_id?: string | null
           rule_version?: string | null
           source_system?: string
+          suggestion_shown?: Json | null
         }
         Relationships: [
           {
@@ -3711,6 +3717,7 @@ export type Database = {
           confirmed_at: string | null
           confirmed_by: string | null
           created_at: string | null
+          decision_kind: string | null
           effective_period_year: number | null
           evidence_source: string | null
           id: string | null
@@ -3723,6 +3730,7 @@ export type Database = {
           rule_id: string | null
           rule_version: string | null
           source_system: string | null
+          suggestion_shown: Json | null
         }
         Relationships: [
           {
