@@ -2,20 +2,20 @@
  * FilingWorkspace — Regulatory Filing Package.
  *
  * Re-homes from Dashboard:
- *   NoteSynth, MgmtLetterPanel, ExportStatements,
- *   TRAFilingChecklist, TRAAuditReadinessPanel, ClientSummaryPanel
+ *   NoteSynth, MgmtLetterPanel, ExportStatements, TRAFilingChecklist
+ *
+ * TRAAuditReadinessPanel and ClientSummaryPanel moved to ComplianceWorkspace
+ * (Phase C) — audit readiness and client-facing summaries are stage-5
+ * compliance review artefacts, not stage-6 filing-pack artefacts.
  */
 
 import { useState } from "react";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
-import { useAuth } from "@/contexts/AuthContext";
 import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
 import { NoteSynth } from "@/components/NoteSynth";
 import { MgmtLetterPanel } from "@/components/MgmtLetterPanel";
 import { ExportStatements, type ProcessingResult, type TaxResultForExport } from "@/components/ExportStatements";
 import { TRAFilingChecklist } from "@/components/TRAFilingChecklist";
-import { TRAAuditReadinessPanel } from "@/components/TRAAuditReadinessPanel";
-import { ClientSummaryPanel } from "@/components/ClientSummaryPanel";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
 function deriveFiscalPeriod(upload: WorkspaceUpload, fiscalYearEnd: string | null) {
@@ -40,7 +40,6 @@ function deriveFiscalPeriod(upload: WorkspaceUpload, fiscalYearEnd: string | nul
 
 export default function FilingWorkspace() {
   const { upload, company, workspaceState, refreshUpload } = useWorkspace();
-  const { user } = useAuth();
   const [taxResult] = useState<TaxResultForExport | null>(null);
 
   const mission = workspaceState.missions.filing;
@@ -131,25 +130,6 @@ export default function FilingWorkspace() {
         periodYear={fpYear}
         periodMonth={fpMonth}
         companyName={upload.company_name ?? undefined}
-      />
-
-      {/* TRA Audit Readiness */}
-      <TRAAuditReadinessPanel
-        companyId={upload.company_id}
-        uploadId={upload.id}
-        periodYear={fpYear}
-        periodMonth={fpMonth}
-        companyName={upload.company_name ?? undefined}
-        userId={user?.id ?? ""}
-      />
-
-      {/* Client Summary Report */}
-      <ClientSummaryPanel
-        companyId={upload.company_id}
-        uploadId={upload.id}
-        periodYear={fpYear}
-        companyName={upload.company_name ?? undefined}
-        userId={user?.id ?? ""}
       />
     </div>
   );

@@ -2,12 +2,16 @@
  * TaxWorkspace — Corporate Tax Computation (ITA Cap.332).
  *
  * Re-homes from Dashboard:
- *   KingaFindingsPanel, KingaTaxPanel, KingaComparativePanel,
+ *   KingaTaxPanel, KingaComparativePanel,
  *   TransferPricingPanel, CapitalAllowancesRegister,
- *   ThinCapWorkpaper, AddBacksWorkpaper, AdjustingJournalPanel
+ *   ThinCapWorkpaper, AddBacksWorkpaper
  *
  * Sub-navigation (tabs):
- *   Compliance · Corporate Tax · Comparative · Workpapers · Adjusting Entries
+ *   Corporate Tax · Comparative · Workpapers
+ *
+ * KingaFindingsPanel moved to ComplianceWorkspace (Phase C) — matches
+ * Architecture v3.1's stage-5 "KINGA findings" engine assignment.
+ * AdjustingJournalPanel moved to ReconcileWorkspace (Phase C).
  *
  * Constitutional gate: prepare stage must be 'passed'.
  */
@@ -17,14 +21,12 @@ import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
 
-import { KingaFindingsPanel } from "@/components/KingaFindingsPanel";
 import { KingaTaxPanel } from "@/components/KingaTaxPanel";
 import { KingaComparativePanel } from "@/components/KingaComparativePanel";
 import { TransferPricingPanel } from "@/components/TransferPricingPanel";
 import { CapitalAllowancesRegister } from "@/components/CapitalAllowancesRegister";
 import { ThinCapWorkpaper } from "@/components/ThinCapWorkpaper";
 import { AddBacksWorkpaper } from "@/components/AddBacksWorkpaper";
-import { AdjustingJournalPanel } from "@/components/AdjustingJournalPanel";
 import type { TaxResultForExport } from "@/components/ExportStatements";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
@@ -51,11 +53,9 @@ function deriveFiscalPeriod(upload: WorkspaceUpload, fiscalYearEnd: string | nul
 
 // ── Sub-nav tabs ─────────────────────────────────────────────────────────────
 const TABS = [
-  { id: "compliance",  label: "Compliance Analysis" },
   { id: "tax",         label: "Corporate Tax" },
   { id: "comparative", label: "Comparative" },
   { id: "workpapers",  label: "Workpapers" },
-  { id: "aje",         label: "Adjusting Entries" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -63,7 +63,7 @@ type TabId = (typeof TABS)[number]["id"];
 export default function TaxWorkspace() {
   const { upload, company, workspaceState, companyId, periodYear } = useWorkspace();
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabId>("compliance");
+  const [activeTab, setActiveTab] = useState<TabId>("tax");
   const [taxResult, setTaxResult] = useState<TaxResultForExport | null>(null);
 
   const mission = workspaceState.missions.tax;
@@ -122,17 +122,6 @@ export default function TaxWorkspace() {
       </div>
 
       {/* Tab content */}
-      {activeTab === "compliance" && (
-        <KingaFindingsPanel
-          companyId={upload.company_id}
-          uploadId={upload.id}
-          periodYear={fpYear}
-          periodMonth={fpMonth}
-          companyName={upload.company_name ?? undefined}
-          userId={user?.id ?? ""}
-        />
-      )}
-
       {activeTab === "tax" && (
         <KingaTaxPanel
           companyId={upload.company_id}
@@ -180,16 +169,6 @@ export default function TaxWorkspace() {
             userId={user?.id ?? ""}
           />
         </div>
-      )}
-
-      {activeTab === "aje" && (
-        <AdjustingJournalPanel
-          companyId={upload.company_id}
-          uploadId={upload.id}
-          periodYear={fpYear}
-          companyName={upload.company_name ?? undefined}
-          userId={user?.id ?? ""}
-        />
       )}
     </div>
   );

@@ -21,6 +21,11 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuditLog } from "@/hooks/useAuditLog";
+import { fromCompanyReportingFrameworkDbValue } from "@/lib/accounting/frameworkAdapter";
+import {
+  getFrameworkPresentation,
+  type FrameworkPresentation,
+} from "@/lib/accounting/frameworkPresentationRegistry";
 
 interface AccountMapping {
   accountCode?: string;
@@ -116,16 +121,13 @@ export interface ProcessingResult {
   };
 }
 
-interface FrameworkConfig {
-  displayLabel: string;
-  statementNames: {
-    balanceSheet: string;
-    incomeStatement: string;
-    equity: string;
-    cashFlow: string;
-  };
-  footer: string;
-}
+/**
+ * Local alias kept so every existing `FrameworkConfig`-typed call site below
+ * (resolveFramework, collectAllData, cfg.footer, cfg.displayLabel, ...)
+ * needs no further edits — the shape now lives in the Framework
+ * Presentation Registry (Slice 3), not inline here.
+ */
+type FrameworkConfig = FrameworkPresentation;
 
 // ── Tax-engine result (minimal shape for export) ───────────────────────────
 interface SCFEngineForExport {
@@ -248,43 +250,25 @@ function statementsToMapping(
   };
 }
 
-/* REFACTOR NOTE: This branching is intentional for two
-   frameworks. When a third framework is added, refactor
-   to Framework Adapter pattern per Priority 8.
-   Do not add a third branch here. */
+/* REFACTOR NOTE (Slice 3, Ω∞ public-sector engine): this used to be a
+   2-branch if/else that threw for anything else, with a comment inviting
+   exactly this change ("refactor to Framework Adapter pattern"). The
+   framework -> presentation mapping now lives in the data-driven
+   frameworkPresentationRegistry.ts (Section IV) — add a new framework by
+   adding a registry entry there, never by adding a branch here. Behavior
+   for existing callers is unchanged: same two supported values, same error
+   message and control flow (throw -> caught by resolveFramework's try/catch
+   -> blocking toast) for anything unsupported. */
 function getFrameworkConfig(value: string): FrameworkConfig {
-  if (value === "ifrs_for_smes") {
-    return {
-      displayLabel: "IFRS for SMEs",
-      statementNames: {
-        balanceSheet:    "Statement of Financial Position",
-        incomeStatement: "Statement of Comprehensive Income",
-        equity:          "Statement of Changes in Equity",
-        cashFlow:        "Statement of Cash Flows",
-      },
-      footer:
-        "Prepared in accordance with the International Financial Reporting " +
-        "Standard for Small and Medium-sized Entities (IFRS for SMEs) as issued by the IASB.",
-    };
+  const pair = fromCompanyReportingFrameworkDbValue(value);
+  const presentation = pair ? getFrameworkPresentation(pair.framework) : null;
+  if (!presentation) {
+    throw new Error(
+      `Export blocked: '${value}' is not a supported reporting framework. ` +
+      `Supported values: ifrs_for_smes, ipsas_accrual.`
+    );
   }
-  if (value === "ipsas_accrual") {
-    return {
-      displayLabel: "IPSAS Accrual",
-      statementNames: {
-        balanceSheet:    "Statement of Financial Position",
-        incomeStatement: "Statement of Financial Performance",
-        equity:          "Statement of Changes in Net Assets/Equity",
-        cashFlow:        "Statement of Cash Flows",
-      },
-      footer:
-        "Prepared in accordance with International Public Sector Accounting " +
-        "Standards (IPSAS) as issued by the IPSASB. Accrual basis.",
-    };
-  }
-  throw new Error(
-    `Export blocked: '${value}' is not a supported reporting framework. ` +
-    `Supported values: ifrs_for_smes, ipsas_accrual.`
-  );
+  return presentation;
 }
 
 export function ExportStatements({
