@@ -283,6 +283,23 @@ Do not fix them as a side effect of other work — they need separate tasks.
   `ImportMetaEnv` (needs vite-env.d.ts update)
 - `integrations/supabase/client.ts`: same env var types issue
 
+### 9.1 Registered Live Defects (Do Not Fix Opportunistically)
+
+**DEFECT-KINGA-MAPPING-TENANCY-001** — Severity: HIGH — Status: OPEN / PRE-EXISTING
+
+`supabase/functions/kinga-findings-engine/index.ts` reads `account_mappings`
+for its `is_retained_earnings`/`is_payroll_account` override checks using
+`.eq("user_id", companyUserId)` only — **no `company_id` filter**. Where one
+firm/user operates multiple companies, an account mapping from one company
+may potentially influence KINGA WHT/SDL processing for another company via a
+shared account code.
+
+Discovered during the Phase 2A professional-review-authority audit
+(2026-08-16). Not introduced by Phase 2A, not fixed by Phase 2A — this is a
+pre-existing gap in `kinga-findings-engine` itself. Do not modify that file
+as a side effect of other work; it needs its own task with its own review of
+`kinga-tax-engine`'s statutory calculation surface.
+
 ---
 
 ## 10. Current Project State (as of 2026-07-25)

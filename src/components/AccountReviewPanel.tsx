@@ -13,6 +13,7 @@
 
 import { useMemo, useState, useCallback } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
+import { buildReviewDecision } from "@/lib/accounting/buildReviewDecisions";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,7 +31,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { normalizeAccountName } from "@/lib/normalizeAccountName";
 import {
   SurfaceCard,
   SurfaceCardHeader,
@@ -295,60 +295,75 @@ export function AccountReviewPanel({
     if (!allResolved || isWorking) return;
     setSaving(true);
 
-    try {
-      // Build payload for non-excluded accounts.
-      const rows = needsReviewAccounts
-        .filter((a) => !excluded.has(rowKey(a)))
-        .map((account) => {
-          const classification = choices[rowKey(account)];
-          const meta           = classificationMeta(classification);
-          const normName       = normalizeAccountName(account.account_name);
-          return {
-            user_id:                 userId,
-            company_id:              companyId,
-            account_code:            isCoded(account) ? account.account_code : null,
-            account_name:            account.account_name,
-            normalized_account_name: normName,
-            statement:               meta.statement,
-            classification,
-            line_item:               account.account_name, // default; editable via mapping manager
-            normal_balance:          meta.normal_balance,
-            is_cash_account:         false,
-            is_retained_earnings:    false,
-            is_payroll_account:      false,
-            confidence_source:       "user_approved",
-            approved_at:             new Date().toISOString(),
-          };
-        });
+    // Ω∞ Phase 2A: professional intent only. Actor identity, company/upload
+    // membership, canonical account identity, and provenance are all derived
+    // server-side inside resolve_account_review_batch() — nothing here is
+    // treated as authoritative. userId is no longer sent; it was never
+    // trustworthy as a write-time identity claim.
+    const clientRequestId = crypto.randomUUID();
 
-      if (rows.length > 0) {
-        // Atomic upsert via the generated account_key column (COALESCE of
-        // account_code and normalized_account_name). account_key is GENERATED
-        // ALWAYS — not included in the payload; Postgres computes it.
-        // Conflict target: uq_acct_map_company_key (full, non-partial index).
-        // corrections always win → ignoreDuplicates defaults to false (DO UPDATE).
-        const { error } = await supabase
-          .from("account_mappings")
-          .upsert(rows as never, { onConflict: "company_id,account_key" });
-        if (error) throw error;
-      }
+    try {
+      const decisions = needsReviewAccounts.map((account) =>
+        buildReviewDecision(
+          {
+            account_code: isCoded(account) ? account.account_code : null,
+            account_name: account.account_name,
+            suggested_classification: account.suggested_classification,
+          },
+          excluded.has(rowKey(account)),
+          choices[rowKey(account)],
+          classificationMeta,
+        )
+      );
+
+      // `resolve_account_review_batch` is defined in migration 20260816120000,
+      // not yet applied to any project this environment can reach — generated
+      // Supabase types (src/integrations/supabase/types.ts) predate it and
+      // cannot be regenerated without live DB access. Cast is scoped to the
+      // function name only; the payload shape itself is not weakened.
+      const { error: rpcError } = await supabase.rpc(
+        "resolve_account_review_batch" as never,
+        {
+          p_company_id:        companyId,
+          p_upload_id:         uploadId,
+          p_client_request_id: clientRequestId,
+          p_decisions:         decisions,
+        } as never,
+      );
+      if (rpcError) throw rpcError;
 
       setSaving(false);
       setReprocessing(true);
-      toast.info("Mappings saved — reprocessing upload…");
+      toast.info("Decisions saved — reprocessing upload…");
 
-      // Reset upload status, then re-invoke edge function.
-      await supabase
-        .from("trial_balance_uploads")
-        .update({ status: "processing", processing_result: null })
-        .eq("id", uploadId);
+      // Professional review commit state is now durable regardless of what
+      // happens below. Reprocessing is a separate state machine, owned
+      // entirely by process-trial-balance; a failure here does not undo or
+      // misrepresent the decisions already committed above.
+      let reprocessStarted = false;
+      try {
+        await supabase
+          .from("trial_balance_uploads")
+          .update({ status: "processing", processing_result: null })
+          .eq("id", uploadId);
 
-      await ensureFreshSession();
-      const { error: fnError } = await supabase.functions.invoke(
-        "process-trial-balance",
-        { body: { uploadId } }
-      );
-      if (fnError) throw fnError;
+        await ensureFreshSession();
+        const { error: fnError } = await supabase.functions.invoke(
+          "process-trial-balance",
+          { body: { uploadId } }
+        );
+        if (fnError) throw fnError;
+        reprocessStarted = true;
+      } catch (reprocessErr) {
+        console.error("AccountReviewPanel reprocess-start error:", reprocessErr);
+      }
+
+      if (!reprocessStarted) {
+        setReprocessing(false);
+        toast.warning("Decisions saved. Reprocessing could not start — retry from the upload status panel.");
+        onReprocessed();
+        return;
+      }
 
       // Poll for terminal state.
       const TERMINAL = new Set(["complete", "error", "blocked", "needs_review"]);
@@ -382,7 +397,7 @@ export function AccountReviewPanel({
 
     } catch (err) {
       console.error("AccountReviewPanel save error:", err);
-      toast.error("Failed to save mappings. Please try again.");
+      toast.error("Failed to save decisions. Please try again.");
       setSaving(false);
       setReprocessing(false);
     }

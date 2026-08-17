@@ -97,6 +97,7 @@ interface NeedsReviewAccount {
   suggested_classification?: string;
   suggested_statement?:      string;
   confidence_source?:        string;
+  stale_non_reporting_reason?: string;
   reason:                    string;
 }
 
@@ -104,13 +105,22 @@ type TieredClassifyResult =
   | { status: "classified"; mapping: AccountMapping; confidence: "high" | "medium"; confidence_source: "mapping" | "dictionary_exact" | "dictionary_contains" | "rule" }
   | { status: "needs_review"; suggested_classification?: string; suggested_statement?: string; confidence_source?: string; reason: string };
 
+// Ω∞ Phase 2A: an account whose latest effective professional decision is
+// MARK_NON_REPORTING_ACCOUNT (identity-drift guard passed). Distinct from
+// both "mapped" and "needs review" — see get_effective_non_reporting_status().
+interface NonReportingAccount {
+  account_code: string | null;
+  account_name: string;
+}
+
 // Full processing_result (what engine reads)
 interface ProcessingResult {
-  status:                 "valid" | "invalid" | "blocked" | "needs_review";
-  statements:             Statements | null;
-  validation_report:      Record<string, unknown>;
-  errors:                 ValidationError[];
-  needs_review_accounts?: NeedsReviewAccount[];
+  status:                    "valid" | "invalid" | "blocked" | "needs_review";
+  statements:                Statements | null;
+  validation_report:         Record<string, unknown>;
+  errors:                    ValidationError[];
+  needs_review_accounts?:    NeedsReviewAccount[];
+  non_reporting_accounts?:   NonReportingAccount[];
   summary: {
     total_accounts:   number;
     processed_at:     string;
@@ -535,6 +545,16 @@ function autoClassifyAccount(name: string): ClassificationResult | null {
 // the same derived code if their account names are identical.
 // source_row_number guarantees uniqueness: used as key when code === name.
 // ONE helper used by BOTH the write in STEP 6 and the read in aggregateStatements.
+
+// Ω∞ Phase 2A: join key for matching a raw account against
+// get_effective_non_reporting_status()'s echoed-back {account_code, account_name}
+// rows. Deliberately NOT a normalized/canonical identity — the RPC computes
+// review_account_key itself, server-side; this is only a 1:1 correlation key
+// between what we sent and what came back, so Deno never re-derives the
+// canonical identity formula (avoids the JS/SQL normalization discrepancy).
+function accountJoinKey(code: string | null, name: string): string {
+  return `${code ?? ""}|||${name}`;
+}
 
 function accountKey(account: RawAccount): string {
   return account.account_code !== account.account_name
@@ -1132,6 +1152,38 @@ serve(async (req) => {
     }
     console.log(`[PTB] keyword_dictionary: ${kwdExact.length} exact, ${kwdContains.length} contains`);
 
+    // ── STEP 5.5 (Ω∞ Phase 2A): pre-classifier professional authority ─────────
+    // Batched (not N+1) authoritative lookup for the latest effective
+    // MARK_NON_REPORTING_ACCOUNT professional decision, per account. This runs
+    // BEFORE classifyAccountTiered is ever invoked — professional decision
+    // authority sits above machine/rule classification. classifyAccountTiered
+    // itself, its 6 tiers, and every existing mapping/keyword/regex path below
+    // are untouched; this only decides whether that function is called at all
+    // for a given account. Identity-drift guard is applied server-side inside
+    // get_effective_non_reporting_status() — see migration 20260816120000.
+    const professionalState = new Map<string, { suppressed: boolean; staleReason: string | null }>();
+    if (companyId && rawAccounts.length > 0) {
+      const { data: effectiveStatus, error: effectiveStatusError } = await supabase.rpc(
+        "get_effective_non_reporting_status",
+        {
+          p_company_id: companyId,
+          p_accounts: rawAccounts.map(a => ({ account_code: a.account_code, account_name: a.account_name })),
+        },
+      );
+      if (effectiveStatusError) {
+        console.error("[PTB] get_effective_non_reporting_status failed:", effectiveStatusError.message);
+        // Fail open to the pre-existing classifier path — never block processing
+        // on this new, additive check; professional decisions simply won't
+        // suppress anything for this run if the lookup itself errors.
+      } else {
+        for (const row of (effectiveStatus ?? [])) {
+          const key = accountJoinKey(row.account_code, row.account_name);
+          professionalState.set(key, { suppressed: row.suppressed, staleReason: row.stale_reason });
+        }
+      }
+    }
+    console.log(`[PTB] Professional non-reporting state: ${[...professionalState.values()].filter(v => v.suppressed).length} effective suppressions`);
+
     // ── STEP 6: 6-tier classification (in-memory only) ────────────────────────
     // account_mappings is NOT written here. That table holds user-approved mappings
     // only. Auto-classified and dictionary-matched results live in processing_result
@@ -1139,9 +1191,16 @@ serve(async (req) => {
 
     const resolvedMappings     = new Map<string, AccountMapping>();
     const needsReviewAccounts: NeedsReviewAccount[]       = [];
+    const nonReportingAccounts: NonReportingAccount[]     = [];
     let autoClassifiedCount = 0;
 
     for (const account of rawAccounts) {
+      const eff = professionalState.get(accountJoinKey(account.account_code, account.account_name));
+      if (eff?.suppressed) {
+        nonReportingAccounts.push({ account_code: account.account_code, account_name: account.account_name });
+        continue; // classifyAccountTiered() is never invoked for this account
+      }
+
       const result = classifyAccountTiered(
         account,
         reportingFramework,
@@ -1165,10 +1224,11 @@ serve(async (req) => {
           suggested_statement:      result.suggested_statement,
           confidence_source:        result.confidence_source,
           reason:                   result.reason,
+          stale_non_reporting_reason: eff?.staleReason ?? undefined,
         });
       }
     }
-    console.log(`[PTB] Classification: ${resolvedMappings.size} resolved, ${needsReviewAccounts.length} needs_review, ${autoClassifiedCount} auto-classified`);
+    console.log(`[PTB] Classification: ${resolvedMappings.size} resolved, ${needsReviewAccounts.length} needs_review, ${nonReportingAccounts.length} non_reporting, ${autoClassifiedCount} auto-classified`);
 
     // ── STEP 7: Mapping completeness ──────────────────────────────────────────
     // needs_review replaces the hard block. The upload can be opened in the review
@@ -1178,10 +1238,11 @@ serve(async (req) => {
 
     if (needsReviewAccounts.length > 0) {
       const result: Partial<ProcessingResult> = {
-        status:                "needs_review",
-        statements:            null,
-        errors:                allErrors,
-        needs_review_accounts: needsReviewAccounts,
+        status:                 "needs_review",
+        statements:             null,
+        errors:                 allErrors,
+        needs_review_accounts:  needsReviewAccounts,
+        non_reporting_accounts: nonReportingAccounts,
         validation_report: {
           tb_balance_check: {
             passed: true, total_debits: totalDebits, total_credits: totalCredits, difference: 0,
@@ -1189,8 +1250,9 @@ serve(async (req) => {
           mapping_completeness: {
             passed:          false,
             total_accounts:  rawAccounts.length,
-            mapped_accounts: rawAccounts.length - needsReviewAccounts.length,
+            mapped_accounts: rawAccounts.length - needsReviewAccounts.length - nonReportingAccounts.length,
             needs_review:    needsReviewAccounts.length,
+            non_reporting:   nonReportingAccounts.length,
             auto_classified: autoClassifiedCount,
             review_accounts: needsReviewAccounts.map(r => ({
               account_code:             r.account_code,
@@ -1249,7 +1311,7 @@ serve(async (req) => {
 
     const validationReport = {
       tb_balance_check:     { passed: true, total_debits: totalDebits, total_credits: totalCredits, difference: 0 },
-      mapping_completeness: { passed: true, total_accounts: rawAccounts.length, mapped_accounts: rawAccounts.length, unmapped: [], auto_classified: autoClassifiedCount },
+      mapping_completeness: { passed: true, total_accounts: rawAccounts.length, mapped_accounts: resolvedMappings.size, non_reporting: nonReportingAccounts.length, unmapped: [], auto_classified: autoClassifiedCount },
       balance_sheet_equation: { passed: bsPassed, assets: totals.assets, liabilities: totals.liabilities, equity: totals.equity, revenue_total: totals.revenue, expenses_total: totals.expenses, net_income: netIncome, closing_equity: closingEquity, difference: bsDifference },
       profit_equity_linkage: null,
       cash_reconciliation:  cashBalance !== 0 ? { passed: true, cf_ending_cash: cashBalance, bs_cash: cashBalance } : null,
@@ -1265,6 +1327,7 @@ serve(async (req) => {
       statements: allValid ? statements : null,
       validation_report: validationReport,
       errors: allErrors,
+      non_reporting_accounts: nonReportingAccounts,
       summary: {
         total_accounts:    rawAccounts.length,
         processed_at:      new Date().toISOString(),
