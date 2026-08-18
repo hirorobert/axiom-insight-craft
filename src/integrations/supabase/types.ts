@@ -266,6 +266,153 @@ export type Database = {
           },
         ]
       }
+      account_review_batches: {
+        Row: {
+          client_request_id: string
+          company_id: string
+          created_at: string
+          firm_member_id: string
+          id: string
+          request_hash: string
+          result_summary: Json
+          upload_id: string
+        }
+        Insert: {
+          client_request_id: string
+          company_id: string
+          created_at?: string
+          firm_member_id: string
+          id?: string
+          request_hash: string
+          result_summary: Json
+          upload_id: string
+        }
+        Update: {
+          client_request_id?: string
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string
+          id?: string
+          request_hash?: string
+          result_summary?: Json
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_arb_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_arb_firm_member"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_arb_upload"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      account_review_decisions: {
+        Row: {
+          account_code: string | null
+          batch_id: string
+          company_id: string
+          created_at: string
+          decision_action: string
+          firm_member_id: string
+          id: string
+          new_value: Json | null
+          normalized_account_name: string
+          previous_value: Json | null
+          proposal_type: string
+          reason: string | null
+          review_account_key: string
+          rule_id: string | null
+          rule_version: string | null
+          sequence_no: number
+          source: string | null
+          upload_id: string
+        }
+        Insert: {
+          account_code?: string | null
+          batch_id: string
+          company_id: string
+          created_at?: string
+          decision_action: string
+          firm_member_id: string
+          id?: string
+          new_value?: Json | null
+          normalized_account_name: string
+          previous_value?: Json | null
+          proposal_type?: string
+          reason?: string | null
+          review_account_key: string
+          rule_id?: string | null
+          rule_version?: string | null
+          sequence_no?: number
+          source?: string | null
+          upload_id: string
+        }
+        Update: {
+          account_code?: string | null
+          batch_id?: string
+          company_id?: string
+          created_at?: string
+          decision_action?: string
+          firm_member_id?: string
+          id?: string
+          new_value?: Json | null
+          normalized_account_name?: string
+          previous_value?: Json | null
+          proposal_type?: string
+          reason?: string | null
+          review_account_key?: string
+          rule_id?: string | null
+          rule_version?: string | null
+          sequence_no?: number
+          source?: string | null
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_ard_batch"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "account_review_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_ard_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_ard_firm_member"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_ard_upload"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       adjusting_journal_entries: {
         Row: {
           aje_number: string
@@ -3870,6 +4017,15 @@ export type Database = {
           sequence_no: number
         }[]
       }
+      get_effective_non_reporting_status: {
+        Args: { p_accounts: Json; p_company_id: string }
+        Returns: {
+          account_code: string
+          account_name: string
+          stale_reason: string
+          suppressed: boolean
+        }[]
+      }
       get_member_company_ids: { Args: never; Returns: string[] }
       grant_engagement_authority: {
         Args: {
@@ -3955,6 +4111,15 @@ export type Database = {
       next_engagement_sequence: {
         Args: { p_engagement_id: string }
         Returns: number
+      }
+      resolve_account_review_batch: {
+        Args: {
+          p_client_request_id: string
+          p_company_id: string
+          p_decisions: Json
+          p_upload_id: string
+        }
+        Returns: Json
       }
       revoke_engagement_authority: {
         Args: {
