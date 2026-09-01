@@ -122,6 +122,20 @@ This phase exists because Phase 0 (and any later phase) cannot honestly call `ch
 
 **Do not implement Phase 0A during this document's authoring.** The next action after V2 is accepted is a dedicated Phase 0A design turn, not code.
 
+### Status: DESIGN CERTIFIED, IMPLEMENTATION CANDIDATE BUILT — NOT LIVE
+
+Phase 0A's design gate closed with the following decisions, recorded here rather than re-argued:
+
+- **Atomicity**: Phase 0A does NOT provide a universal domain-result-commit RPC. `engine_runs`/`idempotency_keys` are generic execution provenance only. Each future domain phase that needs to atomically commit its own domain result alongside completing a run (e.g. a future `commit_tb_certification(...)` in Phase 0) provides its own narrowly-scoped transactional authority. Phase 0A has no dependency on `tb_certifications` or any other domain table.
+- **Failed-request retry**: same `client_request_id` + same `request_hash` + prior `failed` status → replays the recorded failure, never re-executes. A genuine retry requires a new `client_request_id`. The prior failed key and run remain, forever, as evidence.
+- **`trial_balance_uploads.source_file_hash`**: belongs to Phase 0, not Phase 0A. Phase 0A does not modify `trial_balance_uploads`.
+- **Retention**: `engine_runs` — no automatic deletion, ever (durable accounting execution provenance). `idempotency_keys` — no automatic cleanup implemented in Phase 0A; a retention/archival policy may be designed separately later.
+- **`engine_name` removed**: `engine_runs` stores `function_name`/`engine_version`/`rule_version` only — no denormalized coarse-grouping column. Future engine-family grouping derives from a controlled registry, not a duplicated free-form value.
+- **`replay_result` (bounded envelope)**: `idempotency_keys`'s replay payload is a structurally-bounded JSONB object — permitted top-level keys ONLY `status`, `reference_id`, `reference_table`, `summary`, `error_code`, enforced by a `CHECK` constraint, not documentation alone. It must never hold a full TB, statements, raw uploaded data, or auth material.
+- **System-actor uniqueness correction**: `UNIQUE (company_id, firm_member_id, function_name, client_request_id)` alone would NOT protect two system-triggered (`firm_member_id IS NULL`) claims from both winning, since plain `UNIQUE` treats `NULL` as distinct from `NULL`. Corrected to `UNIQUE NULLS NOT DISTINCT (...)` — a pattern already proven in this project (`uq_acct_map_company_code`, `20260703100000_account_mappings_v2_and_keyword_dict.sql`).
+
+Implementation candidate: `supabase/migrations/20260901120000_engine_execution_foundation.sql`, `supabase/functions/_shared/{actor,hash,idempotency,engine-run}.ts`, `src/lib/shared/canonicalHash.ts` (+ test). Not applied to any live project. Not deployed. See `supabase/tests/engine_execution_foundation_manual_verification.sql` for the DB-level test specification, not yet executed against a real database.
+
 ---
 
 ## PHASE 0 — SAFISHA TB VALIDATION & CERTIFICATION (Additive)
