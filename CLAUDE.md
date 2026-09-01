@@ -300,6 +300,8 @@ pre-existing gap in `kinga-findings-engine` itself. Do not modify that file
 as a side effect of other work; it needs its own task with its own review of
 `kinga-tax-engine`'s statutory calculation surface.
 
+Phase 2A migration identity reconciliation: see `MIGRATION_RECONCILIATION.md`.
+
 ---
 
 ## 10. Current Project State (as of 2026-07-25)
