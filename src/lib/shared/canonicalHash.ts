@@ -37,7 +37,20 @@ function serialize(value: unknown): string {
     if (!Number.isFinite(value)) {
       throw new Error(`canonicalJson: non-finite number is not permitted (${value})`);
     }
-    return Number.isInteger(value) ? value.toFixed(0) : value.toString();
+    // Explicit decision: -0 canonicalizes identically to 0. Accounting has
+    // no concept of a signed zero, and letting -0 hash differently from 0
+    // would make two representations of "no value" collide inconsistently.
+    const normalized = Object.is(value, -0) ? 0 : value;
+    const rendered = Number.isInteger(normalized) ? normalized.toFixed(0) : normalized.toString();
+    // JS falls back to scientific notation for |x| >= 1e21 (toFixed) or
+    // very small magnitudes (toString) — no real accounting figure needs
+    // that range, so this is rejected explicitly rather than silently
+    // producing a "1e+21"-shaped canonical string. No rounding happens
+    // here either way; this only guards representation, not precision.
+    if (/e/i.test(rendered)) {
+      throw new Error(`canonicalJson: number magnitude out of canonical range (${value})`);
+    }
+    return rendered;
   }
 
   if (typeof value === "string") return JSON.stringify(value);

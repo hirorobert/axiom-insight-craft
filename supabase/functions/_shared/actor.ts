@@ -60,10 +60,16 @@ export async function resolveFirmMemberActor(
     );
   }
 
+  // The Supabase client here has no Database generic (matching the existing
+  // pattern in _shared/auth.ts), so query results type as `never` for field
+  // access. A single cast on the whole row — not per-field casts on a
+  // `never`-typed value, which cannot be indexed at all — makes this legal.
+  const row = data as { id: string; role: string };
+
   return {
-    firmMemberId: data.id as string,
+    firmMemberId: row.id,
     userId,
     companyId,
-    role: data.role as string,
+    role: row.role,
   };
 }

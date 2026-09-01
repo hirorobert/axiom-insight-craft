@@ -54,6 +54,26 @@ describe("canonicalJson", () => {
   it("rejects non-finite numbers", () => {
     expect(() => canonicalJson(Number.NaN)).toThrow(/non-finite/);
     expect(() => canonicalJson(Number.POSITIVE_INFINITY)).toThrow(/non-finite/);
+    expect(() => canonicalJson(Number.NEGATIVE_INFINITY)).toThrow(/non-finite/);
+  });
+
+  it("-0 canonicalizes identically to 0 — explicit decision, not an accident", () => {
+    expect(canonicalJson(-0)).toBe(canonicalJson(0));
+    expect(canonicalJson(-0)).toBe("0");
+  });
+
+  it("Number.MAX_SAFE_INTEGER canonicalizes without scientific notation", () => {
+    expect(canonicalJson(Number.MAX_SAFE_INTEGER)).toBe("9007199254740991");
+  });
+
+  it("a small realistic accounting decimal canonicalizes without scientific notation", () => {
+    expect(canonicalJson(0.01)).toBe("0.01");
+  });
+
+  it("rejects a magnitude large enough that JS would render it in scientific notation", () => {
+    // 1e21 is exactly the threshold where Number.prototype.toFixed falls
+    // back to scientific notation per the ECMAScript spec.
+    expect(() => canonicalJson(1e21)).toThrow(/canonical range/);
   });
 
   it("dates render as ISO 8601, distinct string content from a plain string", () => {

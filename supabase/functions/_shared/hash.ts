@@ -49,8 +49,14 @@ function serialize(value: unknown): string {
     if (!Number.isFinite(value)) {
       throw new Error(`canonicalJson: non-finite number is not permitted (${value})`);
     }
-    // Fixed representation: no scientific notation, no locale formatting.
-    return Number.isInteger(value) ? value.toFixed(0) : value.toString();
+    // Explicit decision: -0 canonicalizes identically to 0 — see the
+    // mirrored copy's comment in src/lib/shared/canonicalHash.ts.
+    const normalized = Object.is(value, -0) ? 0 : value;
+    const rendered = Number.isInteger(normalized) ? normalized.toFixed(0) : normalized.toString();
+    if (/e/i.test(rendered)) {
+      throw new Error(`canonicalJson: number magnitude out of canonical range (${value})`);
+    }
+    return rendered;
   }
 
   if (typeof value === "string") return JSON.stringify(value);

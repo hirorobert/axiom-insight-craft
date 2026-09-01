@@ -1,34 +1,50 @@
 -- ════════════════════════════════════════════════════════════════════════════
--- Ω∞ PHASE 0A — ENGINE EXECUTION & IDEMPOTENCY FOUNDATION
+-- Ω∞ PHASE 0A — ENGINE EXECUTION & IDEMPOTENCY FOUNDATION (HARDENED)
 --
 -- Generic, engine-agnostic execution-control infrastructure for SAFISHA,
 -- HESABU, KINGA, MAONO. Answers exactly two questions:
 --   engine_runs      — "what executed?"          (reproducibility ledger)
 --   idempotency_keys — "should this run again?"  (request deduplication)
 --
--- NOT a workflow engine, event bus, job scheduler, domain-table replacement,
--- or second professional-decision ledger. Stores execution provenance only —
--- never accounting content itself.
+-- Hardening corrections applied in this revision (Phase 0A-1R gate):
+--   1. chk_ik_replay_result_bounded / chk_er_error_detail_bounded rewritten
+--      to be subquery-free (jsonb - text[] set-difference), since
+--      PostgreSQL CHECK constraints cannot contain subqueries at all —
+--      the prior revision's SELECT/jsonb_object_keys form was invalid DDL.
+--   2. idempotency_keys.engine_run_id is now bound EXACTLY ONCE, at the
+--      same INSERT that creates the reservation (the engine_runs row is
+--      created first, in the same claim call) — never a later UPDATE while
+--      status='reserved'. This removes any need for a special-cased
+--      "reserved, still reserved" transition and keeps the lifecycle
+--      trigger's rule to exactly one thing: reserved -> terminal, nothing
+--      else, ever.
+--   3. Both lifecycle trigger functions changed from SECURITY DEFINER to
+--      the default (SECURITY INVOKER) — they only inspect OLD/NEW and
+--      RAISE/RETURN, never touching another table, so there is no real
+--      privilege gap to bridge. search_path remains pinned regardless.
+--   4. EXECUTE explicitly revoked from service_role too on both trigger
+--      functions (harmless and clarifying — trigger firing never requires
+--      direct EXECUTE privilege from the invoking role in the first place).
 --
--- Explicitly OUT OF SCOPE for this migration (see SAFF-CLAUDE-CODE-DIRECTIVE.md
--- §Phase 0A decisions for rationale):
+-- NOT a workflow engine, event bus, job scheduler, domain-table replacement,
+-- or second professional-decision ledger. Stores execution provenance only.
+--
+-- Explicitly OUT OF SCOPE for this migration:
 --   - trial_balance_uploads.source_file_hash        (belongs to Phase 0)
 --   - any domain-result-write + engine-run-completion atomic RPC
---     (each future domain phase provides its own narrowly-scoped one,
---     e.g. a future commit_tb_certification(...) in Phase 0)
---   - retrofitting Phase 2A (account_review_batches/decisions/*) to use
---     this infrastructure — zero modification, zero collision, by design
---   - refactoring KINGA — compatibility only, no behavior change
+--   - retrofitting Phase 2A (account_review_batches/decisions/*)
+--   - refactoring KINGA
+--   - altering firm_members (a composite (id, company_id) unique index +
+--     FK would let engine_runs/idempotency_keys enforce firm_member_id
+--     genuinely belongs to company_id at the DB level, but firm_members is
+--     an existing table this migration must not touch — see the
+--     "residual trust boundary" note on resolveFirmMemberActor below)
 -- ════════════════════════════════════════════════════════════════════════════
 
 SET search_path TO public, pg_catalog;
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- TABLE: engine_runs — reproducibility ledger
--- Append-once, then EXACTLY ONE terminal transition (running→completed or
--- running→failed), then permanently immutable. This is NOT append-only like
--- Phase 2A's decision ledger — a run genuinely transitions from in-flight to
--- done, and that one transition must be representable.
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE public.engine_runs (
@@ -47,6 +63,9 @@ CREATE TABLE public.engine_runs (
   completed_at     TIMESTAMPTZ  NULL,
   duration_ms      INTEGER      NULL,
   error_code       TEXT         NULL,
+  -- Bounded structured error envelope — see chk_er_error_detail_bounded.
+  -- Permitted keys ONLY: stage, safe_message, reference_id. NEVER a raw
+  -- Error object, stack trace, request body, JWT, or service-role secret.
   error_detail     JSONB        NULL,
   period_year      INTEGER      NULL,
   source_table     TEXT         NULL,
@@ -58,12 +77,18 @@ CREATE TABLE public.engine_runs (
   CONSTRAINT fk_er_company
     FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE CASCADE,
 
+  -- Residual trust boundary (documented, not silently claimed as DB-proven):
+  -- this FK confirms firm_member_id references a REAL firm_members row, but
+  -- does NOT prove that row's company_id equals THIS row's company_id — that
+  -- would require a composite (id, company_id) unique index on firm_members
+  -- plus a composite FK here, which would mean altering firm_members, out of
+  -- scope for this migration. The only current guarantee that the pairing is
+  -- correct is that every caller MUST obtain (firmMemberId, companyId)
+  -- together from resolveFirmMemberActor()'s single return value — never
+  -- assembled from two different sources. See _shared/actor.ts.
   CONSTRAINT fk_er_firm_member
     FOREIGN KEY (firm_member_id) REFERENCES public.firm_members(id) ON DELETE RESTRICT,
 
-  -- Server-side actor-type/firm_member_id pairing — a caller can never set
-  -- actor_type='system' merely to bypass professional attribution while
-  -- still supplying a firm_member_id, nor claim 'user' without one.
   CONSTRAINT chk_er_actor_pairing
     CHECK (
       (actor_type = 'user'   AND firm_member_id IS NOT NULL) OR
@@ -82,12 +107,24 @@ CREATE TABLE public.engine_runs (
       (status IN ('completed', 'failed') AND completed_at IS NOT NULL)
     ),
 
-  -- output_hash only ever meaningful on a genuine success.
   CONSTRAINT chk_er_output_hash_only_on_success
     CHECK (output_hash IS NULL OR status = 'completed'),
 
   CONSTRAINT chk_er_period_year_sane
-    CHECK (period_year IS NULL OR period_year BETWEEN 2000 AND 2100)
+    CHECK (period_year IS NULL OR period_year BETWEEN 2000 AND 2100),
+
+  -- CORRECTED (Phase 0A-1R): subquery-free. jsonb - text[] removes every
+  -- permitted key; if what remains is the empty object, only permitted keys
+  -- were present. jsonb_typeof rejects arrays/scalars. pg_column_size bounds
+  -- the payload so this can never become a dump of arbitrary content.
+  CONSTRAINT chk_er_error_detail_bounded
+    CHECK (
+      error_detail IS NULL OR (
+        jsonb_typeof(error_detail) = 'object' AND
+        (error_detail - ARRAY['stage', 'safe_message', 'reference_id']::text[]) = '{}'::jsonb AND
+        pg_column_size(error_detail) <= 2048
+      )
+    )
 );
 
 COMMENT ON TABLE public.engine_runs IS
@@ -106,6 +143,13 @@ COMMENT ON COLUMN public.engine_runs.rule_version IS
   'maintained from engine_version — code identity and domain-rule identity '
   'are different provenance facts.';
 
+COMMENT ON COLUMN public.engine_runs.error_detail IS
+  'Bounded structured error envelope. Permitted top-level keys ONLY: stage, '
+  'safe_message, reference_id. error_code (a sibling column) already carries '
+  'the machine-readable code — do not duplicate it here. NEVER a raw '
+  'exception object, stack trace, request body, JWT, or secret. Enforced by '
+  'chk_er_error_detail_bounded, not documentation alone.';
+
 CREATE INDEX idx_er_company_function_started
   ON public.engine_runs (company_id, function_name, started_at DESC);
 
@@ -118,15 +162,16 @@ CREATE INDEX idx_er_source
 CREATE INDEX idx_er_running
   ON public.engine_runs (started_at) WHERE status = 'running';
 
--- ── Lifecycle enforcement (DB-level, not application convention) ────────────
--- Permits EXACTLY ONE UPDATE per row: running -> completed or running ->
--- failed, touching only the terminal-transition columns. Every other UPDATE,
--- and every DELETE, is rejected.
+-- ── Lifecycle enforcement ────────────────────────────────────────────────────
+-- CORRECTED (Phase 0A-1R): default SECURITY INVOKER — this function only
+-- ever reads OLD/NEW (already supplied by the firing statement) and either
+-- RAISEs or RETURNs. It never queries another table, so there is no
+-- privilege gap for SECURITY DEFINER to bridge. search_path is still pinned
+-- as a general hardening practice, independent of the DEFINER/INVOKER choice.
 CREATE OR REPLACE FUNCTION public.engine_runs_lifecycle_guard()
   RETURNS TRIGGER
   LANGUAGE plpgsql
-  SECURITY DEFINER
-  SET search_path = public, pg_catalog
+  SET search_path = pg_catalog, public
 AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
@@ -135,7 +180,6 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
-  -- TG_OP = 'UPDATE' from here.
   IF OLD.status != 'running' THEN
     RAISE EXCEPTION
       'Iron Dome: engine_runs row already reached a terminal state (%). '
@@ -150,7 +194,6 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
-  -- Every identity/provenance column set at creation must be unchanged.
   IF NEW.company_id       IS DISTINCT FROM OLD.company_id       OR
      NEW.firm_member_id   IS DISTINCT FROM OLD.firm_member_id   OR
      NEW.actor_type       IS DISTINCT FROM OLD.actor_type       OR
@@ -192,17 +235,15 @@ CREATE POLICY "er_select" ON public.engine_runs
     )
   );
 
--- No INSERT/UPDATE/DELETE policy for authenticated at all — the only writer
--- is the service-role Edge Function connection.
 REVOKE ALL ON public.engine_runs FROM PUBLIC, anon;
 GRANT SELECT ON public.engine_runs TO authenticated;
 GRANT ALL    ON public.engine_runs TO service_role;
-REVOKE ALL ON FUNCTION public.engine_runs_lifecycle_guard() FROM PUBLIC, anon, authenticated;
+-- Trigger functions are invoked by the firing mechanism, never called
+-- directly by any session — no role, including service_role, needs EXECUTE.
+REVOKE ALL ON FUNCTION public.engine_runs_lifecycle_guard() FROM PUBLIC, anon, authenticated, service_role;
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- TABLE: idempotency_keys — request deduplication
--- reserved -> completed OR reserved -> failed. No completed->reserved, no
--- failed->reserved, no DELETE through ordinary application authority.
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE public.idempotency_keys (
@@ -215,9 +256,13 @@ CREATE TABLE public.idempotency_keys (
   request_hash      TEXT         NOT NULL,
   input_hash        TEXT         NULL,
   status            TEXT         NOT NULL DEFAULT 'reserved',
-  engine_run_id     UUID         NULL,
-  -- Bounded replay envelope — see chk_ik_result_summary_bounded below.
-  -- NEVER a store for full accounting content. See column comment.
+  -- CORRECTED (Phase 0A-1R): NOT NULL. The engine_runs row is now always
+  -- created FIRST, in the same claim call, and its id supplied in THIS
+  -- INSERT — never bound by a later UPDATE while status='reserved'. See
+  -- _shared/idempotency.ts claimIdempotency().
+  engine_run_id     UUID         NOT NULL,
+  -- Bounded replay envelope — see chk_ik_replay_result_bounded. NEVER a
+  -- store for full accounting content.
   replay_result     JSONB        NULL,
   created_at        TIMESTAMPTZ  NOT NULL DEFAULT now(),
   resolved_at       TIMESTAMPTZ  NULL,
@@ -251,27 +296,25 @@ CREATE TABLE public.idempotency_keys (
       (status IN ('completed', 'failed') AND resolved_at IS NOT NULL)
     ),
 
-  -- Bounded replay envelope: a small, fixed set of top-level keys only.
-  -- Rejects any payload that smuggles full accounting content (a TB, a
-  -- statement, raw uploaded data) into what must remain a lightweight
-  -- pointer-and-status envelope. See column comment for the exact contract.
+  -- CORRECTED (Phase 0A-1R): subquery-free, same technique as
+  -- chk_er_error_detail_bounded. Permitted keys match ReplayResult exactly
+  -- (_shared/idempotency.ts): status, reference_id, reference_table,
+  -- summary, error_code.
   CONSTRAINT chk_ik_replay_result_bounded
     CHECK (
       replay_result IS NULL OR (
         jsonb_typeof(replay_result) = 'object' AND
-        (SELECT bool_and(key IN (
-            'status', 'reference_id', 'reference_table', 'summary', 'error_code'
-          ))
-         FROM jsonb_object_keys(replay_result) AS key)
+        (replay_result - ARRAY['status', 'reference_id', 'reference_table', 'summary', 'error_code']::text[]) = '{}'::jsonb AND
+        pg_column_size(replay_result) <= 2048
       )
     ),
 
-  -- CORRECTED: firm_member_id + client_request_id: two identical SYSTEM
-  -- claims (both firm_member_id IS NULL) must still collide. PostgreSQL's
-  -- default UNIQUE treats NULL as distinct from NULL, which would silently
-  -- let two system claims both "win". NULLS NOT DISTINCT (PG15+, already
-  -- proven in this project — see uq_acct_map_company_code,
-  -- 20260703100000_account_mappings_v2_and_keyword_dict.sql) closes this.
+  -- System-actor uniqueness correction (Phase 0A design gate): plain UNIQUE
+  -- treats NULL as distinct from NULL, which would silently let two
+  -- system-triggered (firm_member_id IS NULL) claims both "win" for the
+  -- same (company_id, function_name, client_request_id). NULLS NOT DISTINCT
+  -- (PG15+, already proven live in this project — see
+  -- uq_acct_map_company_code, 20260703100000) closes this gap.
   CONSTRAINT uq_ik_claim
     UNIQUE NULLS NOT DISTINCT (company_id, firm_member_id, function_name, client_request_id)
 );
@@ -281,18 +324,19 @@ COMMENT ON TABLE public.idempotency_keys IS
   'execute again?" — a genuinely different question from engine_runs '
   '("what executed?"). Uniqueness uses NULLS NOT DISTINCT so two '
   'system-triggered (firm_member_id IS NULL) claims for the same '
-  '(company_id, function_name, client_request_id) still collide correctly.';
+  '(company_id, function_name, client_request_id) still collide correctly. '
+  'engine_run_id is bound exactly once, at claim time — never mutated.';
 
 COMMENT ON COLUMN public.idempotency_keys.replay_result IS
   'Bounded replay envelope returned verbatim to a duplicate request. '
   'Permitted top-level keys ONLY: status, reference_id, reference_table, '
   'summary (a small, deterministic, non-sensitive object), error_code. '
-  'MUST NEVER contain: a full trial balance, financial statements, raw '
-  'uploaded data, JWT/auth material, or an arbitrary HTTP response. '
-  'Enforced structurally by chk_ik_replay_result_bounded.';
+  'MUST NEVER contain a full trial balance, financial statements, raw '
+  'uploaded data, or JWT/auth material. Enforced structurally by '
+  'chk_ik_replay_result_bounded, not documentation alone.';
 
 CREATE INDEX idx_ik_engine_run
-  ON public.idempotency_keys (engine_run_id) WHERE engine_run_id IS NOT NULL;
+  ON public.idempotency_keys (engine_run_id);
 
 CREATE INDEX idx_ik_reserved
   ON public.idempotency_keys (created_at) WHERE status = 'reserved';
@@ -301,8 +345,7 @@ CREATE INDEX idx_ik_reserved
 CREATE OR REPLACE FUNCTION public.idempotency_keys_lifecycle_guard()
   RETURNS TRIGGER
   LANGUAGE plpgsql
-  SECURITY DEFINER
-  SET search_path = public, pg_catalog
+  SET search_path = pg_catalog, public
 AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
@@ -326,6 +369,10 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
+  -- CORRECTED (Phase 0A-1R): engine_run_id is now permanently fixed at
+  -- creation, so it is REMOVED from the set of columns permitted to change
+  -- during the terminal transition — only status/replay_result/resolved_at
+  -- may change. Any attempt to rebind engine_run_id, ever, is rejected.
   IF NEW.company_id        IS DISTINCT FROM OLD.company_id        OR
      NEW.firm_member_id    IS DISTINCT FROM OLD.firm_member_id    OR
      NEW.actor_type        IS DISTINCT FROM OLD.actor_type        OR
@@ -333,11 +380,13 @@ BEGIN
      NEW.client_request_id IS DISTINCT FROM OLD.client_request_id OR
      NEW.request_hash      IS DISTINCT FROM OLD.request_hash      OR
      NEW.input_hash        IS DISTINCT FROM OLD.input_hash        OR
+     NEW.engine_run_id     IS DISTINCT FROM OLD.engine_run_id     OR
      NEW.created_at        IS DISTINCT FROM OLD.created_at
   THEN
     RAISE EXCEPTION
-      'Iron Dome: only status/engine_run_id/replay_result/resolved_at may '
-      'change on the terminal transition. [id=%]', OLD.id
+      'Iron Dome: only status/replay_result/resolved_at may change on the '
+      'terminal transition. engine_run_id is immutable once bound. [id=%]',
+      OLD.id
       USING ERRCODE = 'P0001';
   END IF;
 
@@ -364,7 +413,7 @@ CREATE POLICY "ik_select" ON public.idempotency_keys
 REVOKE ALL ON public.idempotency_keys FROM PUBLIC, anon;
 GRANT SELECT ON public.idempotency_keys TO authenticated;
 GRANT ALL    ON public.idempotency_keys TO service_role;
-REVOKE ALL ON FUNCTION public.idempotency_keys_lifecycle_guard() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.idempotency_keys_lifecycle_guard() FROM PUBLIC, anon, authenticated, service_role;
 
 -- ── Rollback (NOT executed — for reference only) ─────────────────────────────
 -- DROP TRIGGER IF EXISTS trg_ik_lifecycle ON public.idempotency_keys;
