@@ -28,6 +28,16 @@ import {
   getAuditedAccountsMetadata,
 } from "./auditedAccountsAdapter.ts";
 import { classifyPublicSectorAccount } from "./publicSectorClassification.ts";
+import { resolveFirmMemberActor, type FirmMemberActor } from "../_shared/actor.ts";
+import { claimIdempotency, failIdempotency } from "../_shared/idempotency.ts";
+import { recordEngineRunFailed } from "../_shared/engine-run.ts";
+import { canonicalJson, sha256Hex, sha256HexBytes, type CanonicalValue } from "../_shared/hash.ts";
+import { computeNormalizedInputHash, type NormalizedInputRow } from "../_shared/safisha-normalize.ts";
+
+// Ω∞ Phase 0 Slice 2 — SAFISHA certification engine identity. Bumped
+// independently of parser_version (which tracks the TB parsing/aggregation
+// logic below, unchanged this slice).
+const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -421,10 +431,23 @@ function isSubtotalRow(accountName: string, accountCode: string): boolean {
   return SUBTOTAL_ROW_PATTERNS.some(p => p.test(accountName) || p.test(accountCode));
 }
 
-function parseNumber(v: string | number | null): number {
+// Ω∞ Phase 0 Slice 2 — DEFECT-SAFISHA-SILENT-NUMERIC-ZERO-001 fix.
+// A blank cell (null/undefined/"") legitimately means "no posting" — that IS
+// zero, and stays zero. A NON-EMPTY value that fails to parse (e.g. "abc",
+// "N/A", "1.2.3.4", a stray currency symbol the strip regex doesn't catch)
+// is a data-quality defect, NOT a zero — `parseFloat(...) || 0` used to
+// collapse both cases to 0 silently. This sentinel makes the two cases
+// distinguishable so the caller can exclude and report malformed rows
+// instead of feeding a fabricated 0 into the trial balance.
+const MALFORMED_NUMERIC = Symbol("malformed_numeric");
+
+function parseNumber(v: string | number | null): number | typeof MALFORMED_NUMERIC {
   if (v === null || v === undefined || v === "") return 0;
-  if (typeof v === "number") return v;
-  return parseFloat(String(v).replace(/[,$\s]/g, "")) || 0;
+  if (typeof v === "number") return Number.isFinite(v) ? v : MALFORMED_NUMERIC;
+  const cleaned = String(v).trim().replace(/[,$\s]/g, "");
+  if (cleaned === "") return 0;
+  const parsed = parseFloat(cleaned);
+  return Number.isFinite(parsed) ? parsed : MALFORMED_NUMERIC;
 }
 
 function rowsToRawAccounts(
@@ -454,12 +477,41 @@ function rowsToRawAccounts(
     const code = rawCode || name;
     if (!code) continue;
 
-    const debit  = parseNumber(map.debit   !== null ? row[map.debit]   : null);
-    const credit = parseNumber(map.credit  !== null ? row[map.credit]  : null);
+    const debitParsed  = parseNumber(map.debit   !== null ? row[map.debit]   : null);
+    const creditParsed = parseNumber(map.credit  !== null ? row[map.credit]  : null);
+
+    if (debitParsed === MALFORMED_NUMERIC || creditParsed === MALFORMED_NUMERIC) {
+      const field = debitParsed === MALFORMED_NUMERIC ? "debit" : "credit";
+      rejectedRows.push({
+        account_name: name, account_code: rawCode,
+        reason: `Malformed ${field} value — row excluded from the trial balance, NOT silently treated as zero (source row ${i + 1})`,
+      });
+      errors.push({
+        code: "MALFORMED_NUMERIC_VALUE",
+        message: `Row ${i + 1} ("${name || rawCode}"): could not parse the ${field} value as a number`,
+        field,
+      });
+      continue;
+    }
+    const debit  = debitParsed;
+    const credit = creditParsed;
 
     let balance: number;
     if (map.balance !== null && row[map.balance] !== null && row[map.balance] !== "") {
-      balance = parseNumber(row[map.balance]);
+      const balanceParsed = parseNumber(row[map.balance]);
+      if (balanceParsed === MALFORMED_NUMERIC) {
+        rejectedRows.push({
+          account_name: name, account_code: rawCode,
+          reason: `Malformed balance value — row excluded from the trial balance, NOT silently treated as zero (source row ${i + 1})`,
+        });
+        errors.push({
+          code: "MALFORMED_NUMERIC_VALUE",
+          message: `Row ${i + 1} ("${name || rawCode}"): could not parse the balance value as a number`,
+          field: "balance",
+        });
+        continue;
+      }
+      balance = balanceParsed;
     } else {
       balance = debit - credit;
     }
@@ -948,12 +1000,163 @@ async function validateAuth(authHeader: string | null): Promise<{ userId?: strin
   }
 }
 
+// ── Ω∞ Phase 0 Slice 2 — SAFISHA certification wiring ─────────────────────
+// Mirrors src/lib/safisha/types.ts's SafishaException/CertifiedTBRow shapes
+// (no cross-import exists between src/ and supabase/functions/ — this is
+// the authoritative, server-side copy; the browser copy is provable-only).
+
+interface SafishaExceptionRecord {
+  code:        string;
+  layer:       1 | 2 | 3 | 4 | 5 | 6;
+  severity:    "error" | "warning" | "info";
+  accountCode: string | null;
+  message:     string;
+}
+
+interface CertifiedTBRowRecord {
+  accountCode:    string | null;
+  accountName:    string;
+  nature:         "asset" | "liability" | "equity" | "income" | "expense";
+  subNature:      string;
+  debitBalance:   number;
+  creditBalance:  number;
+  netBalance:     number;
+  evidenceTier:   1 | 2 | 3 | 4 | 5 | 6;
+  ruleId:         string | null;
+  requiresReview: boolean;
+}
+
+function classificationToNature(cls: string): "asset" | "liability" | "equity" | "income" | "expense" {
+  if (cls === "current_assets" || cls === "non_current_assets")           return "asset";
+  if (cls === "current_liabilities" || cls === "non_current_liabilities") return "liability";
+  if (cls === "equity")                                                  return "equity";
+  if (cls === "revenue" || cls === "other_income")                       return "income";
+  return "expense"; // cost_of_goods_sold, operating_expenses, taxes
+}
+
+// classifyAccountTiered's confidence_source doesn't distinguish tier 1 vs 2
+// vs 3 (all "mapping") — this is a deliberate, documented approximation
+// (Slice 2 report item O), not a loss of real information the classifier
+// itself tracks. Extracting the exact 1-6 tier would mean changing
+// classifyAccountTiered's return shape, which Priority 5 requires be
+// preserved unchanged this slice.
+function confidenceSourceToEvidenceTier(source: string | undefined): 1 | 2 | 3 | 4 | 5 | 6 {
+  switch (source) {
+    case "mapping":             return 1;
+    case "dictionary_exact":
+    case "dictionary_contains": return 4;
+    case "rule":                return 5;
+    default:                    return 6;
+  }
+}
+
+function buildCertifiedRows(
+  accounts: RawAccount[],
+  mappings: Map<string, AccountMapping>,
+  confidenceSources: Map<string, string>,
+): CertifiedTBRowRecord[] {
+  const rows: CertifiedTBRowRecord[] = [];
+  for (const account of accounts) {
+    const key = accountKey(account);
+    const m = mappings.get(key);
+    if (!m) continue;
+    const signed = m.normal_balance === "debit"
+      ? account.debit - account.credit
+      : account.credit - account.debit;
+    rows.push({
+      accountCode:    account.account_code,
+      accountName:    account.account_name,
+      nature:         classificationToNature(m.classification),
+      subNature:      m.classification,
+      debitBalance:   account.debit,
+      creditBalance:  account.credit,
+      netBalance:     signed,
+      evidenceTier:   confidenceSourceToEvidenceTier(confidenceSources.get(key)),
+      ruleId:         null,
+      requiresReview: false,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Commits a SAFISHA certification and terminates this engine_run —
+ * commit_tb_certification completes both engine_runs and idempotency_keys
+ * atomically inside one transaction (Slice 1 design); this function never
+ * calls completeIdempotency/recordEngineRunComplete separately (Slice 2
+ * directive Priority 6). If the RPC itself fails (thrown exception — the
+ * whole RPC call rolls back, nothing is written), that is a genuine system
+ * failure, not a SAFISHA outcome — falls back to recordEngineRunFailed +
+ * failIdempotency so the run/claim are never left stuck at running/reserved.
+ */
+async function commitSafishaCertification(
+  supabase: ReturnType<typeof createClient>,
+  params: {
+    engineRunId: string;
+    idempotencyKeyId: string;
+    engineStartedAt: string;
+    uploadId: string;
+    companyId: string;
+    periodYear: number | null;
+    sourceFileHash: string;
+    normalizedInputHash: string;
+    isBlocking: boolean;
+    requiresReview: boolean;
+    exceptions: SafishaExceptionRecord[];
+    rowsSnapshot: CertifiedTBRowRecord[];
+  },
+): Promise<{ ok: true } | { ok: false; response: Response }> {
+  const outputHashSource: CanonicalValue = (params.rowsSnapshot.length > 0
+    ? params.rowsSnapshot
+    : params.exceptions) as unknown as CanonicalValue;
+  const outputHash = await sha256Hex(canonicalJson(outputHashSource));
+
+  const { error } = await supabase.rpc("commit_tb_certification", {
+    p_engine_run_id:         params.engineRunId,
+    p_expected_function_name: "process-trial-balance",
+    p_upload_id:              params.uploadId,
+    p_company_id:             params.companyId,
+    p_period_year:            params.periodYear,
+    p_source_file_hash:       params.sourceFileHash,
+    p_normalized_input_hash:  params.normalizedInputHash,
+    p_output_hash:            outputHash,
+    p_is_blocking:            params.isBlocking,
+    p_requires_review:        params.requiresReview,
+    p_exceptions:             params.exceptions,
+    p_rows_snapshot:          params.rowsSnapshot,
+  } as never);
+
+  if (error) {
+    console.error("[PTB] commit_tb_certification failed:", error.message);
+    await recordEngineRunFailed(supabase as never, params.engineRunId, {
+      startedAt: params.engineStartedAt,
+      errorCode: "CERTIFICATION_COMMIT_FAILED",
+      errorDetail: { stage: "commit_tb_certification", safe_message: String(error.message ?? "unknown").slice(0, 200) },
+    });
+    await failIdempotency(supabase as never, params.idempotencyKeyId, "CERTIFICATION_COMMIT_FAILED");
+    return {
+      ok: false,
+      response: new Response(
+        JSON.stringify({ status: "blocked", error: "Certification could not be recorded" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      ),
+    };
+  }
+  return { ok: true };
+}
+
 // ── Main Handler ──────────────────────────────────────────────────────────────
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const allErrors: ValidationError[] = [];
+  // Declared here (not inside the try block) so the catch block below can
+  // fail an already-claimed engine_run/idempotency reservation on a fatal,
+  // unhandled error — never leave one stuck at running/reserved.
+  let engineRunId: string | null = null;
+  let idempotencyKeyId: string | null = null;
+  let engineStartedAt: string | null = null;
 
   try {
     const auth = await validateAuth(req.headers.get("Authorization"));
@@ -974,22 +1177,19 @@ serve(async (req) => {
     if (uploadError || !upload) throw new Error("Upload not found");
 
     // ── Authorization: caller must be a firm_member of upload.company_id ──
-    // (or the original uploader for legacy uploads with no company_id)
+    // (or the original uploader for legacy uploads with no company_id).
+    // Ω∞ Phase 0 Slice 2: company-scoped uploads now resolve the canonical
+    // firmMemberId actor (Iron Dome §4.3) via the shared resolver instead of
+    // an inline membership check that only proved membership, never derived
+    // an actor identity. Legacy uploads with no company_id (upload.company_id
+    // null) cannot be SAFISHA-certified — tb_certifications.company_id is
+    // NOT NULL — so that branch is preserved exactly as-is and SAFISHA
+    // wiring below is skipped entirely for them (resolvedActor stays null).
+    let resolvedActor: FirmMemberActor | null = null;
     if (upload.company_id) {
-      const { data: member } = await supabase
-        .from("firm_members")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("company_id", upload.company_id)
-        .not("accepted_at", "is", null)
-        .limit(1)
-        .maybeSingle();
-      if (!member) {
-        return new Response(
-          JSON.stringify({ error: "Forbidden", message: "Not a member of this company" }),
-          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
+      const actor = await resolveFirmMemberActor(supabase as never, userId, upload.company_id, corsHeaders);
+      if (actor instanceof Response) return actor;
+      resolvedActor = actor;
     } else if (upload.uploaded_by && upload.uploaded_by !== userId) {
       return new Response(
         JSON.stringify({ error: "Forbidden", message: "You do not own this upload" }),
@@ -999,6 +1199,60 @@ serve(async (req) => {
 
     // Only after ownership is confirmed do we mutate the upload row.
     await supabase.from("trial_balance_uploads").update({ status: "validating" }).eq("id", uploadId);
+
+    // ── Ω∞ Phase 0 Slice 2: idempotency claim + engine_run creation ──────────
+    // Claimed as early as possible (before the expensive download/parse/
+    // classify work) so a genuine HTTP retry never redoes that work. Skipped
+    // entirely for legacy company_id-null uploads (see above) — there is no
+    // company to attach an engine_run or certification to.
+    // clientRequestId is server-generated fresh per invocation: this
+    // structurally wires engine_runs/idempotency_keys with the correct
+    // actor/company/function identity (real reproducibility-ledger rows),
+    // but does NOT yet collapse literal network retries into a replay —
+    // that requires a client-generated id passed from the frontend, which
+    // is a request-contract change deliberately left out of this slice's
+    // scope (see Slice 2 report item V). A later slice can pass a real
+    // caller-supplied id through the existing optional path with no change
+    // to this function's logic.
+    if (resolvedActor && upload.company_id) {
+      const clientRequestId = crypto.randomUUID();
+      const requestHash = await sha256Hex(canonicalJson({ uploadId } as unknown as CanonicalValue));
+      const claim = await claimIdempotency(supabase as never, {
+        companyId: upload.company_id,
+        actor: resolvedActor,
+        actorType: "user",
+        functionName: "process-trial-balance",
+        engineVersion: SAFISHA_ENGINE_VERSION,
+        clientRequestId,
+        requestHash,
+        inputHash: null,
+        periodYear: upload.period_year ?? null,
+        sourceTable: "trial_balance_uploads",
+        sourceRecordId: uploadId,
+      });
+
+      if (claim.outcome === "conflict") {
+        return new Response(
+          JSON.stringify({ status: "blocked", error: "Idempotency conflict", message: "A conflicting request identity was detected for this upload." }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      if (claim.outcome === "in_progress") {
+        return new Response(
+          JSON.stringify({ status: "in_progress", message: "This upload is already being processed." }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      if (claim.outcome === "replay") {
+        return new Response(
+          JSON.stringify({ status: claim.result.status, replay: true, reference_id: claim.result.reference_id ?? null }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      engineRunId     = claim.engineRunId;
+      idempotencyKeyId = claim.keyId;
+      engineStartedAt  = claim.startedAt;
+    }
 
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("trial-balance-files").download(upload.file_path);
@@ -1010,8 +1264,16 @@ serve(async (req) => {
     let rawRows: (string | number | null)[][] = [];
     let sheetName = "";
 
+    // Ω∞ Phase 0 Slice 2 — Priority 3: server-authoritative source_file_hash,
+    // computed from the exact downloaded bytes before any format-specific
+    // parsing touches them. Hashed once regardless of xlsx/csv — raw bytes,
+    // never a re-encoded/decoded copy (XLSX is binary; round-tripping it
+    // through a text codec would corrupt the digest).
+    const fileBuffer = await fileData.arrayBuffer();
+    const sourceFileHash = await sha256HexBytes(fileBuffer);
+
     if (format === "xlsx") {
-      const buffer = await fileData.arrayBuffer();
+      const buffer = fileBuffer;
 
       // ── Detect audited financial statements vs. flat trial balance ──────────
       // Audited accounts (SCI + SFP sheets) are converted to a flat TB format
@@ -1030,7 +1292,7 @@ serve(async (req) => {
       }
       console.log(`[PTB] XLSX: sheet="${sheetName}", ${rawRows.length} raw rows`);
     } else {
-      const content = await fileData.text();
+      const content = new TextDecoder("utf-8").decode(fileBuffer);
       rawRows = parseCSV(content);
       console.log(`[PTB] CSV: ${rawRows.length} raw rows`);
     }
@@ -1050,16 +1312,64 @@ serve(async (req) => {
       allErrors.push({ code: "MISSING_COLUMN", message: "Could not detect debit or balance column. Ensure headers contain 'Debit'/'Dr' or 'Balance'.", field: "debit" });
     }
     if (allErrors.length > 0) {
+      // No account rows were ever identified — SAFISHA never had a
+      // normalized input to hash or certify. A genuine engine failure, not
+      // a SAFISHA blocking/review outcome (no certification is committed).
+      if (engineRunId && idempotencyKeyId && engineStartedAt) {
+        await recordEngineRunFailed(supabase as never, engineRunId, {
+          startedAt: engineStartedAt,
+          errorCode: "MISSING_REQUIRED_COLUMNS",
+          errorDetail: { stage: "column_detection", safe_message: allErrors.map(e => e.code).join(",").slice(0, 200) },
+        });
+        await failIdempotency(supabase as never, idempotencyKeyId, "MISSING_REQUIRED_COLUMNS");
+      }
       await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processed_at: new Date().toISOString() }).eq("id", uploadId);
       return new Response(JSON.stringify({ status: "blocked", errors: allErrors }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── STEP 3: Row → RawAccount[] ────────────────────────────────────────────
-    const { accounts: rawAccounts, rejectedRows } = rowsToRawAccounts(rawRows, colMap);
-    console.log(`[PTB] Parsed ${rawAccounts.length} accounts`);
+    const { accounts: rawAccounts, errors: parseErrors, rejectedRows } = rowsToRawAccounts(rawRows, colMap);
+    allErrors.push(...parseErrors);
+    console.log(`[PTB] Parsed ${rawAccounts.length} accounts${parseErrors.length > 0 ? ` (${parseErrors.length} rows excluded — malformed numeric value)` : ""}`);
 
     if (rawAccounts.length === 0) {
       throw new Error("No account rows found after stripping subtotals and blank rows.");
+    }
+
+    // ── Ω∞ Phase 0 Slice 2 — DEFECT-SAFISHA-SILENT-NUMERIC-ZERO-001 gate ──────
+    // A malformed debit/credit/balance value must never be silently treated
+    // as zero and allowed to flow into the trial balance check as if it
+    // were a real, verified 0. rowsToRawAccounts already excludes these
+    // rows (never fabricates a value) — this blocks the upload outright so
+    // the CPA sees exactly which cells are unparseable, rather than a
+    // downstream imbalance with no obvious cause.
+    const malformedNumericErrors = allErrors.filter(e => e.code === "MALFORMED_NUMERIC_VALUE");
+    if (malformedNumericErrors.length > 0) {
+      const result: Partial<ProcessingResult> = {
+        status: "blocked",
+        statements: null,
+        errors: allErrors,
+        validation_report: { malformed_numeric_check: { passed: false, malformed_rows: malformedNumericErrors.length, rejected_rows: rejectedRows } },
+        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.2", columns_detected: detectedCols, auto_classified: 0 },
+      };
+      if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
+        const normalizedInputHash = await computeNormalizedInputHash(
+          rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
+        );
+        const commit = await commitSafishaCertification(supabase as never, {
+          engineRunId, idempotencyKeyId, engineStartedAt,
+          uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
+          sourceFileHash, normalizedInputHash,
+          isBlocking: true, requiresReview: false,
+          exceptions: malformedNumericErrors.map((e): SafishaExceptionRecord => ({
+            code: e.code, layer: 2, severity: "error", accountCode: null, message: e.message,
+          })),
+          rowsSnapshot: [],
+        });
+        if (!commit.ok) return commit.response;
+      }
+      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
+      return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── STEP 4: Trial balance integrity ───────────────────────────────────────
@@ -1087,6 +1397,23 @@ serve(async (req) => {
         validation_report: { tb_balance_check: { passed: false, total_debits: totalDebits, total_credits: totalCredits, difference } },
         summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.2", columns_detected: detectedCols, auto_classified: 0 },
       };
+      if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
+        const normalizedInputHash = await computeNormalizedInputHash(
+          rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
+        );
+        const commit = await commitSafishaCertification(supabase as never, {
+          engineRunId, idempotencyKeyId, engineStartedAt,
+          uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
+          sourceFileHash, normalizedInputHash,
+          isBlocking: true, requiresReview: false,
+          exceptions: [{
+            code: "TRIAL_BALANCE_IMBALANCE", layer: 3, severity: "error", accountCode: null,
+            message: `Debits ${totalDebits.toFixed(2)} != Credits ${totalCredits.toFixed(2)} (difference: ${difference.toFixed(2)})`,
+          }],
+          rowsSnapshot: [],
+        });
+        if (!commit.ok) return commit.response;
+      }
       await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -1190,6 +1517,11 @@ serve(async (req) => {
     // tagged with confidence_source. The PART 4 review screen is the sole writer.
 
     const resolvedMappings     = new Map<string, AccountMapping>();
+    // Ω∞ Phase 0 Slice 2: confidence_source per resolved account, keyed
+    // identically to resolvedMappings — feeds CertifiedTBRow.evidenceTier
+    // (buildCertifiedRows) without changing classifyAccountTiered's return
+    // shape or any tier 1-6 logic itself (Priority 5: preserve unchanged).
+    const resolvedConfidenceSources = new Map<string, string>();
     const needsReviewAccounts: NeedsReviewAccount[]       = [];
     const nonReportingAccounts: NonReportingAccount[]     = [];
     let autoClassifiedCount = 0;
@@ -1211,6 +1543,7 @@ serve(async (req) => {
 
       if (result.status === "classified") {
         resolvedMappings.set(accountKey(account), result.mapping);
+        resolvedConfidenceSources.set(accountKey(account), result.confidence_source);
         // Count only tier 4/5 (new auto-classifications); tier 1-3 are existing user mappings
         if (result.confidence_source !== "mapping") autoClassifiedCount++;
       } else {
@@ -1272,6 +1605,22 @@ serve(async (req) => {
           rejected_rows:    rejectedRows,
         },
       };
+      if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
+        const normalizedInputHash = await computeNormalizedInputHash(
+          rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
+        );
+        const commit = await commitSafishaCertification(supabase as never, {
+          engineRunId, idempotencyKeyId, engineStartedAt,
+          uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
+          sourceFileHash, normalizedInputHash,
+          isBlocking: false, requiresReview: true,
+          exceptions: needsReviewAccounts.map((r): SafishaExceptionRecord => ({
+            code: "NEEDS_REVIEW", layer: 4, severity: "warning", accountCode: r.account_code, message: r.reason,
+          })),
+          rowsSnapshot: [],
+        });
+        if (!commit.ok) return commit.response;
+      }
       await supabase.from("trial_balance_uploads").update({
         status:            "needs_review",
         is_valid:           false,
@@ -1338,6 +1687,25 @@ serve(async (req) => {
       },
     };
 
+    if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
+      const normalizedInputHash = await computeNormalizedInputHash(
+        rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
+      );
+      const rowsSnapshot = buildCertifiedRows(rawAccounts, resolvedMappings, resolvedConfidenceSources);
+      const commit = await commitSafishaCertification(supabase as never, {
+        engineRunId, idempotencyKeyId, engineStartedAt,
+        uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
+        sourceFileHash, normalizedInputHash,
+        isBlocking: false, requiresReview: false,
+        exceptions: bsPassed ? [] : [{
+          code: "BALANCE_SHEET_EQUATION_FAILED", layer: 3, severity: "warning", accountCode: null,
+          message: `Assets (${totals.assets.toFixed(2)}) != Liabilities + Closing Equity (${(totals.liabilities + closingEquity).toFixed(2)}). Difference: ${bsDifference.toFixed(2)}`,
+        }],
+        rowsSnapshot,
+      });
+      if (!commit.ok) return commit.response;
+    }
+
     await supabase.from("trial_balance_uploads").update({
       status:             allValid ? "complete" : "error",
       is_valid:           allValid,
@@ -1354,6 +1722,25 @@ serve(async (req) => {
 
   } catch (error) {
     console.error("[PTB] Fatal error:", error);
+    // Ω∞ Phase 0 Slice 2: a claimed engine_run/idempotency reservation must
+    // never be left stuck at running/reserved by an unhandled exception —
+    // this is a genuine system failure, not a SAFISHA outcome, so no
+    // certification is committed here.
+    if (engineRunId && idempotencyKeyId && engineStartedAt) {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const supabase    = createClient(supabaseUrl, supabaseKey);
+      try {
+        await recordEngineRunFailed(supabase as never, engineRunId, {
+          startedAt: engineStartedAt,
+          errorCode: "UNHANDLED_EXCEPTION",
+          errorDetail: { stage: "process-trial-balance", safe_message: String(error instanceof Error ? error.message : "Processing failed").slice(0, 200) },
+        });
+        await failIdempotency(supabase as never, idempotencyKeyId, "UNHANDLED_EXCEPTION");
+      } catch (cleanupError) {
+        console.error("[PTB] Failed to record engine_run failure during cleanup:", cleanupError);
+      }
+    }
     return new Response(
       JSON.stringify({ status: "blocked", error: error instanceof Error ? error.message : "Processing failed", errors: allErrors }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

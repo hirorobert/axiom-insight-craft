@@ -96,3 +96,22 @@ export async function sha256Hex(input: string): Promise<string> {
 export async function canonicalHash(value: CanonicalValue): Promise<string> {
   return sha256Hex(canonicalJson(value));
 }
+
+/**
+ * SHA-256 of raw bytes, lowercase hex — for content that is NOT UTF-8 text
+ * (e.g. an XLSX file, a binary ZIP container). Round-tripping binary bytes
+ * through a string (TextEncoder/TextDecoder, as sha256Hex does) is lossy
+ * and corrupts the digest; this hashes the ArrayBuffer/Uint8Array directly.
+ * Used for source_file_hash (exact Storage object bytes), never for
+ * canonicalized accounting values — those go through sha256Hex(canonicalJson(...)).
+ */
+export async function sha256HexBytes(bytes: ArrayBuffer | Uint8Array): Promise<string> {
+  // Normalize to a concrete Uint8Array<ArrayBuffer> — the union type itself
+  // (and a Uint8Array view over a generic ArrayBufferLike) doesn't satisfy
+  // crypto.subtle.digest's BufferSource parameter under Deno's lib types.
+  const view = new Uint8Array(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", view);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
