@@ -99,3 +99,45 @@ Live post-state certified (as relayed and reconciled): `authenticated` = SELECT 
 ## Scope note (Phase 0A section)
 
 This record is scoped specifically to the two Phase 0A duplicates (`20260901120000`/`20260902052434` and `20260902110000`/`20260902074804`) and the ACL correction discovered and closed at those executions. It does not certify or attempt to repair the project-wide default-ACL defect itself, and does not certify Phase 0A's live behavioral correctness (idempotency concurrency, lifecycle enforcement under real transactions, etc.) — those remain unverified by this environment, as recorded in the Phase 0A hardening gates.
+
+---
+
+# Phase 0 SAFISHA Certification Foundation — Migration Identity Reconciliation
+
+## Canonical reviewed migration
+
+`supabase/migrations/20260902130000_safisha_certification_foundation.sql`
+SHA-256 (current): `58fa8ebf41ac168c06fc205a4b6424b7c7eb6dcbdbddd80b7a4192db3538428a`
+
+Taken through the full Phase 0 Slice 1 → Slice 1R design/hardening gate sequence: RESULT vs ELIGIBILITY separation, subquery-free bounded `CHECK` constraints on `exceptions`/`rows_snapshot`, `SECURITY INVOKER` justification on both new functions, explicit per-role `REVOKE`/`GRANT` (naming `authenticated` explicitly per the `DEFECT-DEFAULT-ACL-AUTHENTICATED-001` lesson), and the Slice 1R authority-selection ordering fix. This is the sole intended executable creation authority for `tb_certifications`, `commit_tb_certification`, and `get_authoritative_certification` going forward.
+
+## Lovable live execution identity
+
+`20260902104124` — the version identity Lovable's own tooling generated and recorded as applied on `bvyivmmfjejbmqoydezk`, row name `80ce84e4-3b61-42f7-a959-6397fd8f4257`, at file `supabase/migrations/20260902104124_80ce84e4-3b61-42f7-a959-6397fd8f4257.sql`.
+
+## How this evidence was obtained
+
+Retrieved directly by the project owner: `SELECT * FROM supabase_migrations.schema_migrations ORDER BY version DESC LIMIT 5` run in the live Supabase SQL editor for `bvyivmmfjejbmqoydezk`, exported to CSV, and relayed to this session. This environment has no authenticated access to that project and did not run this query itself — the evidence is read-only data supplied by someone who does have access, not a live connection made from here.
+
+The same evidence set also confirms three earlier reconciliations already recorded in this document remain correctly tracked live: `20260901120000` (Phase 0A foundation, tracked as `20260902052434`), `20260902110000` (Phase 0A ACL hardening, tracked as `20260902074804`), and the pre-existing Phase 2A/`account_mapping_memory` provenance-split migration (tracked as `20260818040518` and `20260813151156` respectively, both already accounted for elsewhere in this document and in the earlier `account_mapping_memory` history).
+
+## Executable equivalence proof
+
+The `statements` payload for version `20260902104124` was extracted verbatim from the exported row and diffed directly against the canonical repository file, both with comments and blank lines stripped: **220/220 normalized lines identical, zero diff output.** No table, column, constraint, index, trigger, function body, or grant statement differs between what was authored and what actually ran.
+
+## Resolution of DEFECT-SAFISHA-MIGRATION-HISTORY-001
+
+This defect was originally framed as "migration 20260902130000 is physically applied live but missing from remote migration history." That framing is now corrected by direct evidence: **the migration was never missing.** Its exact executable content is present and tracked in `supabase_migrations.schema_migrations` — under Lovable's own generated identity (`20260902104124`), not the repository's authored timestamp (`20260902130000`). This is the same identity-divergence pattern already reconciled three times elsewhere in this document, not a distinct failure mode.
+
+**Reconciled under Model B, same as every prior case:** `20260902130000` remains the sole executable repository authority; `20260902104124`'s file (`supabase/migrations/20260902104124_80ce84e4-3b61-42f7-a959-6397fd8f4257.sql`) is now a comment-only historical marker, matching the exact structure of the Phase 0A ACL hardening marker above.
+
+**What remains genuinely open, not resolved by this reconciliation:**
+
+1. The live `schema_migrations` tracking table itself is unmodified by this repository change — no `supabase migration repair` was run, no live database was written. If a future `supabase db push` against `bvyivmmfjejbmqoydezk` specifically needs to recognize `20260902130000` (rather than Lovable's tracked `20260902104124`) as applied, that still requires a real, credentialed `migration repair` command — this environment has none, unchanged from every prior statement of this constraint this session.
+2. **`20260902150000_safisha_source_hash_authority_hardening.sql`** (the `trg_protect_source_file_hash` trigger and the fail-closed `get_authoritative_certification` predicate, from the Slice 2 authority-hardening round) does **not** appear anywhere in this evidence set. No tracked version corresponds to its content. **It has not been confirmed live and must be treated as still pending application** — its protections (blocking client forgery of `source_file_hash`, and failing closed on an unknown current hash) are not yet active on the live project regardless of this reconciliation.
+3. `DEFECT-SAFISHA-SOURCE-HASH-WRITE-FAILURE-STALE-AUTHORITY-001` (Slice 2 authority-boundary review) — unaffected by this reconciliation, remains open as recorded.
+4. `DEFECT-DEFAULT-ACL-AUTHENTICATED-001` and `DEFECT-MIGRATION-HISTORY-DIVERGENCE-001` — open, unchanged; this is a fourth concrete manifestation of the same identity-divergence pattern, not a new defect.
+
+## Scope note (SAFISHA foundation section)
+
+This record is scoped specifically to the `20260902130000`/`20260902104124` identity reconciliation. It does not certify SAFISHA's live behavioral correctness (real certification commits, real authority-selection queries under concurrent load, etc.) — those remain unverified by this environment. It explicitly does **not** extend to `20260902150000`, which remains unreconciled and unconfirmed live per item 2 above.

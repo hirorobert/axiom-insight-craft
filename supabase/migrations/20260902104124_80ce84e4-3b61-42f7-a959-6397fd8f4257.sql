@@ -1,0 +1,68 @@
+-- ════════════════════════════════════════════════════════════════════════════
+-- Ω∞ PHASE 0 — SAFISHA CERTIFICATION FOUNDATION LOVABLE LIVE EXECUTION MARKER
+-- (COMMENT-ONLY)
+--
+-- This file contains ZERO executable SQL. It intentionally performs no DDL.
+--
+-- WHAT THIS VERSION IDENTITY IS:
+--   20260902104124 is the migration identity Lovable's tooling generated
+--   and recorded as applied on the live AXIOM/SAFF ERP project
+--   (bvyivmmfjejbmqoydezk), row name 80ce84e4-3b61-42f7-a959-6397fd8f4257.
+--   Retrieved directly from public.supabase_migrations.schema_migrations
+--   (SELECT * ORDER BY version DESC) by the project owner via the live
+--   SQL editor and relayed for reconciliation — not asserted from Lovable's
+--   own claim alone. Its executable SQL was verified by direct comment-
+--   and-blank-line-stripped diff against the reviewed source: 220/220
+--   normalized lines matched exactly, zero diff output. That historical
+--   execution event is not altered, disputed, or rewritten by this file.
+--
+--   This directly resolves DEFECT-SAFISHA-MIGRATION-HISTORY-001 as
+--   originally framed ("migration 20260902130000 is physically applied
+--   live but missing from remote migration history"): it was never
+--   missing. It is present and tracked — under this identity, not the
+--   repository's authored timestamp. The two are now reconciled here.
+--
+-- WHAT THIS DOES NOT RESOLVE:
+--   The live schema_migrations tracking table's row for 20260902104124 is
+--   itself untouched by this repository change — Postgres already ran
+--   this DDL once, and that row is unaffected by what this repository file
+--   now contains. Nothing here performs a `supabase migration repair`
+--   against the live project; no live database was written to produce
+--   this file. If a future `supabase db push` against bvyivmmfjejbmqoydezk
+--   ever needs to recognize 20260902130000 specifically (rather than
+--   Lovable's own tracked identity) as applied, that still requires a
+--   real, live `migration repair --status applied 20260902130000` command
+--   run from an environment with actual credentials for that project —
+--   this environment has none, per the standing constraint recorded
+--   throughout this project's session history.
+--
+--   Separately and NOT covered by this marker: the later
+--   20260902150000_safisha_source_hash_authority_hardening.sql migration
+--   (the trigger + fail-closed-predicate authority hardening) does NOT
+--   appear in the same live evidence — no tracked version in the reviewed
+--   schema_migrations rows corresponds to its content. It has not been
+--   confirmed live and should be treated as still-pending application.
+--
+-- WHY THIS FILE IS NOW INERT:
+--   Canonical repository replay authority for this correction remains:
+--
+--     supabase/migrations/20260902130000_safisha_certification_foundation.sql
+--     SHA-256: 58fa8ebf41ac168c06fc205a4b6424b7c7eb6dcbdbddd80b7a4192db3538428a
+--
+--   Note on ordering: this marker's own numeric timestamp (20260902104124)
+--   is EARLIER than the canonical file's (20260902130000), so on a fresh
+--   replay this file is encountered first — harmless, since it executes
+--   nothing. The canonical file, reached later in filename order, is still
+--   the sole place tb_certifications, commit_tb_certification, and
+--   get_authoritative_certification actually get created. Exactly one
+--   executable copy of this migration exists in the repository, regardless
+--   of where in the sequence the inert marker happens to sit.
+--
+-- Lovable executed equivalent SQL successfully — this record exists to
+-- preserve that live-history provenance, independent of what the
+-- repository's canonical replay file now contains.
+--
+-- DO NOT DELETE THIS MARKER.
+--
+-- See MIGRATION_RECONCILIATION.md for the complete reconciliation record.
+-- ════════════════════════════════════════════════════════════════════════════
