@@ -98,8 +98,9 @@ export default function WorkspaceOverview() {
         .eq("id", upload.id);
 
       await ensureFreshSession();
+      const clientRequestId = crypto.randomUUID();
       const { error: fnErr } = await supabase.functions.invoke("process-trial-balance", {
-        body: { uploadId: upload.id },
+        body: { uploadId: upload.id, clientRequestId },
       });
       if (fnErr) throw fnErr;
 

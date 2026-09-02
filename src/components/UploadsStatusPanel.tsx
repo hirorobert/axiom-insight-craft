@@ -173,8 +173,9 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
         .eq("id", u.id);
 
       await ensureFreshSession();
+      const clientRequestId = crypto.randomUUID();
       const { error: fnErr } = await supabase.functions.invoke("process-trial-balance", {
-        body: { uploadId: u.id },
+        body: { uploadId: u.id, clientRequestId },
       });
       if (fnErr) throw fnErr;
 

@@ -162,8 +162,9 @@ export default function PrepareWorkspace() {
     toast.info("Re-processing as Audited Financial Statements…");
     try {
       await ensureFreshSession();
+      const clientRequestId = crypto.randomUUID();
       const { error } = await supabase.functions.invoke("process-trial-balance", {
-        body: { uploadId: upload.id, mode: "audited_accounts" },
+        body: { uploadId: upload.id, mode: "audited_accounts", clientRequestId },
       });
       if (error) throw error;
       toast.success("Processing started — results will appear shortly.");

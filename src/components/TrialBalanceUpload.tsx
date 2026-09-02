@@ -247,9 +247,13 @@ export const TrialBalanceUpload = ({
 
       // Call edge function to process with AI
       await ensureFreshSession();
+      // Generated once, immediately before the call (no retry wrapper
+      // exists here) — reused only if this exact request is retried, never
+      // regenerated server-side.
+      const clientRequestId = crypto.randomUUID();
       const { error: processError } = await supabase.functions.invoke(
         "process-trial-balance",
-        { body: { uploadId: uploadRecord.id } }
+        { body: { uploadId: uploadRecord.id, clientRequestId } }
       );
 
       if (processError) throw new Error(processError.message || "AI processing failed");

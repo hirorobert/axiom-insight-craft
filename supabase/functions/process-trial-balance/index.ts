@@ -39,6 +39,11 @@ import { computeNormalizedInputHash, type NormalizedInputRow } from "../_shared/
 // logic below, unchanged this slice).
 const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v1";
 
+// Matches crypto.randomUUID() output (and any standard UUID). Case-
+// insensitive: RFC 4122 doesn't mandate lowercase, and rejecting a
+// technically-valid uppercase UUID would be an arbitrary tightening.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -1192,8 +1197,24 @@ serve(async (req) => {
     if (auth.error) return auth.error;
     const userId = auth.userId!;
 
-    const { uploadId } = await req.json();
+    const { uploadId, clientRequestId } = await req.json();
     if (!uploadId) throw new Error("uploadId is required");
+
+    // Ω∞ Phase 0 Slice 2 — caller-supplied request identity. A server-
+    // generated UUID here defeats real request-level idempotency (a retry
+    // of the same logical action always got a fresh, unmatchable identity)
+    // — this must come from the caller so a genuine network retry reuses
+    // it while a new user-triggered processing action gets a new one.
+    // REQUIRED, no server-generated fallback: a fallback would silently
+    // preserve the exact broken replay semantics this closes. Distinct
+    // from request_hash/source_file_hash/normalized_input_hash — this is
+    // the request's own identity/key, not a proof of what it contains.
+    if (typeof clientRequestId !== "string" || !UUID_PATTERN.test(clientRequestId)) {
+      return new Response(
+        JSON.stringify({ error: "Bad Request", message: "clientRequestId is required and must be a valid UUID" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     console.log(`[PTB v2.0] Processing upload ${uploadId} for user ${userId}`);
 
@@ -1357,13 +1378,15 @@ serve(async (req) => {
     );
 
     if (resolvedActor && upload.company_id) {
-      // clientRequestId is server-generated fresh per invocation — a
-      // separate, orthogonal identity from requestHash/inputHash below (see
-      // Slice 2 report item V for why a client-supplied id is out of scope
-      // this slice). requestHash is the real canonical identity of THIS
-      // specific input (upload + exact bytes + exact parsed content), never
-      // reduced to uploadId alone.
-      const clientRequestId = crypto.randomUUID();
+      // clientRequestId is now caller-supplied (validated at the top of
+      // this handler) — a genuine network retry of the same logical action
+      // reuses it; a new user-triggered processing action gets a new one
+      // from the caller. requestHash remains a separate, orthogonal
+      // identity: the real canonical identity of THIS specific input
+      // (upload + exact bytes + exact parsed content), never reduced to
+      // uploadId alone, and never including clientRequestId itself —
+      // clientRequestId is the request's key, requestHash is a proof of
+      // what that request represented.
       const requestHash = await sha256Hex(canonicalJson({ uploadId, sourceFileHash, normalizedInputHash } as unknown as CanonicalValue));
       const claim = await claimIdempotency(supabase as never, {
         companyId: upload.company_id,
