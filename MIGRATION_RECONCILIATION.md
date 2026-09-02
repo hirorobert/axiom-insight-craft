@@ -1,4 +1,6 @@
-# Ω∞ Phase 2A Migration Identity Reconciliation
+# Ω∞ Migration Identity Reconciliation
+
+This document tracks every case in this project where Lovable's live execution identity for a migration diverged from the repository's reviewed, canonical authoring identity. Phase 2A was the first case (below); Phase 0A is the second (see that section further down). Each case is reconciled independently under Model B — the earlier-timestamped, reviewed file stays the sole executable replay authority; Lovable's generated capture becomes a permanent, inert, comment-only historical marker.
 
 ## Project
 
@@ -44,6 +46,45 @@ This repository change does **not** alter what historically executed against the
 - `DEFECT-DEFAULT-ACL-AUTHENTICATED-001` — open, untouched.
 - `DEFECT-PHASE2A-MIGRATION-REPLAY-001` — **remains open, not closed by this commit.** This commit repairs the *repository representation* of replay determinism only. It cannot be closed until the live history repair above is actually performed and a fresh-replay (or equivalent) proof is obtained against the real project.
 
-## Scope note
+## Scope note (Phase 2A section)
 
-Nothing above certifies the wider ~96-file migration history repository-wide. This record is scoped specifically to the Phase 2A duplicate between `20260816120000` and `20260818040518`.
+Nothing above certifies the wider ~96-file migration history repository-wide. That record is scoped specifically to the Phase 2A duplicate between `20260816120000` and `20260818040518`.
+
+---
+
+# Phase 0A Migration Identity Reconciliation
+
+## Canonical reviewed migration
+
+`supabase/migrations/20260901120000_engine_execution_foundation.sql`
+Pre-live (hardened) SHA-256: `acaaf0a49741d9a038682bd0d507088598e728c93b83888816a46e9bcd5b3b29`
+
+Taken through the same design/security review rigor as Phase 2A: canonical identity model, `NULLS NOT DISTINCT` concurrency correction, subquery-free bounded `CHECK` constraints, `SECURITY INVOKER` trigger justification, and independently `deno check`-verified shared modules. This is the sole intended executable Phase 0A creation authority going forward.
+
+## Lovable live execution identity
+
+`20260902052434` — the version identity Lovable's own tooling generated and recorded as applied on `bvyivmmfjejbmqoydezk` on 2026-09-02, at file `supabase/migrations/20260902052434_5756b235-5fad-437e-8753-07a632b8a70a.sql`.
+
+## Executable equivalence proof
+
+Both files' comments and blank lines were stripped and diffed directly: 268/268 non-comment lines identical, zero diff output. The only difference between the two files is comment/header content — Lovable's generated file carries no equivalent of the canonical file's extensive documentation header. No table, column, constraint, index, trigger, function body, or grant statement differs between what was authored and what actually ran.
+
+## What happened and why
+
+Same pattern as Phase 2A, now observed a fourth time in this project (`account_mapping_memory`, Phase 2A, and now Phase 0A): Lovable applies executable SQL under its own generated timestamp rather than the repository's authored one. Because `20260901120000 < 20260902052434`, leaving both executable would break deterministic replay the same way the Phase 2A duplicate would have. **Model B** applied identically: `20260901120000` stays canonical and executable; `20260902052434`'s file is now a comment-only marker (see that file's own header for the full record, mirroring the Phase 2A marker's structure).
+
+## Live ACL defect found during this execution — separate from the identity reconciliation
+
+The live execution exposed a **real defect in the canonical migration's own text**, not a platform quirk: `REVOKE ALL ON public.engine_runs FROM PUBLIC, anon;` (and the equivalent for `idempotency_keys`) never named `authenticated`. This project's `pg_default_acl` already grants `authenticated` broad privileges (`arwdDxtm`) at `CREATE TABLE` time — the pre-existing, still-open `DEFECT-DEFAULT-ACL-AUTHENTICATED-001` — so the migration's subsequent `GRANT SELECT TO authenticated` only *added* SELECT on top of that inherited grant rather than replacing it. RLS still correctly blocked unauthorized rows in practice, but the table-level ACL itself did not satisfy the required defence-in-depth invariant.
+
+**Correction**: `supabase/migrations/20260902110000_phase0a_acl_hardening.sql` — a new, additive, post-execution migration touching only `engine_runs`/`idempotency_keys` grants. Explicitly revokes from `PUBLIC`/`anon`/`authenticated`, then grants `SELECT` to `authenticated` and full authority to `service_role`. Does **not** touch `ALTER DEFAULT PRIVILEGES` — that remains `DEFECT-DEFAULT-ACL-AUTHENTICATED-001`'s separate, future, project-wide remediation, deliberately out of scope here. This correction has **not** been applied live as of this record — it is a repository candidate awaiting the same Lovable-mediated live-application gate Phase 0A's creation migration went through.
+
+## Open defects (Phase 0A)
+
+- `DEFECT-DEFAULT-ACL-AUTHENTICATED-001` — open, unchanged in scope, now with a second concrete manifestation on record (Phase 0A joins Phase 2A as evidence of the same underlying project-wide default-privilege gap).
+- `DEFECT-MIGRATION-HISTORY-DIVERGENCE-001` — open, unchanged; Phase 0A's identity divergence is additional evidence of the same root pattern, not a new defect.
+- New: the live ACL gap itself is tracked as fixed-in-candidate via `20260902110000_phase0a_acl_hardening.sql`, not yet fixed-in-live until that migration is actually applied.
+
+## Scope note (Phase 0A section)
+
+This record is scoped specifically to the Phase 0A duplicate between `20260901120000` and `20260902052434`, and the ACL correction discovered at that execution. It does not certify or attempt to repair the project-wide default-ACL defect itself.
