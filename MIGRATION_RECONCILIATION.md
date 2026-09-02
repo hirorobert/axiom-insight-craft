@@ -184,25 +184,33 @@ Every earlier reconciliation in this document (SAFISHA foundation, Phase 0A foun
 
 The report itself stated the candidate migration file was not present in that environment, so even a hash comparison was not attempted there. The policy-name match is strong circumstantial evidence of the same migration having run, but it is **not** the same standard of proof as the other three cases in this document. If a full `schema_migrations` export (matching the pattern used for the SAFISHA foundation and Phase 0A reconciliations) is obtained later, this should be upgraded to a verified equivalence and this note revised.
 
-## Behavioral verification status — outstanding, not resolved by this reconciliation
+## Behavioral verification status — LIVE-EXECUTED, this session, 2026-09-02
 
-Relayed test results (project owner's own environment, no live connection made from this session):
+Superseding the relayed-report row below it. Method: SQL-impersonation (`SET LOCAL role authenticated; SET LOCAL request.jwt.claims = '{"sub": "<uid>"}';`) run directly in the live project's SQL Editor by the project owner, against a disposable synthetic fixture built and torn down within this same pass — one throwaway `companies` row (`f00d0000-0000-4000-8000-000000000001`), its trigger-created owner `firm_members` row (`slice4b-a-1788370770@test-saff.invalid`), one manually-inserted second `firm_members` row for a same-company non-uploader (`slice4b-b-1788370770@test-saff.invalid`, role `preparer`, `accepted_at` set), and one `trial_balance_uploads` row (`f00d0000-0000-4000-8000-000000000002`) owned by the first identity. No natural multi-member-company fixture existed anywhere in this database (confirmed by two separate discovery queries returning zero rows), which is why a synthetic fixture was required. Post-test cleanup confirmed via a residue-count query returning `0, 0, 0` across all three tables — no lasting fixture remains.
+
+Methodology honesty note: this impersonation technique exercises the actual RLS policy evaluation faithfully (`auth.uid()` reads from `request.jwt.claims` exactly as PostgREST sets it up for a real request), so it is a direct, executed proof of the policy logic itself — the exact mechanism this migration touches. It does **not** additionally prove anything about the HTTP/PostgREST/API-gateway layer above that (real login, session handling, client-side caching) — but this migration doesn't touch any of that either, so that gap is immaterial to what's being certified here.
 
 | Check | Result |
 |---|---|
 | Live policy names present | Confirmed |
-| Uploader direct SELECT | UNVERIFIED (no signed-in test session) |
-| Same-company non-uploader SELECT | UNVERIFIED (no signed-in test session) — **this is the specific defect the migration exists to fix; still unproven live** |
-| Different-company member SELECT | UNVERIFIED (no signed-in test session) |
-| Unrelated authenticated user SELECT | UNVERIFIED (no signed-in test session) |
-| Anonymous SELECT | PASS — HTTP 401. A coarser signal than RLS itself (401 typically reflects the API gateway rejecting an unauthenticated request before RLS is even evaluated), but a genuine positive data point, not a red flag. |
-| RPC — uploader / same-company non-uploader / different-company | UNVERIFIED — no certification fixtures exist yet to exercise the RPC path at all |
-| Stale-authority fail-closed | Reported as a STRUCTURAL claim, not an executed test — independently corroborated here: this migration adds only a `FOR SELECT` policy and touches no line of `get_authoritative_certification`'s own SQL, so its authority predicate (latest-upload selection, source-hash matching, blocking/requires_review exclusion) is untouched by construction |
-| Mutation privileges | Confirmed unaffected — only a SELECT policy was added |
-| Unrelated schema/code changes | None reported |
+| Uploader direct SELECT | **VERIFIED LIVE** — 1 row returned for `slice4b-a` against its own upload. Original `"Users can view their own uploads"` policy confirmed still intact, unaffected by the addition. |
+| Same-company non-uploader SELECT | **VERIFIED LIVE — THE CORE PROOF.** 1 row returned for `slice4b-b` (accepted `firm_members` row, same company, did not upload the row) against the same upload. Before this migration this case returned 0 rows — this is the exact defect `DEFECT-TRIAL-BALANCE-UPLOAD-MEMBER-READ-RLS-001` was opened to fix, now proven closed against the live database. |
+| Different-company member SELECT (a member of a *second*, distinct company probing company A's upload) | Still UNVERIFIED — not the case this pass's negative control tested (see next row). Not required to close the defect (the defect was about false negatives for legitimate members, not false positives), but remains open if a fully precise case-5 proof is later wanted. |
+| Unrelated authenticated user SELECT (no `firm_members` row anywhere) | **VERIFIED LIVE** — 0 rows returned for `amm-rls-1786427106993@test-saff.invalid`, an authenticated identity with no membership in the test company at all. Confirms the new policy does not over-grant. |
+| Anonymous SELECT | PASS — HTTP 401 (relayed report, unchanged by this pass; not re-tested here since SQL impersonation always sets an authenticated role). |
+| RPC — `get_authoritative_certification` (uploader / same-company non-uploader / different-company) | Still UNVERIFIED — deliberately out of scope for this pass. The synthetic fixture has no real `tb_certifications` row (no engine run was ever committed against the throwaway upload), so the RPC would return 0 rows for every identity regardless of the RLS fix — it would not discriminate anything. The direct-SELECT proof above is the correct and sufficient test, since it's exactly the read `get_authoritative_certification`'s `latest_upload` CTE depends on. |
+| Stale-authority fail-closed | Still a STRUCTURAL claim, not separately executed — this migration adds only a `FOR SELECT` policy and touches no line of `get_authoritative_certification`'s own SQL, so its authority predicate (latest-upload selection, source-hash matching, blocking/requires_review exclusion) is untouched by construction. |
+| Mutation privileges | Confirmed unaffected — only a SELECT policy was added; not separately re-tested this pass (no reason to expect regression, no code path touched). |
 
-**This reconciliation resolves the migration-identity question only.** It does **not** certify the live behavior the migration was written to fix — specifically, whether a genuine same-company non-uploader now actually sees the certification, which remains the one unproven case that matters most. That requires a signed-in session exercising the actual RLS/RPC paths, not yet performed.
+**Verdict: `DEFECT-TRIAL-BALANCE-UPLOAD-MEMBER-READ-RLS-001` is CLOSED.** The specific, concrete failure the defect described — a genuine accepted firm member other than the uploader being falsely told no certification exists — is now proven live-reversed. The two items left UNVERIFIED above (distinct-second-company case, RPC end-to-end) are lower-value residual gaps, not open questions about whether the fix works.
+
+## Prior relayed-report row (superseded above, kept for the record)
+
+| Check | Result |
+|---|---|
+| Uploader / same-company non-uploader / different-company / unrelated direct SELECT | Originally relayed as UNVERIFIED (no signed-in test session in that environment) — now superseded by the live-executed results above. |
+| RPC path | Originally relayed as UNVERIFIED — remains UNVERIFIED (see note above; out of scope by design, not by oversight). |
 
 ## Scope note (Slice 4B RLS section)
 
-Scoped specifically to the `20260902160000`/`20260902173837` identity question. Does not certify runtime RLS/RPC behavior — that remains open, tracked above, and blocks declaring `DEFECT-TRIAL-BALANCE-UPLOAD-MEMBER-READ-RLS-001` closed until a signed-in behavioral pass is actually run.
+Migration-identity question: resolved (see above, weaker standard of proof than the three prior reconciliations — policy-name correspondence only). Runtime RLS behavior for the case that mattered: now resolved by live execution in this session. `DEFECT-TRIAL-BALANCE-UPLOAD-MEMBER-READ-RLS-001` may be marked CLOSED on that basis.
