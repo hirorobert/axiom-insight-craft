@@ -1144,6 +1144,174 @@ function buildCertifiedRows(
   return rows;
 }
 
+// ── Ω∞ Phase 0 Slice 4A — L5 (supporting evidence) / L6 (prior-period
+// evidence), jurisdiction-neutral by construction ─────────────────────────
+//
+// PHASE0-GLOBAL-L5-RECONCILIATION-001: SAFF core is jurisdiction-neutral.
+// L5 reads ONLY trial_balance_uploads.safisha_status and
+// safisha_reconciliations' generic counts — both written exclusively by
+// the generic bank/subledger pipeline (safisha-ingest / safisha-match /
+// the safisha_resolve_exception() RPC; confirmed by exhaustive repo grep:
+// safisha-efdms-ingest never touches either). Zero references to
+// efdms_z_reports, efdms_reconciliation, variance_materiality, or
+// tax_computations exist anywhere below — that is a hard invariant, not
+// an implementation detail (see l5l6Evidence.test.ts's contamination
+// check, which greps this file for exactly those names).
+//
+// PHASE0-ARCHITECTURE-RECONCILIATION-001: no safisha-validate-tb function
+// is created. process-trial-balance remains the evolved authoritative
+// certification path; this is additive evidence collection inside it.
+
+type Phase0EvidenceState =
+  | "NOT_EVALUATED" | "INSUFFICIENT_CONTEXT" | "NO_EVIDENCE"
+  | "NO_DIFFERENCE" | "UNRESOLVED_EVIDENCE";
+
+interface Phase0Evidence {
+  layer5Exceptions: SafishaExceptionRecord[];
+  layer6Exceptions: SafishaExceptionRecord[];
+}
+
+/**
+ * L5 — supporting evidence. Informational/review only, never authoritative:
+ * this function only ever returns severity "info"/"warning" entries and
+ * NEVER influences is_blocking/requires_review at any call site — that
+ * remains entirely the calling branch's own decision, made independently
+ * before this evidence is appended.
+ *
+ * NO_EVIDENCE vs NO_DIFFERENCE (hard invariant, never collapsed): a
+ * 'clean' safisha_status only becomes NO_DIFFERENCE if the reconciliation
+ * actually evaluated something (total_tb_lines/matched_count+exception_
+ * count > 0). A 'clean' status with nothing actually evaluated — which
+ * should not occur given safisha-ingest's own flow, but is not assumed —
+ * is reported as the LESS assuring NO_EVIDENCE instead, per "never
+ * manufacture assurance."
+ */
+async function collectLayer5SupportingEvidence(
+  supabase: ReturnType<typeof createClient>,
+  uploadId: string,
+): Promise<SafishaExceptionRecord[]> {
+  const { data: uploadRow } = await supabase
+    .from("trial_balance_uploads")
+    .select("safisha_status")
+    .eq("id", uploadId)
+    .maybeSingle();
+  const status = (uploadRow as { safisha_status: string | null } | null)?.safisha_status ?? null;
+
+  let state: Phase0EvidenceState;
+  let severity: "info" | "warning";
+  let detail = "";
+
+  if (status === null) {
+    state = "NOT_EVALUATED";
+    severity = "info";
+    detail = "no supporting-evidence reconciliation has been run for this upload";
+  } else if (status === "processing") {
+    state = "INSUFFICIENT_CONTEXT";
+    severity = "warning";
+    detail = "supporting-evidence reconciliation is in progress and has not concluded";
+  } else if (status === "clean") {
+    const { data: reconRow } = await supabase
+      .from("safisha_reconciliations")
+      .select("matched_count, exception_count, total_tb_lines")
+      .eq("tb_upload_id", uploadId)
+      .maybeSingle();
+    const recon = reconRow as { matched_count: number; exception_count: number; total_tb_lines: number } | null;
+    const evaluatedSomething = !!recon && (recon.total_tb_lines > 0 || recon.matched_count > 0 || recon.exception_count > 0);
+    if (evaluatedSomething) {
+      state = "NO_DIFFERENCE";
+      severity = "info";
+      detail = `supporting evidence evaluated with no unresolved difference (matched=${recon!.matched_count}, exceptions=${recon!.exception_count})`;
+    } else {
+      // 'clean' but nothing was actually evaluated -- never claim a
+      // successful reconciliation over an empty comparison.
+      state = "NO_EVIDENCE";
+      severity = "info";
+      detail = "no meaningful supporting evidence was available to evaluate";
+    }
+  } else if (status === "needs_review" || status === "blocked") {
+    state = "UNRESOLVED_EVIDENCE";
+    severity = "warning";
+    detail = status === "blocked"
+      ? "supporting-evidence reconciliation reported BLOCKED (unresolved exceptions rejected on review) -- observed as evidence only, does not itself block this certification"
+      : "supporting-evidence reconciliation has unresolved exceptions pending review";
+  } else {
+    // Any unrecognized value -- fail toward the least-assuring state
+    // rather than guess at its meaning.
+    state = "INSUFFICIENT_CONTEXT";
+    severity = "warning";
+    detail = `unrecognized supporting-evidence status value "${status}"`;
+  }
+
+  return [{
+    code: "L5_SUPPORTING_EVIDENCE",
+    layer: 5,
+    severity,
+    accountCode: null,
+    message: `${state}: ${detail}`,
+  }];
+}
+
+/**
+ * L6 — prior-period evidence. Minimum three-state signal only
+ * (prior_certified | no_prior | insufficient_evidence) -- no balance
+ * comparison, no movement analysis, no Phase 4 comparative engine.
+ * Reuses get_authoritative_certification exactly as designed; no
+ * authority predicate is reproduced here.
+ */
+async function collectLayer6PriorPeriodEvidence(
+  supabase: ReturnType<typeof createClient>,
+  companyId: string,
+  periodYear: number | null,
+): Promise<SafishaExceptionRecord[]> {
+  if (periodYear === null) {
+    return [{
+      code: "L6_PRIOR_PERIOD_SIGNAL", layer: 6, severity: "info", accountCode: null,
+      message: "INSUFFICIENT_EVIDENCE: current period identity is unavailable, prior period cannot be derived",
+    }];
+  }
+
+  // period_year is a real annual calendar-year integer (server-synced from
+  // fiscal_year_end via trg_sync_upload_period_year, migration
+  // 20260709082906; CLAUDE.md's own documented convention: "periodYear =
+  // 4-digit integer ... NEVER a DB timestamp or upload ID") -- period_year
+  // - 1 is therefore a proven, deterministic "immediately prior period"
+  // under the CURRENT single-annual-period model. This is not re-derived
+  // for a future multi-period-per-year model without new evidence.
+  const priorPeriodYear = periodYear - 1;
+
+  const { data: priorCert } = await supabase.rpc("get_authoritative_certification", {
+    p_company_id: companyId,
+    p_period_year: priorPeriodYear,
+  } as never);
+  const priorCertRows = priorCert as unknown[] | null;
+  const hasAuthoritativePrior = Array.isArray(priorCertRows) && priorCertRows.length > 0;
+
+  return [{
+    code: "L6_PRIOR_PERIOD_SIGNAL", layer: 6, severity: "info", accountCode: null,
+    message: hasAuthoritativePrior
+      ? `PRIOR_CERTIFIED: an authoritative certification exists for period ${priorPeriodYear}`
+      : `NO_PRIOR: no authoritative certification exists for period ${priorPeriodYear}`,
+  }];
+}
+
+/**
+ * ONE deterministic collection path for L5+L6, called exactly once per
+ * request (right after the idempotency claim succeeds) and reused
+ * verbatim on every certification-construction branch that follows
+ * (blocking, needs_review, valid) -- never re-queried per branch, never
+ * copy-pasted. Fixed L5-then-L6 append order keeps output deterministic
+ * for the same input/evidence state; no timestamp is ever included in
+ * either message.
+ */
+async function collectPhase0Evidence(
+  supabase: ReturnType<typeof createClient>,
+  params: { companyId: string; periodYear: number | null; uploadId: string },
+): Promise<Phase0Evidence> {
+  const layer5Exceptions = await collectLayer5SupportingEvidence(supabase, params.uploadId);
+  const layer6Exceptions = await collectLayer6PriorPeriodEvidence(supabase, params.companyId, params.periodYear);
+  return { layer5Exceptions, layer6Exceptions };
+}
+
 /**
  * Commits a SAFISHA certification and terminates this engine_run —
  * commit_tb_certification completes both engine_runs and idempotency_keys
@@ -1222,6 +1390,9 @@ serve(async (req) => {
   let engineRunId: string | null = null;
   let idempotencyKeyId: string | null = null;
   let engineStartedAt: string | null = null;
+  // Ω∞ Phase 0 Slice 4A — collected once (see collectPhase0Evidence), reused
+  // verbatim on every certification-construction branch that follows.
+  let phase0Evidence: Phase0Evidence | null = null;
 
   try {
     const auth = await validateAuth(req.headers.get("Authorization"));
@@ -1454,6 +1625,16 @@ serve(async (req) => {
       engineRunId      = claim.engineRunId;
       idempotencyKeyId = claim.keyId;
       engineStartedAt  = claim.startedAt;
+
+      // Ω∞ Phase 0 Slice 4A — ONE collection path, called exactly once here,
+      // reused on every certification branch below (blocking, needs_review,
+      // valid). tb_certifications is the immutable record of what the
+      // engine knew during this execution — a failure at one layer must
+      // not erase evidence obtained from another; L5/L6 survive regardless
+      // of which outcome this request ultimately reaches.
+      phase0Evidence = await collectPhase0Evidence(supabase as never, {
+        companyId: upload.company_id, periodYear: upload.period_year ?? null, uploadId,
+      });
     }
 
     // ── Ω∞ Phase 0 Slice 2 — DEFECT-SAFISHA-SILENT-NUMERIC-ZERO-001 gate ──────
@@ -1480,9 +1661,13 @@ serve(async (req) => {
           uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
           sourceFileHash, normalizedInputHash,
           isBlocking: true, requiresReview: false,
-          exceptions: malformedNumericErrors.map((e): SafishaExceptionRecord => ({
-            code: e.code, layer: 2, severity: "error", accountCode: null, message: e.message,
-          })),
+          exceptions: [
+            ...malformedNumericErrors.map((e): SafishaExceptionRecord => ({
+              code: e.code, layer: 2, severity: "error", accountCode: null, message: e.message,
+            })),
+            ...(phase0Evidence?.layer5Exceptions ?? []),
+            ...(phase0Evidence?.layer6Exceptions ?? []),
+          ],
           rowsSnapshot: [],
         });
         if (!commit.ok) return commit.response;
@@ -1523,10 +1708,14 @@ serve(async (req) => {
           uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
           sourceFileHash, normalizedInputHash,
           isBlocking: true, requiresReview: false,
-          exceptions: [{
-            code: "TRIAL_BALANCE_IMBALANCE", layer: 3, severity: "error", accountCode: null,
-            message: `Debits ${totalDebits.toFixed(2)} != Credits ${totalCredits.toFixed(2)} (difference: ${difference.toFixed(2)})`,
-          }],
+          exceptions: [
+            {
+              code: "TRIAL_BALANCE_IMBALANCE", layer: 3, severity: "error", accountCode: null,
+              message: `Debits ${totalDebits.toFixed(2)} != Credits ${totalCredits.toFixed(2)} (difference: ${difference.toFixed(2)})`,
+            },
+            ...(phase0Evidence?.layer5Exceptions ?? []),
+            ...(phase0Evidence?.layer6Exceptions ?? []),
+          ],
           rowsSnapshot: [],
         });
         if (!commit.ok) return commit.response;
@@ -1729,9 +1918,13 @@ serve(async (req) => {
           uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
           sourceFileHash, normalizedInputHash,
           isBlocking: false, requiresReview: true,
-          exceptions: needsReviewAccounts.map((r): SafishaExceptionRecord => ({
-            code: "NEEDS_REVIEW", layer: 4, severity: "warning", accountCode: r.account_code, message: r.reason,
-          })),
+          exceptions: [
+            ...needsReviewAccounts.map((r): SafishaExceptionRecord => ({
+              code: "NEEDS_REVIEW", layer: 4, severity: "warning", accountCode: r.account_code, message: r.reason,
+            } as SafishaExceptionRecord)),
+            ...(phase0Evidence?.layer5Exceptions ?? []),
+            ...(phase0Evidence?.layer6Exceptions ?? []),
+          ],
           rowsSnapshot: [],
         });
         if (!commit.ok) return commit.response;
@@ -1810,10 +2003,14 @@ serve(async (req) => {
         uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
         sourceFileHash, normalizedInputHash,
         isBlocking: false, requiresReview: false,
-        exceptions: bsPassed ? [] : [{
-          code: "BALANCE_SHEET_EQUATION_FAILED", layer: 3, severity: "warning", accountCode: null,
-          message: `Assets (${totals.assets.toFixed(2)}) != Liabilities + Closing Equity (${(totals.liabilities + closingEquity).toFixed(2)}). Difference: ${bsDifference.toFixed(2)}`,
-        }],
+        exceptions: [
+          ...(bsPassed ? [] : [{
+            code: "BALANCE_SHEET_EQUATION_FAILED", layer: 3 as const, severity: "warning" as const, accountCode: null,
+            message: `Assets (${totals.assets.toFixed(2)}) != Liabilities + Closing Equity (${(totals.liabilities + closingEquity).toFixed(2)}). Difference: ${bsDifference.toFixed(2)}`,
+          }]),
+          ...(phase0Evidence?.layer5Exceptions ?? []),
+          ...(phase0Evidence?.layer6Exceptions ?? []),
+        ],
         rowsSnapshot,
       });
       if (!commit.ok) return commit.response;
