@@ -446,7 +446,13 @@ function parseNumber(v: string | number | null): number | typeof MALFORMED_NUMER
   if (typeof v === "number") return Number.isFinite(v) ? v : MALFORMED_NUMERIC;
   const cleaned = String(v).trim().replace(/[,$\s]/g, "");
   if (cleaned === "") return 0;
-  const parsed = parseFloat(cleaned);
+  // Number(), not parseFloat(): parseFloat parses a leading numeric PREFIX
+  // and silently discards trailing garbage — parseFloat("12abc") === 12,
+  // parseFloat("1.2.3") === 1.2. That is the same silent-fabrication defect
+  // in a subtler form (a partially-fabricated number is still fabricated).
+  // Number() requires the ENTIRE cleaned string to be a valid numeric
+  // literal or returns NaN, which Number.isFinite then rejects below.
+  const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : MALFORMED_NUMERIC;
 }
 
@@ -1200,60 +1206,6 @@ serve(async (req) => {
     // Only after ownership is confirmed do we mutate the upload row.
     await supabase.from("trial_balance_uploads").update({ status: "validating" }).eq("id", uploadId);
 
-    // ── Ω∞ Phase 0 Slice 2: idempotency claim + engine_run creation ──────────
-    // Claimed as early as possible (before the expensive download/parse/
-    // classify work) so a genuine HTTP retry never redoes that work. Skipped
-    // entirely for legacy company_id-null uploads (see above) — there is no
-    // company to attach an engine_run or certification to.
-    // clientRequestId is server-generated fresh per invocation: this
-    // structurally wires engine_runs/idempotency_keys with the correct
-    // actor/company/function identity (real reproducibility-ledger rows),
-    // but does NOT yet collapse literal network retries into a replay —
-    // that requires a client-generated id passed from the frontend, which
-    // is a request-contract change deliberately left out of this slice's
-    // scope (see Slice 2 report item V). A later slice can pass a real
-    // caller-supplied id through the existing optional path with no change
-    // to this function's logic.
-    if (resolvedActor && upload.company_id) {
-      const clientRequestId = crypto.randomUUID();
-      const requestHash = await sha256Hex(canonicalJson({ uploadId } as unknown as CanonicalValue));
-      const claim = await claimIdempotency(supabase as never, {
-        companyId: upload.company_id,
-        actor: resolvedActor,
-        actorType: "user",
-        functionName: "process-trial-balance",
-        engineVersion: SAFISHA_ENGINE_VERSION,
-        clientRequestId,
-        requestHash,
-        inputHash: null,
-        periodYear: upload.period_year ?? null,
-        sourceTable: "trial_balance_uploads",
-        sourceRecordId: uploadId,
-      });
-
-      if (claim.outcome === "conflict") {
-        return new Response(
-          JSON.stringify({ status: "blocked", error: "Idempotency conflict", message: "A conflicting request identity was detected for this upload." }),
-          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-      if (claim.outcome === "in_progress") {
-        return new Response(
-          JSON.stringify({ status: "in_progress", message: "This upload is already being processed." }),
-          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-      if (claim.outcome === "replay") {
-        return new Response(
-          JSON.stringify({ status: claim.result.status, replay: true, reference_id: claim.result.reference_id ?? null }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-      engineRunId     = claim.engineRunId;
-      idempotencyKeyId = claim.keyId;
-      engineStartedAt  = claim.startedAt;
-    }
-
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("trial-balance-files").download(upload.file_path);
     if (downloadError || !fileData) throw new Error(`Failed to download file: ${downloadError?.message}`);
@@ -1312,18 +1264,12 @@ serve(async (req) => {
       allErrors.push({ code: "MISSING_COLUMN", message: "Could not detect debit or balance column. Ensure headers contain 'Debit'/'Dr' or 'Balance'.", field: "debit" });
     }
     if (allErrors.length > 0) {
-      // No account rows were ever identified — SAFISHA never had a
-      // normalized input to hash or certify. A genuine engine failure, not
-      // a SAFISHA blocking/review outcome (no certification is committed).
-      if (engineRunId && idempotencyKeyId && engineStartedAt) {
-        await recordEngineRunFailed(supabase as never, engineRunId, {
-          startedAt: engineStartedAt,
-          errorCode: "MISSING_REQUIRED_COLUMNS",
-          errorDetail: { stage: "column_detection", safe_message: allErrors.map(e => e.code).join(",").slice(0, 200) },
-        });
-        await failIdempotency(supabase as never, idempotencyKeyId, "MISSING_REQUIRED_COLUMNS");
-      }
-      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processed_at: new Date().toISOString() }).eq("id", uploadId);
+      // No account rows were ever identified yet — column detection itself
+      // failed. This is a pre-flight input-shape failure, not an "engine
+      // invocation" (no idempotency claim has happened at this point — see
+      // the ordering note above STEP 3.5 below): there is genuinely no
+      // engine_run to fail, so none is created here.
+      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, source_file_hash: sourceFileHash, processed_at: new Date().toISOString() }).eq("id", uploadId);
       return new Response(JSON.stringify({ status: "blocked", errors: allErrors }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1336,13 +1282,77 @@ serve(async (req) => {
       throw new Error("No account rows found after stripping subtotals and blank rows.");
     }
 
+    // ── Ω∞ Phase 0 Slice 2 — idempotency claim + engine_run creation ─────────
+    // Deliberately placed HERE, not before download/parse. normalized_input_
+    // hash is the TRUE authoritative input identity for this computation —
+    // claiming idempotency before it is known would mean claiming against a
+    // provisional identity (or, worse, reducing that identity to uploadId
+    // alone, which is a distinct concept: uploadId identifies WHICH upload,
+    // not WHAT was actually, validly parsed from it). source_file_hash,
+    // normalized_input_hash, and client_request_id are three separate
+    // identities (exact bytes / canonical parsed input / retry-replay
+    // identity) and none may stand in for another.
+    // Skipped entirely for legacy company_id-null uploads — there is no
+    // company to attach an engine_run or certification to.
+    const normalizedInputHash = await computeNormalizedInputHash(
+      rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
+    );
+
+    if (resolvedActor && upload.company_id) {
+      // clientRequestId is server-generated fresh per invocation — a
+      // separate, orthogonal identity from requestHash/inputHash below (see
+      // Slice 2 report item V for why a client-supplied id is out of scope
+      // this slice). requestHash is the real canonical identity of THIS
+      // specific input (upload + exact bytes + exact parsed content), never
+      // reduced to uploadId alone.
+      const clientRequestId = crypto.randomUUID();
+      const requestHash = await sha256Hex(canonicalJson({ uploadId, sourceFileHash, normalizedInputHash } as unknown as CanonicalValue));
+      const claim = await claimIdempotency(supabase as never, {
+        companyId: upload.company_id,
+        actor: resolvedActor,
+        actorType: "user",
+        functionName: "process-trial-balance",
+        engineVersion: SAFISHA_ENGINE_VERSION,
+        clientRequestId,
+        requestHash,
+        inputHash: normalizedInputHash,
+        periodYear: upload.period_year ?? null,
+        sourceTable: "trial_balance_uploads",
+        sourceRecordId: uploadId,
+      });
+
+      if (claim.outcome === "conflict") {
+        return new Response(
+          JSON.stringify({ status: "blocked", error: "Idempotency conflict", message: "A conflicting request identity was detected for this upload." }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      if (claim.outcome === "in_progress") {
+        return new Response(
+          JSON.stringify({ status: "in_progress", message: "This upload is already being processed." }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      if (claim.outcome === "replay") {
+        return new Response(
+          JSON.stringify({ status: claim.result.status, replay: true, reference_id: claim.result.reference_id ?? null }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      engineRunId      = claim.engineRunId;
+      idempotencyKeyId = claim.keyId;
+      engineStartedAt  = claim.startedAt;
+    }
+
     // ── Ω∞ Phase 0 Slice 2 — DEFECT-SAFISHA-SILENT-NUMERIC-ZERO-001 gate ──────
     // A malformed debit/credit/balance value must never be silently treated
     // as zero and allowed to flow into the trial balance check as if it
     // were a real, verified 0. rowsToRawAccounts already excludes these
-    // rows (never fabricates a value) — this blocks the upload outright so
-    // the CPA sees exactly which cells are unparseable, rather than a
-    // downstream imbalance with no obvious cause.
+    // rows (never fabricates a value). This is a real SAFISHA accounting-
+    // evidence outcome, not an infrastructure exception: the engine DID
+    // execute and reached a definitive, describable conclusion (exactly
+    // which rows/fields are unparseable) — so a certification is committed
+    // (is_blocking=true), never a bare engine failure.
     const malformedNumericErrors = allErrors.filter(e => e.code === "MALFORMED_NUMERIC_VALUE");
     if (malformedNumericErrors.length > 0) {
       const result: Partial<ProcessingResult> = {
@@ -1353,9 +1363,6 @@ serve(async (req) => {
         summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.2", columns_detected: detectedCols, auto_classified: 0 },
       };
       if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
-        const normalizedInputHash = await computeNormalizedInputHash(
-          rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
-        );
         const commit = await commitSafishaCertification(supabase as never, {
           engineRunId, idempotencyKeyId, engineStartedAt,
           uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
@@ -1368,7 +1375,7 @@ serve(async (req) => {
         });
         if (!commit.ok) return commit.response;
       }
-      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
+      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, source_file_hash: sourceFileHash, processed_at: new Date().toISOString() }).eq("id", uploadId);
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1398,9 +1405,6 @@ serve(async (req) => {
         summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.2", columns_detected: detectedCols, auto_classified: 0 },
       };
       if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
-        const normalizedInputHash = await computeNormalizedInputHash(
-          rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
-        );
         const commit = await commitSafishaCertification(supabase as never, {
           engineRunId, idempotencyKeyId, engineStartedAt,
           uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
@@ -1414,7 +1418,7 @@ serve(async (req) => {
         });
         if (!commit.ok) return commit.response;
       }
-      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
+      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, source_file_hash: sourceFileHash, processed_at: new Date().toISOString() }).eq("id", uploadId);
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1606,9 +1610,6 @@ serve(async (req) => {
         },
       };
       if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
-        const normalizedInputHash = await computeNormalizedInputHash(
-          rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
-        );
         const commit = await commitSafishaCertification(supabase as never, {
           engineRunId, idempotencyKeyId, engineStartedAt,
           uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
@@ -1626,6 +1627,7 @@ serve(async (req) => {
         is_valid:           false,
         accounting_errors:  allErrors,
         processing_result:  result,
+        source_file_hash:   sourceFileHash,
         processed_at:       new Date().toISOString(),
       }).eq("id", uploadId);
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -1688,9 +1690,6 @@ serve(async (req) => {
     };
 
     if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
-      const normalizedInputHash = await computeNormalizedInputHash(
-        rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
-      );
       const rowsSnapshot = buildCertifiedRows(rawAccounts, resolvedMappings, resolvedConfidenceSources);
       const commit = await commitSafishaCertification(supabase as never, {
         engineRunId, idempotencyKeyId, engineStartedAt,
@@ -1712,6 +1711,7 @@ serve(async (req) => {
       validation_report:  validationReport,
       accounting_errors:  allErrors,
       processing_result:  processingResult,
+      source_file_hash:   sourceFileHash,
       processed_at:       new Date().toISOString(),
     }).eq("id", uploadId);
 
