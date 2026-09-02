@@ -253,4 +253,105 @@ SELECT grantee, privilege_type FROM information_schema.role_routine_grants
 -- as a fallback once a later attempt on that same upload is blocking or
 -- requires review. Only the single latest-by-sequence_no row is ever
 -- evaluated.
+
+-- ── CASE J (Slice 2 authority hardening) — current upload's
+--            source_file_hash is UNKNOWN (NULL) even though the latest
+--            certification on it is eligible — fails CLOSED, not open ────
+-- Fresh period. U2 current upload with source_file_hash = NULL (never
+-- observed by any successful process-trial-balance run — e.g. this row
+-- predates Slice 2's live writer, or every attempt so far has failed
+-- before persisting the hash). Commit C2 against U2: is_blocking=false,
+-- requires_review=false (eligible in every other respect).
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: zero rows. Slice 1R's original predicate treated a NULL current
+-- hash as "no drift signal, don't block" (correct when the column had no
+-- live writer at all). Slice 2 makes process-trial-balance a real,
+-- live writer of this column — an unknown current source identity must
+-- now fail closed exactly like a known mismatch, never open. See the
+-- 20260902150000_safisha_source_hash_authority_hardening.sql migration.
+-- ============================================================================
+
+-- ============================================================================
+-- Ω∞ Phase 0 Slice 2 — SOURCE_FILE_HASH AUTHORITY HARDENING (cases A-K)
+-- Migration: 20260902150000_safisha_source_hash_authority_hardening.sql
+-- Covers: (A-E) the trg_protect_source_file_hash write-boundary trigger,
+-- (F-K) the fail-closed get_authoritative_certification predicate. Still
+-- UNEXECUTED — no live DB access exists in this environment.
+-- ============================================================================
+
+-- ── CASE A — authenticated owner: unrelated column change, hash untouched ──
+-- As authenticated, owning upload <U1> (source_file_hash currently H1):
+-- UPDATE public.trial_balance_uploads SET status = 'validating' WHERE id = '<U1>';
+-- EXPECT: succeeds exactly as before this migration — the trigger only
+-- fires logic when NEW.source_file_hash IS DISTINCT FROM OLD.source_file_hash;
+-- an update that never touches this column is a no-op for the trigger's
+-- own IF condition and is governed entirely by the pre-existing RLS
+-- policies, unchanged.
+
+-- ── CASE B — authenticated owner: H1 -> H2 -> DENIED ─────────────────────
+-- As authenticated, owning upload <U1> (source_file_hash = H1):
+-- UPDATE public.trial_balance_uploads SET source_file_hash = 'H2-fake' WHERE id = '<U1>';
+-- EXPECT: ERROR — "source_file_hash is server-authoritative ... cannot be
+-- changed by role authenticated" (ERRCODE 42501). Row unchanged.
+
+-- ── CASE C — authenticated owner: NULL -> arbitrary hash -> DENIED ────────
+-- As authenticated, owning a fresh upload <U3> (source_file_hash IS NULL):
+-- UPDATE public.trial_balance_uploads SET source_file_hash = 'forged' WHERE id = '<U3>';
+-- EXPECT: ERROR — same as Case B. NULL is not a bypass for this trigger;
+-- IS DISTINCT FROM correctly treats NULL -> non-NULL as a real change.
+
+-- ── CASE D — service_role: NULL -> H1 -> ALLOWED ──────────────────────────
+-- As service_role (the role process-trial-balance's admin client actually
+-- connects as), on a fresh upload <U4> (source_file_hash IS NULL):
+-- UPDATE public.trial_balance_uploads SET source_file_hash = 'H1' WHERE id = '<U4>';
+-- EXPECT: succeeds. current_user = 'service_role' short-circuits the
+-- trigger's IF condition entirely.
+
+-- ── CASE E — service_role: H1 -> H2 -> ALLOWED ────────────────────────────
+-- As service_role, on upload <U4> (source_file_hash = 'H1' from Case D):
+-- UPDATE public.trial_balance_uploads SET source_file_hash = 'H2' WHERE id = '<U4>';
+-- EXPECT: succeeds — this is exactly what a legitimate reprocess of
+-- changed Storage bytes does via process-trial-balance.
+
+-- ── CASE F — authority: current hash H1, eligible certification H1 ───────
+-- Upload <U5>, source_file_hash = 'H1'. Commit eligible certification C5
+-- against U5 with source_file_hash = 'H1'.
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: returns C5 — known, matching, non-NULL hash; eligible.
+
+-- ── CASE G — authority: current hash H2, certification recorded H1 ───────
+-- Continuing Case F: service_role updates U5.source_file_hash to 'H2'
+-- (Storage bytes changed; no new certification committed yet).
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: zero rows — mismatch withdraws authority.
+
+-- ── CASE H — authority: current hash NULL, eligible certification H1 ─────
+-- Same as CASE J above (restated here per the section 8 lettering): U5's
+-- source_file_hash reverted to NULL via service_role (or a fresh upload
+-- whose hash was never successfully persisted). Latest certification
+-- remains eligible with source_file_hash = 'H1'.
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: zero rows — unknown current identity fails closed.
+
+-- ── CASE I — blocking latest certification -> none ────────────────────────
+-- Upload <U6>, source_file_hash = 'H1'. Commit certification C6 against
+-- U6: is_blocking=true, source_file_hash = 'H1' (hash matches, but the
+-- result itself is blocking).
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: zero rows — is_blocking=false is still required regardless of
+-- hash match; this migration changes only the source-hash clause, no
+-- other predicate.
+
+-- ── CASE J — requires_review latest certification -> none ─────────────────
+-- Same as Case I with requires_review=true instead of is_blocking=true.
+-- EXPECT: zero rows — unchanged from Slice 1R.
+
+-- ── CASE K — no fallback to an earlier eligible certification ─────────────
+-- Upload <U7>, source_file_hash = 'H1'. C7a (sequence_no=300, eligible,
+-- source_file_hash='H1') then C7b (sequence_no=301, is_blocking=true,
+-- source_file_hash='H1').
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: zero rows — NOT C7a. Confirms this migration did not reintroduce
+-- a fallback path; only the latest-by-sequence_no row is ever evaluated,
+-- exactly as Cases B/C/H/I established for Slice 1R.
 -- ============================================================================
