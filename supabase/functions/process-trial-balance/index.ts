@@ -116,8 +116,21 @@ interface NeedsReviewAccount {
   reason:                    string;
 }
 
+// Ω∞ Phase 0 Slice 3 — `tier` carries the REAL classifier tier that fired
+// (1-5), fixing the tier-collapse gap Slice 2 had to work around
+// (confidenceSourceToEvidenceTier's lossy confidence_source->tier guess,
+// which could never distinguish tier 1/2/3 from each other). This is
+// additive precision, not a renumbering: the pre-Slice-3 lossy mapping
+// NEVER emitted 2 or 3 for any live account (it collapsed every "mapping"
+// confidence_source straight to 1) — those two values were reserved but
+// unused in every certification committed before this change, so
+// populating them now for real does not reinterpret any historical
+// tb_certifications.rows_snapshot row. Tier 5 covers BOTH the public-
+// sector framework rule and AUTO_CLASSIFICATION_RULES regex — identical
+// to the old lossy mapping's own grouping (both were "rule"-sourced and
+// both already collapsed to 5), so no compatibility change there either.
 type TieredClassifyResult =
-  | { status: "classified"; mapping: AccountMapping; confidence: "high" | "medium"; confidence_source: "mapping" | "dictionary_exact" | "dictionary_contains" | "rule" }
+  | { status: "classified"; mapping: AccountMapping; confidence: "high" | "medium"; confidence_source: "mapping" | "dictionary_exact" | "dictionary_contains" | "rule"; tier: 1 | 2 | 3 | 4 | 5 }
   | { status: "needs_review"; suggested_classification?: string; suggested_statement?: string; confidence_source?: string; reason: string };
 
 // Ω∞ Phase 2A: an account whose latest effective professional decision is
@@ -737,28 +750,28 @@ function classifyAccountTiered(
 
   // ── Tier 1: company mapping, exact code (NEVER fuzzy-match codes) ─────────
   if (code && companyByCode.has(code)) {
-    return { status: "classified", mapping: companyByCode.get(code)!, confidence: "high", confidence_source: "mapping" };
+    return { status: "classified", mapping: companyByCode.get(code)!, confidence: "high", confidence_source: "mapping", tier: 1 };
   }
 
   // ── Tier 2: company mapping, normalised name — exact then fuzzy ≤ 2 ───────
   if (normName) {
     if (companyByName.has(normName)) {
-      return { status: "classified", mapping: companyByName.get(normName)!, confidence: "high", confidence_source: "mapping" };
+      return { status: "classified", mapping: companyByName.get(normName)!, confidence: "high", confidence_source: "mapping", tier: 2 };
     }
     const fuzzyC = fuzzyMapLookup(normName, companyByName);
-    if (fuzzyC) return { status: "classified", mapping: fuzzyC, confidence: "high", confidence_source: "mapping" };
+    if (fuzzyC) return { status: "classified", mapping: fuzzyC, confidence: "high", confidence_source: "mapping", tier: 2 };
   }
 
   // ── Tier 3: global mapping (company_id IS NULL) — code exact, then name exact/fuzzy ─
   if (code && globalByCode.has(code)) {
-    return { status: "classified", mapping: globalByCode.get(code)!, confidence: "high", confidence_source: "mapping" };
+    return { status: "classified", mapping: globalByCode.get(code)!, confidence: "high", confidence_source: "mapping", tier: 3 };
   }
   if (normName) {
     if (globalByName.has(normName)) {
-      return { status: "classified", mapping: globalByName.get(normName)!, confidence: "high", confidence_source: "mapping" };
+      return { status: "classified", mapping: globalByName.get(normName)!, confidence: "high", confidence_source: "mapping", tier: 3 };
     }
     const fuzzyG = fuzzyMapLookup(normName, globalByName);
-    if (fuzzyG) return { status: "classified", mapping: fuzzyG, confidence: "high", confidence_source: "mapping" };
+    if (fuzzyG) return { status: "classified", mapping: fuzzyG, confidence: "high", confidence_source: "mapping", tier: 3 };
   }
 
   // ── Framework vocabulary: IPSAS/GFRS only ────────────────────────────────
@@ -783,6 +796,7 @@ function classifyAccountTiered(
       },
       confidence: "high",
       confidence_source: "rule",
+      tier: 5,
     };
   }
 
@@ -798,7 +812,7 @@ function classifyAccountTiered(
         line_item: account.account_name, normal_balance: meta.normal_balance,
         is_cash_account: false, is_retained_earnings: false, is_payroll_account: false,
       },
-      confidence: "high", confidence_source: "dictionary_exact",
+      confidence: "high", confidence_source: "dictionary_exact", tier: 4,
     };
   }
 
@@ -843,7 +857,7 @@ function classifyAccountTiered(
             line_item: account.account_name, normal_balance: meta.normal_balance,
             is_cash_account: false, is_retained_earnings: false, is_payroll_account: false,
           },
-          confidence: "high", confidence_source: "dictionary_contains",
+          confidence: "high", confidence_source: "dictionary_contains", tier: 4,
         };
       }
       // hasOpexConflict → fall through to Tier 4c / Tier 5
@@ -885,7 +899,7 @@ function classifyAccountTiered(
         is_retained_earnings: auto.is_retained ?? false,
         is_payroll_account:   auto.is_payroll  ?? false,
       },
-      confidence: "high", confidence_source: "rule",
+      confidence: "high", confidence_source: "rule", tier: 5,
     };
   }
 
@@ -1068,26 +1082,19 @@ function classificationToNature(cls: string): "asset" | "liability" | "equity" |
   return "expense"; // cost_of_goods_sold, operating_expenses, taxes
 }
 
-// classifyAccountTiered's confidence_source doesn't distinguish tier 1 vs 2
-// vs 3 (all "mapping") — this is a deliberate, documented approximation
-// (Slice 2 report item O), not a loss of real information the classifier
-// itself tracks. Extracting the exact 1-6 tier would mean changing
-// classifyAccountTiered's return shape, which Priority 5 requires be
-// preserved unchanged this slice.
-function confidenceSourceToEvidenceTier(source: string | undefined): 1 | 2 | 3 | 4 | 5 | 6 {
-  switch (source) {
-    case "mapping":             return 1;
-    case "dictionary_exact":
-    case "dictionary_contains": return 4;
-    case "rule":                return 5;
-    default:                    return 6;
-  }
-}
+// Ω∞ Phase 0 Slice 3 — D2: real per-account tier, no approximation. The
+// classifier itself now tracks and returns the exact tier (1-5) that
+// fired for each account (see TieredClassifyResult); this simply carries
+// it through to the certified snapshot. Replaces the Slice 2 lossy
+// confidence_source->tier guess entirely — that function collapsed
+// tiers 1/2/3 into a single "1" and never actually emitted 2 or 3 for
+// any live account, so no historical evidenceTier value is reinterpreted
+// by removing it.
 
 function buildCertifiedRows(
   accounts: RawAccount[],
   mappings: Map<string, AccountMapping>,
-  confidenceSources: Map<string, string>,
+  tiers: Map<string, 1 | 2 | 3 | 4 | 5>,
 ): CertifiedTBRowRecord[] {
   const rows: CertifiedTBRowRecord[] = [];
   for (const account of accounts) {
@@ -1105,7 +1112,12 @@ function buildCertifiedRows(
       debitBalance:   account.debit,
       creditBalance:  account.credit,
       netBalance:     signed,
-      evidenceTier:   confidenceSourceToEvidenceTier(confidenceSources.get(key)),
+      // tiers.get(key) is only absent if this account was never classified
+      // at all (shouldn't happen — buildCertifiedRows only runs on the
+      // valid/complete path, where every account resolved to some mapping
+      // by definition) — 6 (the pre-existing needs_review/fallback value)
+      // is the honest "no tracked tier" fallback, never fabricated as 1-5.
+      evidenceTier:   tiers.get(key) ?? 6,
       ruleId:         null,
       requiresReview: false,
     });
@@ -1604,11 +1616,11 @@ serve(async (req) => {
     // tagged with confidence_source. The PART 4 review screen is the sole writer.
 
     const resolvedMappings     = new Map<string, AccountMapping>();
-    // Ω∞ Phase 0 Slice 2: confidence_source per resolved account, keyed
-    // identically to resolvedMappings — feeds CertifiedTBRow.evidenceTier
-    // (buildCertifiedRows) without changing classifyAccountTiered's return
-    // shape or any tier 1-6 logic itself (Priority 5: preserve unchanged).
-    const resolvedConfidenceSources = new Map<string, string>();
+    // Ω∞ Phase 0 Slice 3 — D2: the REAL tier (1-5) per resolved account,
+    // keyed identically to resolvedMappings — feeds CertifiedTBRow.
+    // evidenceTier (buildCertifiedRows) with the classifier's own actual
+    // evidence tier, not a confidence_source-derived guess.
+    const resolvedTiers = new Map<string, 1 | 2 | 3 | 4 | 5>();
     const needsReviewAccounts: NeedsReviewAccount[]       = [];
     const nonReportingAccounts: NonReportingAccount[]     = [];
     let autoClassifiedCount = 0;
@@ -1630,7 +1642,7 @@ serve(async (req) => {
 
       if (result.status === "classified") {
         resolvedMappings.set(accountKey(account), result.mapping);
-        resolvedConfidenceSources.set(accountKey(account), result.confidence_source);
+        resolvedTiers.set(accountKey(account), result.tier);
         // Count only tier 4/5 (new auto-classifications); tier 1-3 are existing user mappings
         if (result.confidence_source !== "mapping") autoClassifiedCount++;
       } else {
@@ -1773,7 +1785,7 @@ serve(async (req) => {
     };
 
     if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
-      const rowsSnapshot = buildCertifiedRows(rawAccounts, resolvedMappings, resolvedConfidenceSources);
+      const rowsSnapshot = buildCertifiedRows(rawAccounts, resolvedMappings, resolvedTiers);
       const commit = await commitSafishaCertification(supabase as never, {
         engineRunId, idempotencyKeyId, engineStartedAt,
         uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
