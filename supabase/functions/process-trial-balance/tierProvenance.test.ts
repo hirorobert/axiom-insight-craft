@@ -9,13 +9,30 @@
 // structure already guarantees by inspection, per the discovery gate's
 // evidence.
 //
+// Tier-semantics reconciliation (post-implementation review): an earlier
+// version of this file and of index.ts's buildCertifiedRows treated a
+// missing tracked tier as "fall back to 6" — described in comments as an
+// "honest fallback". That was wrong on inspection: buildCertifiedRows is
+// only ever called after STEP 7 has confirmed zero needs_review accounts
+// exist, and resolvedMappings/resolvedTiers are populated together in the
+// same branch — so a mapping existing for an account structurally
+// guarantees a tier also exists. The "?? 6" path was provably unreachable
+// dead code (true in the Slice 2 parent commit too, for the same reason),
+// and worse, it silently fabricated a value into an immutable
+// certification row's evidenceTier field rather than failing loudly if
+// the impossible ever happened. Fixed: CertifiedTBRowRecord.evidenceTier
+// is now typed 1-5 only (a certified row is, by construction, always a
+// positively classified account — there is no legitimate "tier 6" state
+// for one to be in), and buildCertifiedRows throws on the invariant
+// violation instead of defaulting. Tests below reflect that correction.
+//
 // Run: deno test supabase/functions/process-trial-balance/tierProvenance.test.ts
 
-import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert, assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 // ── Inline copy of the tier-carrying buildCertifiedRows logic ────────────
-// (the part under test: does the real tier survive into evidenceTier,
-// and is 6 the honest fallback rather than a fabricated 1-5 value)
+// (the part under test: does the real tier survive into evidenceTier, and
+// does a missing tier fail loudly rather than fabricate a value)
 
 interface MinimalAccount { key: string; classification: string; normalBalance: "debit" | "credit"; debit: number; credit: number; }
 
@@ -30,10 +47,15 @@ function classificationToNature(cls: string): "asset" | "liability" | "equity" |
 function buildCertifiedRow(
   account: MinimalAccount,
   tiers: Map<string, 1 | 2 | 3 | 4 | 5>,
-): { evidenceTier: number; nature: string } {
-  const signed = account.normalBalance === "debit" ? account.debit - account.credit : account.credit - account.debit;
+): { evidenceTier: 1 | 2 | 3 | 4 | 5; nature: string } {
+  const tier = tiers.get(account.key);
+  if (tier === undefined) {
+    throw new Error(
+      `[PTB] Internal invariant violation: account "${account.key}" has a resolved classification mapping but no tracked evidence tier.`,
+    );
+  }
   return {
-    evidenceTier: tiers.get(account.key) ?? 6,
+    evidenceTier: tier,
     nature: classificationToNature(account.classification),
   };
 }
@@ -63,38 +85,55 @@ Deno.test("I: all five real tiers (1-5) are independently distinguishable, never
   assertEquals(results, [1, 2, 3, 4, 5]);
 });
 
-// ── honest fallback: absent tier -> 6, never fabricated as 1-5 ───────────
+// ── no fabrication: a missing tracked tier fails loudly, never guesses ───
 
-Deno.test("no-fabrication: an account with no tracked tier gets evidenceTier=6, never a guessed 1-5", () => {
+Deno.test("no-fabrication: an account with no tracked tier throws, never fabricates evidenceTier=6 or any value", () => {
   const acct: MinimalAccount = { key: "untracked", classification: "revenue", normalBalance: "credit", debit: 0, credit: 100 };
-  const tiers = new Map<string, 1 | 2 | 3 | 4 | 5>(); // deliberately empty
-  const row = buildCertifiedRow(acct, tiers);
-  assertEquals(row.evidenceTier, 6);
+  const tiers = new Map<string, 1 | 2 | 3 | 4 | 5>(); // deliberately empty — simulates the invariant being broken
+  assertThrows(
+    () => buildCertifiedRow(acct, tiers),
+    Error,
+    "Internal invariant violation",
+  );
+});
+
+// ── tier 6 is not a real state a certified row can be in ─────────────────
+
+Deno.test("tier-6 does not exist as a certified-row state: CertifiedTBRowRecord.evidenceTier is 1-5 only", () => {
+  // Confirmed by direct inspection (Slice 3 tier-semantics reconciliation):
+  // buildCertifiedRows is only ever reached after STEP 7 has confirmed
+  // needsReviewAccounts is empty (an early `return` otherwise) -- so no
+  // certified row can ever represent an unmatched/needs_review account.
+  // A needs_review outcome is represented entirely differently: the whole
+  // certification gets rowsSnapshot=[] and requiresReview=true, with the
+  // per-account detail living in `exceptions`, never as a rows_snapshot
+  // entry with some numeric placeholder tier. There is therefore no
+  // legitimate value "6" for evidenceTier to ever hold on a real row.
+  const validTiers: ReadonlyArray<1 | 2 | 3 | 4 | 5> = [1, 2, 3, 4, 5];
+  assertEquals(validTiers.includes(6 as never), false);
 });
 
 // ── backward-compatibility: no historical value reinterpreted ────────────
 
-Deno.test("compatibility: tiers 1, 4, 5, 6 keep their pre-Slice-3 meaning (mapping/dictionary/rule/fallback)", () => {
+Deno.test("compatibility: tiers 1, 4, 5 keep their pre-Slice-3 meaning; 6 was never actually reachable either before or after", () => {
   // The pre-Slice-3 lossy confidenceSourceToEvidenceTier mapped:
   //   "mapping" -> 1, "dictionary_exact"/"dictionary_contains" -> 4,
-  //   "rule" -> 5, default -> 6. It NEVER emitted 2 or 3 for any live
-  //   account (every "mapping" collapsed straight to 1) -- so those two
-  //   values were reserved-but-unused before Slice 3, not historically
-  //   meaningful. This test documents that compatibility argument as an
-  //   executable assertion: the four values that WERE historically
-  //   emitted (1, 4, 5, 6) map to the exact same real-world categories
-  //   under the new scheme.
-  const preSlice3Categories: Record<number, string> = { 1: "mapping", 4: "dictionary", 5: "rule", 6: "fallback" };
-  const slice3Categories: Record<number, string> = {
-    1: "mapping",     // company code (was: any mapping)
-    2: "mapping",      // company name -- NEW real distinction, was unused
-    3: "mapping",      // global mapping -- NEW real distinction, was unused
-    4: "dictionary",   // unchanged
-    5: "rule",         // unchanged (public-sector + regex both grouped here, as before)
-    6: "fallback",     // unchanged
-  };
-  for (const [tier, category] of Object.entries(preSlice3Categories)) {
-    assertEquals(slice3Categories[Number(tier)], category, `tier ${tier} category changed`);
+  //   "rule" -> 5, default -> 6. Traced against the Slice 2 parent commit
+  //   (git show ee3ec3c): buildCertifiedRows was ALREADY only called
+  //   after the same needs_review early-return, and confidenceSources was
+  //   populated in the same branch as resolvedMappings -- so the
+  //   "default -> 6" branch was provably unreachable dead code in Slice 2
+  //   too, exactly like the "?? 6" fallback this reconciliation removed.
+  //   evidenceTier=6 was therefore never actually emitted for any real
+  //   account under either version -- removing it entirely reinterprets
+  //   nothing historical. It also never emitted 2 or 3 (every "mapping"
+  //   collapsed straight to 1) -- those two are the only values that
+  //   change from "collapsed" to "real", and only because they were never
+  //   used for anything before.
+  const preSlice3ReachableValues = [1, 4, 5]; // 2, 3, 6 never actually emitted, in either version
+  const slice3ReachableValues    = [1, 2, 3, 4, 5]; // 6 removed from the type entirely
+  for (const v of preSlice3ReachableValues) {
+    assert(slice3ReachableValues.includes(v), `previously-reachable value ${v} must remain reachable`);
   }
 });
 

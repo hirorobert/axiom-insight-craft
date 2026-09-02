@@ -1069,7 +1069,15 @@ interface CertifiedTBRowRecord {
   debitBalance:   number;
   creditBalance:  number;
   netBalance:     number;
-  evidenceTier:   1 | 2 | 3 | 4 | 5 | 6;
+  // Ω∞ Phase 0 Slice 3 — reconciliation: 1-5 only, matching
+  // TieredClassifyResult's "classified" variant exactly. A
+  // CertifiedTBRowRecord is, by construction, ALWAYS a positively
+  // classified account — buildCertifiedRows only ever runs after STEP 7
+  // has confirmed zero needs_review accounts exist (see the early
+  // `return` there), so no row here can ever represent an unmatched or
+  // needs_review account. There is no "tier 6" state a certified row can
+  // legitimately be in; the type no longer permits one.
+  evidenceTier:   1 | 2 | 3 | 4 | 5;
   ruleId:         string | null;
   requiresReview: boolean;
 }
@@ -1101,6 +1109,22 @@ function buildCertifiedRows(
     const key = accountKey(account);
     const m = mappings.get(key);
     if (!m) continue;
+    // Invariant (relied on, not merely hoped for): resolvedMappings and
+    // resolvedTiers are populated together, in the same STEP 6 branch, for
+    // every account — and buildCertifiedRows itself is only ever called
+    // after STEP 7 has confirmed needsReviewAccounts is empty (it returns
+    // early otherwise). So a mapping existing for `key` here structurally
+    // guarantees a tier also exists. If that guarantee were ever broken by
+    // a future change, silently defaulting to a fabricated tier value
+    // would write false provenance into an append-only, immutable
+    // certification row — fail loudly instead, exactly like every other
+    // "this should be structurally impossible" guard in this function.
+    const tier = tiers.get(key);
+    if (tier === undefined) {
+      throw new Error(
+        `[PTB] Internal invariant violation: account "${key}" has a resolved classification mapping but no tracked evidence tier. This should be structurally impossible — resolvedMappings and resolvedTiers must be populated together.`,
+      );
+    }
     const signed = m.normal_balance === "debit"
       ? account.debit - account.credit
       : account.credit - account.debit;
@@ -1112,12 +1136,7 @@ function buildCertifiedRows(
       debitBalance:   account.debit,
       creditBalance:  account.credit,
       netBalance:     signed,
-      // tiers.get(key) is only absent if this account was never classified
-      // at all (shouldn't happen — buildCertifiedRows only runs on the
-      // valid/complete path, where every account resolved to some mapping
-      // by definition) — 6 (the pre-existing needs_review/fallback value)
-      // is the honest "no tracked tier" fallback, never fabricated as 1-5.
-      evidenceTier:   tiers.get(key) ?? 6,
+      evidenceTier:   tier,
       ruleId:         null,
       requiresReview: false,
     });
