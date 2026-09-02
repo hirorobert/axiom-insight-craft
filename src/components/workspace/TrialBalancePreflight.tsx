@@ -5,15 +5,23 @@
  * Read-only projection of computePreflight(). No writes.
  */
 
-import { Check, X, AlertTriangle, Clock3, ShieldCheck, ArrowRight } from "lucide-react";
+import { Check, X, AlertTriangle, Clock3, ShieldCheck, ArrowRight, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
-import { computePreflight, type PreflightCheckState } from "@/lib/workspace/computePreflight";
+import { computePreflight, type PreflightCheckState, type PreflightResult } from "@/lib/workspace/computePreflight";
 
 interface Props {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   upload: any | null;
   /** Where "Resolve" should take the user, when there is something to resolve. */
   resolveHref?: string;
+  /**
+   * When provided, supersedes the legacy computePreflight(upload) five-check
+   * projection entirely — used by PrepareWorkspace to show the six-layer
+   * authoritative (tb_certifications) readiness instead of the mutable
+   * processing_result projection. StatementsWorkspace does not pass this,
+   * so its call site is unaffected.
+   */
+  readiness?: PreflightResult;
 }
 
 const VERDICT_LABEL = {
@@ -21,6 +29,8 @@ const VERDICT_LABEL = {
   review: "Needs review",
   blocked: "Checks failed",
   pending: "Checking",
+  stale: "Out of date",
+  unknown: "Unverified",
 } as const;
 
 /**
@@ -39,26 +49,28 @@ function StateGlyph({ state }: { state: PreflightCheckState }) {
   return <Clock3 className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.5} />;
 }
 
-export function TrialBalancePreflight({ upload, resolveHref }: Props) {
-  const result = computePreflight(
-    upload
-      ? {
-          status: upload.status,
-          isValid: upload.is_valid,
-          processedAt: upload.processed_at,
-          processingResult: upload.processing_result,
-          validationReport: upload.validation_report,
-          accountingErrors: upload.accounting_errors,
-        }
-      : null,
-  );
+export function TrialBalancePreflight({ upload, resolveHref, readiness }: Props) {
+  const result =
+    readiness ??
+    computePreflight(
+      upload
+        ? {
+            status: upload.status,
+            isValid: upload.is_valid,
+            processedAt: upload.processed_at,
+            processingResult: upload.processing_result,
+            validationReport: upload.validation_report,
+            accountingErrors: upload.accounting_errors,
+          }
+        : null,
+    );
 
   const accentText =
     result.verdict === "certified"
       ? "text-success"
       : result.verdict === "blocked"
         ? "text-destructive"
-        : result.verdict === "review"
+        : result.verdict === "review" || result.verdict === "stale"
           ? "text-gold"
           : "text-muted-foreground";
 

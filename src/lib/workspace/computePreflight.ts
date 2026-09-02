@@ -17,7 +17,16 @@ export interface PreflightCheck {
   detail: string;
 }
 
-export type PreflightVerdict = "certified" | "review" | "blocked" | "pending";
+export type PreflightVerdict =
+  | "certified"
+  | "review"
+  | "blocked"
+  | "pending"
+  // Six-layer authoritative readiness only (computeCertificationReadiness.ts).
+  // computePreflight() itself never returns these — additive, zero runtime
+  // change to this function or its existing callers.
+  | "stale"
+  | "unknown";
 
 export interface PreflightResult {
   verdict: PreflightVerdict;

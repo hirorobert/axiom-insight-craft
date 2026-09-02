@@ -34,6 +34,9 @@ import {
 import { TrialBalanceUpload } from "@/components/TrialBalanceUpload";
 import { useEngagement } from "@/contexts/EngagementContext";
 import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
+import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
+import { useCertificationReadiness } from "@/hooks/useCertificationReadiness";
+import { computeCertificationReadiness } from "@/lib/workspace/computeCertificationReadiness";
 import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
 import TrialBalanceTemplateGuide from "@/components/workspace/TrialBalanceTemplateGuide";
 import {
@@ -173,6 +176,16 @@ export default function PrepareWorkspace() {
     }
   };
 
+  const certReadiness = useCertificationReadiness(companyId, periodYear, upload?.id);
+  const readiness = upload
+    ? computeCertificationReadiness({
+        uploadExists: true,
+        authoritative: certReadiness.authoritative,
+        latestForUpload: certReadiness.latestForUpload,
+        fetchFailed: certReadiness.fetchFailed,
+      })
+    : undefined;
+
   const mapping = upload?.processing_result?.mapping;
 
   const reviewAccounts = suppressedReviewAccounts as any[];
@@ -201,6 +214,7 @@ export default function PrepareWorkspace() {
             {upload && (
               <p className="mt-1 truncate text-sm text-muted-foreground">{upload.file_name}</p>
             )}
+            <EntityContextSuggestion reportingFrameworkDbValue={company?.reporting_framework} />
           </div>
           {upload && !showUploader && (
             <div className="flex flex-wrap gap-2">
@@ -278,6 +292,7 @@ export default function PrepareWorkspace() {
             <>
               <TrialBalancePreflight
                 upload={upload}
+                readiness={readiness}
                 resolveHref={
                   showReviewPanel
                     ? buildPrepareReviewRoute(companyId, periodYear, upload.id)
