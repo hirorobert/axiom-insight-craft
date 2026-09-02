@@ -159,3 +159,50 @@ First pass returned only `get_authoritative_certification` (`prosecdef=false`) �
 ## Scope note (SAFISHA foundation section)
 
 This record is scoped specifically to the `20260902130000`/`20260902104124` identity reconciliation and the separately-confirmed live application of `20260902150000`. It does not certify SAFISHA's live behavioral correctness (real certification commits, real authority-selection queries under concurrent load, etc.) — those remain unverified by this environment.
+
+---
+
+# Slice 4B — `trial_balance_uploads` Member-Read RLS — Migration Identity Reconciliation
+
+## Canonical reviewed migration
+
+`supabase/migrations/20260902160000_trial_balance_uploads_member_read_rls.sql`
+SHA-256: `19ecfa22e9cb26b3eb4fb0a7e02834de1b7588209151a73d9a134355fce59827`
+
+Fixes `DEFECT-TRIAL-BALANCE-UPLOAD-MEMBER-READ-RLS-001`: adds one additive, accepted-firm-member SELECT policy to `trial_balance_uploads`, closing the gap where `get_authoritative_certification` (SECURITY INVOKER) could report a false "no authoritative certification" to a genuine, accepted-but-non-uploading workspace member.
+
+## Lovable live execution identity
+
+`20260902173837` — Lovable's generated capture, row name `101ba093-4148-46dd-a4fe-983b700a4385`, applied to `bvyivmmfjejbmqoydezk`. Marker file: `supabase/migrations/20260902173837_101ba093-4148-46dd-a4fe-983b700a4385.sql`.
+
+## Verification depth — explicitly weaker than the three prior reconciliations above
+
+Every earlier reconciliation in this document (SAFISHA foundation, Phase 0A foundation, Phase 0A ACL hardening) rests on a direct, comment-stripped diff of the actual applied SQL text against the canonical file — proof of byte-for-byte executable equivalence. **That proof was not available here.** The relayed report confirmed only that both expected policy names are now live on `bvyivmmfjejbmqoydezk`:
+
+- `"Users can view their own uploads"` (pre-existing, unaffected)
+- `"Accepted workspace members can view company uploads"` (new, matches this migration's exact wording)
+
+The report itself stated the candidate migration file was not present in that environment, so even a hash comparison was not attempted there. The policy-name match is strong circumstantial evidence of the same migration having run, but it is **not** the same standard of proof as the other three cases in this document. If a full `schema_migrations` export (matching the pattern used for the SAFISHA foundation and Phase 0A reconciliations) is obtained later, this should be upgraded to a verified equivalence and this note revised.
+
+## Behavioral verification status — outstanding, not resolved by this reconciliation
+
+Relayed test results (project owner's own environment, no live connection made from this session):
+
+| Check | Result |
+|---|---|
+| Live policy names present | Confirmed |
+| Uploader direct SELECT | UNVERIFIED (no signed-in test session) |
+| Same-company non-uploader SELECT | UNVERIFIED (no signed-in test session) — **this is the specific defect the migration exists to fix; still unproven live** |
+| Different-company member SELECT | UNVERIFIED (no signed-in test session) |
+| Unrelated authenticated user SELECT | UNVERIFIED (no signed-in test session) |
+| Anonymous SELECT | PASS — HTTP 401. A coarser signal than RLS itself (401 typically reflects the API gateway rejecting an unauthenticated request before RLS is even evaluated), but a genuine positive data point, not a red flag. |
+| RPC — uploader / same-company non-uploader / different-company | UNVERIFIED — no certification fixtures exist yet to exercise the RPC path at all |
+| Stale-authority fail-closed | Reported as a STRUCTURAL claim, not an executed test — independently corroborated here: this migration adds only a `FOR SELECT` policy and touches no line of `get_authoritative_certification`'s own SQL, so its authority predicate (latest-upload selection, source-hash matching, blocking/requires_review exclusion) is untouched by construction |
+| Mutation privileges | Confirmed unaffected — only a SELECT policy was added |
+| Unrelated schema/code changes | None reported |
+
+**This reconciliation resolves the migration-identity question only.** It does **not** certify the live behavior the migration was written to fix — specifically, whether a genuine same-company non-uploader now actually sees the certification, which remains the one unproven case that matters most. That requires a signed-in session exercising the actual RLS/RPC paths, not yet performed.
+
+## Scope note (Slice 4B RLS section)
+
+Scoped specifically to the `20260902160000`/`20260902173837` identity question. Does not certify runtime RLS/RPC behavior — that remains open, tracked above, and blocks declaring `DEFECT-TRIAL-BALANCE-UPLOAD-MEMBER-READ-RLS-001` closed until a signed-in behavioral pass is actually run.

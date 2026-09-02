@@ -1,0 +1,60 @@
+-- ════════════════════════════════════════════════════════════════════════════
+-- Ω∞ PHASE 0 SLICE 4B — trial_balance_uploads member-read RLS LOVABLE LIVE
+-- EXECUTION MARKER (COMMENT-ONLY)
+--
+-- This file contains ZERO executable SQL. It intentionally performs no DDL.
+--
+-- WHAT THIS VERSION IDENTITY IS:
+--   20260902173837 is the migration identity Lovable's tooling generated
+--   and recorded as applied on the live AXIOM/SAFF ERP project
+--   (bvyivmmfjejbmqoydezk), row name 101ba093-4148-46dd-a4fe-983b700a4385.
+--   Relayed by the project owner (via Lovable's own agent report), not
+--   independently queried from this session.
+--
+-- VERIFICATION DEPTH — HONEST LIMITATION, UNLIKE THE FOUR PRIOR
+-- RECONCILIATIONS IN THIS DOCUMENT:
+--   Every earlier Model B reconciliation in MIGRATION_RECONCILIATION.md
+--   (SAFISHA foundation, Phase 0A foundation, Phase 0A ACL hardening) was
+--   backed by a direct, comment-stripped diff of the actual applied SQL
+--   text against the canonical file, proving byte-for-byte executable
+--   equivalence. That proof is NOT available here: the relayed report
+--   confirmed only policy NAMES now live --
+--     "Users can view their own uploads"                      (pre-existing)
+--     "Accepted workspace members can view company uploads"   (new)
+--   -- and explicitly stated the candidate migration file was not present
+--   in that environment, so no hash comparison was even attempted there.
+--   The policy name matches this file's exact wording, which is strong
+--   circumstantial evidence of the same migration, but this is NOT the
+--   same standard of proof as the prior three reconciliations. If a full
+--   diff is later obtained (e.g. via the same schema_migrations export
+--   pattern used for the other three), this marker's claim should be
+--   upgraded to a verified one and this note revised.
+--
+-- WHAT REMAINS OUTSTANDING (relayed report, not resolved by this marker):
+--   Direct-SELECT and RPC behavioral tests for uploader / same-company
+--   non-uploader / different-company member / unrelated authenticated
+--   user were all reported UNVERIFIED (no signed-in test session
+--   available in that environment). Anonymous access was confirmed
+--   rejected (HTTP 401) -- a weak but positive signal, since a 401 at the
+--   API gateway layer is a coarser check than RLS itself. Stale-authority
+--   fail-closed behavior was reported as a STRUCTURAL claim (the
+--   migration adds only a SELECT policy, touches no authority predicate)
+--   rather than an executed test -- independently corroborated by this
+--   session's own authorship of both the migration and the function it
+--   supports, but still not a live-executed proof.
+--
+-- WHY THIS FILE IS NOW INERT:
+--   Canonical repository replay authority for this correction remains:
+--
+--     supabase/migrations/20260902160000_trial_balance_uploads_member_read_rls.sql
+--     SHA-256: 19ecfa22e9cb26b3eb4fb0a7e02834de1b7588209151a73d9a134355fce59827
+--
+--   Note on ordering: this marker's own numeric timestamp (20260902173837)
+--   is LATER than the canonical file's (20260902160000), so on a fresh
+--   replay the canonical file executes first, and this marker (encountered
+--   after, executing nothing) is harmless.
+--
+-- DO NOT DELETE THIS MARKER.
+--
+-- See MIGRATION_RECONCILIATION.md for the complete reconciliation record.
+-- ════════════════════════════════════════════════════════════════════════════
