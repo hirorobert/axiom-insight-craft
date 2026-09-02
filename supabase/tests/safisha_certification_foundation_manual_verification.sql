@@ -160,3 +160,97 @@ SELECT grantee, privilege_type FROM information_schema.role_routine_grants
 -- EXPECT: returns C3 — authority resumes once the CURRENT upload has its
 -- own eligible certification.
 -- ============================================================================
+
+-- ── Slice 1R — authority-selection hardening (cases A-I) ─────────────────────
+-- Fixes the real defect: the original query filtered to ELIGIBLE rows
+-- BEFORE ordering by sequence_no DESC, so a newer blocking/requires_review
+-- certification for the SAME upload could be silently skipped in favour of
+-- an older eligible one. The corrected function finds the latest
+-- certification for the current upload FIRST (regardless of eligibility),
+-- then evaluates ONLY that row's eligibility — never falling back.
+--
+-- Fresh company (<COMPANY_R>) recommended for this section to avoid any
+-- interaction with rows created in §17 above.
+
+-- ── CASE A — single eligible certification is authoritative ─────────────────
+-- Upload U1 (COMPANY_R/2026). Commit certification C1 against U1:
+--   is_blocking=false, requires_review=false, sequence_no=100 (assigned).
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', 2026);
+-- EXPECT: returns C1.
+
+-- ── CASE B — newer BLOCKING certification on the SAME upload withdraws C1 ───
+-- Same U1. Commit a second certification C2 against the SAME U1:
+--   is_blocking=true, requires_review=false, sequence_no=101 (> C1's 100).
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', 2026);
+-- EXPECT: zero rows — NOT C1. This is the exact defect this gate fixes:
+-- the old query would have returned C1 (the only eligible row) because it
+-- filtered on eligibility before ordering by sequence_no. C1 remains
+-- queryable directly by id/sequence_no as permanent historical evidence.
+
+-- ── CASE C — newer REQUIRES_REVIEW certification on the SAME upload ─────────
+-- Same U1 (fresh company/period to isolate from Case B, or continue from a
+-- state where C2 is the latest). Commit C2' against U1:
+--   is_blocking=false, requires_review=true, sequence_no > the prior latest.
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: zero rows. requires_review alone is sufficient to withdraw
+-- authority from the latest attempt, exactly like is_blocking.
+
+-- ── CASE D — newer upload exists with NO certification at all ───────────────
+-- Fresh period. U1 has eligible C1. Insert a NEW trial_balance_uploads row
+-- U2 (same company/period, later uploaded_at) with NO certification
+-- committed against it yet.
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: zero rows — NOT C1. U2 is now the current upload; it has no
+-- certification (latest_certification CTE returns no row for U2), so
+-- nothing is authoritative. This proves the function does not fall back
+-- across uploads any more than it falls back within one.
+
+-- ── CASE E — newer upload's latest certification is BLOCKING ────────────────
+-- Continuing Case D: commit C2 against U2 with is_blocking=true.
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: zero rows.
+
+-- ── CASE F — newer upload's latest certification is ELIGIBLE ────────────────
+-- Continuing Case E: commit C3 against U2 with is_blocking=false,
+-- requires_review=false, sequence_no > C2's.
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: returns C3. Authority moves to the current upload's own latest
+-- eligible certification; U1/C1 is not involved at all (different
+-- upload_id, never considered once U2 is current).
+
+-- ── CASE G — source_file_hash drift on the current upload ───────────────────
+-- Fresh period. U2 is the current upload. Commit C2 against U2 with
+-- source_file_hash = 'hash-at-certification-time', is_blocking=false,
+-- requires_review=false. Then, simulate drift: UPDATE
+-- trial_balance_uploads SET source_file_hash = 'hash-DIFFERENT' WHERE id =
+-- '<U2>' (only possible as service_role; this column has no live writer
+-- yet, so this step is a direct-SQL simulation of a future wiring, not a
+-- reachable app path today).
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: zero rows — the latest certification's own source_file_hash no
+-- longer matches the upload's current source_file_hash, so it cannot be
+-- authoritative even though is_blocking=false AND requires_review=false.
+
+-- ── CASE H — higher sequence_no among two eligible certifications wins ──────
+-- Fresh period. U2 current upload. Commit C2a against U2: is_blocking=false,
+-- requires_review=false, sequence_no=200. Commit C2b against U2 (e.g. a
+-- re-run): is_blocking=false, requires_review=false, sequence_no=201 (>
+-- C2a's 200). Both share the SAME source_file_hash as the current upload
+-- (no drift).
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: returns C2b — the higher sequence_no is "latest", regardless of
+-- certified_at wall-clock ordering (sequence_no, not certified_at, is the
+-- deterministic total order this function relies on).
+
+-- ── CASE I — latest by sequence_no is BLOCKING even though an earlier one
+--            on the same upload was eligible — never fall back to it ───────
+-- Continuing a fresh instance of Case H's setup: C2a (sequence_no=200,
+-- eligible) then C2b (sequence_no=201, is_blocking=true).
+-- SELECT * FROM get_authoritative_certification('<COMPANY_R>', <period>);
+-- EXPECT: zero rows — NOT C2a. This is the canonical counterexample from
+-- the Slice 1R hardening request: the existence of ANY eligible
+-- certification earlier in the same upload's history must never be used
+-- as a fallback once a later attempt on that same upload is blocking or
+-- requires review. Only the single latest-by-sequence_no row is ever
+-- evaluated.
+-- ============================================================================

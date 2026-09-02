@@ -341,31 +341,65 @@ CREATE OR REPLACE FUNCTION public.get_authoritative_certification(
   SET search_path = public, pg_catalog
 AS $$
   -- Step 1: the CURRENT source for this company+period is the most
-  -- recently created upload. uploaded_at is the ordering signal
-  -- trial_balance_uploads already has; id is an untie-breaking (not
-  -- semantically ordered, purely deterministic) tiebreaker — a dedicated
-  -- sequence was deliberately not added to this existing, out-of-scope
-  -- table for this slice.
+  -- recently created upload. uploaded_at (TIMESTAMP WITH TIME ZONE NOT
+  -- NULL DEFAULT now(), server-assigned at INSERT — confirmed against
+  -- 20251207114310_9b5d0843-....sql, not client-supplied) is the ordering
+  -- signal; id is a pure determinism tiebreak, not a recency signal. TB
+  -- uploads are single-user, human-paced, one-INSERT-per-upload actions
+  -- (TrialBalanceUpload.tsx) — a genuine microsecond-level uploaded_at tie
+  -- between two DIFFERENT uploads for the same company+period is not a
+  -- realistic occurrence this architecture needs to defend against. A
+  -- dedicated monotonic sequence on trial_balance_uploads (mirroring
+  -- tb_certifications_seq) was deliberately NOT added: that table is
+  -- pre-existing, out-of-scope for this slice, and no repository evidence
+  -- shows uploaded_at is actually ambiguous in practice — inventing a new
+  -- primitive to guard a non-observed failure mode would be unwarranted
+  -- architecture. We also carry the upload's CURRENT source_file_hash
+  -- forward, to detect drift against what the latest certification
+  -- actually certified (Step 3).
   WITH latest_upload AS (
-    SELECT id FROM public.trial_balance_uploads
+    SELECT id, source_file_hash AS current_source_file_hash
+      FROM public.trial_balance_uploads
      WHERE company_id = p_company_id
        AND (p_period_year IS NULL OR period_year = p_period_year)
      ORDER BY uploaded_at DESC, id DESC
      LIMIT 1
+  ),
+  -- Step 2: the LATEST certification attempt for that current upload,
+  -- REGARDLESS of eligibility. Ordering by sequence_no DESC (the
+  -- dedicated, gap-free, monotonic tb_certifications_seq — a real total
+  -- order across every certification ever committed, unlike a timestamp)
+  -- and taking exactly one row is what this function evaluates next. This
+  -- is the fix: eligibility is no longer part of the WHERE clause that
+  -- selects "latest" — a newer blocking/requires_review attempt for the
+  -- same upload MUST be the row considered, not silently stepped over in
+  -- favour of an older eligible one.
+  latest_certification AS (
+    SELECT c.*
+      FROM public.tb_certifications c, latest_upload lu
+     WHERE c.upload_id = lu.id
+     ORDER BY c.sequence_no DESC
+     LIMIT 1
   )
-  -- Step 2: the latest ELIGIBLE certification for THAT specific upload
-  -- only. A newer upload existing with no eligible certification of its
-  -- own means NO row is returned here — this function does not fall back
-  -- to an older upload's certification. See C1/C2 analysis: the existence
-  -- of a newer, not-yet-successfully-certified source withdraws the older
-  -- certification's downstream authority, even though the older row
-  -- remains permanently valid as historical evidence.
-  SELECT c.* FROM public.tb_certifications c
-   WHERE c.upload_id = (SELECT id FROM latest_upload)
-     AND c.is_blocking = false
-     AND c.requires_review = false
-   ORDER BY c.sequence_no DESC
-   LIMIT 1;
+  -- Step 3: that ONE latest certification is authoritative only if it is
+  -- itself eligible AND its own recorded source_file_hash still matches
+  -- the upload's current source_file_hash. A NULL current_source_file_hash
+  -- means no process has populated the column yet (it exists but is not
+  -- wired into any live path this slice) — that is "no drift signal
+  -- available", not "drift detected", so it must never block. If the
+  -- latest certification is blocking, requires review, or reflects a
+  -- source that has since changed, NO row is returned — there is
+  -- deliberately no fallback to an older eligible certification for the
+  -- same current upload (see C1/C2 analysis above and cases A-I in
+  -- supabase/tests/safisha_certification_foundation_manual_verification.sql).
+  SELECT lc.*
+    FROM latest_certification lc, latest_upload lu
+   WHERE lc.is_blocking = false
+     AND lc.requires_review = false
+     AND (
+       lu.current_source_file_hash IS NULL
+       OR lu.current_source_file_hash = lc.source_file_hash
+     );
 $$;
 
 REVOKE ALL ON FUNCTION public.get_authoritative_certification(UUID, INTEGER) FROM PUBLIC, anon;
