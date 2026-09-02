@@ -434,24 +434,47 @@ function isSubtotalRow(accountName: string, accountCode: string): boolean {
 // Ω∞ Phase 0 Slice 2 — DEFECT-SAFISHA-SILENT-NUMERIC-ZERO-001 fix.
 // A blank cell (null/undefined/"") legitimately means "no posting" — that IS
 // zero, and stays zero. A NON-EMPTY value that fails to parse (e.g. "abc",
-// "N/A", "1.2.3.4", a stray currency symbol the strip regex doesn't catch)
-// is a data-quality defect, NOT a zero — `parseFloat(...) || 0` used to
-// collapse both cases to 0 silently. This sentinel makes the two cases
+// "N/A", a stray currency symbol the strip regex doesn't catch) is a
+// data-quality defect, NOT a zero — `parseFloat(...) || 0` used to collapse
+// both cases to 0 silently. This sentinel makes the two cases
 // distinguishable so the caller can exclude and report malformed rows
 // instead of feeding a fabricated 0 into the trial balance.
 const MALFORMED_NUMERIC = Symbol("malformed_numeric");
 
+// Explicit accepted grammar, validated BEFORE Number() ever runs — never
+// relying on Number()'s or parseFloat()'s own leniency to reject malformed
+// input, because that leniency is exactly what caused the original defect
+// (parseFloat("12abc") === 12) and a subtler one blind comma-stripping
+// would still allow (Number("123") from "1,2,3" — a real 3-digit group
+// grammar was needed, not just "strip every comma and hope"):
+//   optional leading '-'
+//   then EITHER plain digits (any length, no commas)
+//       OR properly-grouped thousands: 1-3 leading digits, then one or
+//          more comma + exactly-3-digit groups
+//   then an optional '.' + one or more digits
+// A single leading '$' and any internal whitespace (space-grouped
+// thousands, e.g. "1 234 567") are stripped as formatting BEFORE grammar
+// validation — they are not part of the numeric grammar itself. Nothing
+// else is stripped: letters, stray hyphens, parentheses, and other
+// currency codes ("TZS", "USD") are left in place so the grammar rejects
+// them, rather than a strip regex silently discarding evidence of a
+// malformed cell.
+const NUMERIC_GRAMMAR = /^-?(\d+|\d{1,3}(,\d{3})+)(\.\d+)?$/;
+
 function parseNumber(v: string | number | null): number | typeof MALFORMED_NUMERIC {
   if (v === null || v === undefined || v === "") return 0;
   if (typeof v === "number") return Number.isFinite(v) ? v : MALFORMED_NUMERIC;
-  const cleaned = String(v).trim().replace(/[,$\s]/g, "");
-  if (cleaned === "") return 0;
-  // Number(), not parseFloat(): parseFloat parses a leading numeric PREFIX
-  // and silently discards trailing garbage — parseFloat("12abc") === 12,
-  // parseFloat("1.2.3") === 1.2. That is the same silent-fabrication defect
-  // in a subtler form (a partially-fabricated number is still fabricated).
-  // Number() requires the ENTIRE cleaned string to be a valid numeric
-  // literal or returns NaN, which Number.isFinite then rejects below.
+
+  const trimmed = String(v).trim();
+  if (trimmed === "") return 0;
+
+  const withoutCurrencySymbol = trimmed.replace(/^\$/, "");
+  const withoutSpaces = withoutCurrencySymbol.replace(/\s+/g, "");
+  if (withoutSpaces === "") return 0;
+
+  if (!NUMERIC_GRAMMAR.test(withoutSpaces)) return MALFORMED_NUMERIC;
+
+  const cleaned = withoutSpaces.replace(/,/g, "");
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : MALFORMED_NUMERIC;
 }
@@ -1224,6 +1247,17 @@ serve(async (req) => {
     const fileBuffer = await fileData.arrayBuffer();
     const sourceFileHash = await sha256HexBytes(fileBuffer);
 
+    // Persisted immediately, independent of everything downstream —
+    // source_file_hash is observational truth about the exact current
+    // Storage bytes, not an authority claim. It must be recorded even if
+    // parsing, classification, or certification later fails or blocks:
+    // that independence is exactly what makes Slice 1R's source-hash-drift
+    // check in get_authoritative_certification work correctly against a
+    // reprocess attempt whose bytes changed but which itself fails before
+    // reaching commit_tb_certification — without this early write, a
+    // stale hash would remain and the drift check would never fire.
+    await supabase.from("trial_balance_uploads").update({ source_file_hash: sourceFileHash }).eq("id", uploadId);
+
     if (format === "xlsx") {
       const buffer = fileBuffer;
 
@@ -1269,7 +1303,8 @@ serve(async (req) => {
       // invocation" (no idempotency claim has happened at this point — see
       // the ordering note above STEP 3.5 below): there is genuinely no
       // engine_run to fail, so none is created here.
-      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, source_file_hash: sourceFileHash, processed_at: new Date().toISOString() }).eq("id", uploadId);
+      // source_file_hash already persisted independently above.
+      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processed_at: new Date().toISOString() }).eq("id", uploadId);
       return new Response(JSON.stringify({ status: "blocked", errors: allErrors }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1375,7 +1410,8 @@ serve(async (req) => {
         });
         if (!commit.ok) return commit.response;
       }
-      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, source_file_hash: sourceFileHash, processed_at: new Date().toISOString() }).eq("id", uploadId);
+      // source_file_hash already persisted independently above.
+      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1418,7 +1454,8 @@ serve(async (req) => {
         });
         if (!commit.ok) return commit.response;
       }
-      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, source_file_hash: sourceFileHash, processed_at: new Date().toISOString() }).eq("id", uploadId);
+      // source_file_hash already persisted independently above.
+      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1622,12 +1659,12 @@ serve(async (req) => {
         });
         if (!commit.ok) return commit.response;
       }
+      // source_file_hash already persisted independently above.
       await supabase.from("trial_balance_uploads").update({
         status:            "needs_review",
         is_valid:           false,
         accounting_errors:  allErrors,
         processing_result:  result,
-        source_file_hash:   sourceFileHash,
         processed_at:       new Date().toISOString(),
       }).eq("id", uploadId);
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -1705,13 +1742,13 @@ serve(async (req) => {
       if (!commit.ok) return commit.response;
     }
 
+    // source_file_hash already persisted independently above.
     await supabase.from("trial_balance_uploads").update({
       status:             allValid ? "complete" : "error",
       is_valid:           allValid,
       validation_report:  validationReport,
       accounting_errors:  allErrors,
       processing_result:  processingResult,
-      source_file_hash:   sourceFileHash,
       processed_at:       new Date().toISOString(),
     }).eq("id", uploadId);
 
