@@ -134,10 +134,28 @@ This defect was originally framed as "migration 20260902130000 is physically app
 **What remains genuinely open, not resolved by this reconciliation:**
 
 1. The live `schema_migrations` tracking table itself is unmodified by this repository change — no `supabase migration repair` was run, no live database was written. If a future `supabase db push` against `bvyivmmfjejbmqoydezk` specifically needs to recognize `20260902130000` (rather than Lovable's tracked `20260902104124`) as applied, that still requires a real, credentialed `migration repair` command — this environment has none, unchanged from every prior statement of this constraint this session.
-2. **`20260902150000_safisha_source_hash_authority_hardening.sql`** (the `trg_protect_source_file_hash` trigger and the fail-closed `get_authoritative_certification` predicate, from the Slice 2 authority-hardening round) does **not** appear anywhere in this evidence set. No tracked version corresponds to its content. **It has not been confirmed live and must be treated as still pending application** — its protections (blocking client forgery of `source_file_hash`, and failing closed on an unknown current hash) are not yet active on the live project regardless of this reconciliation.
-3. `DEFECT-SAFISHA-SOURCE-HASH-WRITE-FAILURE-STALE-AUTHORITY-001` (Slice 2 authority-boundary review) — unaffected by this reconciliation, remains open as recorded.
-4. `DEFECT-DEFAULT-ACL-AUTHENTICATED-001` and `DEFECT-MIGRATION-HISTORY-DIVERGENCE-001` — open, unchanged; this is a fourth concrete manifestation of the same identity-divergence pattern, not a new defect.
+2. `DEFECT-SAFISHA-SOURCE-HASH-WRITE-FAILURE-STALE-AUTHORITY-001` (Slice 2 authority-boundary review) — unaffected by this reconciliation, remains open as recorded.
+3. `DEFECT-DEFAULT-ACL-AUTHENTICATED-001` and `DEFECT-MIGRATION-HISTORY-DIVERGENCE-001` — open, unchanged; this is a fourth concrete manifestation of the same identity-divergence pattern, not a new defect.
+
+## `20260902150000_safisha_source_hash_authority_hardening.sql` — confirmed live (2026-09-02)
+
+Unlike every other reconciliation in this document, this migration was applied by the project owner running its exact repository text directly in the live SQL editor for `bvyivmmfjejbmqoydezk` — not through Lovable's own migration-generation pipeline. It therefore creates **no row** in `supabase_migrations.schema_migrations` at all; there is no Lovable-generated identity to reconcile it against, and Model B does not apply here. Live application is instead confirmed by direct object inspection, run by the project owner and relayed to this session (this environment made no live connection):
+
+```sql
+select proname, prosecdef from pg_proc
+ where proname in ('trial_balance_uploads_protect_source_hash', 'get_authoritative_certification');
+select tgname, tgrelid::regclass from pg_trigger where tgname = 'trg_protect_source_file_hash';
+```
+
+First pass returned only `get_authoritative_certification` (`prosecdef=false`) — the trigger half of the paste had been dropped in transit and `trg_protect_source_file_hash` genuinely did not exist (`pg_trigger` query: "No rows returned"). The missing block (`trial_balance_uploads_protect_source_hash()` + `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER`) was then run on its own. Re-querying confirmed both objects live:
+
+- `get_authoritative_certification` — present, `prosecdef = false` (SECURITY INVOKER, as designed).
+- `trg_protect_source_file_hash` — present, `tgrelid = trial_balance_uploads`.
+
+`trial_balance_uploads_protect_source_hash()` itself was not re-queried directly after the second pass, but its existence is a structural precondition of `CREATE TRIGGER ... EXECUTE FUNCTION public.trial_balance_uploads_protect_source_hash()` succeeding at all — Postgres cannot bind a trigger to a function that doesn't exist.
+
+**Both authority-hardening protections are now live**: an authenticated client cannot mutate `trial_balance_uploads.source_file_hash` (only `service_role` can), and `get_authoritative_certification` fails closed on an unknown (NULL) current source hash rather than permitting it. `SOURCE_FILE_HASH_DB_WRITE_BOUNDARY` moves from `FAIL` (Slice 2 authority-boundary review) to **`PASS`, confirmed live**.
 
 ## Scope note (SAFISHA foundation section)
 
-This record is scoped specifically to the `20260902130000`/`20260902104124` identity reconciliation. It does not certify SAFISHA's live behavioral correctness (real certification commits, real authority-selection queries under concurrent load, etc.) — those remain unverified by this environment. It explicitly does **not** extend to `20260902150000`, which remains unreconciled and unconfirmed live per item 2 above.
+This record is scoped specifically to the `20260902130000`/`20260902104124` identity reconciliation and the separately-confirmed live application of `20260902150000`. It does not certify SAFISHA's live behavioral correctness (real certification commits, real authority-selection queries under concurrent load, etc.) — those remain unverified by this environment.
