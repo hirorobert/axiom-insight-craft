@@ -77,14 +77,25 @@ Same pattern as Phase 2A, now observed a fourth time in this project (`account_m
 
 The live execution exposed a **real defect in the canonical migration's own text**, not a platform quirk: `REVOKE ALL ON public.engine_runs FROM PUBLIC, anon;` (and the equivalent for `idempotency_keys`) never named `authenticated`. This project's `pg_default_acl` already grants `authenticated` broad privileges (`arwdDxtm`) at `CREATE TABLE` time — the pre-existing, still-open `DEFECT-DEFAULT-ACL-AUTHENTICATED-001` — so the migration's subsequent `GRANT SELECT TO authenticated` only *added* SELECT on top of that inherited grant rather than replacing it. RLS still correctly blocked unauthorized rows in practice, but the table-level ACL itself did not satisfy the required defence-in-depth invariant.
 
-**Correction**: `supabase/migrations/20260902110000_phase0a_acl_hardening.sql` — a new, additive, post-execution migration touching only `engine_runs`/`idempotency_keys` grants. Explicitly revokes from `PUBLIC`/`anon`/`authenticated`, then grants `SELECT` to `authenticated` and full authority to `service_role`. Does **not** touch `ALTER DEFAULT PRIVILEGES` — that remains `DEFECT-DEFAULT-ACL-AUTHENTICATED-001`'s separate, future, project-wide remediation, deliberately out of scope here. This correction has **not** been applied live as of this record — it is a repository candidate awaiting the same Lovable-mediated live-application gate Phase 0A's creation migration went through.
+**Correction**: `supabase/migrations/20260902110000_phase0a_acl_hardening.sql` — a new, additive, post-execution migration touching only `engine_runs`/`idempotency_keys` grants. Explicitly revokes from `PUBLIC`/`anon`/`authenticated`, then grants `SELECT` to `authenticated` and full authority to `service_role`. Does **not** touch `ALTER DEFAULT PRIVILEGES` — that remains `DEFECT-DEFAULT-ACL-AUTHENTICATED-001`'s separate, future, project-wide remediation, deliberately out of scope here.
+
+## Phase 0A ACL hardening — second reconciliation (applied live)
+
+Repository canonical identity: `20260902110000` (`supabase/migrations/20260902110000_phase0a_acl_hardening.sql`, SHA-256 `096ba34655163fde195b75128147643f9f3452f11b3e3bbea8c47a00206ba4ad`).
+
+Live execution identity: `20260902074804` — Lovable's generated capture at `supabase/migrations/20260902074804_0020dd27-ac04-4b6c-b8e2-6eda1b34a823.sql`, applied to `bvyivmmfjejbmqoydezk`.
+
+Executable equivalence: proven directly, not accepted on Lovable's own claim — both files' comments/blank lines stripped and diffed: 11/11 normalized lines identical (the 10 REVOKE/GRANT statements plus `SET search_path`), zero diff output.
+
+Reconciled under Model B, same as every prior case in this document: `20260902110000` remains the sole executable repository authority; `20260902074804`'s file is now a comment-only historical marker. Note: `20260902074804` sorts numerically *before* `20260902110000`, so on a fresh replay the marker is encountered first — harmless, since it executes nothing; the canonical file is still the only place the grants actually run.
+
+Live post-state certified (as relayed and reconciled): `authenticated` = SELECT only on both tables; `PUBLIC` = none; `anon` = none; `service_role` = full controlled authority. This closes the concrete live ACL gap this section originally recorded as open.
 
 ## Open defects (Phase 0A)
 
-- `DEFECT-DEFAULT-ACL-AUTHENTICATED-001` — open, unchanged in scope, now with a second concrete manifestation on record (Phase 0A joins Phase 2A as evidence of the same underlying project-wide default-privilege gap).
-- `DEFECT-MIGRATION-HISTORY-DIVERGENCE-001` — open, unchanged; Phase 0A's identity divergence is additional evidence of the same root pattern, not a new defect.
-- New: the live ACL gap itself is tracked as fixed-in-candidate via `20260902110000_phase0a_acl_hardening.sql`, not yet fixed-in-live until that migration is actually applied.
+- `DEFECT-DEFAULT-ACL-AUTHENTICATED-001` — open, unchanged in scope, now with a second concrete manifestation on record (Phase 0A joins Phase 2A as evidence of the same underlying project-wide default-privilege gap). The *specific instance* of this defect on `engine_runs`/`idempotency_keys` is now fixed live; the project-wide root cause remains unaddressed.
+- `DEFECT-MIGRATION-HISTORY-DIVERGENCE-001` — open, unchanged; Phase 0A's identity divergence (now observed twice — foundation and ACL hardening) is additional evidence of the same root pattern, not a new defect.
 
 ## Scope note (Phase 0A section)
 
-This record is scoped specifically to the Phase 0A duplicate between `20260901120000` and `20260902052434`, and the ACL correction discovered at that execution. It does not certify or attempt to repair the project-wide default-ACL defect itself.
+This record is scoped specifically to the two Phase 0A duplicates (`20260901120000`/`20260902052434` and `20260902110000`/`20260902074804`) and the ACL correction discovered and closed at those executions. It does not certify or attempt to repair the project-wide default-ACL defect itself, and does not certify Phase 0A's live behavioral correctness (idempotency concurrency, lifecycle enforcement under real transactions, etc.) — those remain unverified by this environment, as recorded in the Phase 0A hardening gates.

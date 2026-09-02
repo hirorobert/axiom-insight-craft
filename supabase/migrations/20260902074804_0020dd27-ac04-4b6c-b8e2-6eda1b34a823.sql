@@ -1,13 +1,47 @@
-SET search_path TO public, pg_catalog;
-
-REVOKE ALL PRIVILEGES ON public.engine_runs FROM PUBLIC;
-REVOKE ALL PRIVILEGES ON public.engine_runs FROM anon;
-REVOKE ALL PRIVILEGES ON public.engine_runs FROM authenticated;
-GRANT SELECT ON public.engine_runs TO authenticated;
-GRANT ALL PRIVILEGES ON public.engine_runs TO service_role;
-
-REVOKE ALL PRIVILEGES ON public.idempotency_keys FROM PUBLIC;
-REVOKE ALL PRIVILEGES ON public.idempotency_keys FROM anon;
-REVOKE ALL PRIVILEGES ON public.idempotency_keys FROM authenticated;
-GRANT SELECT ON public.idempotency_keys TO authenticated;
-GRANT ALL PRIVILEGES ON public.idempotency_keys TO service_role;
+-- ════════════════════════════════════════════════════════════════════════════
+-- Ω∞ PHASE 0A — ACL HARDENING LOVABLE LIVE EXECUTION MARKER (COMMENT-ONLY)
+--
+-- This file contains ZERO executable SQL. It intentionally performs no DDL.
+--
+-- WHAT THIS VERSION IDENTITY IS:
+--   20260902074804 is the migration identity Lovable's tooling generated
+--   and recorded as applied on the live AXIOM/SAFF ERP project
+--   (bvyivmmfjejbmqoydezk). Its executable SQL was verified — by direct
+--   comment-and-blank-line-stripped diff against the reviewed source — to
+--   be identical to the canonical ACL hardening migration's executable
+--   content (11/11 normalized lines matched exactly, zero diff output).
+--   That historical execution event is not altered, disputed, or rewritten
+--   by this file.
+--
+-- WHY THIS FILE IS NOW INERT:
+--   Canonical repository replay authority for this correction remains:
+--
+--     supabase/migrations/20260902110000_phase0a_acl_hardening.sql
+--     SHA-256: 096ba34655163fde195b75128147643f9f3452f11b3e3bbea8c47a00206ba4ad
+--
+--   Note on ordering: this marker's own numeric timestamp (20260902074804)
+--   is actually EARLIER than the canonical file's (20260902110000), so on a
+--   fresh replay this file is encountered first. That is harmless — it is
+--   comment-only and executes nothing — and the canonical file, reached
+--   moments later in filename order, is still the sole place the REVOKE/
+--   GRANT statements actually run. Exactly one executable copy of this
+--   correction exists in the repository, regardless of where in the
+--   sequence the inert marker happens to sit.
+--
+-- LIVE POST-STATE CERTIFIED (as relayed and reconciled):
+--   Target project: bvyivmmfjejbmqoydezk
+--   authenticated = SELECT only, on both public.engine_runs and
+--                   public.idempotency_keys
+--   PUBLIC        = none
+--   anon          = none
+--   service_role  = controlled full authority (required for Edge Function
+--                   read/write of both tables)
+--
+-- Lovable executed equivalent SQL successfully — this record exists to
+-- preserve that live-history provenance, independent of what the
+-- repository's canonical replay file now contains.
+--
+-- DO NOT DELETE THIS MARKER.
+--
+-- See MIGRATION_RECONCILIATION.md for the complete reconciliation record.
+-- ════════════════════════════════════════════════════════════════════════════
