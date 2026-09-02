@@ -1256,7 +1256,30 @@ serve(async (req) => {
     // reprocess attempt whose bytes changed but which itself fails before
     // reaching commit_tb_certification — without this early write, a
     // stale hash would remain and the drift check would never fire.
-    await supabase.from("trial_balance_uploads").update({ source_file_hash: sourceFileHash }).eq("id", uploadId);
+    //
+    // The error IS checked and hard-stops here (see DEFECT-SAFISHA-SOURCE-
+    // HASH-WRITE-FAILURE-STALE-AUTHORITY-001, registered in the Slice 2
+    // authority-boundary review): if this write fails, the column keeps
+    // whatever value it had before this attempt. If that prior value
+    // happens to equal an existing certification's own source_file_hash
+    // (the normal case — it was set by that certification's own successful
+    // run), get_authoritative_certification's drift check would still
+    // pass, silently keeping that certification authoritative even though
+    // the bytes just downloaded may be genuinely different. Continuing to
+    // classify/certify under an unconfirmed persisted hash would compound
+    // that risk by potentially creating a NEW certification while the
+    // read-side staleness window is still open; not continuing at least
+    // prevents that compounding. This does not fully close the window
+    // (closing it for a reader querying in the gap needs a schema-level
+    // confirmation signal, deliberately not added here) — see the defect
+    // report for the full analysis.
+    const { error: sourceHashUpdateError } = await supabase
+      .from("trial_balance_uploads")
+      .update({ source_file_hash: sourceFileHash })
+      .eq("id", uploadId);
+    if (sourceHashUpdateError) {
+      throw new Error(`Failed to persist source_file_hash: ${sourceHashUpdateError.message}`);
+    }
 
     if (format === "xlsx") {
       const buffer = fileBuffer;
