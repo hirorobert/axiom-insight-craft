@@ -1390,6 +1390,90 @@ export type Database = {
           },
         ]
       }
+      engine_runs: {
+        Row: {
+          actor_type: string
+          company_id: string
+          completed_at: string | null
+          created_at: string
+          duration_ms: number | null
+          engine_version: string
+          error_code: string | null
+          error_detail: Json | null
+          firm_member_id: string | null
+          function_name: string
+          id: string
+          input_hash: string | null
+          output_hash: string | null
+          period_year: number | null
+          request_id: string | null
+          rule_version: string | null
+          source_record_id: string | null
+          source_table: string | null
+          started_at: string
+          status: string
+        }
+        Insert: {
+          actor_type: string
+          company_id: string
+          completed_at?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          engine_version: string
+          error_code?: string | null
+          error_detail?: Json | null
+          firm_member_id?: string | null
+          function_name: string
+          id?: string
+          input_hash?: string | null
+          output_hash?: string | null
+          period_year?: number | null
+          request_id?: string | null
+          rule_version?: string | null
+          source_record_id?: string | null
+          source_table?: string | null
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          actor_type?: string
+          company_id?: string
+          completed_at?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          engine_version?: string
+          error_code?: string | null
+          error_detail?: Json | null
+          firm_member_id?: string | null
+          function_name?: string
+          id?: string
+          input_hash?: string | null
+          output_hash?: string | null
+          period_year?: number | null
+          request_id?: string | null
+          rule_version?: string | null
+          source_record_id?: string | null
+          source_table?: string | null
+          started_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_er_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_er_firm_member"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       evidence_requests: {
         Row: {
           created_at: string
@@ -1905,6 +1989,76 @@ export type Database = {
             columns: ["upload_id"]
             isOneToOne: false
             referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      idempotency_keys: {
+        Row: {
+          actor_type: string
+          client_request_id: string
+          company_id: string
+          created_at: string
+          engine_run_id: string
+          firm_member_id: string | null
+          function_name: string
+          id: string
+          input_hash: string | null
+          replay_result: Json | null
+          request_hash: string
+          resolved_at: string | null
+          status: string
+        }
+        Insert: {
+          actor_type: string
+          client_request_id: string
+          company_id: string
+          created_at?: string
+          engine_run_id: string
+          firm_member_id?: string | null
+          function_name: string
+          id?: string
+          input_hash?: string | null
+          replay_result?: Json | null
+          request_hash: string
+          resolved_at?: string | null
+          status?: string
+        }
+        Update: {
+          actor_type?: string
+          client_request_id?: string
+          company_id?: string
+          created_at?: string
+          engine_run_id?: string
+          firm_member_id?: string | null
+          function_name?: string
+          id?: string
+          input_hash?: string | null
+          replay_result?: Json | null
+          request_hash?: string
+          resolved_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_ik_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_ik_engine_run"
+            columns: ["engine_run_id"]
+            isOneToOne: false
+            referencedRelation: "engine_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_ik_firm_member"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
             referencedColumns: ["id"]
           },
         ]
