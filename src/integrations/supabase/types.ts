@@ -3316,6 +3316,79 @@ export type Database = {
           },
         ]
       }
+      tb_certifications: {
+        Row: {
+          certified_at: string
+          company_id: string
+          created_at: string
+          engine_run_id: string
+          exceptions: Json
+          id: string
+          is_blocking: boolean
+          normalized_input_hash: string
+          period_year: number | null
+          requires_review: boolean
+          rows_snapshot: Json
+          sequence_no: number
+          source_file_hash: string
+          upload_id: string
+        }
+        Insert: {
+          certified_at?: string
+          company_id: string
+          created_at?: string
+          engine_run_id: string
+          exceptions?: Json
+          id?: string
+          is_blocking: boolean
+          normalized_input_hash: string
+          period_year?: number | null
+          requires_review: boolean
+          rows_snapshot?: Json
+          sequence_no?: number
+          source_file_hash: string
+          upload_id: string
+        }
+        Update: {
+          certified_at?: string
+          company_id?: string
+          created_at?: string
+          engine_run_id?: string
+          exceptions?: Json
+          id?: string
+          is_blocking?: boolean
+          normalized_input_hash?: string
+          period_year?: number | null
+          requires_review?: boolean
+          rows_snapshot?: Json
+          sequence_no?: number
+          source_file_hash?: string
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_tbc_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_tbc_engine_run"
+            columns: ["engine_run_id"]
+            isOneToOne: true
+            referencedRelation: "engine_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_tbc_upload"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trial_balance_uploads: {
         Row: {
           accounting_errors: Json | null
@@ -3333,6 +3406,7 @@ export type Database = {
           processed_at: string | null
           processing_result: Json | null
           safisha_status: string | null
+          source_file_hash: string | null
           status: string
           uploaded_at: string
           user_id: string | null
@@ -3354,6 +3428,7 @@ export type Database = {
           processed_at?: string | null
           processing_result?: Json | null
           safisha_status?: string | null
+          source_file_hash?: string | null
           status?: string
           uploaded_at?: string
           user_id?: string | null
@@ -3375,6 +3450,7 @@ export type Database = {
           processed_at?: string | null
           processing_result?: Json | null
           safisha_status?: string | null
+          source_file_hash?: string | null
           status?: string
           uploaded_at?: string
           user_id?: string | null
@@ -4149,6 +4225,23 @@ export type Database = {
           wdv_opening_new: number
         }[]
       }
+      commit_tb_certification: {
+        Args: {
+          p_company_id: string
+          p_engine_run_id: string
+          p_exceptions: Json
+          p_expected_function_name: string
+          p_is_blocking: boolean
+          p_normalized_input_hash: string
+          p_output_hash: string
+          p_period_year: number
+          p_requires_review: boolean
+          p_rows_snapshot: Json
+          p_source_file_hash: string
+          p_upload_id: string
+        }
+        Returns: Json
+      }
       fold_engagement_authority: {
         Args: { p_engagement_id: string }
         Returns: {
@@ -4170,6 +4263,31 @@ export type Database = {
           occurred_at: string
           sequence_no: number
         }[]
+      }
+      get_authoritative_certification: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: {
+          certified_at: string
+          company_id: string
+          created_at: string
+          engine_run_id: string
+          exceptions: Json
+          id: string
+          is_blocking: boolean
+          normalized_input_hash: string
+          period_year: number | null
+          requires_review: boolean
+          rows_snapshot: Json
+          sequence_no: number
+          source_file_hash: string
+          upload_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "tb_certifications"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       get_effective_non_reporting_status: {
         Args: { p_accounts: Json; p_company_id: string }
@@ -4421,12 +4539,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4450,11 +4568,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4475,11 +4593,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4500,11 +4618,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4517,11 +4635,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
