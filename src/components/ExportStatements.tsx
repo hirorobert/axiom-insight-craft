@@ -368,7 +368,7 @@ export function ExportStatements({
       data.push(...getAllAccounts(sn.balanceSheet, "Non-Current Assets",      mapping.balanceSheet.assets?.nonCurrent));
       data.push(...getAllAccounts(sn.balanceSheet, "Current Liabilities",     mapping.balanceSheet.liabilities?.current));
       data.push(...getAllAccounts(sn.balanceSheet, "Non-Current Liabilities", mapping.balanceSheet.liabilities?.nonCurrent));
-      data.push(...getAllAccounts(sn.balanceSheet, "Equity",                  mapping.balanceSheet.equity));
+      data.push(...getAllAccounts(sn.balanceSheet, cfg.equitySectionLabel,    mapping.balanceSheet.equity));
     }
 
     if (mapping?.incomeStatement) {
@@ -872,7 +872,7 @@ export function ExportStatements({
     } else {
       doc.setFontSize(8); doc.setTextColor(120);
       doc.text(
-        "Statement of Cash Flows will appear here once the ITA Tax Analysis has been run and committed.",
+        `${cfg.statementNames.cashFlow} will appear here once the ITA Tax Analysis has been run and committed.`,
         14, y + 6
       );
     }

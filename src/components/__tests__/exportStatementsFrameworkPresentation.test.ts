@@ -14,6 +14,13 @@
  * No component-rendering harness exists in this project, so this is proven
  * at the source-text boundary, matching the precedent established across
  * Phase 1 (reportingFrameworkNoDefault.test.ts, tinGateRemoved.test.ts).
+ *
+ * Extended after an independent audit (Codex) of the first Phase 2 commit
+ * found the identical anti-pattern missed in two more spots in the same
+ * file: the Appendix A / Excel "Equity" subcategory label used for every
+ * net-asset account row, and the Statement of Cash Flows not-yet-available
+ * placeholder. Both are now covered here so this exact class of gap cannot
+ * silently reappear.
  */
 
 import { describe, it, expect } from "vitest";
@@ -53,5 +60,23 @@ describe("ExportStatements.tsx — statement page titles read from the registry,
     expect(EXPORT_STATEMENTS).not.toMatch(/label:\s*"EQUITY"/);
     expect(EXPORT_STATEMENTS).not.toMatch(/"TOTAL LIABILITIES & EQUITY"/);
     expect(EXPORT_STATEMENTS).toMatch(/cfg\.equitySectionLabel/);
+  });
+
+  it("the Appendix A / Excel equity subcategory label is not hardcoded to the IFRS term", () => {
+    expect(EXPORT_STATEMENTS).not.toMatch(
+      /getAllAccounts\(sn\.balanceSheet,\s*"Equity"/,
+    );
+    expect(EXPORT_STATEMENTS).toMatch(
+      /getAllAccounts\(sn\.balanceSheet,\s*cfg\.equitySectionLabel/,
+    );
+  });
+
+  it("the Statement of Cash Flows not-yet-available placeholder uses the registry's statement name", () => {
+    expect(EXPORT_STATEMENTS).not.toMatch(
+      /"Statement of Cash Flows will appear here/,
+    );
+    expect(EXPORT_STATEMENTS).toMatch(
+      /\$\{cfg\.statementNames\.cashFlow\} will appear here/,
+    );
   });
 });
