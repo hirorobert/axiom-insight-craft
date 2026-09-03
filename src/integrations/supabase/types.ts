@@ -936,7 +936,7 @@ export type Database = {
           industry: string | null
           is_active: boolean | null
           name: string
-          reporting_framework: string
+          reporting_framework: string | null
           tin: string | null
           updated_at: string
           user_id: string
@@ -951,7 +951,7 @@ export type Database = {
           industry?: string | null
           is_active?: boolean | null
           name: string
-          reporting_framework?: string
+          reporting_framework?: string | null
           tin?: string | null
           updated_at?: string
           user_id: string
@@ -966,7 +966,7 @@ export type Database = {
           industry?: string | null
           is_active?: boolean | null
           name?: string
-          reporting_framework?: string
+          reporting_framework?: string | null
           tin?: string | null
           updated_at?: string
           user_id?: string
