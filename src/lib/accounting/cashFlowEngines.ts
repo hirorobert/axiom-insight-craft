@@ -1,6 +1,6 @@
 /**
  * cashFlowEngines.ts — Ω∞ public-sector / framework intelligence engine,
- * Slice 10: two cash-flow engines (Section XIII).
+ * Slice 10 (+ Phase 5 Slice 1 hardening): two cash-flow engines (Section XIII).
  *
  * MANDATORY per the directive: do not conflate
  *   A. PRIMARY CASH FLOW STATEMENT (Operating / Investing / Financing) — one
@@ -11,7 +11,12 @@
  * They are different PRODUCTS serving different readers, even though under
  * the indirect method (the only method this rule pack's source data
  * supports evidence for) they resolve to the same operating total. That
- * equality is asserted by crossCheckOperatingCashFlow(), never assumed.
+ * equality is asserted by crossCheckOperatingCashFlow(), never assumed --
+ * but see that function's own doc comment for exactly what it does and does
+ * NOT prove (Phase 5 Design Gate finding: it is not genuine dual-engine
+ * independence, because buildPrimaryCashFlowStatement's operating figure is
+ * conventionally supplied FROM buildOperatingCashFlowReconciliation's own
+ * output, not independently derived).
  *
  * Pure, READ ONLY — no I/O. Reuses Slice 9's normalBalanceSign convention
  * and Slice 7's ComparativeAmount type rather than inventing parallel ones.
@@ -24,13 +29,35 @@
  * edge function that gates sign-off is a materially different risk than
  * anything built in Slices 1-9 and is not attempted here without a
  * separate, explicit decision to do so.
+ *
+ * Phase 5 Slice 1 additions (cash-perimeter/materiality/reconciliation
+ * hardening, verifyCashPositionReconciliation and friends, at the bottom of
+ * this file): the cash perimeter (what counts as "cash and cash
+ * equivalents") is never inferred here -- no account-name matching, no
+ * regex, no sign inference, no presentationCode/accountNature inference.
+ * The repository already exposes an authoritative,
+ * professionally-maintained account_mappings.is_cash_account flag; this
+ * module receives the ALREADY-RESOLVED cash position as caller-supplied
+ * facts (CashPositionFacts) and never queries account_mappings itself --
+ * this stays a pure function with zero DB access, matching every other
+ * certified module in this file cluster. Materiality is caller-supplied
+ * too (MaterialityThreshold) -- no hardcoded currency, no hardcoded
+ * percentage, no hardcoded absolute floor.
  */
 
 import type { AccountNature, IpsasPresentationCode } from "./museIpsasRulePack";
 import { normalBalanceSign, type ClassifiedBalance } from "./statementAggregationEngine";
 import type { ComparativeAmount } from "./comparativeEvidence";
 
-const TOLERANCE_TZS = 1;
+/**
+ * A rounding epsilon for crossCheckOperatingCashFlow's internal-consistency
+ * check ONLY -- NOT a materiality threshold, and deliberately never reused
+ * by verifyCashPositionReconciliation (see MaterialityThreshold below,
+ * which is caller-supplied and currency-explicit). This constant exists
+ * only to absorb floating-point rounding between two numbers that are
+ * conventionally the same value passed through two call sites.
+ */
+const ROUNDING_EPSILON = 1;
 
 // ── Shared line-item shape ────────────────────────────────────────────────────
 
@@ -231,16 +258,211 @@ export interface CashFlowCrossCheckResult {
   variance: number;
 }
 
-/** "Operating cash flow in primary statement = Operating cash flow from reconciliation" — enforced, not assumed. */
+/**
+ * "Operating cash flow in primary statement = Operating cash flow from
+ * reconciliation" — enforced, not assumed.
+ *
+ * LIMITATION (Phase 5 Design Gate finding, not fixed by this function):
+ * this is an internal-consistency check, not genuine dual-engine
+ * independence. Under the indirect method, this repository has exactly one
+ * data-supported derivation of operating cash flow
+ * (buildOperatingCashFlowReconciliation) -- buildPrimaryCashFlowStatement's
+ * operating figure is conventionally THAT SAME number passed through by the
+ * caller, not independently recomputed from a second data source (e.g.
+ * actual cash receipts/payments, a genuine direct-method presentation).
+ * This function therefore proves "did the caller wire the same number to
+ * both call sites" -- a real, worthwhile guard against accidental drift --
+ * NOT "do two independently-derived engines agree." No independent
+ * operating-CF data source exists in this repository today; fabricating
+ * one here would misrepresent what this check actually establishes.
+ * Genuine dual-engine independence remains a registered capability gap
+ * (Phase 5 Design Gate §7/§N), not solved by this or any function in this
+ * file.
+ */
 export function crossCheckOperatingCashFlow(
   primary: PrimaryCashFlowStatement,
   reconciliation: OperatingCashFlowReconciliation,
 ): CashFlowCrossCheckResult {
   const variance = primary.operating.total - reconciliation.netCashFromOperatingActivities;
   return {
-    matches: Math.abs(variance) <= TOLERANCE_TZS,
+    matches: Math.abs(variance) <= ROUNDING_EPSILON,
     primaryOperatingCashFlow: primary.operating.total,
     reconciliationOperatingCashFlow: reconciliation.netCashFromOperatingActivities,
     variance,
+  };
+}
+
+// ── Cash-flow classification completeness (Phase 5 Slice 1) ─────────────────
+
+const ALL_KNOWN_CASHFLOW_PRESENTATION_CODES = new Set<IpsasPresentationCode>([
+  ...NON_CASH_ADJUSTMENT_CODES,
+  ...WORKING_CAPITAL_ASSET_CODES,
+  ...WORKING_CAPITAL_LIABILITY_CODES,
+  ...INVESTING_PRESENTATION_CODES,
+]);
+
+export type CashFlowUnresolvedReason = "NO_PRESENTATION_CODE" | "PRESENTATION_CODE_NOT_CLASSIFIED";
+
+export interface UnresolvedCashFlowLine {
+  naturalAccountCode: string;
+  amount: number;
+  reason: CashFlowUnresolvedReason;
+  requiresReview: true;
+}
+
+/**
+ * Audits a set of classified balances against every presentationCode this
+ * module's operating/investing sections actually recognize (financing is
+ * caller-driven via an explicit set and is therefore excluded from this
+ * audit -- everything the caller designates as financing is, by
+ * definition, resolved). Anything left over is surfaced explicitly, never
+ * silently dropped and never defaulted into OPERATING.
+ *
+ * NO_PRESENTATION_CODE covers a runtime-bypassed missing value (the
+ * ClassifiedBalance type itself requires presentationCode, but a caller
+ * can still hand this function a value that violates that at runtime).
+ * PRESENTATION_CODE_NOT_CLASSIFIED covers a real, valid IpsasPresentationCode
+ * that simply isn't one of the codes this cash-flow module maps to a
+ * section yet (e.g. RESERVES, ACCUMULATED_SURPLUS_DEFICIT).
+ */
+export function findUnresolvedCashFlowLines(
+  balances: ClassifiedBalance[],
+): UnresolvedCashFlowLine[] {
+  return balances
+    .filter((b) => !b.presentationCode || !ALL_KNOWN_CASHFLOW_PRESENTATION_CODES.has(b.presentationCode))
+    .map((b) => ({
+      naturalAccountCode: b.naturalAccountCode,
+      amount: normalBalanceSign(b.accountNature) * (b.debitAmount - b.creditAmount),
+      reason: (b.presentationCode
+        ? "PRESENTATION_CODE_NOT_CLASSIFIED"
+        : "NO_PRESENTATION_CODE") as CashFlowUnresolvedReason,
+      requiresReview: true,
+    }));
+}
+
+// ── Cash position reconciliation — Gate C (Phase 5 Slice 1) ─────────────────
+
+/**
+ * The already-resolved cash position for a period. The engine NEVER infers
+ * cash status from account name, regex, sign, accountNature, or
+ * presentationCode -- the caller resolves this from authoritative evidence
+ * (e.g. account_mappings.is_cash_account) before calling. openingCash
+ * reuses the certified ComparativeAmount contract so a genuinely missing
+ * prior-period cash figure stays structurally MISSING/NOT_APPLICABLE, never
+ * silently 0. actualClosingCash is the current period's own resolved cash
+ * balance -- always a known fact for the period being reported on, so it is
+ * a plain number, not a ComparativeAmount.
+ */
+export interface CashPositionFacts {
+  currencyCode: string;
+  openingCash: ComparativeAmount;
+  actualClosingCash: number;
+}
+
+/**
+ * Caller-supplied materiality. No defaults, no hardcoded currency. The
+ * caller is responsible for sourcing this from wherever the firm's
+ * materiality policy actually lives (company/period/engagement
+ * configuration) -- no such configuration table exists in this repository
+ * today, so none is invented or assumed here.
+ */
+export interface MaterialityThreshold {
+  currencyCode: string;
+  percentageThreshold: number;
+  absoluteThreshold: number;
+}
+
+export type CashPositionReconciliationStatus = "RECONCILED" | "UNRECONCILED" | "CANNOT_ASSESS";
+
+export interface CashPositionReconciliationResult {
+  status: CashPositionReconciliationStatus;
+  openingCashState: ComparativeAmount["state"];
+  netCashMovement: number;
+  /** null only when status is CANNOT_ASSESS (opening cash missing/not applicable). */
+  derivedClosingCash: number | null;
+  actualClosingCash: number;
+  /** null only when status is CANNOT_ASSESS. */
+  difference: number | null;
+  /** null only when status is CANNOT_ASSESS -- the actual max(pct, absolute) value applied. */
+  thresholdApplied: number | null;
+  currencyCode: string;
+}
+
+/**
+ * Gate C: opening cash + net cash movement = derived closing cash, compared
+ * against the actual (independently resolved) closing cash. This is a
+ * DIFFERENT control from crossCheckOperatingCashFlow -- it never claims to
+ * prove dual-engine operating-CF independence (see that function's own doc
+ * comment). It proves cash MOVEMENT arithmetic ties to an independently
+ * known cash POSITION, which is exactly what IFRS for SMEs s.7 /
+ * IAS 7 / IPSAS 2 require and exactly what this repository's evidence can
+ * honestly support today.
+ *
+ * Fails to CANNOT_ASSESS (never a plug, never a guessed zero) when opening
+ * cash is MISSING or NOT_APPLICABLE. Fails closed (throws) on any
+ * non-finite numeric input, on a mismatched currencyCode between
+ * cashPosition and materiality, or on a mismatched currencyCode between the
+ * caller's two inputs -- comparing a cash position to a threshold
+ * denominated in a different currency would be a real correctness defect,
+ * not a case to silently paper over.
+ */
+export function verifyCashPositionReconciliation(
+  cashPosition: CashPositionFacts,
+  netCashMovement: number,
+  materiality: MaterialityThreshold,
+): CashPositionReconciliationResult {
+  if (!Number.isFinite(netCashMovement)) {
+    throw new Error(
+      `verifyCashPositionReconciliation: netCashMovement is not a finite number (received: ${String(netCashMovement)}).`,
+    );
+  }
+  if (!Number.isFinite(cashPosition.actualClosingCash)) {
+    throw new Error(
+      `verifyCashPositionReconciliation: cashPosition.actualClosingCash is not a finite number (received: ${String(cashPosition.actualClosingCash)}).`,
+    );
+  }
+  if (!Number.isFinite(materiality.percentageThreshold) || !Number.isFinite(materiality.absoluteThreshold)) {
+    throw new Error(
+      "verifyCashPositionReconciliation: materiality.percentageThreshold and materiality.absoluteThreshold must both be finite numbers.",
+    );
+  }
+  if (cashPosition.currencyCode !== materiality.currencyCode) {
+    throw new Error(
+      `verifyCashPositionReconciliation: currency mismatch between cashPosition ('${cashPosition.currencyCode}') and materiality ('${materiality.currencyCode}') -- refusing to compare across currencies.`,
+    );
+  }
+
+  if (cashPosition.openingCash.state === "MISSING" || cashPosition.openingCash.state === "NOT_APPLICABLE") {
+    return {
+      status: "CANNOT_ASSESS",
+      openingCashState: cashPosition.openingCash.state,
+      netCashMovement,
+      derivedClosingCash: null,
+      actualClosingCash: cashPosition.actualClosingCash,
+      difference: null,
+      thresholdApplied: null,
+      currencyCode: cashPosition.currencyCode,
+    };
+  }
+
+  const openingValue = cashPosition.openingCash.value;
+  const derivedClosingCash = openingValue + netCashMovement;
+  const difference = derivedClosingCash - cashPosition.actualClosingCash;
+  const thresholdApplied = Math.max(
+    Math.abs(cashPosition.actualClosingCash) * materiality.percentageThreshold,
+    materiality.absoluteThreshold,
+  );
+  const status: CashPositionReconciliationStatus =
+    Math.abs(difference) <= thresholdApplied ? "RECONCILED" : "UNRECONCILED";
+
+  return {
+    status,
+    openingCashState: cashPosition.openingCash.state,
+    netCashMovement,
+    derivedClosingCash,
+    actualClosingCash: cashPosition.actualClosingCash,
+    difference,
+    thresholdApplied,
+    currencyCode: cashPosition.currencyCode,
   };
 }

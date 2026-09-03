@@ -14,9 +14,14 @@ import {
   buildFinancingActivities,
   buildPrimaryCashFlowStatement,
   crossCheckOperatingCashFlow,
+  findUnresolvedCashFlowLines,
+  verifyCashPositionReconciliation,
   type WorkingCapitalComparative,
+  type CashPositionFacts,
+  type MaterialityThreshold,
 } from "./cashFlowEngines";
 import type { ClassifiedBalance } from "./statementAggregationEngine";
+import type { ComparativeAmount } from "./comparativeEvidence";
 import { TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 } from "./museIpsasRulePack";
 import { ARUSHA_FY2026_BALANCES } from "./arushaFy2026Balances.fixture";
 import { ARUSHA_FY2025_BALANCES } from "./arushaFy2025Balances.fixture";
@@ -176,5 +181,226 @@ describe("crossCheckOperatingCashFlow — Section XIII mandatory cross-check", (
     expect(check.matches).toBe(true);
     // Real, non-trivial net movement for the year, not a degenerate zero.
     expect(primary.netCashMovementForPeriod).not.toBe(0);
+  });
+});
+
+// ── Phase 5 Slice 1: findUnresolvedCashFlowLines ────────────────────────────
+
+const KNOWN: ComparativeAmount = { state: "KNOWN", value: 500_000, source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] };
+const ZERO: ComparativeAmount = { state: "ZERO", value: 0, source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] };
+const MISSING: ComparativeAmount = { state: "MISSING", source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] };
+const NOT_APPLICABLE: ComparativeAmount = { state: "NOT_APPLICABLE", evidence: [] };
+
+describe("[11]/[12]/[13] findUnresolvedCashFlowLines surfaces what buildInvesting/Operating silently skip", () => {
+  it("[11] a runtime-bypassed missing presentationCode is surfaced as NO_PRESENTATION_CODE", () => {
+    const bad = [
+      { naturalAccountCode: "X1", accountNature: "ASSET", presentationCode: undefined, debitAmount: 100, creditAmount: 0 },
+    ] as unknown as ClassifiedBalance[];
+    const unresolved = findUnresolvedCashFlowLines(bad);
+    expect(unresolved).toHaveLength(1);
+    expect(unresolved[0].reason).toBe("NO_PRESENTATION_CODE");
+    expect(unresolved[0].requiresReview).toBe(true);
+  });
+
+  it("[12] a real, valid IPSAS presentationCode this module doesn't map to a section is surfaced as PRESENTATION_CODE_NOT_CLASSIFIED", () => {
+    // 63293101 "Accumulated Surplus/Deficit Opening" -> NET_ASSETS / ACCUMULATED_SURPLUS_DEFICIT,
+    // a real rule (Phase 3 fixture), not one of operating/investing/financing's known codes.
+    const rule = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.find((r) => r.naturalAccountCode === "63293101")!;
+    const balances: ClassifiedBalance[] = [
+      {
+        naturalAccountCode: rule.naturalAccountCode,
+        accountNature: rule.accountNature,
+        presentationCode: rule.presentationCode,
+        debitAmount: 0,
+        creditAmount: 900,
+      },
+    ];
+    const unresolved = findUnresolvedCashFlowLines(balances);
+    expect(unresolved).toHaveLength(1);
+    expect(unresolved[0].reason).toBe("PRESENTATION_CODE_NOT_CLASSIFIED");
+    expect(unresolved[0].naturalAccountCode).toBe("63293101");
+  });
+
+  it("[13] a genuinely resolved investing-relevant line is never surfaced as unresolved (no false positives)", () => {
+    const fy2026Balances = toClassifiedBalances(ARUSHA_FY2026_BALANCES);
+    const unresolved = findUnresolvedCashFlowLines(fy2026Balances);
+    for (const line of unresolved) {
+      // structural: UnresolvedCashFlowLine has no OPERATING/INVESTING/FINANCING
+      // section field at all -- it can never masquerade as a resolved section line.
+      expect("section" in line).toBe(false);
+    }
+    // and every INVESTING-classified real line is absent from the unresolved set
+    const investingCodes = new Set(buildInvestingActivities(fy2026Balances).lineItems.map((l) => l.naturalAccountCode));
+    expect(unresolved.some((u) => investingCodes.has(u.naturalAccountCode))).toBe(false);
+  });
+
+  it("[16] duplicate natural account codes are both preserved, never silently merged or dropped", () => {
+    const bad = [
+      { naturalAccountCode: "DUP", accountNature: "NET_ASSETS", presentationCode: "RESERVES", debitAmount: 0, creditAmount: 100 },
+      { naturalAccountCode: "DUP", accountNature: "NET_ASSETS", presentationCode: "RESERVES", debitAmount: 0, creditAmount: 200 },
+    ] as ClassifiedBalance[];
+    const unresolved = findUnresolvedCashFlowLines(bad);
+    expect(unresolved).toHaveLength(2);
+    expect(unresolved.filter((u) => u.naturalAccountCode === "DUP")).toHaveLength(2);
+  });
+});
+
+// ── Phase 5 Slice 1: verifyCashPositionReconciliation (Gate C) ─────────────
+
+const TZS_MATERIALITY: MaterialityThreshold = { currencyCode: "TZS", percentageThreshold: 0.01, absoluteThreshold: 500_000 };
+
+describe("[1]/[2]/[3] Gate C: opening + movement = closing, visibly", () => {
+  it("[1] opening + movement = actual closing -> RECONCILED", () => {
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 500_000 + 250_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 250_000, TZS_MATERIALITY);
+    expect(result.status).toBe("RECONCILED");
+    expect(result.derivedClosingCash).toBe(750_000);
+    expect(result.difference).toBe(0);
+  });
+
+  it("[2] a material mismatch -> UNRECONCILED with a visible, non-zero difference (never plugged)", () => {
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 999_999_999 };
+    const result = verifyCashPositionReconciliation(cashPosition, 250_000, TZS_MATERIALITY);
+    expect(result.status).toBe("UNRECONCILED");
+    expect(result.derivedClosingCash).toBe(750_000);
+    expect(result.difference).toBe(750_000 - 999_999_999);
+    expect(result.actualClosingCash).toBe(999_999_999); // never overwritten by the derived figure
+  });
+
+  it("[3]/[6] missing opening cash -> CANNOT_ASSESS, never fabricated as zero", () => {
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: MISSING, actualClosingCash: 750_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 250_000, TZS_MATERIALITY);
+    expect(result.status).toBe("CANNOT_ASSESS");
+    expect(result.derivedClosingCash).toBeNull();
+    expect(result.difference).toBeNull();
+    expect(result.openingCashState).toBe("MISSING");
+  });
+
+  it("[22] NOT_APPLICABLE opening cash also -> CANNOT_ASSESS", () => {
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: NOT_APPLICABLE, actualClosingCash: 750_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 250_000, TZS_MATERIALITY);
+    expect(result.status).toBe("CANNOT_ASSESS");
+    expect(result.openingCashState).toBe("NOT_APPLICABLE");
+  });
+});
+
+describe("[4]/[5] genuine zero is preserved, distinct from missing", () => {
+  it("[4] a genuine ZERO opening cash still computes (0 is a real fact, not an absence)", () => {
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: ZERO, actualClosingCash: 250_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 250_000, TZS_MATERIALITY);
+    expect(result.status).toBe("RECONCILED");
+    expect(result.derivedClosingCash).toBe(250_000);
+  });
+
+  it("[5] a genuine zero actual closing cash is preserved, not treated as missing", () => {
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 0 };
+    const result = verifyCashPositionReconciliation(cashPosition, -500_000, TZS_MATERIALITY);
+    expect(result.actualClosingCash).toBe(0);
+    expect(result.status).toBe("RECONCILED");
+  });
+});
+
+describe("[7]/[8] materiality: both percentage and absolute thresholds are honored (max of the two)", () => {
+  it("[7] a small-cash-balance company: the absolute floor dominates the percentage", () => {
+    // 1% of 10,000 = 100; absolute floor 500,000 -- floor wins.
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 10_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 10_000 - 500_000 + 400_000, TZS_MATERIALITY);
+    expect(result.thresholdApplied).toBe(500_000);
+  });
+
+  it("[8] a large-cash-balance company: the percentage threshold dominates the absolute floor", () => {
+    // 1% of 100,000,000 = 1,000,000 > absolute floor 500,000 -- percentage wins.
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 100_000_000 };
+    const materiality: MaterialityThreshold = { currencyCode: "TZS", percentageThreshold: 0.01, absoluteThreshold: 500_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 100_000_000 - 500_000 + 900_000, materiality);
+    expect(result.thresholdApplied).toBe(1_000_000);
+  });
+});
+
+describe("[9]/[10]/[25] materiality and cash position are fully caller-supplied, never hardcoded", () => {
+  it("[9] a non-TZS currency works identically -- the engine is currency-neutral", () => {
+    const kesMateriality: MaterialityThreshold = { currencyCode: "KES", percentageThreshold: 0.01, absoluteThreshold: 5_000 };
+    const cashPosition: CashPositionFacts = { currencyCode: "KES", openingCash: KNOWN, actualClosingCash: 750_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 250_000, kesMateriality);
+    expect(result.status).toBe("RECONCILED");
+    expect(result.currencyCode).toBe("KES");
+  });
+
+  it("mismatched currencies between cashPosition and materiality fail closed", () => {
+    const usdMateriality: MaterialityThreshold = { currencyCode: "USD", percentageThreshold: 0.01, absoluteThreshold: 200 };
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 750_000 };
+    expect(() => verifyCashPositionReconciliation(cashPosition, 250_000, usdMateriality)).toThrow(/currency/i);
+  });
+
+  it("[10]/[25] the Gate C / materiality source contains no hardcoded currency or amount (TZS, 500000, 500_000, 0.01) in executable code", () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require("node:fs");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require("node:path");
+    const source: string = fs.readFileSync(path.join(__dirname, "cashFlowEngines.ts"), "utf-8");
+    const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    const gateCStart = codeOnly.indexOf("export interface CashPositionFacts");
+    const gateCSection = codeOnly.slice(gateCStart);
+    expect(gateCSection).not.toMatch(/"TZS"|500_?000|0\.01/);
+  });
+});
+
+describe("[14]/[15] Gate C fails closed on malformed numeric input", () => {
+  const validPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 750_000 };
+
+  it("[14] NaN netCashMovement throws", () => {
+    expect(() => verifyCashPositionReconciliation(validPosition, NaN, TZS_MATERIALITY)).toThrow();
+  });
+
+  it("[15] Infinity actualClosingCash throws", () => {
+    const bad: CashPositionFacts = { ...validPosition, actualClosingCash: Infinity };
+    expect(() => verifyCashPositionReconciliation(bad, 250_000, TZS_MATERIALITY)).toThrow();
+  });
+
+  it("non-finite materiality thresholds throw", () => {
+    const bad: MaterialityThreshold = { currencyCode: "TZS", percentageThreshold: NaN, absoluteThreshold: 500_000 };
+    expect(() => verifyCashPositionReconciliation(validPosition, 250_000, bad)).toThrow();
+  });
+});
+
+describe("[17]/[18] determinism and purity", () => {
+  it("[17] the same inputs produce a deep-equal result across repeated calls", () => {
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 750_000 };
+    const first = verifyCashPositionReconciliation(cashPosition, 250_000, TZS_MATERIALITY);
+    const second = verifyCashPositionReconciliation(cashPosition, 250_000, TZS_MATERIALITY);
+    expect(first).toEqual(second);
+  });
+
+  it("[18] no Date/random/Supabase/DB/network dependency anywhere in the module", () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require("node:fs");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require("node:path");
+    const source: string = fs.readFileSync(path.join(__dirname, "cashFlowEngines.ts"), "utf-8");
+    const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(codeOnly).not.toMatch(/Date\.now\(\)|new Date\(|randomUUID|supabase|fetch\(|localStorage|sessionStorage/i);
+  });
+});
+
+describe("[23]/[24] Gate C and crossCheckOperatingCashFlow are honestly scoped -- neither claims dual-engine independence", () => {
+  it("[23] CashPositionReconciliationResult carries no field claiming an independently-derived operating-CF number", () => {
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 750_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 250_000, TZS_MATERIALITY);
+    expect("primaryOperatingCashFlow" in result).toBe(false);
+    expect("reconciliationOperatingCashFlow" in result).toBe(false);
+    expect("engineAOperatingCashFlow" in result).toBe(false);
+    expect("engineBOperatingCashFlow" in result).toBe(false);
+  });
+
+  it("[24] crossCheckOperatingCashFlow's own doc comment explicitly documents its independence limitation", () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require("node:fs");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require("node:path");
+    const source: string = fs.readFileSync(path.join(__dirname, "cashFlowEngines.ts"), "utf-8");
+    const fnIndex = source.indexOf("export function crossCheckOperatingCashFlow");
+    const precedingComment = source.slice(Math.max(0, fnIndex - 1800), fnIndex);
+    expect(precedingComment).toMatch(/LIMITATION/);
+    expect(precedingComment.toLowerCase()).toMatch(/not.*(genuine|independen)/);
   });
 });
