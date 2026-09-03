@@ -167,10 +167,14 @@ export default function WorkspaceOverview() {
   );
 
   // TIN is an exception only when it is missing/invalid AND the current
-  // canonical next action cannot proceed without it (the upload gate requires
-  // it, or the derived next action names it as the blocker).
-  const tinBlocksNextAction =
-    tinMissing && (!hasUpload || /tin/i.test(nextAction.blocker ?? ""));
+  // canonical next action actually names it as the blocker. Phase 1 Slice 2
+  // (DEFECT-GLOBAL-TIN-GATE-001): the upload gate that used to make TIN
+  // unconditionally blocking pre-upload is gone -- SAFISHA upload/
+  // certification no longer requires a TRA TIN at all, so its mere absence
+  // before an upload exists is no longer itself a blocker. TIN only matters
+  // where a real downstream workflow (e.g. TRA filing) actually needs it and
+  // says so via nextAction.blocker.
+  const tinBlocksNextAction = tinMissing && /tin/i.test(nextAction.blocker ?? "");
 
   // ── The single decision on this screen ────────────────────────────────────
   type Decision = {

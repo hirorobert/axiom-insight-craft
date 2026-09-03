@@ -307,22 +307,16 @@ export const TrialBalanceUpload = ({
       return;
     }
 
-    // ── Fix 2: TIN gate ───────────────────────────────────────────────────────
-    // A real TRA TIN is required before any trial balance can be submitted.
-    // If the company has no TIN (or still has the placeholder), block the upload
-    // and direct the user to Settings so they can enter the real number.
-    const selectedCompany = companies.find(
-      (c) => c.id === (lockedCompanyId ?? selectedCompanyId ?? companies[0]?.id),
-    );
-    if (isTinMissing(selectedCompany?.tin)) {
-      toast.error("Enter the company's TRA TIN in Settings before uploading.", {
-        action: {
-          label: "Open Settings",
-          onClick: () => navigate("/settings"),
-        },
-      });
-      return;
-    }
+    // Phase 1 Slice 2 (DEFECT-GLOBAL-TIN-GATE-001): a TRA (Tanzania Revenue
+    // Authority) TIN is a Tanzania-specific fact, not a universal prerequisite
+    // for SAFISHA upload/certification -- SAFF's core pipeline is jurisdiction-
+    // neutral. This gate used to block every entity, including legitimate
+    // non-Tanzanian ones, which can never have a TRA TIN. TIN missingness is
+    // still surfaced -- see the informational warnings below and
+    // WorkspaceOverview.tsx's "TIN required" prompt, both non-blocking -- but
+    // it no longer prevents upload. Where a TIN genuinely is required (a TRA
+    // filing pack), that workflow is responsible for asking for it explicitly
+    // at that point.
 
     const queuedFiles = files.filter((f) => f.status === "queued");
     if (queuedFiles.length === 0) {
@@ -462,14 +456,15 @@ export const TrialBalanceUpload = ({
           </div>
         )}
 
-        {/* Destination is already stated once in the workspace bar — the only
-            thing worth saying here is a blocking gap. */}
+        {/* Destination is already stated once in the workspace bar. This is
+            informational, not a gate — TIN is a TRA-filing requirement, not
+            a universal upload prerequisite (Phase 1 Slice 2). */}
         {embedded && lockedCompanyId && isTinMissing(lockedCompany?.tin) && (
           <p className="mb-4 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
             <AlertTriangle className="w-3 h-3 shrink-0" />
             TRA TIN not set —{" "}
             <Link to="/settings" className="underline underline-offset-2">add it in Settings</Link>{" "}
-            before uploading.
+            before filing with TRA.
           </p>
         )}
 
@@ -518,7 +513,7 @@ export const TrialBalanceUpload = ({
                   <Link to="/settings" className="underline underline-offset-2 hover:text-amber-700">
                     Add it in Settings
                   </Link>{" "}
-                  before uploading.
+                  before filing with TRA.
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground mt-1">
