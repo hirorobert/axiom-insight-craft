@@ -348,9 +348,10 @@ export function AccountReviewPanel({
           .eq("id", uploadId);
 
         await ensureFreshSession();
+        const reprocessRequestId = crypto.randomUUID();
         const { error: fnError } = await supabase.functions.invoke(
           "process-trial-balance",
-          { body: { uploadId } }
+          { body: { uploadId, clientRequestId: reprocessRequestId } }
         );
         if (fnError) throw fnError;
         reprocessStarted = true;

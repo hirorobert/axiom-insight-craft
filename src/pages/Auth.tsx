@@ -180,6 +180,12 @@ export default function Auth() {
         if (error) {
           if (error.message.includes("User already registered")) {
             toast.error("This email is already registered. Please sign in instead.");
+          } else if (error.message.toLowerCase().includes("rate limit")) {
+            // Supabase's built-in email sender has a low hourly send cap —
+            // this is not this account's fault. The raw provider message
+            // ("email rate limit exceeded") is not actionable to a user;
+            // give them an honest, concrete instruction instead.
+            toast.error("We're sending too many sign-up emails right now — please wait a few minutes and try again.");
           } else {
             toast.error(error.message);
           }
