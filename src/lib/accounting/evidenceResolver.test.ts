@@ -354,6 +354,133 @@ describe("[R] unresolvedDimensions correctly reflects unresolved dimensions in e
   });
 });
 
+// ── [8] HIGH-confidence review policy is frozen by a direct test ───────────
+
+describe("[8] HIGH-confidence Tier2 match: the certified review policy is locked", () => {
+  it("21111101 (real, HIGH confidence): review flags and unresolvedDimensions match the frozen policy exactly", () => {
+    const output = resolveEvidence(EXPENSE_INPUT);
+    const byDimension = Object.fromEntries(
+      output.dimensionResolutions.map((r) => [r.dimension, r.requiresReview]),
+    );
+    expect(byDimension.sourceClassification).toBe(false);
+    expect(byDimension.accountNature).toBe(false);
+    expect(byDimension.fsPresentation).toBe(false);
+    expect(byDimension.taxonomyConcept).toBe(true);
+    expect(output.unresolvedDimensions).toEqual(["taxonomyConcept"]);
+    expect(output.requiresReviewOverall).toBe(true);
+  });
+});
+
+// ── [9] LOW/LEXICAL real-rule regression: source identity vs classification ─
+
+describe("[9] real LOW/LEXICAL rule (14150101, Revenue from Land): source identity and classification evidence stay separated", () => {
+  it("[9A] sourceClassification.evidenceSource is SOURCE_SYSTEM_SIGNATURE, not the rule's LEXICAL_SIGNAL", () => {
+    const output = resolveEvidence(REVENUE_INPUT);
+    const resolution = output.dimensionResolutions.find(
+      (r): r is SourceClassificationResolution => r.dimension === "sourceClassification",
+    );
+    expect(resolution?.winningProposal?.evidenceSource).toBe("SOURCE_SYSTEM_SIGNATURE");
+  });
+
+  it("[9B] sourceClassification is not mislabeled as LEXICAL_SIGNAL anywhere (proposal, resolution, or provenance)", () => {
+    const output = resolveEvidence(REVENUE_INPUT);
+    const resolution = output.dimensionResolutions.find(
+      (r): r is SourceClassificationResolution => r.dimension === "sourceClassification",
+    );
+    expect(resolution?.winningProposal?.evidenceSource).not.toBe("LEXICAL_SIGNAL");
+    expect(
+      resolution?.winningProposal?.provenance.some((e) => e.source === "LEXICAL_SIGNAL"),
+    ).toBe(false);
+  });
+
+  it("[9C] accountNature and fsPresentation still preserve the rule's real LEXICAL_SIGNAL classification evidence", () => {
+    const output = resolveEvidence(REVENUE_INPUT);
+    const natureResolution = output.dimensionResolutions.find(
+      (r): r is AccountNatureResolution => r.dimension === "accountNature",
+    );
+    const presentationResolution = output.dimensionResolutions.find(
+      (r): r is FsPresentationResolution => r.dimension === "fsPresentation",
+    );
+    expect(natureResolution?.winningProposal?.evidenceSource).toBe("LEXICAL_SIGNAL");
+    expect(presentationResolution?.winningProposal?.evidenceSource).toBe("LEXICAL_SIGNAL");
+    expect(natureResolution?.winningProposal?.proposal).toBe("income"); // REVENUE -> income, adapter unaffected
+  });
+
+  it("[9D] accountNature and fsPresentation remain requiresReview:true because the real rule is REVIEW_SUGGESTED", () => {
+    const output = resolveEvidence(REVENUE_INPUT);
+    const natureResolution = output.dimensionResolutions.find(
+      (r) => r.dimension === "accountNature",
+    );
+    const presentationResolution = output.dimensionResolutions.find(
+      (r) => r.dimension === "fsPresentation",
+    );
+    expect(natureResolution?.requiresReview).toBe(true);
+    expect(presentationResolution?.requiresReview).toBe(true);
+  });
+
+  it("[9E] source identity certainty does not upgrade accounting classification confidence", () => {
+    const output = resolveEvidence(REVENUE_INPUT);
+    const sourceResolution = output.dimensionResolutions.find(
+      (r): r is SourceClassificationResolution => r.dimension === "sourceClassification",
+    );
+    const natureResolution = output.dimensionResolutions.find(
+      (r): r is AccountNatureResolution => r.dimension === "accountNature",
+    );
+    // Source identity is HIGH/deterministic...
+    expect(sourceResolution?.winningProposal?.strength.classificationConfidence).toBe("HIGH");
+    expect(sourceResolution?.winningProposal?.requiresReview).toBe(false);
+    // ...but that HIGH certainty never leaks into the LOW-confidence
+    // classification dimension -- the real rule's LOW confidence survives untouched.
+    expect(natureResolution?.winningProposal?.strength.classificationConfidence).toBe("LOW");
+    expect(natureResolution?.requiresReview).toBe(true);
+  });
+});
+
+// ── [10] two observations, correctly scoped informsDimensions ──────────────
+
+describe("[10] Tier2 match emits two evidence observations, correctly scoped", () => {
+  it("a source-identity observation informing exactly sourceClassification, and a classification observation informing only supported accounting dimensions", () => {
+    const output = resolveEvidence(EXPENSE_INPUT);
+    expect(output.evidenceObservations).toHaveLength(2);
+
+    const sourceIdentityObservation = output.evidenceObservations.find(
+      (o) => o.evidenceSource === "SOURCE_SYSTEM_SIGNATURE" && o.tier === 2,
+    );
+    expect(sourceIdentityObservation?.informsDimensions).toEqual(["sourceClassification"]);
+
+    const classificationObservation = output.evidenceObservations.find(
+      (o) => o !== sourceIdentityObservation,
+    );
+    expect(classificationObservation?.informsDimensions.sort()).toEqual(
+      ["accountNature", "fsPresentation"].sort(),
+    );
+    expect(classificationObservation?.informsDimensions).not.toContain("taxonomyConcept");
+    expect(classificationObservation?.informsDimensions).not.toContain("sourceClassification");
+  });
+
+  it("no observation of either kind ever carries tier 1", () => {
+    const output = resolveEvidence(EXPENSE_INPUT);
+    for (const observation of output.evidenceObservations) {
+      expect(observation.tier).not.toBe(1);
+    }
+  });
+
+  it("the LOW/LEXICAL real rule (14150101) also emits exactly two correctly-scoped observations", () => {
+    const output = resolveEvidence(REVENUE_INPUT);
+    expect(output.evidenceObservations).toHaveLength(2);
+    const sourceIdentityObservation = output.evidenceObservations.find(
+      (o) => o.evidenceSource === "SOURCE_SYSTEM_SIGNATURE",
+    );
+    const classificationObservation = output.evidenceObservations.find(
+      (o) => o.evidenceSource === "LEXICAL_SIGNAL",
+    );
+    expect(sourceIdentityObservation?.informsDimensions).toEqual(["sourceClassification"]);
+    expect(classificationObservation?.informsDimensions.sort()).toEqual(
+      ["accountNature", "fsPresentation"].sort(),
+    );
+  });
+});
+
 // ── Type-level: the resolver's output stays dimension-safe ─────────────────
 
 describe("resolveEvidence's output is dimension-safe by construction", () => {

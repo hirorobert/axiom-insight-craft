@@ -204,37 +204,68 @@ function resolveTier2Match(
   // Tier 2's rule pack assigns one confidence per rule. Until a real
   // multi-signal confidence model exists, all three EvidenceStrength values
   // mirror it directly -- no combination formula, no arithmetic invented.
-  const strength: EvidenceStrength = {
-    sourceAuthority: outcome.confidence,
+  // Source identity vs classification evidence are genuinely different
+  // claims and must not share one EvidenceStrength/evidenceSource/provenance
+  // triple (Provenance Hardening findings 1/2). The resolver's own gate
+  // (isTier2Eligible) has already deterministically established, before any
+  // rule lookup, that sourceSystem === "MUSE" and the code matched exactly
+  // -- that identity is never in question, regardless of how confidently
+  // the RULE classifies what the code means. classificationStrength, in
+  // contrast, carries the rule's own per-rule confidence untouched: a real
+  // LOW/LEXICAL rule must stay LOW/review-requiring for accountNature and
+  // fsPresentation, exactly as the rule pack itself asserts.
+  const sourceClassificationStrength: EvidenceStrength = {
+    sourceAuthority: "HIGH",
+    mappingConfidence: "HIGH",
+    classificationConfidence: "HIGH",
+  };
+  const classificationStrength: EvidenceStrength = {
+    // HIGH because the rule pack itself is grounded in real, observed
+    // Arusha DC MUSE trial-balance data (museIpsasRulePack.ts's own header)
+    // -- not a statutory or GFSM claim, which this repository does not
+    // possess (Tier 1 is absent; see resolveEvidence's own module doc).
+    sourceAuthority: "HIGH",
     mappingConfidence: outcome.confidence,
     classificationConfidence: outcome.confidence,
   };
 
+  const sourceClassificationProvenance = [
+    {
+      source: "SOURCE_SYSTEM_SIGNATURE" as const,
+      detail: `Exact match against MUSE natural account code '${input.naturalAccountCode}' under confirmed IPSAS_ACCRUAL reporting framework and MUSE source system.`,
+      ref: input.naturalAccountCode,
+    },
+  ];
+
   const sourceClassificationProposal: SourceClassificationProposal = {
     dimension: "sourceClassification",
     proposal: input.naturalAccountCode,
-    strength,
-    requiresReview,
+    strength: sourceClassificationStrength,
+    // Source identity itself is never uncertain once the gate + exact
+    // code match succeed -- decoupled from the rule's own classification
+    // confidence, which may independently require review (see accountNature
+    // / fsPresentation below).
+    requiresReview: false,
     tier: 2,
-    evidenceSource: outcome.confidenceSource,
-    provenance: outcome.evidence,
+    evidenceSource: "SOURCE_SYSTEM_SIGNATURE",
+    provenance: sourceClassificationProvenance,
   };
 
   const resolutions: DimensionResolution[] = [];
-  const evidenceInformedDimensions: AccountDimension[] = ["sourceClassification"];
+  const classificationInformedDimensions: AccountDimension[] = [];
 
   resolutions.push({
     dimension: "sourceClassification",
     winningProposal: sourceClassificationProposal,
     consideredProposals: [sourceClassificationProposal],
-    requiresReview,
+    requiresReview: false,
   });
 
   if (outcome.accountNature) {
     const accountNatureProposal: AccountNatureProposal = {
       dimension: "accountNature",
       proposal: toGenericAccountNature(outcome.accountNature),
-      strength,
+      strength: classificationStrength,
       requiresReview,
       tier: 2,
       evidenceSource: outcome.confidenceSource,
@@ -246,7 +277,7 @@ function resolveTier2Match(
       consideredProposals: [accountNatureProposal],
       requiresReview,
     });
-    evidenceInformedDimensions.push("accountNature");
+    classificationInformedDimensions.push("accountNature");
   } else {
     resolutions.push(emptyResolution("accountNature") as AccountNatureResolution);
   }
@@ -257,7 +288,7 @@ function resolveTier2Match(
       statementSection: outcome.presentationCode,
       mappingMethod: "EXACT_CODE",
       taxonomyProfile: null,
-      strength,
+      strength: classificationStrength,
       requiresReview,
       tier: 2,
       evidenceSource: outcome.confidenceSource,
@@ -269,7 +300,7 @@ function resolveTier2Match(
       consideredProposals: [fsPresentationProposal],
       requiresReview,
     });
-    evidenceInformedDimensions.push("fsPresentation");
+    classificationInformedDimensions.push("fsPresentation");
   } else {
     resolutions.push(emptyResolution("fsPresentation") as FsPresentationResolution);
   }
@@ -280,13 +311,24 @@ function resolveTier2Match(
   const evidenceObservations: EvidenceObservation[] = [
     {
       tier: 2,
+      evidenceSource: "SOURCE_SYSTEM_SIGNATURE",
+      detail: sourceClassificationProvenance[0].detail,
+      ref: input.naturalAccountCode,
+      informsDimensions: ["sourceClassification"],
+      strength: sourceClassificationStrength,
+    },
+  ];
+
+  if (classificationInformedDimensions.length > 0) {
+    evidenceObservations.push({
+      tier: 2,
       evidenceSource: outcome.confidenceSource,
       detail: outcome.reason,
       ref: outcome.ruleId,
-      informsDimensions: evidenceInformedDimensions,
-      strength,
-    },
-  ];
+      informsDimensions: classificationInformedDimensions,
+      strength: classificationStrength,
+    });
+  }
 
   return assembleOutput(input, resolutions, evidenceObservations);
 }
