@@ -471,6 +471,18 @@ export interface CertifiedTBRow {
 
 ## PART IX — PHASES 1–9
 
+> **Reconciled 2026-09-03 against the prior `V2` directive
+> (`Ω∞ CLAUDE CODE IMPLEMENTATION DIRECTIVE — V2`, Reconciled 2026-09-01) and
+> the actual repository state.** V2 predates Phase 0A/Phase 0's construction
+> and is superseded as an authority — this document (V5) governs. Where V2's
+> detailed per-phase sketches turned out to already exist in the repository
+> (under different names/shapes, generally unwired into live traffic), that
+> is noted inline as "Implementation status." Where V2 proposed a mechanism
+> the real implementation deliberately rejected, that is marked SUPERSEDED
+> with its reasoning, not silently dropped. Full adjudication record: this
+> session's Phase 3 / classification rule-pack analysis (branch
+> `directive-v5-reconciliation-20260903`).
+
 ### Phase 1 — EntityAccountingContext (No Silent Defaults)
 
 All unknown fields typed as `| null`. No field has a default value. Missing = explicit null.
@@ -478,6 +490,8 @@ All unknown fields typed as `| null`. No field has a default value. Missing = ex
 `suggestFrameworkForEntityClass()` is a suggestion function — returns `"unknown"` when entityClass is `"unknown"`. The UI requires explicit confirmation for every detected value. `isVATRegistered: null` means unknown — never `false`. `isTanzaniaEFDMSRegistered: null` means unknown — never `false`.
 
 The entity confirmation screen may display "Not determined" for any field where evidence is genuinely absent. The system never invents a detection.
+
+**Implementation status (reconciled 2026-09-03):** exists today as `src/lib/accounting/entityContext.ts`, `detectEntityContext.ts`, `frameworkAdapter.ts` — every invariant above is preserved there under different type/function names than this section's illustrative sketch. **Not yet wired into any live UI flow.** Slice 4B (Phase 0) wired a read-only projection of the `reportingFramework` dimension only (`EntityContextSuggestion.tsx`) — the rest of `EntityAccountingContext` remains dormant pending a later slice.
 
 **Done when:** All unknown fields are `null`. TypeScript strict null checks prevent silent defaults.
 
@@ -487,26 +501,30 @@ Framework-specific behaviour must be driven through registered profiles and stra
 
 `zeroIfMissing` does not exist as a field, value, or concept. Its absence at the type level enforces invariant 4.4 structurally.
 
+**Implementation status (reconciled 2026-09-03):** exists today as `src/lib/accounting/frameworkPresentationRegistry.ts` (tested, `frameworkPresentationRegistry.test.ts`). Exact line-item/statement-code coverage against this section's illustrative sketch not verified field-by-field — treat as materially equivalent, not byte-identical. Not yet wired into HESABU's live statement-rendering path.
+
 **Done when:** Framework profiles compile. `grep -r "zeroIfMissing" src/` returns zero. No scattered `if (framework === 'ipsas_accrual')` branching in engine code.
 
 ### Phase 3 — 8-Tier Evidence Ladder
 
-Upgrades SAFISHA L4 from current classifier to full auditable tiered classification.
+Upgrades SAFISHA L4 from current classifier to full auditable tiered classification. **Does not touch Phase 0's certified tiers 1–5** (`process-trial-balance/index.ts`'s own `evidenceTier: 1|2|3|4|5` classifier) — that classifier is confirmed unrelated to and unimported by anything below; this section governs a separate, later upgrade, not a retrofit.
 
-| Tier | Authority | Status |
-|------|-----------|--------|
-| 1 | Statutory code (ITA s.34, MUSE CHART) | Auto — 0.99 |
-| 2 | Firm-confirmed mapping (account_review_decisions) | Auto — 0.97 |
-| 3 | Source system native code (MUSE, GACS, Tally) | Auto — 0.93 |
-| 4 | IFAC standard name exact match | Auto — 0.92 |
-| 5 | Industry keyword match (≥ 0.85) | Auto — 0.85–0.92 |
-| 6 | Fuzzy / phonetic match | Review required — 0.60–0.84 |
-| 7 | Balance-side inference | **WEAK EVIDENCE ONLY — never independently authoritative** |
-| 8 | Unresolved | Human review required |
+| Tier | Authority | Status | Implementation status (reconciled 2026-09-03) |
+|------|-----------|--------|------|
+| 1 | Statutory code (ITA s.34, MUSE CHART) | Auto — 0.99 | MISSING — none registered yet, none claimed |
+| 2 | Exact source-system code match | Auto — HIGH confidence | **EXACT_IMPLEMENTATION** — `src/lib/accounting/museIpsasRulePack.ts` (`TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1`, 294 rules, one per literally-observed MUSE code from real Arusha DC trial-balance data) + `museClassifier.ts` (`classifyMuseAccount`). **Dormant — zero references from `process-trial-balance/index.ts`; dry-run only, per its own docstring.** |
+| 3 | Source-system code **range**/prefix match | Auto — 0.93 | **SUPERSEDED.** The real Tier-2 implementation is deliberately exact-code-only, never range/prefix-based — its own header states *"nothing here is a guessed prefix pattern extrapolated beyond what was actually observed... a code NOT in this list resolves to UNRESOLVED, never a guess."* Do not build a range-matching tier; it was considered and rejected. |
+| 4 | IFAC standard name exact match | Auto — 0.92 | MISSING — no name-keyed matching path exists anywhere in the current rule pack |
+| 5 | Industry keyword match | Auto — 0.85–0.92 | **SUPERSEDED.** `museClassifier.ts`'s own docstring: *"no lexical fallback rules beyond the exact-code rule pack (deliberately: PHASE-0 confirmed no authoritative GFS lookup table exists to build a safe lexical/fuzzy tier from — inventing one would be exactly the fabricated-certainty failure mode Section XVIII prohibits)."* Do not build a keyword tier without first establishing that lookup table as real evidence. |
+| 6 | Fuzzy / phonetic match | Review required — 0.60–0.84 | **SUPERSEDED**, same reasoning as Tier 5 |
+| 7 | Balance-side inference | **WEAK EVIDENCE ONLY — never independently authoritative** | MISSING — still binding when built (see enforcement rule below, unchanged) |
+| 8 | Unresolved | Human review required | **EXACT_IMPLEMENTATION** — `classifyMuseAccount` returns `UNRESOLVED`/`confidence: "NONE"` on no match, never a guess |
 
-Phase 3 also establishes `overallConfidence` and per-row `confidence` semantics with a defensible, documented formula. These fields remain DESIGN-UNRESOLVED until Phase 3.
+Confidence is represented as a **categorical `ConfidenceLevel`** (`HIGH`/`MEDIUM`/`LOW`/`NONE`, matching `entityContext.ts`'s established convention across this file cluster), not a raw 0–1 float. `overallConfidence` remains DESIGN-UNRESOLVED until Phase 3 is actually built end-to-end — no such field exists on any certified Phase 0 record, and none should be added opportunistically.
 
-**Tier 7 enforcement:** May contribute to confidence scoring. Cannot independently resolve an account. If Tier 7 is the highest tier reached: `requiresReview = true`, `evidenceTier = 7`. Never auto-classify from Tier 7 alone.
+**Tier 7 enforcement (still binding, unchanged):** May contribute to confidence scoring. Cannot independently resolve an account. If Tier 7 is the highest tier reached: `requiresReview = true`, `evidenceTier = 7`, hardcoded — never derived from confidence. Never auto-classify from Tier 7 alone. Nothing shipped today implements or contradicts this; it remains the binding spec for whenever Tier 7 is built.
+
+**MUSE-gating invariant (later-settled, applies to this whole section):** IPSAS-accrual reporting framework alone does NOT imply MUSE source system. Automatic MUSE exact-code classification (Tier 2 above) requires affirmative MUSE source-system evidence before it may ever be wired live — today that evidence doesn't exist in any live path, which is exactly why Tier 2's real implementation stays dormant rather than being connected to `process-trial-balance`.
 
 ### Phase 4 — Comparative Period Engine
 
@@ -545,6 +563,8 @@ PPE Movement, Deferred Income, Capital Grants, Provisions. `openingBalance: numb
 ### Phase 8 — Machine-Side Classification Provenance
 
 `account_mapping_memory` is CERTIFIED (existing evidence structure). Phase 8 adds machine-side provenance fields: `source_rule_id`, `rule_version`, `effective_from`, `effective_to`. Mappings are never overwritten — new row + supersede old.
+
+**Implementation status (reconciled 2026-09-03):** `src/lib/accounting/mappingMemory.ts` and the `account_mapping_memory` table both confirmed live. Whether the specific fields named above (`source_rule_id`, `rule_version`, `effective_from`/`effective_to`) are already present on the table was not re-verified this reconciliation pass — check the live schema before assuming either way.
 
 The three mapping concepts remain distinct (Rule 11):
 - `account_mappings` — mutable effective projection
