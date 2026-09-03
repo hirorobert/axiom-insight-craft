@@ -24,13 +24,14 @@ describe("getFrameworkPresentation", () => {
         equity: "Statement of Changes in Equity",
         cashFlow: "Statement of Cash Flows",
       },
+      equitySectionLabel: "Equity",
       footer:
         "Prepared in accordance with the International Financial Reporting " +
         "Standard for Small and Medium-sized Entities (IFRS for SMEs) as issued by the IASB.",
     });
   });
 
-  it("IPSAS_ACCRUAL matches the original hardcoded ExportStatements.tsx content verbatim", () => {
+  it("IPSAS_ACCRUAL matches the original hardcoded ExportStatements.tsx content verbatim, plus Phase 2's Net Assets section label", () => {
     const p = getFrameworkPresentation("IPSAS_ACCRUAL");
     expect(p).toEqual({
       displayLabel: "IPSAS Accrual",
@@ -40,10 +41,17 @@ describe("getFrameworkPresentation", () => {
         equity: "Statement of Changes in Net Assets/Equity",
         cashFlow: "Statement of Cash Flows",
       },
+      equitySectionLabel: "Net Assets",
       footer:
         "Prepared in accordance with International Public Sector Accounting " +
         "Standards (IPSAS) as issued by the IPSASB. Accrual basis.",
     });
+  });
+
+  it("IPSAS_ACCRUAL's balance-sheet section label is 'Net Assets', never the IFRS term 'Equity' (Phase 2)", () => {
+    const p = getFrameworkPresentation("IPSAS_ACCRUAL");
+    expect(p!.equitySectionLabel).toBe("Net Assets");
+    expect(p!.equitySectionLabel).not.toBe("Equity");
   });
 
   it("returns null (never throws, never guesses) for frameworks with no registered presentation yet", () => {

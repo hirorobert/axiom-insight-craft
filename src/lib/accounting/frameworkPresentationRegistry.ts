@@ -28,6 +28,15 @@ export interface FrameworkPresentation {
     equity: string;
     cashFlow: string;
   };
+  /**
+   * Phase 2: label for the equity/net-assets section WITHIN the balance
+   * sheet (Statement of Financial Position) itself — distinct from
+   * statementNames.equity, which titles the separate, standalone Statement
+   * of Changes in Equity/Net Assets. IPSAS entities call this "Net Assets",
+   * matching publicSectorClassification.ts's own AccountNature vocabulary
+   * ("NET_ASSETS", not "EQUITY") — never the IFRS term.
+   */
+  equitySectionLabel: string;
   footer: string;
 }
 
@@ -42,6 +51,7 @@ const FRAMEWORK_PRESENTATION_REGISTRY: Partial<
       equity: "Statement of Changes in Equity",
       cashFlow: "Statement of Cash Flows",
     },
+    equitySectionLabel: "Equity",
     footer:
       "Prepared in accordance with the International Financial Reporting " +
       "Standard for Small and Medium-sized Entities (IFRS for SMEs) as issued by the IASB.",
@@ -54,6 +64,7 @@ const FRAMEWORK_PRESENTATION_REGISTRY: Partial<
       equity: "Statement of Changes in Net Assets/Equity",
       cashFlow: "Statement of Cash Flows",
     },
+    equitySectionLabel: "Net Assets",
     footer:
       "Prepared in accordance with International Public Sector Accounting " +
       "Standards (IPSAS) as issued by the IPSASB. Accrual basis.",

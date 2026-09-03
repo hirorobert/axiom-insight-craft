@@ -474,15 +474,16 @@ export function ExportStatements({
     y = stampHeader(y);
 
     doc.setFontSize(10); doc.setTextColor(30);
-    doc.text("STATEMENT OF FINANCIAL POSITION", 14, y); y += 2;
+    doc.text(cfg.statementNames.balanceSheet.toUpperCase(), 14, y); y += 2;
 
     const bs = mapping.balanceSheet;
+    const equityLabel = cfg.equitySectionLabel.toUpperCase();
     const sfpSections = [
       { label: "ASSETS — Current Assets",     accounts: bs?.assets?.current,    subtotalLabel: "Total Current Assets" },
       { label: "ASSETS — Non-Current Assets", accounts: bs?.assets?.nonCurrent, subtotalLabel: "Total Non-Current Assets" },
       { label: "LIABILITIES — Current",       accounts: bs?.liabilities?.current,    subtotalLabel: "Total Current Liabilities" },
       { label: "LIABILITIES — Non-Current",   accounts: bs?.liabilities?.nonCurrent, subtotalLabel: "Total Non-Current Liabilities" },
-      { label: "EQUITY",                       accounts: bs?.equity,             subtotalLabel: "Total Equity" },
+      { label: equityLabel,                    accounts: bs?.equity,             subtotalLabel: `Total ${cfg.equitySectionLabel}` },
     ];
 
     const { body: sfpBody, styles: sfpStyles } = buildSFPBody(sfpSections);
@@ -493,7 +494,7 @@ export function ExportStatements({
     const totalEquity = sum(bs?.equity);
     sfpBody.push(["TOTAL ASSETS", fmtSigned(totalAssets)]);
     sfpStyles[sfpBody.length - 1] = grandStyle;
-    sfpBody.push(["TOTAL LIABILITIES & EQUITY", fmtSigned(totalLiab + totalEquity)]);
+    sfpBody.push([`TOTAL LIABILITIES & ${equityLabel}`, fmtSigned(totalLiab + totalEquity)]);
     sfpStyles[sfpBody.length - 1] = grandStyle;
 
     autoTable(doc, {
@@ -514,7 +515,7 @@ export function ExportStatements({
     y = stampHeader(y);
 
     doc.setFontSize(10); doc.setTextColor(30);
-    doc.text("STATEMENT OF COMPREHENSIVE INCOME", 14, y); y += 2;
+    doc.text(cfg.statementNames.incomeStatement.toUpperCase(), 14, y); y += 2;
 
     const is = mapping.incomeStatement;
     const totalRevenue  = sum(is?.revenue);
@@ -649,7 +650,7 @@ export function ExportStatements({
     y = 14;
     y = stampHeader(y);
     doc.setFontSize(10); doc.setTextColor(30);
-    doc.text("STATEMENT OF CHANGES IN EQUITY", 14, y); y += 2;
+    doc.text(cfg.statementNames.equity.toUpperCase(), 14, y); y += 2;
 
     const socie = taxResult?.socie_engine;
     if (socie) {
@@ -744,7 +745,7 @@ export function ExportStatements({
     } else {
       doc.setFontSize(8); doc.setTextColor(120);
       doc.text(
-        "Statement of Changes in Equity will appear here once the ITA Tax Analysis has been run and committed.",
+        `${cfg.statementNames.equity} will appear here once the ITA Tax Analysis has been run and committed.`,
         14, y + 6
       );
       doc.setFontSize(6.5); doc.setTextColor(160);
@@ -756,9 +757,10 @@ export function ExportStatements({
     y = 14;
     y = stampHeader(y);
     doc.setFontSize(10); doc.setTextColor(30);
-    doc.text("STATEMENT OF CASH FLOWS", 14, y);
+    const cashFlowTitle = cfg.statementNames.cashFlow.toUpperCase();
+    doc.text(cashFlowTitle, 14, y);
     doc.setFontSize(7.5); doc.setTextColor(100);
-    doc.text("(Indirect Method)", 14 + doc.getTextWidth("STATEMENT OF CASH FLOWS") + 4, y);
+    doc.text("(Indirect Method)", 14 + doc.getTextWidth(cashFlowTitle) + 4, y);
     y += 2;
 
     const scf = taxResult?.scf_engine;
