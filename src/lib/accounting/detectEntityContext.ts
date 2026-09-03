@@ -10,10 +10,17 @@
  *
  * Scope discipline (per PHASE-0-PUBLIC-SECTOR-REALITY-AUDIT.md): today the
  * ONLY real, live signal for reporting framework is
- * companies.reporting_framework — a single manual dropdown, sole writer
- * CompanyManager.tsx, NOT NULL DEFAULT 'ifrs_for_smes'. There is no
- * source-system detector, no MUSE/GFS rule registry, and no audited-mapping
- * memory table yet (those are Slices 4 and 12). Rather than inventing
+ * companies.reporting_framework — a manual dropdown, written by
+ * CompanyManager.tsx and FirstRunEngagement.tsx. As of Phase 1 Slice 1
+ * (migration 20260903100000) this column is nullable with no default:
+ * null means no reporting-framework evidence exists yet (handled below as
+ * UNKNOWN/NONE confidence); an explicit non-null value is handled by the
+ * existing provenance rules below (LOW confidence for the historical
+ * 'ifrs_for_smes' default value on rows predating that migration, MEDIUM
+ * for any other explicit selection). No silent IFRS-for-SMEs default
+ * exists prospectively. There is no source-system detector, no MUSE/GFS
+ * rule registry, and no audited-mapping memory table yet (those are
+ * Slices 4 and 12). Rather than inventing
  * speculative pattern-matching rules not grounded in anything real, this
  * slice builds the evidence-ladder PIPELINE and wires in exactly the
  * evidence that exists today — every other dimension returns UNKNOWN/NONE
