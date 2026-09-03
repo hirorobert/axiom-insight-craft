@@ -23,6 +23,7 @@
 import type { MuseIpsasRule } from "./museIpsasRulePack";
 import { TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 } from "./museIpsasRulePack";
 import type { ConfidenceLevel, EvidenceItem, EvidenceSource } from "./entityContext";
+import { inferBalanceSideEvidence, type BalanceSide } from "./balanceSideEvidence";
 
 export type ClassificationOutcomeKind = "AUTO_MAPPED_RULE" | "REVIEW_SUGGESTED" | "UNRESOLVED";
 
@@ -46,6 +47,18 @@ export interface ClassificationOutcome {
   reason: string;
   /** Directive Section VII: a lower tier must never override a contradictory higher tier. Populated when more than one rule matches with different outcomes — should be empty by construction here (naturalAccountCode is unique per rule pack, see museIpsasRulePack.test.ts), kept for shape-compatibility with future tiers. */
   conflicts: string[];
+  /**
+   * Phase 3, Tier 7 only (balanceSideEvidence.ts). Present exclusively when
+   * no exact-code rule matched but a non-zero balance contributed weak,
+   * directional-only evidence. Absent for Tier 2 matches and for Tier 8
+   * (true zero-evidence) results — never retrofitted onto them. Sign is
+   * evidence only: this field's presence never implies accountNature/
+   * presentationCode/ruleId/ruleVersion were set — they remain undefined
+   * for every Tier 7 outcome.
+   */
+  evidenceTier?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  balanceSide?: BalanceSide;
+  requiresReview?: true;
 }
 
 const RULES_BY_CODE: Map<string, MuseIpsasRule> = new Map(
@@ -65,6 +78,33 @@ export function classifyMuseAccount(account: AccountToClassify): ClassificationO
   const rule = RULES_BY_CODE.get(account.naturalAccountCode);
 
   if (!rule) {
+    // Tier 2 (exact-code) evidence has already failed to fire — this is the
+    // one, structurally-guaranteed place Tier 7 (balance-side evidence) may
+    // run, since it cannot be reached any other way. A zero balance
+    // contributes no directional evidence at all (Design Gate Step 6's
+    // conservative adjudication) — inferBalanceSideEvidence returns null in
+    // that case, and the account stays bare Tier 8 below, unchanged from
+    // before this slice.
+    const tier7 = inferBalanceSideEvidence(account.balance);
+
+    if (tier7) {
+      return {
+        naturalAccountCode: account.naturalAccountCode,
+        accountName: account.accountName,
+        outcome: "UNRESOLVED",
+        // Sign is evidence only: accountNature, presentationCode, ruleId,
+        // and ruleVersion are never set from balance side alone.
+        confidence: tier7.confidence,
+        confidenceSource: "UNKNOWN",
+        evidence: [{ source: "UNKNOWN", detail: tier7.reason }],
+        reason: `No rule in TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 matches natural account code '${account.naturalAccountCode}'. ${tier7.reason} Weak evidence only — cannot independently resolve this account; requires professional review.`,
+        conflicts: [],
+        evidenceTier: tier7.evidenceTier,
+        balanceSide: tier7.balanceSide,
+        requiresReview: tier7.requiresReview,
+      };
+    }
+
     return {
       naturalAccountCode: account.naturalAccountCode,
       accountName: account.accountName,

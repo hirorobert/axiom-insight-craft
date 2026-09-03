@@ -68,6 +68,28 @@ describe("assessActivationEligibility — the default state is fully closed", ()
     expect(summary.eligible).toBe(0);
     expect(summary.blockedRuleNotActivated).toBeGreaterThan(0);
   });
+
+  it("Phase 3 Tier 7: a balance-side-evidence outcome is structurally blocked, never reaches the allowlist check", () => {
+    // Tier 7 (balanceSideEvidence.ts) always produces outcome: "UNRESOLVED",
+    // never "AUTO_MAPPED_RULE" -- so it fails on the very first check in
+    // assessActivationEligibility, regardless of allowlist contents.
+    const tier7Outcome = classifyMuseAccount({
+      naturalAccountCode: "99999999",
+      accountName: "Some Account Never Seen In Arusha Data",
+      balance: 12345.67,
+    });
+    expect(tier7Outcome.outcome).toBe("UNRESOLVED");
+    expect(tier7Outcome.evidenceTier).toBe(7);
+
+    const decision = assessActivationEligibility(tier7Outcome, {
+      companyId: "company-1",
+      effectivePeriodYear: 2026,
+      entityContext: CONFIRMED_IPSAS_CONTEXT,
+      activatedRuleIds: new Set(), // irrelevant -- blocked before this is checked
+    });
+    expect(decision.decision).toBe("BLOCKED_NOT_AUTO_MAPPED");
+    expect(decision.record).toBeUndefined();
+  });
 });
 
 describe("assessActivationEligibility — REVIEW_SUGGESTED never auto-writes, regardless of activation", () => {

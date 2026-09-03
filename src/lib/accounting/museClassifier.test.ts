@@ -37,16 +37,101 @@ describe("classifyMuseAccount", () => {
     expect(result.confidence).toBe("LOW");
   });
 
-  it("a code with no matching rule resolves to UNRESOLVED, never a guess (C4)", () => {
+  it("a code with no matching rule AND a zero balance resolves to bare Tier 8, never a guess (C4)", () => {
+    // Zero balance carries no directional evidence at all (Design Gate
+    // Step 6's conservative adjudication) -- this is the true Tier 8 case,
+    // distinct from the Tier 7 cases below.
     const result = classifyMuseAccount({
       naturalAccountCode: "99999999",
       accountName: "Some Account Never Seen In Arusha Data",
-      balance: 100,
+      balance: 0,
     });
     expect(result.outcome).toBe("UNRESOLVED");
     expect(result.accountNature).toBeUndefined();
     expect(result.presentationCode).toBeUndefined();
     expect(result.confidence).toBe("NONE");
+    expect(result.evidenceTier).toBeUndefined();
+    expect(result.balanceSide).toBeUndefined();
+    expect(result.requiresReview).toBeUndefined();
+    expect(result.evidence).toHaveLength(0);
+  });
+
+  it("[A] unmatched exact code + positive balance -> UNRESOLVED, Tier 7, DEBIT, LOW, requiresReview true", () => {
+    const result = classifyMuseAccount({
+      naturalAccountCode: "99999999",
+      accountName: "Some Account Never Seen In Arusha Data",
+      balance: 12345.67,
+    });
+    expect(result.outcome).toBe("UNRESOLVED");
+    expect(result.evidenceTier).toBe(7);
+    expect(result.balanceSide).toBe("DEBIT");
+    expect(result.confidence).toBe("LOW");
+    expect(result.requiresReview).toBe(true);
+  });
+
+  it("[B] unmatched exact code + negative balance -> UNRESOLVED, Tier 7, CREDIT, LOW, requiresReview true", () => {
+    const result = classifyMuseAccount({
+      naturalAccountCode: "99999998",
+      accountName: "Some Other Account Never Seen In Arusha Data",
+      balance: -12345.67,
+    });
+    expect(result.outcome).toBe("UNRESOLVED");
+    expect(result.evidenceTier).toBe(7);
+    expect(result.balanceSide).toBe("CREDIT");
+    expect(result.confidence).toBe("LOW");
+    expect(result.requiresReview).toBe(true);
+  });
+
+  it("[C-F] Tier 7 results never fabricate accountNature, presentationCode, ruleId, or ruleVersion", () => {
+    const result = classifyMuseAccount({
+      naturalAccountCode: "99999997",
+      accountName: "Yet Another Account Never Seen In Arusha Data",
+      balance: 500,
+    });
+    expect(result.evidenceTier).toBe(7); // sanity: this is genuinely the Tier 7 path
+    expect(result.accountNature).toBeUndefined(); // [C]
+    expect(result.presentationCode).toBeUndefined(); // [D]
+    expect(result.ruleId).toBeUndefined(); // [E]
+    expect(result.ruleVersion).toBeUndefined(); // [F]
+  });
+
+  it("[G] Tier 7 never produces AUTO_MAPPED_RULE, regardless of balance sign", () => {
+    const debitSide = classifyMuseAccount({
+      naturalAccountCode: "99999996",
+      accountName: "Unseen Debit-Side Account",
+      balance: 999,
+    });
+    const creditSide = classifyMuseAccount({
+      naturalAccountCode: "99999995",
+      accountName: "Unseen Credit-Side Account",
+      balance: -999,
+    });
+    expect(debitSide.outcome).not.toBe("AUTO_MAPPED_RULE");
+    expect(creditSide.outcome).not.toBe("AUTO_MAPPED_RULE");
+    expect(debitSide.outcome).toBe("UNRESOLVED");
+    expect(creditSide.outcome).toBe("UNRESOLVED");
+  });
+
+  it("[H] existing Tier 2 exact-code matches remain unchanged: no Tier 7 fields leak onto them", () => {
+    const highConfidence = classifyMuseAccount({
+      naturalAccountCode: "21111101",
+      accountName: "Civil Servants",
+      balance: 58582200999.32,
+    });
+    expect(highConfidence.outcome).toBe("AUTO_MAPPED_RULE");
+    expect(highConfidence.evidenceTier).toBeUndefined();
+    expect(highConfidence.balanceSide).toBeUndefined();
+    expect(highConfidence.requiresReview).toBeUndefined();
+
+    const lowConfidence = classifyMuseAccount({
+      naturalAccountCode: "14150101",
+      accountName: "Revenue from Land",
+      balance: 2612625,
+    });
+    expect(lowConfidence.outcome).toBe("REVIEW_SUGGESTED");
+    expect(lowConfidence.evidenceTier).toBeUndefined();
+    expect(lowConfidence.balanceSide).toBeUndefined();
+    expect(lowConfidence.requiresReview).toBeUndefined();
   });
 
   it("outcome=AUTO_MAPPED_RULE is not the same thing as professionally approved (Section VII)", () => {
