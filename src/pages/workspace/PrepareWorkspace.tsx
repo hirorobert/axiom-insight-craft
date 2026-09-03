@@ -180,6 +180,7 @@ export default function PrepareWorkspace() {
   const readiness = upload
     ? computeCertificationReadiness({
         uploadExists: true,
+        currentUploadId: upload.id,
         authoritative: certReadiness.authoritative,
         latestForUpload: certReadiness.latestForUpload,
         fetchFailed: certReadiness.fetchFailed,

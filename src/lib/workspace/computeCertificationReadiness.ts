@@ -22,6 +22,22 @@
  * Iron Dome: NULL means NOT COMPUTED. A fetch failure must never collapse
  * into "pending" (which means "nothing to report yet") or "certified" — it
  * gets its own "unknown" verdict so the UI never fabricates an answer.
+ *
+ * Upload-identity binding (DEFECT-SLICE4B-UPLOAD-IDENTITY-UNVERIFIED-001,
+ * fixed here): get_authoritative_certification answers "what is
+ * authoritative for this company/period?" — NOT "is that authority for the
+ * upload currently on screen?". A user can view an older upload (history
+ * panel / ?upload= deep link) while a DIFFERENT, newer upload for the same
+ * company/period is the one actually certified. `authoritative` is only
+ * ever treated as certifying the displayed upload when
+ * `authoritative.upload_id === currentUploadId` — verified explicitly
+ * below, never assumed from company+period matching alone. When it belongs
+ * to a different upload, the verdict is "superseded", never "certified":
+ * a real, currently-live certification exists, it is simply not for this
+ * upload. This is NOT the same claim as "stale" (this upload's own
+ * certification drifted) — conflating the two would fabricate a cause this
+ * code cannot prove (no source/input hash comparison happens in React;
+ * see the "stale" branch below).
  */
 
 import type {
@@ -55,17 +71,28 @@ export interface CertificationReadinessInput {
   /** False before any trial balance has ever been uploaded for this workspace/period. */
   uploadExists: boolean;
   /**
+   * id of the upload currently displayed. Required, explicit input (never
+   * inferred from closure state) — this is what `authoritative`/
+   * `latestForUpload` are checked against before either can be presented as
+   * authority for what is on screen.
+   */
+  currentUploadId: string | null;
+  /**
    * get_authoritative_certification(company_id, period_year) result.
-   * Present ONLY when a certification is both eligible (not blocking, not
-   * requires_review) AND current (its source_file_hash still matches the
-   * upload's live source_file_hash, or no drift signal is available).
+   * Present when a certification is eligible (not blocking, not
+   * requires_review) AND current for THAT function's own company/period
+   * scope — which may or may not be the upload currently displayed. Only
+   * ever used to certify the displayed upload when
+   * `authoritative.upload_id === currentUploadId`.
    */
   authoritative: TbCertificationRow | null;
   /**
-   * Latest tb_certifications row committed for the CURRENT upload,
-   * regardless of eligibility. Null if no certification was ever committed
-   * for this upload. Used only to explain why `authoritative` is empty —
-   * never treated as authoritative on its own.
+   * Latest tb_certifications row committed for the CURRENT upload
+   * specifically (always upload_id === currentUploadId by construction of
+   * the query that produces it), regardless of eligibility. Null if no
+   * certification was ever committed for this upload. Diagnostic only —
+   * never treated as authoritative on its own, never used to produce a
+   * "certified" verdict.
    */
   latestForUpload: TbCertificationRow | null;
   /** True if either read failed. Must win over every other field. */
@@ -151,12 +178,35 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
     };
   }
 
-  if (input.authoritative) {
+  // Authority may only be attributed to the upload on screen. Company/period
+  // matching alone (which is all get_authoritative_certification checks) is
+  // not sufficient — verified explicitly here, not assumed.
+  if (input.authoritative && input.authoritative.upload_id === input.currentUploadId) {
     const checks = buildLayerChecks(input.authoritative);
     return {
       verdict: "certified",
       headline: "Certified — safe to prepare statements",
       blocker: null,
+      checks,
+      passedCount: countPassed(checks),
+      totalCount: checks.length,
+    };
+  }
+
+  if (input.authoritative && input.authoritative.upload_id !== input.currentUploadId) {
+    // A real, currently-live certification exists for this company/period —
+    // just not for the upload being displayed. Diagnostic detail for THIS
+    // upload (if any) still comes from latestForUpload, but the verdict can
+    // never be "certified": that would attribute another upload's authority
+    // to this one. No chronology is claimed ("newer") — only sequence_no
+    // (certification order) is available here, not upload recency, and
+    // conflating the two would be exactly the fabrication this hardening
+    // pass exists to remove.
+    const checks = buildLayerChecks(input.latestForUpload);
+    return {
+      verdict: "superseded",
+      headline: "Not the current certified upload",
+      blocker: "This trial balance is not the current certified upload for this period.",
       checks,
       passedCount: countPassed(checks),
       totalCount: checks.length,
@@ -193,14 +243,16 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
     }
 
     // Eligible at commit time (not blocking, not requires_review), yet the
-    // authoritative RPC found nothing for the current upload: its recorded
-    // source_file_hash no longer matches — the file changed since this
-    // certification ran.
+    // authoritative RPC found nothing for this company/period at all — so
+    // no OTHER upload is certified either (that case was already handled
+    // above). The exact cause is not provable here: React never compares
+    // source_file_hash/normalized_input_hash (no such fields are even read
+    // into TbCertificationRow), so wording must not claim a specific cause
+    // ("the file changed") that isn't proven.
     return {
       verdict: "stale",
-      headline: "Certification out of date — re-run required",
-      blocker:
-        'This trial balance has changed since it was last certified. Use "Replace trial balance" to re-certify the current file.',
+      headline: "Certification is no longer current",
+      blocker: "This trial balance does not have a current authoritative certification.",
       checks,
       passedCount,
       totalCount: checks.length,

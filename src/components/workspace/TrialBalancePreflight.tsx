@@ -5,7 +5,7 @@
  * Read-only projection of computePreflight(). No writes.
  */
 
-import { Check, X, AlertTriangle, Clock3, ShieldCheck, ArrowRight, RefreshCw } from "lucide-react";
+import { Check, X, AlertTriangle, Clock3, ShieldCheck, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { computePreflight, type PreflightCheckState, type PreflightResult } from "@/lib/workspace/computePreflight";
 
@@ -31,6 +31,7 @@ const VERDICT_LABEL = {
   pending: "Checking",
   stale: "Out of date",
   unknown: "Unverified",
+  superseded: "Not current",
 } as const;
 
 /**
@@ -70,7 +71,7 @@ export function TrialBalancePreflight({ upload, resolveHref, readiness }: Props)
       ? "text-success"
       : result.verdict === "blocked"
         ? "text-destructive"
-        : result.verdict === "review" || result.verdict === "stale"
+        : result.verdict === "review" || result.verdict === "stale" || result.verdict === "superseded"
           ? "text-gold"
           : "text-muted-foreground";
 

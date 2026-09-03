@@ -26,7 +26,12 @@ export type PreflightVerdict =
   // computePreflight() itself never returns these — additive, zero runtime
   // change to this function or its existing callers.
   | "stale"
-  | "unknown";
+  | "unknown"
+  // A valid authoritative certification exists for this company/period, but
+  // it belongs to a DIFFERENT upload than the one on screen. Distinct from
+  // "stale" — this is not a claim about the displayed upload's own history,
+  // only that authority currently lives elsewhere.
+  | "superseded";
 
 export interface PreflightResult {
   verdict: PreflightVerdict;

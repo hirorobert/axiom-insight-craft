@@ -5,13 +5,19 @@
  * writes to tb_certifications or trial_balance_uploads, only reads.
  *
  * Two reads, in order:
- *   1. get_authoritative_certification(company_id, period_year) — returns a
- *      row only when the latest certification for the current upload is
- *      both eligible and current.
- *   2. If (1) is empty: the latest tb_certifications row for the CURRENT
- *      upload specifically, regardless of eligibility — needed to tell
- *      "never certified" (pending) apart from "certified but blocked/
- *      needs review" and "certified but now stale" (drifted source hash).
+ *   1. get_authoritative_certification(company_id, period_year) — returns
+ *      whatever certification is authoritative for the COMPANY+PERIOD,
+ *      which may belong to a different upload than the one being viewed
+ *      (DEFECT-SLICE4B-UPLOAD-IDENTITY-UNVERIFIED-001). This hook does not
+ *      resolve that — it hands both the row and its own upload_id to
+ *      computeCertificationReadiness, which does the identity check.
+ *   2. Fetched whenever (1) is empty OR belongs to a different upload than
+ *      `uploadId`: the latest tb_certifications row for the CURRENT upload
+ *      specifically, regardless of eligibility — diagnostic only, needed to
+ *      tell "never certified" apart from "certified but blocked/needs
+ *      review" and "certified but no longer current" for THIS upload, and
+ *      (when authoritative belongs elsewhere) to still show per-layer
+ *      detail for the displayed upload even though it isn't authoritative.
  *      Safe: tb_certifications' own "tbc_select" RLS policy already scopes
  *      to accepted firm members of the company (20260902130000), the same
  *      pattern just proven live for trial_balance_uploads in Slice 4B.
@@ -78,9 +84,10 @@ export function useCertificationReadiness(
         if (authError) throw authError;
 
         const authoritative = (Array.isArray(authRows) ? authRows[0] : null) as TbCertificationRow | null;
+        const authoritativeBelongsElsewhere = !!authoritative && authoritative.upload_id !== uploadId;
 
         let latestForUpload: TbCertificationRow | null = null;
-        if (!authoritative) {
+        if (!authoritative || authoritativeBelongsElsewhere) {
           const { data: latestRows, error: latestError } = await client
             .from("tb_certifications")
             .select("*")

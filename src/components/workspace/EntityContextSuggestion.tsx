@@ -30,20 +30,45 @@ const CONFIDENCE_LABEL: Record<ConfidenceLevel, string> = {
   NONE: "no signal",
 };
 
-export function EntityContextSuggestion({ reportingFrameworkDbValue }: Props) {
+export interface EntityContextSuggestionText {
+  text: string;
+  confidence: ConfidenceLevel;
+  detail: string | undefined;
+}
+
+/**
+ * Pure formatting boundary — separated from the component so this wording
+ * (and the "no signal → nothing" rule) is unit-testable without a component-
+ * rendering harness, which this project does not otherwise depend on.
+ * Returns null exactly when there is no signal at all (confidence NONE).
+ */
+export function formatEntityContextSuggestion(
+  reportingFrameworkDbValue: string | null | undefined,
+): EntityContextSuggestionText | null {
   const ctx = detectEntityAccountingContext({ companyReportingFrameworkDbValue: reportingFrameworkDbValue });
   const fw = ctx.reportingFramework;
 
   if (fw.confidence === "NONE") return null;
 
+  return {
+    text: `Reporting framework: ${FRAMEWORK_LABEL[fw.value]} (${CONFIDENCE_LABEL[fw.confidence]})`,
+    confidence: fw.confidence,
+    detail: fw.evidence[0]?.detail,
+  };
+}
+
+export function EntityContextSuggestion({ reportingFrameworkDbValue }: Props) {
+  const formatted = formatEntityContextSuggestion(reportingFrameworkDbValue);
+  if (!formatted) return null;
+
   return (
     <p
       data-testid="entity-context-suggestion"
-      data-confidence={fw.confidence}
+      data-confidence={formatted.confidence}
       className="text-[11px] text-muted-foreground"
-      title={fw.evidence[0]?.detail}
+      title={formatted.detail}
     >
-      Reporting framework: {FRAMEWORK_LABEL[fw.value]} ({CONFIDENCE_LABEL[fw.confidence]})
+      {formatted.text}
     </p>
   );
 }
