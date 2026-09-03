@@ -100,7 +100,7 @@ export const CompanyManager = () => {
 
   const fetchCompanies = async () => {
     if (!user) return;
-    
+
     const { data, error } = await supabase
       .from("companies")
       .select("*")
@@ -268,7 +268,7 @@ export const CompanyManager = () => {
               Manage Companies
             </DialogTitle>
           </DialogHeader>
-          
+
           <div className="space-y-4">
             <Button
               variant="outline"
