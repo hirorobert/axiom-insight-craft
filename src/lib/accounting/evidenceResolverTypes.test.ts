@@ -4,7 +4,10 @@
  * TYPE CONTRACT ONLY — no resolver behavior is implemented or exercised
  * here. Uses vitest's compile-time expectTypeOf assertions plus
  * @ts-expect-error negative-compilation checks in preference to weak
- * source-text assertions, per the Gate directive's item 16.
+ * source-text assertions. Every @ts-expect-error / expectTypeOf assertion
+ * in this file has been independently verified against a real `tsc`
+ * compile (not just vitest's non-type-checking esbuild transform) — see
+ * the Foundation Hardening report for the exact command used.
  */
 
 import { describe, it, expect, expectTypeOf } from "vitest";
@@ -19,6 +22,10 @@ import type {
   EvidenceObservation,
   BalanceSideObservation,
   DimensionResolution,
+  AccountNatureResolution,
+  FsPresentationResolution,
+  SourceClassificationResolution,
+  TaxonomyConceptResolution,
   CorroborationConflict,
   MachineEvidenceResolverOutput,
   ProfessionalAuthorityResult,
@@ -33,6 +40,8 @@ import type {
 import type { AccountNature } from "../safisha/types";
 import type { BalanceSide } from "./balanceSideEvidence";
 import { inferBalanceSideEvidence } from "./balanceSideEvidence";
+
+// ── Fixtures ──────────────────────────────────────────────────────────────
 
 const SAMPLE_STRENGTH: EvidenceStrength = {
   sourceAuthority: "HIGH",
@@ -53,10 +62,19 @@ const SOURCE_CLASSIFICATION_TIER1: SourceClassificationProposal = {
 const FS_PRESENTATION_TIER3: FsPresentationProposal = {
   dimension: "fsPresentation",
   statementSection: "ProfitOrLoss",
-  taxonomyConcept: "ifrs-full:CostOfSales",
-  balanceAttribute: "debit",
   mappingMethod: "LABEL_SIMILARITY",
   taxonomyProfile: "IFRS_FULL",
+  strength: SAMPLE_STRENGTH,
+  requiresReview: true,
+  tier: 3,
+  evidenceSource: "LEXICAL_SIGNAL",
+  provenance: [],
+};
+
+const TAXONOMY_CONCEPT_TIER3: TaxonomyConceptProposal = {
+  dimension: "taxonomyConcept",
+  proposal: "ifrs-full:CostOfSales",
+  balanceAttribute: "debit",
   strength: SAMPLE_STRENGTH,
   requiresReview: true,
   tier: 3,
@@ -74,6 +92,34 @@ const ACCOUNT_NATURE_TIER4: AccountNatureProposal = {
   provenance: [],
 };
 
+const ACCOUNT_NATURE_RESOLUTION: AccountNatureResolution = {
+  dimension: "accountNature",
+  winningProposal: ACCOUNT_NATURE_TIER4,
+  consideredProposals: [ACCOUNT_NATURE_TIER4],
+  requiresReview: true,
+};
+
+const FS_PRESENTATION_RESOLUTION: FsPresentationResolution = {
+  dimension: "fsPresentation",
+  winningProposal: FS_PRESENTATION_TIER3,
+  consideredProposals: [FS_PRESENTATION_TIER3],
+  requiresReview: true,
+};
+
+const SOURCE_CLASSIFICATION_RESOLUTION: SourceClassificationResolution = {
+  dimension: "sourceClassification",
+  winningProposal: SOURCE_CLASSIFICATION_TIER1,
+  consideredProposals: [SOURCE_CLASSIFICATION_TIER1],
+  requiresReview: true,
+};
+
+const TAXONOMY_CONCEPT_RESOLUTION: TaxonomyConceptResolution = {
+  dimension: "taxonomyConcept",
+  winningProposal: TAXONOMY_CONCEPT_TIER3,
+  consideredProposals: [TAXONOMY_CONCEPT_TIER3],
+  requiresReview: true,
+};
+
 const SAMPLE_OUTPUT: MachineEvidenceResolverOutput = {
   accountId: "acct-1",
   companyId: "company-1",
@@ -85,6 +131,12 @@ const SAMPLE_OUTPUT: MachineEvidenceResolverOutput = {
   unresolvedDimensions: [],
   corroborationConflicts: [],
   requiresReviewOverall: true,
+};
+
+const MINIMAL_AUTHORITY_RESULT: ProfessionalAuthorityResult = {
+  reviewAccountKey: "21111101",
+  hasEffectiveDecision: false,
+  decisionAction: null,
 };
 
 // ── [A] canonical repository types are reused, not duplicated ───────────────
@@ -173,59 +225,106 @@ describe("[B] discriminated proposals reject cross-dimension nonsense", () => {
 describe("[C] per-dimension resolutions can resolve at different tiers simultaneously", () => {
   it("sourceClassification (Tier 1), fsPresentation (Tier 3), accountNature (Tier 4) coexist without information loss", () => {
     const resolutions: DimensionResolution[] = [
-      {
-        dimension: "sourceClassification",
-        winningTier: 1,
-        winningProposal: SOURCE_CLASSIFICATION_TIER1,
-        consideredProposals: [SOURCE_CLASSIFICATION_TIER1],
-        requiresReview: true,
-      },
-      {
-        dimension: "fsPresentation",
-        winningTier: 3,
-        winningProposal: FS_PRESENTATION_TIER3,
-        consideredProposals: [FS_PRESENTATION_TIER3],
-        requiresReview: true,
-      },
-      {
-        dimension: "accountNature",
-        winningTier: 4,
-        winningProposal: ACCOUNT_NATURE_TIER4,
-        consideredProposals: [ACCOUNT_NATURE_TIER4],
-        requiresReview: true,
-      },
+      SOURCE_CLASSIFICATION_RESOLUTION,
+      FS_PRESENTATION_RESOLUTION,
+      ACCOUNT_NATURE_RESOLUTION,
     ];
-    const byDimension = Object.fromEntries(resolutions.map((r) => [r.dimension, r.winningTier]));
-    expect(byDimension.sourceClassification).toBe(1);
-    expect(byDimension.fsPresentation).toBe(3);
-    expect(byDimension.accountNature).toBe(4);
+    const tierByDimension = Object.fromEntries(
+      resolutions.map((r) => [r.dimension, r.winningProposal?.tier ?? null]),
+    );
+    expect(tierByDimension.sourceClassification).toBe(1);
+    expect(tierByDimension.fsPresentation).toBe(3);
+    expect(tierByDimension.accountNature).toBe(4);
   });
 
-  it("a dimension can also remain unresolved (winningTier/winningProposal null) while siblings resolve", () => {
-    const unresolvedAccountNature: DimensionResolution = {
+  it("a dimension can also remain unresolved (winningProposal null -> no winning tier) while siblings resolve", () => {
+    const unresolvedAccountNature: AccountNatureResolution = {
       dimension: "accountNature",
-      winningTier: null,
       winningProposal: null,
       consideredProposals: [],
       requiresReview: true,
     };
     expect(unresolvedAccountNature.winningProposal).toBeNull();
+    expect(unresolvedAccountNature.winningProposal?.tier).toBeUndefined();
   });
 });
 
-// ── [D] no global lowestResolvingTier ────────────────────────────────────────
+// ── [D] no winningTier field; winning tier is derived, never duplicated ────
 
-describe("[D] no global lowestResolvingTier field exists on the resolver output", () => {
-  it("MachineEvidenceResolverOutput has no lowestResolvingTier property", () => {
+describe("[D] no winningTier field -- the winning tier is winningProposal.tier, never a second field", () => {
+  it("DimensionResolution has no winningTier property", () => {
+    const resolution = ACCOUNT_NATURE_RESOLUTION;
+    // @ts-expect-error -- winningTier does not exist on DimensionResolution (removed; use winningProposal.tier)
+    const leak = resolution.winningTier;
+    expect(leak).toBeUndefined();
+  });
+
+  it("MachineEvidenceResolverOutput still has no lowestResolvingTier property (no global tier field either)", () => {
     const output = SAMPLE_OUTPUT;
     // @ts-expect-error -- lowestResolvingTier does not exist on MachineEvidenceResolverOutput
     const leak = output.lowestResolvingTier;
     expect(leak).toBeUndefined();
   });
 
-  it("winning tier is only ever expressed per-dimension (DimensionResolution.winningTier)", () => {
-    expectTypeOf<DimensionResolution>().toHaveProperty("winningTier");
-    expectTypeOf<MachineEvidenceResolverOutput>().not.toHaveProperty("lowestResolvingTier");
+  it("[9E] the winning proposal's tier remains accessible through resolution.winningProposal?.tier after discriminant narrowing", () => {
+    const resolution: DimensionResolution = ACCOUNT_NATURE_RESOLUTION;
+    if (resolution.dimension === "accountNature") {
+      expect(resolution.winningProposal?.tier).toBe(4);
+    } else {
+      throw new Error("unreachable in this fixture");
+    }
+  });
+});
+
+// ── [9A]/[9B]/[9C] dimension-coupled resolutions reject mismatched proposals ─
+
+describe("[9A] an accountNature resolution cannot accept an FsPresentationProposal as its winner", () => {
+  it("fails to compile: dimension 'accountNature' + winningProposal typed as FsPresentationProposal", () => {
+    const bad: AccountNatureResolution = {
+      dimension: "accountNature",
+      // @ts-expect-error -- winningProposal must be AccountNatureProposal | null, not FsPresentationProposal
+      winningProposal: FS_PRESENTATION_TIER3,
+      consideredProposals: [],
+      requiresReview: true,
+    };
+    expect(bad.dimension).toBe("accountNature");
+  });
+});
+
+describe("[9B] an accountNature resolution cannot accept an FsPresentationProposal among consideredProposals", () => {
+  it("fails to compile: consideredProposals containing a mismatched-dimension proposal", () => {
+    const bad: AccountNatureResolution = {
+      dimension: "accountNature",
+      winningProposal: null,
+      // @ts-expect-error -- consideredProposals must be AccountNatureProposal[], not include FsPresentationProposal
+      consideredProposals: [FS_PRESENTATION_TIER3],
+      requiresReview: true,
+    };
+    expect(bad.dimension).toBe("accountNature");
+  });
+});
+
+describe("[9C] the same mismatch is rejected for a second dimension (sourceClassification)", () => {
+  it("fails to compile: dimension 'sourceClassification' + winningProposal typed as AccountNatureProposal", () => {
+    const bad: SourceClassificationResolution = {
+      dimension: "sourceClassification",
+      // @ts-expect-error -- winningProposal must be SourceClassificationProposal | null, not AccountNatureProposal
+      winningProposal: ACCOUNT_NATURE_TIER4,
+      consideredProposals: [],
+      requiresReview: true,
+    };
+    expect(bad.dimension).toBe("sourceClassification");
+  });
+
+  it("fails to compile: consideredProposals containing a mismatched-dimension proposal (taxonomyConcept into sourceClassification)", () => {
+    const bad: SourceClassificationResolution = {
+      dimension: "sourceClassification",
+      winningProposal: null,
+      // @ts-expect-error -- consideredProposals must be SourceClassificationProposal[], not include TaxonomyConceptProposal
+      consideredProposals: [TAXONOMY_CONCEPT_TIER3],
+      requiresReview: true,
+    };
+    expect(bad.dimension).toBe("sourceClassification");
   });
 });
 
@@ -268,13 +367,12 @@ describe("[E] Tier 7 observation remains review-only and never resolves accountN
     expect(observation.informsDimensions).toHaveLength(0);
   });
 
-  it("Tier 7's own hardcoded requiresReview:true is preserved when carried into EvidenceStrength/DimensionResolution", () => {
+  it("Tier 7's own hardcoded requiresReview:true is preserved when carried into a DimensionResolution, still unable to win accountNature", () => {
     const evidence = inferBalanceSideEvidence(-50);
     expect(evidence!.requiresReview).toBe(true);
-    const resolution: DimensionResolution = {
+    const resolution: AccountNatureResolution = {
       dimension: "accountNature",
-      winningTier: null, // Tier 7 alone never wins accountNature
-      winningProposal: null,
+      winningProposal: null, // Tier 7 alone never wins accountNature -- it produces no AccountNatureProposal
       consideredProposals: [],
       requiresReview: evidence!.requiresReview,
     };
@@ -398,19 +496,90 @@ describe("[J] sourceClassification is an opaque code, never a frozen GFS-style e
   });
 });
 
-// ── ProfessionalAuthorityResult: domain view, not a DB record shape ─────────
+// ── [9F]/[9G] taxonomy-concept ownership is exclusive to TaxonomyConceptProposal ─
 
-describe("ProfessionalAuthorityResult reflects only real account_review_decisions columns", () => {
-  it("does not offer approvedDimensions, confirmed, overridden, or flagged fields", () => {
+describe("[9F] FsPresentationProposal cannot contain taxonomyConcept or balanceAttribute", () => {
+  it("reading taxonomyConcept off an FsPresentationProposal-typed value fails to compile", () => {
+    const proposal = FS_PRESENTATION_TIER3;
+    // @ts-expect-error -- taxonomyConcept does not exist on FsPresentationProposal (moved to TaxonomyConceptProposal)
+    const leak = proposal.taxonomyConcept;
+    expect(leak).toBeUndefined();
+  });
+
+  it("reading balanceAttribute off an FsPresentationProposal-typed value fails to compile", () => {
+    const proposal = FS_PRESENTATION_TIER3;
+    // @ts-expect-error -- balanceAttribute does not exist on FsPresentationProposal (moved to TaxonomyConceptProposal)
+    const leak = proposal.balanceAttribute;
+    expect(leak).toBeUndefined();
+  });
+
+  it("constructing an FsPresentationProposal literal with taxonomyConcept fails to compile", () => {
+    const bad: FsPresentationProposal = {
+      dimension: "fsPresentation",
+      statementSection: "ProfitOrLoss",
+      mappingMethod: "LABEL_SIMILARITY",
+      taxonomyProfile: "IFRS_FULL",
+      // @ts-expect-error -- taxonomyConcept does not exist on FsPresentationProposal
+      taxonomyConcept: "ifrs-full:CostOfSales",
+      strength: SAMPLE_STRENGTH,
+      requiresReview: true,
+      tier: 3,
+      evidenceSource: "LEXICAL_SIGNAL",
+      provenance: [],
+    };
+    expect(bad.dimension).toBe("fsPresentation");
+  });
+});
+
+describe("[9G] TaxonomyConceptProposal is the exclusive taxonomy-concept proposal owner", () => {
+  it("carries both the XBRL element name and its own IASB-defined normal balance", () => {
+    expect(TAXONOMY_CONCEPT_TIER3.proposal).toBe("ifrs-full:CostOfSales");
+    expect(TAXONOMY_CONCEPT_TIER3.balanceAttribute).toBe("debit");
+  });
+
+  it("a taxonomyConcept resolution only ever considers TaxonomyConceptProposal candidates", () => {
+    expect(TAXONOMY_CONCEPT_RESOLUTION.winningProposal?.proposal).toBe("ifrs-full:CostOfSales");
+    expect(TAXONOMY_CONCEPT_RESOLUTION.consideredProposals).toHaveLength(1);
+  });
+});
+
+// ── [9H] professional authority terminology ──────────────────────────────────
+
+describe("[9H] ProfessionalAuthorityResult exposes hasEffectiveDecision/decidedBy/decidedAt only", () => {
+  it("exposes the renamed fields with real values", () => {
     const result: ProfessionalAuthorityResult = {
       reviewAccountKey: "21111101",
-      hasConfirmedDecision: true,
+      hasEffectiveDecision: true,
       decisionAction: "USER_MANUAL_CLASSIFICATION",
-      approvedBy: "firm-member-1",
-      approvedAt: "2026-09-03T00:00:00Z",
+      decidedBy: "firm-member-1",
+      decidedAt: "2026-09-03T00:00:00Z",
     };
+    expect(result.hasEffectiveDecision).toBe(true);
+    expect(result.decidedBy).toBe("firm-member-1");
+    expect(result.decidedAt).toBe("2026-09-03T00:00:00Z");
+  });
+
+  it("does not expose hasConfirmedDecision", () => {
+    // @ts-expect-error -- hasConfirmedDecision does not exist (renamed to hasEffectiveDecision)
+    const leak = MINIMAL_AUTHORITY_RESULT.hasConfirmedDecision;
+    expect(leak).toBeUndefined();
+  });
+
+  it("does not expose approvedBy", () => {
+    // @ts-expect-error -- approvedBy does not exist (renamed to decidedBy)
+    const leak = MINIMAL_AUTHORITY_RESULT.approvedBy;
+    expect(leak).toBeUndefined();
+  });
+
+  it("does not expose approvedAt", () => {
+    // @ts-expect-error -- approvedAt does not exist (renamed to decidedAt)
+    const leak = MINIMAL_AUTHORITY_RESULT.approvedAt;
+    expect(leak).toBeUndefined();
+  });
+
+  it("still does not offer approvedDimensions, confirmed, overridden, or flagged fields", () => {
     // @ts-expect-error -- approvedDimensions does not exist on ProfessionalAuthorityResult
-    const leak = result.approvedDimensions;
+    const leak = MINIMAL_AUTHORITY_RESULT.approvedDimensions;
     expect(leak).toBeUndefined();
   });
 
@@ -422,14 +591,47 @@ describe("ProfessionalAuthorityResult reflects only real account_review_decision
 
   it("machineProposalAtEvaluationTime is offered, never a fabricated AtDecisionTime field", () => {
     const result: ProfessionalAuthorityResult = {
-      reviewAccountKey: "21111101",
-      hasConfirmedDecision: false,
-      decisionAction: null,
+      ...MINIMAL_AUTHORITY_RESULT,
       machineProposalAtEvaluationTime: SAMPLE_OUTPUT,
     };
     // @ts-expect-error -- machineProposalAtDecisionTime does not exist (not reconstructible from real schema)
     const leak = result.machineProposalAtDecisionTime;
     expect(leak).toBeUndefined();
     expect(result.machineProposalAtEvaluationTime).toBe(SAMPLE_OUTPUT);
+  });
+});
+
+// ── [9I] MARK_NON_REPORTING_ACCOUNT is an effective decision, not an approval ─
+
+describe("[9I] MARK_NON_REPORTING_ACCOUNT is representable as an effective decision without implying classification approval", () => {
+  it("hasEffectiveDecision can be true for a MARK_NON_REPORTING_ACCOUNT decision", () => {
+    const result: ProfessionalAuthorityResult = {
+      reviewAccountKey: "99999999",
+      hasEffectiveDecision: true,
+      decisionAction: "MARK_NON_REPORTING_ACCOUNT",
+      decidedBy: "firm-member-1",
+      decidedAt: "2026-09-03T00:00:00Z",
+    };
+    expect(result.hasEffectiveDecision).toBe(true);
+    expect(result.decisionAction).toBe("MARK_NON_REPORTING_ACCOUNT");
+    // No approvedClassification/approvedDimensions/approved* field exists
+    // anywhere on this type (see [9H]) to imply a classification was
+    // accepted -- an effective decision and a classification approval are
+    // structurally distinct claims here.
+  });
+});
+
+// ── [9J] existing valid per-dimension examples still compile ────────────────
+
+describe("[9J] existing valid per-dimension examples still compile", () => {
+  it("accountNature/fsPresentation/sourceClassification/taxonomyConcept resolutions all construct without error", () => {
+    const resolutions: DimensionResolution[] = [
+      ACCOUNT_NATURE_RESOLUTION,
+      FS_PRESENTATION_RESOLUTION,
+      SOURCE_CLASSIFICATION_RESOLUTION,
+      TAXONOMY_CONCEPT_RESOLUTION,
+    ];
+    expect(resolutions).toHaveLength(4);
+    expect(resolutions.every((r) => r.winningProposal !== undefined)).toBe(true);
   });
 });

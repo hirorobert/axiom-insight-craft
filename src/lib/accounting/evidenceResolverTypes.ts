@@ -90,11 +90,16 @@ export interface AccountNatureProposal extends BaseProposal {
 
 export interface FsPresentationProposal extends BaseProposal {
   dimension: "fsPresentation";
+  /** Which statement/section this account belongs in -- the one thing this dimension exclusively owns. */
   statementSection: string | null;
-  taxonomyConcept: string | null;
-  balanceAttribute: "debit" | "credit" | null;
   mappingMethod: "EXACT_CODE" | "LABEL_SIMILARITY" | "STATEMENT_SECTION";
+  /** Identifies the source/profile of THIS statementSection mapping's evidence -- provenance, not a taxonomy-concept claim. */
   taxonomyProfile: "IFRS_FULL" | "IFRS_SME" | null;
+  // taxonomyConcept and balanceAttribute deliberately absent: both are
+  // per-taxonomy-element metadata (which XBRL concept, and that concept's
+  // own IASB-defined normal balance) -- exclusively TaxonomyConceptProposal's
+  // ownership. Keeping either here would let an fsPresentation winner and a
+  // taxonomyConcept winner disagree about the same underlying fact.
 }
 
 export interface SourceClassificationProposal extends BaseProposal {
@@ -112,6 +117,13 @@ export interface SourceClassificationProposal extends BaseProposal {
 export interface TaxonomyConceptProposal extends BaseProposal {
   dimension: "taxonomyConcept";
   proposal: string | null; // XBRL taxonomy element name
+  /**
+   * The taxonomy element's own IASB-defined normal balance -- moved here
+   * from FsPresentationProposal: it describes the CONCEPT, not the
+   * statement section. Exclusively owned here so a corroboration check
+   * against Tier 7's observed balance side has exactly one source of truth.
+   */
+  balanceAttribute: "debit" | "credit" | null;
 }
 
 export type DimensionProposal =
@@ -134,10 +146,13 @@ export interface EvidenceObservation {
 /**
  * Tier 7's own observation shape — mirrors balanceSideEvidence.ts's already
  * certified BalanceSideEvidence exactly. informsDimensions is always empty:
- * Tier 7 never produces a DimensionProposal on its own — it only feeds a
- * CorroborationConflict check against other tiers' evidence. No
- * codeRangeSuggestion field — the certified Tier 7 implementation has no
- * code-range logic at all.
+ * it names the dimensions this evidence can DIRECTLY RESOLVE (i.e. win a
+ * DimensionResolution outright) — not every dimension it may corroborate.
+ * Tier 7 never produces a DimensionProposal on its own and therefore never
+ * directly resolves anything; it only feeds a CorroborationConflict check
+ * against other tiers' evidence, which is a separate, weaker relationship
+ * than "informing" a dimension. No codeRangeSuggestion field — the
+ * certified Tier 7 implementation has no code-range logic at all.
  */
 export interface BalanceSideObservation extends EvidenceObservation {
   tier: 7;
@@ -147,16 +162,38 @@ export interface BalanceSideObservation extends EvidenceObservation {
 
 // ── Per-dimension resolution (what won, what lost, at what tier) ────────────
 
-export interface DimensionResolution {
-  dimension: AccountDimension;
-  winningProposal: DimensionProposal | null;
-  winningTier: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | null;
-  consideredProposals: DimensionProposal[];
+/**
+ * Generic shape shared by every dimension's resolution -- winningProposal
+ * and consideredProposals are BOTH pinned to the SAME proposal type as the
+ * dimension tag, so an accountNature resolution structurally cannot carry
+ * an FsPresentationProposal (or any other mismatched shape) as its winner
+ * or among its considered candidates.
+ */
+type ResolutionFor<D extends AccountDimension, P extends DimensionProposal> = {
+  dimension: D;
+  winningProposal: P | null;
+  consideredProposals: P[];
   requiresReview: boolean;
-}
-// No global lowestResolvingTier: each dimension can resolve at its own tier
-// independently (sourceClassification at Tier 1, fsPresentation at Tier 3,
-// accountNature at Tier 4, simultaneously, without information loss).
+};
+
+export type AccountNatureResolution = ResolutionFor<"accountNature", AccountNatureProposal>;
+export type FsPresentationResolution = ResolutionFor<"fsPresentation", FsPresentationProposal>;
+export type SourceClassificationResolution = ResolutionFor<"sourceClassification", SourceClassificationProposal>;
+export type TaxonomyConceptResolution = ResolutionFor<"taxonomyConcept", TaxonomyConceptProposal>;
+
+export type DimensionResolution =
+  | AccountNatureResolution
+  | FsPresentationResolution
+  | SourceClassificationResolution
+  | TaxonomyConceptResolution;
+// No global lowestResolvingTier, and no winningTier field either: the
+// authoritative winning tier is `resolution.winningProposal?.tier` -- a
+// second field tracking the same fact could drift out of sync with the
+// proposal's own tier, which is structurally impossible when there is only
+// one field to read. If winningProposal is null, there is no winning tier.
+// Each dimension can still resolve at its own tier independently
+// (sourceClassification at Tier 1, fsPresentation at Tier 3, accountNature
+// at Tier 4, simultaneously, without information loss).
 
 // ── Corroboration conflict ───────────────────────────────────────────────────
 
@@ -202,17 +239,26 @@ export interface MachineEvidenceResolverOutput {
  * table; this type only names fields that map from real columns
  * (decision_action, created_at, firm_member_id). No DB read is implemented
  * in this slice — this is a type contract only.
+ *
+ * Deliberately named hasEffectiveDecision/decidedBy/decidedAt rather than
+ * hasConfirmedDecision/approvedBy/approvedAt: all three real
+ * decision_action values -- USER_ACCEPTED_SUGGESTION,
+ * USER_MANUAL_CLASSIFICATION, and MARK_NON_REPORTING_ACCOUNT -- are
+ * authoritative professional decisions the moment they're recorded, but
+ * MARK_NON_REPORTING_ACCOUNT suppresses an account from review rather than
+ * approving any classification for it. "Confirmed"/"approved" would wrongly
+ * imply a classification was accepted in that case.
  */
 export interface ProfessionalAuthorityResult {
   reviewAccountKey: string;
-  hasConfirmedDecision: boolean;
+  hasEffectiveDecision: boolean;
   decisionAction:
     | "USER_ACCEPTED_SUGGESTION"
     | "USER_MANUAL_CLASSIFICATION"
     | "MARK_NON_REPORTING_ACCOUNT"
     | null;
-  approvedBy?: string; // firm_members.id — never auth.users.id
-  approvedAt?: string; // account_review_decisions.created_at of the latest row
+  decidedBy?: string; // firm_members.id — never auth.users.id
+  decidedAt?: string; // account_review_decisions.created_at of the latest row
   /**
    * Freshly computed by a future resolver run, not reconstructed from
    * history — account_review_decisions does not persist a snapshot of the
