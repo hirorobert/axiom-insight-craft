@@ -55,7 +55,13 @@
 
 import { classifyMuseAccount } from "./museClassifier";
 import type { AccountNature as MuseAccountNature } from "./museIpsasRulePack";
-import type { EntityClass, ReportingFramework, SourceSystem } from "./entityContext";
+import type {
+  EntityClass,
+  ReportingFramework,
+  SourceSystem,
+  EvidenceSource,
+  ConfidenceLevel,
+} from "./entityContext";
 import type { AccountNature } from "../safisha/types";
 import type {
   AccountDimension,
@@ -107,6 +113,58 @@ function toGenericAccountNature(museNature: MuseAccountNature): AccountNature {
     default: {
       const exhaustive: never = museNature;
       throw new Error(`Unmapped MUSE/IPSAS AccountNature: ${String(exhaustive)}`);
+    }
+  }
+}
+
+/**
+ * Conservative, exhaustive derivation of sourceAuthority for CLASSIFICATION
+ * evidence (AccountNatureProposal / FsPresentationProposal) only -- never
+ * used for sourceClassification's own strength, which stays fixed HIGH (see
+ * resolveTier2Match: source identity is deterministic, independent of this).
+ *
+ * Repository truth (verified by direct inspection of
+ * TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1): exactly two EvidenceSource values are
+ * ever emitted by this rule pack --
+ *   SOURCE_SYSTEM_SIGNATURE -> HIGH: the classification is structurally
+ *     supported by the MUSE code/rule pack's own source-system signature,
+ *     the strongest evidence category this rule pack actually uses.
+ *   LEXICAL_SIGNAL -> LOW: interpretive, account-name-derived evidence.
+ *     Never upgraded merely to avoid a low value -- matches the rule pack's
+ *     own documented LOW confidence for its LEXICAL_SIGNAL rules (e.g.
+ *     14150101's own evidenceDetail explicitly flags the ambiguity this
+ *     LOW reflects). No repository evidence establishes MEDIUM for this
+ *     source; LOW is the conservative, repository-supported choice.
+ *
+ * The remaining EvidenceSource members (DOCUMENTED_COMPLIANCE_STATEMENT,
+ * PRIOR_PROFESSIONAL_CONFIRMATION, CONFIGURED_ENGAGEMENT_CONTEXT,
+ * LEGAL_FORM_EVIDENCE, USER_MANUAL_ENTRY, UNKNOWN) never occur anywhere in
+ * this rule pack today -- this function still handles them exhaustively
+ * (TypeScript-enforced via the `never` guard below) but maps every one of
+ * them to NONE, the most conservative ConfidenceLevel. This is a fallback
+ * for compile-time completeness only, NOT an authority endorsement of any
+ * future rule that might use one of these sources -- if this rule pack ever
+ * legitimately emits one of them, this mapping must be revisited against
+ * that rule's actual evidence, not left as an unexamined default.
+ */
+function deriveClassificationSourceAuthority(confidenceSource: EvidenceSource): ConfidenceLevel {
+  switch (confidenceSource) {
+    case "SOURCE_SYSTEM_SIGNATURE":
+      return "HIGH";
+    case "LEXICAL_SIGNAL":
+      return "LOW";
+    case "DOCUMENTED_COMPLIANCE_STATEMENT":
+    case "PRIOR_PROFESSIONAL_CONFIRMATION":
+    case "CONFIGURED_ENGAGEMENT_CONTEXT":
+    case "LEGAL_FORM_EVIDENCE":
+    case "USER_MANUAL_ENTRY":
+    case "UNKNOWN":
+      return "NONE";
+    default: {
+      const exhaustive: never = confidenceSource;
+      throw new Error(
+        `Unmapped EvidenceSource for classification source authority: ${String(exhaustive)}`,
+      );
     }
   }
 }
@@ -220,11 +278,13 @@ function resolveTier2Match(
     classificationConfidence: "HIGH",
   };
   const classificationStrength: EvidenceStrength = {
-    // HIGH because the rule pack itself is grounded in real, observed
-    // Arusha DC MUSE trial-balance data (museIpsasRulePack.ts's own header)
-    // -- not a statutory or GFSM claim, which this repository does not
-    // possess (Tier 1 is absent; see resolveEvidence's own module doc).
-    sourceAuthority: "HIGH",
+    // Conservative, evidence-source-specific -- never a blanket HIGH. See
+    // deriveClassificationSourceAuthority's own doc comment: a real
+    // LEXICAL_SIGNAL rule (e.g. 14150101) never claims HIGH source
+    // authority merely because the rule pack as a whole is grounded in
+    // real observed data; that grounding is a data-realness fact, not an
+    // evidentiary-strength fact about this specific rule's own signal.
+    sourceAuthority: deriveClassificationSourceAuthority(outcome.confidenceSource),
     mappingConfidence: outcome.confidence,
     classificationConfidence: outcome.confidence,
   };

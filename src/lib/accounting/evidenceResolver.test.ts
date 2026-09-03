@@ -436,6 +436,83 @@ describe("[9] real LOW/LEXICAL rule (14150101, Revenue from Land): source identi
   });
 });
 
+// ── [11] classification source authority is conservative, not blanket HIGH ─
+
+describe("[11] classification sourceAuthority is derived from the real evidence source, never blanket HIGH", () => {
+  it("[A]/[B] 21111101: real confidenceSource is SOURCE_SYSTEM_SIGNATURE, classification sourceAuthority stays HIGH", () => {
+    const output = resolveEvidence(EXPENSE_INPUT);
+    const natureResolution = output.dimensionResolutions.find(
+      (r): r is AccountNatureResolution => r.dimension === "accountNature",
+    );
+    const presentationResolution = output.dimensionResolutions.find(
+      (r): r is FsPresentationResolution => r.dimension === "fsPresentation",
+    );
+    expect(natureResolution?.winningProposal?.evidenceSource).toBe("SOURCE_SYSTEM_SIGNATURE");
+    expect(natureResolution?.winningProposal?.strength.sourceAuthority).toBe("HIGH");
+    expect(presentationResolution?.winningProposal?.evidenceSource).toBe("SOURCE_SYSTEM_SIGNATURE");
+    expect(presentationResolution?.winningProposal?.strength.sourceAuthority).toBe("HIGH");
+  });
+
+  it("[C]/[D] 14150101: real confidenceSource is LEXICAL_SIGNAL, classification sourceAuthority is NOT HIGH", () => {
+    const output = resolveEvidence(REVENUE_INPUT);
+    const natureResolution = output.dimensionResolutions.find(
+      (r): r is AccountNatureResolution => r.dimension === "accountNature",
+    );
+    const presentationResolution = output.dimensionResolutions.find(
+      (r): r is FsPresentationResolution => r.dimension === "fsPresentation",
+    );
+    expect(natureResolution?.winningProposal?.evidenceSource).toBe("LEXICAL_SIGNAL");
+    expect(natureResolution?.winningProposal?.strength.sourceAuthority).not.toBe("HIGH");
+    expect(natureResolution?.winningProposal?.strength.sourceAuthority).toBe("LOW");
+    expect(presentationResolution?.winningProposal?.evidenceSource).toBe("LEXICAL_SIGNAL");
+    expect(presentationResolution?.winningProposal?.strength.sourceAuthority).not.toBe("HIGH");
+    expect(presentationResolution?.winningProposal?.strength.sourceAuthority).toBe("LOW");
+  });
+
+  it("[E]/[F]/[G] 14150101: mappingConfidence/classificationConfidence/requiresReview are unaffected by this hardening", () => {
+    const output = resolveEvidence(REVENUE_INPUT);
+    const natureResolution = output.dimensionResolutions.find(
+      (r): r is AccountNatureResolution => r.dimension === "accountNature",
+    );
+    expect(natureResolution?.winningProposal?.strength.mappingConfidence).toBe("LOW");
+    expect(natureResolution?.winningProposal?.strength.classificationConfidence).toBe("LOW");
+    expect(natureResolution?.requiresReview).toBe(true);
+  });
+
+  it("[H] 14150101: sourceClassification's own sourceAuthority remains HIGH, unaffected by this patch", () => {
+    const output = resolveEvidence(REVENUE_INPUT);
+    const sourceResolution = output.dimensionResolutions.find(
+      (r): r is SourceClassificationResolution => r.dimension === "sourceClassification",
+    );
+    expect(sourceResolution?.winningProposal?.evidenceSource).toBe("SOURCE_SYSTEM_SIGNATURE");
+    expect(sourceResolution?.winningProposal?.strength.sourceAuthority).toBe("HIGH");
+    expect(sourceResolution?.requiresReview).toBe(false);
+  });
+
+  it("[I] for the same account, source identity and accounting classification now demonstrably carry different authority strengths", () => {
+    const output = resolveEvidence(REVENUE_INPUT);
+    const sourceResolution = output.dimensionResolutions.find(
+      (r): r is SourceClassificationResolution => r.dimension === "sourceClassification",
+    );
+    const natureResolution = output.dimensionResolutions.find(
+      (r): r is AccountNatureResolution => r.dimension === "accountNature",
+    );
+    expect(sourceResolution?.winningProposal?.strength.sourceAuthority).toBe("HIGH");
+    expect(natureResolution?.winningProposal?.strength.sourceAuthority).toBe("LOW");
+    expect(sourceResolution?.winningProposal?.strength.sourceAuthority).not.toBe(
+      natureResolution?.winningProposal?.strength.sourceAuthority,
+    );
+  });
+
+  it("the classification observation for a LEXICAL_SIGNAL match also carries the corrected, non-HIGH sourceAuthority", () => {
+    const output = resolveEvidence(REVENUE_INPUT);
+    const classificationObservation = output.evidenceObservations.find(
+      (o) => o.evidenceSource === "LEXICAL_SIGNAL",
+    );
+    expect(classificationObservation?.strength.sourceAuthority).toBe("LOW");
+  });
+});
+
 // ── [10] two observations, correctly scoped informsDimensions ──────────────
 
 describe("[10] Tier2 match emits two evidence observations, correctly scoped", () => {
