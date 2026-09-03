@@ -111,10 +111,18 @@ function detectReportingFramework(input: DetectionInput): Provenance<ReportingFr
   const dbValue = input.companyReportingFrameworkDbValue as CompanyReportingFrameworkDbValue;
 
   if (dbValue === "ifrs_for_smes") {
-    // Cannot distinguish "deliberately IFRS for SMEs" from "never touched
-    // the default" — companies.reporting_framework is NOT NULL DEFAULT
-    // 'ifrs_for_smes' (audit §2). Represent that ambiguity as LOW
-    // confidence rather than silently trusting the default value (C4).
+    // Phase 1 (SAFF V5 PART IX, reconciled 2026-09-03): companies.reporting_
+    // framework no longer has a schema default going forward (migration
+    // 20260903100000_companies_reporting_framework_no_default.sql) — a NEW
+    // company now persists null until a value is actually chosen, which
+    // already hits the `!pair` UNKNOWN/NONE branch above, unchanged.
+    // This branch remains, unchanged, for a real reason: existing rows
+    // created before that migration may still hold the historical default
+    // value, and Phase 1's correction is prospective only (we cannot
+    // reconstruct past user intent — see the migration's own header). For
+    // those rows, "deliberately IFRS for SMEs" and "never touched the old
+    // default" remain genuinely indistinguishable, so LOW confidence is
+    // still the honest signal, not a bug to fix here.
     return {
       value: pair.framework,
       confidence: "LOW",
@@ -123,9 +131,10 @@ function detectReportingFramework(input: DetectionInput): Provenance<ReportingFr
         {
           source: "CONFIGURED_ENGAGEMENT_CONTEXT",
           detail:
-            "companies.reporting_framework equals the unconfirmed schema default " +
-            "('ifrs_for_smes') — may reflect a deliberate choice or may simply be " +
-            "untouched. Do not present as professionally confirmed.",
+            "companies.reporting_framework equals 'ifrs_for_smes', which was this " +
+            "column's schema default before Phase 1 removed it — may reflect a " +
+            "deliberate historical choice or may simply have been untouched at the " +
+            "time. Do not present as professionally confirmed.",
         },
       ],
     };

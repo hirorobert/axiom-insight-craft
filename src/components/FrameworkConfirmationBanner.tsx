@@ -16,8 +16,13 @@ import { buildFrameworkBannerContent } from "@/lib/accounting/frameworkConfirmat
 import { ShieldCheck, HelpCircle, AlertTriangle } from "lucide-react";
 
 interface FrameworkConfirmationBannerProps {
-  /** The raw companies.reporting_framework DB string value, exactly as the form currently holds it. */
-  reportingFrameworkDbValue: string;
+  /**
+   * The raw companies.reporting_framework DB string value, exactly as the
+   * form currently holds it. Phase 1: this column has no schema default —
+   * null means genuinely not yet selected, and detectEntityAccountingContext
+   * already treats it as UNKNOWN/NONE confidence correctly.
+   */
+  reportingFrameworkDbValue: string | null;
 }
 
 const TONE_STYLES: Record<

@@ -52,11 +52,39 @@ interface Company {
   industry: string | null;
   fiscal_year_end: string;
   currency: string;
-  reporting_framework: string;
+  /**
+   * Phase 1 (SAFF V5 PART IX): companies.reporting_framework no longer has a
+   * schema default — null means genuinely not yet selected. Never coalesce
+   * this to "ifrs_for_smes" anywhere; detectEntityAccountingContext() already
+   * treats null as UNKNOWN/NONE confidence correctly.
+   */
+  reporting_framework: string | null;
   tin: string | null;
   is_active: boolean;
   created_at: string;
 }
+
+interface CompanyFormData {
+  name: string;
+  code: string;
+  tin: string;
+  description: string;
+  industry: string;
+  fiscal_year_end: string;
+  currency: string;
+  reporting_framework: string | null;
+}
+
+const EMPTY_FORM_DATA: CompanyFormData = {
+  name: "",
+  code: "",
+  tin: "",
+  description: "",
+  industry: "",
+  fiscal_year_end: "12-31",
+  currency: "TZS",
+  reporting_framework: null,
+};
 
 export const CompanyManager = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -68,16 +96,7 @@ export const CompanyManager = () => {
   const { user } = useAuth();
   const { logAction } = useAuditLog();
 
-  const [formData, setFormData] = useState({
-    name: "",
-    code: "",
-    tin: "",
-    description: "",
-    industry: "",
-    fiscal_year_end: "12-31",
-    currency: "TZS",
-    reporting_framework: "ifrs_for_smes",
-  });
+  const [formData, setFormData] = useState<CompanyFormData>(EMPTY_FORM_DATA);
 
   const fetchCompanies = async () => {
     if (!user) return;
@@ -101,16 +120,7 @@ export const CompanyManager = () => {
   }, [user, dialogOpen]);
 
   const resetForm = () => {
-    setFormData({
-      name: "",
-      code: "",
-      tin: "",
-      description: "",
-      industry: "",
-      fiscal_year_end: "12-31",
-      currency: "TZS",
-      reporting_framework: "ifrs_for_smes",
-    });
+    setFormData(EMPTY_FORM_DATA);
     setEditingCompany(null);
     setTinTouched(false);
   };
@@ -137,8 +147,13 @@ export const CompanyManager = () => {
             industry: formData.industry || null,
             fiscal_year_end: formData.fiscal_year_end,
             currency: formData.currency,
+            // Cast: generated types (src/integrations/supabase/types.ts) still
+            // reflect the live NOT NULL DEFAULT schema — the migration
+            // dropping it hasn't been deployed/regenerated from yet. Passing
+            // null here is intentional and correct once it is; see
+            // supabase/migrations/20260903100000_companies_reporting_framework_no_default.sql.
             reporting_framework: formData.reporting_framework,
-          })
+          } as never)
           .eq("id", editingCompany.id);
 
         if (error) throw error;
@@ -162,9 +177,10 @@ export const CompanyManager = () => {
             industry: formData.industry || null,
             fiscal_year_end: formData.fiscal_year_end,
             currency: formData.currency,
+            // See the cast comment in the update branch above.
             reporting_framework: formData.reporting_framework,
             user_id: user.id,
-          })
+          } as never)
           .select()
           .single();
 
@@ -199,7 +215,10 @@ export const CompanyManager = () => {
       industry: company.industry || "",
       fiscal_year_end: company.fiscal_year_end,
       currency: company.currency,
-      reporting_framework: company.reporting_framework || "ifrs_for_smes",
+      // Phase 1: pass the real value through, including null. Coalescing to
+      // "ifrs_for_smes" here would silently overwrite a genuinely-unset
+      // company's framework the moment the edit dialog is saved.
+      reporting_framework: company.reporting_framework,
     });
     setFormDialogOpen(true);
   };
@@ -288,7 +307,9 @@ export const CompanyManager = () => {
                             </Badge>
                           )}
                           <Badge variant="outline" className="text-xs text-foreground/60 border-border">
-                            {FRAMEWORK_LABELS[company.reporting_framework] || company.reporting_framework}
+                            {company.reporting_framework
+                              ? FRAMEWORK_LABELS[company.reporting_framework] || company.reporting_framework
+                              : "Not determined"}
                           </Badge>
                           {isTinMissing(company.tin) && (
                             <Badge
@@ -391,14 +412,14 @@ export const CompanyManager = () => {
                 />
               )}
               <Select
-                value={formData.reporting_framework}
+                value={formData.reporting_framework ?? undefined}
                 onValueChange={(value) => setFormData({ ...formData, reporting_framework: value })}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Not determined — select a framework" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ifrs_for_smes">IFRS for SMEs — private companies (default)</SelectItem>
+                  <SelectItem value="ifrs_for_smes">IFRS for SMEs — private companies</SelectItem>
                   <SelectItem value="full_ifrs" disabled>Full IFRS — coming soon</SelectItem>
                   <SelectItem value="ipsas_accrual">IPSAS Accrual — government / public sector</SelectItem>
                   <SelectItem value="ipsas_cash" disabled>IPSAS Cash Basis — coming soon</SelectItem>

@@ -48,7 +48,10 @@ export default function FirstRunEngagement({
   const [tin, setTin] = useState("");
   const [fye, setFye] = useState("12-31");
   const [periodYear, setPeriodYear] = useState(String(defaultYear));
-  const [framework, setFramework] = useState("ifrs_for_smes");
+  // Phase 1 (SAFF V5 PART IX): no framework preselected. Company creation
+  // must tolerate a genuinely unknown reporting framework — never manufacture
+  // certainty just to get the user into a workspace.
+  const [framework, setFramework] = useState<string | null>(null);
   const [tinTouched, setTinTouched] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -71,9 +74,13 @@ export default function FirstRunEngagement({
           tin: tin.trim() || null,
           fiscal_year_end: `${year}-${fye}`,
           currency: "TZS",
+          // Cast: generated types still reflect the live NOT NULL DEFAULT
+          // schema until supabase/migrations/20260903100000_companies_
+          // reporting_framework_no_default.sql is deployed and types
+          // regenerated. null is intentional and correct here.
           reporting_framework: framework,
           user_id: user.id,
-        })
+        } as never)
         .select("id")
         .single();
       if (error) throw error;
@@ -138,14 +145,19 @@ export default function FirstRunEngagement({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="fr-framework">Reporting framework</Label>
-          <Select value={framework} onValueChange={setFramework}>
-            <SelectTrigger id="fr-framework"><SelectValue /></SelectTrigger>
+          <Label htmlFor="fr-framework">
+            Reporting framework <span className="text-muted-foreground">— optional now</span>
+          </Label>
+          <Select value={framework ?? undefined} onValueChange={setFramework}>
+            <SelectTrigger id="fr-framework"><SelectValue placeholder="Not determined" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="ifrs_for_smes">IFRS for SMEs — private companies</SelectItem>
               <SelectItem value="ipsas_accrual">IPSAS Accrual — public sector</SelectItem>
             </SelectContent>
           </Select>
+          <p className="text-[12px] text-muted-foreground">
+            You can set this later if you're not sure yet.
+          </p>
         </div>
 
         <div className="space-y-2">
