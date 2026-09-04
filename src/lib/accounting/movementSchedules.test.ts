@@ -395,4 +395,217 @@ describe("buildGenericScheduleMovement — determinism", () => {
     expect(forward.closingBalance).toBe(shuffled.closingBalance);
     expect(forward.reconciliation).toBe(reversed.reconciliation);
   });
+
+  it("same category + same amount + DIFFERENT evidence, reversed input order, produces identical output ordering (independent-certification MEDIUM repair)", () => {
+    const x: ScheduleMovementLine = {
+      category: "RECEIPT_INCREASE", amount: 100_000,
+      evidence: [{ source: "SOURCE_SYSTEM_SIGNATURE", detail: "Bank statement line 4" }],
+    };
+    const y: ScheduleMovementLine = {
+      category: "RECEIPT_INCREASE", amount: 100_000,
+      evidence: [{ source: "LEXICAL_SIGNAL", detail: "Grant letter ref GL-2026-04" }],
+    };
+    const forward = buildGenericScheduleMovement(baseInput({ movements: [x, y] }));
+    const reversed = buildGenericScheduleMovement(baseInput({ movements: [y, x] }));
+    expect(forward.movements).toEqual(reversed.movements);
+    expect(forward.movements.map((m) => m.evidence[0].detail)).toEqual(
+      reversed.movements.map((m) => m.evidence[0].detail),
+    );
+  });
+
+  it("multiple permutations of a mixed-evidence movement set all produce identical output", () => {
+    const lines: ScheduleMovementLine[] = [
+      { category: "CHARGED_ADDITIONAL", amount: 50_000, evidence: [{ source: "LEXICAL_SIGNAL", detail: "B" }] },
+      { category: "CHARGED_ADDITIONAL", amount: 50_000, evidence: [{ source: "LEXICAL_SIGNAL", detail: "A" }] },
+      { category: "UTILIZED", amount: -20_000, evidence: [] },
+    ];
+    const permutations = [
+      [lines[0], lines[1], lines[2]],
+      [lines[2], lines[1], lines[0]],
+      [lines[1], lines[0], lines[2]],
+      [lines[2], lines[0], lines[1]],
+    ];
+    const results = permutations.map((movements) =>
+      buildGenericScheduleMovement(baseInput({ scheduleType: "PROVISIONS_MOVEMENT", movements })),
+    );
+    for (const r of results.slice(1)) {
+      expect(r.movements).toEqual(results[0].movements);
+    }
+  });
+
+  it("same evidence SET supplied in a different internal array order (evidence is set-like) produces an identical canonicalized output", () => {
+    const e1 = { source: "LEXICAL_SIGNAL" as const, detail: "A" };
+    const e2 = { source: "SOURCE_SYSTEM_SIGNATURE" as const, detail: "B" };
+    const lineOrderAB: ScheduleMovementLine = { category: "GRANT_RECEIVED", amount: 10_000, evidence: [e1, e2] };
+    const lineOrderBA: ScheduleMovementLine = { category: "GRANT_RECEIVED", amount: 10_000, evidence: [e2, e1] };
+    const r1 = buildGenericScheduleMovement(baseInput({ scheduleType: "CAPITAL_GRANTS_MOVEMENT", movements: [lineOrderAB] }));
+    const r2 = buildGenericScheduleMovement(baseInput({ scheduleType: "CAPITAL_GRANTS_MOVEMENT", movements: [lineOrderBA] }));
+    expect(r1.movements).toEqual(r2.movements);
+  });
+
+  it("completely identical duplicate lines are retained (never silently aggregated or deduplicated) with deterministic output", () => {
+    const dup: ScheduleMovementLine = { category: "UTILIZED", amount: -10_000, evidence: [] };
+    const r = buildGenericScheduleMovement(baseInput({
+      scheduleType: "PROVISIONS_MOVEMENT",
+      movements: [{ ...dup }, { ...dup }],
+      tbClosingBalance: 980_000,
+    }));
+    expect(r.movements).toHaveLength(2);
+    expect(r.movements[0]).toEqual(r.movements[1]);
+    expect(r.closingBalance).toBe(980_000); // both duplicates genuinely summed, not collapsed to one
+  });
+});
+
+// ── Ω∞ Phase 7 repair-forward — numeric safety (independent-certification HIGH) ──
+
+describe("buildGenericScheduleMovement — opening numeric safety", () => {
+  it("KNOWN opening with NaN value fails closed to CANNOT_ASSESS, never reinterpreted as ZERO", () => {
+    const r = buildGenericScheduleMovement(baseInput({ openingBalance: { state: "KNOWN", value: NaN, source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] } }));
+    expect(r.closingBalance).toBeNull();
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+    expect(r.dataGaps.some((g) => g.includes("not finite"))).toBe(true);
+  });
+
+  it("KNOWN opening with +Infinity fails closed to CANNOT_ASSESS", () => {
+    const r = buildGenericScheduleMovement(baseInput({ openingBalance: { state: "KNOWN", value: Infinity, source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] } }));
+    expect(r.closingBalance).toBeNull();
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+  });
+
+  it("KNOWN opening with -Infinity fails closed to CANNOT_ASSESS", () => {
+    const r = buildGenericScheduleMovement(baseInput({ openingBalance: { state: "KNOWN", value: -Infinity, source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] } }));
+    expect(r.closingBalance).toBeNull();
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+  });
+});
+
+describe("buildGenericScheduleMovement — movement numeric safety", () => {
+  it("NaN movement amount fails closed to CANNOT_ASSESS", () => {
+    const r = buildGenericScheduleMovement(baseInput({ movements: [{ category: "RECEIPT_INCREASE", amount: NaN, evidence: [] }] }));
+    expect(r.closingBalance).toBeNull();
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+    expect(r.dataGaps.some((g) => g.includes("non-finite"))).toBe(true);
+  });
+
+  it("+Infinity movement amount fails closed to CANNOT_ASSESS", () => {
+    const r = buildGenericScheduleMovement(baseInput({ movements: [{ category: "RECEIPT_INCREASE", amount: Infinity, evidence: [] }] }));
+    expect(r.closingBalance).toBeNull();
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+  });
+
+  it("-Infinity movement amount fails closed to CANNOT_ASSESS", () => {
+    const r = buildGenericScheduleMovement(baseInput({ movements: [{ category: "RELEASE_TO_INCOME", amount: -Infinity, evidence: [] }] }));
+    expect(r.closingBalance).toBeNull();
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+  });
+
+  it("null continues to mean unavailable evidence (unchanged) and still causes CANNOT_ASSESS", () => {
+    const r = buildGenericScheduleMovement(baseInput({ movements: [{ category: "RECEIPT_INCREASE", amount: null, evidence: [] }] }));
+    expect(r.closingBalance).toBeNull();
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+  });
+
+  it("explicit 0 remains genuine ZERO and computes normally", () => {
+    const r = buildGenericScheduleMovement(baseInput({ movements: [{ category: "RECEIPT_INCREASE", amount: 0, evidence: [] }] }));
+    expect(r.closingBalance).toBe(1_000_000);
+    expect(r.reconciliation).toBe("RECONCILED");
+  });
+
+  it("finite positive and negative values remain valid and compute normally", () => {
+    const r = buildGenericScheduleMovement(baseInput({
+      movements: [
+        { category: "RECEIPT_INCREASE", amount: 250_000, evidence: [] },
+        { category: "RELEASE_TO_INCOME", amount: -50_000, evidence: [] },
+      ],
+      tbClosingBalance: 1_200_000,
+    }));
+    expect(r.closingBalance).toBe(1_200_000);
+    expect(r.reconciliation).toBe("RECONCILED");
+  });
+});
+
+describe("buildGenericScheduleMovement — TB closing numeric safety", () => {
+  it("NaN tbClosingBalance fails closed to CANNOT_ASSESS, never compared as if valid", () => {
+    const r = buildGenericScheduleMovement(baseInput({ tbClosingBalance: NaN }));
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+    expect(r.reconciliationDrift).toBeNull();
+  });
+
+  it("+Infinity tbClosingBalance fails closed to CANNOT_ASSESS", () => {
+    const r = buildGenericScheduleMovement(baseInput({ tbClosingBalance: Infinity }));
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+    expect(r.reconciliationDrift).toBeNull();
+  });
+
+  it("-Infinity tbClosingBalance fails closed to CANNOT_ASSESS", () => {
+    const r = buildGenericScheduleMovement(baseInput({ tbClosingBalance: -Infinity }));
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+    expect(r.reconciliationDrift).toBeNull();
+  });
+
+  it("closingBalance is still computed correctly even when tbClosingBalance is non-finite — only reconciliation is blocked", () => {
+    const r = buildGenericScheduleMovement(baseInput({ tbClosingBalance: NaN }));
+    expect(r.closingBalance).toBe(1_000_000);
+  });
+});
+
+describe("buildGenericScheduleMovement — tolerance safety", () => {
+  it("0 is a valid tolerance", () => {
+    const r = buildGenericScheduleMovement(baseInput({ toleranceTzs: 0 }));
+    expect(r.reconciliation).toBe("RECONCILED");
+  });
+
+  it("a positive finite tolerance is valid", () => {
+    const r = buildGenericScheduleMovement(baseInput({ tbClosingBalance: 1_000_500, toleranceTzs: 1_000 }));
+    expect(r.reconciliation).toBe("DRIFT_WITHIN_TOLERANCE");
+  });
+
+  it("negative tolerance fails closed to CANNOT_ASSESS — never Math.abs()'d into valid positive authority", () => {
+    const r = buildGenericScheduleMovement(baseInput({ toleranceTzs: -1_000 }));
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+    expect(r.dataGaps.some((g) => g.includes("Tolerance"))).toBe(true);
+  });
+
+  it("NaN tolerance fails closed to CANNOT_ASSESS", () => {
+    const r = buildGenericScheduleMovement(baseInput({ toleranceTzs: NaN }));
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+  });
+
+  it("+Infinity tolerance fails closed to CANNOT_ASSESS — never silently accepted as 'always within tolerance'", () => {
+    const r = buildGenericScheduleMovement(baseInput({ tbClosingBalance: 5_000_000, toleranceTzs: Infinity }));
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+  });
+
+  it("-Infinity tolerance fails closed to CANNOT_ASSESS", () => {
+    const r = buildGenericScheduleMovement(baseInput({ toleranceTzs: -Infinity }));
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+  });
+
+  it("invalid tolerance does not block closingBalance computation — only reconciliation", () => {
+    const r = buildGenericScheduleMovement(baseInput({ toleranceTzs: NaN }));
+    expect(r.closingBalance).toBe(1_000_000);
+  });
+});
+
+describe("buildGenericScheduleMovement — computed-output numeric safety (overflow)", () => {
+  it("finite opening + finite movement summing to a non-finite closing balance fails closed to CANNOT_ASSESS", () => {
+    const r = buildGenericScheduleMovement(baseInput({
+      openingBalance: { state: "KNOWN", value: Number.MAX_VALUE, source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] },
+      movements: [{ category: "RECEIPT_INCREASE", amount: Number.MAX_VALUE, evidence: [] }],
+    }));
+    expect(r.closingBalance).toBeNull();
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+    expect(r.dataGaps.some((g) => g.includes("overflow"))).toBe(true);
+  });
+
+  it("finite closing/TB values whose difference overflows to non-finite drift fails closed to CANNOT_ASSESS", () => {
+    const r = buildGenericScheduleMovement(baseInput({
+      openingBalance: { state: "KNOWN", value: Number.MAX_VALUE, source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] },
+      movements: [],
+      tbClosingBalance: -Number.MAX_VALUE,
+      toleranceTzs: 1_000,
+    }));
+    expect(r.reconciliation).toBe("CANNOT_ASSESS");
+    expect(r.reconciliationDrift).toBeNull();
+  });
 });

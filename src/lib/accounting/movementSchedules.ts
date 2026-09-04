@@ -356,7 +356,10 @@ export interface ScheduleMovementLine {
    * no reason to believe this category occurred at all this period) and
    * distinct from an explicit `0` (a real, evidenced "nothing moved in
    * this category"). A `null` amount blocks closingBalance computation —
-   * it is never coalesced to 0.
+   * it is never coalesced to 0. A non-finite amount (NaN/Infinity/
+   * -Infinity — malformed evidence, a different failure than "absent")
+   * blocks it identically; neither is ever coalesced, dropped, or
+   * silently continued past.
    */
   amount: number | null;
   evidence: EvidenceItem[];
@@ -417,19 +420,73 @@ export interface BuildGenericScheduleMovementInput {
 }
 
 /**
- * Deterministic movement ordering (§12): the SAME logical set of movements
- * supplied in a different caller-side order must produce a byte-identical
- * `movements` output array. Sorted by category (plain string comparison —
- * not localeCompare, which is not guaranteed stable across ICU
- * environments), then by amount ascending as a tiebreaker; null amounts
- * sort first within a category (Number.NEGATIVE_INFINITY substitute used
- * only for comparison, never returned or summed).
+ * Ω∞ Phase 7 repair-forward (independent-certification HIGH finding): the
+ * only numeric gate this engine trusts. `Number.isFinite` is false for
+ * NaN, +Infinity, -Infinity, and non-numbers — exactly the values that
+ * must never reach an authoritative closing/drift/tolerance figure.
+ */
+function isFiniteAmount(x: number): boolean {
+  return Number.isFinite(x);
+}
+
+/**
+ * Evidence canonicalization (independent-certification MEDIUM finding,
+ * §8/§9): two movement lines carrying the same evidence SET in a
+ * different caller-side array order must compare and serialize
+ * identically — evidence order is not itself evidence. Sorted by
+ * `source`, then `detail`, then `ref` (plain string comparison, never
+ * localeCompare — not guaranteed stable across ICU environments). No
+ * random ID, no timestamp, no JSON.stringify-on-insertion-order: only
+ * truthful, already-present EvidenceItem fields are used.
+ */
+function canonicalizeEvidence(evidence: EvidenceItem[]): EvidenceItem[] {
+  return [...evidence].sort((a, b) => {
+    if (a.source !== b.source) return a.source < b.source ? -1 : 1;
+    if (a.detail !== b.detail) return a.detail < b.detail ? -1 : 1;
+    const aRef = a.ref ?? "";
+    const bRef = b.ref ?? "";
+    if (aRef !== bRef) return aRef < bRef ? -1 : 1;
+    return 0;
+  });
+}
+
+/** Stable string key of an already-canonicalized evidence array, used only as a sort tiebreaker. */
+function evidenceKey(canonicalEvidence: EvidenceItem[]): string {
+  return canonicalEvidence.map((e) => `${e.source} ${e.detail} ${e.ref ?? ""}`).join("");
+}
+
+/**
+ * Total deterministic ordering for ScheduleMovementLine (independent-
+ * certification MEDIUM finding, §7/§8): category, then a fixed amount
+ * bucket (null < NaN < -Infinity < finite-ascending < +Infinity — a
+ * total order over EVERY possible `number | null`, including the
+ * non-finite values §1-6 below reject from authoritative arithmetic but
+ * which must still sort deterministically for a reproducible echoed-back
+ * array), then the canonicalized-evidence key. Two lines with the same
+ * category, the same amount, and an equivalent evidence SET (any array
+ * order) are indistinguishable and correctly compare equal — see §9:
+ * genuine duplicates are never aggregated or dropped, only ordered.
  */
 function compareScheduleMovementLines(a: ScheduleMovementLine, b: ScheduleMovementLine): number {
   if (a.category !== b.category) return a.category < b.category ? -1 : 1;
-  const aAmt = a.amount ?? Number.NEGATIVE_INFINITY;
-  const bAmt = b.amount ?? Number.NEGATIVE_INFINITY;
-  if (aAmt !== bAmt) return aAmt < bAmt ? -1 : 1;
+
+  const bucketOf = (amount: number | null): 0 | 1 | 2 | 3 | 4 => {
+    if (amount === null) return 0;
+    if (Number.isNaN(amount)) return 1;
+    if (amount === Number.NEGATIVE_INFINITY) return 2;
+    if (Number.isFinite(amount)) return 3;
+    return 4; // Number.POSITIVE_INFINITY
+  };
+  const bucketA = bucketOf(a.amount);
+  const bucketB = bucketOf(b.amount);
+  if (bucketA !== bucketB) return bucketA - bucketB;
+  if (bucketA === 3 && a.amount !== b.amount) {
+    return (a.amount as number) < (b.amount as number) ? -1 : 1;
+  }
+
+  const keyA = evidenceKey(canonicalizeEvidence(a.evidence));
+  const keyB = evidenceKey(canonicalizeEvidence(b.evidence));
+  if (keyA !== keyB) return keyA < keyB ? -1 : 1;
   return 0;
 }
 
@@ -437,13 +494,18 @@ function compareScheduleMovementLines(a: ScheduleMovementLine, b: ScheduleMoveme
  * The generic Phase 7 movement engine: `closing = opening + Σ(signed
  * evidenced movements)`. Pure, deterministic, fails closed at every
  * boundary — never a `|| 0` / `?? 0` default, never a synthetic movement,
- * never a balancing plug.
+ * never a balancing plug, and (repair-forward) never a non-finite number
+ * escaping as an authoritative closing/drift/tolerance figure.
  */
 export function buildGenericScheduleMovement(
   input: BuildGenericScheduleMovementInput,
 ): SupportingScheduleResult {
   const dataGaps: string[] = [];
-  const orderedMovements = [...input.movements].sort(compareScheduleMovementLines);
+  // Evidence is canonicalized into the ECHOED array too, not just used
+  // internally for sorting — so the same semantic input, evidence-array
+  // order included, always produces byte-identical output (§8).
+  const normalizedMovements = input.movements.map((m) => ({ ...m, evidence: canonicalizeEvidence(m.evidence) }));
+  const orderedMovements = normalizedMovements.sort(compareScheduleMovementLines);
 
   if (input.certification.verdict !== "certified") {
     dataGaps.push(
@@ -462,16 +524,33 @@ export function buildGenericScheduleMovement(
     };
   }
 
-  const openingValue =
-    input.openingBalance.state === "KNOWN" ? input.openingBalance.value :
-    input.openingBalance.state === "ZERO"  ? 0 :
-    null;
-  if (openingValue === null) {
+  // ── Opening (Phase 4 ComparativeAmount authority — never re-derived) ──────
+  // A malformed KNOWN/ZERO numeric payload fails closed; it is never
+  // reinterpreted as ZERO, and Phase 4's ComparativeAmount value itself is
+  // never mutated — only THIS engine's use of it is blocked.
+  let openingValue: number | null = null;
+  if (input.openingBalance.state === "KNOWN") {
+    if (isFiniteAmount(input.openingBalance.value)) {
+      openingValue = input.openingBalance.value;
+    } else {
+      dataGaps.push(
+        "Opening balance is KNOWN but its numeric value is not finite (NaN/Infinity) — " +
+          "treated as unavailable, never as ZERO or a mutated Phase 4 value.",
+      );
+    }
+  } else if (input.openingBalance.state === "ZERO") {
+    openingValue = 0;
+  } else {
     dataGaps.push(
       `Opening balance is ${input.openingBalance.state} — closing balance cannot be computed from an unavailable opening.`,
     );
   }
 
+  // ── Movements ──────────────────────────────────────────────────────────
+  // null continues to mean "relevant but unevidenced" (unchanged design).
+  // NaN/±Infinity are a DIFFERENT failure — malformed evidence, not absent
+  // evidence — but both fail closed identically: block the sum, never
+  // coalesce, never silently drop the line and continue.
   let movementSum: number | null = 0;
   for (const m of orderedMovements) {
     if (m.amount === null) {
@@ -479,12 +558,46 @@ export function buildGenericScheduleMovement(
         `Movement category "${m.category}" has no evidenced amount for this period — closing balance cannot be computed from an incomplete movement set.`,
       );
       movementSum = null;
+    } else if (!isFiniteAmount(m.amount)) {
+      dataGaps.push(
+        `Movement category "${m.category}" has a non-finite amount (NaN/Infinity) — closing balance cannot be computed from malformed evidence.`,
+      );
+      movementSum = null;
     } else if (movementSum !== null) {
       movementSum += m.amount;
     }
   }
 
-  const closingBalance = (openingValue !== null && movementSum !== null) ? openingValue + movementSum : null;
+  // Overflow guard: two individually finite numbers can sum to Infinity
+  // (e.g. two Number.MAX_VALUE-scale movements). Never let that escape as
+  // an authoritative closing balance.
+  let closingBalance: number | null =
+    (openingValue !== null && movementSum !== null) ? openingValue + movementSum : null;
+  if (closingBalance !== null && !isFiniteAmount(closingBalance)) {
+    dataGaps.push(
+      "Computed closing balance is not finite (numeric overflow from otherwise-finite inputs) — " +
+        "never returned as an authoritative figure.",
+    );
+    closingBalance = null;
+  }
+
+  // ── TB closing balance — finite or treated as unavailable, never fabricated ──
+  const tbClosingValid = input.tbClosingBalance !== null && isFiniteAmount(input.tbClosingBalance);
+  if (input.tbClosingBalance !== null && !tbClosingValid) {
+    dataGaps.push(
+      "TB closing balance supplied is not finite (NaN/Infinity) — treated as unavailable, reconciliation cannot be assessed.",
+    );
+  }
+
+  // ── Tolerance — caller-supplied, must be finite and >= 0. Never Math.abs()
+  // (that would silently convert invalid negative authority into valid
+  // positive authority) and never defaulted to 0. ──────────────────────────
+  const toleranceValid = isFiniteAmount(input.toleranceTzs) && input.toleranceTzs >= 0;
+  if (!toleranceValid) {
+    dataGaps.push(
+      `Tolerance ${String(input.toleranceTzs)} is invalid (must be finite and >= 0) — reconciliation cannot be assessed.`,
+    );
+  }
 
   let reconciliation: ScheduleReconciliationStatus;
   let reconciliationDrift: number | null = null;
@@ -496,12 +609,23 @@ export function buildGenericScheduleMovement(
     dataGaps.push(
       "No TB closing balance supplied for this account population — reconciliation cannot be assessed.",
     );
+  } else if (!tbClosingValid || !toleranceValid) {
+    reconciliation = "CANNOT_ASSESS";
   } else {
-    reconciliationDrift = Math.abs(closingBalance - input.tbClosingBalance);
-    reconciliation =
-      reconciliationDrift === 0 ? "RECONCILED" :
-      reconciliationDrift <= input.toleranceTzs ? "DRIFT_WITHIN_TOLERANCE" :
-      "DRIFT_EXCEEDS_TOLERANCE";
+    const drift = Math.abs(closingBalance - input.tbClosingBalance);
+    if (!isFiniteAmount(drift)) {
+      dataGaps.push(
+        "Computed reconciliation drift is not finite (numeric overflow from otherwise-finite inputs) — " +
+          "never returned as an authoritative figure.",
+      );
+      reconciliation = "CANNOT_ASSESS";
+    } else {
+      reconciliationDrift = drift;
+      reconciliation =
+        drift === 0 ? "RECONCILED" :
+        drift <= input.toleranceTzs ? "DRIFT_WITHIN_TOLERANCE" :
+        "DRIFT_EXCEEDS_TOLERANCE";
+    }
   }
 
   return {
