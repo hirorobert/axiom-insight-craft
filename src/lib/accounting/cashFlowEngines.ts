@@ -311,25 +311,46 @@ export interface UnresolvedCashFlowLine {
 }
 
 /**
- * Audits a set of classified balances against every presentationCode this
- * module's operating/investing sections actually recognize (financing is
- * caller-driven via an explicit set and is therefore excluded from this
- * audit -- everything the caller designates as financing is, by
- * definition, resolved). Anything left over is surfaced explicitly, never
- * silently dropped and never defaulted into OPERATING.
- *
- * NO_PRESENTATION_CODE covers a runtime-bypassed missing value (the
- * ClassifiedBalance type itself requires presentationCode, but a caller
- * can still hand this function a value that violates that at runtime).
- * PRESENTATION_CODE_NOT_CLASSIFIED covers a real, valid IpsasPresentationCode
- * that simply isn't one of the codes this cash-flow module maps to a
- * section yet (e.g. RESERVES, ACCUMULATED_SURPLUS_DEFICIT).
+ * Repair (P5S1-HIGH-001): PRESENTATION_CODE_NOT_CLASSIFIED must mean "this
+ * item is AUTHORITATIVELY KNOWN to be cash-flow relevant, but its
+ * Operating/Investing/Financing classification is unresolved" -- never "not
+ * one of our current sets." An equity line like ACCUMULATED_SURPLUS_DEFICIT
+ * is not an unresolved cash movement; it simply isn't a cash-flow item at
+ * all. This module cannot honestly decide cash-flow relevance itself (that
+ * would require inferring from presentationCode absence, which is exactly
+ * the fabrication this finding forbids) -- so relevance is a REQUIRED
+ * caller-supplied authority, distinct from, and never collapsed into, the
+ * cash-perimeter (CashPositionFacts) or materiality (MaterialityThreshold)
+ * concepts below. No exclusion list is grown here; the caller decides once,
+ * upstream, what is cash-flow relevant at all.
+ */
+export type CashFlowRelevantPresentationCodes = ReadonlySet<IpsasPresentationCode>;
+
+/**
+ * Audits a set of classified balances for cash-flow classification
+ * completeness. A balance is surfaced as unresolved only when:
+ *   - its presentationCode is missing at runtime (NO_PRESENTATION_CODE --
+ *     always surfaced; we have no relevance information to consult at all), or
+ *   - the caller's own cashFlowRelevantCodes authority says this code IS
+ *     cash-flow relevant, but this module has no section mapping for it yet
+ *     (PRESENTATION_CODE_NOT_CLASSIFIED).
+ * A presentationCode the caller has NOT declared cash-flow relevant (e.g.
+ * ACCUMULATED_SURPLUS_DEFICIT, a revenue/expense P&L line, any other real
+ * SFP/statement line) is correctly excluded -- it was never a cash-flow
+ * item to begin with, so it is neither "resolved" nor "unresolved" here.
+ * Never silently dropped where it WAS declared relevant; never defaulted
+ * into OPERATING.
  */
 export function findUnresolvedCashFlowLines(
   balances: ClassifiedBalance[],
+  cashFlowRelevantCodes: CashFlowRelevantPresentationCodes,
 ): UnresolvedCashFlowLine[] {
   return balances
-    .filter((b) => !b.presentationCode || !ALL_KNOWN_CASHFLOW_PRESENTATION_CODES.has(b.presentationCode))
+    .filter((b) => {
+      if (!b.presentationCode) return true; // NO_PRESENTATION_CODE: always surfaced
+      if (!cashFlowRelevantCodes.has(b.presentationCode)) return false; // not cash-flow relevant at all -- correctly excluded
+      return !ALL_KNOWN_CASHFLOW_PRESENTATION_CODES.has(b.presentationCode); // relevant, but unmapped to a section
+    })
     .map((b) => ({
       naturalAccountCode: b.naturalAccountCode,
       amount: normalBalanceSign(b.accountNature) * (b.debitAmount - b.creditAmount),
@@ -388,6 +409,61 @@ export interface CashPositionReconciliationResult {
   currencyCode: string;
 }
 
+/** A non-empty string once whitespace is trimmed -- rejects "", "   ", and non-string runtime bypasses. */
+function isNonBlankString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * Repair (P5S1-HIGH-003): Gate C must not trust TypeScript alone for
+ * ComparativeAmount. This is an exhaustive RUNTIME discriminant -- a
+ * `never`-typed default branch enforces compile-time exhaustiveness too,
+ * but the throw is what actually protects a runtime-bypassed or malformed
+ * value. Does NOT mutate or redefine the certified comparativeEvidence.ts
+ * contract -- purely a defensive reader of it.
+ *
+ * KNOWN: value must be finite -- throws otherwise.
+ * ZERO: value must be exactly 0, matching the certified contract's own
+ *   shape (`{ state: "ZERO"; value: 0; ... }`) -- a ZERO with any other
+ *   value is malformed and throws, never silently substituted.
+ * MISSING / NOT_APPLICABLE: not assessable -- Gate C returns CANNOT_ASSESS.
+ * Anything else (an unrecognized state string): throws -- fails closed
+ * rather than silently treating unknown data as either a value or an
+ * absence.
+ */
+function resolveCashPositionAmount(
+  amount: ComparativeAmount,
+): { assessable: true; value: number } | { assessable: false; state: "MISSING" | "NOT_APPLICABLE" } {
+  switch (amount.state) {
+    case "KNOWN": {
+      if (!Number.isFinite(amount.value)) {
+        throw new Error(
+          `verifyCashPositionReconciliation: ComparativeAmount state KNOWN has a non-finite value (received: ${String(amount.value)}).`,
+        );
+      }
+      return { assessable: true, value: amount.value };
+    }
+    case "ZERO": {
+      if ((amount.value as unknown) !== 0) {
+        throw new Error(
+          `verifyCashPositionReconciliation: ComparativeAmount state ZERO must have value exactly 0 (received: ${String(amount.value)}) -- malformed against the certified contract.`,
+        );
+      }
+      return { assessable: true, value: 0 };
+    }
+    case "MISSING":
+      return { assessable: false, state: "MISSING" };
+    case "NOT_APPLICABLE":
+      return { assessable: false, state: "NOT_APPLICABLE" };
+    default: {
+      const exhaustive: never = amount;
+      throw new Error(
+        `verifyCashPositionReconciliation: unrecognized ComparativeAmount state (received: ${String((exhaustive as ComparativeAmount).state)}).`,
+      );
+    }
+  }
+}
+
 /**
  * Gate C: opening cash + net cash movement = derived closing cash, compared
  * against the actual (independently resolved) closing cash. This is a
@@ -399,18 +475,31 @@ export interface CashPositionReconciliationResult {
  * honestly support today.
  *
  * Fails to CANNOT_ASSESS (never a plug, never a guessed zero) when opening
- * cash is MISSING or NOT_APPLICABLE. Fails closed (throws) on any
- * non-finite numeric input, on a mismatched currencyCode between
- * cashPosition and materiality, or on a mismatched currencyCode between the
- * caller's two inputs -- comparing a cash position to a threshold
- * denominated in a different currency would be a real correctness defect,
- * not a case to silently paper over.
+ * cash is MISSING or NOT_APPLICABLE. Fails closed (throws) on: any
+ * non-finite numeric input; a negative percentageThreshold/absoluteThreshold
+ * (Repair P5S1-HIGH-002 -- zero is a valid, explicit "no tolerance" choice
+ * and is accepted); an empty/whitespace-only currencyCode on either input;
+ * a mismatched currencyCode between cashPosition and materiality (compared
+ * trimmed, case-sensitive -- matching this repository's own observed
+ * convention of upper-case codes like 'TZS', with no currency library and
+ * no case-folding invented); or a malformed ComparativeAmount (see
+ * resolveCashPositionAmount).
  */
 export function verifyCashPositionReconciliation(
   cashPosition: CashPositionFacts,
   netCashMovement: number,
   materiality: MaterialityThreshold,
 ): CashPositionReconciliationResult {
+  if (!isNonBlankString(cashPosition.currencyCode)) {
+    throw new Error(
+      `verifyCashPositionReconciliation: cashPosition.currencyCode must be a non-empty, non-whitespace string (received: ${JSON.stringify(cashPosition.currencyCode)}).`,
+    );
+  }
+  if (!isNonBlankString(materiality.currencyCode)) {
+    throw new Error(
+      `verifyCashPositionReconciliation: materiality.currencyCode must be a non-empty, non-whitespace string (received: ${JSON.stringify(materiality.currencyCode)}).`,
+    );
+  }
   if (!Number.isFinite(netCashMovement)) {
     throw new Error(
       `verifyCashPositionReconciliation: netCashMovement is not a finite number (received: ${String(netCashMovement)}).`,
@@ -421,18 +510,25 @@ export function verifyCashPositionReconciliation(
       `verifyCashPositionReconciliation: cashPosition.actualClosingCash is not a finite number (received: ${String(cashPosition.actualClosingCash)}).`,
     );
   }
-  if (!Number.isFinite(materiality.percentageThreshold) || !Number.isFinite(materiality.absoluteThreshold)) {
+  if (!Number.isFinite(materiality.percentageThreshold) || materiality.percentageThreshold < 0) {
     throw new Error(
-      "verifyCashPositionReconciliation: materiality.percentageThreshold and materiality.absoluteThreshold must both be finite numbers.",
+      `verifyCashPositionReconciliation: materiality.percentageThreshold must be a finite number >= 0 (received: ${String(materiality.percentageThreshold)}).`,
     );
   }
-  if (cashPosition.currencyCode !== materiality.currencyCode) {
+  if (!Number.isFinite(materiality.absoluteThreshold) || materiality.absoluteThreshold < 0) {
+    throw new Error(
+      `verifyCashPositionReconciliation: materiality.absoluteThreshold must be a finite number >= 0 (received: ${String(materiality.absoluteThreshold)}).`,
+    );
+  }
+  if (cashPosition.currencyCode.trim() !== materiality.currencyCode.trim()) {
     throw new Error(
       `verifyCashPositionReconciliation: currency mismatch between cashPosition ('${cashPosition.currencyCode}') and materiality ('${materiality.currencyCode}') -- refusing to compare across currencies.`,
     );
   }
 
-  if (cashPosition.openingCash.state === "MISSING" || cashPosition.openingCash.state === "NOT_APPLICABLE") {
+  const opening = resolveCashPositionAmount(cashPosition.openingCash);
+
+  if (!opening.assessable) {
     return {
       status: "CANNOT_ASSESS",
       openingCashState: cashPosition.openingCash.state,
@@ -445,8 +541,7 @@ export function verifyCashPositionReconciliation(
     };
   }
 
-  const openingValue = cashPosition.openingCash.value;
-  const derivedClosingCash = openingValue + netCashMovement;
+  const derivedClosingCash = opening.value + netCashMovement;
   const difference = derivedClosingCash - cashPosition.actualClosingCash;
   const thresholdApplied = Math.max(
     Math.abs(cashPosition.actualClosingCash) * materiality.percentageThreshold,

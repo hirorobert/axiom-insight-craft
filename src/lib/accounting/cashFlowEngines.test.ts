@@ -191,45 +191,91 @@ const ZERO: ComparativeAmount = { state: "ZERO", value: 0, source: "PRIOR_TB_WIT
 const MISSING: ComparativeAmount = { state: "MISSING", source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] };
 const NOT_APPLICABLE: ComparativeAmount = { state: "NOT_APPLICABLE", evidence: [] };
 
-describe("[11]/[12]/[13] findUnresolvedCashFlowLines surfaces what buildInvesting/Operating silently skip", () => {
-  it("[11] a runtime-bypassed missing presentationCode is surfaced as NO_PRESENTATION_CODE", () => {
+// Real rule-pack examples: an equity/net-assets line and a genuine cash line,
+// neither of which is in ALL_KNOWN_CASHFLOW_PRESENTATION_CODES (operating
+// non-cash-adjustment/working-capital codes, or investing codes).
+const ACCUMULATED_SURPLUS_RULE = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.find((r) => r.naturalAccountCode === "63293101")!; // ACCUMULATED_SURPLUS_DEFICIT
+const CASH_LINE_RULE = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.find((r) => r.naturalAccountCode === "62123115")!; // CASH_AND_CASH_EQUIVALENTS
+
+describe("[P5S1-HIGH-001] findUnresolvedCashFlowLines requires caller-declared cash-flow relevance -- never infers it", () => {
+  it("[11] a runtime-bypassed missing presentationCode is surfaced as NO_PRESENTATION_CODE regardless of the relevance set", () => {
     const bad = [
       { naturalAccountCode: "X1", accountNature: "ASSET", presentationCode: undefined, debitAmount: 100, creditAmount: 0 },
     ] as unknown as ClassifiedBalance[];
-    const unresolved = findUnresolvedCashFlowLines(bad);
+    const unresolved = findUnresolvedCashFlowLines(bad, new Set());
     expect(unresolved).toHaveLength(1);
     expect(unresolved[0].reason).toBe("NO_PRESENTATION_CODE");
     expect(unresolved[0].requiresReview).toBe(true);
   });
 
-  it("[12] a real, valid IPSAS presentationCode this module doesn't map to a section is surfaced as PRESENTATION_CODE_NOT_CLASSIFIED", () => {
-    // 63293101 "Accumulated Surplus/Deficit Opening" -> NET_ASSETS / ACCUMULATED_SURPLUS_DEFICIT,
-    // a real rule (Phase 3 fixture), not one of operating/investing/financing's known codes.
-    const rule = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.find((r) => r.naturalAccountCode === "63293101")!;
+  it("ACCUMULATED_SURPLUS_DEFICIT is NOT automatically unresolved when the caller has not declared it cash-flow relevant", () => {
     const balances: ClassifiedBalance[] = [
       {
-        naturalAccountCode: rule.naturalAccountCode,
-        accountNature: rule.accountNature,
-        presentationCode: rule.presentationCode,
+        naturalAccountCode: ACCUMULATED_SURPLUS_RULE.naturalAccountCode,
+        accountNature: ACCUMULATED_SURPLUS_RULE.accountNature,
+        presentationCode: ACCUMULATED_SURPLUS_RULE.presentationCode,
         debitAmount: 0,
         creditAmount: 900,
       },
     ];
-    const unresolved = findUnresolvedCashFlowLines(balances);
+    // Relevance set declares only what the operating/investing sections
+    // actually use -- ACCUMULATED_SURPLUS_DEFICIT (an equity line) is
+    // deliberately absent, matching real upstream authority: it was never
+    // a cash-flow item to begin with.
+    const unresolved = findUnresolvedCashFlowLines(balances, new Set(["DEPRECIATION_AMORTISATION", "RECEIVABLES"]));
+    expect(unresolved).toHaveLength(0);
+  });
+
+  it("a legitimate cash/cash-equivalent line is NOT automatically unresolved merely because it is outside the O/I/F sets", () => {
+    const balances: ClassifiedBalance[] = [
+      {
+        naturalAccountCode: CASH_LINE_RULE.naturalAccountCode,
+        accountNature: CASH_LINE_RULE.accountNature,
+        presentationCode: CASH_LINE_RULE.presentationCode,
+        debitAmount: 500,
+        creditAmount: 0,
+      },
+    ];
+    const unresolved = findUnresolvedCashFlowLines(balances, new Set(["RECEIVABLES"]));
+    expect(unresolved).toHaveLength(0);
+  });
+
+  it("a caller-declared cash-flow-relevant but unclassified item IS surfaced as PRESENTATION_CODE_NOT_CLASSIFIED", () => {
+    const balances: ClassifiedBalance[] = [
+      {
+        naturalAccountCode: ACCUMULATED_SURPLUS_RULE.naturalAccountCode,
+        accountNature: ACCUMULATED_SURPLUS_RULE.accountNature,
+        presentationCode: ACCUMULATED_SURPLUS_RULE.presentationCode,
+        debitAmount: 0,
+        creditAmount: 900,
+      },
+    ];
+    // This time the caller's own authority DOES declare it cash-flow
+    // relevant (e.g. a future financing/other-movement category this
+    // module hasn't been extended to map yet) -- now it is genuinely unresolved.
+    const unresolved = findUnresolvedCashFlowLines(balances, new Set(["ACCUMULATED_SURPLUS_DEFICIT"]));
     expect(unresolved).toHaveLength(1);
     expect(unresolved[0].reason).toBe("PRESENTATION_CODE_NOT_CLASSIFIED");
     expect(unresolved[0].naturalAccountCode).toBe("63293101");
   });
 
-  it("[13] a genuinely resolved investing-relevant line is never surfaced as unresolved (no false positives)", () => {
+  it("[13] unresolved never defaults to OPERATING -- no section field exists on UnresolvedCashFlowLine at all", () => {
     const fy2026Balances = toClassifiedBalances(ARUSHA_FY2026_BALANCES);
-    const unresolved = findUnresolvedCashFlowLines(fy2026Balances);
+    const relevantCodes = new Set(["DEPRECIATION_AMORTISATION", "IMPAIRMENT_EXPECTED_CREDIT_LOSS", "RECEIVABLES", "PREPAYMENTS", "INVENTORIES", "PAYABLES_AND_ACCRUALS", "DEPOSITS_HELD", "DEFERRED_REVENUE_INCOME", "WITHHOLDING_TAX_PAYABLE", "PROPERTY_PLANT_EQUIPMENT_ADDITIONS", "WORK_IN_PROGRESS", "INVESTMENT_PROPERTY"] as const);
+    const unresolved = findUnresolvedCashFlowLines(fy2026Balances, new Set(relevantCodes));
     for (const line of unresolved) {
-      // structural: UnresolvedCashFlowLine has no OPERATING/INVESTING/FINANCING
-      // section field at all -- it can never masquerade as a resolved section line.
       expect("section" in line).toBe(false);
     }
-    // and every INVESTING-classified real line is absent from the unresolved set
+    const investingCodes = new Set(buildInvestingActivities(fy2026Balances).lineItems.map((l) => l.naturalAccountCode));
+    expect(unresolved.some((u) => investingCodes.has(u.naturalAccountCode))).toBe(false);
+  });
+
+  it("no exclusion-list hack: a genuinely resolved investing-relevant line is never surfaced (no false positives) when it is declared relevant", () => {
+    const fy2026Balances = toClassifiedBalances(ARUSHA_FY2026_BALANCES);
+    const unresolved = findUnresolvedCashFlowLines(
+      fy2026Balances,
+      new Set(["PROPERTY_PLANT_EQUIPMENT_ADDITIONS", "WORK_IN_PROGRESS", "INVESTMENT_PROPERTY"]),
+    );
     const investingCodes = new Set(buildInvestingActivities(fy2026Balances).lineItems.map((l) => l.naturalAccountCode));
     expect(unresolved.some((u) => investingCodes.has(u.naturalAccountCode))).toBe(false);
   });
@@ -239,7 +285,7 @@ describe("[11]/[12]/[13] findUnresolvedCashFlowLines surfaces what buildInvestin
       { naturalAccountCode: "DUP", accountNature: "NET_ASSETS", presentationCode: "RESERVES", debitAmount: 0, creditAmount: 100 },
       { naturalAccountCode: "DUP", accountNature: "NET_ASSETS", presentationCode: "RESERVES", debitAmount: 0, creditAmount: 200 },
     ] as ClassifiedBalance[];
-    const unresolved = findUnresolvedCashFlowLines(bad);
+    const unresolved = findUnresolvedCashFlowLines(bad, new Set(["RESERVES"]));
     expect(unresolved).toHaveLength(2);
     expect(unresolved.filter((u) => u.naturalAccountCode === "DUP")).toHaveLength(2);
   });
@@ -342,6 +388,129 @@ describe("[9]/[10]/[25] materiality and cash position are fully caller-supplied,
     const gateCStart = codeOnly.indexOf("export interface CashPositionFacts");
     const gateCSection = codeOnly.slice(gateCStart);
     expect(gateCSection).not.toMatch(/"TZS"|500_?000|0\.01/);
+  });
+});
+
+// ── P5S1-HIGH-002: materiality contract validation ──────────────────────────
+
+describe("[P5S1-HIGH-002] MaterialityThreshold and currencyCode fail closed on every malformed input", () => {
+  const validPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 750_000 };
+
+  it("empty cash currency rejects", () => {
+    const bad: CashPositionFacts = { ...validPosition, currencyCode: "" };
+    expect(() => verifyCashPositionReconciliation(bad, 250_000, TZS_MATERIALITY)).toThrow(/currencyCode/);
+  });
+
+  it("whitespace-only cash currency rejects", () => {
+    const bad: CashPositionFacts = { ...validPosition, currencyCode: "   " };
+    expect(() => verifyCashPositionReconciliation(bad, 250_000, TZS_MATERIALITY)).toThrow(/currencyCode/);
+  });
+
+  it("empty materiality currency rejects", () => {
+    const bad: MaterialityThreshold = { ...TZS_MATERIALITY, currencyCode: "" };
+    expect(() => verifyCashPositionReconciliation(validPosition, 250_000, bad)).toThrow(/currencyCode/);
+  });
+
+  it("whitespace-only materiality currency rejects", () => {
+    const bad: MaterialityThreshold = { ...TZS_MATERIALITY, currencyCode: "  " };
+    expect(() => verifyCashPositionReconciliation(validPosition, 250_000, bad)).toThrow(/currencyCode/);
+  });
+
+  it("negative percentage rejects", () => {
+    const bad: MaterialityThreshold = { ...TZS_MATERIALITY, percentageThreshold: -0.01 };
+    expect(() => verifyCashPositionReconciliation(validPosition, 250_000, bad)).toThrow(/percentageThreshold/);
+  });
+
+  it("negative absolute threshold rejects", () => {
+    const bad: MaterialityThreshold = { ...TZS_MATERIALITY, absoluteThreshold: -1 };
+    expect(() => verifyCashPositionReconciliation(validPosition, 250_000, bad)).toThrow(/absoluteThreshold/);
+  });
+
+  it("NaN percentage/absolute rejects", () => {
+    const bad: MaterialityThreshold = { ...TZS_MATERIALITY, percentageThreshold: NaN };
+    expect(() => verifyCashPositionReconciliation(validPosition, 250_000, bad)).toThrow();
+  });
+
+  it("Infinity percentage/absolute rejects", () => {
+    const bad: MaterialityThreshold = { ...TZS_MATERIALITY, absoluteThreshold: Infinity };
+    expect(() => verifyCashPositionReconciliation(validPosition, 250_000, bad)).toThrow();
+  });
+
+  it("currency mismatch (trimmed, case-sensitive) rejects", () => {
+    const bad: MaterialityThreshold = { ...TZS_MATERIALITY, currencyCode: "tzs" };
+    expect(() => verifyCashPositionReconciliation(validPosition, 250_000, bad)).toThrow(/currency mismatch/);
+  });
+
+  it("zero percentage is accepted (a valid, explicit 'no percentage tolerance' choice)", () => {
+    const materiality: MaterialityThreshold = { currencyCode: "TZS", percentageThreshold: 0, absoluteThreshold: 500_000 };
+    const result = verifyCashPositionReconciliation(validPosition, 0, materiality);
+    expect(result.thresholdApplied).toBe(500_000);
+  });
+
+  it("zero absolute threshold is accepted (a valid, explicit 'percentage only' choice)", () => {
+    const materiality: MaterialityThreshold = { currencyCode: "TZS", percentageThreshold: 0.01, absoluteThreshold: 0 };
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 1_000_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 500_000 - 1_000_000, materiality);
+    expect(result.thresholdApplied).toBe(10_000); // 1% of 1,000,000
+  });
+
+  it("a valid threshold computes correctly end to end", () => {
+    const materiality: MaterialityThreshold = { currencyCode: "TZS", percentageThreshold: 0.02, absoluteThreshold: 100_000 };
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 2_000_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 1_500_000, materiality);
+    // max(2% of 2,000,000 = 40,000; absolute floor 100,000) -> absolute floor wins.
+    expect(result.thresholdApplied).toBe(100_000);
+  });
+});
+
+// ── P5S1-HIGH-003: ComparativeAmount runtime exhaustiveness ────────────────
+
+describe("[P5S1-HIGH-003] Gate C validates ComparativeAmount at runtime, never trusting TypeScript alone", () => {
+  const materiality = TZS_MATERIALITY;
+
+  it("an unrecognized runtime state throws (bypassing compile-time safety intentionally)", () => {
+    const bad = { state: "BOGUS", value: 100 } as unknown as ComparativeAmount;
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: bad, actualClosingCash: 750_000 };
+    expect(() => verifyCashPositionReconciliation(cashPosition, 250_000, materiality)).toThrow();
+  });
+
+  it("KNOWN with a NaN value throws", () => {
+    const bad = { state: "KNOWN", value: NaN, source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] } as unknown as ComparativeAmount;
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: bad, actualClosingCash: 750_000 };
+    expect(() => verifyCashPositionReconciliation(cashPosition, 250_000, materiality)).toThrow();
+  });
+
+  it("KNOWN with an Infinity value throws", () => {
+    const bad = { state: "KNOWN", value: Infinity, source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] } as unknown as ComparativeAmount;
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: bad, actualClosingCash: 750_000 };
+    expect(() => verifyCashPositionReconciliation(cashPosition, 250_000, materiality)).toThrow();
+  });
+
+  it("a malformed ZERO (value !== 0) fails closed rather than silently substituting the real value", () => {
+    const bad = { state: "ZERO", value: 5, source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] } as unknown as ComparativeAmount;
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: bad, actualClosingCash: 750_000 };
+    expect(() => verifyCashPositionReconciliation(cashPosition, 250_000, materiality)).toThrow();
+  });
+
+  it("MISSING can never reach arithmetic -- derivedClosingCash/difference stay null, CANNOT_ASSESS", () => {
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: MISSING, actualClosingCash: 750_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 250_000, materiality);
+    expect(result.status).toBe("CANNOT_ASSESS");
+    expect(result.derivedClosingCash).toBeNull();
+  });
+
+  it("NOT_APPLICABLE can never reach arithmetic -- derivedClosingCash/difference stay null, CANNOT_ASSESS", () => {
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: NOT_APPLICABLE, actualClosingCash: 750_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 250_000, materiality);
+    expect(result.status).toBe("CANNOT_ASSESS");
+    expect(result.derivedClosingCash).toBeNull();
+  });
+
+  it("a genuinely well-formed ZERO remains exactly 0 through the arithmetic", () => {
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: ZERO, actualClosingCash: 250_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 250_000, materiality);
+    expect(result.derivedClosingCash).toBe(250_000);
+    expect(result.status).toBe("RECONCILED");
   });
 });
 
