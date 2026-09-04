@@ -62,8 +62,30 @@ navigation labels. They exist in code and DB but not in nav tabs or headings.
 | KINGA | Tax computation engine (ITA Cap.332) | `supabase/functions/kinga-tax-engine` |
 | MAONO | Variance analysis + forecasting | `supabase/functions/maono-*` |
 
-**PHASE_B_LOCKED guard:** `maono-*` and `safisha-pdf-extract` return 503 unless
-`MAONO_ENABLED` env var is set. Do not remove this guard.
+**MAONO is live — corrected 2026-09-04 (Ω∞ Phase 9 reconnaissance).** The
+`PHASE_B_LOCKED` / `MAONO_ENABLED` 503 guard this section previously
+described does not exist anywhere in the live code — grepped across every
+`maono-*` edge function, `safisha-pdf-extract`, and the entire `src/`
+tree; `MAONO_ENABLED` appears only in documentation, never in code.
+`MonitorWorkspace.tsx` (Stage 7) says so itself: "Always available — no
+lock gate." MAONO's UI (`MaonoDashboard` and friends under
+`src/components/maono/`) is gated only by a genuine data-readiness check
+(a completed, valid upload with a `company_id`), never by a feature flag.
+Financial Twin firewall confirmed by reading every write site: every
+`maono-*` `.insert`/`.update`/`.rpc` call and RPC definition
+(`maono_write_alert`, etc.) targets only MAONO-namespaced tables
+(`variance_runs`, `variance_analyses`, `variance_alerts`,
+`cashflow_forecasts`, `maono_insights`, `maono_monitor_runs`) — never
+`account_mappings`, `account_review_decisions`, `tax_computations`, or any
+HESABU/financial-statement authority table. `maono-risk` is deterministic
+(`ai_model_used: "deterministic_zscore"`, no LLM). `maono-decide` and
+`maono-root-cause` do call Claude, but store the narrative as an
+append-only `maono_insights` row alongside `numeric_validation_passed` /
+`numeric_validation_detail` — the LLM's claims are checked against real
+numbers before being stored as advisory, never as the metric itself. If a
+future session finds MAONO genuinely inaccessible, the barrier is
+elsewhere (RLS, a company/upload data-readiness edge case, or a live
+deploy issue) — not a code-level lock to "unlock."
 
 ---
 
@@ -402,7 +424,7 @@ main `382f9a71415de11714a20a6e5ed818e95d376795`.
 - KINGA tax engine with idempotency + engine_runs hash (ITA Cap.332 / FA2026)
 - SAFISHA 6-stage pipeline (ingest → match → categorize → score → resolve → gate)
 - HESABU H-01 to H-12 assurance assertions
-- MAONO variance + cashflow + risk + decide engines (Phase B locked behind env var)
+- MAONO variance + cashflow + risk + monitor + decide + root-cause engines — live, not env-var-gated (see section 3)
 - XBRL filing pack generator (Tanzania taxonomy)
 - Iron Dome Strikes 1–7 (RLS hardening, engine_runs, idempotency, tenant_events, sync_outbox)
 - 8-fix UX pass (FY2001 fix, TIN gate, unified 7-row progress, BLOCKED reasons,
