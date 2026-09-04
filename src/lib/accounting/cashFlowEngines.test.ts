@@ -461,6 +461,33 @@ describe("[P5S1-HIGH-002] MaterialityThreshold and currencyCode fail closed on e
     // max(2% of 2,000,000 = 40,000; absolute floor 100,000) -> absolute floor wins.
     expect(result.thresholdApplied).toBe(100_000);
   });
+
+  // ── P5S1R-LOW-001 (registered debt, closed by this test): the exact
+  // difference === thresholdApplied boundary must resolve RECONCILED,
+  // proving the implementation's inclusive `<=` behaviorally, not merely
+  // by code inspection.
+  it("[P5S1R-LOW-001] difference === thresholdApplied EXACTLY -> RECONCILED (inclusive <=)", () => {
+    const materiality: MaterialityThreshold = { currencyCode: "TZS", percentageThreshold: 0, absoluteThreshold: 100_000 };
+    // openingCash 500,000 (KNOWN) + netCashMovement 0 = derivedClosingCash 500,000.
+    // actualClosingCash 400,000 -> difference = 500,000 - 400,000 = 100,000 exactly.
+    // thresholdApplied = max(0 * |400,000|, 100,000) = 100,000 exactly. difference === thresholdApplied.
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 400_000 };
+    const result = verifyCashPositionReconciliation(cashPosition, 0, materiality);
+    expect(result.difference).toBe(100_000);
+    expect(result.thresholdApplied).toBe(100_000);
+    expect(result.difference).toBe(result.thresholdApplied);
+    expect(result.status).toBe("RECONCILED");
+  });
+
+  it("[P5S1R-LOW-001 companion] difference one unit past thresholdApplied -> UNRECONCILED", () => {
+    const materiality: MaterialityThreshold = { currencyCode: "TZS", percentageThreshold: 0, absoluteThreshold: 100_000 };
+    // Same setup, but actualClosingCash is 1 further away -> difference = 100,001 > threshold 100,000.
+    const cashPosition: CashPositionFacts = { currencyCode: "TZS", openingCash: KNOWN, actualClosingCash: 399_999 };
+    const result = verifyCashPositionReconciliation(cashPosition, 0, materiality);
+    expect(result.difference).toBe(100_001);
+    expect(result.thresholdApplied).toBe(100_000);
+    expect(result.status).toBe("UNRECONCILED");
+  });
 });
 
 // ── P5S1-HIGH-003: ComparativeAmount runtime exhaustiveness ────────────────

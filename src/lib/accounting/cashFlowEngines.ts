@@ -409,8 +409,13 @@ export interface CashPositionReconciliationResult {
   currencyCode: string;
 }
 
-/** A non-empty string once whitespace is trimmed -- rejects "", "   ", and non-string runtime bypasses. */
-function isNonBlankString(value: unknown): value is string {
+/**
+ * A non-empty string once whitespace is trimmed -- rejects "", "   ", and
+ * non-string runtime bypasses. Exported so other pure HESABU cash-flow
+ * modules (e.g. primaryCashFlowEngine.ts) reuse this exact validation
+ * rather than duplicating it.
+ */
+export function isNonBlankString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
@@ -426,19 +431,24 @@ function isNonBlankString(value: unknown): value is string {
  * ZERO: value must be exactly 0, matching the certified contract's own
  *   shape (`{ state: "ZERO"; value: 0; ... }`) -- a ZERO with any other
  *   value is malformed and throws, never silently substituted.
- * MISSING / NOT_APPLICABLE: not assessable -- Gate C returns CANNOT_ASSESS.
+ * MISSING / NOT_APPLICABLE: not assessable -- callers return CANNOT_ASSESS.
  * Anything else (an unrecognized state string): throws -- fails closed
  * rather than silently treating unknown data as either a value or an
  * absence.
+ *
+ * Exported (generalized from Gate C's own original private helper) so the
+ * Primary Cash-Flow Engine (primaryCashFlowEngine.ts) reuses this exact
+ * runtime-exhaustive logic for its own ComparativeAmount facts, rather than
+ * duplicating it.
  */
-function resolveCashPositionAmount(
+export function resolveAssessableComparativeAmount(
   amount: ComparativeAmount,
 ): { assessable: true; value: number } | { assessable: false; state: "MISSING" | "NOT_APPLICABLE" } {
   switch (amount.state) {
     case "KNOWN": {
       if (!Number.isFinite(amount.value)) {
         throw new Error(
-          `verifyCashPositionReconciliation: ComparativeAmount state KNOWN has a non-finite value (received: ${String(amount.value)}).`,
+          `resolveAssessableComparativeAmount: ComparativeAmount state KNOWN has a non-finite value (received: ${String(amount.value)}).`,
         );
       }
       return { assessable: true, value: amount.value };
@@ -446,7 +456,7 @@ function resolveCashPositionAmount(
     case "ZERO": {
       if ((amount.value as unknown) !== 0) {
         throw new Error(
-          `verifyCashPositionReconciliation: ComparativeAmount state ZERO must have value exactly 0 (received: ${String(amount.value)}) -- malformed against the certified contract.`,
+          `resolveAssessableComparativeAmount: ComparativeAmount state ZERO must have value exactly 0 (received: ${String(amount.value)}) -- malformed against the certified contract.`,
         );
       }
       return { assessable: true, value: 0 };
@@ -458,7 +468,7 @@ function resolveCashPositionAmount(
     default: {
       const exhaustive: never = amount;
       throw new Error(
-        `verifyCashPositionReconciliation: unrecognized ComparativeAmount state (received: ${String((exhaustive as ComparativeAmount).state)}).`,
+        `resolveAssessableComparativeAmount: unrecognized ComparativeAmount state (received: ${String((exhaustive as ComparativeAmount).state)}).`,
       );
     }
   }
@@ -483,7 +493,7 @@ function resolveCashPositionAmount(
  * trimmed, case-sensitive -- matching this repository's own observed
  * convention of upper-case codes like 'TZS', with no currency library and
  * no case-folding invented); or a malformed ComparativeAmount (see
- * resolveCashPositionAmount).
+ * resolveAssessableComparativeAmount).
  */
 export function verifyCashPositionReconciliation(
   cashPosition: CashPositionFacts,
@@ -526,7 +536,7 @@ export function verifyCashPositionReconciliation(
     );
   }
 
-  const opening = resolveCashPositionAmount(cashPosition.openingCash);
+  const opening = resolveAssessableComparativeAmount(cashPosition.openingCash);
 
   if (!opening.assessable) {
     return {
