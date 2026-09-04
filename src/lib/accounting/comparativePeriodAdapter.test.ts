@@ -8,6 +8,8 @@
  */
 
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import {
   fromPeriodPairRow,
   buildComparativeEvidenceAvailability,
@@ -285,10 +287,6 @@ describe("[23] same inputs twice produce deep-equal deterministic outputs", () =
 
 describe("[24]/[25] the module carries no timestamps, random ids, or DB/network/write dependencies", () => {
   it("[24] no Date.now()/new Date()/randomUUID in executable code", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(
       path.join(__dirname, "comparativePeriodAdapter.ts"),
       "utf-8",
@@ -298,10 +296,6 @@ describe("[24]/[25] the module carries no timestamps, random ids, or DB/network/
   });
 
   it("[25] no supabase/DB/network import anywhere in the module", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(
       path.join(__dirname, "comparativePeriodAdapter.ts"),
       "utf-8",

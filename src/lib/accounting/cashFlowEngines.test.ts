@@ -8,6 +8,8 @@
  */
 
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import {
   buildOperatingCashFlowReconciliation,
   buildInvestingActivities,
@@ -379,10 +381,6 @@ describe("[9]/[10]/[25] materiality and cash position are fully caller-supplied,
   });
 
   it("[10]/[25] the Gate C / materiality source contains no hardcoded currency or amount (TZS, 500000, 500_000, 0.01) in executable code", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(path.join(__dirname, "cashFlowEngines.ts"), "utf-8");
     const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     const gateCStart = codeOnly.indexOf("export interface CashPositionFacts");
@@ -568,10 +566,6 @@ describe("[17]/[18] determinism and purity", () => {
   });
 
   it("[18] no Date/random/Supabase/DB/network dependency anywhere in the module", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(path.join(__dirname, "cashFlowEngines.ts"), "utf-8");
     const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     expect(codeOnly).not.toMatch(/Date\.now\(\)|new Date\(|randomUUID|supabase|fetch\(|localStorage|sessionStorage/i);
@@ -589,10 +583,6 @@ describe("[23]/[24] Gate C and crossCheckOperatingCashFlow are honestly scoped -
   });
 
   it("[24] crossCheckOperatingCashFlow's own doc comment explicitly documents its independence limitation", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(path.join(__dirname, "cashFlowEngines.ts"), "utf-8");
     const fnIndex = source.indexOf("export function crossCheckOperatingCashFlow");
     const precedingComment = source.slice(Math.max(0, fnIndex - 1800), fnIndex);

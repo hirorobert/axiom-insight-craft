@@ -7,6 +7,8 @@
  */
 
 import { describe, it, expect, expectTypeOf } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { resolveEvidence, type ResolverInput } from "./evidenceResolver";
 import type {
   AccountNatureResolution,
@@ -303,10 +305,6 @@ describe("[N] no timestamps or random ids anywhere in the module or its output",
   });
 
   it("the module source contains no Date.now()/new Date()/randomUUID calls", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(path.join(__dirname, "evidenceResolver.ts"), "utf-8");
     const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     expect(codeOnly).not.toMatch(/Date\.now\(\)|new Date\(|randomUUID/);
@@ -317,10 +315,6 @@ describe("[N] no timestamps or random ids anywhere in the module or its output",
 
 describe("[O]/[P]/[Q] no professional-authority, Supabase/DB, or controlledActivation dependency", () => {
   it("the module source imports none of those", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(path.join(__dirname, "evidenceResolver.ts"), "utf-8");
     // Strip comments -- this file's own doc comments legitimately name these
     // concepts while explaining they are NOT imported; only executable code

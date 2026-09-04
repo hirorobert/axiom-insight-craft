@@ -9,6 +9,8 @@
  */
 
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { isTaxonomyAvailable, isGFSApplicable, normalizeBalanceSide } from "./evidenceResolverGuards";
 
 describe("isTaxonomyAvailable — canonical ReportingFramework literals only", () => {
@@ -53,10 +55,6 @@ describe("[F] normalizeBalanceSide — casing bridge between Tier 7 and taxonomy
 
 describe("guards contain no classification/mapping/GFS/taxonomy-matching/confidence-aggregation behavior", () => {
   it("the module source has no GFS/taxonomy-matching/confidence-combination logic", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(
       path.join(__dirname, "evidenceResolverGuards.ts"),
       "utf-8",

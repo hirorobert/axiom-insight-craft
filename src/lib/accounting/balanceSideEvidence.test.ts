@@ -7,6 +7,8 @@
  */
 
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { inferBalanceSideEvidence } from "./balanceSideEvidence";
 
 describe("inferBalanceSideEvidence — directional cases", () => {
@@ -74,9 +76,6 @@ describe("inferBalanceSideEvidence — jurisdiction neutrality", () => {
     // process-trial-balance/l5l6Evidence.test.ts -- checked here at the
     // module-under-test's own source, not a separate file, since this
     // module's whole purpose is to be jurisdiction-neutral.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    const path = require("node:path");
     const source: string = fs.readFileSync(
       path.join(__dirname, "balanceSideEvidence.ts"),
       "utf-8",

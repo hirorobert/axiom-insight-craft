@@ -11,6 +11,8 @@
  */
 
 import { describe, it, expect, expectTypeOf } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import type {
   AccountDimension,
   EvidenceStrength,
@@ -446,10 +448,6 @@ describe("[I] the deterministic semantic contract carries no timestamp", () => {
   });
 
   it("the module source contains no Date.now()/new Date()/randomUUID calls", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(
       path.join(__dirname, "evidenceResolverTypes.ts"),
       "utf-8",
@@ -467,10 +465,6 @@ describe("[J] sourceClassification is an opaque code, never a frozen GFS-style e
   });
 
   it("no GFSGroup/GFSClassification/GFStoNature type is defined anywhere in this file's executable code", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(
       path.join(__dirname, "evidenceResolverTypes.ts"),
       "utf-8",

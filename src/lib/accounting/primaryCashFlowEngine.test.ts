@@ -8,6 +8,8 @@
  */
 
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import {
   runPrimaryCashFlowEngine,
   evaluateDualEngineOperatingCashFlowGate,
@@ -151,20 +153,12 @@ describe("structural independence: neither engine can accept the other's result"
   });
 
   it("this module never imports cashFlowEngines.ts's Engine-B-specific exports (source-scan)", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(path.join(__dirname, "primaryCashFlowEngine.ts"), "utf-8");
     const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     expect(codeOnly).not.toMatch(/buildOperatingCashFlowReconciliation|OperatingCashFlowReconciliation|buildPrimaryCashFlowStatement|crossCheckOperatingCashFlow/);
   });
 
   it("cashFlowEngines.ts has no import statement referencing primaryCashFlowEngine.ts (one-directional dependency)", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(path.join(__dirname, "cashFlowEngines.ts"), "utf-8");
     const importLines = source
       .split("\n")
@@ -320,20 +314,12 @@ describe("evaluateCashFlowSignOffGate", () => {
 
 describe("purity and globality", () => {
   it("no DB/network/storage/time/random dependency anywhere in the module", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(path.join(__dirname, "primaryCashFlowEngine.ts"), "utf-8");
     const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     expect(codeOnly).not.toMatch(/supabase|fetch\(|localStorage|sessionStorage|Date\.now\(\)|new Date\(|Math\.random|randomUUID|\.insert\(|\.update\(|\.delete\(|\.upsert\(/i);
   });
 
   it("no Tanzania/KINGA/TRA/ITA/EFDMS runtime coupling anywhere in executable code", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("node:path");
     const source: string = fs.readFileSync(path.join(__dirname, "primaryCashFlowEngine.ts"), "utf-8");
     const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     expect(codeOnly).not.toMatch(/Tanzania|\bTRA\b|\bITA\b|EFDMS|kinga|VAT|WHT/i);
