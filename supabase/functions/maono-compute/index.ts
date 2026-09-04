@@ -15,9 +15,11 @@
  *   1. Check Safisha gate (abort if any upload blocked)
  *   2. Compute confidence level (seasonal_periods_available formula)
  *   3. Create variance_run record (status='running')
- *   4. Load actuals from trial_balance_uploads → account_classifications
+ *   4. Load actuals from the authoritative SAFISHA CertifiedTB
+ *      (get_authoritative_certification → tb_certifications.rows_snapshot)
  *   5. Load budgets from variance_budgets (latest approved version)
- *   6. Load prior period actuals from period_closing_balances
+ *   6. Prior comparatives: no per-account authority exists (period_closing_balances
+ *      is aggregate-level) → reported as CANNOT_ASSESS, never as zero
  *   7. Resolve P&L category for each account via account_pl_mapping
  *   8. Compute variance_tzs, variance_pct, is_material
  *   9. Compute Hoffman aggregates: GP, EBITDA, EBIT, EBT, Net Profit
@@ -45,6 +47,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { computeVariance as computeVarianceContract, type AnalyticalValue } from "../_shared/maonoAnalyticalContract.ts";
+import { loadCertifiedTb, certifiedRowKey, type CertifiedTbClient } from "../_shared/certifiedTbSource.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -163,21 +166,42 @@ function isMaterial(varianceTzs: number | null, variancePctVal: number | null,
   return Math.abs(varianceTzs) >= absThr || Math.abs(variancePctVal) >= pctThr;
 }
 
-function computeAggregate(
-  categoryTotals: Record<string, { actual: number; budget: number; prior: number }>,
-  def: { add: readonly string[]; subtract: readonly string[] }
-): { actual: number; budget: number; prior: number } {
-  let actual = 0, budget = 0, prior = 0;
-  for (const cat of def.add) {
-    const t = categoryTotals[cat] ?? { actual: 0, budget: 0, prior: 0 };
-    actual += t.actual; budget += t.budget; prior += t.prior;
-  }
-  for (const cat of def.subtract) {
-    const t = categoryTotals[cat] ?? { actual: 0, budget: 0, prior: 0 };
-    actual -= t.actual; budget -= t.budget; prior -= t.prior;
-  }
-  return { actual, budget, prior };
+export interface CategoryTotal {
+  actual: number;
+  budget: number;
+  prior: number;
+  budgetKnown: boolean;
+  priorKnown: boolean;
 }
+
+/**
+ * Ω∞ closure: an aggregate is only claimed when EVERY contributing component is
+ * known. One unknown budget (or prior) component makes the aggregate budget
+ * (or prior) null — incomplete aggregates are never presented as totals and
+ * missing components are never treated as zero.
+ */
+function computeAggregate(
+  categoryTotals: Record<string, CategoryTotal>,
+  def: { add: readonly string[]; subtract: readonly string[] }
+): { actual: number; budget: number | null; prior: number | null } {
+  let actual = 0, budget = 0, prior = 0;
+  let budgetKnown = true, priorKnown = true;
+  const apply = (cat: string, sign: 1 | -1) => {
+    const t = categoryTotals[cat];
+    if (!t) return; // no accounts classified into this category — no contribution
+    actual += sign * t.actual;
+    if (t.budgetKnown) budget += sign * t.budget; else budgetKnown = false;
+    if (t.priorKnown) prior += sign * t.prior; else priorKnown = false;
+  };
+  for (const cat of def.add) apply(cat, 1);
+  for (const cat of def.subtract) apply(cat, -1);
+  return {
+    actual,
+    budget: budgetKnown ? budget : null,
+    prior:  priorKnown  ? prior  : null,
+  };
+}
+
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
@@ -219,10 +243,11 @@ serve(async (req: Request) => {
     // ── Find all TB uploads for this company in this period ───────────────────
     const { data: uploads, error: uploadErr } = await supabase
       .from("trial_balance_uploads")
-      .select("id, safisha_status, upload_date, file_name")
+      .select("id, safisha_status, uploaded_at, file_name")
       .eq("company_id", company_id)
-      .gte("upload_date", period_from)
-      .lte("upload_date", period_to);
+      .gte("uploaded_at", period_from)
+      .lte("uploaded_at", period_to);
+
 
     if (uploadErr) throw new Error("Failed to load TB uploads: " + uploadErr.message);
     if (!uploads || uploads.length === 0) {
@@ -288,7 +313,28 @@ serve(async (req: Request) => {
 
     const hasBudget = (budgetCount ?? 0) > 0;
 
+    // ── Gate 5: Authoritative CertifiedTB (Ω∞ closure) ────────────────────────
+    // Per-account actuals come ONLY from the authoritative SAFISHA certified
+    // trial balance. The legacy `account_classifications` dependency is gone:
+    // that table has no migration and does not exist in the live database, so
+    // it could only ever hard-fail or fabricate zeroes.
+    // Loaded BEFORE the run row is created so an unassessable period leaves no
+    // half-written analytical run behind.
+    const certified = await loadCertifiedTb(supabase as unknown as CertifiedTbClient, company_id, fiscalYear);
+    if (certified.state === "CANNOT_ASSESS") {
+      return json({
+        error:            "Analytical variance cannot be assessed",
+        analytical_state: "CANNOT_ASSESS",
+        reason:           certified.reason,
+        authority:        "SAFISHA CertifiedTB (get_authoritative_certification)",
+        hint:             "Certify the trial balance for this period, then re-run the analysis.",
+        iron_dome:        true,
+      }, 409);
+    }
+    const certifiedTb = certified.value;
+
     // ── Create variance_run record ────────────────────────────────────────────
+
     const { data: run, error: runErr } = await supabase
       .from("variance_runs")
       .insert({
@@ -313,26 +359,20 @@ serve(async (req: Request) => {
     if (runErr) throw new Error("Failed to create variance_run: " + runErr.message);
     const runId = run!.id;
 
-    // ── Load actuals from account_classifications (most recent per upload) ────
-    // account_classifications holds the normalised TB data with account_code,
-    // account_name, total_debit, total_credit after process-trial-balance runs.
-    const { data: actuals, error: actualErr } = await supabase
-      .from("account_classifications")
-      .select("account_code, account_name, total_debit, total_credit")
-      .in("upload_id", uploadIds);
-
-    if (actualErr) throw new Error("Failed to load actuals: " + actualErr.message);
-
-    // Aggregate across multiple uploads (if company has multiple TBs in period)
+    // ── Actuals from the authoritative CertifiedTB ────────────────────────────
+    // Certified rows carry per-account code/name, accounting nature and
+    // debit/credit balances that were hash-bound at certification time.
     const actualMap = new Map<string, { debit: number; credit: number; name: string | null }>();
-    for (const row of (actuals ?? [])) {
-      const existing = actualMap.get(row.account_code) ?? { debit: 0, credit: 0, name: null };
-      actualMap.set(row.account_code, {
-        debit:  existing.debit  + (row.total_debit  ?? 0),
-        credit: existing.credit + (row.total_credit ?? 0),
-        name:   existing.name ?? row.account_name,
+    for (const row of certifiedTb.rows) {
+      const key = certifiedRowKey(row);
+      const existing = actualMap.get(key) ?? { debit: 0, credit: 0, name: null };
+      actualMap.set(key, {
+        debit:  existing.debit  + row.debitBalance,
+        credit: existing.credit + row.creditBalance,
+        name:   existing.name ?? row.accountName,
       });
     }
+
 
     // ── Load budgets ──────────────────────────────────────────────────────────
     const budgetMap = new Map<string, { debit: number; credit: number }>();
@@ -354,34 +394,22 @@ serve(async (req: Request) => {
       }
     }
 
-    // ── Load prior period actuals (period_closing_balances) ───────────────────
-    const priorMonth     = periodMonth === 1 ? 12 : periodMonth - 1;
-    const priorYear      = periodMonth === 1 ? fiscalYear - 1 : fiscalYear;
-    const priorYearSame  = fiscalYear - 1;
-
-    const { data: priorPeriodRows } = await supabase
-      .from("period_closing_balances")
-      .select("account_code, closing_debit, closing_credit")
-      .eq("company_id", company_id)
-      .eq("fiscal_year", priorYear)
-      .eq("period_month", priorMonth);
-
-    const { data: priorYearRows } = await supabase
-      .from("period_closing_balances")
-      .select("account_code, closing_debit, closing_credit")
-      .eq("company_id", company_id)
-      .eq("fiscal_year", priorYearSame)
-      .eq("period_month", periodMonth);
-
+    // ── Prior comparatives ────────────────────────────────────────────────────
+    // `period_closing_balances` is the authoritative closing-balance store, but
+    // it is AGGREGATE-level (current_assets_tzs, equity_tzs, …) — it holds no
+    // per-account rows. The previous code queried account_code/closing_debit/
+    // fiscal_year columns that do not exist, so the error was swallowed and
+    // every prior comparative silently became "absent". Per-account prior
+    // period / prior year comparatives are therefore genuinely UNKNOWN in this
+    // system: they stay null, are never treated as zero, and the reason is
+    // reported explicitly instead of being hidden.
     const priorPeriodMap = new Map<string, { debit: number; credit: number }>();
-    for (const r of (priorPeriodRows ?? [])) {
-      priorPeriodMap.set(r.account_code, { debit: r.closing_debit ?? 0, credit: r.closing_credit ?? 0 });
-    }
+    const priorYearMap   = new Map<string, { debit: number; credit: number }>();
+    const priorComparativeState  = "CANNOT_ASSESS" as const;
+    const priorComparativeReason =
+      "No per-account prior-period authority exists: period_closing_balances is aggregate-level only. " +
+      "Period-over-period and year-over-year figures are reported as unknown, not zero.";
 
-    const priorYearMap = new Map<string, { debit: number; credit: number }>();
-    for (const r of (priorYearRows ?? [])) {
-      priorYearMap.set(r.account_code, { debit: r.closing_debit ?? 0, credit: r.closing_credit ?? 0 });
-    }
 
     // ── Resolve P&L categories for all accounts ───────────────────────────────
     // Load mappings (company-specific overrides first, then global defaults)
@@ -424,7 +452,7 @@ serve(async (req: Request) => {
 
     // ── Compute variances ─────────────────────────────────────────────────────
     const analyses: VarianceAnalysis[] = [];
-    const categoryTotals: Record<string, { actual: number; budget: number; prior: number }> = {};
+    const categoryTotals: Record<string, CategoryTotal> = {};
 
     for (const [code, actData] of actualMap.entries()) {
       const { pl_category, pl_subcategory, is_credit_normal } = resolveCategory(code, actData.name);
@@ -469,26 +497,35 @@ serve(async (req: Request) => {
         yoy_variance_tzs: yoyTzs, yoy_variance_pct: yoyPct,
       });
 
-      // Accumulate category totals for Hoffman aggregates
+      // Accumulate category totals for Hoffman aggregates.
+      // UNKNOWN != ZERO: a category whose budget (or prior) is unknown for any
+      // contributing account carries that unknown forward — it is never summed
+      // as zero and never silently dropped from the total.
       if (!categoryTotals[pl_category]) {
-        categoryTotals[pl_category] = { actual: 0, budget: 0, prior: 0 };
+        categoryTotals[pl_category] = { actual: 0, budget: 0, prior: 0, budgetKnown: true, priorKnown: true };
       }
-      categoryTotals[pl_category].actual += actual;
-      categoryTotals[pl_category].budget += budget ?? 0;
-      categoryTotals[pl_category].prior  += priorP ?? 0;
+      const ct = categoryTotals[pl_category];
+      ct.actual += actual;
+      if (budget === null) ct.budgetKnown = false; else ct.budget += budget;
+      if (priorP === null) ct.priorKnown = false; else ct.prior += priorP;
     }
 
     // ── Hoffman aggregates ────────────────────────────────────────────────────
-    const aggregates: Record<string, { actual: number; budget: number; variance: number; variance_pct: number | null }> = {};
+    const aggregates: Record<string, {
+      actual: number; budget: number | null; variance: number | null;
+      variance_pct: number | null; budget_state: "KNOWN" | "CANNOT_ASSESS";
+    }> = {};
     for (const [name, def] of Object.entries(PL_AGGREGATES)) {
       const totals = computeAggregate(categoryTotals, def);
       aggregates[name] = {
-        actual:      totals.actual,
-        budget:      totals.budget,
-        variance:    totals.actual - totals.budget,
-        variance_pct: variancePct(totals.actual, totals.budget),
+        actual:       totals.actual,
+        budget:       totals.budget,
+        variance:     totals.budget === null ? null : totals.actual - totals.budget,
+        variance_pct: totals.budget === null ? null : variancePct(totals.actual, totals.budget),
+        budget_state: totals.budget === null ? "CANNOT_ASSESS" : "KNOWN",
       };
     }
+
 
     // ── Batch insert variance_analyses ────────────────────────────────────────
     const BATCH = 200;
@@ -518,10 +555,13 @@ serve(async (req: Request) => {
     const categorySummary = Object.entries(categoryTotals).map(([cat, t]) => ({
       pl_category:  cat,
       actual:       t.actual,
-      budget:       t.budget,
-      variance_tzs: t.actual - t.budget,
-      variance_pct: variancePct(t.actual, t.budget),
-    })).sort((a, b) => Math.abs(b.variance_tzs) - Math.abs(a.variance_tzs));
+      // UNKNOWN != ZERO: an unknown category budget is reported as unknown,
+      // and no variance is claimed against it.
+      budget:       t.budgetKnown ? t.budget : null,
+      budget_state: t.budgetKnown ? "KNOWN" : "CANNOT_ASSESS",
+      variance_tzs: t.budgetKnown ? t.actual - t.budget : null,
+      variance_pct: t.budgetKnown ? variancePct(t.actual, t.budget) : null,
+    })).sort((a, b) => Math.abs(b.variance_tzs ?? 0) - Math.abs(a.variance_tzs ?? 0));
 
     return json({
       success:         true,
@@ -531,6 +571,19 @@ serve(async (req: Request) => {
       period_to,
       safisha_gate:    "passed",
       has_budget:      hasBudget,
+      actuals_authority: {
+        source:            "SAFISHA CertifiedTB",
+        certification_id:  certifiedTb.certificationId,
+        upload_id:         certifiedTb.uploadId,
+        source_file_hash:  certifiedTb.sourceFileHash,
+        certified_at:      certifiedTb.certifiedAt,
+        requires_review:   certifiedTb.requiresReview,
+        certified_rows:    certifiedTb.rows.length,
+      },
+      prior_comparatives: {
+        state:  priorComparativeState,
+        reason: priorComparativeReason,
+      },
       trend_confidence:           trendConfidence,
       seasonal_periods_available: seasonalPeriods,
       materiality: {

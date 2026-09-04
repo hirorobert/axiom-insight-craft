@@ -159,9 +159,9 @@ export type Database = {
           confidence_source: string
           created_at: string
           id: string
-          is_cash_account: boolean
-          is_payroll_account: boolean
-          is_retained_earnings: boolean
+          is_cash_account: boolean | null
+          is_payroll_account: boolean | null
+          is_retained_earnings: boolean | null
           line_item: string
           normal_balance: string
           normalized_account_name: string | null
@@ -179,9 +179,9 @@ export type Database = {
           confidence_source?: string
           created_at?: string
           id?: string
-          is_cash_account?: boolean
-          is_payroll_account?: boolean
-          is_retained_earnings?: boolean
+          is_cash_account?: boolean | null
+          is_payroll_account?: boolean | null
+          is_retained_earnings?: boolean | null
           line_item: string
           normal_balance: string
           normalized_account_name?: string | null
@@ -199,9 +199,9 @@ export type Database = {
           confidence_source?: string
           created_at?: string
           id?: string
-          is_cash_account?: boolean
-          is_payroll_account?: boolean
-          is_retained_earnings?: boolean
+          is_cash_account?: boolean | null
+          is_payroll_account?: boolean | null
+          is_retained_earnings?: boolean | null
           line_item?: string
           normal_balance?: string
           normalized_account_name?: string | null

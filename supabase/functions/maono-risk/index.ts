@@ -127,8 +127,10 @@ const TRA_SIGNALS: TRASignal[] = [
     description: "Other operating expenses increased >50% vs prior period with no evident business reason. Large unexplained expenses are a standard TRA audit query.",
     severity:    "warn",
     check:       (d) => {
+      // UNKNOWN prior => the signal cannot be assessed and must not fire.
+      if (d.priorOpex === null || d.priorOpex === undefined) return false;
       const current = Math.abs(d.currentOpex ?? 0);
-      const prior   = Math.abs(d.priorOpex ?? 0);
+      const prior   = Math.abs(d.priorOpex);
       if (prior < 5_000_000) return false;
       return current > prior * 1.5;
     },
@@ -138,8 +140,10 @@ const TRA_SIGNALS: TRASignal[] = [
     description: "Revenue is more than 30% below same period last year. TRA may treat this as a revenue understatement risk.",
     severity:    "info",
     check:       (d) => {
+      // UNKNOWN prior-year revenue => the signal cannot be assessed.
+      if (d.priorYearRevenue === null || d.priorYearRevenue === undefined) return false;
       const current = d.revenue ?? 0;
-      const prior   = d.priorYearRevenue ?? 0;
+      const prior   = d.priorYearRevenue;
       if (prior <= 0) return false;
       return current < prior * 0.70;
     },
@@ -220,8 +224,10 @@ serve(async (req: Request) => {
       revenue:          catTotals["REVENUE"]           ?? 0,
       financeCosts:     catTotals["FINANCE_COSTS"]     ?? 0,
       currentOpex:      catTotals["OTHER_OPEX"]        ?? 0,
-      priorOpex:        (current.find((a: any) => a.pl_category === "OTHER_OPEX")?.prior_period_amount ?? 0),
-      priorYearRevenue: (current.find((a: any) => a.pl_category === "REVENUE")?.prior_year_amount ?? 0),
+      // UNKNOWN != ZERO: an absent prior comparative stays null so the signals
+      // that depend on it refuse to fire instead of reading a false 0 trend.
+      priorOpex:        (current.find((a: any) => a.pl_category === "OTHER_OPEX")?.prior_period_amount ?? null),
+      priorYearRevenue: (current.find((a: any) => a.pl_category === "REVENUE")?.prior_year_amount ?? null),
       // null = unavailable (no tax_computations row for this run's
       // uploads, or the key does not exist in computation_detail) — never
       // fabricated as 0. Each affected TRA_SIGNALS check above explicitly

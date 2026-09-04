@@ -5,7 +5,9 @@
  * All figures derived from TB actuals + statutory calendar.
  *
  * Computation model:
- *   Opening cash  = cash & bank accounts from latest clean TB
+ *   Opening cash  = certified current-asset accounts the professional marked as
+ *                   cash (tri-state authority; one undecided account => the
+ *                   whole forecast is CANNOT_ASSESS, never a partial figure)
  *   AR inflows    = receivables balance × collection rate (configurable, default 40/40/20 over 30/60/90 days)
  *   AP outflows   = payables balance × payment rate (default 50/30/20 over 30/60/90 days)
  *   Statutory     = PAYE, VAT, SDL, WHT on their exact Tanzania due dates
@@ -26,6 +28,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readOptionalTaxAmount } from "../_shared/maonoAnalyticalContract.ts";
+import {
+  loadCertifiedTb, loadCashPerimeter, resolveCashState, certifiedRowKey,
+  type CertifiedTbClient,
+} from "../_shared/certifiedTbSource.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -69,21 +75,19 @@ function weekOfYear(date: Date, startDate: Date): number {
   return Math.floor((date.getTime() - startDate.getTime()) / msPerWeek) + 1;
 }
 
-// ── P&L category helpers for cash items ──────────────────────────────────────
+// ── Cash / receivable / payable perimeter (authority-derived) ────────────────
+//
+// Ω∞ closure: the previous account-code-range + account-name heuristics
+// ("1000-1099 is cash", "name contains 'debtor'") are removed. A heuristic is
+// not an accounting authority. The perimeter is now:
+//   cash  → professional tri-state `account_mappings.is_cash_account`
+//           (NULL = undecided = UNKNOWN, fails closed; never "not cash")
+//   AR/AP → the CERTIFIED classification carried in the CertifiedTB row
+//           (`subNature`), at class level, with the basis declared in the
+//           response. No name matching, no code ranges.
 
-const CASH_ACCOUNT_RANGES = {
-  cash:        { lo: "1000", hi: "1099" },  // Cash & bank accounts
-  receivables: { lo: "1100", hi: "1299" },  // Trade receivables / debtors
-  payables:    { lo: "2100", hi: "2299" },  // Trade payables / creditors
-};
-
-function inRange(code: string, lo: string, hi: string): boolean {
-  return code >= lo && code <= hi;
-}
-
-function isCashAccount(code: string):        boolean { return inRange(code, CASH_ACCOUNT_RANGES.cash.lo, CASH_ACCOUNT_RANGES.cash.hi); }
-function isReceivableAccount(code: string):  boolean { return inRange(code, CASH_ACCOUNT_RANGES.receivables.lo, CASH_ACCOUNT_RANGES.receivables.hi); }
-function isPayableAccount(code: string):     boolean { return inRange(code, CASH_ACCOUNT_RANGES.payables.lo, CASH_ACCOUNT_RANGES.payables.hi); }
+const CURRENT_ASSET_CLASSES = new Set(["current_assets", "trade_receivables", "receivables"]);
+const CURRENT_LIABILITY_CLASSES = new Set(["current_liabilities", "trade_payables", "payables"]);
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
@@ -125,37 +129,72 @@ serve(async (req: Request) => {
     const warnDays     = mat?.cash_warn_days ?? 30;
     const criticalDays = mat?.cash_critical_days ?? 14;
 
-    // Load TB account balances
-    const { data: accts } = await supabase
-      .from("account_classifications")
-      .select("account_code, account_name, total_debit, total_credit")
-      .in("upload_id", run.tb_upload_ids);
+    // ── Authoritative balances: SAFISHA CertifiedTB ───────────────────────────
+    const certified = await loadCertifiedTb(
+      supabase as unknown as CertifiedTbClient, companyId, run.fiscal_year);
+    if (certified.state === "CANNOT_ASSESS") {
+      return json({
+        error:            "Cash flow forecast cannot be assessed",
+        analytical_state: "CANNOT_ASSESS",
+        reason:           certified.reason,
+        authority:        "SAFISHA CertifiedTB (get_authoritative_certification)",
+        iron_dome:        true,
+      }, 409);
+    }
+    const certifiedTb = certified.value;
 
+    const perimeter = await loadCashPerimeter(supabase as unknown as CertifiedTbClient, companyId);
+    if (perimeter.state === "CANNOT_ASSESS") {
+      return json({
+        error:            "Cash flow forecast cannot be assessed",
+        analytical_state: "CANNOT_ASSESS",
+        reason:           perimeter.reason,
+        authority:        "Professional cash perimeter (account_mappings.is_cash_account)",
+        iron_dome:        true,
+      }, 409);
+    }
+
+    // Opening cash requires a COMPLETE professional cash perimeter over the
+    // certified current-asset population. UNKNOWN != ZERO != FALSE: one
+    // undecided account makes opening cash unknown, and the whole forecast is
+    // refused rather than reported from a partial balance.
+    const undecidedCashAccounts: string[] = [];
     let cashBalance = 0;
     let arBalance   = 0;
     let apBalance   = 0;
 
-    for (const a of (accts ?? [])) {
-      const code = a.account_code ?? "";
-      const net  = (a.total_debit ?? 0) - (a.total_credit ?? 0);
-      if (isCashAccount(code))        cashBalance += net;
-      if (isReceivableAccount(code))  arBalance   += Math.abs(net); // AR is debit-normal
-      if (isPayableAccount(code))     apBalance   += Math.abs(net); // AP is credit-normal (stored as positive)
+    for (const row of certifiedTb.rows) {
+      const key = certifiedRowKey(row);
+      const net = row.debitBalance - row.creditBalance;
+      const isCurrentAsset = CURRENT_ASSET_CLASSES.has(row.subNature);
+      const isCurrentLiab  = CURRENT_LIABILITY_CLASSES.has(row.subNature);
+
+      if (isCurrentAsset) {
+        const cashState = resolveCashState(perimeter.value, key);
+        if (cashState === "UNKNOWN") {
+          undecidedCashAccounts.push(row.accountCode ?? row.accountName);
+          continue;
+        }
+        if (cashState === "CASH") cashBalance += net;
+        else arBalance += Math.abs(net);
+      } else if (isCurrentLiab) {
+        apBalance += Math.abs(row.creditBalance - row.debitBalance);
+      }
     }
 
-    // Also check account_name patterns for accounts outside standard ranges
-    for (const a of (accts ?? [])) {
-      const name = (a.account_name ?? "").toLowerCase();
-      if (!isCashAccount(a.account_code) && !isReceivableAccount(a.account_code)) {
-        if (name.includes("receivable") || name.includes("debtor")) {
-          arBalance += Math.abs((a.total_debit ?? 0) - (a.total_credit ?? 0));
-        }
-      }
-      if (!isPayableAccount(a.account_code)) {
-        if (name.includes("payable") || name.includes("creditor") || name.includes("creditors")) {
-          apBalance += Math.abs((a.total_credit ?? 0) - (a.total_debit ?? 0));
-        }
-      }
+    if (undecidedCashAccounts.length > 0) {
+      return json({
+        error:            "Cash flow forecast cannot be assessed",
+        analytical_state: "CANNOT_ASSESS",
+        reason:           "The professional cash perimeter is incomplete: " +
+                          `${undecidedCashAccounts.length} certified current-asset account(s) have no ` +
+                          "cash/non-cash decision. An undecided account is unknown, not non-cash, so " +
+                          "opening cash cannot be stated.",
+        undecided_accounts: undecidedCashAccounts.slice(0, 25),
+        authority:        "Professional cash perimeter (account_mappings.is_cash_account, tri-state)",
+        hint:             "Complete the account review cash decisions for this company, then re-run.",
+        iron_dome:        true,
+      }, 409);
     }
 
     // Load prior periods for collection rate estimation
@@ -348,6 +387,17 @@ serve(async (req: Request) => {
       opening_cash:      cashBalance,
       ar_balance:        arBalance,
       ap_balance:        apBalance,
+      balance_authority: {
+        source:           "SAFISHA CertifiedTB",
+        certification_id: certifiedTb.certificationId,
+        upload_id:        certifiedTb.uploadId,
+        source_file_hash: certifiedTb.sourceFileHash,
+        certified_at:     certifiedTb.certifiedAt,
+        cash_basis:       "professional tri-state account_mappings.is_cash_account (complete)",
+        ar_basis:         "certified current-asset classification excluding the professional cash perimeter (class-level)",
+        ap_basis:         "certified current-liability classification (class-level)",
+        ar_ap_precision:  "CLASS_LEVEL_APPROXIMATION",
+      },
       // null means unavailable (no tax_computations row for this run's
       // uploads, or the key does not exist in computation_detail) — never
       // read as a zero obligation. A caller must render "unavailable"
