@@ -87,6 +87,35 @@ future session finds MAONO genuinely inaccessible, the barrier is
 elsewhere (RLS, a company/upload data-readiness edge case, or a live
 deploy issue) — not a code-level lock to "unlock."
 
+**MAONO authority status — repair-forward, 2026-09-04.** MAONO is
+advisory and non-authoritative; treat every figure it shows as MAONO's
+own analysis, not an accounting fact, unless independently proven
+otherwise (`src/lib/accounting/maonoAnalyticalContract.ts`'s
+`hasAuthoritativeAccountingProvenance()`/`assessMaonoInputTrust()` encode
+this: a result type alone — including "observed" — never proves
+authority; only an explicitly-confirmed, currently-certified upstream
+source does). Do **not** claim "SAFISHA → HESABU → MAONO" is a proven,
+enforced authority chain in production — `maono-compute` reads
+`period_closing_balances` (a genuine KINGA/HESABU-authoritative,
+persisted closing-balance table also consumed by `hesabu-validate` and
+`generate-xbrl`) but ALSO reads `account_classifications` and
+`account_pl_mapping`, two tables with **no migration file anywhere in
+this repository** and read by no function other than `maono-*` — their
+relationship to the certified `account_mappings`/`account_review_decisions`
+chain (Phases 6/8) cannot be verified from this repo; see
+`DEFECT-MAONO-UNTRACKED-CLASSIFICATION-TABLES-001` (§9.1). `MaonoDashboard`
+now binds every displayed run to the exact workspace `companyId` +
+`periodYear` (previously company-only, which could surface a different
+fiscal year's analytics — fixed). `tax_computations` reads use the
+canonical `computation_detail` column (was the non-existent
+`computation_json`) — this repairs the column reference; whether
+`kinga-tax-engine`'s actual JSON payload nests the specific
+`sdl_liability`/`vat_liability`/`paye_total`/`wht_total` keys `maono-risk`/
+`maono-cashflow` read from it was **not** independently re-verified (no
+literal match for those key names exists anywhere in
+`kinga-tax-engine/index.ts`) — tax-derived risk/cashflow enrichment
+remains optional and its absence must never be read as a zero liability.
+
 ---
 
 ## 4. Iron Dome Ω∞ — Core Invariants
@@ -413,6 +442,43 @@ professional never reviewed.
 Discovered during the V5 Phase 6 Reversible Account Review Gate 0
 discovery (2026-09-04), on branch `phase6-reversible-account-review-20260904` /
 main `382f9a71415de11714a20a6e5ed818e95d376795`.
+
+**DEFECT-MAONO-UNTRACKED-CLASSIFICATION-TABLES-001** — Severity: HIGH —
+Status: OPEN / UNVERIFIED AUTHORITY CHAIN
+
+`supabase/functions/maono-compute/index.ts` and
+`supabase/functions/maono-cashflow/index.ts` read account-level
+classification data from two tables, `account_classifications` and
+`account_pl_mapping`, that have **no `CREATE TABLE` migration anywhere in
+`supabase/migrations/`** — grepped across the full migration history,
+zero matches. No function other than `maono-*` reads or writes either
+table. `maono-compute`'s own header comment documents the pipeline as
+`trial_balance_uploads → account_classifications`, confirming they are
+TB-derived, but nothing in this repository proves they are kept in sync
+with, or derived from, the certified `account_mappings` /
+`account_review_decisions` authority chain (Phases 2A/6/8). `maono-compute`
+separately reads `period_closing_balances` (a real, KINGA-written,
+`hesabu-validate`/`generate-xbrl`-trusted authoritative closing-balance
+table) — so MAONO's variance computation is a MIX of at least one
+provably authoritative source and at least two unverifiable ones in the
+same pipeline.
+
+Consequence: the claim "MAONO consumes SAFISHA → HESABU → MAONO" cannot
+be fully proven from this repository as it stands; the untracked tables
+could be a legitimate, currently-correct MAONO-side projection, or a
+stale/orphaned artifact from an earlier architecture iteration that no
+longer reflects the current classification authority. Live schema
+inspection (this session had none) is required to resolve this — do not
+assume either direction without it.
+
+Discovered during the V5 Phase 9 MAONO Unlock repair-forward
+(2026-09-04), on branch `phase9-maono-live-20260904` / main
+`16ccdfc475dc10c171b35b7860ab77fe98d0239b`. Not fixed here: rewriting
+`maono-compute`'s data-sourcing logic without live database access to
+verify the change would risk an unverifiable regression in an
+already-deployed financial function — exactly the failure mode this
+repository's own discipline (`controlledActivation.ts`'s docstring,
+Phase 8) explicitly warns against.
 
 ---
 

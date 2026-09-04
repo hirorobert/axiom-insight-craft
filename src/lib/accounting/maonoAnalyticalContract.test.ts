@@ -10,7 +10,8 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  isAuthoritativeAccountingFact,
+  hasAuthoritativeAccountingProvenance,
+  assessMaonoInputTrust,
   fromComparativeAmount,
   fromHesabuResult,
   isStaleContext,
@@ -19,6 +20,7 @@ import {
   type AnalyticalValue,
   type AnalyticalContext,
   type AnalyticalResultType,
+  type AuthorityProvenanceEvidence,
 } from "./maonoAnalyticalContract";
 import type { ComparativeAmount } from "./comparativeEvidence";
 
@@ -28,15 +30,74 @@ const MISSING: AnalyticalValue = { state: "MISSING" };
 const NOT_APPLICABLE: AnalyticalValue = { state: "NOT_APPLICABLE" };
 const CANNOT_ASSESS = (reason: string): AnalyticalValue => ({ state: "CANNOT_ASSESS", reason });
 
-describe("isAuthoritativeAccountingFact — analytics never masquerades as accounting authority", () => {
-  it("only OBSERVED_FACT is authoritative", () => {
-    expect(isAuthoritativeAccountingFact("OBSERVED_FACT")).toBe(true);
+const certifiedSafisha: AuthorityProvenanceEvidence = { upstreamSource: "SAFISHA", certifiedUpstream: true };
+const uncertifiedSafisha: AuthorityProvenanceEvidence = { upstreamSource: "SAFISHA", certifiedUpstream: false };
+const certifiedHesabu: AuthorityProvenanceEvidence = { upstreamSource: "HESABU", certifiedUpstream: true };
+const maonoDerived: AuthorityProvenanceEvidence = { upstreamSource: "MAONO_DERIVED", certifiedUpstream: false };
+
+describe("hasAuthoritativeAccountingProvenance — Ω∞ Phase 9 repair (HIGH-3): resultType alone never proves authority", () => {
+  it("OBSERVED_FACT + raw/uncertified TB evidence -> false (resultType label is not enough)", () => {
+    expect(hasAuthoritativeAccountingProvenance("OBSERVED_FACT", uncertifiedSafisha)).toBe(false);
   });
 
-  it.each<AnalyticalResultType>([
-    "DERIVED_METRIC", "VARIANCE", "TREND", "FORECAST", "RISK_SIGNAL", "HYPOTHESIS", "RECOMMENDATION",
-  ])("%s is never authoritative", (resultType) => {
-    expect(isAuthoritativeAccountingFact(resultType)).toBe(false);
+  it("OBSERVED_FACT + uncertified upload -> false", () => {
+    expect(hasAuthoritativeAccountingProvenance("OBSERVED_FACT", { upstreamSource: "SAFISHA", certifiedUpstream: false })).toBe(false);
+  });
+
+  it("OBSERVED_FACT + certified SAFISHA fact -> true, and ONLY because the contract can prove it", () => {
+    expect(hasAuthoritativeAccountingProvenance("OBSERVED_FACT", certifiedSafisha)).toBe(true);
+  });
+
+  it("OBSERVED_FACT + certified HESABU fact -> true", () => {
+    expect(hasAuthoritativeAccountingProvenance("OBSERVED_FACT", certifiedHesabu)).toBe(true);
+  });
+
+  it("OBSERVED_FACT + MAONO_DERIVED source -> false, even if marked certifiedUpstream (MAONO cannot certify its own output)", () => {
+    expect(hasAuthoritativeAccountingProvenance("OBSERVED_FACT", { upstreamSource: "MAONO_DERIVED", certifiedUpstream: true })).toBe(false);
+  });
+
+  it("DERIVED_METRIC + certified inputs -> still analytical, never an accounting fact", () => {
+    expect(hasAuthoritativeAccountingProvenance("DERIVED_METRIC", certifiedSafisha)).toBe(false);
+  });
+
+  it.each<AnalyticalResultType>(["VARIANCE", "TREND", "FORECAST", "RISK_SIGNAL", "HYPOTHESIS", "RECOMMENDATION"])(
+    "%s is never authoritative, even with fully certified evidence",
+    (resultType) => {
+      expect(hasAuthoritativeAccountingProvenance(resultType, certifiedSafisha)).toBe(false);
+      expect(hasAuthoritativeAccountingProvenance(resultType, certifiedHesabu)).toBe(false);
+    },
+  );
+});
+
+describe("assessMaonoInputTrust — the single MAONO trust-input contract (§4/§9)", () => {
+  it("MAONO_DERIVED is always ANALYTICAL_DERIVATION, never TRUSTED_ACCOUNTING_INPUT", () => {
+    const r = assessMaonoInputTrust("DERIVED_METRIC", maonoDerived, "LINKED_TO_CERTIFIED_UPLOAD");
+    expect(r.trustLevel).toBe("ANALYTICAL_DERIVATION");
+  });
+
+  it("OBSERVED_FACT + certified upload + confirmed provenance -> TRUSTED_ACCOUNTING_INPUT", () => {
+    const r = assessMaonoInputTrust("OBSERVED_FACT", certifiedSafisha, "LINKED_TO_CERTIFIED_UPLOAD");
+    expect(r.trustLevel).toBe("TRUSTED_ACCOUNTING_INPUT");
+  });
+
+  it("OBSERVED_FACT + upload linked to an UNCERTIFIED upload -> UNAVAILABLE, never silently used", () => {
+    const r = assessMaonoInputTrust("OBSERVED_FACT", certifiedSafisha, "LINKED_TO_UNCERTIFIED_UPLOAD");
+    expect(r.trustLevel).toBe("UNAVAILABLE");
+  });
+
+  it("OBSERVED_FACT + UNKNOWN certification relationship -> UNAVAILABLE, never guessed trusted", () => {
+    const r = assessMaonoInputTrust("OBSERVED_FACT", certifiedSafisha, "UNKNOWN");
+    expect(r.trustLevel).toBe("UNAVAILABLE");
+  });
+
+  it("OBSERVED_FACT + certified upload but caller could not confirm provenance -> UNAVAILABLE", () => {
+    const r = assessMaonoInputTrust("OBSERVED_FACT", uncertifiedSafisha, "LINKED_TO_CERTIFIED_UPLOAD");
+    expect(r.trustLevel).toBe("UNAVAILABLE");
+  });
+
+  it("DERIVED_METRIC over a fully trusted certified input is still ANALYTICAL_DERIVATION", () => {
+    const r = assessMaonoInputTrust("DERIVED_METRIC", certifiedHesabu, "LINKED_TO_CERTIFIED_UPLOAD");
+    expect(r.trustLevel).toBe("ANALYTICAL_DERIVATION");
   });
 });
 

@@ -19,14 +19,18 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
 export default function MonitorWorkspace() {
-  const { upload } = useWorkspace();
+  const { upload, periodYear } = useWorkspace();
 
   return (
     <div className="space-y-6 max-w-5xl">
-      {/* Maono — only when upload has mapping data */}
+      {/* Maono — only when upload has mapping data. periodYear is the
+          workspace route's own canonical value (never re-derived here) —
+          Ω∞ Phase 9 repair (HIGH-2): without it MaonoDashboard could
+          silently surface a different fiscal year's analytics. */}
       {upload?.status === "complete" && upload.is_valid === true && upload.company_id && (
         <MaonoDashboard
           companyId={upload.company_id}
+          periodYear={periodYear}
           userRole="accountant"
           supabaseUrl={SUPABASE_URL}
           supabaseAnonKey={SUPABASE_ANON_KEY}

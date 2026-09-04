@@ -44,6 +44,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { computeVariance as computeVarianceContract, type AnalyticalValue } from "../_shared/maonoAnalyticalContract.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -140,9 +141,20 @@ function netAmount(debit: number, credit: number, isCreditNormal: boolean): numb
   return isCreditNormal ? credit - debit : debit - credit;
 }
 
+// Ω∞ Phase 9 repair (§6, MEDIUM-1): delegates to the shared, tested
+// numeric-safety contract instead of a local reimplementation. Behavior
+// is unchanged for every real financial input this function already
+// handled (budget===0 & actual===0 -> 0; budget===0 & actual!==0 -> null;
+// otherwise the same percentage formula) — proven by
+// src/lib/accounting/maonoAnalyticalContract.test.ts's computeVariance
+// suite, which this Deno copy mirrors exactly. The one behavioral
+// addition is NaN/Infinity/overflow now failing closed to null instead of
+// a possible non-finite value escaping as an authoritative variance_pct.
 function variancePct(actual: number, budget: number): number | null {
-  if (budget === 0) return actual === 0 ? 0 : null;
-  return ((actual - budget) / Math.abs(budget)) * 100;
+  const toAnalyticalValue = (n: number): AnalyticalValue =>
+    n === 0 ? { state: "ZERO", value: 0 } : { state: "KNOWN", value: n };
+  const pct = computeVarianceContract(toAnalyticalValue(actual), toAnalyticalValue(budget)).percentageVariance;
+  return pct.state === "KNOWN" || pct.state === "ZERO" ? pct.value : null;
 }
 
 function isMaterial(varianceTzs: number | null, variancePctVal: number | null,

@@ -44,6 +44,12 @@
  */
 
 import type { ComparativeAmount } from "./comparativeEvidence";
+// Ω∞ Phase 9: reuses Phase 8's certification-relationship vocabulary
+// verbatim rather than redefining it — the same "linked to a certified
+// upload" vs "the fact itself was certified" distinction applies
+// identically to a MAONO analytical input as it does to a historical
+// mapping-memory candidate. No competing vocabulary is introduced.
+import type { CertificationRelationship } from "./mappingMemory";
 
 // ── The analytical fact model (§8) ──────────────────────────────────────────
 
@@ -64,14 +70,52 @@ export type AnalyticalResultType =
   | "RECOMMENDATION";
 
 /**
- * ONLY OBSERVED_FACT may ever be treated as accounting authority. Every
- * other result type — including DERIVED_METRIC — is MAONO's own analytical
- * output over HESABU/SAFISHA facts, not itself HESABU-authoritative. This
- * is a pure function, not a settable field, so no caller can construct a
- * result that lies about its own authority.
+ * Ω∞ Phase 9 repair-forward (independent-certification HIGH-3): the prior
+ * single-argument isAuthoritativeAccountingFact(resultType) was itself
+ * unsafe — "OBSERVED_FACT" only means a value was read directly from an
+ * upstream source UNMODIFIED; it says nothing about whether that upstream
+ * source was itself certified/current. A resultType alone can never prove
+ * authority, so this function now REQUIRES explicit provenance evidence
+ * the caller must have independently established (via the existing
+ * SAFISHA certification-readiness authority — computeCertificationReadiness/
+ * tb_certifications, upload-identity-bound the same way
+ * computeCertificationReadiness.ts already does — never re-derived or
+ * assumed here). Renamed so the old, unsafe one-argument shape cannot be
+ * accidentally reconstructed: this function's SIGNATURE forces the
+ * caller to supply evidence, not just a label.
  */
-export function isAuthoritativeAccountingFact(resultType: AnalyticalResultType): boolean {
-  return resultType === "OBSERVED_FACT";
+export type UpstreamSourceKind = "SAFISHA" | "HESABU" | "MAONO_DERIVED";
+
+export interface AuthorityProvenanceEvidence {
+  upstreamSource: UpstreamSourceKind;
+  /**
+   * True ONLY when the caller has independently verified — via existing
+   * certification/readiness authority, never inferred here — that this
+   * specific fact traces to a CURRENT, certified TB (or a HESABU
+   * computation built on one) for the exact company/period being
+   * displayed. Defaults to nothing: there is no default; the caller must
+   * state it explicitly, and "I didn't check" must be false, not absent.
+   */
+  certifiedUpstream: boolean;
+}
+
+/**
+ * True ONLY for resultType OBSERVED_FACT whose upstream source is SAFISHA
+ * or HESABU (never MAONO_DERIVED — MAONO cannot certify its own analytical
+ * output into accounting authority) AND whose provenance has been
+ * independently proven certified. Every DERIVED_METRIC/VARIANCE/TREND/
+ * FORECAST/RISK_SIGNAL/HYPOTHESIS/RECOMMENDATION is unconditionally false,
+ * regardless of how strong the upstream evidence is — MAONO's own
+ * computation over a certified fact is still MAONO's analysis, not the
+ * fact itself.
+ */
+export function hasAuthoritativeAccountingProvenance(
+  resultType: AnalyticalResultType,
+  evidence: AuthorityProvenanceEvidence,
+): boolean {
+  if (resultType !== "OBSERVED_FACT") return false;
+  if (evidence.upstreamSource === "MAONO_DERIVED") return false;
+  return evidence.certifiedUpstream === true;
 }
 
 /**
@@ -160,17 +204,73 @@ export function isStaleContext(cached: AnalyticalContext, current: AnalyticalCon
   return cached.companyId !== current.companyId || cached.periodYear !== current.periodYear;
 }
 
-// ── Provenance contract (§20) — shape only, not the Evidence Graph itself ───
+// ── Provenance contract (§20/§21) — shape only, not the Evidence Graph itself ─
 
 export interface AnalyticalProvenance {
   metricId: string;
   metricVersion: string;
-  upstreamSource: "SAFISHA" | "HESABU" | "MAONO_DERIVED";
+  upstreamSource: UpstreamSourceKind;
   /** e.g. a tb_certifications id or a HESABU engine_run id, when the caller has one. Never fabricated when absent. */
   upstreamFactId?: string;
+  /** Never claims the fact itself was certified — only that its upload is/isn't linked to a current certification. Reused from Phase 8, not redefined. */
+  certificationRelationship?: CertificationRelationship;
+  /** Which HESABU-owned computation this traces to (e.g. "comparativePeriodAdapter", "primaryCashFlowEngine", "movementSchedules"), when the caller knows. */
+  hesabuRelationship?: string;
   calculationInputs?: Record<string, number | string | null>;
   thresholdOrConfigId?: string;
   calculatedAt?: string;
+}
+
+// ── Single MAONO trust-input contract (§4/§9) — the narrow "adapter" ────────
+// this session can safely build: no live edge-function rewrite, just the
+// pure classification rule every future adapter must implement.
+
+export type MaonoInputTrustLevel =
+  | "TRUSTED_ACCOUNTING_INPUT"
+  | "ANALYTICAL_DERIVATION"
+  | "UNAVAILABLE";
+
+export interface MaonoInputTrustAssessment {
+  trustLevel: MaonoInputTrustLevel;
+  reason: string;
+}
+
+/**
+ * The one rule every MAONO input-sourcing path must satisfy: a caller may
+ * never merely LABEL data "trusted." MAONO's own computations are always
+ * ANALYTICAL_DERIVATION, never TRUSTED_ACCOUNTING_INPUT, regardless of how
+ * trustworthy their inputs were. An upstream fact is TRUSTED_ACCOUNTING_INPUT
+ * only when it is OBSERVED_FACT, linked to a currently certified upload,
+ * AND the caller has independently confirmed that certified provenance —
+ * any one of those missing fails closed to UNAVAILABLE, never silently
+ * downgraded to a guess.
+ */
+export function assessMaonoInputTrust(
+  resultType: AnalyticalResultType,
+  evidence: AuthorityProvenanceEvidence,
+  certificationRelationship: CertificationRelationship,
+): MaonoInputTrustAssessment {
+  if (evidence.upstreamSource === "MAONO_DERIVED") {
+    return {
+      trustLevel: "ANALYTICAL_DERIVATION",
+      reason: "Value is MAONO's own computation, not an upstream accounting fact — never treated as trusted input regardless of what it was computed from.",
+    };
+  }
+  if (certificationRelationship !== "LINKED_TO_CERTIFIED_UPLOAD") {
+    return {
+      trustLevel: "UNAVAILABLE",
+      reason: `Upstream fact's upload is not linked to a currently certified TB (${certificationRelationship}) — never treated as trusted, never silently used anyway.`,
+    };
+  }
+  if (!evidence.certifiedUpstream) {
+    return {
+      trustLevel: "UNAVAILABLE",
+      reason: "Caller could not independently confirm certified upstream provenance for this specific fact.",
+    };
+  }
+  return resultType === "OBSERVED_FACT"
+    ? { trustLevel: "TRUSTED_ACCOUNTING_INPUT", reason: "Directly observed, unmodified, from a certified SAFISHA/HESABU source." }
+    : { trustLevel: "ANALYTICAL_DERIVATION", reason: "Computed by MAONO over trusted inputs — the computation itself is not an accounting fact." };
 }
 
 export interface AnalyticalResult {

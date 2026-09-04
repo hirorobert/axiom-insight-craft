@@ -173,16 +173,24 @@ serve(async (req: Request) => {
     const arCollectionSchedule = [0.40, 0.40, 0.20]; // 30/60/90 day buckets
     const apPaymentSchedule    = [0.50, 0.30, 0.20]; // 30/60/90 day buckets
 
-    // Load statutory obligations from tax_computations for the period
+    // Load statutory obligations from tax_computations for the period.
+    // Ω∞ Phase 9 repair (MEDIUM-2): computation_detail is the canonical
+    // JSONB column — computation_json does not exist (verified against
+    // 20260628100000_tax_engine_schema.sql). Same residual key-shape
+    // caveat as maono-risk: this corrects the column reference; the
+    // downstream paye_total/vat_liability/sdl_liability/wht_total key
+    // names were not independently re-verified against kinga-tax-engine's
+    // actual result shape in this session — optional enrichment only,
+    // absence must never read as a zero obligation.
     const { data: taxComp } = await supabase
       .from("tax_computations")
-      .select("computation_json")
+      .select("computation_detail")
       .in("tb_upload_id", run.tb_upload_ids)
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
 
-    const taxJson    = taxComp?.computation_json ?? {};
+    const taxJson    = taxComp?.computation_detail ?? {};
     const payeAmount = taxJson?.paye_total ?? 0;
     const vatAmount  = taxJson?.vat_liability ?? 0;
     const sdlAmount  = (taxJson?.sdl_liability ?? 0);

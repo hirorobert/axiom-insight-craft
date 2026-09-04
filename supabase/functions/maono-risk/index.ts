@@ -173,16 +173,30 @@ serve(async (req: Request) => {
       catTotals[a.pl_category] = (catTotals[a.pl_category] ?? 0) + (a.actual_amount ?? 0);
     }
 
-    // Load tax_computations for SDL/VAT/PAYE figures
+    // Load tax_computations for SDL/VAT/PAYE figures. Ω∞ Phase 9 repair
+    // (MEDIUM-2): the column is computation_detail — computation_json does
+    // not exist on this table (verified against
+    // supabase/migrations/20260628100000_tax_engine_schema.sql, which
+    // defines only computation_detail JSONB). The prior column name meant
+    // this select could never return real data, so every TRA tax-liability
+    // signal below has always evaluated against an empty object. NOTE:
+    // this fixes the column reference only — whether kinga-tax-engine's
+    // computation_detail payload actually nests keys named sdl_liability/
+    // vat_liability/paye_total was not independently re-verified (no
+    // sdl_liability/vat_liability/paye_total literal exists anywhere in
+    // kinga-tax-engine/index.ts as grepped this session); tracing the
+    // engine's real result shape is a separate, registered follow-up, not
+    // completed here. This is optional enrichment only — its absence must
+    // never read as a zero liability; see traCheckData below.
     const { data: taxComp } = await supabase
       .from("tax_computations")
-      .select("computation_json")
+      .select("computation_detail")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
 
-    const taxJson = taxComp?.computation_json ?? {};
+    const taxJson = taxComp?.computation_detail ?? {};
 
     const traCheckData = {
       personnelCosts:   catTotals["PERSONNEL_COSTS"]  ?? 0,

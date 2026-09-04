@@ -64,8 +64,17 @@ interface Alert {
 
 interface MaonoDashboardProps {
   companyId:  string;
+  /**
+   * Ω∞ Phase 9 repair (independent-certification HIGH-2): required, not
+   * optional. Without this, "load the latest complete run" silently
+   * ignores which workspace period is on screen — a company with runs
+   * across multiple fiscal years could display an unrelated period's
+   * analytics. The caller must supply the SAME periodYear the workspace
+   * route is bound to (useWorkspace().periodYear), never re-derived here.
+   */
+  periodYear: number;
   userRole:   UserRole;
-  runId?:     string; // if provided, load this run; otherwise load latest
+  runId?:     string; // if provided, load this exact run; otherwise load the latest complete run for companyId + periodYear
   supabaseUrl:     string;
   supabaseAnonKey: string;
 }
@@ -469,6 +478,7 @@ function BusinessView({ run, analyses, insights, cashWeeks, alerts, onAck }: any
 
 export function MaonoDashboard({
   companyId,
+  periodYear,
   userRole,
   runId,
   supabaseUrl,
@@ -486,15 +496,31 @@ export function MaonoDashboard({
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
   const loadData = useCallback(async () => {
+    // Ω∞ Phase 9 repair (HIGH-2): clear every prior result BEFORE the new
+    // fetch starts, not after it resolves. A companyId/periodYear switch
+    // must never leave the previous context's run/analyses/insights/cash/
+    // alerts visible while the new query is in flight or if it fails —
+    // `loading` alone does not guarantee that ordering against a slow or
+    // failed request.
+    setRun(null);
+    setAnalyses([]);
+    setInsights([]);
+    setRiskData(null);
+    setCashWeeks([]);
+    setAlerts([]);
     setLoading(true);
     setError(null);
 
     try {
-      // Load run
+      // Load run — bound to the EXACT workspace company + period, never
+      // "latest for this company" alone (HIGH-2: a company with runs
+      // across multiple fiscal years must never surface an unrelated
+      // period's analytics).
       let runQuery = supabase
         .from("variance_runs")
         .select("id, company_id, period_from, period_to, trend_confidence, seasonal_periods_available, status, summary_json, created_at")
         .eq("company_id", companyId)
+        .eq("fiscal_year", periodYear)
         .eq("status", "complete");
 
       if (runId) {
@@ -565,7 +591,7 @@ export function MaonoDashboard({
     } finally {
       setLoading(false);
     }
-  }, [companyId, runId, userRole]);
+  }, [companyId, periodYear, runId, userRole]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
