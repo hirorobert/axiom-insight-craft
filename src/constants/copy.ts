@@ -187,8 +187,8 @@ export const PRICING_TABLE = [
 export const PRICING_SECTION = {
   headline: "One annual licence. Full platform access.",
   subhead:
-    "No per-module fees. No per-company limits. No Finance Act update charges. One price covers the entire firm.",
-  cta:     "Get Started",
+    "No per-module fees. No per-company limits. No Finance Act update charges. One price covers the entire firm. Self-service purchase is not yet available — create a free workspace to get started, or contact us to activate a firm licence.",
+  cta:     "Create Your Workspace",
   ctaHref: "/auth",
 } as const;
 
@@ -215,5 +215,8 @@ export const UPLOAD_SECTION = {
 
 export const FOOTER = {
   description: BRAND.tagline,
-  legal:       ["Privacy Policy", "Terms of Service"],
+  legal: [
+    { label: "Privacy Policy", href: "/privacy" },
+    { label: "Terms of Service", href: "/terms" },
+  ],
 } as const;
