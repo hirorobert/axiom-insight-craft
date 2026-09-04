@@ -103,18 +103,36 @@ persisted closing-balance table also consumed by `hesabu-validate` and
 this repository** and read by no function other than `maono-*` — their
 relationship to the certified `account_mappings`/`account_review_decisions`
 chain (Phases 6/8) cannot be verified from this repo; see
-`DEFECT-MAONO-UNTRACKED-CLASSIFICATION-TABLES-001` (§9.1). `MaonoDashboard`
-now binds every displayed run to the exact workspace `companyId` +
-`periodYear` (previously company-only, which could surface a different
-fiscal year's analytics — fixed). `tax_computations` reads use the
-canonical `computation_detail` column (was the non-existent
-`computation_json`) — this repairs the column reference; whether
-`kinga-tax-engine`'s actual JSON payload nests the specific
-`sdl_liability`/`vat_liability`/`paye_total`/`wht_total` keys `maono-risk`/
-`maono-cashflow` read from it was **not** independently re-verified (no
-literal match for those key names exists anywhere in
-`kinga-tax-engine/index.ts`) — tax-derived risk/cashflow enrichment
-remains optional and its absence must never be read as a zero liability.
+`DEFECT-MAONO-UNTRACKED-CLASSIFICATION-TABLES-001` (§9.1, still OPEN,
+non-blocking — HESABU boundary and certification freshness remain
+LIMITED_NONBLOCKING, not PASS). `MaonoDashboard` binds every displayed
+run to the exact workspace `companyId` + `periodYear` (previously
+company-only, which could surface a different fiscal year's analytics —
+fixed), and `variance_alerts` is scoped by `run_id`, not `company_id`
+alone, in both `MaonoDashboard.tsx` and `maono-decide` (previously a
+different fiscal period's alerts could contaminate the current run's
+view/decision narrative — fixed; `variance_alerts.run_id` references
+`variance_runs(id)` directly, migration `20260711163133`). `tax_computations`
+reads in `maono-risk`/`maono-cashflow` use the canonical `computation_detail`
+column, scoped to the exact variance run's own uploads
+(`.in("upload_id", run.tb_upload_ids)` — the correct column is `upload_id`;
+`tb_upload_id` does not exist on this table, verified against
+`20260628100000_tax_engine_schema.sql`'s `UNIQUE (company_id, upload_id)`).
+PAYE/VAT/SDL/WHT are read via `readOptionalTaxAmount()`
+(`supabase/functions/_shared/maonoAnalyticalContract.ts`), which returns
+`null` — never a fabricated `0` — for an absent or non-finite key; the
+three TRA risk signals that consume them (`sdl_base_erosion`, `vat_gap`,
+`paye_zero_with_personnel_costs`) explicitly refuse to fire when the
+underlying figure is `null`, and the cash-flow forecast's
+`statutory_this_month` response field preserves `null` rather than
+reporting a false zero obligation. Confirmed, not merely suspected:
+`kinga-tax-engine/index.ts` never computes `sdl_liability`/`vat_liability`/
+`paye_total`/`wht_total` anywhere (the sole "sdl" hit is a static rate
+constant, not a computed liability) — so today these four fields will
+always correctly resolve to unavailable; if a future `kinga-tax-engine`
+version starts populating them, `readOptionalTaxAmount()` picks them up
+without further changes. KINGA absence never blocks core MAONO
+variance/cashflow/risk computation — confirmed unchanged.
 
 ---
 

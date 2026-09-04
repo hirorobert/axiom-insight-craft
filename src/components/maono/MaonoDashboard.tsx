@@ -576,10 +576,16 @@ export function MaonoDashboard({
         .order("week_number", { ascending: true });
       setCashWeeks(cashData ?? []);
 
-      // Load unacknowledged alerts
+      // Load alerts — Ω∞ Phase 9 repair (HIGH A): scoped to THIS exact
+      // variance run (variance_alerts.run_id references variance_runs(id)
+      // directly, 20260711163133), not company-wide. company_id alone let
+      // an alert from a different fiscal year's run (same company)
+      // contaminate the selected period's view. company_id kept as
+      // defense-in-depth alongside run_id, not instead of it.
       const { data: alertData } = await supabase
         .from("variance_alerts")
         .select("id, alert_type, severity, message, detail, created_at, acknowledged_at")
+        .eq("run_id", activeRunId)
         .eq("company_id", companyId)
         .order("severity", { ascending: false })
         .order("created_at", { ascending: false })

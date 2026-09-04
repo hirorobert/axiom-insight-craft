@@ -191,6 +191,35 @@ function numericValueOf(v: AnalyticalValue): number | null {
   return null;
 }
 
+/**
+ * Ω∞ Phase 9 repair (HIGH B — UNKNOWN != ZERO for optional KINGA
+ * enrichment): reads one numeric field out of an arbitrary JSONB payload
+ * (e.g. tax_computations.computation_detail) without ever coalescing an
+ * absent or malformed key to 0. MISSING when the source itself is
+ * missing/not an object or the key is absent; CANNOT_ASSESS when the key
+ * is present but not a finite number; KNOWN/ZERO only for a genuine
+ * finite value (0 included — a real reported zero is not the same claim
+ * as "we have no idea"). Mirrored, behavior-identical, in
+ * supabase/functions/_shared/maonoAnalyticalContract.ts's
+ * readOptionalTaxAmount (Deno cannot import across the src/ bundling
+ * boundary) — this function's tests are that Deno copy's proof of
+ * correctness, since Deno function tests do not exist in this repository.
+ */
+export function readOptionalNumericField(source: unknown, key: string): AnalyticalValue {
+  if (source === null || source === undefined || typeof source !== "object") {
+    return { state: "MISSING" };
+  }
+  const v = (source as Record<string, unknown>)[key];
+  if (v === undefined || v === null) {
+    return { state: "MISSING" };
+  }
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) {
+    return { state: "CANNOT_ASSESS", reason: `Field "${key}" is present but not a finite number: ${String(v)}` };
+  }
+  return n === 0 ? { state: "ZERO", value: 0 } : { state: "KNOWN", value: n };
+}
+
 // ── Company/period identity binding (§15) ────────────────────────────────────
 
 export interface AnalyticalContext {

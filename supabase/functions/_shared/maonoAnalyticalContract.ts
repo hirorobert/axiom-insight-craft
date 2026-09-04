@@ -10,12 +10,12 @@
  * truth for correctness (this file has no test harness of its own — Deno
  * function tests are not present in this repository).
  *
- * Scope is intentionally narrow: only the primitives an existing live
- * call site (maono-compute's variancePct()) needed to adopt this pass,
- * not the full contract (AnalyticalResultType, provenance, trust
- * assessment stay browser-side pure contracts for now — see
- * maonoAnalyticalContract.ts's own docstring on why untested Deno writes
- * are not blindly expanded).
+ * Scope is intentionally narrow: only the primitives existing live call
+ * sites (maono-compute's variancePct(); maono-risk's and maono-cashflow's
+ * optional tax-figure reads) needed to adopt this pass, not the full
+ * contract (AnalyticalResultType, provenance, trust assessment stay
+ * browser-side pure contracts for now — see maonoAnalyticalContract.ts's
+ * own docstring on why untested Deno writes are not blindly expanded).
  */
 
 export type AnalyticalValue =
@@ -90,4 +90,23 @@ export function computeVariance(
     percentageVariance,
     direction,
   };
+}
+
+/**
+ * Ω∞ Phase 9 repair (HIGH B — UNKNOWN != ZERO for optional KINGA
+ * enrichment): reads one numeric field out of an arbitrary JSONB payload
+ * (e.g. tax_computations.computation_detail) without ever coalescing an
+ * absent or malformed key to 0. `null` means unavailable (key missing,
+ * source itself missing/not an object, or value not finite) — the caller
+ * must treat that as "no data," never as a known zero liability. Behavior
+ * mirrored and proven in src/lib/accounting/maonoAnalyticalContract.test.ts
+ * via readOptionalNumericField (same logic, richer AnalyticalValue return
+ * type) — this Deno copy has no test harness of its own.
+ */
+export function readOptionalTaxAmount(source: unknown, key: string): number | null {
+  if (source === null || typeof source !== "object") return null;
+  const v = (source as Record<string, unknown>)[key];
+  if (v === undefined || v === null) return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
 }

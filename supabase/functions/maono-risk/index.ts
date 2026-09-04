@@ -22,6 +22,7 @@
 
 import { serve }       from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { readOptionalTaxAmount } from "../_shared/maonoAnalyticalContract.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -65,8 +66,14 @@ const TRA_SIGNALS: TRASignal[] = [
     description: "SDL base is significantly below PAYE base (>20% difference) without documented exemptions. TRA may query the SDL computation.",
     severity:    "warn",
     check:       (d) => {
+      // Ω∞ Phase 9 repair (HIGH B): unavailable SDL data must never
+      // fabricate a risk signal — sdlLiability===0 (implied base ~0) would
+      // otherwise fire this "erosion" warning for every company with
+      // material personnel costs, every time, regardless of the real
+      // SDL position.
+      if (d.sdlLiability === null || d.sdlLiability === undefined) return false;
       const paye = Math.abs(d.personnelCosts ?? 0);
-      const sdl  = d.sdlLiability ?? 0;
+      const sdl  = d.sdlLiability;
       if (paye < 1_000_000) return false; // small company, not material
       const impliedSDLBase = sdl / 0.045;
       return impliedSDLBase < paye * 0.80;
@@ -88,8 +95,13 @@ const TRA_SIGNALS: TRASignal[] = [
     description: "VAT output implied by revenue is significantly higher than VAT liability recorded. May indicate underreporting or incorrect exemption application.",
     severity:    "critical",
     check:       (d) => {
+      // Ω∞ Phase 9 repair (HIGH B): unavailable VAT data must never
+      // fabricate a "critical" gap signal — vatLiability===0 would
+      // otherwise fire for every company above the revenue threshold,
+      // every time, regardless of the real VAT position.
+      if (d.vatLiability === null || d.vatLiability === undefined) return false;
       const revenue    = Math.abs(d.revenue ?? 0);
-      const vatLiab    = d.vatLiability ?? 0;
+      const vatLiab    = d.vatLiability;
       const impliedVAT = revenue * 0.18;
       if (revenue < 10_000_000) return false;
       return vatLiab < impliedVAT * 0.5; // VAT is less than half of what revenue implies
@@ -100,8 +112,13 @@ const TRA_SIGNALS: TRASignal[] = [
     description: "Personnel costs appear in the TB but PAYE liability is zero. TRA will query payroll compliance.",
     severity:    "critical",
     check:       (d) => {
+      // Ω∞ Phase 9 repair (HIGH B): this signal specifically alleges a
+      // KNOWN, confirmed zero PAYE liability — it must never fire merely
+      // because the tax computation itself is unavailable. Absence is not
+      // evidence of non-compliance.
+      if (d.payeLiability === null || d.payeLiability === undefined) return false;
       const personnel = Math.abs(d.personnelCosts ?? 0);
-      const paye      = d.payeLiability ?? 0;
+      const paye      = d.payeLiability;
       return personnel > 5_000_000 && paye === 0;
     },
   },
@@ -149,7 +166,7 @@ serve(async (req: Request) => {
 
     const { data: run } = await supabase
       .from("variance_runs")
-      .select("id, company_id, period_from, period_to, trend_confidence, seasonal_periods_available, fiscal_year, period_month")
+      .select("id, company_id, tb_upload_ids, period_from, period_to, trend_confidence, seasonal_periods_available, fiscal_year, period_month")
       .eq("id", run_id)
       .single();
     if (!run) return json({ error: "Run not found" }, 404);
@@ -173,30 +190,30 @@ serve(async (req: Request) => {
       catTotals[a.pl_category] = (catTotals[a.pl_category] ?? 0) + (a.actual_amount ?? 0);
     }
 
-    // Load tax_computations for SDL/VAT/PAYE figures. Ω∞ Phase 9 repair
-    // (MEDIUM-2): the column is computation_detail — computation_json does
-    // not exist on this table (verified against
-    // supabase/migrations/20260628100000_tax_engine_schema.sql, which
-    // defines only computation_detail JSONB). The prior column name meant
-    // this select could never return real data, so every TRA tax-liability
-    // signal below has always evaluated against an empty object. NOTE:
-    // this fixes the column reference only — whether kinga-tax-engine's
-    // computation_detail payload actually nests keys named sdl_liability/
-    // vat_liability/paye_total was not independently re-verified (no
-    // sdl_liability/vat_liability/paye_total literal exists anywhere in
-    // kinga-tax-engine/index.ts as grepped this session); tracing the
-    // engine's real result shape is a separate, registered follow-up, not
-    // completed here. This is optional enrichment only — its absence must
-    // never read as a zero liability; see traCheckData below.
+    // Load tax_computations for SDL/VAT/PAYE figures, scoped to THIS run's
+    // own uploads. Ω∞ Phase 9 repair (HIGH B):
+    //   1. computation_detail is the canonical column (computation_json
+    //      does not exist — 20260628100000_tax_engine_schema.sql).
+    //   2. Scoped to run.tb_upload_ids, not "latest for the company" —
+    //      the previous company-only lookup could pull a different fiscal
+    //      period's tax computation into this run's TRA risk signals.
+    //   3. UNKNOWN != ZERO: kinga-tax-engine's computation_detail does not
+    //      actually produce sdl_liability/vat_liability/paye_total
+    //      anywhere (grepped kinga-tax-engine/index.ts — the only "sdl"
+    //      hit is a static rate-table entry, never a computed liability);
+    //      readOptionalTaxAmount returns null (unavailable) for an
+    //      absent/non-finite key instead of fabricating 0, so the
+    //      TRA_SIGNALS checks below evaluate against genuine absence, not
+    //      a false "no tax exposure" reading.
     const { data: taxComp } = await supabase
       .from("tax_computations")
       .select("computation_detail")
-      .eq("company_id", companyId)
+      .in("upload_id", run.tb_upload_ids)
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
 
-    const taxJson = taxComp?.computation_detail ?? {};
+    const taxJson = taxComp?.computation_detail ?? null;
 
     const traCheckData = {
       personnelCosts:   catTotals["PERSONNEL_COSTS"]  ?? 0,
@@ -205,9 +222,13 @@ serve(async (req: Request) => {
       currentOpex:      catTotals["OTHER_OPEX"]        ?? 0,
       priorOpex:        (current.find((a: any) => a.pl_category === "OTHER_OPEX")?.prior_period_amount ?? 0),
       priorYearRevenue: (current.find((a: any) => a.pl_category === "REVENUE")?.prior_year_amount ?? 0),
-      sdlLiability:     taxJson?.sdl_liability ?? 0,
-      vatLiability:     taxJson?.vat_liability ?? 0,
-      payeLiability:    taxJson?.paye_total ?? 0,
+      // null = unavailable (no tax_computations row for this run's
+      // uploads, or the key does not exist in computation_detail) — never
+      // fabricated as 0. Each affected TRA_SIGNALS check above explicitly
+      // returns false on null rather than treating it as a known zero.
+      sdlLiability:     readOptionalTaxAmount(taxJson, "sdl_liability"),
+      vatLiability:     readOptionalTaxAmount(taxJson, "vat_liability"),
+      payeLiability:    readOptionalTaxAmount(taxJson, "paye_total"),
     };
 
     // ── TRA audit signal detection ────────────────────────────────────────────

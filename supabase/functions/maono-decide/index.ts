@@ -274,10 +274,17 @@ serve(async (req: Request) => {
       .eq("week_number", 1)
       .single();
 
-    // Load unacknowledged alerts
+    // Load unacknowledged alerts — Ω∞ Phase 9 repair (HIGH A): scoped to
+    // THIS exact variance run, not company-wide. variance_alerts.run_id
+    // references variance_runs(id) directly (20260711163133); filtering
+    // by company_id alone let an alert from a different fiscal period
+    // (same company, different run) enter this run's decision narrative.
+    // company_id kept as defense-in-depth (run already proves company via
+    // `run.company_id` above, but the filter is free and explicit).
     const { data: alerts } = await supabase
       .from("variance_alerts")
       .select("alert_type, severity, message")
+      .eq("run_id", run_id)
       .eq("company_id", companyId)
       .is("acknowledged_at", null)
       .order("severity", { ascending: false });

@@ -17,6 +17,7 @@ import {
   isStaleContext,
   computeVariance,
   assessForecastReadiness,
+  readOptionalNumericField,
   type AnalyticalValue,
   type AnalyticalContext,
   type AnalyticalResultType,
@@ -277,5 +278,83 @@ describe("assessForecastReadiness — deterministic, no LLM, no fake confidence"
   it("empty history is insufficient, never treated as zero-variance/healthy", () => {
     const r = assessForecastReadiness([], 1);
     expect(r.status).toBe("INSUFFICIENT_HISTORY");
+  });
+});
+
+// ── Ω∞ Phase 9 repair (HIGH B) — readOptionalNumericField ────────────────────
+// Proves the exact logic mirrored, behavior-identical, in
+// supabase/functions/_shared/maonoAnalyticalContract.ts's
+// readOptionalTaxAmount (paye_total/vat_liability/sdl_liability/wht_total
+// reads in maono-cashflow and maono-risk) — this is that Deno copy's
+// correctness proof, since Deno function tests do not exist in this repo.
+
+describe("readOptionalNumericField — UNKNOWN != ZERO for optional KINGA tax enrichment", () => {
+  it("source is null (no tax_computations row matched) -> MISSING", () => {
+    expect(readOptionalNumericField(null, "sdl_liability")).toEqual({ state: "MISSING" });
+  });
+
+  it("source is undefined -> MISSING", () => {
+    expect(readOptionalNumericField(undefined, "sdl_liability")).toEqual({ state: "MISSING" });
+  });
+
+  it("source is not an object (malformed computation_detail) -> MISSING", () => {
+    expect(readOptionalNumericField("not-json", "sdl_liability")).toEqual({ state: "MISSING" });
+  });
+
+  it("computation_detail exists but the key is absent -> MISSING (the real, verified case: kinga-tax-engine never writes sdl_liability/vat_liability/paye_total/wht_total)", () => {
+    expect(readOptionalNumericField({ tax_payable_tzs: 500_000 }, "sdl_liability")).toEqual({ state: "MISSING" });
+  });
+
+  it("key present and explicitly null -> MISSING, not zero", () => {
+    expect(readOptionalNumericField({ paye_total: null }, "paye_total")).toEqual({ state: "MISSING" });
+  });
+
+  it("key present and finite zero -> KNOWN ZERO, a real reported zero is not the same as absence", () => {
+    expect(readOptionalNumericField({ vat_liability: 0 }, "vat_liability")).toEqual({ state: "ZERO", value: 0 });
+  });
+
+  it("key present and finite nonzero -> KNOWN", () => {
+    expect(readOptionalNumericField({ paye_total: 1_250_000 }, "paye_total")).toEqual({ state: "KNOWN", value: 1_250_000 });
+  });
+
+  it("key present as a numeric string -> coerced and KNOWN", () => {
+    expect(readOptionalNumericField({ wht_total: "45000" }, "wht_total")).toEqual({ state: "KNOWN", value: 45_000 });
+  });
+
+  it("key present but NaN -> CANNOT_ASSESS, never coalesced to 0", () => {
+    const r = readOptionalNumericField({ sdl_liability: NaN }, "sdl_liability");
+    expect(r.state).toBe("CANNOT_ASSESS");
+  });
+
+  it("key present but Infinity -> CANNOT_ASSESS", () => {
+    const r = readOptionalNumericField({ sdl_liability: Infinity }, "sdl_liability");
+    expect(r.state).toBe("CANNOT_ASSESS");
+  });
+
+  it("key present as a non-numeric string -> CANNOT_ASSESS, never 0", () => {
+    const r = readOptionalNumericField({ paye_total: "unavailable" }, "paye_total");
+    expect(r.state).toBe("CANNOT_ASSESS");
+  });
+});
+
+// ── Ω∞ Phase 9 repair (HIGH A) — alert run/period isolation, documented ──────
+// The live fix (MaonoDashboard.tsx, maono-decide/index.ts) adds
+// `.eq("run_id", activeRunId)` to the variance_alerts query, matching the
+// exact pattern already proven correct for variance_analyses/
+// maono_insights/cashflow_forecasts in the same files (all already
+// scoped by run_id, per variance_alerts.run_id REFERENCES
+// variance_runs(id), migration 20260711163133). This is Supabase
+// query-builder chaining, not extractable pure logic without mocking the
+// client — verified by direct code reading against that established,
+// already-correct sibling-query pattern rather than a synthetic unit
+// test standing in for one.
+describe("HIGH A — alert run/period isolation is a query-shape fix, verified by pattern consistency", () => {
+  it("documents the identity rule this repair enforces: an alert belongs to the CURRENT context only when its run_id matches the exact selected run", () => {
+    const alertBelongsToRun = (alert: { run_id: string | null }, targetRunId: string): boolean =>
+      alert.run_id === targetRunId;
+
+    expect(alertBelongsToRun({ run_id: "run-fy2026" }, "run-fy2026")).toBe(true);
+    expect(alertBelongsToRun({ run_id: "run-fy2025" }, "run-fy2026")).toBe(false);
+    expect(alertBelongsToRun({ run_id: null }, "run-fy2026")).toBe(false); // a company-wide monitor alert never impersonates a specific run's context
   });
 });

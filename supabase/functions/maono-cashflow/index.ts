@@ -25,6 +25,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { readOptionalTaxAmount } from "../_shared/maonoAnalyticalContract.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -173,28 +174,42 @@ serve(async (req: Request) => {
     const arCollectionSchedule = [0.40, 0.40, 0.20]; // 30/60/90 day buckets
     const apPaymentSchedule    = [0.50, 0.30, 0.20]; // 30/60/90 day buckets
 
-    // Load statutory obligations from tax_computations for the period.
-    // Ω∞ Phase 9 repair (MEDIUM-2): computation_detail is the canonical
-    // JSONB column — computation_json does not exist (verified against
-    // 20260628100000_tax_engine_schema.sql). Same residual key-shape
-    // caveat as maono-risk: this corrects the column reference; the
-    // downstream paye_total/vat_liability/sdl_liability/wht_total key
-    // names were not independently re-verified against kinga-tax-engine's
-    // actual result shape in this session — optional enrichment only,
-    // absence must never read as a zero obligation.
+    // Load statutory obligations from tax_computations for THIS exact run's
+    // uploads. Ω∞ Phase 9 repair (HIGH B):
+    //   1. Column is upload_id, not tb_upload_id — tax_computations has no
+    //      tb_upload_id column at all (verified against
+    //      20260628100000_tax_engine_schema.sql: `UNIQUE (company_id,
+    //      upload_id)`); the correct column name was already in use two
+    //      queries above against account_classifications (line ~131) —
+    //      this call site alone had the wrong name and could never match
+    //      any row.
+    //   2. Scoped to run.tb_upload_ids (this run's own uploads), not an
+    //      arbitrary "latest for the company" — a stale or unrelated
+    //      period's tax computation can no longer enrich this forecast.
+    //   3. UNKNOWN != ZERO: kinga-tax-engine's computation_detail does not
+    //      actually produce paye_total/vat_liability/sdl_liability/
+    //      wht_total anywhere (grepped kinga-tax-engine/index.ts — the
+    //      only "sdl" hit is a static rate-table entry, not a computed
+    //      liability) — these fields do not exist in the real payload
+    //      today. readOptionalTaxAmount returns null (unavailable) for an
+    //      absent/non-finite key rather than fabricating 0, so a future
+    //      kinga-tax-engine version that DOES populate them will be read
+    //      correctly without further changes, and today's honest absence
+    //      is preserved into the response rather than silently zeroed.
     const { data: taxComp } = await supabase
       .from("tax_computations")
       .select("computation_detail")
-      .in("tb_upload_id", run.tb_upload_ids)
+      .in("upload_id", run.tb_upload_ids)
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
 
-    const taxJson    = taxComp?.computation_detail ?? {};
-    const payeAmount = taxJson?.paye_total ?? 0;
-    const vatAmount  = taxJson?.vat_liability ?? 0;
-    const sdlAmount  = (taxJson?.sdl_liability ?? 0);
-    const whtAmount  = (taxJson?.wht_total ?? 0);
+    const taxJson = taxComp?.computation_detail ?? null;
+
+    const payeAmount = readOptionalTaxAmount(taxJson, "paye_total");
+    const vatAmount  = readOptionalTaxAmount(taxJson, "vat_liability");
+    const sdlAmount  = readOptionalTaxAmount(taxJson, "sdl_liability");
+    const whtAmount  = readOptionalTaxAmount(taxJson, "wht_total");
 
     // Build 13-week forecast
     const startDate  = getWeekMonday(new Date());
@@ -241,10 +256,14 @@ serve(async (req: Request) => {
       if (weekIdx < 13) statutoryByWeek[weekIdx][field] += amount;
     }
 
-    if (payeAmount > 0) placeStatutory(paye7th, "paye_due", payeAmount);
-    if (sdlAmount  > 0) placeStatutory(sdl7th,  "sdl_due",  sdlAmount);
-    if (vatAmount  > 0) placeStatutory(vat20th, "vat_due",  vatAmount);
-    if (whtAmount  > 0) placeStatutory(wht7th,  "wht_due",  whtAmount);
+    // null (unavailable) never schedules a payment — same as the prior
+    // `> 0` guard already did for a missing amount, just now explicit
+    // about WHY: an unknown obligation is omitted from the schedule, not
+    // asserted to be zero.
+    if (payeAmount !== null && payeAmount > 0) placeStatutory(paye7th, "paye_due", payeAmount);
+    if (sdlAmount  !== null && sdlAmount  > 0) placeStatutory(sdl7th,  "sdl_due",  sdlAmount);
+    if (vatAmount  !== null && vatAmount  > 0) placeStatutory(vat20th, "vat_due",  vatAmount);
+    if (whtAmount  !== null && whtAmount  > 0) placeStatutory(wht7th,  "wht_due",  whtAmount);
 
     // Estimate average weekly running costs from OpEx (excluding D&A and statutory)
     const { data: opexAnalyses } = await supabase
@@ -261,8 +280,13 @@ serve(async (req: Request) => {
     const forecastRows = [];
 
     // Average weekly outflow for risk flagging
+    // Unavailable statutory amounts contribute 0 to this specific burn-rate
+    // aggregate — the same "omit the unknown adjustment" semantics as the
+    // placeStatutory guards above, not a claim that the liability itself
+    // is zero (that claim is never made — see statutory_this_month below,
+    // which preserves null).
     const totalWeeklyOutflow = (apBalance / 13) + weeklyOtherOutflow +
-      (payeAmount + sdlAmount + vatAmount + whtAmount) / 13;
+      ((payeAmount ?? 0) + (sdlAmount ?? 0) + (vatAmount ?? 0) + (whtAmount ?? 0)) / 13;
 
     for (let i = 0; i < 13; i++) {
       const weekDate   = addDays(startDate, i * 7);
@@ -324,6 +348,10 @@ serve(async (req: Request) => {
       opening_cash:      cashBalance,
       ar_balance:        arBalance,
       ap_balance:        apBalance,
+      // null means unavailable (no tax_computations row for this run's
+      // uploads, or the key does not exist in computation_detail) — never
+      // read as a zero obligation. A caller must render "unavailable"
+      // distinctly from an explicit 0.
       statutory_this_month: {
         paye: payeAmount, vat: vatAmount, sdl: sdlAmount, wht: whtAmount
       },
