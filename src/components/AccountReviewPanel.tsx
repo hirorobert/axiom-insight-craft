@@ -13,7 +13,7 @@
 
 import { useMemo, useState, useCallback } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { buildReviewDecision } from "@/lib/accounting/buildReviewDecisions";
+import { buildReviewDecision, type ReviewFlagDecisions } from "@/lib/accounting/buildReviewDecisions";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -217,6 +217,16 @@ export function AccountReviewPanel({
 
   const [choices,      setChoices]      = useState<Record<string, string>>(initialChoices);
   const [excluded,     setExcluded]     = useState<Set<string>>(new Set());
+  /**
+   * Ω∞ Phase 6: explicit professional overrides for is_cash_account /
+   * is_retained_earnings / is_payroll_account, draft-only until Save. A key
+   * absent from a row's entry (or the row having no entry at all) means
+   * "not reviewed" — buildReviewDecision omits it from the payload, and
+   * resolve_account_review_batch preserves whatever the account already
+   * has. This is never defaulted to false; see DEFECT-ACCOUNT-REVIEW-
+   * AUTHORITATIVE-FLAGS-001 in CLAUDE.md §9.1.
+   */
+  const [flagChoices,  setFlagChoices]  = useState<Record<string, ReviewFlagDecisions>>({});
   const [saving,       setSaving]       = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
   const [unresolvedOnly, setUnresolvedOnly] = useState(focusUnresolved);
@@ -228,6 +238,11 @@ export function AccountReviewPanel({
     setChoices((prev) => ({ ...prev, [key]: val }));
   }, []);
 
+  /** Toggling a flag control is itself the professional decision — set, not merely touched. */
+  const setFlag = useCallback((key: string, flag: keyof ReviewFlagDecisions, val: boolean) => {
+    setFlagChoices((prev) => ({ ...prev, [key]: { ...prev[key], [flag]: val } }));
+  }, []);
+
   const toggleExclude = useCallback((key: string) => {
     setExcluded((prev) => {
       const next = new Set(prev);
@@ -237,6 +252,10 @@ export function AccountReviewPanel({
         next.add(key);
         // Clear pending choice — excluded rows need no classification.
         setChoices((c) => { const u = { ...c }; delete u[key]; return u; });
+        // Clear pending flag overrides too — an excluded account has no
+        // account_mappings row left to carry them (MARK_NON_REPORTING_ACCOUNT
+        // deletes it), so a stale flag choice here would be meaningless.
+        setFlagChoices((f) => { const u = { ...f }; delete u[key]; return u; });
       }
       return next;
     });
@@ -313,6 +332,7 @@ export function AccountReviewPanel({
           excluded.has(rowKey(account)),
           choices[rowKey(account)],
           classificationMeta,
+          flagChoices[rowKey(account)],
         )
       );
 
@@ -406,7 +426,9 @@ export function AccountReviewPanel({
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const decisionControls = (key: string, isExcluded: boolean, choice?: string) => (
+  const decisionControls = (key: string, isExcluded: boolean, choice?: string) => {
+    const flags = flagChoices[key];
+    return (
     <div className="flex flex-col items-stretch gap-2 md:items-end">
       <Select
         value={isExcluded ? "" : (choice ?? "")}
@@ -435,8 +457,35 @@ export function AccountReviewPanel({
           Exclude from import
         </span>
       </label>
+      {!isExcluded && (
+        <div className="flex flex-col items-stretch gap-1 md:items-end pt-1 border-t border-border/60 w-full md:w-[13.5rem]">
+          <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
+            Also flag this account as (optional)
+          </span>
+          {(
+            [
+              ["is_cash_account", "Cash or bank account"],
+              ["is_retained_earnings", "Retained earnings / accumulated surplus"],
+              ["is_payroll_account", "Payroll account"],
+            ] as const
+          ).map(([flag, label]) => (
+            <label key={flag} className="inline-flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                checked={flags?.[flag] ?? false}
+                onCheckedChange={(checked) => setFlag(key, flag, checked === true)}
+                disabled={isWorking}
+                className="border-border"
+              />
+              <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                {label}
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
     </div>
-  );
+    );
+  };
 
   return (
     <SurfaceCard data-testid="account-review-workbench" id="account-review">

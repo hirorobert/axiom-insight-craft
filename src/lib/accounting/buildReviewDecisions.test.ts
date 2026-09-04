@@ -89,4 +89,104 @@ describe("buildReviewDecision", () => {
     expect(d.normal_balance).toBeUndefined();
     expect(d.is_cash_account).toBeUndefined();
   });
+
+  // ── Ω∞ Phase 6 — DEFECT-ACCOUNT-REVIEW-AUTHORITATIVE-FLAGS-001 repair ──────
+  // buildReviewDecision must never manufacture false for is_cash_account /
+  // is_retained_earnings / is_payroll_account. A flag the professional did
+  // not review must be OMITTED from the payload (undefined key), never sent
+  // as false — resolve_account_review_batch reads absence as "preserve the
+  // current account_mappings value," not "clear it."
+
+  it("H. no flagDecisions argument at all — all three flags omitted, not false", () => {
+    const d = buildReviewDecision(
+      { account_code: "1010", account_name: "CRDB Bank Account" },
+      false,
+      "current_assets",
+      META,
+    );
+    expect(d.is_cash_account).toBeUndefined();
+    expect(d.is_retained_earnings).toBeUndefined();
+    expect(d.is_payroll_account).toBeUndefined();
+    expect("is_cash_account" in d).toBe(false);
+    expect("is_retained_earnings" in d).toBe(false);
+    expect("is_payroll_account" in d).toBe(false);
+  });
+
+  it("I. empty flagDecisions object — still omitted, not defaulted to false", () => {
+    const d = buildReviewDecision(
+      { account_code: "1010", account_name: "CRDB Bank Account" },
+      false,
+      "current_assets",
+      META,
+      {},
+    );
+    expect("is_cash_account" in d).toBe(false);
+    expect("is_retained_earnings" in d).toBe(false);
+    expect("is_payroll_account" in d).toBe(false);
+  });
+
+  it("J. explicit professional true for one flag is sent verbatim; the other two remain omitted", () => {
+    const d = buildReviewDecision(
+      { account_code: "1010", account_name: "CRDB Bank Account" },
+      false,
+      "current_assets",
+      META,
+      { is_cash_account: true },
+    );
+    expect(d.is_cash_account).toBe(true);
+    expect("is_retained_earnings" in d).toBe(false);
+    expect("is_payroll_account" in d).toBe(false);
+  });
+
+  it("K. explicit professional false is sent verbatim — distinct from omission, still a real decision", () => {
+    const d = buildReviewDecision(
+      { account_code: "3200", account_name: "Share Capital" },
+      false,
+      "equity",
+      META,
+      { is_retained_earnings: false },
+    );
+    expect(d.is_retained_earnings).toBe(false);
+    expect("is_retained_earnings" in d).toBe(true); // present, not omitted — a real "set false" decision
+  });
+
+  it("L. all three flags can be explicitly set together", () => {
+    const d = buildReviewDecision(
+      { account_code: "6010", account_name: "Salaries and Wages" },
+      false,
+      "operating_expenses",
+      META,
+      { is_cash_account: false, is_retained_earnings: false, is_payroll_account: true },
+    );
+    expect(d.is_cash_account).toBe(false);
+    expect(d.is_retained_earnings).toBe(false);
+    expect(d.is_payroll_account).toBe(true);
+  });
+
+  it("M. flag overrides never leak into an excluded (MARK_NON_REPORTING_ACCOUNT) decision", () => {
+    const d = buildReviewDecision(
+      { account_code: "9999", account_name: "Suspense" },
+      true,
+      "operating_expenses",
+      META,
+      { is_cash_account: true, is_payroll_account: true },
+    );
+    expect(d.decision_action).toBe("MARK_NON_REPORTING_ACCOUNT");
+    expect("is_cash_account" in d).toBe(false);
+    expect("is_retained_earnings" in d).toBe(false);
+    expect("is_payroll_account" in d).toBe(false);
+  });
+
+  it("N. flag overrides compose independently of proposal_type/decision_action (accepted-suggestion path)", () => {
+    const d = buildReviewDecision(
+      { account_code: "6171", account_name: "Office Supplies", suggested_classification: "operating_expenses" },
+      false,
+      "operating_expenses",
+      META,
+      { is_payroll_account: false },
+    );
+    expect(d.decision_action).toBe("USER_ACCEPTED_SUGGESTION");
+    expect(d.is_payroll_account).toBe(false);
+    expect("is_cash_account" in d).toBe(false);
+  });
 });

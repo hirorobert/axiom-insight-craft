@@ -344,6 +344,54 @@ Related, separately registered: **DEFECT-KINGA-COMPARATIVE-ENGINE-ZERO-SUBSTITUT
 unrelated live defect in a different comparative-period engine, found during
 Phase 4.
 
+**DEFECT-ACCOUNT-REVIEW-AUTHORITATIVE-FLAGS-001** — Severity: HIGH — Status:
+OPEN / AUTHORITATIVE PROJECTION CORRUPTION (repair in progress on the same
+branch that registers this entry — see Phase 6 below)
+
+`src/lib/accounting/buildReviewDecisions.ts` — `buildReviewDecision()`
+unconditionally emits:
+```
+is_cash_account: false,
+is_retained_earnings: false,
+is_payroll_account: false,
+```
+on every decision payload it builds, regardless of what the professional
+actually reviewed. `src/components/AccountReviewPanel.tsx` — the live
+Account Review workflow — currently has no professional input capable of
+setting these three authoritative flags `true`; there is no UI path to
+express "this is a cash account," "this is the retained-earnings account,"
+or "this is a payroll account" at all.
+`resolve_account_review_batch` (`supabase/migrations/20260816120000_account_review_authority.sql`)
+persists the resulting decision/projection into `account_mappings` via
+`INSERT ... ON CONFLICT (company_id, account_key) DO UPDATE SET
+is_cash_account = EXCLUDED.is_cash_account, ...` — an unconditional
+overwrite, so every reviewed decision (even one only about statement/
+classification) replaces any existing authoritative flag value on that
+account with `false`.
+
+Consequences:
+1. genuine cash accounts can be persisted as non-cash;
+2. genuine retained-earnings / accumulated-surplus accounts can be
+   persisted with false authority;
+3. genuine payroll accounts can be persisted with false authority;
+4. Phase 5's cash-perimeter authority can therefore be contaminated by the
+   live Account Review workflow;
+5. professional review can make authoritative `account_mappings` less
+   correct than the source/machine state.
+
+This is **not** a Phase 5 HESABU defect. HESABU correctly requires
+caller-supplied cash-perimeter authority — it never invents one. The defect
+is in the upstream professional Account Review authority that produces
+`account_mappings`. Repair owner: **V5 Phase 6**. The repair does not
+create a separate mapping authority — it corrects `buildReviewDecision()`
+and `resolve_account_review_batch()`'s existing UPSERT logic in place, so
+that a review decision no longer manufactures `false` for a flag the
+professional never reviewed.
+
+Discovered during the V5 Phase 6 Reversible Account Review Gate 0
+discovery (2026-09-04), on branch `phase6-reversible-account-review-20260904` /
+main `382f9a71415de11714a20a6e5ed818e95d376795`.
+
 ---
 
 ## 10. Current Project State (as of 2026-07-25)
