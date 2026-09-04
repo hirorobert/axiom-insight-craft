@@ -1,41 +1,107 @@
 -- ════════════════════════════════════════════════════════════════════════════
--- Ω∞ PHASE 6 — ACCOUNT REVIEW AUTHORITATIVE FLAG PRESERVATION
+-- Ω∞ PHASE 6 — ACCOUNT REVIEW AUTHORITATIVE TRI-STATE FLAGS
 --
 -- Repairs DEFECT-ACCOUNT-REVIEW-AUTHORITATIVE-FLAGS-001 (CLAUDE.md §9.1) at
--- its root in resolve_account_review_batch (20260816120000). Reuses the
--- exact existing account_mappings schema unchanged — no new column, no new
--- table. This migration ONLY redefines the function body.
+-- its root in resolve_account_review_batch (20260816120000). This is a
+-- repair-forward of this migration's own prior, rejected state (candidate
+-- ae2452e59c24a77fa02f0b6df5883ce2be3d0593) — that state still collapsed
+-- "no professional decision" into a manufactured FALSE for a BRAND-NEW
+-- account_mappings row. This file supersedes it in place; the earlier
+-- state never reached main (still 382f9a71415de11714a20a6e5ed818e95d376795)
+-- so there is nothing to roll back — this is simply the migration's one
+-- coherent Phase 6 state.
 --
--- Prior behaviour: the ON CONFLICT DO UPDATE clause unconditionally set
---   is_cash_account = EXCLUDED.is_cash_account
--- and the INSERT VALUES computed EXCLUDED.is_cash_account as
---   coalesce((v_decision->>'is_cash_account')::boolean, false)
--- so ANY decision touching an account (even one only reclassifying its
--- statement/line item) silently overwrote a previously professionally-set
--- is_cash_account / is_retained_earnings / is_payroll_account flag with
--- false, because the frontend previously sent literal `false` for all
--- three keys on every decision.
+-- Required semantic model (three-valued, per flag, independently):
+--   NULL  = no professional decision exists for this dimension
+--   TRUE  = professional explicitly decided true
+--   FALSE = professional explicitly decided false
 --
--- Corrected behaviour (paired with buildReviewDecisions.ts now omitting a
--- flag key entirely when the professional did not review that dimension):
---   - On INSERT (no prior account_mappings row): a NOT NULL boolean column
---     still needs a concrete value, and there is no prior truth to
---     protect, so an absent key still defaults to false for a brand-new
---     mapping.
---   - On CONFLICT UPDATE (a prior row exists): a key ABSENT from the
---     decision payload now PRESERVES the current row's value instead of
---     being coalesced to false. A key PRESENT (true or false) still
---     overwrites — that is a genuine, explicit professional decision on
---     that dimension, and latest-effective-wins is the correct semantics
---     for it (same law as every other field this function projects).
+-- account_mappings.is_cash_account / is_retained_earnings / is_payroll_account
+-- were defined BOOLEAN NOT NULL DEFAULT false (20260122083339 /
+-- 20260626200000) — a two-valued column cannot represent "not reviewed"
+-- at all, so representing the tri-state model truthfully requires relaxing
+-- that constraint. This is the minimum schema change that does so: DROP
+-- NOT NULL and DROP DEFAULT on exactly these three columns. No new column,
+-- no new table, no change to any other column.
+--
+-- resolve_account_review_batch is corrected to match:
+--   - NEW row (no prior account_mappings projection): a key ABSENT from
+--     the decision payload now inserts NULL (genuinely "not reviewed"),
+--     not false. A key PRESENT (true/false) inserts that value verbatim.
+--   - EXISTING row (ON CONFLICT): a key ABSENT now PRESERVES the row's
+--     current value (NULL stays NULL, TRUE stays TRUE, FALSE stays FALSE)
+--     instead of being coalesced to false. A key PRESENT overwrites with
+--     that explicit value — a genuine professional decision on that
+--     dimension, latest-effective-wins, same law as every other field.
+--
+-- Downstream reader audit (Phase 6 north-star directive §3), all confirmed
+-- NULL-safe as-is, none require code changes:
+--   - kinga-findings-engine: `.eq("is_retained_earnings", true)` /
+--     `.eq("is_payroll_account", true)` — SQL `NULL = true` is NULL, never
+--     TRUE, so an unreviewed row is correctly excluded from the TIER-1
+--     override result set and TIER-2 name-pattern fallback applies. No
+--     behaviour change; KINGA remains untouched, on hold.
+--   - process-trial-balance: its own account_mappings INSERTs (machine
+--     auto-classification, lines ~793-795/813/858/895-901) are a
+--     DIFFERENT write path with no professional review at all — out of
+--     Phase 6's scope, left untouched. Its one read of the flag
+--     (`if (m.is_cash_account) cashBalance = signed`, line ~951) is a
+--     plain JS truthy check; `null` and `false` are both falsy, so its
+--     existing `?? false` coalesce at mapping-object construction
+--     (line ~1762) is behaviourally inert for this consumer either way —
+--     confirmed by reading, not modified, per the directive's "do not
+--     reopen Phase 5 / KINGA remains on hold" boundary.
+--   - AccountMappingManager.tsx: a separate, pre-existing, direct-CRUD
+--     admin surface (not the Phase 2A/6 review batch RPC). A NULL row
+--     renders as an unchecked Switch / falsy JSX guard — no crash, no
+--     corruption; saving through that tool records ITS OWN explicit
+--     true/false decision via its own separate authority. Untouched;
+--     unrelated to this repair.
+--   - cashFlowEngines.ts / primaryCashFlowEngine.ts: pure modules: never
+--     query account_mappings; the flag is only named in doc comments as a
+--     caller-resolved input. No runtime reader exists yet — Phase 5's
+--     STRUCTURALLY_INDEPENDENT_BUT_RUNTIME_AUTHORITY_NOT_YET_WIRED status
+--     is unaffected. Not reopened.
 --
 -- No other clause of resolve_account_review_batch changes: actor
--- resolution, role gating, idempotency, advisory locking, decision
--- logging, and MARK_NON_REPORTING_ACCOUNT handling are byte-for-byte the
--- certified 20260816120000 definition.
+-- resolution, role gating, advisory locking, decision logging, and
+-- MARK_NON_REPORTING_ACCOUNT handling are byte-for-byte the certified
+-- 20260816120000 definition. Idempotency hashing is extended to keep
+-- distinguishing omitted / false / true for these three keys (unchanged
+-- from the superseded state).
 -- ════════════════════════════════════════════════════════════════════════════
 
 SET search_path TO public, pg_catalog;
+
+-- ── Minimum schema change: relax exactly the three flags, nothing else ──────
+ALTER TABLE public.account_mappings
+  ALTER COLUMN is_cash_account      DROP NOT NULL,
+  ALTER COLUMN is_cash_account      DROP DEFAULT,
+  ALTER COLUMN is_retained_earnings DROP NOT NULL,
+  ALTER COLUMN is_retained_earnings DROP DEFAULT,
+  ALTER COLUMN is_payroll_account   DROP NOT NULL,
+  ALTER COLUMN is_payroll_account   DROP DEFAULT;
+
+COMMENT ON COLUMN public.account_mappings.is_cash_account IS
+  'Ω∞ Phase 6 tri-state professional authority: NULL = no professional '
+  'decision exists for this dimension (never treated as false by any '
+  'authoritative reader). TRUE/FALSE = explicit professional decision, '
+  'set only via resolve_account_review_batch. See '
+  'DEFECT-ACCOUNT-REVIEW-AUTHORITATIVE-FLAGS-001, CLAUDE.md section 9.1.';
+
+COMMENT ON COLUMN public.account_mappings.is_retained_earnings IS
+  'Ω∞ Phase 6 tri-state professional authority: NULL = no professional '
+  'decision exists for this dimension (never treated as false by any '
+  'authoritative reader). TRUE/FALSE = explicit professional decision, '
+  'set only via resolve_account_review_batch. See '
+  'DEFECT-ACCOUNT-REVIEW-AUTHORITATIVE-FLAGS-001, CLAUDE.md section 9.1.';
+
+COMMENT ON COLUMN public.account_mappings.is_payroll_account IS
+  'Ω∞ Phase 6 tri-state professional authority: NULL = no professional '
+  'decision exists for this dimension (never treated as false by any '
+  'authoritative reader). TRUE/FALSE = explicit professional decision, '
+  'set only via resolve_account_review_batch. See '
+  'DEFECT-ACCOUNT-REVIEW-AUTHORITATIVE-FLAGS-001, CLAUDE.md section 9.1.';
 
 CREATE OR REPLACE FUNCTION public.resolve_account_review_batch(
   p_company_id         UUID,
@@ -227,11 +293,13 @@ BEGIN
         (v_decision->>'classification')::public.account_classification,
         coalesce(v_decision->>'line_item', v_decision->>'account_name'),
         v_decision->>'normal_balance',
-        -- Brand-new row: no prior authoritative value to protect. A NOT
-        -- NULL boolean column still needs a concrete value.
-        coalesce((v_decision->>'is_cash_account')::boolean, false),
-        coalesce((v_decision->>'is_retained_earnings')::boolean, false),
-        coalesce((v_decision->>'is_payroll_account')::boolean, false),
+        -- Brand-new row: a key ABSENT from the payload means "no
+        -- professional decision" — the column is now nullable, so this
+        -- inserts genuine NULL, never a manufactured false. `->>` on a
+        -- missing JSONB key already yields SQL NULL; no coalesce needed.
+        (v_decision->>'is_cash_account')::boolean,
+        (v_decision->>'is_retained_earnings')::boolean,
+        (v_decision->>'is_payroll_account')::boolean,
         'user_approved', now()
       )
       ON CONFLICT (company_id, account_key) DO UPDATE SET
@@ -308,6 +376,12 @@ REVOKE ALL ON FUNCTION public.resolve_account_review_batch(UUID, UUID, UUID, JSO
 GRANT EXECUTE ON FUNCTION public.resolve_account_review_batch(UUID, UUID, UUID, JSONB) TO authenticated;
 
 -- ── Rollback (NOT executed — for reference only) ─────────────────────────────
--- Restores the 20260816120000 definition verbatim (unconditional overwrite).
--- Not provided inline: re-apply 20260816120000's CREATE OR REPLACE FUNCTION
--- block for public.resolve_account_review_batch if a rollback is ever needed.
+-- Restores the 20260816120000 definition verbatim (unconditional overwrite)
+-- and re-tightens the three columns:
+--   UPDATE public.account_mappings SET is_cash_account = false WHERE is_cash_account IS NULL;
+--   ALTER TABLE public.account_mappings ALTER COLUMN is_cash_account SET NOT NULL, ALTER COLUMN is_cash_account SET DEFAULT false;
+--   -- (repeat for is_retained_earnings, is_payroll_account)
+-- Not provided as an executable block: re-apply 20260816120000's CREATE OR
+-- REPLACE FUNCTION for public.resolve_account_review_batch if a rollback is
+-- ever needed. Re-tightening would re-collapse NULL into false and should
+-- only be done deliberately, never as a routine rollback step.

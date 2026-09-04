@@ -18,18 +18,23 @@ export interface ReviewDecisionAccount {
 }
 
 /**
- * Ω∞ Phase 6: explicit professional overrides for the three authoritative
- * account_mappings flags (is_cash_account / is_retained_earnings /
- * is_payroll_account). Each field is tri-state by omission, not by value:
+ * Ω∞ Phase 6: explicit professional overrides for the three authoritative,
+ * tri-state account_mappings flags (is_cash_account / is_retained_earnings /
+ * is_payroll_account — each column is nullable BOOLEAN as of migration
+ * 20260904120000, NULL meaning no professional decision exists for that
+ * dimension). Each field here is tri-state by omission, not by value:
  *   - key absent from this object     → not reviewed this decision. The
- *     built payload OMITS the corresponding key entirely, so
- *     resolve_account_review_batch's ON CONFLICT UPDATE preserves whatever
- *     value the account_mappings row already carries. This is what stops a
- *     routine classification decision from silently erasing a previously
- *     professionally-set flag.
+ *     built payload OMITS the corresponding key entirely. In
+ *     resolve_account_review_batch: a brand-new account_mappings row gets
+ *     NULL for it (never a manufactured false); an existing row PRESERVES
+ *     whatever value it already carries (NULL stays NULL, true stays true,
+ *     false stays false). This is what stops a routine classification
+ *     decision from silently erasing or fabricating a flag the professional
+ *     never reviewed.
  *   - key present, true or false      → the professional explicitly
  *     reviewed this dimension and recorded that decision. Sent through
- *     verbatim; becomes the new authoritative value.
+ *     verbatim; becomes the new authoritative value (NULL → that value on
+ *     a new row, latest-decision-wins overwrite on an existing row).
  * There is no machine-suggested value for any of these three flags
  * anywhere in this codebase (process-trial-balance's classifier never
  * surfaces a suggested is_cash/is_retained_earnings/is_payroll signal into
