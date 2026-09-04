@@ -1,8 +1,11 @@
 /**
  * movementSchedules.ts — Ω∞ public-sector / framework intelligence engine,
  * Slice 11: supporting-schedule contracts / movement engine (Section XIV).
+ * Ω∞ Phase 7 extends this file in place (V5: "PPE Movement, Deferred
+ * Income, Capital Grants, Provisions") rather than creating a competing
+ * schedule engine.
  *
- * Pure, READ ONLY — no I/O. Two parts:
+ * Pure, READ ONLY — no I/O. Three parts:
  *
  * 1. assetCategoryMovement — a REAL, fully-computed PPE roll-forward engine.
  *    Built only after verifying (in Python, against the raw Arusha exports,
@@ -14,7 +17,11 @@
  *    additions are CUMULATIVE-to-date figures (the current period's
  *    addition is the delta between this period's and the prior period's
  *    cumulative figure). The engine below reflects the verified mechanic,
- *    not the initial wrong guess.
+ *    not the initial wrong guess. NOT rewritten for Phase 7 — its
+ *    cost/accumulated-depreciation/NBV shape and MUSE-specific cumulative
+ *    derivation do not generalise honestly to schedules with no
+ *    depreciation concept (Deferred Income, Capital Grants, Provisions);
+ *    forcing symmetry here would itself be a fabrication.
  *
  * 2. assessScheduleRequirement — pure contracts (Section XIV's named
  *    schedule types) with a materiality-based REQUIRED/RECOMMENDED/
@@ -24,6 +31,17 @@
  *    in the Arusha DC data this session worked from — they stay contracts
  *    only, never given fabricated computation logic (C4/Section XVIII).
  *
+ * 3. buildGenericScheduleMovement — Ω∞ Phase 7: the generic, framework- and
+ *    source-system-neutral movement engine for DEFERRED_INCOME_MOVEMENT,
+ *    CAPITAL_GRANTS_MOVEMENT and PROVISIONS_MOVEMENT. Implements the
+ *    generic accounting identity `closing = opening + Σ(signed evidenced
+ *    movements)` — never the PPE-shaped 7-term formula, which does not
+ *    hold for schedules with no depreciation/disposal concept. Consumes
+ *    already-normalized, discrete, SIGNED movement amounts only; resolving
+ *    a source system's own reporting convention (e.g. PPE's MUSE
+ *    cumulative-to-date figures) into a discrete period movement is a
+ *    caller-side adapter concern, deliberately kept out of this contract.
+ *
  * "Do not block basic ingestion because schedules are absent" (Section
  * XIV): every function here is advisory/informational only — nothing
  * blocks, throws, or gates on a schedule being required.
@@ -32,6 +50,13 @@
 import type { IpsasPresentationCode } from "./museIpsasRulePack";
 import type { ComparativeAmount } from "./comparativeEvidence";
 import type { ClassifiedBalance } from "./statementAggregationEngine";
+import type { EvidenceItem } from "./entityContext";
+// Ω∞ Phase 7: PreflightVerdict is reused, not re-derived — a pure, zero-
+// import leaf type (computePreflight.ts imports nothing itself: no React,
+// no Supabase, no workspace state). A type-only import adds no runtime
+// coupling; introducing a parallel string union here instead would be the
+// actual violation (a second, competing certification vocabulary).
+import type { PreflightVerdict } from "../workspace/computePreflight";
 
 // ── 1. PPE / asset-category movement (the one real, fully-computed engine) ────
 
@@ -138,7 +163,16 @@ export type SupportingScheduleType =
   | "EMPLOYEE_BENEFITS_SCHEDULE"
   | "COMMITMENTS_SCHEDULE"
   | "RELATED_PARTIES_SCHEDULE"
-  | "BUDGET_TO_ACTUAL_SCHEDULE";
+  | "BUDGET_TO_ACTUAL_SCHEDULE"
+  // Ω∞ Phase 7: added per V5's required schedule list. Structurally
+  // TB-derivable in principle (a trial balance CAN carry a liability
+  // provisions account, IAS 37 / IPSAS 19 sense) — NOT added to
+  // NEVER_TB_DERIVABLE. But no such presentationCode exists in
+  // TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 today (the only "provision" codes
+  // there are RECEIVABLES_ECL_PROVISION_CONTRA / CASH_ECL_PROVISION_CONTRA
+  // — contra-asset impairment allowances, NOT liability provisions; never
+  // to be conflated with this schedule type). See SCHEDULE_PRESENTATION_CODES.
+  | "PROVISIONS_MOVEMENT";
 
 export type ScheduleRequirementStatus =
   | "REQUIRED" // material balances exist above threshold
@@ -174,6 +208,12 @@ const SCHEDULE_PRESENTATION_CODES: Record<SupportingScheduleType, IpsasPresentat
   // distinguishable at today's presentationCode granularity — resolves to
   // NOT_APPLICABLE (empty list, not in NEVER_TB_DERIVABLE), not a guess.
   CAPITAL_GRANTS_MOVEMENT: [],
+  // Ω∞ Phase 7: no liability-Provisions presentationCode exists in the
+  // current rule pack (see SupportingScheduleType comment above) — empty
+  // list, NOT in NEVER_TB_DERIVABLE (a TB could carry one), resolves
+  // honestly to NOT_APPLICABLE via the balance-count path below, same
+  // treatment as INTANGIBLES_MOVEMENT / BORROWINGS_MOVEMENT.
+  PROVISIONS_MOVEMENT: [],
   RECEIVABLES_ECL_MOVEMENT: ["RECEIVABLES", "RECEIVABLES_ECL_PROVISION_CONTRA", "CASH_ECL_PROVISION_CONTRA"],
   INVENTORIES_MOVEMENT: ["INVENTORIES"],
   // No real evidence — zero borrowings-classified codes in Arusha DC's data
@@ -191,9 +231,10 @@ const SCHEDULE_PRESENTATION_CODES: Record<SupportingScheduleType, IpsasPresentat
  * cannot represent even in principle (actuarial assumptions, contract
  * terms, related-party status, the APPROVED budget document as opposed to
  * actuals). Deliberately does NOT include INTANGIBLES_MOVEMENT,
- * BORROWINGS_MOVEMENT, or CAPITAL_GRANTS_MOVEMENT — a TB absolutely could
- * carry an intangible-asset or borrowings account; Arusha DC's specific
- * real data simply doesn't have one. That is NOT_APPLICABLE (nothing to
+ * BORROWINGS_MOVEMENT, CAPITAL_GRANTS_MOVEMENT, or (Ω∞ Phase 7)
+ * PROVISIONS_MOVEMENT — a TB absolutely could carry an intangible-asset,
+ * borrowings, or liability-provisions account; the current rule pack
+ * simply has none classified. That is NOT_APPLICABLE (nothing to
  * disclose), a different and more honest status than "impossible to
  * assess" (Slice 11 gate caught this exact conflation before it shipped).
  */
@@ -256,5 +297,221 @@ export function assessScheduleRequirement(
     reason: `${relevant.length} account(s) totalling ${materialBalance.toLocaleString()} TZS exist but are below the materiality threshold.`,
     relevantPresentationCodes,
     materialBalance,
+  };
+}
+
+// ── 3. Generic supporting-schedule movement engine (Ω∞ Phase 7) ─────────────
+//
+// Covers DEFERRED_INCOME_MOVEMENT, CAPITAL_GRANTS_MOVEMENT and
+// PROVISIONS_MOVEMENT. PPE keeps buildAssetCategoryMovement above,
+// unmodified — see file header.
+
+/** The three Phase 7 schedule types this generic engine actually computes. */
+export type GenericScheduleType =
+  | "DEFERRED_INCOME_MOVEMENT"
+  | "CAPITAL_GRANTS_MOVEMENT"
+  | "PROVISIONS_MOVEMENT";
+
+/**
+ * Movement categories, typed per schedule accounting semantics — never one
+ * generic "movement" bucket. The engine never infers increase/decrease from
+ * a category name; direction lives entirely in the caller-supplied signed
+ * amount (a RELEASE_TO_INCOME is negative because the evidence says so, not
+ * because this engine assumes releases are always decreases).
+ *
+ * OTHER_EVIDENCED_MOVEMENT exists on each schedule for a genuinely evidenced
+ * movement that doesn't fit the two primary categories (e.g. an FX
+ * retranslation on a grant). It is NEVER auto-inserted by the engine to
+ * force reconciliation — only ever caller-supplied, with its own evidence —
+ * so it is not a balancing plug: an un-evidenced gap surfaces as
+ * CANNOT_ASSESS / a dataGap, never as a fabricated "other" line.
+ */
+export type DeferredIncomeMovementCategory =
+  | "RECEIPT_INCREASE"
+  | "RELEASE_TO_INCOME"
+  | "OTHER_EVIDENCED_MOVEMENT";
+
+export type CapitalGrantMovementCategory =
+  | "GRANT_RECEIVED"
+  | "RECOGNIZED_RELEASED"
+  | "OTHER_EVIDENCED_MOVEMENT";
+
+export type ProvisionMovementCategory =
+  | "CHARGED_ADDITIONAL"
+  | "UTILIZED"
+  | "REVERSED_UNUSED"
+  | "OTHER_EVIDENCED_MOVEMENT";
+
+export type ScheduleMovementCategory =
+  | DeferredIncomeMovementCategory
+  | CapitalGrantMovementCategory
+  | ProvisionMovementCategory;
+
+export interface ScheduleMovementLine {
+  category: ScheduleMovementCategory;
+  /**
+   * Signed, already-normalized amount for this movement. `null` means this
+   * category is relevant for the period but could not be evidenced —
+   * distinct from omitting the line entirely (which means the caller has
+   * no reason to believe this category occurred at all this period) and
+   * distinct from an explicit `0` (a real, evidenced "nothing moved in
+   * this category"). A `null` amount blocks closingBalance computation —
+   * it is never coalesced to 0.
+   */
+  amount: number | null;
+  evidence: EvidenceItem[];
+}
+
+/**
+ * Caller-supplied TB-certification precondition. Reuses computePreflight.ts's
+ * PreflightVerdict rather than re-deriving certification status — this
+ * engine never queries tb_certifications, computeCertificationReadiness(),
+ * Supabase, or React state; the caller resolves the verdict via the
+ * existing SAFISHA path and passes only the resulting value in. Only
+ * "certified" authorises computation — every other verdict
+ * ("review" | "blocked" | "pending" | "stale" | "unknown" | "superseded")
+ * fails closed to CANNOT_ASSESS, since none of them prove current,
+ * authoritative TB evidence for the account population being scheduled.
+ */
+export interface ScheduleCertificationPrecondition {
+  verdict: PreflightVerdict;
+}
+
+export type ScheduleReconciliationStatus =
+  | "RECONCILED"
+  | "DRIFT_WITHIN_TOLERANCE"
+  | "DRIFT_EXCEEDS_TOLERANCE"
+  | "CANNOT_ASSESS";
+
+export interface SupportingScheduleResult {
+  scheduleType: GenericScheduleType;
+  /** Phase 4 authority — never re-derived, never defaulted. */
+  openingBalance: ComparativeAmount;
+  /** Deterministically ordered — see compareScheduleMovementLines. */
+  movements: ScheduleMovementLine[];
+  /** opening + Σ(movements). Null when opening is not KNOWN/ZERO, any
+   *  movement amount is null, or certification precondition fails. */
+  closingBalance: number | null;
+  /** This period's TB-derived closing balance for the same account
+   *  population, supplied by the caller. Null = not available — never 0. */
+  tbClosingBalance: number | null;
+  reconciliation: ScheduleReconciliationStatus;
+  /** Absolute drift between closingBalance and tbClosingBalance. Null
+   *  whenever reconciliation is CANNOT_ASSESS. */
+  reconciliationDrift: number | null;
+  /** Explicit list of what could not be computed/assessed and why — never
+   *  silently omitted (mirrors buildAssetCategoryMovement's dataGaps). */
+  dataGaps: string[];
+}
+
+export interface BuildGenericScheduleMovementInput {
+  scheduleType: GenericScheduleType;
+  openingBalance: ComparativeAmount;
+  movements: ScheduleMovementLine[];
+  tbClosingBalance: number | null;
+  /** Reconciliation tolerance, absolute TZS — caller-supplied, mirroring
+   *  hesabu-validate's variance_materiality-sourced tolerances. Never
+   *  hardcoded inside this engine. */
+  toleranceTzs: number;
+  certification: ScheduleCertificationPrecondition;
+}
+
+/**
+ * Deterministic movement ordering (§12): the SAME logical set of movements
+ * supplied in a different caller-side order must produce a byte-identical
+ * `movements` output array. Sorted by category (plain string comparison —
+ * not localeCompare, which is not guaranteed stable across ICU
+ * environments), then by amount ascending as a tiebreaker; null amounts
+ * sort first within a category (Number.NEGATIVE_INFINITY substitute used
+ * only for comparison, never returned or summed).
+ */
+function compareScheduleMovementLines(a: ScheduleMovementLine, b: ScheduleMovementLine): number {
+  if (a.category !== b.category) return a.category < b.category ? -1 : 1;
+  const aAmt = a.amount ?? Number.NEGATIVE_INFINITY;
+  const bAmt = b.amount ?? Number.NEGATIVE_INFINITY;
+  if (aAmt !== bAmt) return aAmt < bAmt ? -1 : 1;
+  return 0;
+}
+
+/**
+ * The generic Phase 7 movement engine: `closing = opening + Σ(signed
+ * evidenced movements)`. Pure, deterministic, fails closed at every
+ * boundary — never a `|| 0` / `?? 0` default, never a synthetic movement,
+ * never a balancing plug.
+ */
+export function buildGenericScheduleMovement(
+  input: BuildGenericScheduleMovementInput,
+): SupportingScheduleResult {
+  const dataGaps: string[] = [];
+  const orderedMovements = [...input.movements].sort(compareScheduleMovementLines);
+
+  if (input.certification.verdict !== "certified") {
+    dataGaps.push(
+      `Trial balance certification verdict is "${input.certification.verdict}", not "certified" — ` +
+        `schedule computation requires certified/current TB authority and cannot proceed.`,
+    );
+    return {
+      scheduleType: input.scheduleType,
+      openingBalance: input.openingBalance,
+      movements: orderedMovements,
+      closingBalance: null,
+      tbClosingBalance: input.tbClosingBalance,
+      reconciliation: "CANNOT_ASSESS",
+      reconciliationDrift: null,
+      dataGaps,
+    };
+  }
+
+  const openingValue =
+    input.openingBalance.state === "KNOWN" ? input.openingBalance.value :
+    input.openingBalance.state === "ZERO"  ? 0 :
+    null;
+  if (openingValue === null) {
+    dataGaps.push(
+      `Opening balance is ${input.openingBalance.state} — closing balance cannot be computed from an unavailable opening.`,
+    );
+  }
+
+  let movementSum: number | null = 0;
+  for (const m of orderedMovements) {
+    if (m.amount === null) {
+      dataGaps.push(
+        `Movement category "${m.category}" has no evidenced amount for this period — closing balance cannot be computed from an incomplete movement set.`,
+      );
+      movementSum = null;
+    } else if (movementSum !== null) {
+      movementSum += m.amount;
+    }
+  }
+
+  const closingBalance = (openingValue !== null && movementSum !== null) ? openingValue + movementSum : null;
+
+  let reconciliation: ScheduleReconciliationStatus;
+  let reconciliationDrift: number | null = null;
+
+  if (closingBalance === null) {
+    reconciliation = "CANNOT_ASSESS";
+  } else if (input.tbClosingBalance === null) {
+    reconciliation = "CANNOT_ASSESS";
+    dataGaps.push(
+      "No TB closing balance supplied for this account population — reconciliation cannot be assessed.",
+    );
+  } else {
+    reconciliationDrift = Math.abs(closingBalance - input.tbClosingBalance);
+    reconciliation =
+      reconciliationDrift === 0 ? "RECONCILED" :
+      reconciliationDrift <= input.toleranceTzs ? "DRIFT_WITHIN_TOLERANCE" :
+      "DRIFT_EXCEEDS_TOLERANCE";
+  }
+
+  return {
+    scheduleType: input.scheduleType,
+    openingBalance: input.openingBalance,
+    movements: orderedMovements,
+    closingBalance,
+    tbClosingBalance: input.tbClosingBalance,
+    reconciliation,
+    reconciliationDrift,
+    dataGaps,
   };
 }
