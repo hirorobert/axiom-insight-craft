@@ -124,5 +124,88 @@ export function isEntitledForPrivilegedUse(result: EntitlementResult): boolean {
   return result.status === "ENTITLED";
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Licence-period selection — pure mirror of the query inside
+// _resolve_entitlement_for_owner() and of the invariant enforced by
+// excl_cl_no_overlapping_authoritative_periods (a PostgreSQL EXCLUDE USING
+// gist constraint, see the migration). NON-AUTHORITATIVE: the real
+// overlap-prevention lives in Postgres and cannot be exercised by a unit
+// test in this environment (no live database). This mirror exists so the
+// SELECTION logic — "given a valid, non-overlapping set of authoritative
+// periods, which one is current right now" — is unit-tested, and so the
+// invariant's own overlap semantics are documented and checkable in TS.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface LicencePeriod {
+  id: string;
+  status: LicenceStatus;
+  planCode: string;
+  featureCodes: readonly string[];
+  effectiveStart: Date;
+  /** null = open-ended (unbounded upper range bound, matching tstzrange(start, NULL)). */
+  effectiveEnd: Date | null;
+}
+
+/** Half-open [start, end) overlap test, matching tstzrange(..., '[)'). */
+function rangesOverlap(
+  aStart: Date,
+  aEnd: Date | null,
+  bStart: Date,
+  bEnd: Date | null,
+): boolean {
+  const aEndMs = aEnd ? aEnd.getTime() : Infinity;
+  const bEndMs = bEnd ? bEnd.getTime() : Infinity;
+  return aStart.getTime() < bEndMs && bStart.getTime() < aEndMs;
+}
+
+export function periodsOverlap(a: LicencePeriod, b: LicencePeriod): boolean {
+  return rangesOverlap(a.effectiveStart, a.effectiveEnd, b.effectiveStart, b.effectiveEnd);
+}
+
+/**
+ * Mirrors excl_cl_no_overlapping_authoritative_periods: true if `candidate`
+ * coexisting with `existing` would violate the DB invariant (both
+ * ACTIVE/GRACE and overlapping in time). Documents the invariant's logic
+ * for testing — the real enforcement is the Postgres EXCLUDE constraint on
+ * commercial_licences, not this function.
+ */
+export function wouldViolateLicenceAuthorityInvariant(
+  candidate: LicencePeriod,
+  existing: readonly LicencePeriod[],
+): boolean {
+  if (!ENTITLING_LICENCE_STATUSES.includes(candidate.status)) return false;
+  return existing.some(
+    (p) =>
+      p.id !== candidate.id &&
+      ENTITLING_LICENCE_STATUSES.includes(p.status) &&
+      periodsOverlap(candidate, p),
+  );
+}
+
+/**
+ * Mirrors the resolver's own query: among ACTIVE/GRACE periods whose
+ * [effectiveStart, effectiveEnd) window contains `now`, pick the current
+ * one. For a VALID input (one that satisfies
+ * excl_cl_no_overlapping_authoritative_periods, i.e. no two ACTIVE/GRACE
+ * periods here overlap each other), there is provably at most one
+ * candidate — the sort is defense-in-depth, not a tie-break relied upon in
+ * practice. PENDING/SUSPENDED/CANCELLED/EXPIRED periods never participate,
+ * regardless of their dates.
+ */
+export function selectCurrentAuthoritativeLicence(
+  periods: readonly LicencePeriod[],
+  now: Date,
+): LicencePeriod | null {
+  const nowMs = now.getTime();
+  const candidates = periods.filter(
+    (p) =>
+      ENTITLING_LICENCE_STATUSES.includes(p.status) &&
+      p.effectiveStart.getTime() <= nowMs &&
+      (p.effectiveEnd === null || p.effectiveEnd.getTime() > nowMs),
+  );
+  if (candidates.length === 0) return null;
+  return [...candidates].sort((a, b) => b.effectiveStart.getTime() - a.effectiveStart.getTime())[0];
+}
+
 export { FEATURE_CODES };
 export type { FeatureCode };

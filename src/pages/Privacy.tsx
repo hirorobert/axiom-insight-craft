@@ -9,13 +9,6 @@ export default function Privacy() {
         <h1 className="text-3xl font-bold text-foreground mb-2">Privacy Policy</h1>
         <p className="text-sm text-muted-foreground mb-10">Last updated: 4 September 2026</p>
 
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 mb-10 text-sm text-muted-foreground">
-          This page is a plain-language placeholder pending professional legal
-          review. It describes current data handling practices as implemented in
-          the service today, not a certified compliance posture (GDPR, ISO, SOC 2,
-          or otherwise) — no such certification is claimed.
-        </div>
-
         <section className="space-y-8 text-sm leading-relaxed text-muted-foreground">
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">1. What we collect</h2>
@@ -35,7 +28,10 @@ export default function Privacy() {
               rest, behind authentication and row-level access controls scoped to
               your firm's own companies and workspace members. Staff do not access
               your accounting data except as needed to operate, secure, or support
-              the service, or to comply with the law.
+              the service, or to comply with the law. These are the practices we
+              follow; we do not claim a certified compliance posture (such as
+              GDPR, ISO 27001, or SOC 2) unless and until we hold that
+              certification.
             </p>
           </div>
 

@@ -10,13 +10,6 @@ export default function Terms() {
         <h1 className="text-3xl font-bold text-foreground mb-2">Terms of Service</h1>
         <p className="text-sm text-muted-foreground mb-10">Last updated: 4 September 2026</p>
 
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 mb-10 text-sm text-muted-foreground">
-          This page is a plain-language placeholder pending professional legal review.
-          It describes the service as it exists today. It is not a substitute for
-          advice from a qualified lawyer, and it will be replaced with reviewed
-          legal terms before any paid subscription is offered.
-        </div>
-
         <section className="space-y-8 text-sm leading-relaxed text-muted-foreground">
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">1. What SAFF ERP is today</h2>

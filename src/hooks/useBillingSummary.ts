@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { callCommercialRpc } from "@/lib/commercial/commercialRpc";
 import type { LicenceStatus } from "@/lib/commercial/entitlementContract";
+import { generateCorrelationId, logWithContext } from "@/lib/observability/correlationId";
 
 export interface BillingSummary {
   hasBillingCustomer: boolean;
@@ -30,45 +31,33 @@ export function useBillingSummary(): UseBillingSummaryResult {
 
   useEffect(() => {
     let cancelled = false;
+    const correlationId = generateCorrelationId();
 
     async function load() {
       setLoading(true);
       setError(null);
 
-      // `get_my_billing_summary` is defined in migration
-      // 20260904180000_commercial_foundation_wave_omega1.sql, not yet applied
-      // to any project this environment can reach — generated Supabase types
-      // predate it and cannot be regenerated without live DB access. Cast is
-      // scoped to the function name only.
-      const { data, error: rpcError } = await supabase.rpc("get_my_billing_summary" as never);
+      const { data, error: rpcError } = await callCommercialRpc("get_my_billing_summary");
 
       if (cancelled) return;
 
       if (rpcError) {
+        logWithContext("error", "get_my_billing_summary RPC failed", { correlationId });
         setError(rpcError.message);
         setSummary(null);
         setLoading(false);
         return;
       }
 
-      const raw = data as {
-        has_billing_customer: boolean;
-        plan_code: string | null;
-        licence_status: LicenceStatus | null;
-        effective_start: string | null;
-        effective_end: string | null;
-        entitlements: string[];
-      } | null;
-
       setSummary(
-        raw
+        data
           ? {
-              hasBillingCustomer: raw.has_billing_customer,
-              planCode: raw.plan_code,
-              licenceStatus: raw.licence_status,
-              effectiveStart: raw.effective_start,
-              effectiveEnd: raw.effective_end,
-              entitlements: raw.entitlements ?? [],
+              hasBillingCustomer: data.has_billing_customer,
+              planCode: data.plan_code,
+              licenceStatus: data.licence_status,
+              effectiveStart: data.effective_start,
+              effectiveEnd: data.effective_end,
+              entitlements: data.entitlements ?? [],
             }
           : null,
       );

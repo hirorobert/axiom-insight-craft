@@ -8,13 +8,13 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, User, Building2, Save, Loader2, CreditCard } from "lucide-react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import { AuditTrail } from "@/components/AuditTrail";
 import { FirmManagementPanel } from "@/components/FirmManagementPanel";
 import { CompanyManager } from "@/components/CompanyManager";
 import { PeriodCloseManager } from "@/components/PeriodCloseManager";
 import { useAuditLog } from "@/hooks/useAuditLog";
+import { Badge } from "@/components/ui/badge";
 import { useBillingSummary } from "@/hooks/useBillingSummary";
 import { FEATURE_DESCRIPTIONS, isFeatureCode } from "@/lib/commercial/featureRegistry";
 

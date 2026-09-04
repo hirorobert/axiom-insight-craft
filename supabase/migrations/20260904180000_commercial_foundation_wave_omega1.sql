@@ -18,9 +18,11 @@
 --      state, never silently coerced to a boolean.
 --   4. Ordinary authenticated users cannot write commercial_licences,
 --      payment_events, entitlement_overrides, or billing_audit_events
---      directly. The only writers are: the two companies triggers below
---      (SYSTEM_DEFAULT_FREE provisioning) and the four SECURITY DEFINER
---      RPCs gated on commercial_admins membership.
+--      directly. The only writers are: the one companies trigger below
+--      (SYSTEM_DEFAULT_FREE provisioning) and the four SECURITY DEFINER RPCs
+--      gated on commercial_admins membership (admin_grant_commercial_licence,
+--      admin_transition_licence_status, admin_grant_entitlement_override,
+--      admin_revoke_entitlement_override).
 --   5. Server-authoritative timestamps only (`now()`), never client-supplied
 --      "current time".
 --
@@ -45,21 +47,46 @@
 -- FLAGGED DESIGN DECISIONS REQUIRING HUMAN/PRODUCT CONFIRMATION BEFORE THIS
 -- MIGRATION IS EVER APPLIED TO PRODUCTION (see final report §"Flagged
 -- decisions" for full detail — not resolved unilaterally here):
---   (a) FREE plan is assumed to permit exactly 1 company per owner; a 2nd+
---       company requires MULTI_COMPANY entitlement (enforced by
---       trg_enforce_multi_company_entitlement below). Since NO payment
---       provider or paid licence exists yet, applying this migration to
---       production TODAY would block every existing free user from adding a
---       2nd company until an admin grants an override or Ω2 ships. This
---       migration does NOT touch companies a user already has.
+--   (a) MULTI_COMPANY_PREMIUM_POLICY_DEFERRED_TO_Ω2_PRODUCT_DECISION — Ω1-R
+--       deliberately does NOT gate a 2nd+ company behind MULTI_COMPANY
+--       entitlement. An earlier candidate (daf8692) wired a BEFORE INSERT
+--       trigger enforcing this; Codex review correctly flagged that the
+--       commercial policy backing it (how many companies FREE gets) was
+--       never product-approved, so shipping the trigger would silently
+--       change live company-creation behavior for every existing user the
+--       moment this migration is applied. The trigger and its function are
+--       REMOVED in this repair. MULTI_COMPANY remains a valid, readable
+--       feature code (in the registry, in commercial_plans.feature_codes,
+--       and resolvable via get_effective_entitlement) — the architecture is
+--       fully capable of enforcing it — but nothing in this migration
+--       enforces it today. Company creation is unchanged from pre-Ω1
+--       behavior. Wiring enforcement is a future, explicitly product-owned
+--       decision, not a side effect of this commercial-foundation wave.
 --   (b) FREE plan feature set is assumed to be {SAFISHA_PREVIEW,
 --       HESABU_REPORTING}; PAID plan is assumed to include all 7 registry
 --       features. This is a placeholder business decision, not a certified
 --       price list — see commercial_plans seed rows below.
 --   (c) GRACE licence status is treated as still-entitled (same as ACTIVE).
+--   (d) COMMERCIAL_IDENTITY_V1_USER_OWNER_BRIDGE — LIMITED_BUT_NONDESTRUCTIVE.
+--       billing_customers.owner_user_id is the CURRENT billing-owner
+--       identity bridge (one auth user = one billing customer today), not a
+--       permanent architectural claim that "auth user = firm". No code or
+--       constraint in this file treats owner_user_id as firm identity for
+--       any purpose beyond billing anchoring. A future organization/firm
+--       billing entity can be introduced additively (a new table plus a new
+--       FK from billing_customers, or a new join table), without rewriting
+--       accounting identity (firm_members) or any historical payment_events
+--       / billing_audit_events row — those rows key on billing_customer_id,
+--       which is stable and would not need to change.
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- btree_gist: required for the EXCLUDE USING gist constraint on
+-- commercial_licences below (a UUID equality term combined with a range
+-- overlap term in one GiST index needs btree_gist's operator classes for
+-- the UUID column). Standard, widely-used Postgres contrib extension,
+-- available on Supabase.
+CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 SET search_path TO public, pg_catalog;
 
@@ -88,8 +115,15 @@ COMMENT ON TABLE public.commercial_admins IS
   'Ω1: minimal allowlist of platform commercial administrators. Checked '
   'inside every commercial write RPC. Never overloads firm_members.role, '
   'which is per-company accounting authority, not platform commercial '
-  'authority. No seed data — first row must be inserted manually by a human '
-  'with real production access.';
+  'authority. No seed data and no bootstrap RPC exists anywhere in this '
+  'migration — ordinary authenticated users can never self-escalate into '
+  'this table. BOOTSTRAP PROCEDURE: the first row must be inserted directly '
+  'against the database by someone holding service_role or database-owner '
+  'credentials (e.g. via the Supabase SQL editor or a one-off service-role '
+  'script run outside the application), naming a real, already-existing '
+  'auth.users.id: '
+  'INSERT INTO public.commercial_admins (user_id, active) VALUES (''<uuid>'', true); '
+  'There is no public/authenticated path to this table beyond SELECT.';
 
 ALTER TABLE public.commercial_admins ENABLE ROW LEVEL SECURITY;
 
@@ -159,6 +193,8 @@ GRANT ALL    ON public.commercial_plans TO service_role;
 -- ════════════════════════════════════════════════════════════════════════════
 -- TABLE: billing_customers — the commercial identity anchor.
 -- One row per company-owning auth user (see identity-model comment above).
+-- owner_user_id is the CURRENT billing-owner identity bridge, not a
+-- permanent "auth user = firm" invariant — see flagged design decision (d).
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE public.billing_customers (
@@ -174,9 +210,15 @@ CREATE TABLE public.billing_customers (
 );
 
 COMMENT ON TABLE public.billing_customers IS
-  'Ω1: commercial identity, one row per company-owning auth user. Explicitly '
-  'separate from firm_members (per-company accounting membership) and never '
-  'used as accounting actor identity. Written only by '
+  'Ω1: commercial identity, one row per company-owning auth user. '
+  'owner_user_id is the CURRENT billing-owner bridge (COMMERCIAL_IDENTITY_V1_'
+  'USER_OWNER_BRIDGE, LIMITED_BUT_NONDESTRUCTIVE) — not a claim that an auth '
+  'user permanently equals a firm. A future organization/firm billing entity '
+  'can be introduced additively without rewriting this table''s id or any '
+  'row that references billing_customer_id (payment_events, '
+  'entitlement_overrides, billing_audit_events, commercial_licences). '
+  'Explicitly separate from firm_members (per-company accounting membership) '
+  'and never used as accounting actor identity. Written only by '
   'provision_billing_customer_for_company() (system default) and read by '
   'the owner or a commercial_admin.';
 
@@ -196,10 +238,58 @@ GRANT SELECT ON public.billing_customers TO authenticated;
 GRANT ALL    ON public.billing_customers TO service_role;
 
 -- ════════════════════════════════════════════════════════════════════════════
--- TABLE: commercial_licences — real state machine, not a boolean.
--- One row per licence PERIOD (renewals are new rows, not mutations of an
--- old period's dates). "Current" is a query-time determination: the row
--- whose [effective_start, effective_end) window contains now().
+-- TABLE: commercial_licences — real state machine, not a boolean, with a
+-- DATABASE-ENFORCED invariant that overlapping authoritative licence
+-- periods for the same billing customer cannot exist.
+--
+-- Status semantics:
+--   PENDING   — created but not yet a commitment (e.g. a payment awaiting
+--               confirmation in Ω2). Never entitles, regardless of dates.
+--               Does not participate in the overlap invariant below, so any
+--               number of PENDING quotes/offers can coexist freely.
+--   ACTIVE    — authoritative and entitling while now() is inside
+--               [effective_start, effective_end). A row with a FUTURE
+--               effective_start is a genuine "future licence" / scheduled
+--               renewal: it is already the authoritative row for that
+--               future window (no separate status is needed for "future"),
+--               it simply does not entitle until effective_start arrives —
+--               a pure read-time computation, no scheduled job required.
+--   GRACE     — authoritative and entitling, identical to ACTIVE for
+--               entitlement purposes (flagged design decision (c)) —
+--               distinct status kept for future dunning/grace-period UX.
+--   SUSPENDED — authoritative-in-history but NEVER entitling. Reachable
+--               only via admin_transition_licence_status on an existing
+--               row (never a fresh grant). Excluded from the overlap
+--               invariant, so a suspended row can coexist with whatever
+--               replaces it.
+--   CANCELLED — terminal, never entitling. Same overlap-exemption as above.
+--   EXPIRED   — terminal, never entitling; administrative bookkeeping only
+--               (the resolver's own date-window check already stops an
+--               ACTIVE/GRACE row past its effective_end from entitling,
+--               with or without this status being explicitly set).
+--
+-- Renewal / replacement / plan-transition semantics: a row is NEVER
+-- overwritten to represent a new period. admin_grant_commercial_licence()
+-- INSERTs a new row for the new period and, if an existing ACTIVE/GRACE row
+-- would otherwise overlap it, first UPDATEs that row's effective_end to the
+-- new row's effective_start (closing it, not deleting it) — history is
+-- fully preserved as a chain of abutting, non-overlapping rows. Status
+-- transitions (suspend/reactivate/cancel/expire) UPDATE the existing row's
+-- status in place via admin_transition_licence_status(), which is what
+-- actually removes a row from ACTIVE/GRACE — never a second inserted row.
+--
+-- DATABASE INVARIANT (not mere ORDER BY tie-breaking): excl_cl_no_overlap_
+-- ping_authoritative_periods below is a PostgreSQL EXCLUDE USING gist
+-- constraint over (billing_customer_id, effective_range) restricted to
+-- status IN ('ACTIVE','GRACE'). Postgres itself refuses any INSERT or
+-- UPDATE that would create two simultaneously-effective authoritative
+-- periods for the same billing customer — including the same effective_start
+-- (a zero-width overlap between two '[)' ranges beginning at an identical
+-- instant is still an overlap) and including a currently-open-ended row
+-- (effective_end IS NULL is an unbounded upper range bound, so it correctly
+-- conflicts with anything starting after its effective_start). This is
+-- structural, DB-level prevention — not application-level discipline, and
+-- not resolved by picking a tie-break order.
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE public.commercial_licences (
@@ -214,6 +304,9 @@ CREATE TABLE public.commercial_licences (
   -- NULL = open-ended (FREE default, or an admin grant with no defined expiry).
   -- Never treated as "unlimited" implicitly — only NULL + status=ACTIVE/GRACE
   -- is read as currently entitled; NULL never means "forever" on its own.
+  effective_range     TSTZRANGE GENERATED ALWAYS AS (
+    tstzrange(effective_start, effective_end, '[)')
+  ) STORED,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
 
@@ -221,7 +314,16 @@ CREATE TABLE public.commercial_licences (
   CONSTRAINT fk_cl_billing_customer FOREIGN KEY (billing_customer_id) REFERENCES public.billing_customers(id) ON DELETE CASCADE,
   CONSTRAINT fk_cl_plan FOREIGN KEY (plan_id) REFERENCES public.commercial_plans(id) ON DELETE RESTRICT,
   CONSTRAINT chk_cl_status CHECK (status IN ('PENDING','ACTIVE','GRACE','SUSPENDED','CANCELLED','EXPIRED')),
-  CONSTRAINT chk_cl_effective_window CHECK (effective_end IS NULL OR effective_end > effective_start)
+  CONSTRAINT chk_cl_effective_window CHECK (effective_end IS NULL OR effective_end > effective_start),
+
+  -- THE licence-authority invariant. No two ACTIVE/GRACE rows for the same
+  -- billing_customer may have overlapping effective ranges — see the table
+  -- comment above for the full reasoning.
+  CONSTRAINT excl_cl_no_overlapping_authoritative_periods
+    EXCLUDE USING gist (
+      billing_customer_id WITH =,
+      effective_range WITH &&
+    ) WHERE (status IN ('ACTIVE','GRACE'))
 );
 
 CREATE INDEX idx_cl_current_window
@@ -236,7 +338,8 @@ CREATE POLICY "cl_select_owner_or_admin" ON public.commercial_licences
   );
 
 -- No authenticated write policy at all. Writers: the companies trigger
--- (FREE provisioning) and admin_set_commercial_licence() only.
+-- (FREE provisioning), admin_grant_commercial_licence() (new periods), and
+-- admin_transition_licence_status() (status transitions on an existing row).
 REVOKE ALL ON public.commercial_licences FROM anon;
 GRANT SELECT ON public.commercial_licences TO authenticated;
 GRANT ALL    ON public.commercial_licences TO service_role;
@@ -520,11 +623,18 @@ BEGIN
   END IF;
 
   -- 2. Otherwise resolve via the current licence period + its plan's features.
+  --    excl_cl_no_overlapping_authoritative_periods (on commercial_licences)
+  --    guarantees AT MOST ONE row with status IN ('ACTIVE','GRACE') can ever
+  --    match this date-window predicate for a given billing_customer_id — so
+  --    ORDER BY ... LIMIT 1 here is defense-in-depth for an outcome the
+  --    schema already makes structurally impossible to violate, not a
+  --    tie-break masking real ambiguity.
   SELECT cl.status AS licence_status, cp.code AS plan_code, cp.feature_codes AS feature_codes
     INTO v_licence
     FROM public.commercial_licences cl
     JOIN public.commercial_plans cp ON cp.id = cl.plan_id
    WHERE cl.billing_customer_id = v_billing_customer_id
+     AND cl.status IN ('ACTIVE','GRACE')
      AND cl.effective_start <= now()
      AND (cl.effective_end IS NULL OR cl.effective_end > now())
    ORDER BY cl.effective_start DESC
@@ -681,14 +791,22 @@ REVOKE ALL ON FUNCTION public.get_my_billing_summary() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_my_billing_summary() TO authenticated;
 
 -- ════════════════════════════════════════════════════════════════════════════
--- FUNCTION: admin_set_commercial_licence(...) — the sole write path for
--- licence periods, beyond the automatic FREE provisioning trigger.
+-- FUNCTION: admin_grant_commercial_licence(...) — creates a NEW licence
+-- period (initial grant, renewal, or plan transition). Never overwrites an
+-- existing row's identity — if an existing ACTIVE/GRACE row for this
+-- billing customer would otherwise overlap the requested window, that row
+-- is closed (effective_end set to the new period's start) in the SAME
+-- transaction as the new INSERT, so excl_cl_no_overlapping_authoritative_
+-- periods is satisfied by construction and history is preserved, never
+-- deleted. At most one existing ACTIVE/GRACE row can ever overlap a given
+-- new range — if two did, they would necessarily overlap each other too,
+-- which the exclusion constraint already forbids — so the lookup below is
+-- provably unambiguous, not a best-effort guess.
 -- ════════════════════════════════════════════════════════════════════════════
 
-CREATE OR REPLACE FUNCTION public.admin_set_commercial_licence(
+CREATE OR REPLACE FUNCTION public.admin_grant_commercial_licence(
   p_billing_customer_id UUID,
   p_plan_code           TEXT,
-  p_status              TEXT,
   p_effective_start     TIMESTAMPTZ,
   p_effective_end       TIMESTAMPTZ,
   p_reason              TEXT
@@ -702,6 +820,7 @@ DECLARE
   v_product_id UUID;
   v_plan_id    UUID;
   v_licence_id UUID;
+  v_prior      RECORD;
 BEGIN
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000';
@@ -715,12 +834,12 @@ BEGIN
     RAISE EXCEPTION 'REASON_REQUIRED' USING ERRCODE = '22023';
   END IF;
 
-  IF p_status NOT IN ('PENDING','ACTIVE','GRACE','SUSPENDED','CANCELLED','EXPIRED') THEN
-    RAISE EXCEPTION 'INVALID_STATUS: %', p_status USING ERRCODE = '22023';
-  END IF;
-
   IF p_effective_start IS NULL THEN
     RAISE EXCEPTION 'EFFECTIVE_START_REQUIRED' USING ERRCODE = '22023';
+  END IF;
+
+  IF p_effective_end IS NOT NULL AND p_effective_end <= p_effective_start THEN
+    RAISE EXCEPTION 'EFFECTIVE_END_MUST_BE_AFTER_START' USING ERRCODE = '22023';
   END IF;
 
   SELECT product_id INTO v_product_id FROM public.billing_customers WHERE id = p_billing_customer_id;
@@ -735,29 +854,137 @@ BEGIN
     RAISE EXCEPTION 'UNKNOWN_OR_INACTIVE_PLAN_CODE: %', p_plan_code USING ERRCODE = '22023';
   END IF;
 
+  -- Renewal/plan-transition semantics: close out whichever existing
+  -- ACTIVE/GRACE row would otherwise overlap the new period.
+  SELECT id, effective_start, effective_end
+    INTO v_prior
+    FROM public.commercial_licences
+   WHERE billing_customer_id = p_billing_customer_id
+     AND status IN ('ACTIVE','GRACE')
+     AND effective_range && tstzrange(p_effective_start, p_effective_end, '[)')
+   LIMIT 1;
+
+  IF FOUND THEN
+    IF p_effective_start <= v_prior.effective_start THEN
+      RAISE EXCEPTION
+        'NEW_EFFECTIVE_START_MUST_BE_AFTER_EXISTING_PERIOD_START (existing licence %, starts %)',
+        v_prior.id, v_prior.effective_start
+        USING ERRCODE = '22023';
+    END IF;
+
+    UPDATE public.commercial_licences
+       SET effective_end = p_effective_start, updated_at = now()
+     WHERE id = v_prior.id;
+  END IF;
+
   INSERT INTO public.commercial_licences (
     billing_customer_id, plan_id, status, source, effective_start, effective_end
   ) VALUES (
-    p_billing_customer_id, v_plan_id, p_status, 'MANUAL_ADMIN_GRANT', p_effective_start, p_effective_end
+    p_billing_customer_id, v_plan_id, 'ACTIVE', 'MANUAL_ADMIN_GRANT', p_effective_start, p_effective_end
   ) RETURNING id INTO v_licence_id;
 
   INSERT INTO public.billing_audit_events (
     billing_customer_id, actor_user_id, action, previous_state, new_state, reason
   ) VALUES (
-    p_billing_customer_id, v_user_id, 'LICENCE_MANUALLY_SET', NULL,
+    p_billing_customer_id, v_user_id, 'LICENCE_GRANTED',
+    CASE WHEN v_prior.id IS NOT NULL
+      THEN jsonb_build_object('closed_prior_licence_id', v_prior.id, 'closed_effective_end', p_effective_start)
+      ELSE NULL
+    END,
     jsonb_build_object(
-      'licence_id', v_licence_id, 'plan_code', p_plan_code, 'status', p_status,
+      'licence_id', v_licence_id, 'plan_code', p_plan_code,
       'effective_start', p_effective_start, 'effective_end', p_effective_end
     ),
     p_reason
   );
 
-  RETURN jsonb_build_object('licence_id', v_licence_id, 'status', p_status, 'plan_code', p_plan_code);
+  RETURN jsonb_build_object(
+    'licence_id', v_licence_id, 'plan_code', p_plan_code,
+    'closed_prior_licence_id', v_prior.id
+  );
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.admin_set_commercial_licence(UUID,TEXT,TEXT,TIMESTAMPTZ,TIMESTAMPTZ,TEXT) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.admin_set_commercial_licence(UUID,TEXT,TEXT,TIMESTAMPTZ,TIMESTAMPTZ,TEXT) TO authenticated;
+REVOKE ALL ON FUNCTION public.admin_grant_commercial_licence(UUID,TEXT,TIMESTAMPTZ,TIMESTAMPTZ,TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_grant_commercial_licence(UUID,TEXT,TIMESTAMPTZ,TIMESTAMPTZ,TEXT) TO authenticated;
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- FUNCTION: admin_transition_licence_status(...) — the sole write path for
+-- changing an EXISTING licence period's status in place (SUSPEND/
+-- REACTIVATE/CANCEL/EXPIRE, or a manual GRACE transition). Never creates a
+-- new row — see admin_grant_commercial_licence() for new periods. Locks the
+-- row (FOR UPDATE) so a concurrent transition on the same row serializes
+-- rather than races; if a REACTIVATE would recreate an overlap with some
+-- other ACTIVE/GRACE row, excl_cl_no_overlapping_authoritative_periods
+-- rejects the UPDATE and this function's exception propagates unchanged.
+-- ════════════════════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION public.admin_transition_licence_status(
+  p_licence_id UUID,
+  p_new_status TEXT,
+  p_reason     TEXT
+) RETURNS JSONB
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public, pg_catalog
+AS $$
+DECLARE
+  v_user_id UUID := auth.uid();
+  v_row     RECORD;
+  v_new_end TIMESTAMPTZ;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.commercial_admins WHERE user_id = v_user_id AND active) THEN
+    RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
+  END IF;
+
+  IF p_reason IS NULL OR trim(p_reason) = '' THEN
+    RAISE EXCEPTION 'REASON_REQUIRED' USING ERRCODE = '22023';
+  END IF;
+
+  IF p_new_status NOT IN ('PENDING','ACTIVE','GRACE','SUSPENDED','CANCELLED','EXPIRED') THEN
+    RAISE EXCEPTION 'INVALID_STATUS: %', p_new_status USING ERRCODE = '22023';
+  END IF;
+
+  SELECT id, billing_customer_id, status, effective_start, effective_end
+    INTO v_row
+    FROM public.commercial_licences
+   WHERE id = p_licence_id
+   FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'LICENCE_NOT_FOUND' USING ERRCODE = '22023';
+  END IF;
+
+  v_new_end := v_row.effective_end;
+  IF p_new_status IN ('CANCELLED','EXPIRED') AND (v_row.effective_end IS NULL OR v_row.effective_end > now()) THEN
+    v_new_end := now();
+  END IF;
+
+  UPDATE public.commercial_licences
+     SET status = p_new_status,
+         effective_end = v_new_end,
+         updated_at = now()
+   WHERE id = p_licence_id;
+
+  INSERT INTO public.billing_audit_events (
+    billing_customer_id, actor_user_id, action, previous_state, new_state, reason
+  ) VALUES (
+    v_row.billing_customer_id, v_user_id, 'LICENCE_STATUS_TRANSITIONED',
+    jsonb_build_object('licence_id', p_licence_id, 'status', v_row.status, 'effective_end', v_row.effective_end),
+    jsonb_build_object('licence_id', p_licence_id, 'status', p_new_status, 'effective_end', v_new_end),
+    p_reason
+  );
+
+  RETURN jsonb_build_object('licence_id', p_licence_id, 'status', p_new_status);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_transition_licence_status(UUID,TEXT,TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_transition_licence_status(UUID,TEXT,TEXT) TO authenticated;
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- FUNCTIONS: admin_grant_entitlement_override / admin_revoke_entitlement_override
@@ -952,9 +1179,13 @@ REVOKE ALL ON FUNCTION public.admin_billing_lookup(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.admin_billing_lookup(UUID) TO authenticated;
 
 -- ════════════════════════════════════════════════════════════════════════════
--- TRIGGERS on public.companies — auto-provision + the one wired premium
--- boundary for this wave (MULTI_COMPANY). Mirrors the existing
+-- TRIGGER on public.companies — auto-provision only. Mirrors the existing
 -- trg_create_owner_firm_member AFTER INSERT convention.
+--
+-- Ω1-R deliberately does NOT gate company creation on MULTI_COMPANY
+-- entitlement — see flagged design decision (a),
+-- MULTI_COMPANY_PREMIUM_POLICY_DEFERRED_TO_Ω2_PRODUCT_DECISION, in the
+-- migration header. Company creation behavior is unchanged from pre-Ω1.
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION public.provision_billing_customer_for_company()
@@ -1022,42 +1253,7 @@ AFTER INSERT ON public.companies
 FOR EACH ROW
 EXECUTE FUNCTION public.provision_billing_customer_for_company();
 
--- The one wired premium boundary for Ω1: a second (or later) company
--- requires MULTI_COMPANY entitlement. Server-side, non-bypassable — no
--- React check can substitute for this. See flagged design decision (a).
-CREATE OR REPLACE FUNCTION public.enforce_multi_company_entitlement()
-  RETURNS TRIGGER
-  LANGUAGE plpgsql
-  SECURITY DEFINER
-  SET search_path = public, pg_catalog
-AS $$
-DECLARE
-  v_existing_count INTEGER;
-  v_result         JSONB;
-BEGIN
-  SELECT count(*) INTO v_existing_count FROM public.companies WHERE user_id = NEW.user_id;
-
-  IF v_existing_count >= 1 THEN
-    v_result := public._resolve_entitlement_for_owner(NEW.user_id, 'MULTI_COMPANY');
-    IF (v_result->>'status') IS DISTINCT FROM 'ENTITLED' THEN
-      RAISE EXCEPTION
-        'MULTI_COMPANY_NOT_ENTITLED: additional companies require a licence including MULTI_COMPANY (current status: %)',
-        v_result->>'status'
-        USING ERRCODE = '42501';
-    END IF;
-  END IF;
-
-  RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER trg_enforce_multi_company_entitlement
-BEFORE INSERT ON public.companies
-FOR EACH ROW
-EXECUTE FUNCTION public.enforce_multi_company_entitlement();
-
 REVOKE ALL ON FUNCTION public.provision_billing_customer_for_company() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.enforce_multi_company_entitlement() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public._resolve_entitlement_for_owner(UUID, TEXT) FROM PUBLIC, anon, authenticated;
 
 -- ════════════════════════════════════════════════════════════════════════════
@@ -1080,14 +1276,13 @@ FROM public.billing_customers bc
 WHERE NOT EXISTS (SELECT 1 FROM public.commercial_licences cl WHERE cl.billing_customer_id = bc.id);
 
 -- ── Rollback (NOT executed — for reference only) ─────────────────────────────
--- DROP TRIGGER IF EXISTS trg_enforce_multi_company_entitlement ON public.companies;
 -- DROP TRIGGER IF EXISTS trg_provision_billing_customer ON public.companies;
--- DROP FUNCTION IF EXISTS public.enforce_multi_company_entitlement();
 -- DROP FUNCTION IF EXISTS public.provision_billing_customer_for_company();
 -- DROP FUNCTION IF EXISTS public.admin_billing_lookup(UUID);
 -- DROP FUNCTION IF EXISTS public.admin_revoke_entitlement_override(UUID, TEXT);
 -- DROP FUNCTION IF EXISTS public.admin_grant_entitlement_override(UUID, TEXT, TEXT, TIMESTAMPTZ);
--- DROP FUNCTION IF EXISTS public.admin_set_commercial_licence(UUID,TEXT,TEXT,TIMESTAMPTZ,TIMESTAMPTZ,TEXT);
+-- DROP FUNCTION IF EXISTS public.admin_transition_licence_status(UUID,TEXT,TEXT);
+-- DROP FUNCTION IF EXISTS public.admin_grant_commercial_licence(UUID,TEXT,TIMESTAMPTZ,TIMESTAMPTZ,TEXT);
 -- DROP FUNCTION IF EXISTS public.get_my_billing_summary();
 -- DROP FUNCTION IF EXISTS public.get_effective_entitlement(UUID, TEXT);
 -- DROP FUNCTION IF EXISTS public._resolve_entitlement_for_owner(UUID, TEXT);
