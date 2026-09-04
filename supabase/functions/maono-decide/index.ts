@@ -299,7 +299,10 @@ serve(async (req: Request) => {
         budget_tzs:    a.budget_amount,
         variance_tzs:  a.variance_tzs,
         variance_pct:  a.variance_pct ? Math.round(a.variance_pct * 10) / 10 : null,
-        direction:     (a.variance_tzs ?? 0) > 0 ? "favourable" : "adverse",
+        // UNKNOWN != ZERO: a null variance has no direction to claim.
+                direction:     a.variance_tzs === null || a.variance_tzs === undefined
+                  ? "unknown"
+                  : (a.variance_tzs > 0 ? "favourable" : "adverse"),
       })),
       root_cause_summary: rootInsight?.ai_output?.substring(0, 2000) ?? "Root cause analysis not yet available.",
       risk_summary:       riskInsight?.ai_output?.substring(0, 1000) ?? "Risk analysis not yet available.",
