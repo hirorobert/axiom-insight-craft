@@ -1,111 +1,72 @@
-# SAFF Ω∞ Production Closure — One Pass
+# SAFF Ω∞ Source-Control Closure — Verification Result and Required Action
 
-Canonical start: `30c1350c607a0a4865c790ee212c35481b268351` · Backend `bvyivmmfjejbmqoydezk`
+No code, database, deployment, or migration-history change is proposed. This is a
+verification-and-handoff plan only.
 
-I am in plan mode, so nothing is executed yet. Approving this plan runs the whole
-pass below in one go and returns the single final release report.
+## Verified now (read-only)
 
-## A. Apply the one authorized migration
+| Check | Result |
+| --- | --- |
+| Release commit present | PASS — `2a2751c829588649c5cf9d90aa15530e4c3fc3cd` |
+| Descends from canonical `30c1350c…` | PASS — canonical is a direct ancestor |
+| Working tree clean | PASS — no uncommitted changes |
+| Lovable-managed `main` | Already at `2a2751c8…` |
+| Release diff scope | Only approved production-closure files (see below) |
+| `src/tailwind.config.lov.json` in diff | Absent — correctly excluded |
 
-Verified live now (read-only): all three `account_mappings` flags are
-`NOT NULL DEFAULT false`, and live `resolve_account_review_batch` is the
-pre-tri-state version (`coalesce(...,false)` on insert,
-`is_cash_account = EXCLUDED.is_cash_account` on conflict). Pre-conditions match.
+Release diff vs canonical `30c1350c…` (10 files, +983 / −128):
 
-Apply exactly `supabase/migrations/20260904120000_account_review_flag_preservation.sql`
-(drops NOT NULL + DEFAULT on the three flags; replaces the RPC with the
-preservation logic). No other migration, no history repair, no reset.
+```text
+.lovable/plan.md
+src/integrations/supabase/types.ts
+src/lib/accounting/certifiedTbSource.test.ts
+supabase/functions/_shared/certifiedTbSource.ts
+supabase/functions/maono-cashflow/index.ts
+supabase/functions/maono-compute/index.ts
+supabase/functions/maono-decide/index.ts
+supabase/functions/maono-risk/index.ts
+supabase/functions/maono-root-cause/index.ts
+supabase/migrations/…154709_20061bff-…sql   (Phase-6 tri-state migration, as applied)
+```
 
-Verify after: three columns NULLABLE/no default; RPC text matches canonical;
-tri-state behaviour in a rollback-only transaction against synthetic fixtures:
-existing TRUE + omitted → TRUE; explicit FALSE → FALSE; explicit TRUE → TRUE;
-new row + omitted → NULL. Migration fails ⇒ stop, report, no improvised rollback.
+## Blocker
 
-## B/C. MAONO classification root cause and repair
+The only git remote reachable from this environment is Lovable's internal project
+repository. There is no `github.com/hirorobert/axiom-insight-craft` remote and no
+GitHub credential available here, so I cannot push to, or independently query,
+GitHub main. Per your rules I stop rather than improvise (no force-push, no second
+implementation commit, no alternate remote).
 
-Confirmed defect: `public.account_classifications` does not exist live;
-`maono-compute/index.ts:319-324` throws on the query error (hard fail), and
-`maono-cashflow/index.ts:130-144` swallows it via `(accts ?? [])`, collapsing
-missing evidence into cash/AR/AP = 0.
+## Exact UI action required from you
 
-Repair, read-only and reusing existing authority (no new accounting truth):
-1. Trace lineage across `process-trial-balance`, `account_mappings`,
-   `account_review_decisions`, `tb_certifications` /
-   `get_authoritative_certification`, `period_closing_balances` and
-   `_shared/maonoAnalyticalContract.ts` to name the one authoritative
-   projection carrying the classification semantics MAONO needs.
-2. Point `maono-compute` and `maono-cashflow` at that source, scoped to the
-   run's own uploads/company/period.
-3. Where classification or evidence is genuinely unavailable, return
-   UNKNOWN / CANNOT_ASSESS / null through the existing analytical contract —
-   never 0, false, empty, or NOT_APPLICABLE.
-4. Sweep `maono-risk`, `maono-monitor`, `maono-root-cause`, `maono-decide` for
-   the same root cause (legacy table reference or unknown→zero) and fix only
-   those occurrences.
+1. Open the project, then the Plus (+) menu in the chat input → **GitHub**.
+2. If it shows "Connect project", authorize the Lovable GitHub App and select
+   `hirorobert/axiom-insight-craft` — Lovable then pushes the current tree to `main`.
+3. If it is already connected, confirm the synced branch is `main` (not an edit
+   branch). Switching the project's active branch to `main` in the Lovable branch
+   selector triggers the supported push of `2a2751c8…`.
+4. Tell me when it reports synced.
 
-`account_classifications` is not created as a new mutable authority. A DB object
-is added only if the lineage trace proves a read-only, provenance-carrying
-projection over existing authority is the intended source — one additive,
-RLS-safe forward migration at most, otherwise code-only.
+## What I will do after your action
 
-## D. Authority collision gate
+- Re-query the mirror and confirm GitHub `main` SHA.
+- If the SHA equals `2a2751c8…`: report TREE IDENTITY PASS.
+- If Lovable's sync creates a different commit identity: compare the repository
+  tree file-by-file against the released tree (excluding
+  `src/tailwind.config.lov.json`) and report byte-identity plus the reason for the
+  differing SHA.
+- Read the CI result for the resulting GitHub main and report PASS / FAIL / PENDING
+  verbatim, with no repair attempt on failure.
+- Issue the final closure report in your required format.
 
-Prove before deploying: no new classification authority, no duplicate decision
-ledger, no React writes to financial tables, no MAONO write into SAFISHA/HESABU
-truth, no KINGA dependency, no prior-period evidence promoted, no sign-as-
-classification, no manufactured zero. Must reach AUTHORITY_COLLISION = NONE or
-deployment stops.
+## Current interim status
 
-## F. Tests and gates
-
-Add/extend tests for: evidence present; evidence absent; missing table does not
-throw an uncontrolled DB error; absence never becomes zero; UNKNOWN propagation;
-cross-company and cross-run isolation; no stale-run alert bleed; missing KINGA
-enrichment ⇒ UNKNOWN; Phase-6 omitted flag preserves state; new omitted flag is
-NULL; explicit false distinct from omitted.
-
-Gates required before any deploy: full test suite pass, typecheck pass, build
-pass, no release-blocking lint error, `git diff --check` clean. Unrelated
-warnings are not touched.
-
-## G. Optional AI
-
-Check presence of `ANTHROPIC_API_KEY` in the live function environment (value
-never revealed). Present ⇒ `maono-decide` may ship if its tests pass. Absent ⇒
-report `OPTIONAL_AI_HELD_NO_SECRET`, hold those two functions, keep the frontend
-honest about the unavailable narrative capability, and do not block the
-deterministic release.
-
-## H/I. Release
-
-Deploy only the functions whose source actually changed and passed verification
-(expected: `maono-compute`, `maono-cashflow`, plus `maono-risk` /
-`process-trial-balance` only if genuinely changed), shipping
-`_shared/maonoAnalyticalContract.ts` consistently. Then publish the frontend
-from the canonical-derived tree and check `cfoclose.com` / `www.cfoclose.com`.
-
-## J. Production acceptance
-
-Run the 20-point smoke and authenticated acceptance path (load, auth, workspace,
-certification authority, Account Review tri-state preservation, HESABU no
-regression, MAONO opens without 500 and without period/run contamination,
-UNKNOWN not zero, RLS and anon-DML checks, domain serves the release), using
-isolated test data only.
-
-Note: authenticated browser acceptance depends on a live preview session; if the
-test browser reports signed-out, those items are reported NOT TESTABLE with the
-exact blocker rather than guessed.
-
-## K/L. Provenance and commit
-
-The ~53 historical identity divergences stay registered as
-MIGRATION_PROVENANCE_DEBT_ONLY — no repair, no replay. Source changes land as
-one clean commit `fix(maono): remove legacy classification dependency and
-preserve unknown evidence`, excluding Lovable artifacts and unrelated files, no
-force-push. Note: direct GitHub push credentials are not available to this
-environment; the commit lands in the Lovable-managed tree and GitHub main is
-updated only through the platform's supported sync, reported honestly either way.
-
-## Final output
-
-One report with the 25 requested items and the required final verdict line.
+```text
+SAFF SOURCE-CONTROL CLOSURE —
+RELEASE 2a2751c829588649c5cf9d90aa15530e4c3fc3cd —
+GITHUB MAIN [UNVERIFIABLE — NO GITHUB WRITE/READ ACCESS FROM AGENT] —
+TREE IDENTITY [PENDING] —
+CI [PENDING] —
+NO PRODUCTION CHANGES —
+SOURCE OF TRUTH [REQUIRES_USER_ACTION]
+```
