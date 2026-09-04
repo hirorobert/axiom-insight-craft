@@ -302,6 +302,48 @@ as a side effect of other work; it needs its own task with its own review of
 
 Phase 2A migration identity reconciliation: see `MIGRATION_RECONCILIATION.md`.
 
+**DEFECT-SAFISHA-TRANSACTION-LEDGER-GAP-001** — Severity: HIGH — Status: OPEN / MISSING CAPABILITY
+
+`safisha_transactions` (`supabase/migrations/20260711200000_safisha_core.sql`)
+is real, immutable, hash-verified evidence, but it is **not** the
+period-complete, classified cash-movement ledger V5 Phase 5's dual-engine
+cash-flow requirement needs. Specifically:
+- Rows are scoped per `reconciliation_id` → one `tb_upload_id` — whichever
+  bank/cash accounts a firm chose to reconcile for that upload, not every
+  cash-account movement for the full reporting period.
+- `source_id = 'tb'` rows are the trial balance re-ingested as rows — not
+  independent evidence; only `bank`/`subledger`/`momo` rows are genuinely
+  external.
+- No `presentationCode`/`accountNature`/cash-flow classification authority
+  attaches at the row level — the table exists to prove bank-reconciliation
+  match quality, not to feed a P&L-adjacent cash-flow statement.
+- No opening-balance-carry-forward row concept; no certification gate
+  equivalent to `tb_certifications` scoped to this table specifically.
+
+Consequence: V5 Phase 5's `hesabu-cashflow-present` (IAS 7/IPSAS 2 primary
+statement) and `hesabu-cashflow-reconcile` (indirect-method reconciliation)
+cannot honestly produce two *independently derived* operating-cash-flow
+numbers today — both `kinga-tax-engine.scfEngine` (live) and
+`cashFlowEngines.ts` (pure, dormant, certified Phase 5 Slice 1) derive
+operating CF from the same TB/IS/BS deltas via the same indirect method.
+Genuine independence (e.g. a direct-method presentation) requires a
+complete, period-scoped, professionally-classified cash-movement
+transaction ledger that does not exist in this repository.
+
+Discovered during the V5 Phase 5 Gate 1 dual-engine closure investigation
+(2026-09-04), on branch `phase5-cashflow-foundation-20260903` /
+main `14375160c7aa3b55774bf9142e984989f4fb7d90`. Not introduced by, and not
+fixable within, Phase 5 Slice 1 (`cashFlowEngines.ts` — certified, correctly
+does not claim independence it cannot support). Building this ledger is a
+future SAFISHA/ledger-completeness capability with its own scope, its own
+schema design, and its own certification pass — do not attempt it as a side
+effect of Phase 5 or any other in-flight work.
+
+Related, separately registered: **DEFECT-KINGA-COMPARATIVE-ENGINE-ZERO-SUBSTITUTION-001**
+(`supabase/functions/kinga-comparative-engine/index.ts`) — a different,
+unrelated live defect in a different comparative-period engine, found during
+Phase 4.
+
 ---
 
 ## 10. Current Project State (as of 2026-07-25)
