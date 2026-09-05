@@ -4696,6 +4696,7 @@ export type Database = {
         }
         Returns: string
       }
+      is_commercial_admin: { Args: never; Returns: boolean }
       maono_check_safisha_gate: {
         Args: { p_upload_ids: string[] }
         Returns: {
