@@ -1,33 +1,42 @@
 /**
- * /commercial/admin — Ω2 Commercial Administration UI
+ * /commercial/admin — Ω2-G Commercial Administration UI
  *
  * Internal-only admin panel for:
- *   1. Setting plan prices (PRODUCT_PRICING_DECISION_REQUIRED gate)
- *   2. Viewing all billing customers and their licence status
- *   3. Reviewing payment events and webhook receipts (read-only)
- *   4. Triggering payment reversal review (manual, never auto)
+ *   1. Managing commercial OFFERS (plan + market + currency + price) —
+ *      never a single price field on a plan (PRODUCT_PRICING_DECISION_REQUIRED gate)
+ *   2. Viewing billing state (server-authoritative, read-only)
+ *   3. Authority reminder — what this UI cannot do
  *
- * Access: requires admin role via server-side RLS.
+ * Access: requires admin role via server-side RLS/RPC gating.
  * All data comes from admin-scoped RPCs — never from browser-held state.
- * This UI NEVER sets paid=true, grants licences, or bypasses webhook verification.
+ * This UI NEVER sets paid=true, grants licences, or bypasses webhook
+ * verification. It NEVER receives accounting authority. Editing an offer
+ * never rewrites historical checkout/payment evidence — every checkout
+ * intent snapshots its own economic facts independently at creation time.
  */
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { callCommercialRpc } from "@/lib/commercial/commercialRpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AlertCircle, ShieldCheck, RefreshCw } from "lucide-react";
+import { AlertCircle, ShieldCheck, RefreshCw, Plus } from "lucide-react";
 
-interface PlanRow {
+interface OfferRow {
   id: string;
+  offer_code: string;
   plan_code: string;
-  display_name: string;
-  billing_period: string;
-  is_purchasable: boolean;
-  price_amount_minor: number | null;
+  plan_id: string;
+  market_code: string;
   currency_code: string;
+  amount_minor: number;
+  currency_exponent: number;
+  billing_interval: string;
+  billing_interval_count: number;
+  is_active: boolean;
+  is_purchasable: boolean;
+  effective_start: string;
+  effective_end: string | null;
 }
 
 interface BillingDetail {
@@ -39,30 +48,44 @@ interface BillingDetail {
   effective_end: string | null;
 }
 
+interface NewOfferForm {
+  offerCode: string;
+  planCode: string;
+  marketCode: string;
+  currencyCode: string;
+  amountMinor: string;
+  currencyExponent: string;
+  billingInterval: string;
+  billingIntervalCount: string;
+}
+
+const MARKET_CODES = ["GLOBAL", "TZ", "MU", "GB", "EU"] as const;
+const BILLING_INTERVALS = ["ANNUAL", "MONTHLY", "ONE_TIME"] as const;
+
+const EMPTY_FORM: NewOfferForm = {
+  offerCode: "", planCode: "PAID", marketCode: "GLOBAL", currencyCode: "USD",
+  amountMinor: "", currencyExponent: "2", billingInterval: "ANNUAL", billingIntervalCount: "1",
+};
+
 export default function CommercialAdmin() {
-  const [plans, setPlans] = useState<PlanRow[]>([]);
+  const [offers, setOffers] = useState<OfferRow[]>([]);
   const [billingRows, setBillingRows] = useState<BillingDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [priceEdits, setPriceEdits] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState<string | null>(null);
-  const [saveMsg, setSaveMsg] = useState<Record<string, string>>({});
+  const [form, setForm] = useState<NewOfferForm>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
-  async function loadPlans() {
-    // Direct table read — plans are not personal data, admin-scoped via RLS
-    const { data, error } = await supabase
-      .from("commercial_plans" as never)
-      .select("id, plan_code, display_name, billing_period, is_purchasable, price_amount_minor, currency_code")
-      .order("plan_code");
+  async function loadOffers() {
+    const { data, error } = await callCommercialRpc("admin_list_commercial_offers", {});
     if (error) { setError(error.message); return; }
-    setPlans((data as PlanRow[]) ?? []);
+    setOffers(data ?? []);
   }
 
-  // Admin billing detail — uses the admin_get_billing_detail RPC stub
-  // (returns mock for now since the RPC returns single-user detail by UUID)
+  // Admin billing detail — shows the calling admin's own billing summary via
+  // get_my_billing_summary. A full paginated cross-customer admin list is
+  // deliberately out of scope for Ω2-G ("no giant admin dashboard").
   async function loadBillingRows() {
-    // In production this would be a paginated admin list RPC.
-    // For now show the calling user's own billing summary via get_my_billing_summary.
     const { data } = await callCommercialRpc("get_my_billing_summary");
     if (data) {
       setBillingRows([{
@@ -79,31 +102,58 @@ export default function CommercialAdmin() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([loadPlans(), loadBillingRows()]);
+      await Promise.all([loadOffers(), loadBillingRows()]);
       setLoading(false);
     })();
   }, []);
 
-  async function savePrice(planId: string, planCode: string) {
-    const raw = priceEdits[planId];
-    const parsed = parseInt(raw, 10);
-    if (isNaN(parsed) || parsed < 0) {
-      setSaveMsg((m) => ({ ...m, [planId]: "Invalid amount" }));
+  async function togglePurchasable(offer: OfferRow) {
+    setSaving(true);
+    const { error } = await callCommercialRpc("admin_upsert_commercial_offer", {
+      p_offer_code: offer.offer_code,
+      p_plan_code: offer.plan_code,
+      p_market_code: offer.market_code,
+      p_currency_code: offer.currency_code,
+      p_amount_minor: offer.amount_minor,
+      p_currency_exponent: offer.currency_exponent,
+      p_billing_interval: offer.billing_interval,
+      p_billing_interval_count: offer.billing_interval_count,
+      p_is_active: offer.is_active,
+      p_is_purchasable: !offer.is_purchasable,
+      p_reason: `Toggled purchasable via /commercial/admin`,
+    });
+    setSaving(false);
+    if (error) { setSaveMsg(error.message); return; }
+    await loadOffers();
+  }
+
+  async function createOrUpdateOffer() {
+    const amount = parseInt(form.amountMinor, 10);
+    const exponent = parseInt(form.currencyExponent, 10);
+    const intervalCount = parseInt(form.billingIntervalCount, 10);
+    if (!form.offerCode || !form.planCode || !form.currencyCode || isNaN(amount) || amount <= 0) {
+      setSaveMsg("offer code, plan code, currency, and a positive amount are required");
       return;
     }
-    setSaving(planId);
-    // Admin update — price_amount_minor and is_purchasable
-    const { error } = await supabase
-      .from("commercial_plans" as never)
-      .update({ price_amount_minor: parsed, is_purchasable: parsed > 0 } as never)
-      .eq("id", planId as never);
-    setSaving(null);
-    if (error) {
-      setSaveMsg((m) => ({ ...m, [planId]: error.message }));
-    } else {
-      setSaveMsg((m) => ({ ...m, [planId]: `Saved — ${planCode} is now ${parsed > 0 ? "purchasable" : "blocked"}` }));
-      await loadPlans();
-    }
+    setSaving(true);
+    const { error } = await callCommercialRpc("admin_upsert_commercial_offer", {
+      p_offer_code: form.offerCode,
+      p_plan_code: form.planCode,
+      p_market_code: form.marketCode,
+      p_currency_code: form.currencyCode.toUpperCase(),
+      p_amount_minor: amount,
+      p_currency_exponent: isNaN(exponent) ? 2 : exponent,
+      p_billing_interval: form.billingInterval,
+      p_billing_interval_count: isNaN(intervalCount) ? 1 : intervalCount,
+      p_is_active: true,
+      p_is_purchasable: true,
+      p_reason: `Created/updated via /commercial/admin`,
+    });
+    setSaving(false);
+    if (error) { setSaveMsg(error.message); return; }
+    setSaveMsg(`Saved — ${form.offerCode} is active and purchasable`);
+    setForm(EMPTY_FORM);
+    await loadOffers();
   }
 
   if (loading) {
@@ -119,7 +169,7 @@ export default function CommercialAdmin() {
       <div className="flex items-center gap-3">
         <ShieldCheck className="h-6 w-6 text-primary" />
         <h1 className="text-2xl font-semibold">Commercial Administration</h1>
-        <Badge variant="outline" className="ml-auto font-mono text-xs">Ω2</Badge>
+        <Badge variant="outline" className="ml-auto font-mono text-xs">Ω2-G</Badge>
       </div>
 
       {error && (
@@ -129,71 +179,114 @@ export default function CommercialAdmin() {
         </div>
       )}
 
-      {/* ── Section 1: Plan Pricing (PRODUCT_PRICING_DECISION_REQUIRED gate) ── */}
+      {/* ── Section 1: Commercial Offers (PRODUCT_PRICING_DECISION_REQUIRED gate) ── */}
       <section className="space-y-4">
         <div>
-          <h2 className="text-lg font-medium">Plan Pricing</h2>
+          <h2 className="text-lg font-medium">Commercial Offers</h2>
           <p className="text-sm text-muted-foreground">
-            Set price_amount_minor to unlock checkout for each plan.
-            Plans with NULL price are blocked server-side — no checkout intent can be created.
+            A plan has no price of its own. Each row below is one offer:
+            this plan, in this market, in this currency, at this price.
+            A plan with no purchasable offer in a market cannot be checked
+            out in that market — no price is ever invented here.
           </p>
         </div>
         <div className="rounded-lg border overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
+                <th className="text-left p-3 font-medium">Offer</th>
                 <th className="text-left p-3 font-medium">Plan</th>
-                <th className="text-left p-3 font-medium">Billing</th>
-                <th className="text-left p-3 font-medium">Current Price (minor units)</th>
+                <th className="text-left p-3 font-medium">Market</th>
+                <th className="text-left p-3 font-medium">Price</th>
+                <th className="text-left p-3 font-medium">Interval</th>
                 <th className="text-left p-3 font-medium">Purchasable</th>
-                <th className="text-left p-3 font-medium">Set Price</th>
                 <th className="p-3"></th>
               </tr>
             </thead>
             <tbody>
-              {plans.map((plan) => (
-                <tr key={plan.id} className="border-t">
-                  <td className="p-3 font-medium font-mono">{plan.plan_code}</td>
-                  <td className="p-3 text-muted-foreground">{plan.billing_period}</td>
-                  <td className="p-3">
-                    {plan.price_amount_minor == null ? (
-                      <Badge variant="destructive" className="font-mono text-xs">NULL — BLOCKED</Badge>
-                    ) : (
-                      <span className="font-mono">{plan.price_amount_minor} {plan.currency_code}</span>
-                    )}
+              {offers.length === 0 && (
+                <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">
+                  No offers configured yet. Create one below.
+                </td></tr>
+              )}
+              {offers.map((o) => (
+                <tr key={o.id} className="border-t">
+                  <td className="p-3 font-mono text-xs">{o.offer_code}</td>
+                  <td className="p-3 font-mono text-xs">{o.plan_code}</td>
+                  <td className="p-3"><Badge variant="outline" className="font-mono text-xs">{o.market_code}</Badge></td>
+                  <td className="p-3 font-mono">{o.amount_minor} {o.currency_code}</td>
+                  <td className="p-3 text-muted-foreground text-xs">
+                    {o.billing_interval}{o.billing_interval_count > 1 ? ` x${o.billing_interval_count}` : ""}
                   </td>
                   <td className="p-3">
-                    <Badge variant={(plan.is_purchasable ? "default" : "secondary") as "default" | "secondary"}>
-                      {plan.is_purchasable ? "YES" : "NO"}
+                    <Badge variant={(o.is_purchasable ? "default" : "secondary") as "default" | "secondary"}>
+                      {o.is_purchasable ? "YES" : "NO"}
                     </Badge>
                   </td>
-                  <td className="p-3 w-40">
-                    <Input
-                      type="number"
-                      min="0"
-                      placeholder="e.g. 450000"
-                      className="h-8 font-mono text-xs"
-                      value={priceEdits[plan.id] ?? ""}
-                      onChange={(e) => setPriceEdits((p) => ({ ...p, [plan.id]: e.target.value }))}
-                    />
-                  </td>
                   <td className="p-3">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={!priceEdits[plan.id] || saving === plan.id}
-                      onClick={() => savePrice(plan.id, plan.plan_code)}
-                    >
-                      {saving === plan.id ? <RefreshCw className="h-3 w-3 animate-spin" /> : "Save"}
+                    <Button size="sm" variant="outline" disabled={saving} onClick={() => togglePurchasable(o)}>
+                      {o.is_purchasable ? "Disable" : "Enable"}
                     </Button>
-                    {saveMsg[plan.id] && (
-                      <p className="text-xs mt-1 text-muted-foreground">{saveMsg[plan.id]}</p>
-                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* ── New / update offer form ── */}
+        <div className="rounded-lg border p-4 space-y-3">
+          <h3 className="text-sm font-medium flex items-center gap-1"><Plus className="h-4 w-4" /> Create or update an offer</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground">Offer code</label>
+              <Input className="h-8 font-mono text-xs" placeholder="PAID_GLOBAL_USD_ANNUAL"
+                value={form.offerCode} onChange={(e) => setForm((f) => ({ ...f, offerCode: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Plan code</label>
+              <Input className="h-8 font-mono text-xs" placeholder="PAID"
+                value={form.planCode} onChange={(e) => setForm((f) => ({ ...f, planCode: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Market</label>
+              <select className="h-8 w-full rounded-md border bg-background px-2 text-xs font-mono"
+                value={form.marketCode} onChange={(e) => setForm((f) => ({ ...f, marketCode: e.target.value }))}>
+                {MARKET_CODES.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Currency (ISO 4217)</label>
+              <Input className="h-8 font-mono text-xs" placeholder="USD" maxLength={3}
+                value={form.currencyCode} onChange={(e) => setForm((f) => ({ ...f, currencyCode: e.target.value.toUpperCase() }))} />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Amount (minor units)</label>
+              <Input className="h-8 font-mono text-xs" type="number" min="1" placeholder="e.g. 49900"
+                value={form.amountMinor} onChange={(e) => setForm((f) => ({ ...f, amountMinor: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Currency exponent</label>
+              <Input className="h-8 font-mono text-xs" type="number" min="0" max="4"
+                value={form.currencyExponent} onChange={(e) => setForm((f) => ({ ...f, currencyExponent: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Billing interval</label>
+              <select className="h-8 w-full rounded-md border bg-background px-2 text-xs font-mono"
+                value={form.billingInterval} onChange={(e) => setForm((f) => ({ ...f, billingInterval: e.target.value }))}>
+                {BILLING_INTERVALS.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Interval count</label>
+              <Input className="h-8 font-mono text-xs" type="number" min="1"
+                value={form.billingIntervalCount} onChange={(e) => setForm((f) => ({ ...f, billingIntervalCount: e.target.value }))} />
+            </div>
+          </div>
+          <Button size="sm" disabled={saving} onClick={createOrUpdateOffer}>
+            {saving ? <RefreshCw className="h-3 w-3 animate-spin" /> : "Save Offer"}
+          </Button>
+          {saveMsg && <p className="text-xs text-muted-foreground">{saveMsg}</p>}
         </div>
       </section>
 
@@ -250,7 +343,8 @@ export default function CommercialAdmin() {
           <li>Licences are created only by <code>commit_verified_commercial_payment()</code> RPC (SECURITY DEFINER).</li>
           <li>Payment reversals return REVIEW_REQUIRED — no auto-mutations.</li>
           <li>Webhook processing is two-gate: authenticity + independent server verification.</li>
-          <li>Price changes take effect on the next checkout intent — existing licences are unaffected.</li>
+          <li>Editing an offer's price/currency takes effect on the next checkout intent — existing checkouts and licences are unaffected, because every checkout snapshots its own economic facts at creation time.</li>
+          <li>Commercial admin authority never confers accounting or professional authority.</li>
         </ul>
       </section>
     </div>

@@ -11,15 +11,22 @@
  * entitlement, never writes to the DB, and never contacts a provider.
  */
 
-export const SUPPORTED_CURRENCIES = ['TZS', 'USD', 'KES', 'UGX'] as const;
+export const SUPPORTED_CURRENCIES = ['TZS', 'USD', 'KES', 'UGX', 'GBP', 'EUR'] as const;
 export type CurrencyCode = typeof SUPPORTED_CURRENCIES[number];
 
-/** ISO 4217 exponents for supported currencies */
+/**
+ * ISO 4217 exponents for supported currencies. Adding a currency (e.g. for
+ * a future UK/EU offer) is exactly this: one array entry + one exponent —
+ * no schema change, no core redesign. Currency belongs to the offer, never
+ * to the plan (see commercial_offers in the Ω2-G migration).
+ */
 export const CURRENCY_EXPONENTS: Record<CurrencyCode, number> = {
   TZS: 0,  // no fractional shillings
   USD: 2,
   KES: 2,
   UGX: 0,
+  GBP: 2,
+  EUR: 2,
 };
 
 /** Maximum safe BIGINT minor units that Postgres BIGINT can hold */
@@ -38,6 +45,15 @@ export type MoneyValidationResult =
 /**
  * Create a Money value from integer minor units.
  * Returns a validation result — never throws for invalid input.
+ *
+ * Hostile-input contract (Ω2-G money authority repair): every branch below
+ * that could otherwise reach `BigInt(amountMinor)` with a value BigInt()
+ * itself would throw on (a non-integer number, NaN, +/-Infinity) is
+ * rejected BEFORE that call. A `number` is additionally rejected outside
+ * Number.isSafeInteger() range, since a number that large has already lost
+ * precision before it ever reaches this function — accepting it would
+ * silently authorise a corrupted amount. `bigint` inputs are exact by
+ * construction and only need the currency/positivity/overflow checks.
  */
 export function moneyFromMinorUnits(
   amountMinor: bigint | number,
@@ -46,7 +62,30 @@ export function moneyFromMinorUnits(
   if (!SUPPORTED_CURRENCIES.includes(currencyCode as CurrencyCode)) {
     return { valid: false, error: `Unsupported currency: ${currencyCode}` };
   }
-  const minor = BigInt(amountMinor);
+
+  if (typeof amountMinor === 'number') {
+    if (!Number.isFinite(amountMinor)) {
+      return { valid: false, error: `Amount must be finite. Got: ${amountMinor}` };
+    }
+    if (!Number.isInteger(amountMinor)) {
+      return { valid: false, error: `Amount must be an integer (no fractional minor units). Got: ${amountMinor}` };
+    }
+    if (!Number.isSafeInteger(amountMinor)) {
+      return { valid: false, error: `Amount exceeds safe integer precision: ${amountMinor}` };
+    }
+  }
+
+  let minor: bigint;
+  try {
+    minor = BigInt(amountMinor);
+  } catch {
+    // Defence in depth — the checks above should make this unreachable for
+    // `number`, and a `bigint` input can never throw in BigInt(), but a
+    // validation function that documents "never throws" must not rely on
+    // that being true forever.
+    return { valid: false, error: `Amount could not be converted to an integer: ${String(amountMinor)}` };
+  }
+
   if (minor <= BigInt(0)) {
     return { valid: false, error: `Amount must be positive. Got: ${minor}` };
   }

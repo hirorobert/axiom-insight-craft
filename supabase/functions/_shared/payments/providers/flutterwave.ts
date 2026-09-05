@@ -128,12 +128,18 @@ export class FlutterwaveAdapter implements ProviderAdapter {
   async createCheckout(params: CreateCheckoutParams): Promise<CreateCheckoutResult> {
     const displayAmount = formatMinorForProvider(params.amountMinor, params.currencyExponent);
 
+    // Payment methods are a provider EXECUTION detail (dimension G), never
+    // global commercial identity — mobile money is offered only when the
+    // transaction is actually in TZS, not unconditionally for every market
+    // this adapter processes.
+    const paymentOptions = params.currencyCode === 'TZS' ? 'card,mobilemoneytzania' : 'card';
+
     const body = {
       tx_ref:        params.saffReference,
       amount:        displayAmount,
       currency:      params.currencyCode,
       redirect_url:  params.redirectUrl,
-      payment_options: 'card,mobilemoneytzania',  // Tanzania cards + mobile money
+      payment_options: paymentOptions,
       customer: {
         email:       params.customerEmail,
         name:        params.customerName ?? params.customerEmail,

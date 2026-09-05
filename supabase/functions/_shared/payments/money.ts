@@ -6,7 +6,7 @@
 
 export const TZS_EXPONENT = 0;
 export const SUPPORTED_CURRENCIES: Record<string, number> = {
-  TZS: 0, USD: 2, KES: 2, UGX: 0,
+  TZS: 0, USD: 2, KES: 2, UGX: 0, GBP: 2, EUR: 2,
 };
 
 export interface MinorAmount {

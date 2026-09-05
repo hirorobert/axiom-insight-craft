@@ -49,6 +49,83 @@ describe("moneyFromMinorUnits", () => {
     const r = moneyFromMinorUnits(1.5, "TZS");
     expect(r.valid).toBe(false);
   });
+
+  // ── Ω2-G money authority repair: hostile inputs must return {valid:false},
+  //    never throw. moneyFromMinorUnits() previously called BigInt(1.5)
+  //    directly, which throws a RangeError before any validation could run —
+  //    a real, previously-undetected defect. Every case below must resolve
+  //    to a controlled invalid result with zero thrown exceptions.
+
+  it("does not throw for any hostile input (1.5, NaN, Infinity, -Infinity, unsafe integer)", () => {
+    const hostileInputs = [1.5, -1.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1, Number.MIN_SAFE_INTEGER - 1];
+    for (const input of hostileInputs) {
+      expect(() => moneyFromMinorUnits(input, "TZS")).not.toThrow();
+    }
+  });
+
+  it("rejects NaN", () => {
+    expect(moneyFromMinorUnits(NaN, "TZS").valid).toBe(false);
+  });
+
+  it("rejects Infinity", () => {
+    expect(moneyFromMinorUnits(Infinity, "TZS").valid).toBe(false);
+  });
+
+  it("rejects -Infinity", () => {
+    expect(moneyFromMinorUnits(-Infinity, "TZS").valid).toBe(false);
+  });
+
+  it("rejects an unsafe integer (beyond Number.isSafeInteger range)", () => {
+    const r = moneyFromMinorUnits(Number.MAX_SAFE_INTEGER + 2, "TZS");
+    expect(r.valid).toBe(false);
+  });
+
+  it("accepts the largest safe integer as a valid number input", () => {
+    const r = moneyFromMinorUnits(Number.MAX_SAFE_INTEGER, "TZS");
+    expect(r.valid).toBe(true);
+  });
+
+  it("rejects negative float without throwing", () => {
+    expect(() => moneyFromMinorUnits(-1.5, "TZS")).not.toThrow();
+    expect(moneyFromMinorUnits(-1.5, "TZS").valid).toBe(false);
+  });
+
+  it("bigint path remains exact for a very large in-domain value", () => {
+    const large = 9223372036854775807n;
+    const r = moneyFromMinorUnits(large, "TZS");
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(r.money.amountMinor).toBe(large);
+  });
+
+  it("rejects bigint overflow beyond BIGINT domain", () => {
+    const tooLarge = 9223372036854775807n + 1n;
+    const r = moneyFromMinorUnits(tooLarge, "TZS");
+    expect(r.valid).toBe(false);
+  });
+
+  it("exact integer number within safe range for USD cents", () => {
+    const r = moneyFromMinorUnits(49900, "USD");
+    expect(r.valid).toBe(true);
+    if (r.valid) {
+      expect(r.money.amountMinor).toBe(49900n);
+      expect(r.money.exponent).toBe(2);
+    }
+  });
+
+  it("exact bigint path for TZS", () => {
+    const r = moneyFromMinorUnits(450_000n, "TZS");
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(typeof r.money.amountMinor).toBe("bigint");
+  });
+
+  it("supports GBP and EUR structurally — new currency needs no schema redesign", () => {
+    expect(CURRENCY_EXPONENTS["GBP"]).toBe(2);
+    expect(CURRENCY_EXPONENTS["EUR"]).toBe(2);
+    const gbp = moneyFromMinorUnits(49900, "GBP");
+    expect(gbp.valid).toBe(true);
+    const eur = moneyFromMinorUnits(45000, "EUR");
+    expect(eur.valid).toBe(true);
+  });
 });
 
 describe("moneyFromProviderDecimal — TZS", () => {

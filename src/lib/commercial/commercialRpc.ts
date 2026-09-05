@@ -51,6 +51,45 @@ export interface CommercialRpcSignature {
       source: "ACTIVE_LICENCE" | "ADMIN_OVERRIDE" | null;
     };
   };
+  resolve_commercial_offer: {
+    args: { p_plan_code: string; p_market_code?: string };
+    returns: {
+      resolution: "AVAILABLE" | "NOT_AVAILABLE" | "AMBIGUOUS" | "UNKNOWN";
+      offer_id?: string;
+      offer_code?: string;
+      plan_id?: string;
+      plan_code?: string;
+      market_code?: string;
+      requested_market?: string;
+      fallback_to_global?: boolean;
+      currency_code?: string;
+      amount_minor?: number;
+      currency_exponent?: number;
+      billing_interval?: string;
+      billing_interval_count?: number;
+      provider_restriction?: string | null;
+      reason?: string;
+    };
+  };
+  admin_list_commercial_offers: {
+    args: { p_plan_code?: string };
+    returns: Array<{
+      id: string; offer_code: string; plan_code: string; plan_id: string;
+      market_code: string; currency_code: string; amount_minor: number;
+      currency_exponent: number; billing_interval: string; billing_interval_count: number;
+      is_active: boolean; is_purchasable: boolean;
+      effective_start: string; effective_end: string | null;
+    }>;
+  };
+  admin_upsert_commercial_offer: {
+    args: {
+      p_offer_code: string; p_plan_code: string; p_market_code: string;
+      p_currency_code: string; p_amount_minor: number; p_currency_exponent: number;
+      p_billing_interval: string; p_billing_interval_count: number;
+      p_is_active: boolean; p_is_purchasable: boolean; p_reason: string;
+    };
+    returns: { offer_id: string; offer_code: string };
+  };
 }
 
 type CommercialRpcName = keyof CommercialRpcSignature;
@@ -93,13 +132,29 @@ export interface CheckoutStatusResponse {
   correlationId: string;
 }
 
+/** Raw (snake_case) shape actually returned by get_checkout_status() via the Edge Function. */
+interface RawCheckoutStatusResponse {
+  found: boolean;
+  status?: string;
+  plan_code?: string | null;
+  licence_status?: string | null;
+  effective_start?: string | null;
+  effective_end?: string | null;
+  correlationId: string;
+}
+
 /**
  * Call the commercial-create-checkout Edge Function.
- * Browser sends ONLY planId — server derives price, currency, customer.
- * Never accepted: price, amount, paid=true, any provider secret.
+ * Browser sends ONLY a plan code and an optional market suggestion — the
+ * server independently resolves the actual commercial offer (plan + market
+ * + currency + price) via resolve_commercial_offer(); it never trusts a
+ * browser-supplied amount or currency, and never derives market from
+ * locale/IP. Never accepted: price, amount, currency, paid=true, any
+ * provider secret.
  */
 export async function createCheckoutIntent(
-  planId: string,
+  planCode: string,
+  marketCode?: string,
 ): Promise<{ data: CheckoutIntentResponse | null; error: string | null }> {
   const { supabase } = await import("@/integrations/supabase/client");
   const { data: { session } } = await supabase.auth.getSession();
@@ -113,7 +168,7 @@ export async function createCheckoutIntent(
         "Authorization": `Bearer ${session.access_token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ planId }),
+      body: JSON.stringify({ planCode, marketCode }),
     },
   );
   const json = await res.json();
@@ -124,7 +179,10 @@ export async function createCheckoutIntent(
 /**
  * Poll the commercial-payment-status Edge Function.
  * Owner-scoped — only the user who created the intent can read it.
- * Safe: never exposes raw provider payload.
+ * Safe: never exposes raw provider payload. Maps the RPC's snake_case
+ * response onto the camelCase contract PaymentReturn.tsx expects — this is
+ * the SOLE translation boundary, so get_checkout_status() itself can stay
+ * in natural Postgres snake_case.
  */
 export async function pollCheckoutStatus(
   saffReference: string,
@@ -141,7 +199,19 @@ export async function pollCheckoutStatus(
   const res = await fetch(url.toString(), {
     headers: { "Authorization": `Bearer ${session.access_token}` },
   });
-  const json = await res.json();
-  if (!res.ok) return { data: null, error: json?.error ?? "Status check failed" };
-  return { data: json as CheckoutStatusResponse, error: null };
+  const json = (await res.json()) as RawCheckoutStatusResponse;
+  if (!res.ok) return { data: null, error: (json as unknown as { error?: string })?.error ?? "Status check failed" };
+
+  return {
+    data: {
+      found: json.found,
+      status: json.status ?? null,
+      planCode: json.plan_code ?? null,
+      licenceStatus: json.licence_status ?? null,
+      effectiveStart: json.effective_start ?? null,
+      effectiveEnd: json.effective_end ?? null,
+      correlationId: json.correlationId,
+    },
+    error: null,
+  };
 }

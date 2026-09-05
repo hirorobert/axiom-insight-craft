@@ -1,84 +1,481 @@
 -- ════════════════════════════════════════════════════════════════════════════
--- Ω∞ WAVE Ω2 — REAL PAYMENTS + PREMIUM ENTITLEMENT + COMMERCIAL OPERATIONS
--- Provider-neutral commercial payment architecture. First provider: Flutterwave.
--- Tanzania-first: TZS, cards, mobile money, webhook + server-side verification.
+-- Ω∞ WAVE Ω2-G — GLOBAL COMMERCE: REAL PAYMENTS + PREMIUM ENTITLEMENT
+-- Provider-neutral, market-neutral, currency-neutral commercial payment
+-- architecture. First provider: Flutterwave. First market: whatever the
+-- founder configures — Tanzania is a supported market, not SAFF's identity.
 --
--- FORWARD MIGRATION ONLY. Does not edit any Ω1 migration.
+-- FORWARD MIGRATION ONLY. Does not edit any Ω1 or RLS1 migration.
 -- Apply AFTER 20260905120000_fix_commercial_admin_rls_recursion.sql.
+-- NOT YET LIVE — this file has never been applied to any database. It is
+-- rewritten in place (not chained) because it is still CREATED_NOT_APPLIED.
 --
--- Constitutional laws (inherited from Ω1, Ω2 additions below):
+-- ════════════════════════════════════════════════════════════════════════════
+-- GLOBAL COMMERCE MODEL (Ω2-G)
+--
+--   PRODUCT → PLAN → COMMERCIAL OFFER → CHECKOUT INTENT → PAYMENT ROUTING
+--   → PAYMENT PROVIDER → VERIFIED PAYMENT EVIDENCE → PAYMENT EVENT
+--   → LICENCE → ENTITLEMENT → FEATURE ACCESS
+--
+-- Orthogonal dimensions, never collapsed into one another:
+--   A. Product identity      — SAFF is global; not owned by this migration.
+--   B. Accounting jurisdiction — companies.reporting_framework / KINGA-TZ etc.
+--   C. Commercial market      — commercial_offers.market_code (this file).
+--   D. Commercial offer       — commercial_offers (this file).
+--   E. Currency               — belongs to the OFFER, never the plan.
+--   F. Payment provider       — payment_checkout_intents.provider + adapter.
+--   G. Payment method         — provider execution detail (e.g. Flutterwave's
+--                                mobilemoneytzania), never core schema.
+--   H. Settlement destination — explicitly NOT modelled here. See §10 note
+--                                near the end of this file.
+--   I. Licence / entitlement  — commercial_licences / get_effective_entitlement().
+--   J. Accounting authority   — completely untouched by this file.
+--
+-- commercial_plans owns PLAN IDENTITY AND CAPABILITIES ONLY. It has never
+-- owned price or currency in this design (that authority lives solely in
+-- commercial_offers) — no legacy price columns are introduced or carried.
+--
+-- Constitutional laws (inherited from Ω1, Ω2-G additions below):
 --   1. Commercial authority NEVER grants accounting authority.
 --   2. Browser/redirect callbacks NEVER grant commercial value.
 --   3. Webhook receipt alone NEVER grants commercial value.
 --   4. Payment MUST be independently verified server-side before licence changes.
 --   5. payment_events is append-only (existing trigger preserved + extended).
 --   6. UNKNOWN != NOT_ENTITLED != ENTITLED. FAILED != CANCELLED != EXPIRED.
---   7. Money is BIGINT minor units. TZS exponent=0. Float is NEVER authoritative.
---   8. Flutterwave is an adapter. Replacing it must not touch licence schema,
---      payment_events semantics, entitlement resolver, or accounting authority.
+--   7. Money is BIGINT minor units. Float is NEVER authoritative.
+--   8. Flutterwave is an adapter. Replacing/adding a provider must not touch
+--      commercial_products, commercial_plans, commercial_offers, checkout
+--      intent semantics, payment_events authority, licence schema, the
+--      entitlement resolver, premium feature gates, or accounting authority.
+--   9. Currency belongs to the offer. No automatic FX conversion is ever
+--      performed as commercial authority — each offer has its own approved
+--      price, in its own currency, decided by a human.
+--  10. Commercial market is NOT automatically accounting jurisdiction, and
+--      is NEVER derived from browser locale/IP — those may only steer
+--      DISPLAY, never authority. See resolve_commercial_offer() below.
 -- ════════════════════════════════════════════════════════════════════════════
 
 SET search_path TO public, pg_catalog;
 
 -- ════════════════════════════════════════════════════════════════════════════
--- 1. EXTEND commercial_plans WITH PRICE AUTHORITY
---    price_amount_minor NULL = plan not purchasable → checkout blocked server-side.
---    PRODUCT_PRICING_DECISION_REQUIRED: set price before enabling paid checkout.
+-- 1. commercial_plans — IDENTITY AND CAPABILITIES ONLY. No price. No currency.
+--    (No columns added here. This section exists only to record, in the
+--    migration itself, that Ω2-G deliberately does NOT extend
+--    commercial_plans with price_amount_minor/currency_code/is_purchasable —
+--    an earlier draft of this migration did exactly that, and it was
+--    removed before this candidate was ever applied. Pricing authority is
+--    commercial_offers, singular and exclusive.)
 -- ════════════════════════════════════════════════════════════════════════════
 
-ALTER TABLE public.commercial_plans
-  ADD COLUMN IF NOT EXISTS price_amount_minor BIGINT      NULL,
-  ADD COLUMN IF NOT EXISTS currency_code      TEXT        NOT NULL DEFAULT 'TZS',
-  ADD COLUMN IF NOT EXISTS currency_exponent  SMALLINT    NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS is_purchasable     BOOLEAN     NOT NULL DEFAULT false,
-  ADD COLUMN IF NOT EXISTS billing_period     TEXT        NOT NULL DEFAULT 'ANNUAL'
-    CONSTRAINT chk_cp_billing_period CHECK (
-      billing_period IN ('ANNUAL','MONTHLY','ONE_TIME')
+-- ════════════════════════════════════════════════════════════════════════════
+-- 2. MARKET VOCABULARY — minimal, durable. Not a country ERP.
+--    A market is a commercial context (currency + pricing + provider
+--    eligibility), never automatically an accounting jurisdiction.
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- Market codes are validated inline via CHECK constraints below rather than
+-- a separate lookup table — this is intentionally small and closed, mirroring
+-- Ω1's feature_codes pattern (CHECK constraint, not a table, for a short,
+-- deliberately-curated vocabulary). Adding a market is a migration, exactly
+-- like adding a feature code.
+--
+-- GLOBAL — the default, currency-explicit catalog-wide market. Always
+--          eligible as a fallback when no market-specific offer exists.
+-- TZ     — Tanzania. A supported commercial market (and separately, a
+--          supported KINGA accounting jurisdiction — the two are unrelated).
+-- MU     — Mauritius.
+-- GB     — United Kingdom.
+-- EU     — European Union (single commercial market for pricing purposes).
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- 3. commercial_offers — THE SOLE PRICING AUTHORITY.
+--    "This plan is available in this market, in this currency, at this
+--    price." Nothing else in this schema is allowed to define a price.
+-- ════════════════════════════════════════════════════════════════════════════
+
+CREATE TABLE public.commercial_offers (
+  id                     UUID        NOT NULL DEFAULT gen_random_uuid(),
+  offer_code             TEXT        NOT NULL,
+  plan_id                UUID        NOT NULL,
+  market_code            TEXT        NOT NULL
+    CONSTRAINT chk_co_market_code CHECK (market_code IN ('GLOBAL','TZ','MU','GB','EU')),
+  currency_code          TEXT        NOT NULL
+    CONSTRAINT chk_co_currency_code CHECK (char_length(currency_code) = 3),
+  amount_minor           BIGINT      NOT NULL
+    CONSTRAINT chk_co_amount_positive CHECK (amount_minor > 0),
+  currency_exponent      SMALLINT    NOT NULL
+    CONSTRAINT chk_co_exponent_range CHECK (currency_exponent BETWEEN 0 AND 4),
+  billing_interval       TEXT        NOT NULL
+    CONSTRAINT chk_co_billing_interval CHECK (billing_interval IN ('ANNUAL','MONTHLY','ONE_TIME')),
+  billing_interval_count SMALLINT    NOT NULL DEFAULT 1
+    CONSTRAINT chk_co_interval_count_positive CHECK (billing_interval_count > 0),
+  effective_start        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  effective_end          TIMESTAMPTZ NULL,
+  is_active              BOOLEAN     NOT NULL DEFAULT true,
+  is_purchasable         BOOLEAN     NOT NULL DEFAULT false,
+  -- NULL = eligible for routing to any configured provider that supports
+  -- this offer's currency/market. Non-NULL ONLY when a human has
+  -- intentionally restricted this specific offer to one provider (e.g. a
+  -- promo code redeemable only through a specific channel). This is never
+  -- how normal multi-provider routing works — see selectPaymentProvider()
+  -- in supabase/functions/_shared/payments/routing.ts.
+  provider_restriction   TEXT        NULL
+    CONSTRAINT chk_co_provider_restriction CHECK (
+      provider_restriction IS NULL OR provider_restriction IN
+        ('FLUTTERWAVE','PESAPAL','SELCOM','DPO','STRIPE')
+    ),
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT commercial_offers_pk PRIMARY KEY (id),
+  CONSTRAINT uq_co_offer_code UNIQUE (offer_code),
+  CONSTRAINT fk_co_plan FOREIGN KEY (plan_id) REFERENCES public.commercial_plans(id) ON DELETE RESTRICT,
+  CONSTRAINT chk_co_effective_window CHECK (effective_end IS NULL OR effective_end > effective_start)
+);
+
+-- At most one CURRENT, open-ended, purchasable offer per (plan, market,
+-- currency) — the DB-enforced answer to "duplicate authoritative offer
+-- ambiguity". A time-boxed promo (effective_end set) can coexist with the
+-- standing offer; resolve_commercial_offer() below still fails closed
+-- (AMBIGUOUS) if it ever finds more than one purchasable match at query time,
+-- so this partial index is defense-in-depth, not the sole safeguard.
+CREATE UNIQUE INDEX uq_co_current_offer
+  ON public.commercial_offers (plan_id, market_code, currency_code)
+  WHERE is_active AND is_purchasable AND effective_end IS NULL;
+
+CREATE INDEX idx_co_plan_market ON public.commercial_offers (plan_id, market_code)
+  WHERE is_active;
+
+ALTER TABLE public.commercial_offers ENABLE ROW LEVEL SECURITY;
+
+-- Public pricing catalogue — same allowance Ω1 gave commercial_plans/
+-- commercial_products ("harmless public plan metadata"). A price is not
+-- private data; it is what a pricing page shows.
+CREATE POLICY "co_select_public" ON public.commercial_offers
+  FOR SELECT USING (is_active);
+
+REVOKE ALL ON public.commercial_offers FROM anon, authenticated;
+GRANT SELECT ON public.commercial_offers TO anon, authenticated;
+GRANT ALL    ON public.commercial_offers TO service_role;
+
+COMMENT ON TABLE public.commercial_offers IS
+  'Ω2-G: the sole pricing authority. plan_id + market_code + currency_code '
+  'define one purchasable price point. commercial_plans never carries a '
+  'price. Editing an offer''s price/currency does not alter historical '
+  'checkout intents or payment events — those snapshot their own economic '
+  'facts at creation time (see payment_checkout_intents below) precisely so '
+  'that changing an offer never rewrites evidence.';
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- 4. CATALOG ADMIN AUDIT — immutable trail for offer/plan configuration
+--    changes. Distinct from billing_audit_events, which is scoped to one
+--    billing_customer_id; catalog changes are not customer-scoped.
+-- ════════════════════════════════════════════════════════════════════════════
+
+CREATE TABLE public.commercial_catalog_audit_events (
+  id             UUID        NOT NULL DEFAULT gen_random_uuid(),
+  actor_user_id  UUID        NOT NULL,
+  action         TEXT        NOT NULL,
+  entity_type    TEXT        NOT NULL CONSTRAINT chk_ccae_entity_type CHECK (entity_type IN ('OFFER','PLAN')),
+  entity_id      UUID        NOT NULL,
+  previous_state JSONB       NULL,
+  new_state      JSONB       NULL,
+  reason         TEXT        NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT commercial_catalog_audit_events_pk PRIMARY KEY (id),
+  CONSTRAINT fk_ccae_actor FOREIGN KEY (actor_user_id) REFERENCES auth.users(id) ON DELETE RESTRICT
+);
+
+CREATE INDEX idx_ccae_entity ON public.commercial_catalog_audit_events (entity_type, entity_id, created_at DESC);
+
+CREATE OR REPLACE FUNCTION public.commercial_catalog_audit_events_immutable()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_catalog AS $$
+BEGIN
+  RAISE EXCEPTION 'Iron Dome: commercial_catalog_audit_events is append-only. % on id=% is not permitted.', TG_OP, OLD.id;
+END;
+$$;
+
+CREATE TRIGGER trg_ccae_immutable
+  BEFORE UPDATE OR DELETE ON public.commercial_catalog_audit_events
+  FOR EACH ROW EXECUTE FUNCTION public.commercial_catalog_audit_events_immutable();
+
+ALTER TABLE public.commercial_catalog_audit_events ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "ccae_select_admin_only" ON public.commercial_catalog_audit_events
+  FOR SELECT USING (public.is_commercial_admin());
+
+REVOKE ALL ON public.commercial_catalog_audit_events FROM anon, authenticated;
+GRANT SELECT ON public.commercial_catalog_audit_events TO authenticated;
+GRANT ALL    ON public.commercial_catalog_audit_events TO service_role;
+REVOKE ALL ON FUNCTION public.commercial_catalog_audit_events_immutable() FROM PUBLIC, anon, authenticated;
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- 5. OFFER RESOLVER — pure, server-side, explicit AVAILABLE/NOT_AVAILABLE/
+--    AMBIGUOUS/UNKNOWN result. Never lets the browser supply an authoritative
+--    amount/currency; never silently picks between equally-authoritative
+--    offers. Trusted commercial context precedence:
+--      1. explicit p_market_code the caller (server) has already established
+--         for this billing customer (not yet a persisted "preferred market"
+--         concept in Ω2-G — callers pass the market explicitly);
+--      2. GLOBAL, if the requested market has no eligible offer.
+--    Browser locale/IP are NEVER accepted as an input here — this function
+--    has no such parameter, by design.
+-- ════════════════════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION public.resolve_commercial_offer(
+  p_plan_code   TEXT,
+  p_market_code TEXT DEFAULT 'GLOBAL'
+) RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER STABLE
+SET search_path = public, pg_catalog
+AS $$
+DECLARE
+  v_plan_id    UUID;
+  v_count      INTEGER;
+  v_offer      RECORD;
+  v_used_market TEXT;
+BEGIN
+  IF p_market_code IS NULL OR p_market_code NOT IN ('GLOBAL','TZ','MU','GB','EU') THEN
+    RETURN jsonb_build_object('resolution','UNKNOWN','reason','UNKNOWN_MARKET_CODE');
+  END IF;
+
+  SELECT id INTO v_plan_id FROM public.commercial_plans WHERE code = p_plan_code AND is_active;
+  IF v_plan_id IS NULL THEN
+    RETURN jsonb_build_object('resolution','UNKNOWN','reason','UNKNOWN_OR_INACTIVE_PLAN_CODE');
+  END IF;
+
+  v_used_market := p_market_code;
+  SELECT count(*) INTO v_count
+    FROM public.commercial_offers co
+   WHERE co.plan_id = v_plan_id AND co.market_code = v_used_market
+     AND co.is_active AND co.is_purchasable
+     AND co.effective_start <= now() AND (co.effective_end IS NULL OR co.effective_end > now());
+
+  -- Fallback precedence: requested market has nothing → try GLOBAL.
+  IF v_count = 0 AND v_used_market != 'GLOBAL' THEN
+    v_used_market := 'GLOBAL';
+    SELECT count(*) INTO v_count
+      FROM public.commercial_offers co
+     WHERE co.plan_id = v_plan_id AND co.market_code = v_used_market
+       AND co.is_active AND co.is_purchasable
+       AND co.effective_start <= now() AND (co.effective_end IS NULL OR co.effective_end > now());
+  END IF;
+
+  IF v_count = 0 THEN
+    RETURN jsonb_build_object('resolution','NOT_AVAILABLE','plan_code',p_plan_code,'requested_market',p_market_code);
+  END IF;
+
+  IF v_count > 1 THEN
+    -- Never silently choose. The unique index above should make this
+    -- unreachable for is_purchasable rows with no effective_end, but a
+    -- deliberately time-boxed promo can still coexist with a standing
+    -- offer — fail closed rather than guess which one is authoritative.
+    RETURN jsonb_build_object('resolution','AMBIGUOUS','plan_code',p_plan_code,'market_code',v_used_market);
+  END IF;
+
+  SELECT co.id, co.offer_code, co.market_code, co.currency_code, co.amount_minor,
+         co.currency_exponent, co.billing_interval, co.billing_interval_count,
+         co.provider_restriction
+    INTO v_offer
+    FROM public.commercial_offers co
+   WHERE co.plan_id = v_plan_id AND co.market_code = v_used_market
+     AND co.is_active AND co.is_purchasable
+     AND co.effective_start <= now() AND (co.effective_end IS NULL OR co.effective_end > now())
+   LIMIT 1;
+
+  RETURN jsonb_build_object(
+    'resolution','AVAILABLE',
+    'offer_id',v_offer.id,'offer_code',v_offer.offer_code,'plan_id',v_plan_id,
+    'plan_code',p_plan_code,'market_code',v_offer.market_code,
+    'requested_market',p_market_code,'fallback_to_global',(v_used_market != p_market_code),
+    'currency_code',v_offer.currency_code,'amount_minor',v_offer.amount_minor,
+    'currency_exponent',v_offer.currency_exponent,'billing_interval',v_offer.billing_interval,
+    'billing_interval_count',v_offer.billing_interval_count,
+    'provider_restriction',v_offer.provider_restriction
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.resolve_commercial_offer(TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.resolve_commercial_offer(TEXT, TEXT) TO anon, authenticated;
+
+COMMENT ON FUNCTION public.resolve_commercial_offer IS
+  'Ω2-G: pure server-side offer resolver. Returns AVAILABLE/NOT_AVAILABLE/'
+  'AMBIGUOUS/UNKNOWN explicitly — never silently picks between equally '
+  'authoritative offers, never accepts browser-supplied price/currency, '
+  'never accepts locale/IP. Callable by anon/authenticated for pricing '
+  'display; commercial-create-checkout re-resolves server-side regardless '
+  'of what the browser echoes back.';
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- 6. ADMIN OFFER MANAGEMENT — server-authoritative, commercial-admin-only,
+--    auditable. Confers zero accounting authority. Editing an offer never
+--    rewrites historical checkout/payment evidence (that evidence is
+--    snapshotted independently on payment_checkout_intents — see below).
+-- ════════════════════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION public.admin_upsert_commercial_offer(
+  p_offer_code             TEXT,
+  p_plan_code              TEXT,
+  p_market_code            TEXT,
+  p_currency_code          TEXT,
+  p_amount_minor           BIGINT,
+  p_currency_exponent      SMALLINT,
+  p_billing_interval       TEXT,
+  p_billing_interval_count SMALLINT,
+  p_is_active              BOOLEAN,
+  p_is_purchasable         BOOLEAN,
+  p_reason                 TEXT
+) RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER VOLATILE
+SET search_path = public, pg_catalog
+AS $$
+DECLARE
+  v_user_id  UUID := auth.uid();
+  v_plan_id  UUID;
+  v_offer_id UUID;
+  v_previous JSONB;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000';
+  END IF;
+  IF NOT public.is_commercial_admin() THEN
+    RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
+  END IF;
+  IF p_reason IS NULL OR trim(p_reason) = '' THEN
+    RAISE EXCEPTION 'REASON_REQUIRED' USING ERRCODE = '22023';
+  END IF;
+  IF p_amount_minor IS NULL OR p_amount_minor <= 0 THEN
+    RAISE EXCEPTION 'AMOUNT_MUST_BE_POSITIVE' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT id INTO v_plan_id FROM public.commercial_plans WHERE code = p_plan_code;
+  IF v_plan_id IS NULL THEN
+    RAISE EXCEPTION 'UNKNOWN_PLAN_CODE: %', p_plan_code USING ERRCODE = '22023';
+  END IF;
+
+  SELECT id, to_jsonb(co.*) INTO v_offer_id, v_previous
+    FROM public.commercial_offers co WHERE co.offer_code = p_offer_code;
+
+  IF v_offer_id IS NOT NULL THEN
+    UPDATE public.commercial_offers SET
+      currency_code = p_currency_code, amount_minor = p_amount_minor,
+      currency_exponent = p_currency_exponent, billing_interval = p_billing_interval,
+      billing_interval_count = p_billing_interval_count, is_active = p_is_active,
+      is_purchasable = p_is_purchasable, updated_at = now()
+     WHERE id = v_offer_id;
+
+    INSERT INTO public.commercial_catalog_audit_events (
+      actor_user_id, action, entity_type, entity_id, previous_state, new_state, reason
+    ) VALUES (
+      v_user_id, 'OFFER_UPDATED', 'OFFER', v_offer_id, v_previous,
+      jsonb_build_object('offer_code',p_offer_code,'market_code',p_market_code,
+        'currency_code',p_currency_code,'amount_minor',p_amount_minor,
+        'is_active',p_is_active,'is_purchasable',p_is_purchasable),
+      p_reason
     );
+  ELSE
+    INSERT INTO public.commercial_offers (
+      offer_code, plan_id, market_code, currency_code, amount_minor, currency_exponent,
+      billing_interval, billing_interval_count, is_active, is_purchasable
+    ) VALUES (
+      p_offer_code, v_plan_id, p_market_code, p_currency_code, p_amount_minor, p_currency_exponent,
+      p_billing_interval, p_billing_interval_count, p_is_active, p_is_purchasable
+    ) RETURNING id INTO v_offer_id;
 
-COMMENT ON COLUMN public.commercial_plans.price_amount_minor IS
-  'Price in smallest currency unit. TZS exponent=0 so this IS the TZS amount. '
-  'NULL = not purchasable. Set by business decision. PRODUCT_PRICING_DECISION_REQUIRED.';
-COMMENT ON COLUMN public.commercial_plans.currency_exponent IS
-  'ISO 4217 exponent. TZS=0 (no fractional shillings), USD=2. '
-  'Used to convert amount_minor to display: display = amount_minor / 10^exponent.';
-COMMENT ON COLUMN public.commercial_plans.is_purchasable IS
-  'false = checkout creation blocked server-side regardless of price_amount_minor.';
+    INSERT INTO public.commercial_catalog_audit_events (
+      actor_user_id, action, entity_type, entity_id, previous_state, new_state, reason
+    ) VALUES (
+      v_user_id, 'OFFER_CREATED', 'OFFER', v_offer_id, NULL,
+      jsonb_build_object('offer_code',p_offer_code,'plan_code',p_plan_code,'market_code',p_market_code,
+        'currency_code',p_currency_code,'amount_minor',p_amount_minor,
+        'is_active',p_is_active,'is_purchasable',p_is_purchasable),
+      p_reason
+    );
+  END IF;
+
+  RETURN jsonb_build_object('offer_id', v_offer_id, 'offer_code', p_offer_code);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_upsert_commercial_offer FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_upsert_commercial_offer TO authenticated;
+
+-- Admin-scoped catalog read: every offer for a plan, including inactive/non-
+-- purchasable ones (the public policy above only shows is_active rows).
+CREATE OR REPLACE FUNCTION public.admin_list_commercial_offers(p_plan_code TEXT DEFAULT NULL)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER STABLE
+SET search_path = public, pg_catalog AS $$
+BEGIN
+  IF NOT public.is_commercial_admin() THEN
+    RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
+  END IF;
+  RETURN COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+      'id',co.id,'offer_code',co.offer_code,'plan_code',cp.code,'plan_id',co.plan_id,
+      'market_code',co.market_code,'currency_code',co.currency_code,
+      'amount_minor',co.amount_minor,'currency_exponent',co.currency_exponent,
+      'billing_interval',co.billing_interval,'billing_interval_count',co.billing_interval_count,
+      'is_active',co.is_active,'is_purchasable',co.is_purchasable,
+      'effective_start',co.effective_start,'effective_end',co.effective_end
+    ) ORDER BY cp.code, co.market_code, co.currency_code)
+    FROM public.commercial_offers co
+    JOIN public.commercial_plans cp ON cp.id = co.plan_id
+   WHERE p_plan_code IS NULL OR cp.code = p_plan_code
+  ), '[]'::jsonb);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_list_commercial_offers(TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_list_commercial_offers(TEXT) TO authenticated;
 
 -- ════════════════════════════════════════════════════════════════════════════
--- 2. CHECKOUT INTENT — server-owned expected transaction record
---    Created BEFORE contacting Flutterwave. Browser cannot mark this paid.
+-- 7. CHECKOUT INTENT — server-owned expected transaction record, snapshotting
+--    the offer's economic facts at creation time so a later offer edit can
+--    NEVER silently change an in-flight or historical checkout.
+--    Created BEFORE contacting the payment provider. Browser cannot write.
 --    Only commit_verified_commercial_payment() may set status=SUCCEEDED.
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE public.payment_checkout_intents (
-  id                    UUID        NOT NULL DEFAULT gen_random_uuid(),
-  billing_customer_id   UUID        NOT NULL,
-  plan_id               UUID        NOT NULL,
-  provider              TEXT        NOT NULL DEFAULT 'FLUTTERWAVE'
+  id                      UUID        NOT NULL DEFAULT gen_random_uuid(),
+  billing_customer_id     UUID        NOT NULL,
+  commercial_offer_id     UUID        NOT NULL,
+  -- Snapshot of the offer's economic facts AT CHECKOUT CREATION TIME. Never
+  -- re-read from commercial_offers after this row exists — these columns
+  -- ARE the forensic record, immutable in practice (nothing ever UPDATEs
+  -- them; only status/provider_checkout_*/completed_at ever change).
+  plan_id                 UUID        NOT NULL,
+  market_code             TEXT        NOT NULL,
+  expected_amount_minor   BIGINT      NOT NULL,
+  currency_code           TEXT        NOT NULL,
+  currency_exponent       SMALLINT    NOT NULL,
+  billing_interval        TEXT        NOT NULL,
+  billing_interval_count  SMALLINT    NOT NULL,
+  provider                TEXT        NOT NULL
     CONSTRAINT chk_pci_provider CHECK (
       provider IN ('FLUTTERWAVE','PESAPAL','SELCOM','DPO','STRIPE')
     ),
-  saff_reference        TEXT        NOT NULL,
-  provider_checkout_ref TEXT        NULL,
-  provider_checkout_url TEXT        NULL,
-  expected_amount_minor BIGINT      NOT NULL,
-  currency_code         TEXT        NOT NULL DEFAULT 'TZS',
-  currency_exponent     SMALLINT    NOT NULL DEFAULT 0,
-  status                TEXT        NOT NULL DEFAULT 'CREATED'
+  saff_reference          TEXT        NOT NULL,
+  provider_checkout_ref   TEXT        NULL,
+  provider_checkout_url   TEXT        NULL,
+  status                  TEXT        NOT NULL DEFAULT 'CREATED'
     CONSTRAINT chk_pci_status CHECK (
       status IN ('CREATED','PENDING','SUCCEEDED','FAILED','CANCELLED','EXPIRED')
     ),
-  created_by_user_id    UUID        NOT NULL,
-  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-  expires_at            TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '1 hour'),
-  completed_at          TIMESTAMPTZ NULL,
-  metadata              JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_by_user_id      UUID        NOT NULL,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at              TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '1 hour'),
+  completed_at            TIMESTAMPTZ NULL,
+  metadata                JSONB       NOT NULL DEFAULT '{}'::jsonb,
 
   CONSTRAINT payment_checkout_intents_pk PRIMARY KEY (id),
   CONSTRAINT uq_pci_saff_reference UNIQUE (saff_reference),
   CONSTRAINT fk_pci_billing_customer
     FOREIGN KEY (billing_customer_id) REFERENCES public.billing_customers(id) ON DELETE CASCADE,
+  CONSTRAINT fk_pci_offer
+    FOREIGN KEY (commercial_offer_id) REFERENCES public.commercial_offers(id) ON DELETE RESTRICT,
   CONSTRAINT fk_pci_plan
     FOREIGN KEY (plan_id) REFERENCES public.commercial_plans(id) ON DELETE RESTRICT,
   CONSTRAINT fk_pci_created_by
@@ -108,11 +505,13 @@ GRANT SELECT ON public.payment_checkout_intents TO authenticated;
 GRANT ALL    ON public.payment_checkout_intents TO service_role;
 
 COMMENT ON TABLE public.payment_checkout_intents IS
-  'Ω2 Iron Dome: SAFF expected transaction, created before provider contact. '
+  'Ω2-G Iron Dome: SAFF expected transaction, created before provider contact. '
+  'Snapshots commercial_offer_id + its economic facts at creation time so a '
+  'later offer price/currency change never mutates an existing checkout. '
   'Browser cannot write. Only commit_verified_commercial_payment() closes this.';
 
 -- ════════════════════════════════════════════════════════════════════════════
--- 3. WEBHOOK RECEIPTS — raw immutable evidence for every received webhook
+-- 8. WEBHOOK RECEIPTS — raw immutable evidence for every received webhook
 --    Recorded BEFORE verification. Invalid receipts NEVER grant commercial value.
 -- ════════════════════════════════════════════════════════════════════════════
 
@@ -160,7 +559,7 @@ GRANT SELECT ON public.payment_webhook_receipts TO authenticated;
 GRANT ALL    ON public.payment_webhook_receipts TO service_role;
 
 -- ════════════════════════════════════════════════════════════════════════════
--- 4. EXTEND payment_events WITH REAL PROVIDER EVIDENCE COLUMNS
+-- 9. EXTEND payment_events WITH REAL PROVIDER EVIDENCE COLUMNS
 --    All new columns nullable → existing rows unaffected. amount_minor is
 --    the authoritative integer money. existing amount NUMERIC is legacy display.
 -- ════════════════════════════════════════════════════════════════════════════
@@ -187,6 +586,7 @@ ALTER TABLE public.payment_events
       )
     ),
   ADD COLUMN IF NOT EXISTS checkout_intent_id      UUID         NULL,
+  ADD COLUMN IF NOT EXISTS commercial_offer_id     UUID         NULL,
   ADD COLUMN IF NOT EXISTS plan_id                 UUID         NULL,
   ADD COLUMN IF NOT EXISTS provider_created_at     TIMESTAMPTZ  NULL;
 
@@ -194,6 +594,9 @@ ALTER TABLE public.payment_events
   ADD CONSTRAINT fk_pe_checkout_intent
     FOREIGN KEY (checkout_intent_id)
     REFERENCES public.payment_checkout_intents(id) ON DELETE SET NULL,
+  ADD CONSTRAINT fk_pe_offer
+    FOREIGN KEY (commercial_offer_id)
+    REFERENCES public.commercial_offers(id) ON DELETE SET NULL,
   ADD CONSTRAINT fk_pe_plan
     FOREIGN KEY (plan_id)
     REFERENCES public.commercial_plans(id) ON DELETE SET NULL;
@@ -203,19 +606,62 @@ CREATE UNIQUE INDEX uq_pe_provider_tx_id
   WHERE provider IS NOT NULL AND provider_transaction_id IS NOT NULL;
 
 COMMENT ON COLUMN public.payment_events.amount_minor IS
-  'Authoritative money in smallest currency unit (TZS exponent=0, so 1 TZS = 1 unit). '
-  'Validated against checkout_intent.expected_amount_minor before granting commercial value.';
+  'Authoritative money in smallest currency unit of whatever currency this '
+  'event''s offer was priced in. Validated against '
+  'checkout_intent.expected_amount_minor before granting commercial value.';
 COMMENT ON COLUMN public.payment_events.verified_at IS
-  'Timestamp of independent Flutterwave API verification call. '
+  'Timestamp of independent provider API verification call. '
   'NULL = not independently verified. Commercial value only granted when NOT NULL.';
 COMMENT ON COLUMN public.payment_events.normalized_status IS
-  'Provider-neutral status enum. Flutterwave "successful" maps to SUCCEEDED here. '
-  'A SUCCEEDED row without verified_at IS NOT NULL must never grant entitlement.';
+  'Provider-neutral status enum. A SUCCEEDED row without verified_at IS NOT '
+  'NULL must never grant entitlement.';
 
 -- ════════════════════════════════════════════════════════════════════════════
--- 5. ATOMIC COMMERCIAL COMMIT — single write boundary for verified payment
---    SECURITY DEFINER, service_role only. One transaction: intent → event
---    → licence → audit → done. Idempotent on replay via idempotency_key.
+-- 10. SETTLEMENT ORTHOGONALITY — architectural note, no schema change.
+--     Settlement (where SAFF's merchant funds ultimately land — a provider
+--     merchant balance, a corporate bank account, a payout aggregator, or
+--     any other future approved destination) is explicitly OUTSIDE customer
+--     entitlement authority. Nothing in this schema references, requires,
+--     or is capable of referencing a settlement destination:
+--       - payment_events has no settlement column.
+--       - commercial_licences has no settlement column.
+--       - get_effective_entitlement() has no settlement input.
+--     Payment success — and therefore entitlement — is determined solely by
+--     verified provider transaction evidence (Gate A + Gate B, below), never
+--     by observing money arrive in any bank account. A future settlement
+--     concept (e.g. a settlement_events table keyed by payment_events.id)
+--     can be added ADDITIVELY without touching payment_events, licence
+--     schema, or the entitlement resolver, precisely because none of them
+--     know settlement exists today. No settlement integration (Payoneer,
+--     CRDB, or otherwise) is built in this migration. No personal account of
+--     any kind is referenced anywhere in this schema.
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- 11. ATOMIC COMMERCIAL COMMIT — single write boundary for verified payment.
+--     SECURITY DEFINER, service_role only. One transaction: intent → event
+--     → licence → audit → done. Idempotent on replay via idempotency_key.
+--
+--     Fixes two BLOCKER defects found in the pre-Ω2-G candidate:
+--       (a) billing_audit_events was inserted with columns
+--           (event_type, metadata) that do not exist on that table — Ω1
+--           defines it as (action, previous_state, new_state, reason,
+--           correlation_id). Every real payment commit would have thrown
+--           "column does not exist" and rolled back. Fixed: uses the real
+--           Ω1 column names.
+--       (b) commercial_licences.source is NOT NULL with no default; the
+--           INSERT never supplied it. Fixed: supplies
+--           '<PROVIDER>_VERIFIED_PAYMENT'.
+--       (c) the prior licence (e.g. an open-ended FREE licence) was never
+--           closed out before inserting a new one for a DIFFERENT plan —
+--           any FREE→PAID upgrade would have violated RLS1's
+--           excl_cl_no_overlapping_authoritative_periods exclusion
+--           constraint, failing the whole transaction AFTER a real customer
+--           payment had already been verified. Fixed: closes out whatever
+--           ACTIVE/GRACE licence currently exists (any plan) at the new
+--           period's start before inserting the new licence row, mirroring
+--           the same close-out-then-insert pattern RLS1's
+--           admin_grant_commercial_licence() already uses correctly.
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION public.commit_verified_commercial_payment(
@@ -244,7 +690,7 @@ DECLARE
   v_licence_id   UUID;
   v_period_start TIMESTAMPTZ;
   v_period_end   TIMESTAMPTZ;
-  v_existing_lic RECORD;
+  v_current_lic  RECORD;
   v_display_amt  NUMERIC;
 BEGIN
   -- 0. Idempotency — replay returns prior result without duplication
@@ -268,7 +714,10 @@ BEGIN
     RETURN jsonb_build_object('status','INTENT_EXPIRED','committed',false);
   END IF;
 
-  -- 2. Money validation — amount AND currency must exactly match intent
+  -- 2. Money validation — amount AND currency must exactly match the
+  --    checkout intent's OWN snapshot (never re-read from commercial_offers —
+  --    the offer may have since changed price; the intent's snapshot is the
+  --    only authority for what THIS transaction was expected to pay).
   IF p_amount_minor != v_intent.expected_amount_minor THEN
     RAISE EXCEPTION 'Iron Dome: amount mismatch. Expected % minor units, got % for intent %',
       v_intent.expected_amount_minor, p_amount_minor, p_checkout_intent_id;
@@ -278,7 +727,8 @@ BEGIN
       v_intent.currency_code, p_currency_code, p_checkout_intent_id;
   END IF;
 
-  -- 3. Load plan
+  -- 3. Load plan (identity/capabilities only — never price; price already
+  --    validated above against the intent's own snapshot)
   SELECT * INTO v_plan FROM public.commercial_plans WHERE id = v_intent.plan_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Iron Dome: plan % not found for intent %', v_intent.plan_id, p_checkout_intent_id;
@@ -293,14 +743,15 @@ BEGIN
       billing_customer_id, provider, external_event_id, idempotency_key, event_type,
       amount, currency, amount_minor, provider_transaction_id, provider_status,
       normalized_status, saff_reference, payload_hash, verified_at, verification_method,
-      checkout_intent_id, plan_id, event_time, metadata
+      checkout_intent_id, commercial_offer_id, plan_id, event_time, metadata
     ) VALUES (
       v_intent.billing_customer_id, p_provider, p_provider_transaction_id,
       p_idempotency_key,
       CASE p_normalized_status WHEN 'CANCELLED' THEN 'CANCELLATION' ELSE 'PAYMENT_FAILED' END,
       v_display_amt, p_currency_code, p_amount_minor, p_provider_transaction_id,
       p_provider_status, p_normalized_status, p_saff_reference, p_payload_hash,
-      p_verified_at, p_verification_method, p_checkout_intent_id, v_intent.plan_id,
+      p_verified_at, p_verification_method, p_checkout_intent_id,
+      v_intent.commercial_offer_id, v_intent.plan_id,
       now(), jsonb_build_object('non_success',true)
     ) RETURNING id INTO v_event_id;
 
@@ -313,24 +764,48 @@ BEGIN
       'normalized',p_normalized_status,'committed',false);
   END IF;
 
-  -- 5. SUCCEEDED: determine licence period
-  -- If an active paid licence ends in future, renewal begins at that end (no gap, no overlap)
-  SELECT * INTO v_existing_lic FROM public.commercial_licences
+  -- 5. SUCCEEDED: determine licence period, closing out whatever
+  --    ACTIVE/GRACE licence currently exists for this billing customer —
+  --    regardless of plan — so the new INSERT below can never violate
+  --    RLS1's excl_cl_no_overlapping_authoritative_periods constraint.
+  --    Same plan with time remaining -> renewal extends from the old end
+  --    (no value lost, no gap). Any other case (different plan, or same
+  --    plan already lapsed) -> new period starts now(); the old row (if
+  --    any) is closed to now(), never deleted.
+  SELECT * INTO v_current_lic FROM public.commercial_licences
    WHERE billing_customer_id = v_intent.billing_customer_id
-     AND plan_id = v_intent.plan_id
-     AND status IN ('ACTIVE','GRACE') AND effective_end > now()
-   ORDER BY effective_end DESC LIMIT 1;
+     AND status IN ('ACTIVE','GRACE')
+     AND effective_start <= now() AND (effective_end IS NULL OR effective_end > now())
+   LIMIT 1;
 
-  v_period_start := CASE WHEN FOUND THEN v_existing_lic.effective_end ELSE now() END;
-  v_period_end   := CASE v_plan.billing_period
-    WHEN 'MONTHLY'  THEN v_period_start + interval '1 month'
+  IF FOUND AND v_current_lic.plan_id = v_intent.plan_id AND v_current_lic.effective_end IS NOT NULL THEN
+    v_period_start := GREATEST(now(), v_current_lic.effective_end);
+  ELSE
+    v_period_start := now();
+  END IF;
+
+  v_period_end := CASE v_intent.billing_interval
+    WHEN 'MONTHLY'  THEN v_period_start + (v_intent.billing_interval_count || ' months')::interval
     WHEN 'ONE_TIME' THEN v_period_start + interval '100 years'
-    ELSE v_period_start + interval '1 year'
+    ELSE v_period_start + (v_intent.billing_interval_count || ' years')::interval
   END;
 
-  -- 6. Create licence
-  INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, effective_start, effective_end)
-  VALUES (v_intent.billing_customer_id, v_intent.plan_id, 'ACTIVE', v_period_start, v_period_end)
+  IF FOUND AND (v_current_lic.effective_end IS NULL OR v_current_lic.effective_end > v_period_start) THEN
+    UPDATE public.commercial_licences
+       SET effective_end = v_period_start, updated_at = now()
+     WHERE id = v_current_lic.id;
+  END IF;
+
+  -- 6. Create licence. source names the provider for full traceability —
+  --    NOT constrained to a fixed enum in Ω1 (documented free-text
+  --    convention), so a new provider needs no schema change here either.
+  INSERT INTO public.commercial_licences (
+    billing_customer_id, plan_id, status, source, effective_start, effective_end
+  )
+  VALUES (
+    v_intent.billing_customer_id, v_intent.plan_id, 'ACTIVE',
+    p_provider || '_VERIFIED_PAYMENT', v_period_start, v_period_end
+  )
   RETURNING id INTO v_licence_id;
 
   -- 7. Insert immutable payment event
@@ -339,26 +814,35 @@ BEGIN
     event_type, amount, currency, amount_minor, provider_transaction_id,
     provider_status, normalized_status, saff_reference, provider_reference,
     payload_hash, verified_at, verification_method, checkout_intent_id,
-    plan_id, provider_created_at, event_time, metadata
+    commercial_offer_id, plan_id, provider_created_at, event_time, metadata
   ) VALUES (
     v_intent.billing_customer_id, v_licence_id, p_provider, p_provider_transaction_id,
     p_idempotency_key, 'PAYMENT_CONFIRMED', v_display_amt, p_currency_code,
     p_amount_minor, p_provider_transaction_id, p_provider_status, p_normalized_status,
     p_saff_reference, p_saff_reference, p_payload_hash, p_verified_at,
-    p_verification_method, p_checkout_intent_id, v_intent.plan_id, now(), now(),
+    p_verification_method, p_checkout_intent_id, v_intent.commercial_offer_id,
+    v_intent.plan_id, now(), now(),
     jsonb_build_object('licence_id',v_licence_id,'period_start',v_period_start,'period_end',v_period_end)
   ) RETURNING id INTO v_event_id;
 
-  -- 8. Billing audit
-  INSERT INTO public.billing_audit_events (billing_customer_id, event_type, actor_user_id, metadata)
-  VALUES (
-    v_intent.billing_customer_id, 'LICENCE_GRANTED', v_intent.created_by_user_id,
+  -- 8. Billing audit — REAL Ω1 columns (action/previous_state/new_state/
+  --    reason/correlation_id), not the nonexistent (event_type, metadata)
+  --    pair the pre-Ω2-G candidate used.
+  INSERT INTO public.billing_audit_events (
+    billing_customer_id, actor_user_id, action, previous_state, new_state, reason
+  ) VALUES (
+    v_intent.billing_customer_id, v_intent.created_by_user_id, 'LICENCE_GRANTED',
+    CASE WHEN v_current_lic.id IS NOT NULL
+      THEN jsonb_build_object('closed_prior_licence_id',v_current_lic.id,'closed_effective_end',v_period_start)
+      ELSE NULL
+    END,
     jsonb_build_object(
       'licence_id',v_licence_id,'plan_code',v_plan.code,'payment_event_id',v_event_id,
       'provider',p_provider,'amount_minor',p_amount_minor,'currency_code',p_currency_code,
-      'period_start',v_period_start,'period_end',v_period_end,
+      'market_code',v_intent.market_code,'period_start',v_period_start,'period_end',v_period_end,
       'verification_method',p_verification_method
-    )
+    ),
+    'Verified payment commit'
   );
 
   -- 9. Mark intent completed
@@ -377,11 +861,13 @@ REVOKE ALL ON FUNCTION public.commit_verified_commercial_payment FROM PUBLIC, an
 GRANT EXECUTE ON FUNCTION public.commit_verified_commercial_payment TO service_role;
 
 COMMENT ON FUNCTION public.commit_verified_commercial_payment IS
-  'Ω2 Iron Dome atomic commit: intent validation → payment event → licence → audit. '
-  'Idempotent. service_role only. No partial commits — full rollback on any failure.';
+  'Ω2-G Iron Dome atomic commit: intent validation → payment event → licence '
+  '(closing out any prior ACTIVE/GRACE licence first, satisfying RLS1''s '
+  'no-overlap constraint) → audit → done. Idempotent. service_role only. '
+  'No partial commits — full rollback on any failure.';
 
 -- ════════════════════════════════════════════════════════════════════════════
--- 6. REVERSAL SAFE PATH — immutable evidence, REVIEW_REQUIRED, no auto-mutation
+-- 12. REVERSAL SAFE PATH — immutable evidence, REVIEW_REQUIRED, no auto-mutation
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION public.record_payment_reversal(
@@ -420,11 +906,11 @@ BEGIN
     jsonb_build_object('original_event_id',p_original_event_id,
       'reversal_type',p_reversal_type,'licence_action','REVIEW_REQUIRED','auto_licence_mutation',false)
   ) RETURNING id INTO v_event_id;
-  INSERT INTO public.billing_audit_events (billing_customer_id, event_type, actor_user_id, metadata)
-  VALUES (v_original.billing_customer_id, 'REVERSAL_REQUIRES_REVIEW', NULL,
+  INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
+  VALUES (v_original.billing_customer_id, NULL, 'REVERSAL_REQUIRES_REVIEW', NULL,
     jsonb_build_object('reversal_event_id',v_event_id,'original_event_id',p_original_event_id,
-      'reversal_type',p_reversal_type,'amount_minor',p_amount_minor,'currency_code',p_currency_code,
-      'policy','REVIEW_REQUIRED: no automatic licence mutation on reversal'));
+      'reversal_type',p_reversal_type,'amount_minor',p_amount_minor,'currency_code',p_currency_code),
+    'REVIEW_REQUIRED: no automatic licence mutation on reversal');
   RETURN jsonb_build_object('status','REVERSAL_RECORDED','event_id',v_event_id,
     'licence_action','REVIEW_REQUIRED','committed',false);
 END;
@@ -434,7 +920,13 @@ REVOKE ALL ON FUNCTION public.record_payment_reversal FROM PUBLIC, anon, authent
 GRANT EXECUTE ON FUNCTION public.record_payment_reversal TO service_role;
 
 -- ════════════════════════════════════════════════════════════════════════════
--- 7. CHECKOUT STATUS RPC — safe owner-scoped reader for payment return page
+-- 13. CHECKOUT STATUS RPC — safe owner-scoped reader for payment return page.
+--     Field names match the client contract directly (status, not
+--     intent_status) — the pre-Ω2-G candidate returned intent_status while
+--     PaymentReturn.tsx / commercialRpc.ts expected status, so the return
+--     page could never actually detect a successful payment. Fixed here at
+--     the source; commercialRpc.ts's pollCheckoutStatus() no longer needs
+--     to paper over a mismatch.
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION public.get_checkout_status(p_saff_reference TEXT)
@@ -451,7 +943,8 @@ BEGIN
   IF NOT FOUND THEN
     RETURN jsonb_build_object('found',false,'status','UNKNOWN');
   END IF;
-  SELECT cl.status AS licence_status, cp.code AS plan_code
+  SELECT cl.status AS licence_status, cp.code AS plan_code,
+         cl.effective_start AS effective_start, cl.effective_end AS effective_end
     INTO v_billing
     FROM public.billing_customers bc
     LEFT JOIN public.commercial_licences cl ON cl.billing_customer_id = bc.id
@@ -461,10 +954,12 @@ BEGIN
    ORDER BY cl.effective_end DESC NULLS LAST LIMIT 1;
   RETURN jsonb_build_object(
     'found',true,'saff_reference',v_intent.saff_reference,
-    'intent_status',v_intent.status,'intent_id',v_intent.id,
-    'provider',v_intent.provider,'created_at',v_intent.created_at,
+    'status',v_intent.status,'intent_id',v_intent.id,
+    'provider',v_intent.provider,'market_code',v_intent.market_code,
+    'created_at',v_intent.created_at,
     'expires_at',v_intent.expires_at,'completed_at',v_intent.completed_at,
-    'licence_status',v_billing.licence_status,'plan_code',v_billing.plan_code
+    'licence_status',v_billing.licence_status,'plan_code',v_billing.plan_code,
+    'effective_start',v_billing.effective_start,'effective_end',v_billing.effective_end
   );
 END;
 $$;
@@ -473,7 +968,7 @@ REVOKE ALL ON FUNCTION public.get_checkout_status FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_checkout_status TO authenticated;
 
 -- ════════════════════════════════════════════════════════════════════════════
--- 8. ADMIN BILLING DETAIL INSPECTOR
+-- 14. ADMIN BILLING DETAIL INSPECTOR
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION public.admin_get_billing_detail(p_owner_user_id UUID)
@@ -497,7 +992,7 @@ BEGIN
       FROM public.payment_checkout_intents ci WHERE ci.billing_customer_id = v_bc.id LIMIT 10),'[]'::jsonb),
     'overrides', COALESCE((SELECT jsonb_agg(row_to_json(eo))
       FROM public.entitlement_overrides eo WHERE eo.billing_customer_id = v_bc.id),'[]'::jsonb),
-    'audit_events', COALESCE((SELECT jsonb_agg(row_to_json(bae) ORDER BY bae.event_time DESC)
+    'audit_events', COALESCE((SELECT jsonb_agg(row_to_json(bae) ORDER BY bae.created_at DESC)
       FROM public.billing_audit_events bae WHERE bae.billing_customer_id = v_bc.id LIMIT 50),'[]'::jsonb)
   );
 END;
@@ -507,9 +1002,28 @@ REVOKE ALL ON FUNCTION public.admin_get_billing_detail FROM PUBLIC, anon, authen
 GRANT EXECUTE ON FUNCTION public.admin_get_billing_detail TO authenticated;
 
 -- ════════════════════════════════════════════════════════════════════════════
--- 9. GRANT HYGIENE — revoke Ω1 overly broad grants
+-- 15. GRANT HYGIENE — revoke Ω1 overly broad grants
 -- ════════════════════════════════════════════════════════════════════════════
 
 REVOKE UPDATE, DELETE ON public.commercial_licences FROM authenticated;
 
-COMMENT ON SCHEMA public IS 'Ω2 applied: commercial payment authority added.';
+COMMENT ON SCHEMA public IS 'Ω2-G applied: global commercial offer + payment authority added.';
+
+-- ── Rollback (NOT executed — for reference only) ─────────────────────────────
+-- REVOKE ALL ON FUNCTION public.admin_get_billing_detail FROM authenticated;
+-- DROP FUNCTION IF EXISTS public.admin_get_billing_detail(UUID);
+-- DROP FUNCTION IF EXISTS public.get_checkout_status(TEXT);
+-- DROP FUNCTION IF EXISTS public.record_payment_reversal;
+-- DROP FUNCTION IF EXISTS public.commit_verified_commercial_payment;
+-- ALTER TABLE public.payment_events DROP COLUMN IF EXISTS provider_created_at, ... ;
+-- DROP TRIGGER IF EXISTS trg_pwr_immutable ON public.payment_webhook_receipts;
+-- DROP FUNCTION IF EXISTS public.payment_webhook_receipts_immutable();
+-- DROP TABLE IF EXISTS public.payment_webhook_receipts CASCADE;
+-- DROP TABLE IF EXISTS public.payment_checkout_intents CASCADE;
+-- DROP FUNCTION IF EXISTS public.admin_list_commercial_offers(TEXT);
+-- DROP FUNCTION IF EXISTS public.admin_upsert_commercial_offer;
+-- DROP FUNCTION IF EXISTS public.resolve_commercial_offer(TEXT, TEXT);
+-- DROP TRIGGER IF EXISTS trg_ccae_immutable ON public.commercial_catalog_audit_events;
+-- DROP FUNCTION IF EXISTS public.commercial_catalog_audit_events_immutable();
+-- DROP TABLE IF EXISTS public.commercial_catalog_audit_events CASCADE;
+-- DROP TABLE IF EXISTS public.commercial_offers CASCADE;
