@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, User, Building2, Save, Loader2, CreditCard } from "lucide-react";
+import { ArrowLeft, User, Building2, Save, Loader2, CreditCard, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import { AuditTrail } from "@/components/AuditTrail";
@@ -17,6 +17,8 @@ import { useAuditLog } from "@/hooks/useAuditLog";
 import { Badge } from "@/components/ui/badge";
 import { useBillingSummary } from "@/hooks/useBillingSummary";
 import { FEATURE_DESCRIPTIONS, isFeatureCode } from "@/lib/commercial/featureRegistry";
+import { createCheckoutIntent } from "@/lib/commercial/commercialRpc";
+import { CheckoutUpgradeButton } from "@/components/commercial/CheckoutUpgradeButton";
 
 export default function Settings() {
   const { user, loading: authLoading } = useAuth();
@@ -272,13 +274,10 @@ export default function Settings() {
               </>
             )}
 
-            <Button variant="outline" disabled className="w-full gap-2">
-              Upgrade — coming soon
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Self-service upgrade is not yet available. Contact us to activate a
-              firm licence.
-            </p>
+            {/* Ω2 — Live checkout flow. Never accepts paid=true from browser.
+                createCheckoutIntent sends only planId; server derives price + currency.
+                Redirect URL carries only saffReference — no amount, no status. */}
+            <CheckoutUpgradeButton billingStatus={billing?.licenceStatus ?? null} />
           </CardContent>
         </Card>
 

@@ -42,6 +42,9 @@ const queryClient = new QueryClient();
 // ── Legacy deep-link redirect: /workspace/:id/:year/safisha → /prepare, etc. ──
 // Handles any bookmarks pointing to engine-named sub-routes.
 
+import PaymentReturn from "@/pages/billing/PaymentReturn";
+import CommercialAdmin from "@/pages/commercial/CommercialAdmin";
+
 function LegacySubRouteRedirect({ to }: { to: string }) {
   const { companyId, periodYear } = useParams<{ companyId: string; periodYear: string }>();
   return <Navigate to={`/workspace/${companyId}/${periodYear}/${to}`} replace />;
@@ -105,6 +108,8 @@ const App = () => (
                 {/* ── Auth + utility ── */}
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/terms" element={<Terms />} />
+                <Route path="/billing/payment/return" element={<PaymentReturn />} />
+                <Route path="/commercial/admin" element={<CommercialAdmin />} />
                 <Route path="/privacy" element={<Privacy />} />
                 <Route
                   path="/uploads/status"

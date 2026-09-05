@@ -71,3 +71,77 @@ export async function callCommercialRpc<N extends CommercialRpcName>(
   const client = supabase as unknown as CommercialRpcClient;
   return client.rpc(name, args[0]);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ω2 — real payment RPC signatures appended to the adapter
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface CheckoutIntentResponse {
+  saffReference: string;
+  checkoutUrl: string;
+  expiresAt: string;
+  provider: string;
+}
+
+export interface CheckoutStatusResponse {
+  found: boolean;
+  status: string | null;
+  planCode: string | null;
+  licenceStatus: string | null;
+  effectiveStart: string | null;
+  effectiveEnd: string | null;
+  correlationId: string;
+}
+
+/**
+ * Call the commercial-create-checkout Edge Function.
+ * Browser sends ONLY planId — server derives price, currency, customer.
+ * Never accepted: price, amount, paid=true, any provider secret.
+ */
+export async function createCheckoutIntent(
+  planId: string,
+): Promise<{ data: CheckoutIntentResponse | null; error: string | null }> {
+  const { supabase } = await import("@/integrations/supabase/client");
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return { data: null, error: "Not authenticated" };
+
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/commercial-create-checkout`,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ planId }),
+    },
+  );
+  const json = await res.json();
+  if (!res.ok) return { data: null, error: json?.error ?? "Checkout failed" };
+  return { data: json as CheckoutIntentResponse, error: null };
+}
+
+/**
+ * Poll the commercial-payment-status Edge Function.
+ * Owner-scoped — only the user who created the intent can read it.
+ * Safe: never exposes raw provider payload.
+ */
+export async function pollCheckoutStatus(
+  saffReference: string,
+): Promise<{ data: CheckoutStatusResponse | null; error: string | null }> {
+  const { supabase } = await import("@/integrations/supabase/client");
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return { data: null, error: "Not authenticated" };
+
+  const url = new URL(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/commercial-payment-status`,
+  );
+  url.searchParams.set("ref", saffReference);
+
+  const res = await fetch(url.toString(), {
+    headers: { "Authorization": `Bearer ${session.access_token}` },
+  });
+  const json = await res.json();
+  if (!res.ok) return { data: null, error: json?.error ?? "Status check failed" };
+  return { data: json as CheckoutStatusResponse, error: null };
+}

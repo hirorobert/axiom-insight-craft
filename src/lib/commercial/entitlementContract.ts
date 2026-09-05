@@ -25,6 +25,13 @@ import { FEATURE_CODES, type FeatureCode, isFeatureCode } from "./featureRegistr
 
 export type EntitlementStatus = "ENTITLED" | "NOT_ENTITLED" | "UNKNOWN";
 
+/** Const object for runtime iteration (use type EntitlementStatus for typing). */
+export const EntitlementStatus = {
+  ENTITLED: "ENTITLED" as const,
+  NOT_ENTITLED: "NOT_ENTITLED" as const,
+  UNKNOWN: "UNKNOWN" as const,
+};
+
 export type LicenceStatus =
   | "PENDING"
   | "ACTIVE"
