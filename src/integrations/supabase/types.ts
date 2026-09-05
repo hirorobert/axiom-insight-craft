@@ -569,6 +569,79 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_audit_events: {
+        Row: {
+          action: string
+          actor_user_id: string | null
+          billing_customer_id: string
+          correlation_id: string | null
+          created_at: string
+          id: string
+          new_state: Json | null
+          previous_state: Json | null
+          reason: string | null
+        }
+        Insert: {
+          action: string
+          actor_user_id?: string | null
+          billing_customer_id: string
+          correlation_id?: string | null
+          created_at?: string
+          id?: string
+          new_state?: Json | null
+          previous_state?: Json | null
+          reason?: string | null
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string | null
+          billing_customer_id?: string
+          correlation_id?: string | null
+          created_at?: string
+          id?: string
+          new_state?: Json | null
+          previous_state?: Json | null
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_bae_billing_customer"
+            columns: ["billing_customer_id"]
+            isOneToOne: false
+            referencedRelation: "billing_customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_customers: {
+        Row: {
+          created_at: string
+          id: string
+          owner_user_id: string
+          product_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          owner_user_id: string
+          product_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          owner_user_id?: string
+          product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_bc_product"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       board_packs: {
         Row: {
           company_id: string
@@ -924,6 +997,143 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      commercial_admins: {
+        Row: {
+          active: boolean
+          created_at: string
+          granted_by: string | null
+          id: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          granted_by?: string | null
+          id?: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          granted_by?: string | null
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      commercial_licences: {
+        Row: {
+          billing_customer_id: string
+          created_at: string
+          effective_end: string | null
+          effective_range: unknown
+          effective_start: string
+          id: string
+          plan_id: string
+          source: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          billing_customer_id: string
+          created_at?: string
+          effective_end?: string | null
+          effective_range?: unknown
+          effective_start: string
+          id?: string
+          plan_id: string
+          source: string
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          billing_customer_id?: string
+          created_at?: string
+          effective_end?: string | null
+          effective_range?: unknown
+          effective_start?: string
+          id?: string
+          plan_id?: string
+          source?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_cl_billing_customer"
+            columns: ["billing_customer_id"]
+            isOneToOne: false
+            referencedRelation: "billing_customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_cl_plan"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commercial_plans: {
+        Row: {
+          code: string
+          created_at: string
+          feature_codes: string[]
+          id: string
+          is_active: boolean
+          name: string
+          product_id: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          feature_codes?: string[]
+          id?: string
+          is_active?: boolean
+          name: string
+          product_id: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          feature_codes?: string[]
+          id?: string
+          is_active?: boolean
+          name?: string
+          product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_cp_product"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commercial_products: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
       }
       companies: {
         Row: {
@@ -1470,6 +1680,53 @@ export type Database = {
             columns: ["firm_member_id"]
             isOneToOne: false
             referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      entitlement_overrides: {
+        Row: {
+          billing_customer_id: string
+          created_at: string
+          effective_end: string | null
+          effective_start: string
+          feature_code: string
+          granted_by: string
+          id: string
+          reason: string
+          revoked_at: string | null
+          revoked_by: string | null
+        }
+        Insert: {
+          billing_customer_id: string
+          created_at?: string
+          effective_end?: string | null
+          effective_start?: string
+          feature_code: string
+          granted_by: string
+          id?: string
+          reason: string
+          revoked_at?: string | null
+          revoked_by?: string | null
+        }
+        Update: {
+          billing_customer_id?: string
+          created_at?: string
+          effective_end?: string | null
+          effective_start?: string
+          feature_code?: string
+          granted_by?: string
+          id?: string
+          reason?: string
+          revoked_at?: string | null
+          revoked_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_eo_billing_customer"
+            columns: ["billing_customer_id"]
+            isOneToOne: false
+            referencedRelation: "billing_customers"
             referencedColumns: ["id"]
           },
         ]
@@ -2387,6 +2644,69 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_events: {
+        Row: {
+          amount: number | null
+          billing_customer_id: string
+          currency: string | null
+          event_time: string
+          event_type: string
+          external_event_id: string | null
+          id: string
+          idempotency_key: string
+          licence_id: string | null
+          metadata: Json
+          provider: string | null
+          recorded_at: string
+          recorded_by: string | null
+        }
+        Insert: {
+          amount?: number | null
+          billing_customer_id: string
+          currency?: string | null
+          event_time: string
+          event_type: string
+          external_event_id?: string | null
+          id?: string
+          idempotency_key: string
+          licence_id?: string | null
+          metadata?: Json
+          provider?: string | null
+          recorded_at?: string
+          recorded_by?: string | null
+        }
+        Update: {
+          amount?: number | null
+          billing_customer_id?: string
+          currency?: string | null
+          event_time?: string
+          event_type?: string
+          external_event_id?: string | null
+          id?: string
+          idempotency_key?: string
+          licence_id?: string | null
+          metadata?: Json
+          provider?: string | null
+          recorded_at?: string
+          recorded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_pe_billing_customer"
+            columns: ["billing_customer_id"]
+            isOneToOne: false
+            referencedRelation: "billing_customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_pe_licence"
+            columns: ["licence_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_licences"
             referencedColumns: ["id"]
           },
         ]
@@ -4211,6 +4531,38 @@ export type Database = {
       }
     }
     Functions: {
+      _resolve_entitlement_for_owner: {
+        Args: { p_feature_code: string; p_owner_user_id: string }
+        Returns: Json
+      }
+      admin_billing_lookup: { Args: { p_company_id: string }; Returns: Json }
+      admin_grant_commercial_licence: {
+        Args: {
+          p_billing_customer_id: string
+          p_effective_end: string
+          p_effective_start: string
+          p_plan_code: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      admin_grant_entitlement_override: {
+        Args: {
+          p_billing_customer_id: string
+          p_effective_end: string
+          p_feature_code: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      admin_revoke_entitlement_override: {
+        Args: { p_override_id: string; p_reason: string }
+        Returns: Json
+      }
+      admin_transition_licence_status: {
+        Args: { p_licence_id: string; p_new_status: string; p_reason: string }
+        Returns: Json
+      }
       assert_engagement_write_authority: {
         Args: { p_engagement_id: string }
         Returns: string
@@ -4289,6 +4641,10 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      get_effective_entitlement: {
+        Args: { p_company_id: string; p_feature_code: string }
+        Returns: Json
+      }
       get_effective_non_reporting_status: {
         Args: { p_accounts: Json; p_company_id: string }
         Returns: {
@@ -4299,6 +4655,7 @@ export type Database = {
         }[]
       }
       get_member_company_ids: { Args: never; Returns: string[] }
+      get_my_billing_summary: { Args: never; Returns: Json }
       grant_engagement_authority: {
         Args: {
           p_authority_type: string
