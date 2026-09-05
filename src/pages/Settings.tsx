@@ -65,7 +65,7 @@ export default function Settings() {
 
   const handleSave = async () => {
     if (!user) return;
-    
+
     setSaving(true);
     try {
       // Check if profile exists
