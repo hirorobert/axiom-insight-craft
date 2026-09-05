@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { SaffLogo } from "@/components/SaffLogo";
 import { FOOTER } from "@/constants/copy";
 
@@ -59,14 +60,14 @@ export function Footer() {
             © {new Date().getFullYear()} SAFF ERP. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
-            {FOOTER.legal.map((label) => (
-              <a
-                key={label}
-                href="#"
+            {FOOTER.legal.map((item) => (
+              <Link
+                key={item.href}
+                to={item.href}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                {label}
-              </a>
+                {item.label}
+              </Link>
             ))}
           </div>
         </div>

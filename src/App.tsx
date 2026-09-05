@@ -11,6 +11,8 @@ import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
 import Auth from "./pages/Auth";
 import Settings from "./pages/Settings";
+import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
 import UploadStatus from "./pages/UploadStatus";
 import NotFound from "./pages/NotFound";
 
@@ -102,6 +104,8 @@ const App = () => (
 
                 {/* ── Auth + utility ── */}
                 <Route path="/auth" element={<Auth />} />
+                <Route path="/terms" element={<Terms />} />
+                <Route path="/privacy" element={<Privacy />} />
                 <Route
                   path="/uploads/status"
                   element={

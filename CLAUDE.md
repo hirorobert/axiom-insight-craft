@@ -498,6 +498,44 @@ already-deployed financial function — exactly the failure mode this
 repository's own discipline (`controlledActivation.ts`'s docstring,
 Phase 8) explicitly warns against.
 
+### 9.2 Registered Commercial Go-Live Gates
+
+**LEGAL_PROFESSIONAL_REVIEW_REQUIRED_BEFORE_PAID_GO_LIVE** — not a code
+defect; a commercial acceptance gate. `/terms` and `/privacy`
+(`src/pages/Terms.tsx`, `src/pages/Privacy.tsx`, Wave Ω1) contain
+conservative, non-fabricated, technically-accurate content describing the
+service as it exists today, and are considered technically production-ready
+(no customer-facing development-scaffolding language remains on either
+page). They have NOT been reviewed by a qualified lawyer. Do not represent
+either page as legally reviewed or approved, and do not launch a paid
+subscription flow (Ω2 or later) before that review happens — the routes
+being live and well-written is orthogonal to the professional-review gate
+still being open.
+
+**MULTI_COMPANY_PREMIUM_POLICY_DEFERRED_TO_Ω2_PRODUCT_DECISION** — Wave Ω1
+built a full commercial entitlement architecture
+(`supabase/migrations/20260904180000_commercial_foundation_wave_omega1.sql`)
+capable of gating a second company behind `MULTI_COMPANY` entitlement, but
+an initial candidate's server-side enforcement trigger was removed in the
+Ω1-R repair pass because the underlying commercial policy (how many
+companies a FREE workspace may hold) was never product-approved — shipping
+it would have silently changed live company-creation behavior for every
+existing user. Company creation is currently unrestricted (unchanged from
+pre-Ω1 behavior). Before wiring this policy, a product decision is needed;
+implementing it afterward is additive (one `BEFORE INSERT` trigger calling
+the already-built `_resolve_entitlement_for_owner()`), not a schema change.
+
+**OBSERVABILITY_PROVIDER_WIRING_DEFERRED_TO_Ω2/PRE-GO-LIVE** —
+`src/lib/observability/correlationId.ts` (Wave Ω1) provides a genuine,
+non-cosmetic correlation-id/log-context foundation — wired into
+`useBillingSummary`'s error path today, threading a real `correlationId`
+through `logWithContext()` on RPC failure. No external observability
+provider (Sentry or otherwise) is integrated, and none should be added as a
+side effect of unrelated work. Wiring an actual provider, and threading
+`correlationId`/`companyId`/`periodYear`/`engineRunId` more broadly through
+Edge Functions and the accounting engines, is deferred to Ω2 or a
+dedicated pre-go-live observability pass — not silently expanded here.
+
 ---
 
 ## 10. Current Project State (as of 2026-07-25)

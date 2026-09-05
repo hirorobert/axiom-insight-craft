@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, User, Building2, Save, Loader2 } from "lucide-react";
+import { ArrowLeft, User, Building2, Save, Loader2, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import { AuditTrail } from "@/components/AuditTrail";
@@ -14,6 +14,9 @@ import { FirmManagementPanel } from "@/components/FirmManagementPanel";
 import { CompanyManager } from "@/components/CompanyManager";
 import { PeriodCloseManager } from "@/components/PeriodCloseManager";
 import { useAuditLog } from "@/hooks/useAuditLog";
+import { Badge } from "@/components/ui/badge";
+import { useBillingSummary } from "@/hooks/useBillingSummary";
+import { FEATURE_DESCRIPTIONS, isFeatureCode } from "@/lib/commercial/featureRegistry";
 
 export default function Settings() {
   const { user, loading: authLoading } = useAuth();
@@ -24,6 +27,7 @@ export default function Settings() {
   const [companyName, setCompanyName] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const { logAction } = useAuditLog();
+  const { summary: billing, loading: billingLoading } = useBillingSummary();
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -61,7 +65,7 @@ export default function Settings() {
 
   const handleSave = async () => {
     if (!user) return;
-    
+
     setSaving(true);
     try {
       // Check if profile exists
@@ -209,6 +213,72 @@ export default function Settings() {
               )}
               Save Changes
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* Plan & Billing — Ω1 commercial foundation. Read-only summary of
+            server-authoritative state (get_my_billing_summary RPC). The
+            upgrade action below is an explicit placeholder — no payment
+            provider or checkout exists yet; see PRICING_SECTION copy. */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CreditCard className="w-5 h-5" />
+              Plan & Billing
+            </CardTitle>
+            <CardDescription>
+              Your current plan, licence status, and included capabilities
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {billingLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading plan details…
+              </div>
+            ) : !billing || !billing.hasBillingCustomer || !billing.planCode ? (
+              <p className="text-sm text-muted-foreground">
+                No plan information is available yet for this account.
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Badge variant="secondary" className="text-sm">
+                    {billing.planCode} plan
+                  </Badge>
+                  <Badge
+                    variant={billing.licenceStatus === "ACTIVE" || billing.licenceStatus === "GRACE" ? "default" : "outline"}
+                    className="text-sm"
+                  >
+                    {billing.licenceStatus ?? "UNKNOWN"}
+                  </Badge>
+                  {billing.effectiveEnd && (
+                    <span className="text-xs text-muted-foreground">
+                      Effective through {new Date(billing.effectiveEnd).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-foreground mb-2">Included capabilities</p>
+                  <ul className="space-y-1">
+                    {billing.entitlements.map((code) => (
+                      <li key={code} className="text-sm text-muted-foreground">
+                        • {isFeatureCode(code) ? FEATURE_DESCRIPTIONS[code] : code}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </>
+            )}
+
+            <Button variant="outline" disabled className="w-full gap-2">
+              Upgrade — coming soon
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Self-service upgrade is not yet available. Contact us to activate a
+              firm licence.
+            </p>
           </CardContent>
         </Card>
 
