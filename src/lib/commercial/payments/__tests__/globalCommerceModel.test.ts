@@ -16,9 +16,13 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
+// Ω2 migration identity reconciliation (2026-09-06): points at Lovable's
+// live managed migration identity, not the quarantined source-authored
+// file — semantic equivalence proven byte-for-byte before quarantine.
+// See webhookEvidenceModel.test.ts's identical note.
 const MIGRATION_PATH = path.join(
   __dirname,
-  "../../../../../supabase/migrations/20260905200000_omega2_commercial_payments.sql",
+  "../../../../../supabase/migrations/20260906083524_eca6c272-4a62-4468-995b-1c70e2cd67e5.sql",
 );
 
 function stripSqlComments(sql: string): string {

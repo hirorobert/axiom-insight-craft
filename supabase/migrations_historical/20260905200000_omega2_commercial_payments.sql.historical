@@ -1,4 +1,27 @@
 -- ════════════════════════════════════════════════════════════════════════════
+-- QUARANTINED HISTORICAL SOURCE — Ω2 migration identity reconciliation (2026-09-06)
+--
+-- This file's OWN filename/timestamp identity was never applied to any
+-- database. Its schema went live under Lovable's own managed migration
+-- identity, supabase/migrations/20260906083524_eca6c272-4a62-4468-995b-1c70e2cd67e5.sql
+-- — that file is the sole production-authoritative record of Ω2 and must
+-- never be edited. Semantic equivalence was proven before quarantine:
+-- stripping every comment-only line and blank line from both files leaves
+-- 710 lines each, byte-for-byte identical (every CREATE TABLE/FUNCTION/
+-- TRIGGER/POLICY, every GRANT/REVOKE, every column/constraint/function
+-- body) — the only differences were Lovable's shortened inline design-
+-- rationale comments, exactly the same pattern already established for
+-- Ω1 (20260904180000 vs live 20260905093408) and RLS1 (20260905120000
+-- vs live 20260905141022). This file is renamed `.sql.historical` and
+-- moved out of supabase/migrations/ (which Supabase CLI tooling globs by
+-- extension and directory) for the identical reason those two were: its
+-- CREATE TABLE/CREATE POLICY statements are NOT idempotent, so replaying
+-- it alongside its live sibling would hard-fail with "relation already
+-- exists." It is retained ONLY for the extensive design rationale in its
+-- comments, never for execution.
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- ════════════════════════════════════════════════════════════════════════════
 -- Ω∞ WAVE Ω2-G — GLOBAL COMMERCE: REAL PAYMENTS + PREMIUM ENTITLEMENT
 -- Provider-neutral, market-neutral, currency-neutral commercial payment
 -- architecture. First provider: Flutterwave. First market: whatever the

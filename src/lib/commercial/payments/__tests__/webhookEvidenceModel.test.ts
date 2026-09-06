@@ -24,9 +24,17 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
+// Ω2 migration identity reconciliation (2026-09-06): points at Lovable's
+// live managed migration identity, not the quarantined source-authored
+// file (supabase/migrations_historical/20260905200000_omega2_commercial_
+// payments.sql.historical) — semantic equivalence was proven byte-for-
+// byte (after stripping comments/blank lines) before quarantining the
+// source file, so this is a strict improvement: it verifies what is
+// actually deployed, exactly the same precedent already established for
+// Ω1/RLS1 in rlsRecursionGuard.test.ts.
 const MIGRATION_PATH = path.join(
   __dirname,
-  "../../../../../supabase/migrations/20260905200000_omega2_commercial_payments.sql",
+  "../../../../../supabase/migrations/20260906083524_eca6c272-4a62-4468-995b-1c70e2cd67e5.sql",
 );
 const WEBHOOK_FN_PATH = path.join(
   __dirname,
