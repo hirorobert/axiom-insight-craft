@@ -131,6 +131,77 @@ describe("computeCertificationReadiness — SAME upload as authoritative (§10)"
   });
 });
 
+// PPG-1 Finding 1: "Prepare Workspace six-layer pre-flight certification
+// state is fetched only on page load ... the displayed status can remain
+// stale until manual reload." A stale "review"/"blocked"/"stale" verdict is
+// merely over-cautious; a stale "certified" verdict is unsafe — it would
+// tell the user it is safe to proceed on the basis of a certification that
+// may already have been superseded by the very mutation that triggered
+// this revalidation. `revalidating` exists to prevent exactly that.
+describe("computeCertificationReadiness — revalidating downgrade (PPG-1 Finding 1)", () => {
+  it("downgrades an otherwise-certified verdict to pending while revalidating", () => {
+    const result = computeCertificationReadiness({
+      uploadExists: true,
+      currentUploadId: UPLOAD_B,
+      authoritative: row({ upload_id: UPLOAD_B, exceptions: [] }),
+      latestForUpload: null,
+      revalidating: true,
+    });
+    expect(result.verdict).toBe("pending");
+    expect(result.verdict).not.toBe("certified");
+  });
+
+  it("keeps the six-layer check detail visible while revalidating (does not blank the panel)", () => {
+    const result = computeCertificationReadiness({
+      uploadExists: true,
+      currentUploadId: UPLOAD_B,
+      authoritative: row({ upload_id: UPLOAD_B, exceptions: [] }),
+      latestForUpload: null,
+      revalidating: true,
+    });
+    expect(result.checks.length).toBe(6);
+    const byId = Object.fromEntries(result.checks.map((c) => [c.id, c]));
+    expect(byId.l1_structure.state).toBe("passed");
+  });
+
+  it("is unaffected by revalidating=false (default, explicit) — normal certified behavior", () => {
+    const result = computeCertificationReadiness({
+      uploadExists: true,
+      currentUploadId: UPLOAD_B,
+      authoritative: row({ upload_id: UPLOAD_B, exceptions: [] }),
+      latestForUpload: null,
+      revalidating: false,
+    });
+    expect(result.verdict).toBe("certified");
+  });
+
+  it("does not change an already-conservative verdict (blocked stays blocked while revalidating)", () => {
+    const result = computeCertificationReadiness({
+      uploadExists: true,
+      currentUploadId: UPLOAD_B,
+      authoritative: null,
+      latestForUpload: row({
+        upload_id: UPLOAD_B,
+        is_blocking: true,
+        exceptions: [exc({ code: "L3_IMBALANCE", layer: 3, severity: "error", message: "Debits do not equal credits." })],
+      }),
+      revalidating: true,
+    });
+    expect(result.verdict).toBe("blocked");
+  });
+
+  it("does not change the superseded verdict while revalidating (already conservative)", () => {
+    const result = computeCertificationReadiness({
+      uploadExists: true,
+      currentUploadId: UPLOAD_B,
+      authoritative: row({ upload_id: "upload-other", exceptions: [] }),
+      latestForUpload: null,
+      revalidating: true,
+    });
+    expect(result.verdict).toBe("superseded");
+  });
+});
+
 describe("computeCertificationReadiness — DIFFERENT upload than authoritative (§9, CRITICAL)", () => {
   it("never returns 'certified' when authoritative.upload_id !== currentUploadId", () => {
     const result = computeCertificationReadiness({

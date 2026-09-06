@@ -462,10 +462,10 @@ discovery (2026-09-04), on branch `phase6-reversible-account-review-20260904` /
 main `382f9a71415de11714a20a6e5ed818e95d376795`.
 
 **DEFECT-MAONO-UNTRACKED-CLASSIFICATION-TABLES-001** — Severity: HIGH —
-Status: OPEN / UNVERIFIED AUTHORITY CHAIN
+Status: OPEN / UNVERIFIED AUTHORITY CHAIN (scope corrected 2026-09-06,
+PPG-1 — see note at end)
 
-`supabase/functions/maono-compute/index.ts` and
-`supabase/functions/maono-cashflow/index.ts` read account-level
+`supabase/functions/maono-compute/index.ts` reads account-level
 classification data from two tables, `account_classifications` and
 `account_pl_mapping`, that have **no `CREATE TABLE` migration anywhere in
 `supabase/migrations/`** — grepped across the full migration history,
@@ -498,6 +498,70 @@ already-deployed financial function — exactly the failure mode this
 repository's own discipline (`controlledActivation.ts`'s docstring,
 Phase 8) explicitly warns against.
 
+**Scope correction (PPG-1, 2026-09-06):** this entry originally also named
+`maono-cashflow/index.ts`. Verified false as of the current repository:
+`maono-cashflow` reads exclusively through
+`supabase/functions/_shared/certifiedTbSource.ts`, whose own header states
+it was "Created to remove MAONO's legacy dependency on
+`public.account_classifications`" for exactly this defect — grepped
+`maono-cashflow/index.ts` for `.from("account_classifications")`/
+`.from("account_pl_mapping")`, zero matches (the one textual hit is a
+comment referencing a different, already-fixed defect). This defect
+remains open for `maono-compute` only; do not assume it still applies to
+`maono-cashflow` without re-checking.
+
+**DEFECT-MAONO-CASHFLOW-CLASS-LEVEL-CONTAMINATION-001** — Severity:
+MEDIUM (partially repaired) — Status: PARTIALLY FIXED / RESIDUAL
+LIMITATION REGISTERED
+
+Lovable's overnight PPG-1 review claimed `maono-cashflow` "classifies all
+non-cash current assets as receivables and all current liabilities as
+payables, potentially counting inventory/prepayments/tax balances
+incorrectly and double-counting tax flows." Forensically confirmed TRUE
+against `supabase/functions/maono-cashflow/index.ts` (now
+`_shared/maonoCashflowMath.ts`'s `bucketCurrentBalances()`): the live
+`account_classification` enum has exactly two current-balance values
+(`current_assets`, `current_liabilities`) with no sub-split — grepped
+every migration for `ALTER TYPE public.account_classification`, zero
+hits — and `account_mappings` carries only three professional tri-state
+flags (`is_cash_account`, `is_retained_earnings`, `is_payroll_account`),
+none distinguishing inventory/prepayment/tax-receivable/tax-payable from
+trade receivables/payables. `account_mappings.line_item` is free text,
+not a controlled vocabulary — using it as authority would reintroduce the
+exact account-name heuristic `maono-cashflow`'s own header already
+documents removing.
+
+**Fixed (PPG-1):** the one part of this claim that WAS fixable with
+existing data — PAYE/VAT/SDL/WHT amounts known via `tax_computations`
+were being swept into the generic current-liability bucket AND placed on
+their own exact statutory due date, a genuine double-count. `_shared/
+maonoCashflowMath.ts`'s `excludeScheduledTaxFromCurrentLiabilities()` now
+excludes the known scheduled tax total from the generic bucket before it
+is spread across the generic payment curve, so each is represented
+exactly once. Covered by 14 unit tests
+(`src/lib/accounting/maonoCashflowMath.test.ts`).
+
+**NOT fixed, registered as a genuine data-authority gap (not guessed
+around):** distinguishing trade receivables from inventory/prepayments/
+tax receivables within `current_assets`, and trade payables from any
+OTHER (non-statutory-scheduled) tax-like liability within
+`current_liabilities`, requires classification evidence that does not
+exist anywhere in this system's live schema today. Per this repository's
+own UNKNOWN != ZERO != FALSE discipline, inventing a heuristic (free-text
+`line_item` matching) or a brand-new professional-review classification
+authority was judged out of scope for a stabilization repair pass — the
+former would be exactly the kind of non-authoritative guess this
+project's discipline forbids, the latter is a new feature (new migration
++ new review UI), not a repair of the confirmed defect. Every
+`maono-cashflow` response now honestly discloses this via
+`balance_authority.receivable_classification_limitation` and
+`.payable_classification_limitation` — the aggregate is never claimed to
+be verified trade receivables/payables. Closing this fully requires
+either a new professional tri-state classification flag (mirroring
+`is_payroll_account`'s precedent) or a genuine account_classification
+enum extension — a future, explicitly product-owned decision, not
+something to half-build here.
+
 ### 9.2 Registered Commercial Go-Live Gates
 
 **LEGAL_PROFESSIONAL_REVIEW_REQUIRED_BEFORE_PAID_GO_LIVE** — not a code
@@ -513,8 +577,12 @@ being live and well-written is orthogonal to the professional-review gate
 still being open.
 
 **MULTI_COMPANY_PREMIUM_POLICY_DEFERRED_TO_Ω2_PRODUCT_DECISION** — Wave Ω1
-built a full commercial entitlement architecture
-(`supabase/migrations/20260904180000_commercial_foundation_wave_omega1.sql`)
+built a full commercial entitlement architecture (live under Lovable's
+applied identity `supabase/migrations/20260905093408_8fc55e64-3e06-4d26-8835-438a9243e1ef.sql`;
+the source-authored file is quarantined at
+`supabase/migrations_historical/20260904180000_commercial_foundation_wave_omega1.sql.historical`
+as of the PPG-1 pass — see `docs/operations/PPG1_STABILIZATION_REPORT.md`
+§Finding 3)
 capable of gating a second company behind `MULTI_COMPANY` entitlement, but
 an initial candidate's server-side enforcement trigger was removed in the
 Ω1-R repair pass because the underlying commercial policy (how many
@@ -535,6 +603,20 @@ side effect of unrelated work. Wiring an actual provider, and threading
 `correlationId`/`companyId`/`periodYear`/`engineRunId` more broadly through
 Edge Functions and the accounting engines, is deferred to Ω2 or a
 dedicated pre-go-live observability pass — not silently expanded here.
+
+**PRODUCTION_AUTH_SMTP_CONFIGURATION_REQUIRED** — PPG-1 (2026-09-06)
+confirmed `supabase/config.toml` has no `[auth.email]`/SMTP block and no
+custom transactional-email provider (SendGrid/Postmark/Resend/Mailgun) is
+referenced anywhere in this repository — signup confirmation emails are
+sent via Supabase's own default built-in mailer, which carries a low
+hourly send-rate cap. The application-side symptom (a raw, unactionable
+provider error shown to the user on a rate-limited signup or resend) is
+fixed source-side — see `src/lib/auth/translateAuthError.ts` — but the
+underlying cause (low send cap) is infrastructure, not application code,
+and cannot be changed from this repository. Before real-volume signups,
+configure custom SMTP under Supabase Dashboard → Authentication → Email
+Settings (or the equivalent Lovable-managed path) with a transactional
+email provider; do not invent or commit SMTP credentials here.
 
 ---
 

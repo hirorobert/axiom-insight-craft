@@ -14,6 +14,16 @@
  * replaced by a call to the SECURITY DEFINER helper is_commercial_admin(),
  * which is the documented, standard fix for this exact class of Postgres
  * 42P17 error.
+ *
+ * PPG-1 (2026-09-06): points at the LOVABLE-APPLIED LIVE identity of each
+ * migration (20260905093408 for Ω1, 20260905141022 for RLS1) rather than
+ * the source-authored files, which were quarantined to
+ * supabase/migrations_historical/ (never independently live under their
+ * own filename; see migrationCollisionGuard.test.ts and
+ * docs/operations/PPG1_STABILIZATION_REPORT.md §Finding 3). This is a
+ * strictly more accurate regression guard: it verifies what is actually
+ * deployed, not merely what was authored. Content was confirmed identical
+ * (same DDL, shortened comments) before switching.
  */
 
 import { describe, it, expect } from "vitest";
@@ -22,11 +32,11 @@ import path from "node:path";
 
 const OMEGA1_MIGRATION = path.join(
   __dirname,
-  "../../../supabase/migrations/20260904180000_commercial_foundation_wave_omega1.sql",
+  "../../../supabase/migrations/20260905093408_8fc55e64-3e06-4d26-8835-438a9243e1ef.sql",
 );
 const RLS1_MIGRATION = path.join(
   __dirname,
-  "../../../supabase/migrations/20260905120000_fix_commercial_admin_rls_recursion.sql",
+  "../../../supabase/migrations/20260905141022_f1029fbe-90d5-4aac-97e0-059eede76338.sql",
 );
 
 function stripSqlComments(sql: string): string {

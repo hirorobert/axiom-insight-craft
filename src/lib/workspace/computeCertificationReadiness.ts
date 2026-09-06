@@ -97,6 +97,20 @@ export interface CertificationReadinessInput {
   latestForUpload: TbCertificationRow | null;
   /** True if either read failed. Must win over every other field. */
   fetchFailed?: boolean;
+  /**
+   * PPG-1 Finding 1: true while useCertificationReadiness is (re)fetching —
+   * covers both the initial load AND every revalidation triggered after a
+   * mutation that can change certification truth (reprocess, decision
+   * resolution). UI state is never certification authority on its own, but
+   * it must also never keep presenting a PREVIOUSLY-fetched "certified"
+   * verdict as current truth while a fresher read is in flight — that would
+   * be exactly the stale-authority display this input exists to prevent.
+   * Every other verdict (review/blocked/stale/superseded/unknown/pending)
+   * is already conservative and is left untouched while revalidating; only
+   * "certified" is downgraded, because it is the only verdict whose being
+   * stale is unsafe rather than merely over-cautious.
+   */
+  revalidating?: boolean;
 }
 
 const LAYER_META: Record<1 | 2 | 3 | 4 | 5 | 6, { id: string; label: string }> = {
@@ -183,6 +197,24 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
   // not sufficient — verified explicitly here, not assumed.
   if (input.authoritative && input.authoritative.upload_id === input.currentUploadId) {
     const checks = buildLayerChecks(input.authoritative);
+
+    if (input.revalidating) {
+      // A fresher read is in flight after a certification-affecting
+      // mutation — do not keep presenting this (possibly now-superseded)
+      // "certified" verdict as current fact. The six-layer detail from the
+      // last-known certification is kept visible (better than blanking the
+      // panel), but the headline verdict is downgraded to "pending" until
+      // the revalidation resolves one way or the other.
+      return {
+        verdict: "pending",
+        headline: "Re-checking certification status…",
+        blocker: "Confirming your recent change before certification is reconfirmed.",
+        checks,
+        passedCount: countPassed(checks),
+        totalCount: checks.length,
+      };
+    }
+
     return {
       verdict: "certified",
       headline: "Certified — safe to prepare statements",

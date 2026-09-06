@@ -28,7 +28,7 @@
  * already used for post-generation RPCs elsewhere in this codebase.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { TbCertificationRow } from "@/lib/workspace/computeCertificationReadiness";
 
@@ -37,6 +37,19 @@ interface UseCertificationReadinessResult {
   latestForUpload: TbCertificationRow | null;
   fetchFailed: boolean;
   loading: boolean;
+  /**
+   * Re-runs both authoritative reads against the CURRENT companyId/
+   * periodYear/uploadId (captured fresh on every render via a ref, so a
+   * stale closure can never re-query an upload that has since changed).
+   *
+   * PPG-1 Finding 1 (pre-flight staleness): every mutation that can change
+   * certification truth (AccountReviewPanel's decision+reprocess flow,
+   * PrepareWorkspace's "process as audited accounts" reprocess) must call
+   * this after its own authoritative commit completes — this hook's
+   * effect alone only re-fires when companyId/periodYear/uploadId change,
+   * which a same-upload reprocess never does.
+   */
+  refetch: () => void;
 }
 
 export function useCertificationReadiness(
@@ -44,14 +57,23 @@ export function useCertificationReadiness(
   periodYear: number | null | undefined,
   uploadId: string | null | undefined,
 ): UseCertificationReadinessResult {
-  const [state, setState] = useState<UseCertificationReadinessResult>({
+  const [state, setState] = useState<Omit<UseCertificationReadinessResult, "refetch">>({
     authoritative: null,
     latestForUpload: null,
     fetchFailed: false,
     loading: false,
   });
 
+  // Refetch must always use the LATEST identity args, even if called from a
+  // callback created on an earlier render (e.g. a reprocess poll's closure).
+  const argsRef = useRef({ companyId, periodYear, uploadId });
+  argsRef.current = { companyId, periodYear, uploadId };
+
+  const [refetchToken, setRefetchToken] = useState(0);
+  const refetch = useCallback(() => setRefetchToken((t) => t + 1), []);
+
   useEffect(() => {
+    const { companyId, periodYear, uploadId } = argsRef.current;
     if (!companyId || !periodYear || !uploadId) {
       setState({ authoritative: null, latestForUpload: null, fetchFailed: false, loading: false });
       return;
@@ -112,7 +134,7 @@ export function useCertificationReadiness(
     return () => {
       cancelled = true;
     };
-  }, [companyId, periodYear, uploadId]);
+  }, [companyId, periodYear, uploadId, refetchToken]);
 
-  return state;
+  return { ...state, refetch };
 }

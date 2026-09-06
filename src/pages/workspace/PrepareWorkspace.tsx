@@ -160,6 +160,15 @@ export default function PrepareWorkspace() {
     }
   };
 
+  // PPG-1 Finding 1: this reprocess entry point previously invoked the
+  // engine and returned immediately on a successful invoke — it never
+  // waited for the server-side run to reach a terminal state, so both the
+  // upload row and the pre-flight/certification panel were left showing
+  // whatever they showed before reprocessing started, with no automatic
+  // refresh at all (not even the racy refetch-on-id-change the
+  // upload-replace path gets, since the id never changes here). Mirrors
+  // the poll-until-terminal pattern already proven in
+  // AccountReviewPanel.tsx's save/reprocess flow.
   const handleProcessAsAuditedAccounts = async () => {
     if (!upload) return;
     toast.info("Re-processing as Audited Financial Statements…");
@@ -171,6 +180,35 @@ export default function PrepareWorkspace() {
       });
       if (error) throw error;
       toast.success("Processing started — results will appear shortly.");
+
+      const uploadId = upload.id;
+      const TERMINAL = new Set(["complete", "error", "blocked", "needs_review"]);
+      const pollInterval = window.setInterval(async () => {
+        const { data } = await supabase
+          .from("trial_balance_uploads")
+          .select("status")
+          .eq("id", uploadId)
+          .single();
+
+        if (data && TERMINAL.has(data.status)) {
+          window.clearInterval(pollInterval);
+          await refreshUpload();
+          certReadiness.refetch();
+          if (data.status === "complete") {
+            toast.success("Reprocessing complete!");
+          } else if (data.status === "needs_review") {
+            toast.warning("Some accounts still need review.");
+          } else {
+            toast.error("Reprocessing encountered an error.");
+          }
+        }
+      }, 2000);
+
+      window.setTimeout(async () => {
+        window.clearInterval(pollInterval);
+        await refreshUpload();
+        certReadiness.refetch();
+      }, 90_000);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to start processing. Please try again.");
     }
@@ -184,8 +222,44 @@ export default function PrepareWorkspace() {
         authoritative: certReadiness.authoritative,
         latestForUpload: certReadiness.latestForUpload,
         fetchFailed: certReadiness.fetchFailed,
+        revalidating: certReadiness.loading,
       })
     : undefined;
+
+  // PPG-1 Finding 1 (defense in depth for the upload/replace path):
+  // useWorkspaceData already holds a realtime `postgres_changes` UPDATE
+  // subscription on trial_balance_uploads (proven, existing pattern), so
+  // `upload.status` here updates live as the server-side engine run
+  // progresses even without any refetch call. The one thing nothing
+  // already does is tell the certification hook to revalidate when that
+  // happens — this effect closes that gap generically for ANY path that
+  // takes this upload from a non-terminal to a terminal status (upload/
+  // replace being the one with no other explicit refetch trigger), without
+  // duplicating per-caller polling logic.
+  const uploadStatusTrackRef = useRef<{ id: string | null; status: string | null }>({
+    id: null,
+    status: null,
+  });
+  useEffect(() => {
+    const TERMINAL = new Set(["complete", "error", "blocked", "needs_review"]);
+    const prev = uploadStatusTrackRef.current;
+    const currentId = upload?.id ?? null;
+    const currentStatus = upload?.status ?? null;
+    if (
+      prev.id === currentId &&
+      prev.status !== currentStatus &&
+      !!currentStatus && TERMINAL.has(currentStatus) &&
+      !!prev.status && !TERMINAL.has(prev.status)
+    ) {
+      certReadiness.refetch();
+    }
+    uploadStatusTrackRef.current = { id: currentId, status: currentStatus };
+    // certReadiness.refetch is a stable useCallback identity (empty deps in
+    // useCertificationReadiness.ts) — only upload?.id/upload?.status
+    // transitions should re-run this effect, not every render's fresh
+    // certReadiness object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upload?.id, upload?.status, certReadiness.refetch]);
 
   const mapping = upload?.processing_result?.mapping;
 
@@ -311,7 +385,19 @@ export default function PrepareWorkspace() {
                     userId={user.id}
                     needsReviewAccounts={reviewAccounts}
                     focusUnresolved={focusUnresolved}
-                    onReprocessed={refreshUpload}
+                    onReprocessed={() => {
+                      // PPG-1 Finding 1: refreshUpload() alone re-reads the
+                      // upload row, but the account-review decision +
+                      // reprocess flow keeps the SAME upload id — the
+                      // certification hook's effect only re-fires on an
+                      // identity change, so without this explicit refetch
+                      // the pre-flight panel would keep showing whatever
+                      // certification state existed before the decisions
+                      // were saved, until an unrelated navigation or a
+                      // manual reload happened to remount it.
+                      refreshUpload();
+                      certReadiness.refetch();
+                    }}
                   />
                 </div>
               )}

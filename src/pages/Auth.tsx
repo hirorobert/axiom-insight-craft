@@ -11,6 +11,7 @@ import { SaffLogo } from "@/components/SaffLogo";
 import { z } from "zod";
 import { useLoginRateLimit } from "@/hooks/useLoginRateLimit";
 import { lovable } from "@/integrations/lovable/index";
+import { translateAuthError } from "@/lib/auth/translateAuthError";
 
 const emailSchema = z.string().email("Please enter a valid email address");
 const passwordSchema = z.string().min(6, "Password must be at least 6 characters");
@@ -178,17 +179,8 @@ export default function Auth() {
       } else {
         const { error } = await signUp(email, password, displayName);
         if (error) {
-          if (error.message.includes("User already registered")) {
-            toast.error("This email is already registered. Please sign in instead.");
-          } else if (error.message.toLowerCase().includes("rate limit")) {
-            // Supabase's built-in email sender has a low hourly send cap —
-            // this is not this account's fault. The raw provider message
-            // ("email rate limit exceeded") is not actionable to a user;
-            // give them an honest, concrete instruction instead.
-            toast.error("We're sending too many sign-up emails right now — please wait a few minutes and try again.");
-          } else {
-            toast.error(error.message);
-          }
+          // PPG-1 Finding 2: centralized translation boundary.
+          toast.error(translateAuthError(error).message);
         } else {
           setSignupEmail(email);
           setMode("verify-email");
@@ -302,7 +294,8 @@ export default function Auth() {
                           },
                         });
                         if (error) {
-                          toast.error(error.message);
+                          // PPG-1 Finding 2 (confirmed residual gap): resend previously showed the raw provider error verbatim, including on a rate-limited resend.
+                          toast.error(translateAuthError(error).message);
                         } else {
                           toast.success("Verification email resent!");
                         }

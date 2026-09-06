@@ -32,6 +32,12 @@ import {
   loadCertifiedTb, loadCashPerimeter, resolveCashState, certifiedRowKey,
   type CertifiedTbClient,
 } from "../_shared/certifiedTbSource.ts";
+import {
+  bucketCurrentBalances,
+  excludeScheduledTaxFromCurrentLiabilities,
+  RECEIVABLE_CLASSIFICATION_LIMITATION,
+  PAYABLE_CLASSIFICATION_LIMITATION,
+} from "../_shared/maonoCashflowMath.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -85,9 +91,15 @@ function weekOfYear(date: Date, startDate: Date): number {
 //   AR/AP → the CERTIFIED classification carried in the CertifiedTB row
 //           (`subNature`), at class level, with the basis declared in the
 //           response. No name matching, no code ranges.
-
-const CURRENT_ASSET_CLASSES = new Set(["current_assets", "trade_receivables", "receivables"]);
-const CURRENT_LIABILITY_CLASSES = new Set(["current_liabilities", "trade_payables", "payables"]);
+//
+// PPG-1 Finding 4 (2026-09-06): bucketing itself now lives in the pure,
+// unit-tested _shared/maonoCashflowMath.ts. Repository evidence (grepped
+// every migration touching account_classification) confirmed the enum has
+// never had a "trade_receivables"/"receivables"/"trade_payables"/"payables"
+// value — those aliases here were dead code that could never match a real
+// row, and falsely implied a finer split this system cannot make. See
+// maonoCashflowMath.ts's header for the full forensic finding and the
+// tax-double-count fix (excludeScheduledTaxFromCurrentLiabilities).
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
@@ -158,29 +170,13 @@ serve(async (req: Request) => {
     // certified current-asset population. UNKNOWN != ZERO != FALSE: one
     // undecided account makes opening cash unknown, and the whole forecast is
     // refused rather than reported from a partial balance.
-    const undecidedCashAccounts: string[] = [];
-    let cashBalance = 0;
-    let arBalance   = 0;
-    let apBalance   = 0;
-
-    for (const row of certifiedTb.rows) {
-      const key = certifiedRowKey(row);
-      const net = row.debitBalance - row.creditBalance;
-      const isCurrentAsset = CURRENT_ASSET_CLASSES.has(row.subNature);
-      const isCurrentLiab  = CURRENT_LIABILITY_CLASSES.has(row.subNature);
-
-      if (isCurrentAsset) {
-        const cashState = resolveCashState(perimeter.value, key);
-        if (cashState === "UNKNOWN") {
-          undecidedCashAccounts.push(row.accountCode ?? row.accountName);
-          continue;
-        }
-        if (cashState === "CASH") cashBalance += net;
-        else arBalance += Math.abs(net);
-      } else if (isCurrentLiab) {
-        apBalance += Math.abs(row.creditBalance - row.debitBalance);
-      }
-    }
+    const bucketed = bucketCurrentBalances(
+      certifiedTb.rows,
+      (key) => resolveCashState(perimeter.value, key),
+      certifiedRowKey,
+    );
+    const { cashBalance, undecidedCashAccounts } = bucketed;
+    const arBalance = bucketed.nonCashCurrentAssetBalance;
 
     if (undecidedCashAccounts.length > 0) {
       return json({
@@ -249,6 +245,18 @@ serve(async (req: Request) => {
     const vatAmount  = readOptionalTaxAmount(taxJson, "vat_liability");
     const sdlAmount  = readOptionalTaxAmount(taxJson, "sdl_liability");
     const whtAmount  = readOptionalTaxAmount(taxJson, "wht_total");
+
+    // PPG-1 Finding 4 (confirmed defect, fixed): PAYE/VAT/SDL/WHT amounts
+    // known precisely via tax_computations were ALSO being swept into the
+    // generic current-liability bucket below and spread across the
+    // generic 30/60/90-day payment curve — a genuine double-count, since
+    // each is ALSO placed on its own exact statutory due date a few lines
+    // down. Excluding them here means each is represented exactly once.
+    const { apBalanceExTax, scheduledTaxTotal } = excludeScheduledTaxFromCurrentLiabilities(
+      bucketed.currentLiabilityBalanceGross,
+      { paye: payeAmount, sdl: sdlAmount, vat: vatAmount, wht: whtAmount },
+    );
+    const apBalance = apBalanceExTax;
 
     // Build 13-week forecast
     const startDate  = getWeekMonday(new Date());
@@ -395,9 +403,19 @@ serve(async (req: Request) => {
         certified_at:     certifiedTb.certifiedAt,
         cash_basis:       "professional tri-state account_mappings.is_cash_account (complete)",
         ar_basis:         "certified current-asset classification excluding the professional cash perimeter (class-level)",
-        ap_basis:         "certified current-liability classification (class-level)",
+        ap_basis:         "certified current-liability classification (class-level), excluding amounts already scheduled via statutory tax due dates",
         ar_ap_precision:  "CLASS_LEVEL_APPROXIMATION",
+        // PPG-1 Finding 4: honest disclosure, never a fabricated finer
+        // classification. See _shared/maonoCashflowMath.ts for the full
+        // repository-evidence finding behind these two limitations.
+        receivable_classification_limitation: RECEIVABLE_CLASSIFICATION_LIMITATION,
+        payable_classification_limitation:    PAYABLE_CLASSIFICATION_LIMITATION,
       },
+      // PPG-1 Finding 4: the amount excluded from ap_balance above because
+      // it is already represented via its own precise statutory due date
+      // (paye_due/vat_due/sdl_due/wht_due) — proof the same balance is not
+      // being counted twice.
+      scheduled_tax_excluded_from_generic_ap: scheduledTaxTotal,
       // null means unavailable (no tax_computations row for this run's
       // uploads, or the key does not exist in computation_detail) — never
       // read as a zero obligation. A caller must render "unavailable"

@@ -1,4 +1,20 @@
 -- ════════════════════════════════════════════════════════════════════════════
+-- QUARANTINED HISTORICAL SOURCE — PPG-1 (2026-09-06)
+--
+-- This file's OWN filename/timestamp identity was never applied to any
+-- database. Its fix went live under Lovable's own recorded identity,
+-- supabase/migrations/20260905141022_f1029fbe-90d5-4aac-97e0-059eede76338.sql
+-- — that file is the sole production-authoritative record of RLS1 and must
+-- never be edited. Unlike the Ω1 quarantine sibling, this file's statements
+-- (CREATE OR REPLACE FUNCTION, ALTER POLICY) ARE idempotent — replaying it
+-- alongside its live counterpart would not error. It is still quarantined
+-- here, out of supabase/migrations/, purely for unambiguous single-chain
+-- clarity: exactly one identity per already-live wave remains in the
+-- executable migrations directory. See
+-- docs/operations/PPG1_STABILIZATION_REPORT.md §Finding 3.
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- ════════════════════════════════════════════════════════════════════════════
 -- Ω1-RLS1 — PRODUCTION DEFECT REPAIR
 -- DEFECT-Ω1-COMMERCIAL-RLS-RECURSION-001
 --

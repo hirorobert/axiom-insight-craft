@@ -1,4 +1,23 @@
 -- ════════════════════════════════════════════════════════════════════════════
+-- QUARANTINED HISTORICAL SOURCE — PPG-1 (2026-09-06)
+--
+-- This file's OWN filename/timestamp identity was never applied to any
+-- database. Its schema went live under Lovable's own recorded identity,
+-- supabase/migrations/20260905093408_8fc55e64-3e06-4d26-8835-438a9243e1ef.sql
+-- — that file is the sole production-authoritative record of Ω1 and must
+-- never be edited. This file's CREATE TABLE/CREATE POLICY statements are
+-- NOT idempotent (no IF NOT EXISTS / DROP ... IF EXISTS guards); if this
+-- file were ever mechanically replayed alongside its live sibling (a full
+-- `supabase db push`/`db reset`, a disaster-recovery rebuild, or fresh CI
+-- database), it would collide with hard "relation already exists" errors
+-- against a database where the sibling has already run. It is renamed
+-- `.sql.historical` and moved out of supabase/migrations/ (which Supabase
+-- CLI tooling globs by extension and directory) for exactly that reason —
+-- it is retained ONLY for the extensive design rationale below, never for
+-- execution. See docs/operations/PPG1_STABILIZATION_REPORT.md §Finding 3.
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- ════════════════════════════════════════════════════════════════════════════
 -- Ω∞ WAVE Ω1 — PROVIDER-NEUTRAL COMMERCIAL FOUNDATION
 -- Billing + entitlement authority, strictly orthogonal to accounting authority.
 --
