@@ -37,6 +37,27 @@ interface Props {
   currentPlanCode?: string | null;
   /** Plan the upgrade button targets. Defaults to the paid firm-licence plan. */
   planCode?: string;
+  /**
+   * Explicit, caller-supplied commercial market code (e.g. "TZ"). SAFF has
+   * no authoritative persisted commercial-market source for a customer or
+   * workspace today — this is NEVER derived here from accounting
+   * jurisdiction, entity/company country, user locale, or currency. Those
+   * are different concepts entirely (accounting jurisdiction governs
+   * statutory tax rules; commercial market governs pricing/offer
+   * selection) and conflating them would silently encode a guess into a
+   * financial-commerce decision.
+   *
+   * Omitting this prop (undefined) is not a TZ default and never becomes
+   * one: it resolves to the neutral 'GLOBAL' market on the server, exactly
+   * as passing "GLOBAL" explicitly would. The identical value is threaded
+   * into BOTH the display resolution (resolve_commercial_offer) and the
+   * checkout creation (commercial-create-checkout) calls below, so the
+   * customer can never see one market's economics and then check out
+   * against a different one (DISPLAY_MARKET == CHECKOUT_MARKET). A future
+   * Pricing page with a real market-selection UI can pass a genuine value
+   * through this same prop with no further plumbing changes.
+   */
+  marketCode?: string;
 }
 
 type OfferDisplayState =
@@ -111,19 +132,23 @@ export function shouldShowUpgradeAction(
   return !(alreadyOnThisPlan && licenceIsCurrent);
 }
 
-export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, planCode = "PAID" }: Props) {
+export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, planCode = "PAID", marketCode }: Props) {
   const [loading, setLoading] = useState(false);
   const [offer, setOffer] = useState<OfferDisplayState>({ phase: "LOADING" });
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data } = await callCommercialRpc("resolve_commercial_offer", { p_plan_code: planCode });
+      // Same `marketCode` value used for display resolution here is reused,
+      // unmodified, in handleUpgrade()'s createCheckoutIntent call below —
+      // this is what guarantees DISPLAY_MARKET == CHECKOUT_MARKET. Do not
+      // let these two calls diverge onto separately-derived market values.
+      const { data } = await callCommercialRpc("resolve_commercial_offer", { p_plan_code: planCode, p_market_code: marketCode });
       if (cancelled) return;
       setOffer(deriveOfferDisplayState(data));
     })();
     return () => { cancelled = true; };
-  }, [planCode]);
+  }, [planCode, marketCode]);
 
   if (!shouldShowUpgradeAction(currentPlanCode, planCode, billingStatus)) {
     return (
@@ -136,7 +161,7 @@ export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, p
   async function handleUpgrade() {
     setLoading(true);
     try {
-      const { data, error } = await createCheckoutIntent(planCode);
+      const { data, error } = await createCheckoutIntent(planCode, marketCode);
 
       if (error || !data) {
         toast.error(error ?? "Could not start checkout. Please try again.");

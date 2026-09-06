@@ -280,7 +280,15 @@ export default function Settings() {
                 Redirect URL carries only saffReference — no amount, no status.
                 currentPlanCode lets the button tell "already on this plan"
                 apart from "on a different plan that also has an ACTIVE
-                licence" (every FREE signup is ACTIVE by default). */}
+                licence" (every FREE signup is ACTIVE by default).
+                marketCode is intentionally omitted: SAFF has no
+                authoritative persisted commercial market for a customer or
+                workspace yet, and this page must never guess one from
+                accounting jurisdiction/company country/locale. Omitting it
+                resolves to the neutral GLOBAL market end-to-end (display
+                and checkout alike) — not a TZ default. A future Pricing
+                page with a real market-selection UI passes a genuine value
+                through this same prop with no further plumbing changes. */}
             <CheckoutUpgradeButton
               billingStatus={billing?.licenceStatus ?? null}
               currentPlanCode={billing?.planCode ?? null}

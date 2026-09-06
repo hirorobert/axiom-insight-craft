@@ -103,6 +103,22 @@ describe("OFFER RESOLVER — explicit AVAILABLE/NOT_AVAILABLE/AMBIGUOUS/UNKNOWN,
     expect(resolverBody).toMatch(/v_used_market := 'GLOBAL'/);
     expect(resolverBody).toMatch(/'fallback_to_global'/);
   });
+
+  it("never falls forward from GLOBAL to a market-specific offer — a GLOBAL request with zero GLOBAL offers is NOT_AVAILABLE even if a market-specific (e.g. TZ) offer exists", () => {
+    // The ONLY assignment inside the fallback branch sets v_used_market to
+    // the literal 'GLOBAL' — nothing in the resolver ever assigns it to a
+    // market-specific code from within that branch, and the branch itself
+    // is guarded by `v_used_market != 'GLOBAL'`, so a GLOBAL request can
+    // never silently escalate into a TZ/MU/GB/EU-only offer.
+    const fallbackBlock = resolverBody.match(/IF v_count = 0 AND v_used_market != 'GLOBAL' THEN([\s\S]*?)END IF;/)?.[1] ?? "";
+    expect(fallbackBlock).toMatch(/v_used_market := 'GLOBAL'/);
+    expect(fallbackBlock).not.toMatch(/v_used_market := '(TZ|MU|GB|EU)'/);
+  });
+
+  it("resolves AVAILABLE with the offer's own market_code, not blindly echoing whatever the caller requested — checkout can trust market_code as the actually-resolved market", () => {
+    expect(resolverBody).toMatch(/'market_code',v_offer\.market_code/);
+    expect(resolverBody).toMatch(/'requested_market',p_market_code/);
+  });
 });
 
 describe("CURRENCY OFFER_SCOPED — no automatic FX conversion as commercial authority", () => {
