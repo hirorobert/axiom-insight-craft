@@ -37,6 +37,10 @@ import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePrefli
 import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
 import { useCertificationReadiness } from "@/hooks/useCertificationReadiness";
 import { computeCertificationReadiness } from "@/lib/workspace/computeCertificationReadiness";
+import {
+  reduceCertificationRevalidationGuard,
+  canInitiateCertificationAffectingMutation,
+} from "@/lib/workspace/certificationRevalidationGuard";
 import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
 import TrialBalanceTemplateGuide from "@/components/workspace/TrialBalanceTemplateGuide";
 import {
@@ -160,17 +164,56 @@ export default function PrepareWorkspace() {
     }
   };
 
-  // PPG-1 Finding 1: this reprocess entry point previously invoked the
-  // engine and returned immediately on a successful invoke — it never
-  // waited for the server-side run to reach a terminal state, so both the
-  // upload row and the pre-flight/certification panel were left showing
-  // whatever they showed before reprocessing started, with no automatic
-  // refresh at all (not even the racy refetch-on-id-change the
-  // upload-replace path gets, since the id never changes here). Mirrors
-  // the poll-until-terminal pattern already proven in
-  // AccountReviewPanel.tsx's save/reprocess flow.
+  const certReadiness = useCertificationReadiness(companyId, periodYear, upload?.id);
+
+  // PPG-1R HIGH-1 (Codex REJECT — "old CERTIFIED may remain visible while
+  // reprocessing is already underway"): PPG-1's fix only invalidated
+  // certification at the terminal/timeout boundary of a reprocess poll,
+  // leaving the ENTIRE window between "backend accepted the reprocess"
+  // and "poll detects a terminal status" (up to 90s) showing whatever
+  // verdict was already on screen — including a real but now-superseded
+  // CERTIFIED. This explicit guard closes that window: it is set the
+  // INSTANT a reprocess is confirmed accepted (never merely "requested" —
+  // an initiation failure never sets it) and stays true across the entire
+  // poll, INCLUDING across the immediate refetch this triggers (which may
+  // race ahead of the backend and return the very same stale certified
+  // row — computeCertificationReadiness's `revalidating` guard downgrades
+  // that to "pending" regardless of what the fetch returned, so the local
+  // guard's truth wins over a stale server read, never the other way
+  // around). It only clears once a fresh read has been taken AFTER a
+  // confirmed terminal state, or is abandoned (left true, never
+  // reverted to trusting a stale read) on timeout — per the mission's
+  // explicit "remain non-authoritative/pending rather than restoring
+  // stale CERTIFIED."
+  const [isRevalidatingCertification, setIsRevalidatingCertification] = useState(false);
+  const activeReprocessPollRef = useRef<{ interval: number; timeout: number } | null>(null);
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (activeReprocessPollRef.current) {
+        window.clearInterval(activeReprocessPollRef.current.interval);
+        window.clearTimeout(activeReprocessPollRef.current.timeout);
+      }
+    };
+  }, []);
+
+  const clearActiveReprocessPoll = () => {
+    if (activeReprocessPollRef.current) {
+      window.clearInterval(activeReprocessPollRef.current.interval);
+      window.clearTimeout(activeReprocessPollRef.current.timeout);
+      activeReprocessPollRef.current = null;
+    }
+  };
+
   const handleProcessAsAuditedAccounts = async () => {
     if (!upload) return;
+    // Rapid second invocation: a reprocess is already in flight (from this
+    // control or from AccountReviewPanel's own Save/Reprocess) — refuse a
+    // second concurrent one rather than racing two polls against the same
+    // upload.
+    if (!canInitiateCertificationAffectingMutation(isRevalidatingCertification)) return;
     toast.info("Re-processing as Audited Financial Statements…");
     try {
       await ensureFreshSession();
@@ -178,11 +221,33 @@ export default function PrepareWorkspace() {
       const { error } = await supabase.functions.invoke("process-trial-balance", {
         body: { uploadId: upload.id, mode: "audited_accounts", clientRequestId },
       });
-      if (error) throw error;
+      // Initiation failure: nothing was actually accepted — the guard is
+      // never entered, and whatever certification state was already
+      // showing (still genuinely current, since nothing changed) is left
+      // exactly as it was. Only the mutation-failure toast is shown.
+      if (error) {
+        setIsRevalidatingCertification((prev) =>
+          reduceCertificationRevalidationGuard(prev, { type: "MUTATION_INITIATION_FAILED" }),
+        );
+        throw error;
+      }
       toast.success("Processing started — results will appear shortly.");
+
+      // Reprocess CONFIRMED ACCEPTED — invalidate immediately, before any
+      // terminal check. The refetch triggered here may well race ahead of
+      // the backend and return the pre-mutation CERTIFIED row; that is
+      // expected and safe, because the guard (not the fetch result) is
+      // what computeCertificationReadiness keys its "pending" downgrade
+      // on — see the guard's own comment above.
+      if (!isMountedRef.current) return;
+      setIsRevalidatingCertification((prev) =>
+        reduceCertificationRevalidationGuard(prev, { type: "MUTATION_ACCEPTED" }),
+      );
+      certReadiness.refetch();
 
       const uploadId = upload.id;
       const TERMINAL = new Set(["complete", "error", "blocked", "needs_review"]);
+      let settled = false;
       const pollInterval = window.setInterval(async () => {
         const { data } = await supabase
           .from("trial_balance_uploads")
@@ -190,31 +255,54 @@ export default function PrepareWorkspace() {
           .eq("id", uploadId)
           .single();
 
-        if (data && TERMINAL.has(data.status)) {
-          window.clearInterval(pollInterval);
-          await refreshUpload();
-          certReadiness.refetch();
-          if (data.status === "complete") {
-            toast.success("Reprocessing complete!");
-          } else if (data.status === "needs_review") {
-            toast.warning("Some accounts still need review.");
-          } else {
-            toast.error("Reprocessing encountered an error.");
-          }
+        if (settled || !data || !TERMINAL.has(data.status)) return;
+        settled = true;
+        clearActiveReprocessPoll();
+        await refreshUpload();
+        certReadiness.refetch();
+        // A genuinely fresh, terminal-boundary read has now landed — safe
+        // to let computeCertificationReadiness trust it again.
+        if (isMountedRef.current) {
+          setIsRevalidatingCertification((prev) =>
+            reduceCertificationRevalidationGuard(prev, { type: "TERMINAL_CONFIRMED" }),
+          );
+        }
+        if (data.status === "complete") {
+          toast.success("Reprocessing complete!");
+        } else if (data.status === "needs_review") {
+          toast.warning("Some accounts still need review.");
+        } else {
+          toast.error("Reprocessing encountered an error.");
         }
       }, 2000);
 
-      window.setTimeout(async () => {
-        window.clearInterval(pollInterval);
+      const pollTimeout = window.setTimeout(async () => {
+        if (settled) return;
+        settled = true;
+        clearActiveReprocessPoll();
         await refreshUpload();
         certReadiness.refetch();
+        // Timeout: we could NOT confirm a terminal state. Per the mission's
+        // explicit contract, remain non-authoritative/pending rather than
+        // trusting whatever this last read returned (it may still be the
+        // pre-mutation CERTIFIED if the backend is simply slow, not done).
+        // reduceCertificationRevalidationGuard's TIMEOUT_NO_TERMINAL_CONFIRMED
+        // branch intentionally keeps the guard true — the upload-status-
+        // transition effect below will still clear it later if/when the
+        // backend eventually does reach a terminal state via realtime.
+        if (isMountedRef.current) {
+          setIsRevalidatingCertification((prev) =>
+            reduceCertificationRevalidationGuard(prev, { type: "TIMEOUT_NO_TERMINAL_CONFIRMED" }),
+          );
+        }
       }, 90_000);
+
+      activeReprocessPollRef.current = { interval: pollInterval, timeout: pollTimeout };
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to start processing. Please try again.");
     }
   };
 
-  const certReadiness = useCertificationReadiness(companyId, periodYear, upload?.id);
   const readiness = upload
     ? computeCertificationReadiness({
         uploadExists: true,
@@ -222,7 +310,7 @@ export default function PrepareWorkspace() {
         authoritative: certReadiness.authoritative,
         latestForUpload: certReadiness.latestForUpload,
         fetchFailed: certReadiness.fetchFailed,
-        revalidating: certReadiness.loading,
+        revalidating: isRevalidatingCertification || certReadiness.loading,
       })
     : undefined;
 
@@ -245,6 +333,19 @@ export default function PrepareWorkspace() {
     const prev = uploadStatusTrackRef.current;
     const currentId = upload?.id ?? null;
     const currentStatus = upload?.status ?? null;
+    if (prev.id !== currentId) {
+      // A different upload is now on screen (replace, discard+undo,
+      // history-panel selection) — any revalidation guard was scoped to
+      // the PREVIOUS upload's lifecycle and no longer applies. The new
+      // upload gets its own fresh certification read (and its own
+      // `certReadiness.loading`-driven "pending" state while that read is
+      // in flight) from useCertificationReadiness's own identity-keyed
+      // effect — never carry a stuck guard across uploads.
+      clearActiveReprocessPoll();
+      setIsRevalidatingCertification((prev) =>
+        reduceCertificationRevalidationGuard(prev, { type: "UPLOAD_IDENTITY_CHANGED" }),
+      );
+    }
     if (
       prev.id === currentId &&
       prev.status !== currentStatus &&
@@ -252,6 +353,16 @@ export default function PrepareWorkspace() {
       !!prev.status && !TERMINAL.has(prev.status)
     ) {
       certReadiness.refetch();
+      // PPG-1R: a genuine terminal transition landed via realtime — this
+      // is a real freshness boundary regardless of which caller triggered
+      // the underlying reprocess, so the revalidation guard clears here
+      // too. Belt-and-suspenders alongside each caller's own explicit
+      // clear (handleProcessAsAuditedAccounts's poll,
+      // AccountReviewPanel's onReprocessed) — covers any path that
+      // changes upload.status without going through either of them.
+      setIsRevalidatingCertification((prev) =>
+        reduceCertificationRevalidationGuard(prev, { type: "TERMINAL_CONFIRMED" }),
+      );
     }
     uploadStatusTrackRef.current = { id: currentId, status: currentStatus };
     // certReadiness.refetch is a stable useCallback identity (empty deps in
@@ -385,7 +496,17 @@ export default function PrepareWorkspace() {
                     userId={user.id}
                     needsReviewAccounts={reviewAccounts}
                     focusUnresolved={focusUnresolved}
-                    onReprocessed={() => {
+                    onReprocessingStarted={() => {
+                      // PPG-1R HIGH-1: the SAME immediate-invalidation
+                      // contract as handleProcessAsAuditedAccounts — the
+                      // moment reprocessing is confirmed accepted, not at
+                      // its terminal/timeout boundary.
+                      setIsRevalidatingCertification((prev) =>
+                        reduceCertificationRevalidationGuard(prev, { type: "MUTATION_ACCEPTED" }),
+                      );
+                      certReadiness.refetch();
+                    }}
+                    onReprocessed={(reason) => {
                       // PPG-1 Finding 1: refreshUpload() alone re-reads the
                       // upload row, but the account-review decision +
                       // reprocess flow keeps the SAME upload id — the
@@ -397,6 +518,32 @@ export default function PrepareWorkspace() {
                       // manual reload happened to remount it.
                       refreshUpload();
                       certReadiness.refetch();
+                      // PPG-1R: "initiation_failed" — the guard was never
+                      // set (onReprocessingStarted never ran), so clearing
+                      // it is a no-op; this refetch simply confirms
+                      // whatever is genuinely still current.
+                      // "terminal" — a genuinely fresh, confirmed-terminal
+                      // read has landed; safe to trust again.
+                      // "timeout" — deliberately NOT cleared: no terminal
+                      // state was ever confirmed, so the display must
+                      // remain non-authoritative/pending rather than
+                      // reverting to trust a possibly-stale read. The
+                      // upload-status-transition effect will still clear
+                      // it later if/when a terminal status eventually
+                      // arrives via realtime.
+                      if (reason === "terminal") {
+                        setIsRevalidatingCertification((prev) =>
+                          reduceCertificationRevalidationGuard(prev, { type: "TERMINAL_CONFIRMED" }),
+                        );
+                      } else if (reason === "initiation_failed") {
+                        setIsRevalidatingCertification((prev) =>
+                          reduceCertificationRevalidationGuard(prev, { type: "MUTATION_INITIATION_FAILED" }),
+                        );
+                      } else {
+                        setIsRevalidatingCertification((prev) =>
+                          reduceCertificationRevalidationGuard(prev, { type: "TIMEOUT_NO_TERMINAL_CONFIRMED" }),
+                        );
+                      }
                     }}
                   />
                 </div>

@@ -11,7 +11,7 @@
  * mapping — the accountant's decision is what gets written.
  */
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { buildReviewDecision, type ReviewFlagDecisions } from "@/lib/accounting/buildReviewDecisions";
 import { supabase } from "@/integrations/supabase/client";
@@ -98,7 +98,29 @@ interface AccountReviewPanelProps {
   needsReviewAccounts: NeedsReviewAccount[];
   /** Deep-linked from the Overview exception count: show unresolved only. */
   focusUnresolved?: boolean;
-  onReprocessed: () => void;
+  /**
+   * PPG-1R HIGH-1 repair: called the MOMENT reprocessing is confirmed
+   * accepted by the backend (process-trial-balance invoke succeeded) —
+   * before any terminal-status polling. The caller must treat any
+   * currently-displayed CERTIFIED verdict as no longer safe to present as
+   * current from this instant, not merely once the terminal/timeout
+   * boundary below is reached. Never called if reprocessing failed to
+   * start (in that case only onReprocessed() fires, immediately, and the
+   * caller's prior authoritative state is left as-is per "initiation
+   * failure preserves the last genuinely authoritative state").
+   */
+  onReprocessingStarted?: () => void;
+  /**
+   * `reason` distinguishes a genuinely fresh terminal-boundary read
+   * ("terminal") from a timeout with no confirmed terminal state
+   * ("timeout") from a reprocess that never started at all
+   * ("initiation_failed"). PPG-1R HIGH-1: a caller must clear its
+   * revalidation guard on "terminal"/"initiation_failed", but explicitly
+   * NOT on "timeout" — per the mission contract, an unconfirmed timeout
+   * must leave the display non-authoritative/pending rather than
+   * restoring trust in whatever the last read happened to return.
+   */
+  onReprocessed: (reason: "terminal" | "timeout" | "initiation_failed") => void;
 }
 
 // ── Classification helpers ─────────────────────────────────────────────────
@@ -205,6 +227,7 @@ export function AccountReviewPanel({
   userId,
   needsReviewAccounts,
   focusUnresolved = false,
+  onReprocessingStarted,
   onReprocessed,
 }: AccountReviewPanelProps) {
   // Pre-select suggestion where it exists; otherwise empty (Save stays disabled).
@@ -233,6 +256,23 @@ export function AccountReviewPanel({
   /** Focus mode: one undecided account on screen at a time. Presentation only. */
   const [focusMode, setFocusMode] = useState(true);
   const [skipped, setSkipped] = useState<string[]>([]);
+
+  // PPG-1R: guards the reprocess poll's async callbacks against firing
+  // this component's own state updates after it has unmounted (e.g. the
+  // user navigates away mid-reprocess). Parent callbacks still fire
+  // regardless — see call sites below.
+  const isMountedRef = useRef(true);
+  const pollTimersRef = useRef<{ interval: ReturnType<typeof setInterval>; timeout: ReturnType<typeof setTimeout> } | null>(null);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (pollTimersRef.current) {
+        clearInterval(pollTimersRef.current.interval);
+        clearTimeout(pollTimersRef.current.timeout);
+      }
+    };
+  }, []);
 
   const setChoice = useCallback((key: string, val: string) => {
     setChoices((prev) => ({ ...prev, [key]: val }));
@@ -375,19 +415,30 @@ export function AccountReviewPanel({
         );
         if (fnError) throw fnError;
         reprocessStarted = true;
+        // PPG-1R HIGH-1: reprocessing is now confirmed ACCEPTED by the
+        // backend — invalidate the caller's certification display THIS
+        // INSTANT, not at the terminal/timeout boundary below. A stale
+        // CERTIFIED must never remain visible while reprocessing is
+        // already underway. Always fires — the parent (and its own
+        // certification authority) may still be mounted even if this
+        // review panel unmounts moments later.
+        onReprocessingStarted?.();
       } catch (reprocessErr) {
         console.error("AccountReviewPanel reprocess-start error:", reprocessErr);
       }
 
       if (!reprocessStarted) {
-        setReprocessing(false);
+        if (isMountedRef.current) setReprocessing(false);
         toast.warning("Decisions saved. Reprocessing could not start — retry from the upload status panel.");
-        onReprocessed();
+        onReprocessed("initiation_failed");
         return;
       }
 
-      // Poll for terminal state.
+      // Poll for terminal state. Both timers are cleared by whichever of
+      // the two fires first, so a slow backend can never cause onReprocessed
+      // to fire twice, and neither timer touches state/props after unmount.
       const TERMINAL = new Set(["complete", "error", "blocked", "needs_review"]);
+      let settled = false;
       const pollInterval = setInterval(async () => {
         const { data } = await supabase
           .from("trial_balance_uploads")
@@ -395,26 +446,38 @@ export function AccountReviewPanel({
           .eq("id", uploadId)
           .single();
 
-        if (data && TERMINAL.has(data.status)) {
-          clearInterval(pollInterval);
-          setReprocessing(false);
-          if (data.status === "complete") {
-            toast.success("Reprocessing complete!");
-          } else if (data.status === "needs_review") {
-            toast.warning("Some accounts still need review.");
-          } else {
-            toast.error("Reprocessing encountered an error.");
-          }
-          onReprocessed();
+        if (settled || !data || !TERMINAL.has(data.status)) return;
+        settled = true;
+        clearInterval(pollInterval);
+        clearTimeout(pollTimeout);
+        // This component's OWN local state is only touched while mounted —
+        // but the parent's onReprocessed() always fires: the parent (and
+        // its own certification authority) may still be mounted even if
+        // this review panel itself has unmounted (e.g. showReviewPanel
+        // just turned false because reprocessing succeeded).
+        if (isMountedRef.current) setReprocessing(false);
+        if (data.status === "complete") {
+          toast.success("Reprocessing complete!");
+        } else if (data.status === "needs_review") {
+          toast.warning("Some accounts still need review.");
+        } else {
+          toast.error("Reprocessing encountered an error.");
         }
+        onReprocessed("terminal");
       }, 2000);
 
       // Timeout after 90 s — call onReprocessed so Dashboard can refresh.
-      setTimeout(() => {
+      // "timeout" is NOT "terminal": no confirmed terminal state was ever
+      // observed, so the caller must not treat this as safe to trust.
+      const pollTimeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
         clearInterval(pollInterval);
-        setReprocessing(false);
-        onReprocessed();
+        if (isMountedRef.current) setReprocessing(false);
+        onReprocessed("timeout");
       }, 90_000);
+
+      pollTimersRef.current = { interval: pollInterval, timeout: pollTimeout };
 
     } catch (err) {
       console.error("AccountReviewPanel save error:", err);

@@ -34,6 +34,7 @@ import {
 } from "../_shared/certifiedTbSource.ts";
 import {
   bucketCurrentBalances,
+  assessArAp,
   excludeScheduledTaxFromCurrentLiabilities,
   RECEIVABLE_CLASSIFICATION_LIMITATION,
   PAYABLE_CLASSIFICATION_LIMITATION,
@@ -176,7 +177,6 @@ serve(async (req: Request) => {
       certifiedRowKey,
     );
     const { cashBalance, undecidedCashAccounts } = bucketed;
-    const arBalance = bucketed.nonCashCurrentAssetBalance;
 
     if (undecidedCashAccounts.length > 0) {
       return json({
@@ -246,14 +246,75 @@ serve(async (req: Request) => {
     const sdlAmount  = readOptionalTaxAmount(taxJson, "sdl_liability");
     const whtAmount  = readOptionalTaxAmount(taxJson, "wht_total");
 
-    // PPG-1 Finding 4 (confirmed defect, fixed): PAYE/VAT/SDL/WHT amounts
-    // known precisely via tax_computations were ALSO being swept into the
-    // generic current-liability bucket below and spread across the
-    // generic 30/60/90-day payment curve — a genuine double-count, since
-    // each is ALSO placed on its own exact statutory due date a few lines
-    // down. Excluding them here means each is represented exactly once.
+    // ── PPG-1R HIGH-2 fail-closed gate ────────────────────────────────────────
+    // Codex correctly rejected PPG-1's "class-level approximation": treating
+    // every non-cash current_assets balance as AR and every
+    // current_liabilities balance as AP, merely disclosed in prose, is not
+    // safe arithmetic. assessArAp() is the single decision point — see
+    // _shared/maonoCashflowMath.ts for the full repository-evidence finding.
+    // A forecast is ONLY produced (and ONLY then written to
+    // cashflow_forecasts) when BOTH sides are genuinely KNOWN — which today
+    // means literally zero non-cash current-asset / current-liability rows
+    // exist for this company (an empty set is a known fact, not a gap).
+    // Whenever one or more such rows exist, this system cannot yet tell a
+    // trade receivable apart from inventory/prepayments/tax receivables, or
+    // a trade payable apart from a statutory/non-trade liability — so no
+    // AR/AP number is fabricated. What IS independently knowable (opening
+    // cash, the statutory schedule) is still reported, per the mission's
+    // "KNOWN + UNKNOWN = UNKNOWN only for the aggregate that NEEDS the
+    // unknown component" — the weekly running-cash forecast requires AR/AP,
+    // so it is not computed at all; the standalone facts are not withheld.
+    const arAp = assessArAp(bucketed);
+    if (arAp.arState === "CANNOT_ASSESS" || arAp.apState === "CANNOT_ASSESS") {
+      const failing: string[] = [];
+      if (arAp.arState === "CANNOT_ASSESS") failing.push("AR (receivables) inflow forecast");
+      if (arAp.apState === "CANNOT_ASSESS") failing.push("AP (payables) outflow forecast");
+      return json({
+        error:            "Cash flow forecast cannot be assessed",
+        analytical_state: "CANNOT_ASSESS",
+        reason:
+          `${failing.join(" and ")} cannot be assessed: this system cannot yet distinguish ` +
+          "trade receivables/payables from inventory, prepayments, tax receivables, or other " +
+          "non-trade current liabilities at the account level. No AR/AP figure is estimated " +
+          "from an unclassified balance.",
+        authority: "Certified current-asset/current-liability classification (account_classification enum, class-level only)",
+        unassessable: {
+          ar: arAp.arState === "CANNOT_ASSESS"
+            ? { state: "CANNOT_ASSESS", unclassified_account_count: bucketed.unknownCurrentAssetCount, limitation: RECEIVABLE_CLASSIFICATION_LIMITATION }
+            : { state: "KNOWN", amount: arAp.arKnownAmount },
+          ap: arAp.apState === "CANNOT_ASSESS"
+            ? { state: "CANNOT_ASSESS", unclassified_account_count: bucketed.unknownCurrentLiabilityCount, limitation: PAYABLE_CLASSIFICATION_LIMITATION }
+            : { state: "KNOWN", amount: arAp.apKnownAmount },
+        },
+        // What IS independently knowable, preserved rather than withheld
+        // merely because the aggregate weekly forecast cannot be produced.
+        // Never written to cashflow_forecasts — that table's weekly rows
+        // require a full inflow/outflow/closing-cash number, which this
+        // response deliberately does not fabricate.
+        known: {
+          opening_cash: cashBalance,
+          // null means unavailable — never a zero obligation. See
+          // readOptionalTaxAmount's own contract; unchanged from PPG-1.
+          statutory_this_month: { paye: payeAmount, vat: vatAmount, sdl: sdlAmount, wht: whtAmount },
+        },
+        hint: "A future professional classification of these accounts (trade receivable/payable vs. inventory/prepayment/tax/other) would allow this forecast to be produced.",
+        iron_dome: true,
+      }, 409);
+    }
+
+    // Both sides are KNOWN (today: only reachable when there are zero
+    // non-cash current-asset / current-liability rows at all) — proceed
+    // with the full forecast. arBalance/apBalance are the CashBehavior-
+    // classified amounts, never the raw class-level totals.
+    const arBalance = arAp.arKnownAmount;
+
+    // PPG-1 Finding 4 / PPG-1R §5 (double-count protection, preserved):
+    // even though apKnownAmount is always 0 today (see assessArAp's own
+    // contract), the exclusion is still applied so this stays correct and
+    // load-bearing the moment a future classification authority makes
+    // apKnownAmount non-zero — no further change would be needed here.
     const { apBalanceExTax, scheduledTaxTotal } = excludeScheduledTaxFromCurrentLiabilities(
-      bucketed.currentLiabilityBalanceGross,
+      arAp.apKnownAmount,
       { paye: payeAmount, sdl: sdlAmount, vat: vatAmount, wht: whtAmount },
     );
     const apBalance = apBalanceExTax;
@@ -402,14 +463,13 @@ serve(async (req: Request) => {
         source_file_hash: certifiedTb.sourceFileHash,
         certified_at:     certifiedTb.certifiedAt,
         cash_basis:       "professional tri-state account_mappings.is_cash_account (complete)",
-        ar_basis:         "certified current-asset classification excluding the professional cash perimeter (class-level)",
-        ap_basis:         "certified current-liability classification (class-level), excluding amounts already scheduled via statutory tax due dates",
-        ar_ap_precision:  "CLASS_LEVEL_APPROXIMATION",
-        // PPG-1 Finding 4: honest disclosure, never a fabricated finer
-        // classification. See _shared/maonoCashflowMath.ts for the full
-        // repository-evidence finding behind these two limitations.
-        receivable_classification_limitation: RECEIVABLE_CLASSIFICATION_LIMITATION,
-        payable_classification_limitation:    PAYABLE_CLASSIFICATION_LIMITATION,
+        // PPG-1R HIGH-2: this success path is reachable ONLY when
+        // assessArAp() found zero non-cash current-asset AND zero
+        // current-liability rows — i.e. AR/AP are KNOWN (definite) zeros,
+        // never a class-level approximation of an unclassified balance.
+        ar_basis:         "CashBehavior-classified TRADE_RECEIVABLE rows only (zero such rows exist for this company/period — a known, not approximated, zero)",
+        ap_basis:         "CashBehavior-classified TRADE_PAYABLE rows only (zero such rows exist for this company/period — a known, not approximated, zero), plus the separately-known statutory schedule on its own exact due dates",
+        ar_ap_precision:  "CASH_BEHAVIOR_CLASSIFIED",
       },
       // PPG-1 Finding 4: the amount excluded from ap_balance above because
       // it is already represented via its own precise statutory due date

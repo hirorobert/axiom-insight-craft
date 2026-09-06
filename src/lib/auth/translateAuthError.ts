@@ -40,8 +40,18 @@ const RATE_LIMIT_MESSAGE =
   "We couldn't send the confirmation email right now. Please wait a little and try again. If you already created the account, use Resend confirmation instead of creating another account.";
 
 export function translateAuthError(error: AuthErrorLike | null | undefined): TranslatedAuthError {
-  const raw = (error?.message ?? "").toLowerCase();
-  const status = error?.status ?? null;
+  // PPG-1R §7 (hostile-testing discovery): `error` is typed as
+  // AuthErrorLike, but at runtime nothing guarantees a caller only ever
+  // passes a well-formed object — a badly-typed catch block, a test
+  // double, or a future refactor could hand this a string/number/array,
+  // or an object whose `message` field isn't actually a string (e.g. a
+  // JSON-parsed value). `(x ?? "").toLowerCase()` only guards against
+  // null/undefined — a truthy non-string `message` (e.g. `12345`) would
+  // still throw. Explicit `typeof` checks make every shape safe.
+  const errorLike = error !== null && typeof error === "object" ? (error as AuthErrorLike) : null;
+  const rawMessage = errorLike && typeof errorLike.message === "string" ? errorLike.message : "";
+  const raw = rawMessage.toLowerCase();
+  const status = errorLike && typeof errorLike.status === "number" ? errorLike.status : null;
 
   if (!raw) {
     return { category: "unknown", message: "Something went wrong. Please try again." };

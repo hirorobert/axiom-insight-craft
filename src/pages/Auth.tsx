@@ -21,7 +21,7 @@ type AuthMode = "login" | "signup" | "forgot-password" | "reset-password" | "ver
 export default function Auth() {
   const [searchParams] = useSearchParams();
   const initialMode = searchParams.get("mode") as AuthMode || "login";
-  
+
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,17 +31,17 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [signupEmail, setSignupEmail] = useState("");
   const [errors, setErrors] = useState<{ email?: string; password?: string; confirmPassword?: string }>({});
-  
+
   const { signIn, signUp, user } = useAuth();
   const navigate = useNavigate();
-  const { 
-    isLocked, 
-    getRemainingAttempts, 
-    recordFailedAttempt, 
+  const {
+    isLocked,
+    getRemainingAttempts,
+    recordFailedAttempt,
     recordSuccessfulLogin,
     remainingTime,
     formatRemainingTime,
-    attempts 
+    attempts
   } = useLoginRateLimit();
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export default function Auth() {
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const accessToken = hashParams.get("access_token");
     const type = hashParams.get("type");
-    
+
     if (accessToken && type === "recovery") {
       setMode("reset-password");
     }
@@ -63,14 +63,14 @@ export default function Auth() {
 
   const validateForm = () => {
     const newErrors: { email?: string; password?: string; confirmPassword?: string } = {};
-    
+
     if (mode !== "reset-password") {
       const emailResult = emailSchema.safeParse(email);
       if (!emailResult.success) {
         newErrors.email = emailResult.error.errors[0].message;
       }
     }
-    
+
     if (mode === "login" || mode === "signup" || mode === "reset-password") {
       const passwordResult = passwordSchema.safeParse(password);
       if (!passwordResult.success) {
@@ -81,14 +81,14 @@ export default function Auth() {
     if (mode === "reset-password" && password !== confirmPassword) {
       newErrors.confirmPassword = "Passwords do not match";
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const emailResult = emailSchema.safeParse(email);
     if (!emailResult.success) {
       setErrors({ email: emailResult.error.errors[0].message });
@@ -100,7 +100,7 @@ export default function Auth() {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/auth?mode=reset-password`,
       });
-      
+
       if (error) {
         toast.error(error.message);
       } else {
@@ -116,13 +116,13 @@ export default function Auth() {
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) return;
 
     setLoading(true);
     try {
       const { error } = await supabase.auth.updateUser({ password });
-      
+
       if (error) {
         toast.error(error.message);
       } else {
@@ -138,7 +138,15 @@ export default function Auth() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
+    // PPG-1R §7: the submit button's `disabled={loading}` alone does not
+    // guarantee no second submission can reach this handler — a rapid
+    // double-click, or a form submitted via Enter in a text field, can
+    // fire before React commits the disabled-button render. This
+    // synchronous guard makes "no duplicate signup/login request while
+    // submitting" true regardless of render timing.
+    if (loading) return;
+
     if (mode === "forgot-password") {
       return handleForgotPassword(e);
     }
@@ -146,9 +154,9 @@ export default function Auth() {
     if (mode === "reset-password") {
       return handleResetPassword(e);
     }
-    
+
     if (!validateForm()) return;
-    
+
     // Check rate limiting for login attempts
     if (mode === "login" && isLocked()) {
       toast.error(`Too many failed attempts. Please wait ${formatRemainingTime()} before trying again.`);
@@ -156,13 +164,13 @@ export default function Auth() {
     }
 
     setLoading(true);
-    
+
     try {
       if (mode === "login") {
         const { error } = await signIn(email, password);
         if (error) {
           const { locked, lockoutSeconds } = recordFailedAttempt();
-          
+
           if (locked) {
             toast.error(`Too many failed attempts. Account locked for ${Math.ceil(lockoutSeconds / 60)} minute(s).`);
           } else if (error.message.includes("Invalid login credentials")) {
@@ -241,7 +249,7 @@ export default function Auth() {
               <div className="w-20 h-20 mx-auto rounded-full bg-accent/10 flex items-center justify-center">
                 <MailCheck className="w-10 h-10 text-accent" />
               </div>
-              
+
               <div className="space-y-2">
                 <h2 className="text-xl font-semibold text-foreground">Verification email sent!</h2>
                 <p className="text-muted-foreground">
@@ -279,11 +287,15 @@ export default function Auth() {
                   Continue to Sign In
                   <ArrowRight className="w-4 h-4" />
                 </Button>
-                
+
                 <p className="text-sm text-muted-foreground">
                   Didn't receive the email?{" "}
                   <button
                     onClick={async () => {
+                      // PPG-1R §7: same synchronous duplicate-request guard
+                      // as handleSubmit — disabled={loading} alone does not
+                      // guarantee no second click reaches this handler.
+                      if (loading) return;
                       setLoading(true);
                       try {
                         const { error } = await supabase.auth.resend({

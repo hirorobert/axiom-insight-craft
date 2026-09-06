@@ -105,3 +105,64 @@ describe("translateAuthError — generic/unknown failure never leaks provider in
     }
   });
 });
+
+// PPG-1R §7 — Codex reported "AUTH ERROR UX FAIL" with no specific defect
+// named. Independently reconstructed via hostile-shape testing: a genuine
+// Supabase AuthError is a real Error subclass (not a plain object), and a
+// badly-typed catch block or test harness could hand this function a raw
+// string or a malformed object instead. Every shape must resolve safely —
+// never throwing, never leaking internals, never fabricating success.
+describe("translateAuthError — hostile input shapes (PPG-1R §7 reconstruction)", () => {
+  it("handles a genuine Error instance (Supabase's AuthError extends Error) identically to a plain object", () => {
+    const result = translateAuthError(new Error("email rate limit exceeded"));
+    expect(result.category).toBe("rate_limited");
+    expect(result.message).not.toMatch(/rate limit exceeded/i);
+  });
+
+  it("handles an Error instance with an HTTP status attached (AuthApiError shape)", () => {
+    const err = new Error("Unexpected") as Error & { status: number };
+    err.status = 429;
+    const result = translateAuthError(err);
+    expect(result.category).toBe("rate_limited");
+  });
+
+  it("handles a raw string being passed where an error object was expected — never throws, falls back safely", () => {
+    // TypeScript would normally reject this at the call site; this proves
+    // the runtime behavior stays safe if a caller ever narrows loosely
+    // (e.g. `catch (e: unknown)` cast without checking `e instanceof Error`).
+    expect(() => translateAuthError("email rate limit exceeded" as unknown as { message?: string })).not.toThrow();
+    const result = translateAuthError("email rate limit exceeded" as unknown as { message?: string });
+    expect(result.category).toBe("unknown");
+    expect(result.message).not.toMatch(/rate limit exceeded/i);
+  });
+
+  it("handles a number, boolean, or array passed where an error object was expected", () => {
+    for (const hostile of [42, true, [1, 2, 3]] as unknown[]) {
+      expect(() => translateAuthError(hostile as { message?: string })).not.toThrow();
+      expect(translateAuthError(hostile as { message?: string }).category).toBe("unknown");
+    }
+  });
+
+  it("handles a malformed object with a non-string message field", () => {
+    const hostile = { message: 12345 } as unknown as { message?: string };
+    expect(() => translateAuthError(hostile)).not.toThrow();
+    expect(translateAuthError(hostile).category).toBe("unknown");
+  });
+
+  it("handles an object with message as null explicitly (distinct from undefined/absent)", () => {
+    const result = translateAuthError({ message: null });
+    expect(result.category).toBe("unknown");
+  });
+
+  it("never fabricates a 'success'-shaped result for any error input — category is always a failure category, never absent", () => {
+    const hostileInputs: unknown[] = [
+      null, undefined, {}, { message: "" }, new Error(""), "x", 0, false,
+    ];
+    for (const input of hostileInputs) {
+      const result = translateAuthError(input as { message?: string } | null | undefined);
+      expect(typeof result.category).toBe("string");
+      expect(typeof result.message).toBe("string");
+      expect(result.message.length).toBeGreaterThan(0);
+    }
+  });
+});

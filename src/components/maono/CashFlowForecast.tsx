@@ -69,9 +69,17 @@ export function CashFlowForecast({ weeks, currency = "TZS" }: CashFlowForecastPr
   const [showStatutory, setShowStatutory] = useState(false);
 
   if (!weeks || weeks.length === 0) {
+    // PPG-1R HIGH-2: this can now genuinely mean "not yet generated" OR
+    // "cannot be assessed" (account classification does not yet support a
+    // receivables/payables forecast for this period) — this component only
+    // ever sees rows via the cashflow_forecasts table, so it cannot tell
+    // the two apart. Worded to be truthful under EITHER cause, never
+    // implying a numeric forecast (0, blank chart) that isn't there.
     return (
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-6 text-sm text-gray-500 text-center">
-        Cash flow forecast not available. Run maono-cashflow to generate.
+        Cash flow forecast unavailable. Either it has not been generated for
+        this period yet, or the account classification on record does not
+        yet support a receivables/payables forecast.
       </div>
     );
   }
