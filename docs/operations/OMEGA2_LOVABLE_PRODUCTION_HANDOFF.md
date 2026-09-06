@@ -34,6 +34,25 @@ defects this pass fixed (three were SQL bugs that would have broken every
 real payment commit; the fourth meant the payment-confirmation page could
 never detect success).
 
+**Ω2-GR1 hostile-certification repair (this candidate).** The global-
+commerce hardening commit referenced above was submitted to an independent
+Codex certification pass and REJECTED with 2 BLOCKER + 1 HIGH findings.
+This candidate is the surgical repair — no architecture change, same offer
+model, same routing, same Stripe-readiness posture. Three repairs:
+1. Money-authority exactness: a provider decimal with excess precision
+   (e.g. USD `"1.239"`) is now REJECTED, never silently truncated.
+2. Flutterwave Gate B now REQUIRES the independently-verified transaction
+   to itself carry a non-empty `tx_ref` exactly matching SAFF's checkout
+   reference — no fallback to SAFF's own locally-expected reference is
+   permitted, ever.
+3. The webhook-evidence model is now two immutable, append-only tables
+   (`payment_webhook_receipts` for the raw observation,
+   `payment_webhook_processing_events` for each processing outcome)
+   instead of one table whose columns the Edge Function tried to `UPDATE`
+   against its own append-only trigger. See
+   `docs/operations/OMEGA2_GR1_CERTIFICATION_REPAIR_REPORT.md` for the
+   full repair report.
+
 ---
 
 ## Pre-Flight Checklist (founder must verify each item)
@@ -103,8 +122,11 @@ Verify after applying:
 ```sql
 -- In Supabase SQL editor:
 SELECT table_name FROM information_schema.tables
-WHERE table_schema='public' AND table_name IN ('commercial_offers','commercial_catalog_audit_events','payment_checkout_intents');
--- Expected: 3 rows
+WHERE table_schema='public' AND table_name IN ('commercial_offers','commercial_catalog_audit_events','payment_checkout_intents','payment_webhook_processing_events');
+-- Expected: 4 rows (payment_webhook_processing_events is new in the Ω2-GR1
+-- immutable-evidence repair — payment_webhook_receipts itself already
+-- existed and is unchanged in shape apart from dropping two columns, see
+-- OMEGA2_GR1_CERTIFICATION_REPAIR_REPORT.md)
 
 SELECT routine_name FROM information_schema.routines
 WHERE routine_schema = 'public'
@@ -209,7 +231,9 @@ purchasable for a requested plan/market:
 | Browser sets `paid=true` | RLS: `commercial_licences` has `REVOKE UPDATE, DELETE FROM authenticated`. Only `commit_verified_commercial_payment()` SECURITY DEFINER can write. |
 | Browser supplies price/currency | `commercial-create-checkout` accepts only `planCode`/`marketCode`; the offer (and its price) is resolved server-side via `resolve_commercial_offer()`. |
 | Fake webhook grants licence | Gate A (constant-time verif-hash) + Gate B (independent Flutterwave API verify). Both must pass. |
-| Tampered amount in webhook | Gate B compares `amountMinor` as `bigint` against the checkout intent's own snapshot — no float rounding, no re-read of a possibly-changed offer. |
+| Webhook with no/forged reference binding | Gate B requires the independently-verified transaction to itself carry a non-empty `tx_ref` exactly matching SAFF's checkout reference — no fallback to SAFF's own locally-expected reference is ever permitted (Ω2-GR1 repair). |
+| Tampered amount in webhook | Gate B compares `amountMinor` as `bigint`, computed from an EXACT decimal parse (excess non-zero precision is rejected, never truncated — Ω2-GR1 repair) against the checkout intent's own snapshot — no float rounding, no re-read of a possibly-changed offer. |
+| Receipt persisted but never actioned | `payment_webhook_receipts` (immutable observation) and `payment_webhook_processing_events` (append-only outcomes) are separate tables — a receipt insert failure aborts processing before Gate A/B ever run: no durable evidence, no licence grant (Ω2-GR1 repair). |
 | Replayed webhook double-commits | `uq_pe_provider_tx_id` unique index. Second commit returns `ALREADY_COMMITTED`. |
 | Return page URL grants entitlement | `PaymentReturn.tsx` only polls `commercial-payment-status`. URL params are never trusted. |
 | Payment grants accounting authority | `ACCOUNTING_TABLES_NEVER_TOUCHED_BY_COMMERCIAL` — no accounting table is referenced anywhere in this migration. |
@@ -219,8 +243,10 @@ purchasable for a requested plan/market:
 | Second/third provider requires schema changes | Provider-neutral `ProviderAdapter` + `PaymentProviderCapabilities` routing. Adding Stripe = new adapter file + one capabilities declaration. No core table change. |
 
 ### OMEGA2_NORTH_STAR
-Payment evidence (`payment_events.provider_transaction_id`,
-`payment_webhook_receipts.idempotency_key`) is designed to feed a future
+Payment evidence (`payment_events.provider_transaction_id` with its
+`idempotency_key` uniqueness, plus the immutable
+`payment_webhook_receipts`/`payment_webhook_processing_events` pair — see
+`OMEGA2_GR1_CERTIFICATION_REPAIR_REPORT.md`) is designed to feed a future
 Standards Evidence Graph without collision. `NORTH_STAR_READY`.
 
 ---

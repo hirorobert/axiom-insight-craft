@@ -511,8 +511,58 @@ COMMENT ON TABLE public.payment_checkout_intents IS
   'Browser cannot write. Only commit_verified_commercial_payment() closes this.';
 
 -- ════════════════════════════════════════════════════════════════════════════
--- 8. WEBHOOK RECEIPTS — raw immutable evidence for every received webhook
---    Recorded BEFORE verification. Invalid receipts NEVER grant commercial value.
+-- 8. WEBHOOK EVIDENCE — Ω2-GR1 immutable-evidence repair.
+--
+-- ROOT CAUSE OF THE Ω2-G REJECTION: payment_webhook_receipts carried an
+-- append-only trigger (BEFORE UPDATE OR DELETE ... RAISE EXCEPTION) while
+-- the Edge Function inserted a PENDING row and then UPDATEd
+-- signature_valid/processing_result onto that same row. Every one of
+-- those UPDATEs would have failed at the trigger, at the exact moment a
+-- real payment was being processed. This is not "a defect in the trigger"
+-- or "a defect in the Edge Function" individually — the two were
+-- internally contradictory.
+--
+-- REPAIR MODEL (Option B from the Ω2-GR1 mission — separate immutable
+-- receipt from append-only processing evidence, for the cleanest forensic
+-- provenance):
+--
+--   payment_webhook_receipts        = immutable OBSERVATION of what
+--                                      arrived over the wire. Written
+--                                      EXACTLY ONCE per HTTP delivery,
+--                                      before any verification runs.
+--                                      Never updated again.
+--   payment_webhook_processing_events = append-only PROCESSING OUTCOME
+--                                      row(s) for a receipt. Every gate
+--                                      result, retry, or re-processing
+--                                      attempt is a NEW row referencing
+--                                      the same receipt_id — never a
+--                                      mutation of history.
+--
+-- IDEMPOTENCY BOUNDARY — deliberately NO unique constraint on either
+-- table keyed by an attacker-influenceable value (saff_reference,
+-- provider_event_id are both visible to an end user via the return URL
+-- and are not authenticated at receipt-insert time, before Gate A has
+-- even run). If receipts were deduplicated by saff_reference, an attacker
+-- could POST a forged webhook carrying a victim's own (URL-visible)
+-- saff_reference BEFORE the genuine Flutterwave webhook arrives, and a
+-- naive unique constraint would let that forged, unsigned delivery
+-- permanently claim the slot — silently blocking or corrupting the
+-- legitimate later delivery. Instead: every delivery gets its own
+-- immutable receipt row, with no uniqueness to collide with, ever. The
+-- ACTUAL commercial idempotency guarantee (never granting a licence
+-- twice for the same real payment) lives where it already correctly
+-- lived before this repair: commit_verified_commercial_payment()'s
+-- idempotency_key uniqueness on payment_events, computed from Flutterwave's
+-- OWN independently-verified provider_transaction_id (Gate B) — a value
+-- an attacker cannot forge without also forging a valid Flutterwave API
+-- response, which they cannot. This repair does not touch that guarantee.
+--
+-- FAIL-CLOSED RULE — NO DURABLE PROVIDER EVIDENCE => NO LICENCE GRANT.
+-- The Edge Function (rewritten alongside this migration) no longer
+-- treats a failed receipt INSERT as non-fatal. If the immutable receipt
+-- cannot be durably recorded, processing stops before Gate A/B and no
+-- commit is attempted — durable evidence is an Ω2 authority invariant,
+-- not best-effort logging.
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE public.payment_webhook_receipts (
@@ -520,22 +570,17 @@ CREATE TABLE public.payment_webhook_receipts (
   provider          TEXT        NOT NULL,
   received_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   signature_present BOOLEAN     NOT NULL,
-  signature_valid   BOOLEAN     NOT NULL,
   payload_hash      TEXT        NOT NULL,
   provider_event_id TEXT        NULL,
   saff_reference    TEXT        NULL,
-  processing_result TEXT        NOT NULL DEFAULT 'PENDING'
-    CONSTRAINT chk_pwr_result CHECK (
-      processing_result IN (
-        'PENDING','PROCESSED','INVALID_SIGNATURE','REPLAY',
-        'VERIFICATION_FAILED','AMOUNT_MISMATCH','CURRENCY_MISMATCH',
-        'REFERENCE_MISMATCH','UNKNOWN_PROVIDER_STATUS','ERROR'
-      )
-    ),
   correlation_id    TEXT        NULL,
 
   CONSTRAINT payment_webhook_receipts_pk PRIMARY KEY (id)
+  -- Deliberately NO unique constraint — see idempotency-boundary note above.
 );
+
+CREATE INDEX idx_pwr_saff_reference ON public.payment_webhook_receipts (saff_reference);
+CREATE INDEX idx_pwr_provider_event ON public.payment_webhook_receipts (provider, provider_event_id);
 
 CREATE OR REPLACE FUNCTION public.payment_webhook_receipts_immutable()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
@@ -557,6 +602,70 @@ CREATE POLICY "pwr_select_admin_only" ON public.payment_webhook_receipts
 REVOKE ALL ON public.payment_webhook_receipts FROM anon, authenticated;
 GRANT SELECT ON public.payment_webhook_receipts TO authenticated;
 GRANT ALL    ON public.payment_webhook_receipts TO service_role;
+
+COMMENT ON TABLE public.payment_webhook_receipts IS
+  'Ω2-GR1: immutable observation of what arrived over the wire — provider, '
+  'raw payload hash, whether a signature was present, and the claimed '
+  'reference(s), recorded BEFORE any verification. Never updated. '
+  'Processing outcomes (signature validity, verification result) live in '
+  'payment_webhook_processing_events, one append-only row per attempt.';
+
+-- Append-only processing evidence — one row per processing ATTEMPT for a
+-- receipt. Never mutated; a retry or re-delivery creates a new row.
+CREATE TABLE public.payment_webhook_processing_events (
+  id                     UUID        NOT NULL DEFAULT gen_random_uuid(),
+  receipt_id             UUID        NOT NULL,
+  provider               TEXT        NOT NULL,
+  signature_valid        BOOLEAN     NOT NULL,
+  processing_result      TEXT        NOT NULL
+    CONSTRAINT chk_pwpe_result CHECK (
+      processing_result IN (
+        'PROCESSED','INVALID_SIGNATURE','REPLAY',
+        'VERIFICATION_FAILED','AMOUNT_MISMATCH','CURRENCY_MISMATCH',
+        'REFERENCE_MISMATCH','REFERENCE_MISSING','UNKNOWN_PROVIDER_STATUS','ERROR'
+      )
+    ),
+  provider_transaction_id TEXT       NULL,
+  saff_reference          TEXT       NULL,
+  payment_event_id        UUID       NULL,
+  correlation_id          TEXT       NULL,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT payment_webhook_processing_events_pk PRIMARY KEY (id),
+  CONSTRAINT fk_pwpe_receipt FOREIGN KEY (receipt_id) REFERENCES public.payment_webhook_receipts(id) ON DELETE CASCADE,
+  CONSTRAINT fk_pwpe_payment_event FOREIGN KEY (payment_event_id) REFERENCES public.payment_events(id) ON DELETE SET NULL
+  -- Deliberately NO unique constraint here either — the same
+  -- attacker-influenceable-value reasoning applies, and a legitimate
+  -- retry of the SAME receipt (e.g. a transient DB error on the first
+  -- attempt) must be able to record a second processing event without
+  -- colliding with the first.
+);
+
+CREATE INDEX idx_pwpe_receipt ON public.payment_webhook_processing_events (receipt_id, created_at DESC);
+
+CREATE OR REPLACE FUNCTION public.payment_webhook_processing_events_immutable()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_catalog AS $$
+BEGIN
+  RAISE EXCEPTION 'Iron Dome: payment_webhook_processing_events is append-only. % on id=% is not permitted.', TG_OP, OLD.id;
+END;
+$$;
+
+CREATE TRIGGER trg_pwpe_immutable
+  BEFORE UPDATE OR DELETE ON public.payment_webhook_processing_events
+  FOR EACH ROW EXECUTE FUNCTION public.payment_webhook_processing_events_immutable();
+
+ALTER TABLE public.payment_webhook_processing_events ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "pwpe_select_admin_only" ON public.payment_webhook_processing_events
+  FOR SELECT USING (public.is_commercial_admin());
+
+REVOKE ALL ON public.payment_webhook_processing_events FROM anon, authenticated;
+GRANT SELECT ON public.payment_webhook_processing_events TO authenticated;
+GRANT ALL    ON public.payment_webhook_processing_events TO service_role;
+
+REVOKE ALL ON FUNCTION public.payment_webhook_receipts_immutable() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.payment_webhook_processing_events_immutable() FROM PUBLIC, anon, authenticated;
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- 9. EXTEND payment_events WITH REAL PROVIDER EVIDENCE COLUMNS
@@ -1016,6 +1125,9 @@ COMMENT ON SCHEMA public IS 'Ω2-G applied: global commercial offer + payment au
 -- DROP FUNCTION IF EXISTS public.record_payment_reversal;
 -- DROP FUNCTION IF EXISTS public.commit_verified_commercial_payment;
 -- ALTER TABLE public.payment_events DROP COLUMN IF EXISTS provider_created_at, ... ;
+-- DROP TRIGGER IF EXISTS trg_pwpe_immutable ON public.payment_webhook_processing_events;
+-- DROP FUNCTION IF EXISTS public.payment_webhook_processing_events_immutable();
+-- DROP TABLE IF EXISTS public.payment_webhook_processing_events CASCADE;
 -- DROP TRIGGER IF EXISTS trg_pwr_immutable ON public.payment_webhook_receipts;
 -- DROP FUNCTION IF EXISTS public.payment_webhook_receipts_immutable();
 -- DROP TABLE IF EXISTS public.payment_webhook_receipts CASCADE;

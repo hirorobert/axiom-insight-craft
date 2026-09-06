@@ -305,9 +305,12 @@ is_commercial_admin()` clause directly, not by trusting a prior claim.
   SECURITY DEFINER writes it).
 - Return page never grants entitlement (§14).
 - Webhook Gate A (constant-time `verif-hash`) + Gate B (independent
-  provider API verification) both still required, unchanged.
-- `payment_webhook_receipts` is still append-only, still recorded before
-  any processing.
+  provider API verification, now with a hard tx_ref requirement — see
+  Ω2-GR1 below) both required.
+- `payment_webhook_receipts` is a pure immutable OBSERVATION recorded
+  before any processing, with no mutable-looking columns; processing
+  outcomes are separate append-only rows in
+  `payment_webhook_processing_events` (Ω2-GR1 repair — see below).
 - Idempotency: `idempotency_key` unique on `payment_events`;
   `uq_pe_provider_tx_id` unchanged; webhook replay still short-circuits.
 - Atomic licence commit — still one transaction, now additionally correct
@@ -436,3 +439,41 @@ leave untouched downstream.
 │  ████████████████████████████████████████████████████████████████████  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## §22 — Ω2-GR1 CORRECTION NOTICE (post-publication)
+
+**This report describes candidate `9cf271a8d9b732880ff0d1d0b51e9fa0b448a69f`,
+which Codex's independent certification pass REJECTED** with 2 BLOCKER
+findings and 1 HIGH finding. The verdict block above is preserved verbatim
+as the historical record of what this pass believed at the time — it was
+wrong on three specific points:
+
+1. §6's "money authority defect: fixed" was true for `moneyFromMinorUnits()`
+   (the integer-input validator) but did **not** cover a second, more
+   dangerous defect in `moneyFromProviderDecimal()` (the decimal-string
+   parser both money.ts copies also export): it silently truncated any
+   provider decimal with excess precision instead of rejecting it — e.g.
+   USD `"1.239"` became `123` minor units instead of `INVALID`. Money
+   exactness in this report's §6 was therefore **incomplete, not proven**.
+2. The Flutterwave adapter's Gate B (§10) verified amount/currency but
+   ACCEPTED a verify response with a missing `tx_ref` by silently falling
+   back to SAFF's own locally-expected reference — defeating independent
+   provider corroboration for the one field that actually binds the
+   verified transaction to SAFF's checkout.
+3. §15's "existing invariants preserved" claim that
+   `payment_webhook_receipts` was "still append-only, still recorded
+   before any processing" was true of the table alone, but did not
+   surface that the *calling Edge Function* attempted `UPDATE`s against
+   that same append-only-triggered table — a contradiction that would
+   have failed at runtime on every real webhook.
+
+All three are repaired in candidate `9cf271a8`'s child. See
+**`OMEGA2_GR1_CERTIFICATION_REPAIR_REPORT.md`** for the full repair report,
+exact SHA, and updated test/typecheck/build/lint/diff-check results. Every
+other verdict row in §21 (global-neutral core, plan!=price, offer
+authority, market!=jurisdiction, provider routing, Stripe-readiness,
+settlement orthogonality, accounting orthogonality) was NOT challenged by
+Codex and is carried forward unchanged into the repair candidate — GR1 was
+a surgical repair of exactly the three findings above, not a redesign.

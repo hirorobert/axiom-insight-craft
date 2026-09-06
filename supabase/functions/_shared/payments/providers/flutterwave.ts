@@ -217,9 +217,39 @@ export class FlutterwaveAdapter implements ProviderAdapter {
     const normalizedStatus = normalizeFlwStatus(rawStatus);
     const rawCurrency = String(data.currency ?? '');
     const rawAmount = String(data.amount ?? '0');
-    const rawTxRef = String(data.tx_ref ?? '');
+    // NOTE: data.tx_ref may legitimately be absent/null/non-string on a
+    // malformed or incomplete provider response — do not let String(undefined)
+    // ("undefined") or String(null) ("null") masquerade as a real reference.
+    const rawTxRefValue = data.tx_ref;
+    const rawTxRef = typeof rawTxRefValue === 'string' ? rawTxRefValue.trim() : '';
 
-    // Amount verification — bigint comparison
+    // ── Ω2-GR1 Gate B independent-reference-corroboration repair (BLOCKER-2) ──
+    // The independently-fetched provider transaction MUST ITSELF carry the
+    // reference that binds it to SAFF's checkout. A missing, empty, or
+    // whitespace-only tx_ref is NEVER treated as "fine" — that would let a
+    // provider response with no reference at all sail through unverified.
+    // There is ALSO no fallback to SAFF's own locally-expected reference:
+    // that would defeat the entire point of Gate B, which is independent
+    // corroboration from the provider's own systems, not an echo of what
+    // SAFF already believed before calling the provider.
+    if (!rawTxRef) {
+      return { verified: false, reason: `REFERENCE_MISSING: Flutterwave verify response had no tx_ref (expected ${saffRef})` };
+    }
+    if (rawTxRef !== saffRef) {
+      return {
+        verified: false,
+        reason: `REFERENCE_MISMATCH: expected ${saffRef}, got ${rawTxRef}`,
+      };
+    }
+
+    if (rawCurrency !== expectedCurrency) {
+      return {
+        verified: false,
+        reason: `CURRENCY_MISMATCH: expected ${expectedCurrency}, got ${rawCurrency}`,
+      };
+    }
+
+    // Amount verification — bigint comparison, exact decimal authority only
     const verifiedMinor = moneyFromProviderDecimal(rawAmount, rawCurrency);
     if (verifiedMinor === null) {
       return { verified: false, reason: `Cannot parse verified amount: ${rawAmount} ${rawCurrency}` };
@@ -232,20 +262,6 @@ export class FlutterwaveAdapter implements ProviderAdapter {
       };
     }
 
-    if (rawCurrency !== expectedCurrency) {
-      return {
-        verified: false,
-        reason: `CURRENCY_MISMATCH: expected ${expectedCurrency}, got ${rawCurrency}`,
-      };
-    }
-
-    if (rawTxRef && rawTxRef !== saffRef) {
-      return {
-        verified: false,
-        reason: `REFERENCE_MISMATCH: expected ${saffRef}, got ${rawTxRef}`,
-      };
-    }
-
     const payloadHash = await sha256Hex(JSON.stringify(data));
 
     const transaction: NormalizedTransaction = {
@@ -255,7 +271,8 @@ export class FlutterwaveAdapter implements ProviderAdapter {
       normalizedStatus,
       amountMinor: verifiedMinor,
       currencyCode: rawCurrency,
-      saffReference: rawTxRef || saffRef,
+      // rawTxRef is proven equal to saffRef above — never a fallback value.
+      saffReference: rawTxRef,
       verifiedAt: new Date().toISOString(),
       verificationMethod: 'PROVIDER_API_VERIFY',
       payloadHash,

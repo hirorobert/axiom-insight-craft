@@ -121,10 +121,21 @@ export function moneyEquals(a: Money, b: Money): boolean {
   return a.currencyCode === b.currencyCode && a.amountMinor === b.amountMinor;
 }
 
+/** Strict decimal shape: no sign, no scientific notation, digits only. */
+const STRICT_DECIMAL_SHAPE = /^\d+(\.\d+)?$/;
+
 /**
  * Safe conversion from a provider's decimal string (e.g. "450000.00" for TZS)
- * to authoritative minor units. Validates that the fractional part is consistent
- * with the currency's exponent (TZS should never have non-zero fractional part).
+ * to authoritative minor units.
+ *
+ * Ω2-GR1 money-authority exactness repair (BLOCKER-1): the decimal string
+ * must be EXACTLY representable at the currency's declared exponent. Excess
+ * fractional digits beyond the exponent are accepted only when every excess
+ * digit is zero (e.g. "1.230" for USD == "1.23"); any non-zero excess digit
+ * is rejected outright — never truncated, rounded, or coerced through
+ * floating-point. Negative amounts, scientific notation, and unsupported
+ * currencies are all rejected (fail closed), never coerced to a guessed
+ * exponent or sign.
  */
 export function moneyFromProviderDecimal(
   decimalString: string,
@@ -137,22 +148,25 @@ export function moneyFromProviderDecimal(
   const exponent = CURRENCY_EXPONENTS[code];
 
   const cleaned = decimalString.trim().replace(/,/g, '');
-  const parts = cleaned.split('.');
-  if (parts.length > 2) {
+  if (!STRICT_DECIMAL_SHAPE.test(cleaned)) {
     return { valid: false, error: `Invalid decimal: ${decimalString}` };
   }
 
+  const parts = cleaned.split('.');
   const wholePart = parts[0];
   const fracPart = parts[1] ?? '';
 
-  if (exponent === 0 && fracPart && parseInt(fracPart, 10) !== 0) {
-    return {
-      valid: false,
-      error: `${code} has exponent=0 but provider sent fractional: ${decimalString}`,
-    };
+  if (fracPart.length > exponent) {
+    const excess = fracPart.slice(exponent);
+    if (!/^0*$/.test(excess)) {
+      return {
+        valid: false,
+        error: `${code} amount has non-zero precision beyond exponent ${exponent}: ${decimalString}`,
+      };
+    }
   }
 
-  const paddedFrac = fracPart.padEnd(exponent, '0').slice(0, exponent);
+  const paddedFrac = fracPart.slice(0, exponent).padEnd(exponent, '0');
   const combined = `${wholePart}${paddedFrac}`;
 
   try {

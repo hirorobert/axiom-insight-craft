@@ -151,6 +151,97 @@ describe("moneyFromProviderDecimal — TZS", () => {
   });
 });
 
+// Ω2-GR1 — Money-authority exactness repair (BLOCKER-1). Codex demonstrated
+// that USD "1.239" silently truncated to 123 minor units instead of being
+// rejected. ZERO tolerance for truncation/rounding of non-zero excess
+// precision from here on — exact truth table below.
+describe("moneyFromProviderDecimal — USD exactness truth table (Ω2-GR1)", () => {
+  it("1 -> 100 VALID", () => {
+    const r = moneyFromProviderDecimal("1", "USD");
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(r.money.amountMinor).toBe(100n);
+  });
+  it("1.2 -> 120 VALID", () => {
+    const r = moneyFromProviderDecimal("1.2", "USD");
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(r.money.amountMinor).toBe(120n);
+  });
+  it("1.23 -> 123 VALID", () => {
+    const r = moneyFromProviderDecimal("1.23", "USD");
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(r.money.amountMinor).toBe(123n);
+  });
+  it("1.230 -> 123 VALID (extra digit is exactly zero)", () => {
+    const r = moneyFromProviderDecimal("1.230", "USD");
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(r.money.amountMinor).toBe(123n);
+  });
+  it("1.239 -> INVALID (non-zero excess precision — was silently truncated to 123 before this repair)", () => {
+    expect(moneyFromProviderDecimal("1.239", "USD").valid).toBe(false);
+  });
+  it("1.231 -> INVALID (non-zero excess precision)", () => {
+    expect(moneyFromProviderDecimal("1.231", "USD").valid).toBe(false);
+  });
+  it("0.001 -> INVALID (non-zero excess precision)", () => {
+    expect(moneyFromProviderDecimal("0.001", "USD").valid).toBe(false);
+  });
+  it("-1.23 -> INVALID (negative amounts rejected)", () => {
+    expect(moneyFromProviderDecimal("-1.23", "USD").valid).toBe(false);
+  });
+  it("999999999999.99 -> VALID, exact, no float precision loss", () => {
+    const r = moneyFromProviderDecimal("999999999999.99", "USD");
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(r.money.amountMinor).toBe(99999999999999n);
+  });
+  it("rejects scientific notation (explicit contract: never authoritative)", () => {
+    expect(moneyFromProviderDecimal("1e3", "USD").valid).toBe(false);
+    expect(moneyFromProviderDecimal("1.5e2", "USD").valid).toBe(false);
+  });
+  it("rejects NaN / Infinity / -Infinity string forms", () => {
+    expect(moneyFromProviderDecimal("NaN", "USD").valid).toBe(false);
+    expect(moneyFromProviderDecimal("Infinity", "USD").valid).toBe(false);
+    expect(moneyFromProviderDecimal("-Infinity", "USD").valid).toBe(false);
+  });
+  it("rejects malformed decimal with two dots", () => {
+    expect(moneyFromProviderDecimal("1.2.3", "USD").valid).toBe(false);
+  });
+  it("rejects a bare decimal point with no leading digit", () => {
+    expect(moneyFromProviderDecimal(".5", "USD").valid).toBe(false);
+  });
+  it("accepts thousands separators before validation", () => {
+    const r = moneyFromProviderDecimal("1,234.56", "USD");
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(r.money.amountMinor).toBe(123456n);
+  });
+  it("rejects an unsupported currency", () => {
+    expect(moneyFromProviderDecimal("1.23", "XYZ").valid).toBe(false);
+  });
+});
+
+describe("moneyFromProviderDecimal — TZS exactness truth table (Ω2-GR1, exponent 0)", () => {
+  it("1000 -> 1000 VALID", () => {
+    const r = moneyFromProviderDecimal("1000", "TZS");
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(r.money.amountMinor).toBe(1000n);
+  });
+  it("1000.0 -> 1000 VALID (fractional digit is zero)", () => {
+    const r = moneyFromProviderDecimal("1000.0", "TZS");
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(r.money.amountMinor).toBe(1000n);
+  });
+  it("1000.00 -> 1000 VALID (fractional digits are zero)", () => {
+    const r = moneyFromProviderDecimal("1000.00", "TZS");
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(r.money.amountMinor).toBe(1000n);
+  });
+  it("1000.1 -> INVALID", () => {
+    expect(moneyFromProviderDecimal("1000.1", "TZS").valid).toBe(false);
+  });
+  it("1000.01 -> INVALID", () => {
+    expect(moneyFromProviderDecimal("1000.01", "TZS").valid).toBe(false);
+  });
+});
+
 describe("moneyToDisplay", () => {
   it("formats TZS without decimal", () => {
     const r = moneyFromMinorUnits(450_000n, "TZS");
