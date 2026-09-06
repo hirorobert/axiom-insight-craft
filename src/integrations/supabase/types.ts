@@ -1022,6 +1022,42 @@ export type Database = {
         }
         Relationships: []
       }
+      commercial_catalog_audit_events: {
+        Row: {
+          action: string
+          actor_user_id: string
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: string
+          new_state: Json | null
+          previous_state: Json | null
+          reason: string | null
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          created_at?: string
+          entity_id: string
+          entity_type: string
+          id?: string
+          new_state?: Json | null
+          previous_state?: Json | null
+          reason?: string | null
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          new_state?: Json | null
+          previous_state?: Json | null
+          reason?: string | null
+        }
+        Relationships: []
+      }
       commercial_licences: {
         Row: {
           billing_customer_id: string
@@ -1069,6 +1105,71 @@ export type Database = {
           },
           {
             foreignKeyName: "fk_cl_plan"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commercial_offers: {
+        Row: {
+          amount_minor: number
+          billing_interval: string
+          billing_interval_count: number
+          created_at: string
+          currency_code: string
+          currency_exponent: number
+          effective_end: string | null
+          effective_start: string
+          id: string
+          is_active: boolean
+          is_purchasable: boolean
+          market_code: string
+          offer_code: string
+          plan_id: string
+          provider_restriction: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount_minor: number
+          billing_interval: string
+          billing_interval_count?: number
+          created_at?: string
+          currency_code: string
+          currency_exponent: number
+          effective_end?: string | null
+          effective_start?: string
+          id?: string
+          is_active?: boolean
+          is_purchasable?: boolean
+          market_code: string
+          offer_code: string
+          plan_id: string
+          provider_restriction?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount_minor?: number
+          billing_interval?: string
+          billing_interval_count?: number
+          created_at?: string
+          currency_code?: string
+          currency_exponent?: number
+          effective_end?: string | null
+          effective_start?: string
+          id?: string
+          is_active?: boolean
+          is_purchasable?: boolean
+          market_code?: string
+          offer_code?: string
+          plan_id?: string
+          provider_restriction?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_co_plan"
             columns: ["plan_id"]
             isOneToOne: false
             referencedRelation: "commercial_plans"
@@ -2648,10 +2749,104 @@ export type Database = {
           },
         ]
       }
+      payment_checkout_intents: {
+        Row: {
+          billing_customer_id: string
+          billing_interval: string
+          billing_interval_count: number
+          commercial_offer_id: string
+          completed_at: string | null
+          created_at: string
+          created_by_user_id: string
+          currency_code: string
+          currency_exponent: number
+          expected_amount_minor: number
+          expires_at: string
+          id: string
+          market_code: string
+          metadata: Json
+          plan_id: string
+          provider: string
+          provider_checkout_ref: string | null
+          provider_checkout_url: string | null
+          saff_reference: string
+          status: string
+        }
+        Insert: {
+          billing_customer_id: string
+          billing_interval: string
+          billing_interval_count: number
+          commercial_offer_id: string
+          completed_at?: string | null
+          created_at?: string
+          created_by_user_id: string
+          currency_code: string
+          currency_exponent: number
+          expected_amount_minor: number
+          expires_at?: string
+          id?: string
+          market_code: string
+          metadata?: Json
+          plan_id: string
+          provider: string
+          provider_checkout_ref?: string | null
+          provider_checkout_url?: string | null
+          saff_reference: string
+          status?: string
+        }
+        Update: {
+          billing_customer_id?: string
+          billing_interval?: string
+          billing_interval_count?: number
+          commercial_offer_id?: string
+          completed_at?: string | null
+          created_at?: string
+          created_by_user_id?: string
+          currency_code?: string
+          currency_exponent?: number
+          expected_amount_minor?: number
+          expires_at?: string
+          id?: string
+          market_code?: string
+          metadata?: Json
+          plan_id?: string
+          provider?: string
+          provider_checkout_ref?: string | null
+          provider_checkout_url?: string | null
+          saff_reference?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_pci_billing_customer"
+            columns: ["billing_customer_id"]
+            isOneToOne: false
+            referencedRelation: "billing_customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_pci_offer"
+            columns: ["commercial_offer_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_pci_plan"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_events: {
         Row: {
           amount: number | null
+          amount_minor: number | null
           billing_customer_id: string
+          checkout_intent_id: string | null
+          commercial_offer_id: string | null
           currency: string | null
           event_time: string
           event_type: string
@@ -2660,13 +2855,26 @@ export type Database = {
           idempotency_key: string
           licence_id: string | null
           metadata: Json
+          normalized_status: string | null
+          payload_hash: string | null
+          plan_id: string | null
           provider: string | null
+          provider_created_at: string | null
+          provider_reference: string | null
+          provider_status: string | null
+          provider_transaction_id: string | null
           recorded_at: string
           recorded_by: string | null
+          saff_reference: string | null
+          verification_method: string | null
+          verified_at: string | null
         }
         Insert: {
           amount?: number | null
+          amount_minor?: number | null
           billing_customer_id: string
+          checkout_intent_id?: string | null
+          commercial_offer_id?: string | null
           currency?: string | null
           event_time: string
           event_type: string
@@ -2675,13 +2883,26 @@ export type Database = {
           idempotency_key: string
           licence_id?: string | null
           metadata?: Json
+          normalized_status?: string | null
+          payload_hash?: string | null
+          plan_id?: string | null
           provider?: string | null
+          provider_created_at?: string | null
+          provider_reference?: string | null
+          provider_status?: string | null
+          provider_transaction_id?: string | null
           recorded_at?: string
           recorded_by?: string | null
+          saff_reference?: string | null
+          verification_method?: string | null
+          verified_at?: string | null
         }
         Update: {
           amount?: number | null
+          amount_minor?: number | null
           billing_customer_id?: string
+          checkout_intent_id?: string | null
+          commercial_offer_id?: string | null
           currency?: string | null
           event_time?: string
           event_type?: string
@@ -2690,9 +2911,19 @@ export type Database = {
           idempotency_key?: string
           licence_id?: string | null
           metadata?: Json
+          normalized_status?: string | null
+          payload_hash?: string | null
+          plan_id?: string | null
           provider?: string | null
+          provider_created_at?: string | null
+          provider_reference?: string | null
+          provider_status?: string | null
+          provider_transaction_id?: string | null
           recorded_at?: string
           recorded_by?: string | null
+          saff_reference?: string | null
+          verification_method?: string | null
+          verified_at?: string | null
         }
         Relationships: [
           {
@@ -2703,13 +2934,121 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "fk_pe_checkout_intent"
+            columns: ["checkout_intent_id"]
+            isOneToOne: false
+            referencedRelation: "payment_checkout_intents"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "fk_pe_licence"
             columns: ["licence_id"]
             isOneToOne: false
             referencedRelation: "commercial_licences"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "fk_pe_offer"
+            columns: ["commercial_offer_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_pe_plan"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_plans"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      payment_webhook_processing_events: {
+        Row: {
+          correlation_id: string | null
+          created_at: string
+          id: string
+          payment_event_id: string | null
+          processing_result: string
+          provider: string
+          provider_transaction_id: string | null
+          receipt_id: string
+          saff_reference: string | null
+          signature_valid: boolean
+        }
+        Insert: {
+          correlation_id?: string | null
+          created_at?: string
+          id?: string
+          payment_event_id?: string | null
+          processing_result: string
+          provider: string
+          provider_transaction_id?: string | null
+          receipt_id: string
+          saff_reference?: string | null
+          signature_valid: boolean
+        }
+        Update: {
+          correlation_id?: string | null
+          created_at?: string
+          id?: string
+          payment_event_id?: string | null
+          processing_result?: string
+          provider?: string
+          provider_transaction_id?: string | null
+          receipt_id?: string
+          saff_reference?: string | null
+          signature_valid?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_pwpe_payment_event"
+            columns: ["payment_event_id"]
+            isOneToOne: false
+            referencedRelation: "payment_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_pwpe_receipt"
+            columns: ["receipt_id"]
+            isOneToOne: false
+            referencedRelation: "payment_webhook_receipts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_webhook_receipts: {
+        Row: {
+          correlation_id: string | null
+          id: string
+          payload_hash: string
+          provider: string
+          provider_event_id: string | null
+          received_at: string
+          saff_reference: string | null
+          signature_present: boolean
+        }
+        Insert: {
+          correlation_id?: string | null
+          id?: string
+          payload_hash: string
+          provider: string
+          provider_event_id?: string | null
+          received_at?: string
+          saff_reference?: string | null
+          signature_present: boolean
+        }
+        Update: {
+          correlation_id?: string | null
+          id?: string
+          payload_hash?: string
+          provider?: string
+          provider_event_id?: string | null
+          received_at?: string
+          saff_reference?: string | null
+          signature_present?: boolean
+        }
+        Relationships: []
       }
       period_closing_balances: {
         Row: {
@@ -4536,6 +4875,10 @@ export type Database = {
         Returns: Json
       }
       admin_billing_lookup: { Args: { p_company_id: string }; Returns: Json }
+      admin_get_billing_detail: {
+        Args: { p_owner_user_id: string }
+        Returns: Json
+      }
       admin_grant_commercial_licence: {
         Args: {
           p_billing_customer_id: string
@@ -4555,12 +4898,32 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_list_commercial_offers: {
+        Args: { p_plan_code?: string }
+        Returns: Json
+      }
       admin_revoke_entitlement_override: {
         Args: { p_override_id: string; p_reason: string }
         Returns: Json
       }
       admin_transition_licence_status: {
         Args: { p_licence_id: string; p_new_status: string; p_reason: string }
+        Returns: Json
+      }
+      admin_upsert_commercial_offer: {
+        Args: {
+          p_amount_minor: number
+          p_billing_interval: string
+          p_billing_interval_count: number
+          p_currency_code: string
+          p_currency_exponent: number
+          p_is_active: boolean
+          p_is_purchasable: boolean
+          p_market_code: string
+          p_offer_code: string
+          p_plan_code: string
+          p_reason: string
+        }
         Returns: Json
       }
       assert_engagement_write_authority: {
@@ -4591,6 +4954,23 @@ export type Database = {
           p_rows_snapshot: Json
           p_source_file_hash: string
           p_upload_id: string
+        }
+        Returns: Json
+      }
+      commit_verified_commercial_payment: {
+        Args: {
+          p_amount_minor: number
+          p_checkout_intent_id: string
+          p_currency_code: string
+          p_idempotency_key: string
+          p_normalized_status: string
+          p_payload_hash: string
+          p_provider: string
+          p_provider_status: string
+          p_provider_transaction_id: string
+          p_saff_reference: string
+          p_verification_method: string
+          p_verified_at: string
         }
         Returns: Json
       }
@@ -4641,6 +5021,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      get_checkout_status: { Args: { p_saff_reference: string }; Returns: Json }
       get_effective_entitlement: {
         Args: { p_company_id: string; p_feature_code: string }
         Returns: Json
@@ -4742,6 +5123,19 @@ export type Database = {
         Args: { p_engagement_id: string }
         Returns: number
       }
+      record_payment_reversal: {
+        Args: {
+          p_amount_minor: number
+          p_currency_code: string
+          p_idempotency_key: string
+          p_original_event_id: string
+          p_payload_hash: string
+          p_provider: string
+          p_provider_event_id: string
+          p_reversal_type: string
+        }
+        Returns: Json
+      }
       resolve_account_review_batch: {
         Args: {
           p_client_request_id: string
@@ -4749,6 +5143,10 @@ export type Database = {
           p_decisions: Json
           p_upload_id: string
         }
+        Returns: Json
+      }
+      resolve_commercial_offer: {
+        Args: { p_market_code?: string; p_plan_code: string }
         Returns: Json
       }
       revoke_engagement_authority: {
