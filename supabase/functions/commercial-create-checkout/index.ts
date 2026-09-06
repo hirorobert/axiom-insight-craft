@@ -31,6 +31,15 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const REDIRECT_URL = Deno.env.get('SAFF_PAYMENT_REDIRECT_URL') ?? 'https://app.cfoclose.com/billing/payment/return';
 
+// Shared CORS header set for the auth section below — the real
+// _shared/auth.ts contract is validateAuth(authHeader, corsHeaders), and its
+// 401 fail-closed response (constructed here, not by validateAuth itself,
+// so it can carry this function's own correlationId) must carry these too.
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 function adapterFor(provider: string) {
   // Only one adapter exists today. Adding Stripe: add a branch here that
   // returns getStripeAdapter() — no other file in this function changes.
@@ -51,14 +60,21 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
   }
 
-  // 1. Authenticate — derive user from JWT
-  let authResult: Awaited<ReturnType<typeof validateAuth>>;
-  try {
-    authResult = await validateAuth(req);
-  } catch {
-    return new Response(JSON.stringify({ error: 'Unauthorized', correlationId }), { status: 401 });
+  // 1. Authenticate — derive user from JWT. Real contract (verified against
+  //    _shared/auth.ts directly): validateAuth(authHeader: string | null,
+  //    corsHeaders) -> { result?: { userId, email? }; error?: Response }.
+  //    It never takes the Request itself — passing `req` throws inside
+  //    authHeader.startsWith() and was silently caught into a bare,
+  //    CORS-less 401 below, masking every real auth outcome as "Unauthorized".
+  const authHeader = req.headers.get('Authorization');
+  const { result: authResult, error: authError } = await validateAuth(authHeader, CORS_HEADERS);
+  if (authError || !authResult) {
+    return new Response(JSON.stringify({ error: 'Unauthorized', correlationId }), {
+      status: 401,
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+    });
   }
-  const { user } = authResult;
+  const user = { id: authResult.userId, email: authResult.email };
 
   // 2. Parse request — browser supplies planCode + an optional market
   //    suggestion. Neither price nor currency is ever accepted here.
