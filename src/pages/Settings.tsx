@@ -220,8 +220,9 @@ export default function Settings() {
 
         {/* Plan & Billing — Ω1 commercial foundation. Read-only summary of
             server-authoritative state (get_my_billing_summary RPC). The
-            upgrade action below is an explicit placeholder — no payment
-            provider or checkout exists yet; see PRICING_SECTION copy. */}
+            upgrade action below calls the live Ω2 checkout flow
+            (CheckoutUpgradeButton -> commercial-create-checkout) whenever
+            the customer is not already on the target plan. */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -276,8 +277,14 @@ export default function Settings() {
 
             {/* Ω2 — Live checkout flow. Never accepts paid=true from browser.
                 createCheckoutIntent sends only planId; server derives price + currency.
-                Redirect URL carries only saffReference — no amount, no status. */}
-            <CheckoutUpgradeButton billingStatus={billing?.licenceStatus ?? null} />
+                Redirect URL carries only saffReference — no amount, no status.
+                currentPlanCode lets the button tell "already on this plan"
+                apart from "on a different plan that also has an ACTIVE
+                licence" (every FREE signup is ACTIVE by default). */}
+            <CheckoutUpgradeButton
+              billingStatus={billing?.licenceStatus ?? null}
+              currentPlanCode={billing?.planCode ?? null}
+            />
           </CardContent>
         </Card>
 

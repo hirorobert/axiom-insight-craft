@@ -23,6 +23,18 @@ import { toast } from "sonner";
 
 interface Props {
   billingStatus: LicenceStatus | null;
+  /**
+   * The customer's CURRENT plan code (e.g. "FREE"), from the same
+   * get_my_billing_summary() read that supplies `billingStatus`. Required
+   * to tell "already on the plan this button offers" apart from "on a
+   * different, lower plan that also happens to have an ACTIVE licence" —
+   * Ω1 auto-provisions every new signup with a FREE licence in ACTIVE
+   * status, so `billingStatus` alone can never distinguish a genuine FREE
+   * customer from a genuine PAID one. `null`/`undefined` (billing summary
+   * not yet loaded, or no billing customer at all) never suppresses the
+   * button on its own — only a CONFIRMED match against `planCode` does.
+   */
+  currentPlanCode?: string | null;
   /** Plan the upgrade button targets. Defaults to the paid firm-licence plan. */
   planCode?: string;
 }
@@ -32,7 +44,17 @@ type OfferDisplayState =
   | { phase: "AVAILABLE"; label: string; intervalLabel: string }
   | { phase: "UNAVAILABLE" };
 
-function intervalLabelFor(interval: string | undefined, count: number | undefined): string {
+/** Shape of resolve_commercial_offer()'s response this component reads. */
+export interface ResolvedOfferData {
+  resolution?: string;
+  amount_minor?: number | null;
+  currency_code?: string;
+  currency_exponent?: number;
+  billing_interval?: string;
+  billing_interval_count?: number;
+}
+
+export function intervalLabelFor(interval: string | undefined, count: number | undefined): string {
   const n = count ?? 1;
   switch (interval) {
     case "MONTHLY": return `/ ${n > 1 ? `${n} months` : "month"}`;
@@ -41,7 +63,55 @@ function intervalLabelFor(interval: string | undefined, count: number | undefine
   }
 }
 
-export function CheckoutUpgradeButton({ billingStatus, planCode = "PAID" }: Props) {
+/**
+ * Pure derivation of the offer display state from resolve_commercial_
+ * offer()'s response. Fails closed to UNAVAILABLE (never a fabricated
+ * price/checkout action) for anything other than an explicit AVAILABLE
+ * resolution carrying both a real amount_minor and currency_code — a
+ * missing/null/undefined response, NOT_AVAILABLE, AMBIGUOUS, UNKNOWN, or
+ * an AVAILABLE resolution missing its own economic fields all resolve the
+ * same way: no upgrade action is shown.
+ */
+export function deriveOfferDisplayState(data: ResolvedOfferData | null | undefined): OfferDisplayState {
+  if (data?.resolution === "AVAILABLE" && data.amount_minor != null && data.currency_code) {
+    const label = moneyToDisplay({
+      amountMinor: BigInt(data.amount_minor),
+      currencyCode: data.currency_code as CurrencyCode,
+      exponent: data.currency_exponent ?? 2,
+    });
+    return {
+      phase: "AVAILABLE",
+      label,
+      intervalLabel: intervalLabelFor(data.billing_interval, data.billing_interval_count),
+    };
+  }
+  return { phase: "UNAVAILABLE" };
+}
+
+/**
+ * Ω2 checkout entry-point gap (root cause, pure decision extracted for
+ * testability): suppressing the upgrade action on `billingStatus` alone
+ * treated every FREE customer as "already paid" — Ω1 auto-provisions a
+ * FREE licence in ACTIVE status for every new signup, so
+ * `billingStatus === "ACTIVE"` is true for FREE and PAID customers alike.
+ * The action is suppressed ONLY when the customer is CONFIRMED to already
+ * be on THIS button's own target plan; a null/unknown `currentPlanCode`
+ * (billing summary not yet loaded, or no billing customer at all) never
+ * suppresses it on its own — fail OPEN toward showing the real
+ * server-resolved offer state, never fail toward silently hiding a
+ * legitimate upgrade path.
+ */
+export function shouldShowUpgradeAction(
+  currentPlanCode: string | null | undefined,
+  targetPlanCode: string,
+  billingStatus: LicenceStatus | null,
+): boolean {
+  const alreadyOnThisPlan = currentPlanCode != null && currentPlanCode === targetPlanCode;
+  const licenceIsCurrent = billingStatus === "ACTIVE" || billingStatus === "GRACE";
+  return !(alreadyOnThisPlan && licenceIsCurrent);
+}
+
+export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, planCode = "PAID" }: Props) {
   const [loading, setLoading] = useState(false);
   const [offer, setOffer] = useState<OfferDisplayState>({ phase: "LOADING" });
 
@@ -50,25 +120,12 @@ export function CheckoutUpgradeButton({ billingStatus, planCode = "PAID" }: Prop
     (async () => {
       const { data } = await callCommercialRpc("resolve_commercial_offer", { p_plan_code: planCode });
       if (cancelled) return;
-      if (data?.resolution === "AVAILABLE" && data.amount_minor != null && data.currency_code) {
-        const label = moneyToDisplay({
-          amountMinor: BigInt(data.amount_minor),
-          currencyCode: data.currency_code as CurrencyCode,
-          exponent: data.currency_exponent ?? 2,
-        });
-        setOffer({
-          phase: "AVAILABLE",
-          label,
-          intervalLabel: intervalLabelFor(data.billing_interval, data.billing_interval_count),
-        });
-      } else {
-        setOffer({ phase: "UNAVAILABLE" });
-      }
+      setOffer(deriveOfferDisplayState(data));
     })();
     return () => { cancelled = true; };
   }, [planCode]);
 
-  if (billingStatus === "ACTIVE" || billingStatus === "GRACE") {
+  if (!shouldShowUpgradeAction(currentPlanCode, planCode, billingStatus)) {
     return (
       <p className="text-xs text-muted-foreground">
         Your plan is active. Contact support to change or renew.
