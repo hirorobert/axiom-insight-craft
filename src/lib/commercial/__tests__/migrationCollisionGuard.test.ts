@@ -57,6 +57,10 @@ const COMMERCIAL_TABLES = [
   "payment_webhook_receipts",
   "payment_webhook_processing_events",
   "commercial_catalog_audit_events",
+  // Ω3.0 (SAFF-OMEGA3-COMMERCIAL-LAUNCH-DESIGN.md, checkpoint commit
+  // 24595a09053bb2181b57778d0c1a2b9805c44850):
+  "commercial_currencies",
+  "commercial_platform_state",
 ];
 
 // The three Lovable-applied LIVE managed migration identities — the only
