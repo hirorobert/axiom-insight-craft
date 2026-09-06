@@ -1,26 +1,41 @@
-# Read-only commercial-offer diagnostic
+# Ω2 Auth-Contract Repair — Controlled Redeploy
 
-No source, database, deployment, offer, licence, market, jurisdiction, payment configuration, or admin state will be changed.
+## Preflight (already confirmed, read-only)
 
-## Verified findings
+- Local source HEAD is exactly `00b2c4fce7eb1dc475d305ed6ad8fb4d43219f7d`, working tree clean.
+- `commercial-create-checkout/index.ts` and `commercial-payment-status/index.ts` both already call
+  `validateAuth(authHeader, CORS_HEADERS)` against the real `_shared/auth.ts` contract and return the
+  401 with CORS headers attached. No source edit is required or will be made.
+- `commercial-payment-status` builds its Supabase client with the anon key plus the caller's bearer
+  token, so `get_checkout_status()` runs under the caller's own `auth.uid()`.
 
-- **DEPLOYED SOURCE SHA:** `278179d3df82980f08c723d65298c1890640e2ad`
-- **CUSTOMER CURRENT PLAN:** `FREE`
-- **CUSTOMER LICENCE STATUS:** `ACTIVE`
-- **TARGET PLAN CODE SENT:** `PAID`
-- **MARKET CODE SENT BY SETTINGS:** omitted; the database function applies `GLOBAL`
-- **MARKET CODE SOURCE:** `CheckoutUpgradeButton` calls `resolve_commercial_offer` with only `{ p_plan_code: "PAID" }`; PostgreSQL supplies the function default `p_market_code = 'GLOBAL'`
-- **RESOLVE_COMMERCIAL_OFFER INPUT:** `PAID / GLOBAL`
-- **RESOLVE_COMMERCIAL_OFFER RESULT:** `NOT_AVAILABLE` with `requested_market: GLOBAL`
-- **MATCHING OFFER EXISTS:** `YES` for `PAID / TZ`; `NO` for the actual `PAID / GLOBAL` request
-- **OFFER ACTIVE:** `YES`
-- **OFFER PURCHASABLE:** `YES`
-- **OFFER MARKET:** `TZ`
-- **OFFER CURRENCY:** `TZS`
-- **ROOT CAUSE:** Settings omits the market argument, so resolution defaults to `GLOBAL`. The only controlled offer is market `TZ`. The resolver supports fallback from a requested non-global market to `GLOBAL`, but it does not infer or fall back from `GLOBAL` to `TZ`; therefore it correctly returns `NOT_AVAILABLE` for the exact request it receives.
-- **SOURCE DEFECT:** `YES` — the Settings checkout entry point does not supply the intended explicit market to either offer resolution or checkout creation.
-- **DATA/CONFIGURATION DEFECT:** `NO` — `SANDBOX-TEST-PAID-TZ` exists, is currently effective, active, purchasable, and has the stated TZS economics. The failure is the request-market mismatch, not malformed offer data.
+## Actions (deployment only)
 
-## Evidence
+1. Deploy exactly two Edge Functions, unchanged from the synced tree:
+   - `commercial-create-checkout`
+   - `commercial-payment-status`
+2. Nothing else: no migrations, no offer/licence/entitlement changes, no credential changes, no
+   `commercial-payment-webhook` redeploy, no unrelated remediation, no CORS-completeness work
+   beyond what the synced source already contains, no LIVE payment enablement.
 
-Authenticated browser verification returned `FREE / ACTIVE`, then captured HTTP 200 from `resolve_commercial_offer` with `{ plan_code: "PAID", resolution: "NOT_AVAILABLE", requested_market: "GLOBAL" }`. Live database inspection confirmed `SANDBOX-TEST-PAID-TZ` as `PAID / TZ / TZS / 100000 minor units / exponent 2`, active, purchasable, and currently effective.
+## Verification (after deploy, no payment initiated)
+
+| Check | How |
+| --- | --- |
+| SOURCE [SHA] | report `00b2c4fc…` |
+| COMMERCIAL_CREATE_CHECKOUT | deploy result + function listed active |
+| COMMERCIAL_PAYMENT_STATUS | deploy result + function listed active |
+| VALID AUTHENTICATED CALL | restore the injected preview session, call `commercial-payment-status?ref=<nonexistent>` with the real JWT; expect HTTP 200 with `found:false / UNKNOWN` (safe, non-mutating). For checkout, confirm it passes auth (no 401) — stop before any provider call is completed. |
+| INVALID AUTH FAIL_CLOSED | call both with a missing and a malformed bearer token; expect 401 |
+| CORS ON 401 | inspect response headers of the 401 for `Access-Control-Allow-Origin` / `-Headers` |
+| PAYMENT STATUS CALLER JWT SCOPING | confirm the anon-key + caller-JWT client path, and that another owner's reference resolves as not-found for this caller |
+| PAYMENT AUTHORITY | re-read offers/licences/entitlement rows to confirm unchanged |
+| REAL CUSTOMER PAYMENTS | remain DISABLED (sandbox credentials only) |
+
+Then STOP and return the requested report. No payment will be initiated in this pass.
+
+## Note on the valid-call check
+
+If the managed browser session reports `signed_out` at run time, the authenticated check will be
+reported honestly as `NOT_TESTABLE_LIVE` rather than assumed to pass; the deploy and negative-auth
+checks are unaffected.
