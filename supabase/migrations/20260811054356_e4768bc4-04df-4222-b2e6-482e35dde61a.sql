@@ -111,6 +111,7 @@ COMMENT ON VIEW public.v_latest_account_mapping_memory IS
 -- ── RLS ──────────────────────────────────────────────────────────────────────
 ALTER TABLE public.account_mapping_memory ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "amm_select" ON public.account_mapping_memory;
 CREATE POLICY "amm_select" ON public.account_mapping_memory
   FOR SELECT USING (
     EXISTS (

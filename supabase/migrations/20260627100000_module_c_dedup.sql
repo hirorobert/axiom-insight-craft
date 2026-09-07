@@ -29,16 +29,12 @@
 
 BEGIN;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_statutory_payable_per_period
-ON public.findings (company_id, finding_category, period_start, period_end)
-WHERE statutory_rule_id IS NULL
-  AND finding_type = 'statutory_payable';
-
-COMMENT ON INDEX public.uq_statutory_payable_per_period IS
-  'OD-13 closed. Prevents duplicate Module C statutory_payable findings '
-  'when the findings engine is run more than once for the same period. '
-  'Covers the null statutory_rule_id case not handled by '
-  'uq_finding_per_rule_per_period.';
+-- No-op: this migration's original index creation failed in production
+-- (42703 — finding_category did not yet exist) and is fully superseded by
+-- 20260627120000_findings_category_column.sql, which adds finding_category
+-- first and then creates this exact same index. Preserved as a version-
+-- and filename-stable no-op for migration-history continuity only.
+SELECT 1;
 
 COMMIT;
 

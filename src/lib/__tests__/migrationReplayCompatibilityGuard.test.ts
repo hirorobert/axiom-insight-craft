@@ -1,0 +1,371 @@
+/**
+ * Migration replay-compatibility guard.
+ *
+ * Static, non-executing regression coverage for the 10 replay-hardening
+ * blockers identified by the read-only local replay-compatibility audit
+ * and resolved by the subsequent authorized correction pass:
+ *
+ *   A. Two migrations (20260626150000, 20260701000000) committed their
+ *      production DML inside their own BEGIN/COMMIT block, then followed
+ *      it with an executable "smoke test" section that deliberately
+ *      triggers a statutory-rule/FK error and rolls back. A fail-fast
+ *      migration runner aborts on that uncaught error — but the earlier
+ *      COMMIT has already made the production data live, creating a
+ *      partial-commit / provenance mismatch between the migration-history
+ *      ledger and the database's real state. The smoke sections were
+ *      removed; their negative-test invariants are captured here instead.
+ *
+ *   B. Seven migrations re-declared RLS policy names already created by an
+ *      earlier migration on the same relation, without first dropping
+ *      them. A bare `CREATE POLICY` has no `IF NOT EXISTS` form, so a
+ *      clean sequential replay from an empty database hits `policy "..."
+ *      already exists` (SQLSTATE 42710) on the first such statement. Each
+ *      of the 44 affected re-declarations was given its own preceding
+ *      relation-qualified `DROP POLICY IF EXISTS`. Covered in depth by
+ *      storagePolicyReplayGuard.test.ts's generalized describe block;
+ *      referenced here only for the resolved-blocker inventory.
+ *
+ *   C. 20260627100000_module_c_dedup.sql self-documents having failed in
+ *      production (42703 — finding_category did not yet exist). It is
+ *      fully superseded by 20260627120000_findings_category_column.sql,
+ *      which adds the prerequisite column before creating the identical
+ *      index. The superseded file was reduced to a version-preserving,
+ *      side-effect-free no-op.
+ *
+ * This test reads the real migration files directly from
+ * supabase/migrations/ and the real test source tree — no copied
+ * fixtures.
+ */
+
+import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import crypto from "node:crypto";
+
+const REPO_ROOT = path.join(__dirname, "../../../");
+const MIGRATIONS_DIR = path.join(REPO_ROOT, "supabase/migrations");
+
+function sha256(text: string): string {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+/**
+ * Strips line comments, block comments, single-quoted string literals, and
+ * dollar-quoted (PL/pgSQL) bodies, replacing each with a single space so
+ * that top-level SQL structure (BEGIN/COMMIT, CREATE ..., etc.) can be
+ * distinguished from text that merely resembles it inside a comment,
+ * string literal, or function body.
+ */
+function stripCommentsStringsAndDollarQuotes(sql: string): string {
+  let out = "";
+  let i = 0;
+  const dollarTagRe = /\$([a-zA-Z_]*)\$/y;
+  while (i < sql.length) {
+    if (sql[i] === "-" && sql[i + 1] === "-") {
+      const nl = sql.indexOf("\n", i);
+      i = nl === -1 ? sql.length : nl + 1;
+      continue;
+    }
+    if (sql[i] === "/" && sql[i + 1] === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      i = end === -1 ? sql.length : end + 2;
+      continue;
+    }
+    if (sql[i] === "'") {
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === "'" && sql[j + 1] === "'") {
+          j += 2;
+          continue;
+        }
+        if (sql[j] === "'") {
+          j += 1;
+          break;
+        }
+        j++;
+      }
+      out += " ";
+      i = j;
+      continue;
+    }
+    if (sql[i] === "$") {
+      dollarTagRe.lastIndex = i;
+      const m = dollarTagRe.exec(sql);
+      if (m && m.index === i) {
+        const tag = m[0];
+        const endIdx = sql.indexOf(tag, i + tag.length);
+        i = endIdx === -1 ? sql.length : endIdx + tag.length;
+        out += " ";
+        continue;
+      }
+    }
+    out += sql[i];
+    i++;
+  }
+  return out;
+}
+
+function readMigration(fileName: string): string {
+  return fs.readFileSync(path.join(MIGRATIONS_DIR, fileName), "utf-8");
+}
+
+describe("migration directory integrity", () => {
+  it("contains exactly 113 migration files", () => {
+    const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
+    expect(files.length).toBe(113);
+  });
+});
+
+describe("stripCommentsStringsAndDollarQuotes correctly excludes comments, string literals, and dollar-quoted bodies", () => {
+  it("removes line comments but keeps real statements", () => {
+    const input = "SELECT 1; -- this is a comment with BEGIN; and COMMIT; inside it\nSELECT 2;";
+    const stripped = stripCommentsStringsAndDollarQuotes(input);
+    expect(stripped).toContain("SELECT 1;");
+    expect(stripped).toContain("SELECT 2;");
+    expect(stripped).not.toMatch(/this is a comment/);
+  });
+
+  it("removes block comments", () => {
+    const input = "SELECT 1; /* CREATE POLICY \"fake\" ON fake_table; */ SELECT 2;";
+    const stripped = stripCommentsStringsAndDollarQuotes(input);
+    expect(stripped).not.toMatch(/fake_table/);
+  });
+
+  it("removes single-quoted string literal contents (including embedded escaped quotes)", () => {
+    const input = "UPDATE t SET notes = 'contains a BEGIN; and a '' escaped quote and COMMIT;' WHERE id = 1;";
+    const stripped = stripCommentsStringsAndDollarQuotes(input);
+    // The literal's contents must not surface as top-level BEGIN/COMMIT tokens.
+    const beginCount = (stripped.match(/\bBEGIN\b/g) ?? []).length;
+    const commitCount = (stripped.match(/\bCOMMIT\b/g) ?? []).length;
+    expect(beginCount).toBe(0);
+    expect(commitCount).toBe(0);
+    expect(stripped).toContain("UPDATE t SET notes =");
+    expect(stripped).toContain("WHERE id = 1;");
+  });
+
+  it("removes dollar-quoted PL/pgSQL bodies, so an ordinary BEGIN...END inside a function is not mistaken for transaction control", () => {
+    const input = `
+      CREATE OR REPLACE FUNCTION f() RETURNS void AS $$
+      BEGIN
+        RAISE EXCEPTION 'boom';
+      END;
+      $$ LANGUAGE plpgsql;
+      SELECT 1;
+    `;
+    const stripped = stripCommentsStringsAndDollarQuotes(input);
+    expect(stripped).not.toMatch(/RAISE EXCEPTION/);
+    expect(stripped).not.toMatch(/\bBEGIN\b/);
+    expect(stripped).not.toMatch(/\bEND\b/);
+    expect(stripped).toContain("SELECT 1;");
+  });
+
+  it("handles a tagged dollar-quote (not just the bare $$ form)", () => {
+    const input = "DO $body$ BEGIN NULL; END; $body$; SELECT 1;";
+    const stripped = stripCommentsStringsAndDollarQuotes(input);
+    expect(stripped).not.toMatch(/\bBEGIN\b/);
+    expect(stripped).toContain("SELECT 1;");
+  });
+});
+
+describe("Correction A — smoke-test-after-COMMIT hazard removed from 20260626150000_fa2026_statutory_rules.sql", () => {
+  const FILE = "20260626150000_fa2026_statutory_rules.sql";
+  const text = readMigration(FILE);
+  const stripped = stripCommentsStringsAndDollarQuotes(text);
+
+  it("has exactly one BEGIN; and exactly one COMMIT;, with COMMIT after BEGIN", () => {
+    const beginMatches = stripped.match(/^BEGIN;/gm) ?? [];
+    const commitMatches = stripped.match(/^COMMIT;/gm) ?? [];
+    expect(beginMatches.length).toBe(1);
+    expect(commitMatches.length).toBe(1);
+    expect(stripped.indexOf("BEGIN;")).toBeLessThan(stripped.indexOf("COMMIT;"));
+  });
+
+  it("contains no BEGIN; or ROLLBACK; anywhere after the production COMMIT; (the smoke-test hazard)", () => {
+    const commitIndex = stripped.indexOf("COMMIT;");
+    const afterCommit = stripped.slice(commitIndex + "COMMIT;".length);
+    expect(afterCommit).not.toMatch(/^\s*BEGIN;/m);
+    expect(afterCommit).not.toMatch(/^\s*ROLLBACK;/m);
+  });
+
+  it("the production BEGIN...COMMIT block is unchanged from before this correction pass (content hash pin)", () => {
+    const beginIdx = text.indexOf("BEGIN;");
+    const commitIdx = text.indexOf("COMMIT;", beginIdx);
+    const prodBlock = text.slice(beginIdx, commitIdx + "COMMIT;".length);
+    expect(sha256(prodBlock)).toBe(
+      "46d60ffb849112b600c50f85295ab1d05d5795fbe1edf025bfd7279280370bb2",
+    );
+  });
+
+  it("still contains the harmless post-commit V1-V4 verification SELECT queries (only the smoke tests were removed)", () => {
+    // These headers live inside `--` comments, which the structural
+    // stripper deliberately removes — check the raw source instead.
+    expect(text).toMatch(/VERIFICATION QUERIES/);
+    expect(text).toMatch(/V1\./);
+    expect(text).toMatch(/V4\./);
+  });
+
+  it("points to the relocated static test file instead of containing executable smoke SQL", () => {
+    expect(text).toMatch(/migrationReplayCompatibilityGuard\.test\.ts/);
+    expect(stripped).not.toMatch(/SMOKE TESTS[\s\S]*BEGIN;/);
+  });
+});
+
+describe("Correction A — smoke-test-after-COMMIT hazard removed from 20260701000000_fa2026_enacted_verify.sql", () => {
+  const FILE = "20260701000000_fa2026_enacted_verify.sql";
+  const text = readMigration(FILE);
+  const stripped = stripCommentsStringsAndDollarQuotes(text);
+
+  it("has exactly one BEGIN; and exactly one COMMIT;, with COMMIT after BEGIN", () => {
+    const beginMatches = stripped.match(/^BEGIN;/gm) ?? [];
+    const commitMatches = stripped.match(/^COMMIT;/gm) ?? [];
+    expect(beginMatches.length).toBe(1);
+    expect(commitMatches.length).toBe(1);
+    expect(stripped.indexOf("BEGIN;")).toBeLessThan(stripped.indexOf("COMMIT;"));
+  });
+
+  it("contains no BEGIN; or ROLLBACK; anywhere after the production COMMIT; (the smoke-test hazard)", () => {
+    const commitIndex = stripped.indexOf("COMMIT;");
+    const afterCommit = stripped.slice(commitIndex + "COMMIT;".length);
+    expect(afterCommit).not.toMatch(/^\s*BEGIN;/m);
+    expect(afterCommit).not.toMatch(/^\s*ROLLBACK;/m);
+  });
+
+  it("the production BEGIN...COMMIT block (UPDATE + row-count assertion) is unchanged from before this correction pass (content hash pin)", () => {
+    const beginIdx = text.indexOf("BEGIN;");
+    const commitIdx = text.indexOf("COMMIT;", beginIdx);
+    const prodBlock = text.slice(beginIdx, commitIdx + "COMMIT;".length);
+    expect(sha256(prodBlock)).toBe(
+      "7fc0e655dd66f409e0c8758d0336982396ff02646efe95e2ee9ce562be79dedb",
+    );
+  });
+
+  it("still contains the harmless post-commit V1 verification SELECT query (only the V2 smoke test was removed)", () => {
+    // These headers live inside `--` comments, which the structural
+    // stripper deliberately removes — check the raw source instead.
+    expect(text).toMatch(/VERIFICATION QUERIES/);
+    expect(text).toMatch(/V1\./);
+  });
+
+  it("points to the relocated static test file instead of containing an executable V2 smoke test", () => {
+    expect(text).toMatch(/migrationReplayCompatibilityGuard\.test\.ts/);
+    // The V2 smoke test previously ran a live INSERT designed to hit an FK
+    // error; that executable statement must be gone from this file.
+    expect(stripped).not.toMatch(/V2\.[\s\S]*INSERT INTO public\.findings/);
+  });
+});
+
+describe("negative-test invariants relocated from the removed smoke tests (static assertions, not live SQL)", () => {
+  // These document, as static facts checkable from source, the exact
+  // invariants the removed smoke tests exercised live against a database.
+  // They do not run against a database — they assert that the mechanism
+  // each smoke test was probing still exists in the relevant migration's
+  // source, so a future edit that silently removes that mechanism is
+  // caught here instead of only being caught by a live replay.
+
+  it("enforce_verified_statutory_rule() raises SQLSTATE 23000 (integrity_constraint_violation) for an unverified rule — the exact error the removed Smoke A/B/C tests expected", () => {
+    const text = readMigration("20260625140000_c4e8a291-6d3b-4f7e-a052-b9e1d5c7f384.sql");
+    const stripped = stripCommentsStringsAndDollarQuotes(text);
+    expect(stripped).toMatch(/enforce_verified_statutory_rule/);
+    expect(text).toMatch(/ERRCODE\s*=\s*'integrity_constraint_violation'/);
+  });
+
+  it("20260626150000 inserts the 9 FA2026 statutory rules with verified_at left NULL (the Bill-status gate the removed smoke tests proved blocks findings until lifted)", () => {
+    const text = readMigration("20260626150000_fa2026_statutory_rules.sql");
+    const beginIdx = text.indexOf("BEGIN;");
+    const commitIdx = text.indexOf("COMMIT;", beginIdx);
+    const prodBlock = stripCommentsStringsAndDollarQuotes(text.slice(beginIdx, commitIdx));
+    expect(prodBlock).toMatch(/verified_at/);
+    expect(prodBlock).not.toMatch(/verified_at\s*=\s*now\(\)/i);
+  });
+
+  it("20260701000000 lifts the gate by setting verified_at on exactly the 9 FA2026 rows, and asserts the row count itself (the mechanism the removed V2 smoke test relied on being correctly enabled)", () => {
+    const text = readMigration("20260701000000_fa2026_enacted_verify.sql");
+    const stripped = stripCommentsStringsAndDollarQuotes(text);
+    expect(stripped).toMatch(/UPDATE public\.statutory_rules/);
+    expect(stripped).toMatch(/verified_at\s*=/);
+    // The row-count assertion lives inside a DO $$ ... $$ block, which the
+    // structural stripper deliberately blanks out (it can't be told apart
+    // from an opaque PL/pgSQL body in general) — check the raw source,
+    // stripped only of line comments, for this specific content.
+    const commentsOnlyStripped = text.replace(/--.*$/gm, "");
+    expect(commentsOnlyStripped).toMatch(/v_verified\s*<>\s*9/);
+  });
+});
+
+describe("Correction C — 20260627100000_module_c_dedup.sql reduced to a version-preserving no-op, superseded by 20260627120000", () => {
+  const DEDUP_FILE = "20260627100000_module_c_dedup.sql";
+  const SUPERSEDING_FILE = "20260627120000_findings_category_column.sql";
+
+  it("the module_c_dedup migration file still exists at its original filename/version", () => {
+    const files = fs.readdirSync(MIGRATIONS_DIR);
+    expect(files).toContain(DEDUP_FILE);
+  });
+
+  it("no longer creates the uq_statutory_payable_per_period index itself (that effect is fully superseded)", () => {
+    const stripped = stripCommentsStringsAndDollarQuotes(readMigration(DEDUP_FILE));
+    expect(stripped).not.toMatch(/CREATE UNIQUE INDEX/i);
+  });
+
+  it("is side-effect-free: contains BEGIN; and COMMIT; wrapping only a no-op statement, no DDL/DML", () => {
+    const stripped = stripCommentsStringsAndDollarQuotes(readMigration(DEDUP_FILE));
+    const beginIdx = stripped.indexOf("BEGIN;");
+    const commitIdx = stripped.indexOf("COMMIT;", beginIdx);
+    expect(beginIdx).toBeGreaterThan(-1);
+    expect(commitIdx).toBeGreaterThan(beginIdx);
+    const body = stripped.slice(beginIdx + "BEGIN;".length, commitIdx).trim();
+    expect(body).toMatch(/^SELECT\s+1\s*;$/i);
+  });
+
+  it("identifies the superseding migration by name in its own text", () => {
+    const text = readMigration(DEDUP_FILE);
+    expect(text).toContain(SUPERSEDING_FILE);
+  });
+
+  it("the superseding migration adds finding_category BEFORE creating any index that depends on it, and creates the identical index definition", () => {
+    const text = readMigration(SUPERSEDING_FILE);
+    const stripped = stripCommentsStringsAndDollarQuotes(text);
+
+    const addColumnIndex = stripped.search(/ALTER TABLE public\.findings\s+ADD COLUMN IF NOT EXISTS finding_category/i);
+    const createIndexIndex = stripped.search(/CREATE UNIQUE INDEX IF NOT EXISTS uq_statutory_payable_per_period/i);
+
+    expect(addColumnIndex, "expected an ADD COLUMN IF NOT EXISTS finding_category in the superseding migration").toBeGreaterThan(-1);
+    expect(createIndexIndex, "expected the superseding migration to (re-)create the OD-13 dedup index").toBeGreaterThan(-1);
+    expect(addColumnIndex, "the prerequisite column must be added before the dependent index is created").toBeLessThan(createIndexIndex);
+
+    // Same index definition (table, columns, partial-index predicate) as
+    // the one removed from the superseded file — proving full supersession
+    // of its intended schema/index effect, not just a similarly-named one.
+    // The predicate's string literal is stripped by the structural
+    // sanitizer, so check the raw source (comments only removed) here.
+    const commentsOnlyStripped = text.replace(/--.*$/gm, "");
+    expect(commentsOnlyStripped).toMatch(
+      /ON public\.findings \(company_id, finding_category, period_start, period_end\)\s+WHERE statutory_rule_id IS NULL\s+AND finding_type = 'statutory_payable'/,
+    );
+  });
+});
+
+describe("all 10 resolved replay-hardening blockers are explicitly covered by name", () => {
+  const RESOLVED_BLOCKERS: Array<{ id: string; file: string }> = [
+    { id: "1 — smoke-test-after-COMMIT hazard", file: "20260626150000_fa2026_statutory_rules.sql" },
+    { id: "2 — smoke-test-after-COMMIT hazard", file: "20260701000000_fa2026_enacted_verify.sql" },
+    { id: "3 — duplicate CREATE POLICY (capital_allowances)", file: "20260629042520_7c1fccd0-e91a-42cb-b09e-93fa907ae316.sql" },
+    { id: "4 — duplicate CREATE POLICY (period_closing_balances/aje/aje_lines/statement_sign_offs)", file: "20260707200000_iron_dome_nuclear_full.sql" },
+    { id: "5 — duplicate CREATE POLICY (management_inputs)", file: "20260708100000_iron_dome_sprint2.sql" },
+    { id: "6 — duplicate CREATE POLICY (maono phase A tables)", file: "20260711300000_maono_phase_a.sql" },
+    { id: "7 — duplicate CREATE POLICY (maono phase B tables)", file: "20260711300100_maono_phase_b.sql" },
+    { id: "8 — duplicate CREATE POLICY (maono phase C tables)", file: "20260711300200_maono_phase_c.sql" },
+    { id: "9 — duplicate CREATE POLICY (account_mapping_memory)", file: "20260811054356_e4768bc4-04df-4222-b2e6-482e35dde61a.sql" },
+    { id: "10 — module_c_dedup superseded-in-production, reduced to no-op", file: "20260627100000_module_c_dedup.sql" },
+  ];
+
+  it("lists exactly 10 resolved blockers, one per authorized migration file", () => {
+    expect(RESOLVED_BLOCKERS.length).toBe(10);
+    const uniqueFiles = new Set(RESOLVED_BLOCKERS.map((b) => b.file));
+    expect(uniqueFiles.size).toBe(10);
+  });
+
+  it.each(RESOLVED_BLOCKERS)("blocker $id: $file exists and was part of this correction pass", ({ file }) => {
+    const files = fs.readdirSync(MIGRATIONS_DIR);
+    expect(files).toContain(file);
+  });
+});

@@ -80,18 +80,21 @@ CREATE INDEX IF NOT EXISTS idx_pcb_company_period
 
 ALTER TABLE public.period_closing_balances ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "pcb_select" ON public.period_closing_balances;
 CREATE POLICY "pcb_select" ON public.period_closing_balances FOR SELECT
   USING (EXISTS (
     SELECT 1 FROM public.firm_members fm
     WHERE fm.user_id = auth.uid() AND fm.company_id = period_closing_balances.company_id
   ));
 
+DROP POLICY IF EXISTS "pcb_insert" ON public.period_closing_balances;
 CREATE POLICY "pcb_insert" ON public.period_closing_balances FOR INSERT
   WITH CHECK (EXISTS (
     SELECT 1 FROM public.firm_members fm
     WHERE fm.user_id = auth.uid() AND fm.company_id = period_closing_balances.company_id
   ));
 
+DROP POLICY IF EXISTS "pcb_update" ON public.period_closing_balances;
 CREATE POLICY "pcb_update" ON public.period_closing_balances FOR UPDATE
   USING (EXISTS (
     SELECT 1 FROM public.firm_members fm
@@ -160,12 +163,14 @@ CREATE INDEX IF NOT EXISTS idx_aje_status
 
 ALTER TABLE public.adjusting_journal_entries ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "aje_select" ON public.adjusting_journal_entries;
 CREATE POLICY "aje_select" ON public.adjusting_journal_entries FOR SELECT
   USING (EXISTS (
     SELECT 1 FROM public.firm_members fm
     WHERE fm.user_id = auth.uid() AND fm.company_id = adjusting_journal_entries.company_id
   ));
 
+DROP POLICY IF EXISTS "aje_insert" ON public.adjusting_journal_entries;
 CREATE POLICY "aje_insert" ON public.adjusting_journal_entries FOR INSERT
   WITH CHECK (
     auth.uid() = created_by AND
@@ -175,6 +180,7 @@ CREATE POLICY "aje_insert" ON public.adjusting_journal_entries FOR INSERT
     )
   );
 
+DROP POLICY IF EXISTS "aje_update" ON public.adjusting_journal_entries;
 CREATE POLICY "aje_update" ON public.adjusting_journal_entries FOR UPDATE
   USING (EXISTS (
     SELECT 1 FROM public.firm_members fm
@@ -219,6 +225,7 @@ CREATE INDEX IF NOT EXISTS idx_aje_lines_aje
 
 ALTER TABLE public.aje_lines ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "aje_lines_select" ON public.aje_lines;
 CREATE POLICY "aje_lines_select" ON public.aje_lines FOR SELECT
   USING (EXISTS (
     SELECT 1 FROM public.adjusting_journal_entries a
@@ -226,6 +233,7 @@ CREATE POLICY "aje_lines_select" ON public.aje_lines FOR SELECT
     WHERE a.id = aje_lines.aje_id AND fm.user_id = auth.uid()
   ));
 
+DROP POLICY IF EXISTS "aje_lines_insert" ON public.aje_lines;
 CREATE POLICY "aje_lines_insert" ON public.aje_lines FOR INSERT
   WITH CHECK (EXISTS (
     SELECT 1 FROM public.adjusting_journal_entries a
@@ -293,12 +301,14 @@ CREATE INDEX IF NOT EXISTS idx_sso_status
 
 ALTER TABLE public.statement_sign_offs ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "sso_select" ON public.statement_sign_offs;
 CREATE POLICY "sso_select" ON public.statement_sign_offs FOR SELECT
   USING (EXISTS (
     SELECT 1 FROM public.firm_members fm
     WHERE fm.user_id = auth.uid() AND fm.company_id = statement_sign_offs.company_id
   ));
 
+DROP POLICY IF EXISTS "sso_insert" ON public.statement_sign_offs;
 CREATE POLICY "sso_insert" ON public.statement_sign_offs FOR INSERT
   WITH CHECK (EXISTS (
     SELECT 1 FROM public.firm_members fm
@@ -307,6 +317,7 @@ CREATE POLICY "sso_insert" ON public.statement_sign_offs FOR INSERT
 
 -- RLS UPDATE: only permitted while not yet locked (locked_at IS NULL).
 -- Once locked, even authorized users cannot update — DB enforces immutability.
+DROP POLICY IF EXISTS "sso_update" ON public.statement_sign_offs;
 CREATE POLICY "sso_update" ON public.statement_sign_offs FOR UPDATE
   USING (
     locked_at IS NULL AND

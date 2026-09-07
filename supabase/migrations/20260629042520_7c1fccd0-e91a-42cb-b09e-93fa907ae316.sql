@@ -32,12 +32,14 @@ CREATE INDEX IF NOT EXISTS idx_capital_allowances_company_year
 
 ALTER TABLE public.capital_allowances ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "ca_select" ON public.capital_allowances;
 CREATE POLICY "ca_select" ON public.capital_allowances FOR SELECT
   USING (EXISTS (
     SELECT 1 FROM public.firm_members fm
     WHERE fm.user_id = auth.uid() AND fm.company_id = capital_allowances.company_id
   ));
 
+DROP POLICY IF EXISTS "ca_insert" ON public.capital_allowances;
 CREATE POLICY "ca_insert" ON public.capital_allowances FOR INSERT
   WITH CHECK (
     auth.uid() = created_by AND
@@ -47,6 +49,7 @@ CREATE POLICY "ca_insert" ON public.capital_allowances FOR INSERT
     )
   );
 
+DROP POLICY IF EXISTS "ca_update" ON public.capital_allowances;
 CREATE POLICY "ca_update" ON public.capital_allowances FOR UPDATE
   USING (
     EXISTS (
@@ -55,6 +58,7 @@ CREATE POLICY "ca_update" ON public.capital_allowances FOR UPDATE
     )
   );
 
+DROP POLICY IF EXISTS "ca_delete" ON public.capital_allowances;
 CREATE POLICY "ca_delete" ON public.capital_allowances FOR DELETE
   USING (created_by = auth.uid());
 

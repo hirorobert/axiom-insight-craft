@@ -76,12 +76,14 @@ COMMENT ON TABLE public.management_inputs IS
 
 ALTER TABLE public.management_inputs ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "mi_select" ON public.management_inputs;
 CREATE POLICY "mi_select" ON public.management_inputs FOR SELECT
   USING (EXISTS (
     SELECT 1 FROM public.firm_members fm
     WHERE fm.user_id = auth.uid() AND fm.company_id = management_inputs.company_id
   ));
 
+DROP POLICY IF EXISTS "mi_insert" ON public.management_inputs;
 CREATE POLICY "mi_insert" ON public.management_inputs FOR INSERT
   WITH CHECK (EXISTS (
     SELECT 1 FROM public.firm_members fm
@@ -90,6 +92,7 @@ CREATE POLICY "mi_insert" ON public.management_inputs FOR INSERT
       AND fm.role IN ('owner', 'partner', 'preparer')
   ));
 
+DROP POLICY IF EXISTS "mi_update" ON public.management_inputs;
 CREATE POLICY "mi_update" ON public.management_inputs FOR UPDATE
   USING (EXISTS (
     SELECT 1 FROM public.firm_members fm

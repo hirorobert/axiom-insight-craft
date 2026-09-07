@@ -149,30 +149,10 @@ ORDER BY trigger_category;
 -- check trigger_category spelling vs migration 20260626150000.
 
 
--- V2. Confirm the findings engine can now generate findings against FA2026 goods rate
--- (trigger should NOT block — verified_at is set)
-BEGIN;
-
-INSERT INTO public.findings (
-  company_id, statutory_rule_id, finding_type, title,
-  period_start, period_end, exposure_amount_tzs, source_detail, created_by
-)
-SELECT
-  gen_random_uuid(),
-  sr.id,
-  'rule_trigger',
-  'V2 smoke — vat_withholding_goods 2026 verified — expect FK error not trigger error',
-  '2026-07-01', '2026-09-30',
-  0.00, '{"smoke_test": true}',
-  -- auth.uid() returns NULL in SQL Editor (service_role context) → NOT NULL violation.
-  -- Use a deterministic dummy UUID; the whole block is ROLLBACK'd anyway.
-  '00000000-0000-0000-0000-000000000001'::uuid
-FROM public.statutory_rules sr
-WHERE sr.trigger_category = 'vat_withholding_goods'
-  AND sr.effective_from   = '2026-07-01'
-LIMIT 1;
-
-ROLLBACK;
--- Expected: ERROR 23503 (FK violation on company_id) — NOT a V2 trigger error (23000).
--- FK error = trigger passed = verified_at gate lifted correctly.
--- V2 trigger error = this migration did not set verified_at — investigate.
+-- V2 smoke test — relocated out of this executable migration file.
+-- The negative-test invariant (findings engine must reach an FK error,
+-- not a V2 trigger error, once verified_at is set) is now captured as
+-- a static, non-executing assertion in
+-- src/lib/__tests__/migrationReplayCompatibilityGuard.test.ts
+-- rather than as live SQL inside a migration file replayed by
+-- `supabase db push`.

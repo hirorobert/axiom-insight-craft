@@ -59,9 +59,11 @@ CREATE INDEX IF NOT EXISTS idx_cashflow_forecasts_run
   ON cashflow_forecasts(run_id, week_number);
 
 ALTER TABLE cashflow_forecasts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "cashflow_read" ON public.cashflow_forecasts;
 CREATE POLICY "cashflow_read" ON cashflow_forecasts FOR SELECT USING (
   company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
 );
+DROP POLICY IF EXISTS "cashflow_insert" ON public.cashflow_forecasts;
 CREATE POLICY "cashflow_insert" ON cashflow_forecasts FOR INSERT WITH CHECK (
   company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
 );
@@ -129,9 +131,11 @@ CREATE INDEX IF NOT EXISTS idx_maono_insights_run
   ON maono_insights(run_id, insight_type);
 
 ALTER TABLE maono_insights ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "insights_read" ON public.maono_insights;
 CREATE POLICY "insights_read" ON maono_insights FOR SELECT USING (
   company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
 );
+DROP POLICY IF EXISTS "insights_insert" ON public.maono_insights;
 CREATE POLICY "insights_insert" ON maono_insights FOR INSERT WITH CHECK (
   company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
 );
@@ -205,9 +209,11 @@ CREATE INDEX IF NOT EXISTS idx_variance_alerts_company
   WHERE acknowledged_at IS NULL;
 
 ALTER TABLE variance_alerts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "alerts_read" ON public.variance_alerts;
 CREATE POLICY "alerts_read" ON variance_alerts FOR SELECT USING (
   company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
 );
+DROP POLICY IF EXISTS "alerts_acknowledge" ON public.variance_alerts;
 CREATE POLICY "alerts_acknowledge" ON variance_alerts FOR UPDATE USING (
   company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
 );

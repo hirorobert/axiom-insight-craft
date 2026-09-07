@@ -69,9 +69,11 @@ CREATE INDEX IF NOT EXISTS idx_board_packs_company
   ON board_packs(company_id, created_at DESC);
 
 ALTER TABLE board_packs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "board_packs_read" ON public.board_packs;
 CREATE POLICY "board_packs_read" ON board_packs FOR SELECT USING (
   company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
 );
+DROP POLICY IF EXISTS "board_packs_insert" ON public.board_packs;
 CREATE POLICY "board_packs_insert" ON board_packs FOR INSERT WITH CHECK (
   company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
 );
@@ -117,9 +119,11 @@ CREATE TABLE IF NOT EXISTS efdms_z_reports (
 );
 
 ALTER TABLE efdms_z_reports ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "efdms_read" ON public.efdms_z_reports;
 CREATE POLICY "efdms_read" ON efdms_z_reports FOR SELECT USING (
   company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
 );
+DROP POLICY IF EXISTS "efdms_insert" ON public.efdms_z_reports;
 CREATE POLICY "efdms_insert" ON efdms_z_reports FOR INSERT WITH CHECK (
   company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
 );
@@ -167,9 +171,11 @@ CREATE TABLE IF NOT EXISTS efdms_reconciliation (
 );
 
 ALTER TABLE efdms_reconciliation ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "efdms_recon_read" ON public.efdms_reconciliation;
 CREATE POLICY "efdms_recon_read" ON efdms_reconciliation FOR SELECT USING (
   company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
 );
+DROP POLICY IF EXISTS "efdms_recon_write" ON public.efdms_reconciliation;
 CREATE POLICY "efdms_recon_write" ON efdms_reconciliation FOR INSERT WITH CHECK (
   company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
 );
@@ -359,9 +365,11 @@ CREATE TRIGGER maono_monitor_runs_no_delete
   FOR EACH ROW EXECUTE FUNCTION maono_block_monitor_run_mutation();
 
 ALTER TABLE maono_monitor_runs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "monitor_runs_read" ON public.maono_monitor_runs;
 CREATE POLICY "monitor_runs_read" ON maono_monitor_runs FOR SELECT USING (
   EXISTS (SELECT 1 FROM firm_members WHERE user_id = auth.uid())
 );
+DROP POLICY IF EXISTS "monitor_runs_write" ON public.maono_monitor_runs;
 CREATE POLICY "monitor_runs_write" ON maono_monitor_runs FOR ALL USING (
   -- Service role only — monitor edge function runs with service key
   auth.uid() IS NOT NULL

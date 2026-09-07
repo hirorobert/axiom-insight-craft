@@ -143,6 +143,7 @@ CREATE INDEX IF NOT EXISTS idx_account_pl_mapping_company
 
 ALTER TABLE account_pl_mapping ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "account_pl_mapping_read" ON public.account_pl_mapping;
 CREATE POLICY "account_pl_mapping_read" ON account_pl_mapping
   FOR SELECT USING (
     company_id IS NULL OR                              -- global defaults visible to all
@@ -150,6 +151,7 @@ CREATE POLICY "account_pl_mapping_read" ON account_pl_mapping
       SELECT company_id FROM firm_members WHERE user_id = auth.uid()
     )
   );
+DROP POLICY IF EXISTS "account_pl_mapping_write" ON public.account_pl_mapping;
 CREATE POLICY "account_pl_mapping_write" ON account_pl_mapping
   FOR INSERT WITH CHECK (
     company_id IN (
@@ -190,10 +192,12 @@ COMMENT ON TABLE variance_materiality IS
   'Variance is material if: variance_pct >= pct_threshold OR |variance_tzs| >= abs_threshold_tzs.';
 
 ALTER TABLE variance_materiality ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "variance_materiality_read" ON public.variance_materiality;
 CREATE POLICY "variance_materiality_read" ON variance_materiality
   FOR SELECT USING (
     company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
   );
+DROP POLICY IF EXISTS "variance_materiality_write" ON public.variance_materiality;
 CREATE POLICY "variance_materiality_write" ON variance_materiality
   FOR ALL USING (
     company_id IN (
@@ -284,16 +288,19 @@ CREATE INDEX IF NOT EXISTS idx_variance_budgets_lookup
   WHERE is_active = TRUE AND approved_by IS NOT NULL;
 
 ALTER TABLE variance_budgets ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "budget_read" ON public.variance_budgets;
 CREATE POLICY "budget_read" ON variance_budgets
   FOR SELECT USING (
     company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
   );
+DROP POLICY IF EXISTS "budget_submit" ON public.variance_budgets;
 CREATE POLICY "budget_submit" ON variance_budgets
   FOR INSERT WITH CHECK (
     company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
     AND submitted_by = auth.uid()
     AND approved_by IS NULL  -- cannot self-approve on insert
   );
+DROP POLICY IF EXISTS "budget_approve" ON public.variance_budgets;
 CREATE POLICY "budget_approve" ON variance_budgets
   FOR UPDATE USING (
     company_id IN (
@@ -389,10 +396,12 @@ CREATE INDEX IF NOT EXISTS idx_variance_runs_company
   ON variance_runs(company_id, period_from DESC, status);
 
 ALTER TABLE variance_runs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "runs_read" ON public.variance_runs;
 CREATE POLICY "runs_read" ON variance_runs
   FOR SELECT USING (
     company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
   );
+DROP POLICY IF EXISTS "runs_insert" ON public.variance_runs;
 CREATE POLICY "runs_insert" ON variance_runs
   FOR INSERT WITH CHECK (
     company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
@@ -463,10 +472,12 @@ CREATE INDEX IF NOT EXISTS idx_variance_analyses_company_period
   INCLUDE (actual_amount, variance_tzs, variance_pct, is_material);
 
 ALTER TABLE variance_analyses ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "analyses_read" ON public.variance_analyses;
 CREATE POLICY "analyses_read" ON variance_analyses
   FOR SELECT USING (
     company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
   );
+DROP POLICY IF EXISTS "analyses_insert" ON public.variance_analyses;
 CREATE POLICY "analyses_insert" ON variance_analyses
   FOR INSERT WITH CHECK (
     company_id IN (SELECT company_id FROM firm_members WHERE user_id = auth.uid())
