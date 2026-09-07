@@ -2,6 +2,14 @@
 DROP POLICY IF EXISTS "Allow public upload to trial-balance-files" ON storage.objects;
 DROP POLICY IF EXISTS "Allow public read from trial-balance-files"  ON storage.objects;
 
+-- These four policy names are re-declared identically to an earlier migration.
+-- Explicit relation-qualified drops make sequential replay from an empty
+-- database deterministic, regardless of what already exists.
+DROP POLICY IF EXISTS "Users can upload their own trial balance files" ON storage.objects;
+DROP POLICY IF EXISTS "Users can read their own trial balance files" ON storage.objects;
+DROP POLICY IF EXISTS "Users can update their own trial balance files" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete their own trial balance files" ON storage.objects;
+
 -- INSERT: authenticated users may only upload into their own folder
 CREATE POLICY "Users can upload their own trial balance files"
 ON storage.objects
