@@ -33,13 +33,15 @@ export default function PaymentReturn() {
   const [phase, setPhase] = useState<PollPhase>(saffRef ? "POLLING" : "NO_REF");
   const [status, setStatus] = useState<CheckoutStatusResponse | null>(null);
   const [pollCount, setPollCount] = useState(0);
+  const pollCountRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!saffRef) return;
 
     const poll = async () => {
-      setPollCount((n) => n + 1);
+      pollCountRef.current += 1;
+      setPollCount(pollCountRef.current);
       const { data, error } = await pollCheckoutStatus(saffRef);
       if (error || !data) return; // keep polling
 
@@ -59,7 +61,7 @@ export default function PaymentReturn() {
 
     poll(); // immediate first poll
     timerRef.current = setInterval(async () => {
-      if (pollCount >= MAX_POLLS) {
+      if (pollCountRef.current >= MAX_POLLS) {
         clearInterval(timerRef.current!);
         setPhase("TIMEOUT");
         return;
