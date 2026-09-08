@@ -1262,3 +1262,281 @@ describe("Correction — chk_rate_or_threshold widened to represent unverified, 
     }
   });
 });
+
+/**
+ * Normalizes SQL by replacing comment contents, single-quoted string
+ * literals, and double-quoted identifiers with placeholder tokens, and
+ * RECURSIVELY doing the same inside dollar-quoted bodies — while preserving
+ * the dollar-quote tag markers and every keyword/structural token
+ * (DECLARE, BEGIN, END, PROCEDURE, FUNCTION, DO, etc.) at every nesting
+ * level. Unlike stripCommentsStringsAndDollarQuotes (which blanks an entire
+ * dollar-quoted body to a single space), this preserves enough structure to
+ * detect keyword-level defects *inside* PL/pgSQL block bodies, such as a
+ * subprogram illegally declared inside a DO block's DECLARE section.
+ */
+function normalizeSqlKeepingStructure(sql: string): string {
+  let out = "";
+  let i = 0;
+  const dollarTagRe = /\$([a-zA-Z_]*)\$/y;
+  while (i < sql.length) {
+    if (sql[i] === "-" && sql[i + 1] === "-") {
+      const nl = sql.indexOf("\n", i);
+      out += "\n";
+      i = nl === -1 ? sql.length : nl + 1;
+      continue;
+    }
+    if (sql[i] === "/" && sql[i + 1] === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      out += " ";
+      i = end === -1 ? sql.length : end + 2;
+      continue;
+    }
+    if (sql[i] === "'") {
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === "'" && sql[j + 1] === "'") { j += 2; continue; }
+        if (sql[j] === "'") { j += 1; break; }
+        j++;
+      }
+      out += " STR ";
+      i = j;
+      continue;
+    }
+    if (sql[i] === '"') {
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === '"' && sql[j + 1] === '"') { j += 2; continue; }
+        if (sql[j] === '"') { j += 1; break; }
+        j++;
+      }
+      out += " IDENT ";
+      i = j;
+      continue;
+    }
+    if (sql[i] === "$") {
+      dollarTagRe.lastIndex = i;
+      const m = dollarTagRe.exec(sql);
+      if (m && m.index === i) {
+        const tag = m[0];
+        const bodyStart = i + tag.length;
+        const end = sql.indexOf(tag, bodyStart);
+        const bodyEnd = end === -1 ? sql.length : end;
+        const normalizedBody = normalizeSqlKeepingStructure(sql.slice(bodyStart, bodyEnd));
+        out += tag + normalizedBody + tag;
+        i = end === -1 ? sql.length : end + tag.length;
+        continue;
+      }
+    }
+    out += sql[i];
+    i++;
+  }
+  return out;
+}
+
+/** Extracts every top-level `DO $tag$ ... $tag$` block body from already-normalized SQL. */
+function findDoBlockBodies(normalizedSql: string): string[] {
+  const bodies: string[] = [];
+  const re = /\bDO\s+(\$[a-zA-Z_]*\$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(normalizedSql))) {
+    const tag = m[1];
+    const start = m.index + m[0].length;
+    const end = normalizedSql.indexOf(tag, start);
+    if (end === -1) continue;
+    bodies.push(normalizedSql.slice(start, end));
+    re.lastIndex = end + tag.length;
+  }
+  return bodies;
+}
+
+/**
+ * True if a DO block's DECLARE section (the span from its own `DECLARE` to
+ * its own first `BEGIN`) contains a PROCEDURE or FUNCTION keyword — the
+ * exact shape of an illegal nested-subprogram declaration. PL/pgSQL has no
+ * such feature; only Oracle PL/SQL supports declaring local
+ * procedures/functions inside a block's declaration section.
+ */
+function doBlockDeclaresNestedSubprogram(doBody: string): boolean {
+  const declIdx = doBody.search(/\bDECLARE\b/);
+  if (declIdx === -1) return false;
+  const afterDecl = doBody.slice(declIdx);
+  const beginMatch = afterDecl.match(/\bBEGIN\b/);
+  if (!beginMatch || beginMatch.index === undefined) return false;
+  const declSection = afterDecl.slice(0, beginMatch.index);
+  return /\bPROCEDURE\b|\bFUNCTION\b/.test(declSection);
+}
+
+describe("Correction — Phase 1-B smoke test rewritten to remove the invalid nested PROCEDURE (20260712200000_phase1_b_identity_migration.sql)", () => {
+  const FILE = "20260712200000_phase1_b_identity_migration.sql";
+  const raw = readMigration(FILE);
+  const SECTION_5_MARKER = "-- ── SECTION 5: SMOKE TEST";
+  const sectionIdx = raw.indexOf(SECTION_5_MARKER);
+  const smokeBlock = raw.slice(sectionIdx);
+  const preSmoke = raw.slice(0, sectionIdx);
+  // Comment-stripped view for keyword-absence checks — the block's own
+  // explanatory NOTE legitimately *documents* the old PROCEDURE/ASSERT/
+  // check_col(...) shape it replaced, so a raw substring search would
+  // false-positive on that documentation. Only line comments are stripped
+  // here (not the dollar-quoted DO body itself, which is exactly the
+  // executable content these checks need to inspect).
+  const smokeBlockCodeOnly = smokeBlock.replace(/--[^\n]*/g, "");
+
+  const ORIGINAL_25_PAIRS: Array<[string, string]> = [
+    ["capital_allowances", "created_by_member_id"],
+    ["tax_payments", "created_by_member_id"],
+    ["fiscal_periods", "created_by_member_id"],
+    ["tax_losses", "created_by_member_id"],
+    ["tax_computations", "cpa_modified_by_member_id"],
+    ["adjusting_journal_entries", "created_by_member_id"],
+    ["adjusting_journal_entries", "approved_by_member_id"],
+    ["management_inputs", "created_by_member_id"],
+    ["statement_sign_offs", "locked_by_member_id"],
+    ["safisha_exceptions", "reviewer_member_id"],
+    ["safisha_audit_log", "reviewer_member_id"],
+    ["account_pl_mapping", "created_by_member_id"],
+    ["variance_materiality", "updated_by_member_id"],
+    ["variance_budgets", "submitted_by_member_id"],
+    ["variance_budgets", "approved_by_member_id"],
+    ["variance_runs", "triggered_by_member_id"],
+    ["variance_alerts", "acknowledged_by_member_id"],
+    ["board_packs", "generated_by_member_id"],
+    ["efdms_z_reports", "imported_by_member_id"],
+    ["efdms_reconciliation", "reconciled_by_member_id"],
+    ["hesabu_validations", "validated_by_member_id"],
+    ["xbrl_instance_documents", "generated_by_member_id"],
+    ["efdms_records", "ingested_by_member_id"],
+    ["findings", "created_by_member_id"],
+    ["evidence_requests", "created_by_member_id"],
+  ];
+
+  function extractValuesPairs(): Array<[string, string]> {
+    const valuesMatch = smokeBlock.match(/FROM \(VALUES([\s\S]*?)\) AS checks\(table_name, column_name\)/);
+    expect(valuesMatch, "expected a FROM (VALUES ...) AS checks(table_name, column_name) clause").not.toBeNull();
+    const rowRe = /\('([^']*)',\s*'([^']*)'\)/g;
+    const pairs: Array<[string, string]> = [];
+    let m: RegExpExecArray | null;
+    while ((m = rowRe.exec(valuesMatch![1]))) pairs.push([m[1], m[2]]);
+    return pairs;
+  }
+
+  it("1. contains no nested PROCEDURE (or FUNCTION) declaration anywhere in the smoke block's executable code", () => {
+    expect(smokeBlockCodeOnly).not.toMatch(/\bPROCEDURE\b/);
+    expect(smokeBlockCodeOnly).not.toMatch(/\bFUNCTION\s+\w+\s*\(/);
+  });
+
+  it("2. uses valid RECORD iteration over an inline VALUES relation, not a procedure call loop", () => {
+    expect(smokeBlock).toMatch(/DECLARE\s*\n\s*v_check\s+RECORD;/);
+    expect(smokeBlock).toMatch(/FOR\s+v_check\s+IN\s*\n\s*SELECT \*\s*\n\s*FROM \(VALUES/);
+    expect(smokeBlock).toMatch(/\) AS checks\(table_name, column_name\)\s*\n\s*LOOP/);
+    expect(smokeBlockCodeOnly).not.toMatch(/check_col\(/);
+  });
+
+  it("3. the VALUES relation contains exactly the same 25 table/column identities as the original check_col(...) calls", () => {
+    const pairs = extractValuesPairs();
+    expect(pairs).toEqual(ORIGINAL_25_PAIRS);
+  });
+
+  it("4. every identity occurs exactly once in the smoke-test input", () => {
+    const pairs = extractValuesPairs();
+    const keys = pairs.map(([t, c]) => `${t}::${c}`);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.length).toBe(25);
+  });
+
+  it("5. every checked column is added by this migration's own ALTER TABLE ADD COLUMN statements before the smoke block", () => {
+    const pairs = extractValuesPairs();
+    for (const [table, column] of pairs) {
+      const addColRe = new RegExp(
+        `ALTER TABLE public\\.${table}[\\s\\S]{0,200}?ADD COLUMN(?: IF NOT EXISTS)?\\s+${column}\\b`,
+      );
+      const addIdx = preSmoke.search(addColRe);
+      expect(addIdx, `${table}.${column} must be added by an ADD COLUMN statement before the smoke block`).toBeGreaterThan(-1);
+      expect(addIdx).toBeLessThan(sectionIdx);
+    }
+  });
+
+  it("6. a missing column produces an explicit RAISE EXCEPTION (not a silent pass)", () => {
+    expect(smokeBlock).toMatch(/RAISE EXCEPTION\s*\n\s*'Phase 1B smoke check failed: missing public\.%\.%',/);
+    expect(smokeBlock).toMatch(/USING ERRCODE = '42703';/);
+  });
+
+  it("7. does not rely on ASSERT anywhere in its executable code", () => {
+    expect(smokeBlockCodeOnly).not.toMatch(/\bASSERT\b/);
+  });
+
+  it("8. no top-level BEGIN;, COMMIT;, or ROLLBACK; was introduced by this correction", () => {
+    expect(raw).not.toMatch(/^\s*BEGIN;/m);
+    expect(raw).not.toMatch(/^\s*COMMIT;/m);
+    expect(raw).not.toMatch(/^\s*ROLLBACK;/m);
+  });
+
+  it("9. all production SQL before the smoke-test section is unchanged — only the smoke-test block differs (content-hash pin)", () => {
+    expect(sha256(preSmoke)).toBe(
+      "e08a4a97075033b2c050e9c3f46a0d0c21959d41d4d375bba4bff82525c87bd4",
+    );
+  });
+
+  it("still reports success via RAISE NOTICE naming all 25 columns, and closes the same $smoke$ tag it opened", () => {
+    expect(smokeBlock).toMatch(/RAISE NOTICE 'Phase 1-B smoke test: all 25 _member_id columns confirmed present\.';/);
+    expect(smokeBlock.match(/\$smoke\$/g)?.length).toBe(2);
+  });
+});
+
+describe("Repository-wide guard — no PL/pgSQL DO block may declare a nested PROCEDURE/FUNCTION in its DECLARE section (Oracle PL/SQL syntax, invalid in PostgreSQL)", () => {
+  const allFiles = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
+
+  it("self-test: the normalizer preserves DECLARE/BEGIN/PROCEDURE structure while blanking comments, strings, and identifiers, at every dollar-quote nesting level", () => {
+    const sample = `
+      DO $outer$
+      DECLARE
+        v BOOLEAN;
+        "weird ident" TEXT; -- a comment mentioning PROCEDURE should not count
+        PROCEDURE nested(p TEXT) AS $inner$
+        BEGIN
+          SELECT 'a string with BEGIN and DECLARE inside' INTO v;
+        END;
+        $inner$
+      BEGIN
+        NULL;
+      END;
+      $outer$;
+    `;
+    const normalized = normalizeSqlKeepingStructure(sample);
+    expect(normalized).toContain("DECLARE");
+    expect(normalized).toContain("PROCEDURE");
+    expect(normalized).not.toMatch(/weird ident/);
+    expect(normalized).not.toMatch(/a string with BEGIN and DECLARE inside/);
+    const bodies = findDoBlockBodies(normalized);
+    expect(bodies).toHaveLength(1);
+    expect(doBlockDeclaresNestedSubprogram(bodies[0])).toBe(true);
+  });
+
+  it("self-test: a comment merely mentioning PROCEDURE/FUNCTION near a DO block is not flagged", () => {
+    const sample = `
+      -- this PROCEDURE-like comment and this FUNCTION-like word must not trigger anything
+      DO $$
+      DECLARE
+        v INTEGER;
+      BEGIN
+        v := 1;
+      END;
+      $$;
+    `;
+    const normalized = normalizeSqlKeepingStructure(sample);
+    const bodies = findDoBlockBodies(normalized);
+    expect(bodies).toHaveLength(1);
+    expect(doBlockDeclaresNestedSubprogram(bodies[0])).toBe(false);
+  });
+
+  it.each(allFiles)("%s: no DO block declares a nested PROCEDURE/FUNCTION in its DECLARE section", (file) => {
+    const raw = readMigration(file);
+    const normalized = normalizeSqlKeepingStructure(raw);
+    const bodies = findDoBlockBodies(normalized);
+    for (const body of bodies) {
+      expect(
+        doBlockDeclaresNestedSubprogram(body),
+        `${file} contains a DO block with an illegal nested PROCEDURE/FUNCTION declaration in its DECLARE section`,
+      ).toBe(false);
+    }
+  });
+});

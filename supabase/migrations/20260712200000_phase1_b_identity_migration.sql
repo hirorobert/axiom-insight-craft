@@ -785,46 +785,64 @@ COMMENT ON FUNCTION public.safisha_resolve_exception IS
 
 -- ── SECTION 5: SMOKE TEST ─────────────────────────────────────────────────────
 
+-- NOTE: the original form of this block declared a nested `PROCEDURE
+-- check_col(...)` inside this DO block's DECLARE section. PL/pgSQL has no
+-- feature for nested subprogram declarations (that is Oracle PL/SQL syntax,
+-- not PostgreSQL) — the block was invalid and would fail to parse
+-- (SQLSTATE 42601), aborting this entire migration's implicit transaction
+-- before any of its ALTER TABLE / backfill / function changes could commit.
+-- Rewritten below as a single RECORD loop over an inline VALUES relation —
+-- the same 25 table/column identities, no nested declaration, no ASSERT
+-- (which plpgsql.check_asserts can disable) — using RAISE EXCEPTION instead.
+
 DO $smoke$
 DECLARE
-  v_col BOOLEAN;
-
-  PROCEDURE check_col(p_table TEXT, p_col TEXT) AS $$
-  BEGIN
-    SELECT EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_schema = 'public' AND table_name = p_table AND column_name = p_col
-    ) INTO v_col;
-    ASSERT v_col, FORMAT('FAIL: %s.%s missing after Phase 1-B migration', p_table, p_col);
-  END;
-  $$
-
+  v_check RECORD;
 BEGIN
-  check_col('capital_allowances',       'created_by_member_id');
-  check_col('tax_payments',             'created_by_member_id');
-  check_col('fiscal_periods',           'created_by_member_id');
-  check_col('tax_losses',               'created_by_member_id');
-  check_col('tax_computations',         'cpa_modified_by_member_id');
-  check_col('adjusting_journal_entries','created_by_member_id');
-  check_col('adjusting_journal_entries','approved_by_member_id');
-  check_col('management_inputs',        'created_by_member_id');
-  check_col('statement_sign_offs',      'locked_by_member_id');
-  check_col('safisha_exceptions',       'reviewer_member_id');
-  check_col('safisha_audit_log',        'reviewer_member_id');
-  check_col('account_pl_mapping',       'created_by_member_id');
-  check_col('variance_materiality',     'updated_by_member_id');
-  check_col('variance_budgets',         'submitted_by_member_id');
-  check_col('variance_budgets',         'approved_by_member_id');
-  check_col('variance_runs',            'triggered_by_member_id');
-  check_col('variance_alerts',          'acknowledged_by_member_id');
-  check_col('board_packs',              'generated_by_member_id');
-  check_col('efdms_z_reports',          'imported_by_member_id');
-  check_col('efdms_reconciliation',     'reconciled_by_member_id');
-  check_col('hesabu_validations',       'validated_by_member_id');
-  check_col('xbrl_instance_documents',  'generated_by_member_id');
-  check_col('efdms_records',            'ingested_by_member_id');
-  check_col('findings',                 'created_by_member_id');
-  check_col('evidence_requests',        'created_by_member_id');
+  FOR v_check IN
+    SELECT *
+    FROM (VALUES
+      ('capital_allowances',        'created_by_member_id'),
+      ('tax_payments',              'created_by_member_id'),
+      ('fiscal_periods',            'created_by_member_id'),
+      ('tax_losses',                'created_by_member_id'),
+      ('tax_computations',          'cpa_modified_by_member_id'),
+      ('adjusting_journal_entries', 'created_by_member_id'),
+      ('adjusting_journal_entries', 'approved_by_member_id'),
+      ('management_inputs',         'created_by_member_id'),
+      ('statement_sign_offs',       'locked_by_member_id'),
+      ('safisha_exceptions',        'reviewer_member_id'),
+      ('safisha_audit_log',         'reviewer_member_id'),
+      ('account_pl_mapping',        'created_by_member_id'),
+      ('variance_materiality',      'updated_by_member_id'),
+      ('variance_budgets',          'submitted_by_member_id'),
+      ('variance_budgets',          'approved_by_member_id'),
+      ('variance_runs',             'triggered_by_member_id'),
+      ('variance_alerts',           'acknowledged_by_member_id'),
+      ('board_packs',               'generated_by_member_id'),
+      ('efdms_z_reports',           'imported_by_member_id'),
+      ('efdms_reconciliation',      'reconciled_by_member_id'),
+      ('hesabu_validations',        'validated_by_member_id'),
+      ('xbrl_instance_documents',   'generated_by_member_id'),
+      ('efdms_records',             'ingested_by_member_id'),
+      ('findings',                  'created_by_member_id'),
+      ('evidence_requests',         'created_by_member_id')
+    ) AS checks(table_name, column_name)
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1
+      FROM information_schema.columns c
+      WHERE c.table_schema = 'public'
+        AND c.table_name = v_check.table_name
+        AND c.column_name = v_check.column_name
+    ) THEN
+      RAISE EXCEPTION
+        'Phase 1B smoke check failed: missing public.%.%',
+        v_check.table_name,
+        v_check.column_name
+        USING ERRCODE = '42703';
+    END IF;
+  END LOOP;
 
   RAISE NOTICE 'Phase 1-B smoke test: all 25 _member_id columns confirmed present.';
 END;
