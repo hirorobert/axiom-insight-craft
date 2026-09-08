@@ -14,20 +14,22 @@
 -- source = 'csf_tz_coa' — used in audit queries to identify this origin.
 --
 -- IRON DOME constraints:
---   - INSERT ONLY. These rows are seeded once into saff_default company scope.
+--   - INSERT ONLY. These rows are seeded once into GLOBAL scope
+--     (company_id = NULL) — not tied to any specific company row.
 --   - No rates, no statutory values, no tax computation logic here.
 --   - On conflict (company_id, match_type, match_value): DO NOTHING — never
 --     overwrite a firm's manually-set mappings.
 --
--- pl_category values (all 15 valid per 20260711300000_maono_phase_a.sql):
---   revenue, cost_of_goods_sold, gross_profit (computed),
---   operating_expenses, depreciation_amortisation, employee_costs,
---   finance_costs, other_income, taxation,
---   current_assets, non_current_assets, current_liabilities,
---   non_current_liabilities, equity, ignore
+-- pl_category values (the real 15-value account_pl_mapping enum, defined in
+-- 20260711163040_9ec82b5f-ee11-45e7-942a-65f09f24dddf.sql and duplicated
+-- verbatim in 20260711300000_maono_phase_a.sql):
+--   REVENUE, COST_OF_SALES, OTHER_INCOME, PERSONNEL_COSTS, DEPRECIATION,
+--   AMORTISATION, OTHER_OPEX, FINANCE_INCOME, FINANCE_COSTS, TAX_EXPENSE,
+--   WITHHOLDING_TAX, BALANCE_SHEET_ASSET, BALANCE_SHEET_LIAB,
+--   BALANCE_SHEET_EQUITY, STATISTICAL
 -- ============================================================================
 
--- ── Insert csf_tz pattern seeds for the saff_default company scope ────────────
+-- ── Insert csf_tz pattern seeds for the global (company_id = NULL) scope ──────
 -- All patterns are case-insensitive ILIKE matches (match_type = 'pattern').
 -- The match_value is stored as a simple substring (ILIKE '%value%' applied at
 -- runtime by account_pl_mapping resolution logic).
@@ -37,20 +39,7 @@
 --   match_type = 'pattern' means: account_name ILIKE '%' || match_value || '%'
 
 DO $$
-DECLARE
-  v_company UUID;
 BEGIN
-  -- Resolve the saff_default company
-  SELECT id INTO v_company
-  FROM companies
-  WHERE slug = 'saff_default'
-  LIMIT 1;
-
-  IF v_company IS NULL THEN
-    RAISE NOTICE 'saff_default company not found — csf_tz CoA seed skipped.';
-    RETURN;
-  END IF;
-
   -- ────────────────────────────────────────────────────────────────────────────
   -- SECTION 1: STATUTORY DEDUCTIONS / GOVERNMENT CONTRIBUTIONS
   -- Tanzania-specific employer contribution accounts from csf_tz
@@ -58,52 +47,52 @@ BEGIN
 
   -- NSSF — National Social Security Fund
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'nssf', 80, 'employee_costs', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'nssf', 80, 'PERSONNEL_COSTS', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- PSSF — Public Service Social Security Fund (government employees)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'pssf', 80, 'employee_costs', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'pssf', 80, 'PERSONNEL_COSTS', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- WCF — Workers Compensation Fund
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'wcf', 80, 'employee_costs', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'wcf', 80, 'PERSONNEL_COSTS', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- LAPF — Local Authorities Provident Fund (government local authority workers)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'lapf', 80, 'employee_costs', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'lapf', 80, 'PERSONNEL_COSTS', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- GEPF — Government Employees Provident Fund (parastatal)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'gepf', 80, 'employee_costs', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'gepf', 80, 'PERSONNEL_COSTS', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- NHIF — National Health Insurance Fund
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'nhif', 80, 'employee_costs', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'nhif', 80, 'PERSONNEL_COSTS', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- SDL — Skills Development Levy
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'sdl', 80, 'employee_costs', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'sdl', 80, 'PERSONNEL_COSTS', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'skills development levy', 80, 'employee_costs', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'skills development levy', 80, 'PERSONNEL_COSTS', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- PAYE — Pay As You Earn (employer payable account — balance sheet item)
   -- This is the PAYE payable account, not an expense — classify as current liability
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'paye payable', 80, 'current_liabilities', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'paye payable', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- PAYE expense (the cost borne by employer where applicable, e.g. directors)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'paye expense', 80, 'employee_costs', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'paye expense', 80, 'PERSONNEL_COSTS', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- ────────────────────────────────────────────────────────────────────────────
@@ -112,42 +101,42 @@ BEGIN
 
   -- Output VAT (credit normal — liability to TRA)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'output vat', 80, 'current_liabilities', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'output vat', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'vat payable', 80, 'current_liabilities', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'vat payable', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'kodi ya ongezeko la thamani', 80, 'current_liabilities', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'kodi ya ongezeko la thamani', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- Input VAT (debit normal — receivable from TRA)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'input vat', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'input vat', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'vat receivable', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'vat receivable', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- WHT — Withholding Tax payable (csf_tz: "Withholding Tax Account")
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'withholding tax payable', 80, 'current_liabilities', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'withholding tax payable', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'wht payable', 80, 'current_liabilities', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'wht payable', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'withholding tax', 80, 'current_liabilities', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'withholding tax', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- TRA — Tanzania Revenue Authority (generic payment account)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'tra payable', 80, 'current_liabilities', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'tra payable', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- ────────────────────────────────────────────────────────────────────────────
@@ -158,48 +147,48 @@ BEGIN
 
   -- M-Pesa (Vodacom Tanzania)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'm-pesa', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'm-pesa', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'mpesa', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'mpesa', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- Tigo Pesa (MIC Tanzania)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'tigo pesa', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'tigo pesa', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'tigopesa', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'tigopesa', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- Airtel Money (Airtel Tanzania)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'airtel money', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'airtel money', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- Halotel (Viettel Tanzania) — smaller operator but csf_tz covers it
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'halopesa', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'halopesa', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- T-Pesa (TTCL)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 't-pesa', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 't-pesa', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- Generic mobile money float
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'mobile money', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'mobile money', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'pesa ya simu', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'pesa ya simu', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'e-float', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'e-float', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- ────────────────────────────────────────────────────────────────────────────
@@ -209,99 +198,99 @@ BEGIN
 
   -- Revenue / Income
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'mapato', 80, 'revenue', TRUE, 'csf_tz_coa')  -- income/revenue
+  VALUES (NULL, 'pattern', 'mapato', 80, 'REVENUE', TRUE, 'csf_tz_coa')  -- income/revenue
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'mauzo', 80, 'revenue', TRUE, 'csf_tz_coa')  -- sales
+  VALUES (NULL, 'pattern', 'mauzo', 80, 'REVENUE', TRUE, 'csf_tz_coa')  -- sales
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'faida', 80, 'other_income', TRUE, 'csf_tz_coa')  -- profit/gain
+  VALUES (NULL, 'pattern', 'faida', 80, 'OTHER_INCOME', TRUE, 'csf_tz_coa')  -- profit/gain
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- Expenses
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'gharama', 80, 'operating_expenses', FALSE, 'csf_tz_coa')  -- expenses/costs
+  VALUES (NULL, 'pattern', 'gharama', 80, 'OTHER_OPEX', FALSE, 'csf_tz_coa')  -- expenses/costs
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'mishahara', 80, 'employee_costs', FALSE, 'csf_tz_coa')  -- salaries
+  VALUES (NULL, 'pattern', 'mishahara', 80, 'PERSONNEL_COSTS', FALSE, 'csf_tz_coa')  -- salaries
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'mshahara', 80, 'employee_costs', FALSE, 'csf_tz_coa')  -- salary (singular)
+  VALUES (NULL, 'pattern', 'mshahara', 80, 'PERSONNEL_COSTS', FALSE, 'csf_tz_coa')  -- salary (singular)
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'posho', 80, 'employee_costs', FALSE, 'csf_tz_coa')  -- allowance
+  VALUES (NULL, 'pattern', 'posho', 80, 'PERSONNEL_COSTS', FALSE, 'csf_tz_coa')  -- allowance
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'pango', 80, 'operating_expenses', FALSE, 'csf_tz_coa')  -- rent
+  VALUES (NULL, 'pattern', 'pango', 80, 'OTHER_OPEX', FALSE, 'csf_tz_coa')  -- rent
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'umeme', 80, 'operating_expenses', FALSE, 'csf_tz_coa')  -- electricity/TANESCO
+  VALUES (NULL, 'pattern', 'umeme', 80, 'OTHER_OPEX', FALSE, 'csf_tz_coa')  -- electricity/TANESCO
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'maji', 80, 'operating_expenses', FALSE, 'csf_tz_coa')  -- water
+  VALUES (NULL, 'pattern', 'maji', 80, 'OTHER_OPEX', FALSE, 'csf_tz_coa')  -- water
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'usafiri', 80, 'operating_expenses', FALSE, 'csf_tz_coa')  -- travel/transport
+  VALUES (NULL, 'pattern', 'usafiri', 80, 'OTHER_OPEX', FALSE, 'csf_tz_coa')  -- travel/transport
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'uchakamavu', 80, 'depreciation_amortisation', FALSE, 'csf_tz_coa')  -- depreciation
+  VALUES (NULL, 'pattern', 'uchakamavu', 80, 'DEPRECIATION', FALSE, 'csf_tz_coa')  -- depreciation
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- Assets
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'fedha taslimu', 80, 'current_assets', FALSE, 'csf_tz_coa')  -- cash
+  VALUES (NULL, 'pattern', 'fedha taslimu', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')  -- cash
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'akaunti ya benki', 80, 'current_assets', FALSE, 'csf_tz_coa')  -- bank account
+  VALUES (NULL, 'pattern', 'akaunti ya benki', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')  -- bank account
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'wadai', 80, 'current_assets', FALSE, 'csf_tz_coa')  -- debtors/receivables
+  VALUES (NULL, 'pattern', 'wadai', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')  -- debtors/receivables
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'bidhaa', 80, 'current_assets', FALSE, 'csf_tz_coa')  -- inventory/stock
+  VALUES (NULL, 'pattern', 'bidhaa', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')  -- inventory/stock
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'hisa', 80, 'current_assets', FALSE, 'csf_tz_coa')  -- stock/shares (context: inventory)
+  VALUES (NULL, 'pattern', 'hisa', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')  -- stock/shares (context: inventory)
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'mali', 80, 'non_current_assets', FALSE, 'csf_tz_coa')  -- fixed assets
+  VALUES (NULL, 'pattern', 'mali', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')  -- fixed assets
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- Liabilities
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'madeni', 80, 'current_liabilities', TRUE, 'csf_tz_coa')  -- creditors/payables
+  VALUES (NULL, 'pattern', 'madeni', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')  -- creditors/payables
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'deni', 80, 'current_liabilities', TRUE, 'csf_tz_coa')  -- debt (singular)
+  VALUES (NULL, 'pattern', 'deni', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')  -- debt (singular)
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'mkopo', 80, 'non_current_liabilities', TRUE, 'csf_tz_coa')  -- loan
+  VALUES (NULL, 'pattern', 'mkopo', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')  -- loan
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- Equity
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'mtaji', 80, 'equity', TRUE, 'csf_tz_coa')  -- capital
+  VALUES (NULL, 'pattern', 'mtaji', 80, 'BALANCE_SHEET_EQUITY', TRUE, 'csf_tz_coa')  -- capital
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'akiba ya faida', 80, 'equity', TRUE, 'csf_tz_coa')  -- retained earnings
+  VALUES (NULL, 'pattern', 'akiba ya faida', 80, 'BALANCE_SHEET_EQUITY', TRUE, 'csf_tz_coa')  -- retained earnings
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- ────────────────────────────────────────────────────────────────────────────
@@ -310,51 +299,51 @@ BEGIN
   -- ────────────────────────────────────────────────────────────────────────────
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'crdb', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'crdb', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'nmb bank', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'nmb bank', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'stanbic', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'stanbic', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'equity bank', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'equity bank', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'dtb tanzania', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'dtb tanzania', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'exim bank', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'exim bank', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'kcb tanzania', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'kcb tanzania', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'absa bank', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'absa bank', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'standard chartered', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'standard chartered', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'azania bank', 80, 'current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'azania bank', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'tpb bank', 80, 'current_assets', FALSE, 'csf_tz_coa')  -- Tanzania Postal Bank
+  VALUES (NULL, 'pattern', 'tpb bank', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')  -- Tanzania Postal Bank
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'uchumi commercial', 80, 'current_assets', FALSE, 'csf_tz_coa')  -- microfinance
+  VALUES (NULL, 'pattern', 'uchumi commercial', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')  -- microfinance
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- ────────────────────────────────────────────────────────────────────────────
@@ -364,20 +353,20 @@ BEGIN
 
   -- EFD Sales (EFD-receipted revenue)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'efd sales', 80, 'revenue', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'efd sales', 80, 'REVENUE', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'fiscal sales', 80, 'revenue', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'fiscal sales', 80, 'REVENUE', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- Z-Report rounding/discrepancy account (small balance — ignore in P&L)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'z-report discrepancy', 80, 'ignore', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'z-report discrepancy', 80, 'STATISTICAL', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'efd difference', 80, 'ignore', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'efd difference', 80, 'STATISTICAL', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- ────────────────────────────────────────────────────────────────────────────
@@ -386,50 +375,50 @@ BEGIN
 
   -- TANESCO — electricity utility (expense)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'tanesco', 80, 'operating_expenses', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'tanesco', 80, 'OTHER_OPEX', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- DAWASA / DAWASCO — water utility (expense)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'dawasa', 80, 'operating_expenses', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'dawasa', 80, 'OTHER_OPEX', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'dawasco', 80, 'operating_expenses', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'dawasco', 80, 'OTHER_OPEX', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- TRA corporate income tax (balance sheet — current tax payable)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'income tax payable', 80, 'current_liabilities', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'income tax payable', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'current tax payable', 80, 'current_liabilities', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'current tax payable', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'kodi ya mapato', 80, 'current_liabilities', TRUE, 'csf_tz_coa')  -- income tax (Swahili)
+  VALUES (NULL, 'pattern', 'kodi ya mapato', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')  -- income tax (Swahili)
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- Income tax expense (IS line — taxation)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'income tax expense', 80, 'taxation', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'income tax expense', 80, 'TAX_EXPENSE', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'current tax charge', 80, 'taxation', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'current tax charge', 80, 'TAX_EXPENSE', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   -- Deferred tax (balance sheet)
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'deferred tax liability', 80, 'non_current_liabilities', TRUE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'deferred tax liability', 80, 'BALANCE_SHEET_LIAB', TRUE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
   INSERT INTO account_pl_mapping (company_id, match_type, match_value, match_priority, pl_category, is_credit_normal, source)
-  VALUES (v_company, 'pattern', 'deferred tax asset', 80, 'non_current_assets', FALSE, 'csf_tz_coa')
+  VALUES (NULL, 'pattern', 'deferred tax asset', 80, 'BALANCE_SHEET_ASSET', FALSE, 'csf_tz_coa')
   ON CONFLICT (company_id, match_type, match_value) DO NOTHING;
 
-  RAISE NOTICE 'csf_tz CoA vocabulary seeded into account_pl_mapping for company %.', v_company;
+  RAISE NOTICE 'csf_tz CoA vocabulary seeded into account_pl_mapping (global scope, company_id = NULL).';
 
 END;
 $$;

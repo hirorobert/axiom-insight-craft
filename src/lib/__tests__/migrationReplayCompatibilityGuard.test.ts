@@ -727,3 +727,230 @@ describe("hesabu_gate_before_signoff — corrected original trigger no longer re
     expect(normalizeSqlWhitespace(fixTrigger)).toMatch(/BEFORE INSERT ON public\.statement_sign_offs/i);
   });
 });
+
+describe("csf_tz_coa_seed — global company_id scope and the real uppercase pl_category vocabulary", () => {
+  // A live sequential db push against an empty staging database reached
+  // migration #64 (20260711400100_csf_tz_coa_seed.sql) and failed with
+  // `column "slug" does not exist` (SQLSTATE 42703): the migration looked up
+  // a "saff_default company" by a companies.slug column that has never
+  // existed. A second, independent defect was found on read-only audit: even
+  // after fixing that lookup, every one of the 78 seed rows used an invented
+  // lowercase pl_category vocabulary that matches none of the real 15-value
+  // uppercase enum defined by account_pl_mapping's own CHECK constraint (and
+  // consumed as such by maono-cashflow/maono-compute/maono-monitor). Neither
+  // defect had gone unnoticed by chance — sibling seed migrations for the
+  // same table already establish the correct pattern: company_id = NULL for
+  // global default rule-sets. This correction removes the invalid lookup
+  // entirely (literal NULL, no runtime dependency to fail on), and maps each
+  // of the 78 rows to its evidenced real category, preserving every
+  // match_value, match_priority, is_credit_normal, and source value exactly.
+  const SEED_FILE = "20260711400100_csf_tz_coa_seed.sql";
+  const CREATOR_FILE = "20260711163040_9ec82b5f-ee11-45e7-942a-65f09f24dddf.sql";
+
+  const VALID_PL_CATEGORIES = [
+    "REVENUE", "COST_OF_SALES", "OTHER_INCOME", "PERSONNEL_COSTS", "DEPRECIATION",
+    "AMORTISATION", "OTHER_OPEX", "FINANCE_INCOME", "FINANCE_COSTS", "TAX_EXPENSE",
+    "WITHHOLDING_TAX", "BALANCE_SHEET_ASSET", "BALANCE_SHEET_LIAB", "BALANCE_SHEET_EQUITY", "STATISTICAL",
+  ];
+
+  interface SeedRow {
+    companyIdToken: string;
+    matchValue: string;
+    priority: string;
+    category: string;
+    creditNormal: string;
+    source: string;
+  }
+
+  function extractSeedRows(): SeedRow[] {
+    // The row values (including the pl_category literal) live inside single
+    // quotes, which stripCommentsStringsAndDollarQuotes blanks out by design
+    // — read the raw source with only line comments removed instead.
+    const commentsOnlyStripped = readMigration(SEED_FILE).replace(/--.*$/gm, "");
+    const rowRe = /VALUES \((NULL|v_company), 'pattern', '([^']*)', (\d+), '([A-Za-z_]+)', (TRUE|FALSE), '(csf_tz_coa)'\)/g;
+    const rows: SeedRow[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = rowRe.exec(commentsOnlyStripped)) !== null) {
+      rows.push({
+        companyIdToken: m[1],
+        matchValue: m[2],
+        priority: m[3],
+        category: m[4],
+        creditNormal: m[5],
+        source: m[6],
+      });
+    }
+    return rows;
+  }
+
+  // The exact 78 (match_value, is_credit_normal) pairs as they existed before
+  // this correction — captured directly from the pre-fix file during audit.
+  // Every row's match_value, match_priority (always 80), and is_credit_normal
+  // must still be present, completely unchanged, after the correction —
+  // proving nothing was silently dropped or altered beyond company_id and
+  // pl_category.
+  const ORIGINAL_ROWS: Array<[string, "TRUE" | "FALSE"]> = [
+    ["nssf", "FALSE"], ["pssf", "FALSE"], ["wcf", "FALSE"], ["lapf", "FALSE"], ["gepf", "FALSE"],
+    ["nhif", "FALSE"], ["sdl", "FALSE"], ["skills development levy", "FALSE"],
+    ["paye payable", "TRUE"], ["paye expense", "FALSE"],
+    ["output vat", "TRUE"], ["vat payable", "TRUE"], ["kodi ya ongezeko la thamani", "TRUE"],
+    ["input vat", "FALSE"], ["vat receivable", "FALSE"],
+    ["withholding tax payable", "TRUE"], ["wht payable", "TRUE"], ["withholding tax", "TRUE"],
+    ["tra payable", "TRUE"],
+    ["m-pesa", "FALSE"], ["mpesa", "FALSE"], ["tigo pesa", "FALSE"], ["tigopesa", "FALSE"],
+    ["airtel money", "FALSE"], ["halopesa", "FALSE"], ["t-pesa", "FALSE"], ["mobile money", "FALSE"],
+    ["pesa ya simu", "FALSE"], ["e-float", "FALSE"],
+    ["mapato", "TRUE"], ["mauzo", "TRUE"], ["faida", "TRUE"],
+    ["gharama", "FALSE"], ["mishahara", "FALSE"], ["mshahara", "FALSE"], ["posho", "FALSE"],
+    ["pango", "FALSE"], ["umeme", "FALSE"], ["maji", "FALSE"], ["usafiri", "FALSE"],
+    ["uchakamavu", "FALSE"],
+    ["fedha taslimu", "FALSE"], ["akaunti ya benki", "FALSE"], ["wadai", "FALSE"], ["bidhaa", "FALSE"],
+    ["hisa", "FALSE"], ["mali", "FALSE"],
+    ["madeni", "TRUE"], ["deni", "TRUE"], ["mkopo", "TRUE"],
+    ["mtaji", "TRUE"], ["akiba ya faida", "TRUE"],
+    ["crdb", "FALSE"], ["nmb bank", "FALSE"], ["stanbic", "FALSE"], ["equity bank", "FALSE"],
+    ["dtb tanzania", "FALSE"], ["exim bank", "FALSE"], ["kcb tanzania", "FALSE"], ["absa bank", "FALSE"],
+    ["standard chartered", "FALSE"], ["azania bank", "FALSE"], ["tpb bank", "FALSE"], ["uchumi commercial", "FALSE"],
+    ["efd sales", "TRUE"], ["fiscal sales", "TRUE"], ["z-report discrepancy", "FALSE"], ["efd difference", "FALSE"],
+    ["tanesco", "FALSE"], ["dawasa", "FALSE"], ["dawasco", "FALSE"],
+    ["income tax payable", "TRUE"], ["current tax payable", "TRUE"], ["kodi ya mapato", "TRUE"],
+    ["income tax expense", "FALSE"], ["current tax charge", "FALSE"],
+    ["deferred tax liability", "TRUE"], ["deferred tax asset", "FALSE"],
+  ];
+
+  it("finds exactly 78 account_pl_mapping INSERT statements", () => {
+    const insertCount = (readMigration(SEED_FILE).match(/INSERT INTO account_pl_mapping/g) ?? []).length;
+    expect(insertCount).toBe(78);
+    expect(extractSeedRows().length).toBe(78);
+  });
+
+  it("every INSERT uses literal NULL for company_id — none reference v_company", () => {
+    const rows = extractSeedRows();
+    for (const row of rows) {
+      expect(row.companyIdToken, `${row.matchValue}: company_id must be literal NULL`).toBe("NULL");
+    }
+    expect(rows.filter((r) => r.companyIdToken === "v_company")).toHaveLength(0);
+  });
+
+  it("no companies.slug reference, v_company variable, or saff_default-company lookup remains anywhere in the file", () => {
+    const raw = readMigration(SEED_FILE);
+    expect(raw).not.toMatch(/\bslug\b/i);
+    expect(raw).not.toMatch(/\bv_company\b/);
+    expect(raw).not.toMatch(/saff_default company/i);
+    expect(raw).not.toMatch(/FROM\s+companies\s+WHERE/i);
+    expect(raw).not.toMatch(/DECLARE/i);
+  });
+
+  it("every pl_category belongs to the real 15-value account_pl_mapping enum", () => {
+    const rows = extractSeedRows();
+    const invalid = rows.filter((r) => !VALID_PL_CATEGORIES.includes(r.category));
+    expect(invalid, JSON.stringify(invalid)).toEqual([]);
+  });
+
+  it("the exact resulting category distribution matches 31/15/12/8/4/2/2/2/1/1", () => {
+    const rows = extractSeedRows();
+    const tally: Record<string, number> = {};
+    for (const row of rows) tally[row.category] = (tally[row.category] ?? 0) + 1;
+    expect(tally).toEqual({
+      BALANCE_SHEET_ASSET: 31,
+      BALANCE_SHEET_LIAB: 15,
+      PERSONNEL_COSTS: 12,
+      OTHER_OPEX: 8,
+      REVENUE: 4,
+      TAX_EXPENSE: 2,
+      STATISTICAL: 2,
+      BALANCE_SHEET_EQUITY: 2,
+      OTHER_INCOME: 1,
+      DEPRECIATION: 1,
+    });
+    const total = Object.values(tally).reduce((a, b) => a + b, 0);
+    expect(total).toBe(78);
+  });
+
+  it("every identified tax, WHT, VAT, depreciation, and statistical special case maps exactly as specified", () => {
+    const rows = extractSeedRows();
+    const byValue = (v: string) => rows.find((r) => r.matchValue === v);
+
+    // WHT payable patterns — balance-sheet liability, NOT the WITHHOLDING_TAX P&L category
+    expect(byValue("withholding tax payable")?.category).toBe("BALANCE_SHEET_LIAB");
+    expect(byValue("wht payable")?.category).toBe("BALANCE_SHEET_LIAB");
+    expect(byValue("withholding tax")?.category).toBe("BALANCE_SHEET_LIAB");
+
+    // VAT
+    expect(byValue("input vat")?.category).toBe("BALANCE_SHEET_ASSET");
+    expect(byValue("vat receivable")?.category).toBe("BALANCE_SHEET_ASSET");
+    expect(byValue("output vat")?.category).toBe("BALANCE_SHEET_LIAB");
+    expect(byValue("vat payable")?.category).toBe("BALANCE_SHEET_LIAB");
+    expect(byValue("kodi ya ongezeko la thamani")?.category).toBe("BALANCE_SHEET_LIAB");
+    expect(byValue("tra payable")?.category).toBe("BALANCE_SHEET_LIAB");
+
+    // Income tax expense vs payable
+    expect(byValue("income tax expense")?.category).toBe("TAX_EXPENSE");
+    expect(byValue("current tax charge")?.category).toBe("TAX_EXPENSE");
+    expect(byValue("income tax payable")?.category).toBe("BALANCE_SHEET_LIAB");
+    expect(byValue("current tax payable")?.category).toBe("BALANCE_SHEET_LIAB");
+    expect(byValue("kodi ya mapato")?.category).toBe("BALANCE_SHEET_LIAB");
+
+    // Deferred tax
+    expect(byValue("deferred tax asset")?.category).toBe("BALANCE_SHEET_ASSET");
+    expect(byValue("deferred tax liability")?.category).toBe("BALANCE_SHEET_LIAB");
+
+    // Depreciation (not the combined/invalid category, not AMORTISATION)
+    expect(byValue("uchakamavu")?.category).toBe("DEPRECIATION");
+
+    // Statistical (EFD rounding/discrepancy — excluded from real P&L, not deleted)
+    expect(byValue("z-report discrepancy")?.category).toBe("STATISTICAL");
+    expect(byValue("efd difference")?.category).toBe("STATISTICAL");
+  });
+
+  it("all 78 source values remain 'csf_tz_coa'", () => {
+    const rows = extractSeedRows();
+    expect(rows.every((r) => r.source === "csf_tz_coa")).toBe(true);
+    expect(rows).toHaveLength(78);
+  });
+
+  it("every ON CONFLICT (company_id, match_type, match_value) DO NOTHING clause remains structurally correct and present exactly 78 times", () => {
+    const raw = readMigration(SEED_FILE);
+    const conflictCount = (raw.match(/ON CONFLICT \(company_id, match_type, match_value\) DO NOTHING;/g) ?? []).length;
+    expect(conflictCount).toBe(78);
+  });
+
+  it("the UNIQUE NULLS NOT DISTINCT (company_id, match_type, match_value) constraint exists in the real creator, which sorts before this seed migration", () => {
+    const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
+    expect(files.indexOf(CREATOR_FILE)).toBeLessThan(files.indexOf(SEED_FILE));
+    const creatorText = stripCommentsStringsAndDollarQuotes(readMigration(CREATOR_FILE));
+    expect(creatorText).toMatch(/UNIQUE NULLS NOT DISTINCT \(company_id, match_type, match_value\)/);
+  });
+
+  it("no match_value, match_priority, or is_credit_normal flag was lost — all 78 original rows are still present, unchanged, keyed by match_value", () => {
+    const rows = extractSeedRows();
+    expect(rows).toHaveLength(ORIGINAL_ROWS.length);
+
+    const currentByValue = new Map(rows.map((r) => [r.matchValue, r]));
+    for (const [matchValue, creditNormal] of ORIGINAL_ROWS) {
+      const current = currentByValue.get(matchValue);
+      expect(current, `expected match_value "${matchValue}" to still be present`).toBeDefined();
+      expect(current!.priority, `${matchValue}: match_priority must remain 80`).toBe("80");
+      expect(current!.creditNormal, `${matchValue}: is_credit_normal must be unchanged`).toBe(creditNormal);
+    }
+
+    // No extra or renamed rows either — the two sets are exactly equal.
+    const originalValues = new Set(ORIGINAL_ROWS.map(([v]) => v));
+    const currentValues = new Set(rows.map((r) => r.matchValue));
+    expect(currentValues).toEqual(originalValues);
+  });
+
+  it("no executable or documentation reference to companies.slug or a nonexistent saff_default company remains", () => {
+    const raw = readMigration(SEED_FILE);
+    expect(raw).not.toMatch(/companies\.slug/i);
+    expect(raw).not.toMatch(/saff_default\s+company/i);
+    expect(raw).not.toMatch(/Resolve the saff_default company/i);
+    // The 'csf_tz_coa' source tag itself is unrelated and must remain untouched.
+    expect(raw).toContain("csf_tz_coa");
+  });
+
+  it("the CREATE INDEX idx_account_pl_mapping_csf_tz statement is unchanged", () => {
+    const raw = readMigration(SEED_FILE);
+    expect(raw).toMatch(/CREATE INDEX IF NOT EXISTS idx_account_pl_mapping_csf_tz\s*\n\s*ON account_pl_mapping\(company_id, match_priority, pl_category\)\s*\n\s*WHERE source = 'csf_tz_coa';/);
+  });
+});
