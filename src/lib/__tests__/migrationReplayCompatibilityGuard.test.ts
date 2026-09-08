@@ -558,3 +558,70 @@ describe("trigger replay guard — every migration file, keyed by exact trigger 
     }
   });
 });
+
+describe("idx_safisha_tx_dqc — corrected to reconciliation_id, matching its creator and every real application query", () => {
+  // A live sequential db push against an empty staging database reached
+  // migration #62 (20260711300200_maono_phase_c.sql) and failed at
+  // `column "upload_id" does not exist` (SQLSTATE 42703). safisha_transactions
+  // has never had an upload_id column — every real query against it
+  // (safisha-match, safisha-ingest, ExceptionQueue.tsx) scopes by
+  // reconciliation_id, and the earlier creator migration (20260711163223)
+  // already defines this exact index correctly on reconciliation_id. The
+  // later file's duplicate declaration of the same index name had drifted
+  // to the wrong column. This is a static, source-only proof that the
+  // corrected later definition now matches its creator exactly and no
+  // longer references the nonexistent column.
+  const CREATOR_FILE = "20260711163223_9a12e0e2-cf5f-41dc-8fc5-17d8798a27b2.sql";
+  const LATER_FILE = "20260711300200_maono_phase_c.sql";
+  const SAFISHA_TRANSACTIONS_CREATOR_FILE = "20260711162832_180fac0d-7745-4e36-9902-e35e98cfac33.sql";
+
+  function extractIndexStatement(fileName: string, indexName: string): string {
+    const stripped = stripCommentsStringsAndDollarQuotes(readMigration(fileName));
+    const escapedName = indexName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`CREATE (?:UNIQUE )?INDEX IF NOT EXISTS ${escapedName}[\\s\\S]*?;`);
+    const match = stripped.match(re);
+    if (!match) throw new Error(`Index statement for ${indexName} not found in ${fileName}`);
+    return match[0];
+  }
+
+  it("the creator migration (20260711163223) defines idx_safisha_tx_dqc on (reconciliation_id, dqc_polarity_warning) with predicate WHERE dqc_polarity_warning = TRUE", () => {
+    const stmt = normalizeSqlWhitespace(extractIndexStatement(CREATOR_FILE, "idx_safisha_tx_dqc"));
+    expect(stmt).toBe(
+      normalizeSqlWhitespace(
+        "CREATE INDEX IF NOT EXISTS idx_safisha_tx_dqc ON safisha_transactions(reconciliation_id, dqc_polarity_warning) WHERE dqc_polarity_warning = TRUE;",
+      ),
+    );
+  });
+
+  it("the later migration (20260711300200) now defines the exact same normalized index as its creator — corrected from the previously live-failing upload_id column to reconciliation_id", () => {
+    const creatorStmt = normalizeSqlWhitespace(extractIndexStatement(CREATOR_FILE, "idx_safisha_tx_dqc"));
+    const laterStmt = normalizeSqlWhitespace(extractIndexStatement(LATER_FILE, "idx_safisha_tx_dqc"));
+    expect(laterStmt).toBe(creatorStmt);
+  });
+
+  it("the later index definition no longer references upload_id", () => {
+    const laterStmt = extractIndexStatement(LATER_FILE, "idx_safisha_tx_dqc");
+    expect(laterStmt).not.toMatch(/upload_id/i);
+  });
+
+  it("safisha_transactions has a reconciliation_id column as of its own creating migration, which sorts before the 20260711300200 boundary", () => {
+    const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
+    expect(files.indexOf(SAFISHA_TRANSACTIONS_CREATOR_FILE)).toBeLessThan(files.indexOf(LATER_FILE));
+    const creatorTableText = stripCommentsStringsAndDollarQuotes(readMigration(SAFISHA_TRANSACTIONS_CREATOR_FILE));
+    expect(creatorTableText).toMatch(/CREATE TABLE IF NOT EXISTS safisha_transactions\s*\([\s\S]*?reconciliation_id\s+UUID/);
+  });
+
+  it("no migration in the repository ever adds or depends on safisha_transactions.upload_id — the two identifiers never co-occur within the same statement anywhere", () => {
+    const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
+    const failures: string[] = [];
+    for (const f of files) {
+      const stripped = stripCommentsStringsAndDollarQuotes(readMigration(f));
+      for (const stmt of stripped.split(";")) {
+        if (/safisha_transactions/i.test(stmt) && /\bupload_id\b/i.test(stmt)) {
+          failures.push(`${f}: a single statement references both safisha_transactions and upload_id: ${stmt.trim().slice(0, 200)}`);
+        }
+      }
+    }
+    expect(failures, failures.join("\n")).toEqual([]);
+  });
+});

@@ -200,7 +200,7 @@ COMMENT ON COLUMN safisha_transactions.dqc_sign_detail IS
 
 -- Index for fast DQC exception queue queries
 CREATE INDEX IF NOT EXISTS idx_safisha_tx_dqc
-  ON safisha_transactions(upload_id, dqc_polarity_warning)
+  ON safisha_transactions(reconciliation_id, dqc_polarity_warning)
   WHERE dqc_polarity_warning = TRUE;
 
 -- ── SECURITY DEFINER: maono_write_alert() ────────────────────────────────────
