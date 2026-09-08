@@ -61,6 +61,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS "board_packs_append_only" ON public.board_packs;
 CREATE TRIGGER board_packs_append_only
   BEFORE UPDATE OR DELETE ON board_packs
   FOR EACH ROW EXECUTE FUNCTION maono_block_board_pack_mutation();
@@ -360,6 +361,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS "maono_monitor_runs_no_delete" ON public.maono_monitor_runs;
 CREATE TRIGGER maono_monitor_runs_no_delete
   BEFORE DELETE ON maono_monitor_runs
   FOR EACH ROW EXECUTE FUNCTION maono_block_monitor_run_mutation();

@@ -91,6 +91,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS "trg_amm_immutable" ON public.account_mapping_memory;
 CREATE TRIGGER trg_amm_immutable
   BEFORE UPDATE OR DELETE ON public.account_mapping_memory
   FOR EACH ROW EXECUTE FUNCTION public.account_mapping_memory_immutable();

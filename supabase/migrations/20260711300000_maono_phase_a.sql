@@ -261,6 +261,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS "budget_enforce_immutability" ON public.variance_budgets;
 CREATE TRIGGER budget_enforce_immutability
   BEFORE UPDATE ON variance_budgets
   FOR EACH ROW EXECUTE FUNCTION enforce_budget_immutability();
@@ -279,6 +280,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS "budget_enforce_no_delete" ON public.variance_budgets;
 CREATE TRIGGER budget_enforce_no_delete
   BEFORE DELETE ON variance_budgets
   FOR EACH ROW EXECUTE FUNCTION enforce_budget_no_delete();
@@ -388,6 +390,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS "maono_runs_append_only" ON public.variance_runs;
 CREATE TRIGGER maono_runs_append_only
   BEFORE UPDATE OR DELETE ON variance_runs
   FOR EACH ROW EXECUTE FUNCTION maono_block_run_mutation();
@@ -460,6 +463,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS "maono_analyses_append_only" ON public.variance_analyses;
 CREATE TRIGGER maono_analyses_append_only
   BEFORE UPDATE OR DELETE ON variance_analyses
   FOR EACH ROW EXECUTE FUNCTION maono_block_analysis_mutation();

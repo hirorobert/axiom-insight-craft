@@ -123,6 +123,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS "maono_insights_append_only" ON public.maono_insights;
 CREATE TRIGGER maono_insights_append_only
   BEFORE UPDATE OR DELETE ON maono_insights
   FOR EACH ROW EXECUTE FUNCTION maono_block_insight_mutation();
@@ -200,6 +201,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS "maono_alerts_append_only" ON public.variance_alerts;
 CREATE TRIGGER maono_alerts_append_only
   BEFORE UPDATE OR DELETE ON variance_alerts
   FOR EACH ROW EXECUTE FUNCTION maono_block_alert_mutation();

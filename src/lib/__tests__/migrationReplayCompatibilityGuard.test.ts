@@ -369,3 +369,192 @@ describe("all 10 resolved replay-hardening blockers are explicitly covered by na
     expect(files).toContain(file);
   });
 });
+
+/**
+ * Trigger replay guard — generalized across ALL migrations.
+ *
+ * Exactly the same replay hazard as bare `CREATE POLICY` applies to bare
+ * `CREATE TRIGGER`: PostgreSQL has no `IF NOT EXISTS` form for it, so any
+ * migration that re-declares a trigger name already created (on the same
+ * relation) by an earlier migration will hit `trigger "..." already
+ * exists for relation "..."` (SQLSTATE 42710) on a clean sequential
+ * replay from an empty database, unless it drops that exact name, on
+ * that exact relation, first.
+ *
+ * Identity key = exact trigger name + exact schema-qualified relation,
+ * NOT name alone — two different tables may legitimately share a trigger
+ * name. The first creator of any given name+relation needs no guard;
+ * every later creator must contain its own relation-qualified
+ * `DROP TRIGGER IF EXISTS` strictly before its own `CREATE TRIGGER` for
+ * that exact name. This is NOT whitelisted or narrowed to any known
+ * subset of files — it is evaluated against every migration in the
+ * repository, and fails on any unguarded later creator, wherever it
+ * occurs.
+ */
+function extractTriggerOccurrences(strippedText: string): PolicyOccurrence[] {
+  const results: PolicyOccurrence[] = [];
+  const re = /CREATE TRIGGER\s+"?([a-zA-Z_][a-zA-Z0-9_]*)"?\s+(?:BEFORE|AFTER|INSTEAD OF)\s+[\s\S]*?\bON\s+([a-zA-Z_][a-zA-Z0-9_.]*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(strippedText)) !== null) {
+    const name = m[1];
+    const relation = m[2].includes(".") ? m[2] : `public.${m[2]}`;
+    results.push({ name, relation, index: m.index });
+  }
+  return results;
+}
+
+interface PolicyOccurrence {
+  name: string;
+  relation: string;
+  index: number;
+}
+
+/** Extracts the full `CREATE TRIGGER ... ;` statement text starting at a known index. */
+function extractTriggerStatementAt(strippedText: string, startIndex: number): string {
+  let depth = 0;
+  let endIndex = -1;
+  for (let i = startIndex; i < strippedText.length; i++) {
+    const ch = strippedText[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    else if (ch === ";" && depth === 0) {
+      endIndex = i;
+      break;
+    }
+  }
+  return strippedText.slice(startIndex, endIndex + 1);
+}
+
+function normalizeSqlWhitespace(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim();
+}
+
+describe("trigger replay guard — every migration file, keyed by exact trigger name + exact schema/relation", () => {
+  const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
+  const strippedByFile = new Map<string, string>();
+  for (const f of files) {
+    strippedByFile.set(f, stripCommentsStringsAndDollarQuotes(fs.readFileSync(path.join(MIGRATIONS_DIR, f), "utf-8")));
+  }
+
+  const creatorsByKey = new Map<string, string[]>();
+  for (const f of files) {
+    const text = strippedByFile.get(f)!;
+    for (const occ of extractTriggerOccurrences(text)) {
+      const key = `${occ.name}::${occ.relation}`;
+      if (!creatorsByKey.has(key)) creatorsByKey.set(key, []);
+      const list = creatorsByKey.get(key)!;
+      if (!list.includes(f)) list.push(f);
+    }
+  }
+
+  const duplicateKeys = [...creatorsByKey.entries()].filter(([, fs2]) => fs2.length > 1);
+
+  it("finds exactly 20 duplicate trigger name+relation identities across the repository", () => {
+    expect(duplicateKeys.length).toBe(20);
+  });
+
+  it("the first creator of any trigger name+relation needs no guard; every later creator of that same name+relation contains its own same-relation DROP TRIGGER IF EXISTS strictly before its corresponding CREATE TRIGGER — evaluated against every migration, no exclusions", () => {
+    const failures: string[] = [];
+    for (const [key, creatorFiles] of duplicateKeys) {
+      const [name, relation] = key.split("::");
+      const relBare = relation.startsWith("public.") ? relation.slice("public.".length) : relation;
+      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const createRe = new RegExp(`CREATE TRIGGER\\s+"?${escapedName}"?\\s+(?:BEFORE|AFTER|INSTEAD OF)`);
+      const dropRe = new RegExp(`DROP TRIGGER IF EXISTS\\s+"?${escapedName}"?\\s+ON\\s+(public\\.)?${relBare.replace(".", "\\.")}\\s*;`);
+
+      for (let i = 1; i < creatorFiles.length; i++) {
+        const laterFile = creatorFiles[i];
+        const laterText = strippedByFile.get(laterFile)!;
+        const createIndex = laterText.search(createRe);
+        const dropMatch = laterText.match(dropRe);
+        const dropIndex = dropMatch ? laterText.indexOf(dropMatch[0]) : -1;
+
+        if (createIndex === -1) {
+          failures.push(`${laterFile}: expected to find CREATE TRIGGER "${name}" ON ${relation}`);
+          continue;
+        }
+        if (dropIndex === -1) {
+          failures.push(`${laterFile}: re-creates trigger "${name}" on ${relation} but has no relation-qualified DROP TRIGGER IF EXISTS for it in its own text`);
+          continue;
+        }
+        if (!(dropIndex < createIndex)) {
+          failures.push(`${laterFile}: drop for trigger "${name}" on ${relation} must precede its own recreate`);
+        }
+      }
+    }
+    expect(failures, failures.join("\n")).toEqual([]);
+  });
+
+  // The migrations touched by this correction pass — three SAFISHA
+  // triggers plus the nine additionally-discovered duplicates in the
+  // maono phase a/b/c and account_mapping_memory migrations. For each,
+  // the later CREATE TRIGGER must still encode the exact same trigger
+  // (timing, event, relation, function) as its original creator —
+  // proving the correction inserted DROP TRIGGER statements only, and
+  // never touched the CREATE TRIGGER definitions themselves.
+  const TRIGGER_CORRECTED_FILES: Record<string, string> = {
+    "20260711200000_safisha_core.sql": "20260711162832_180fac0d-7745-4e36-9902-e35e98cfac33.sql",
+    "20260711300000_maono_phase_a.sql": "20260711163040_9ec82b5f-ee11-45e7-942a-65f09f24dddf.sql",
+    "20260711300100_maono_phase_b.sql": "20260711163133_b0024d19-b5fa-4904-a8b7-6adce235fd64.sql",
+    "20260711300200_maono_phase_c.sql": "20260711163223_9a12e0e2-cf5f-41dc-8fc5-17d8798a27b2.sql",
+    "20260811054356_e4768bc4-04df-4222-b2e6-482e35dde61a.sql": "20260811000000_account_mapping_memory.sql",
+  };
+
+  const EXPECTED_TRIGGER_NAMES_BY_FILE: Record<string, string[]> = {
+    "20260711200000_safisha_core.sql": [
+      "safisha_transactions_immutable",
+      "safisha_exceptions_resolve_gate",
+      "safisha_audit_log_immutable",
+    ],
+    "20260711300000_maono_phase_a.sql": [
+      "budget_enforce_immutability",
+      "budget_enforce_no_delete",
+      "maono_runs_append_only",
+      "maono_analyses_append_only",
+    ],
+    "20260711300100_maono_phase_b.sql": ["maono_insights_append_only", "maono_alerts_append_only"],
+    "20260711300200_maono_phase_c.sql": ["board_packs_append_only", "maono_monitor_runs_no_delete"],
+    "20260811054356_e4768bc4-04df-4222-b2e6-482e35dde61a.sql": ["trg_amm_immutable"],
+  };
+
+  it("all 5 trigger-hardening-corrected files' duplicated CREATE TRIGGER definitions still encode the exact same trigger (timing, event, relation, function) as their original creator — the correction added only DROP TRIGGER statements", () => {
+    let checkedCount = 0;
+    for (const [laterFile, creatorFile] of Object.entries(TRIGGER_CORRECTED_FILES)) {
+      const laterText = strippedByFile.get(laterFile)!;
+      const creatorText2 = strippedByFile.get(creatorFile)!;
+      const expectedNames = EXPECTED_TRIGGER_NAMES_BY_FILE[laterFile];
+      const laterOccurrences = extractTriggerOccurrences(laterText).filter((o) => expectedNames.includes(o.name));
+      const creatorOccurrences = extractTriggerOccurrences(creatorText2);
+
+      expect(laterOccurrences.length, `${laterFile}: expected exactly ${expectedNames.length} corrected trigger(s)`).toBe(expectedNames.length);
+
+      for (const laterOcc of laterOccurrences) {
+        const creatorOcc = creatorOccurrences.find(
+          (c) => c.name === laterOcc.name && c.relation === laterOcc.relation,
+        );
+        expect(creatorOcc, `${laterFile}: "${laterOcc.name}" ON ${laterOcc.relation} must have a matching creator occurrence in ${creatorFile}`).toBeDefined();
+
+        const laterBody = normalizeSqlWhitespace(extractTriggerStatementAt(laterText, laterOcc.index));
+        const creatorBody = normalizeSqlWhitespace(extractTriggerStatementAt(creatorText2, creatorOcc!.index));
+        expect(
+          laterBody,
+          `${laterFile}: CREATE TRIGGER "${laterOcc.name}" ON ${laterOcc.relation} must encode the same trigger as its creator (${creatorFile}), aside from whitespace`,
+        ).toBe(creatorBody);
+        checkedCount++;
+      }
+    }
+    // 3 (safisha) + 4 (maono phase a) + 2 (maono phase b) + 2 (maono phase c) + 1 (amm) = 12.
+    expect(checkedCount).toBe(12);
+  });
+
+  it("each of the 12 trigger-hardening guards added by this correction pass is present in its file", () => {
+    for (const [file, names] of Object.entries(EXPECTED_TRIGGER_NAMES_BY_FILE)) {
+      const text = strippedByFile.get(file)!;
+      for (const name of names) {
+        expect(text, `${file} must contain a DROP TRIGGER IF EXISTS guard for "${name}"`).toMatch(
+          new RegExp(`DROP TRIGGER IF EXISTS\\s+"?${name}"?\\s+ON`),
+        );
+      }
+    }
+  });
+});

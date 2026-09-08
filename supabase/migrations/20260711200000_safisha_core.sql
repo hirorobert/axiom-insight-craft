@@ -99,6 +99,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS safisha_transactions_immutable ON safisha_transactions;
 CREATE TRIGGER safisha_transactions_immutable
   BEFORE UPDATE OR DELETE ON safisha_transactions
   FOR EACH ROW EXECUTE FUNCTION safisha_block_transaction_mutation();
@@ -217,6 +218,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS safisha_exceptions_resolve_gate ON safisha_exceptions;
 CREATE TRIGGER safisha_exceptions_resolve_gate
   BEFORE INSERT OR UPDATE OR DELETE ON safisha_exceptions
   FOR EACH ROW EXECUTE FUNCTION safisha_enforce_resolve_gate();
@@ -343,6 +345,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS safisha_audit_log_immutable ON safisha_audit_log;
 CREATE TRIGGER safisha_audit_log_immutable
   BEFORE UPDATE OR DELETE ON safisha_audit_log
   FOR EACH ROW EXECUTE FUNCTION safisha_block_audit_mutation();
