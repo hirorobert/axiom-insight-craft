@@ -954,3 +954,311 @@ describe("csf_tz_coa_seed — global company_id scope and the real uppercase pl_
     expect(raw).toMatch(/CREATE INDEX IF NOT EXISTS idx_account_pl_mapping_csf_tz\s*\n\s*ON account_pl_mapping\(company_id, match_priority, pl_category\)\s*\n\s*WHERE source = 'csf_tz_coa';/);
   });
 });
+
+describe("Correction — chk_rate_or_threshold widened to represent unverified, rate-pending placeholders (20260712000000_gated_unverified_rates.sql)", () => {
+  const FILE = "20260712000000_gated_unverified_rates.sql";
+  const raw = readMigration(FILE);
+
+  function currentCheck(r: { rateIsThreshold: boolean; ratePct: number | null; flatTaxTzs: number | null }): boolean {
+    return r.rateIsThreshold === true || r.ratePct !== null || r.flatTaxTzs !== null;
+  }
+  function proposedCheck(r: {
+    verifiedAt: string | null;
+    rateIsThreshold: boolean;
+    ratePct: number | null;
+    flatTaxTzs: number | null;
+  }): boolean {
+    return r.verifiedAt === null || r.rateIsThreshold === true || r.ratePct !== null || r.flatTaxTzs !== null;
+  }
+
+  it("drops and recreates chk_rate_or_threshold before the INSERT, all inside the same implicit per-file transaction", () => {
+    const dropIdx = raw.indexOf("DROP CONSTRAINT chk_rate_or_threshold");
+    const addIdx = raw.indexOf("ADD CONSTRAINT chk_rate_or_threshold");
+    const insertIdx = raw.indexOf("INSERT INTO public.statutory_rules");
+    expect(dropIdx).toBeGreaterThan(-1);
+    expect(addIdx).toBeGreaterThan(dropIdx);
+    expect(insertIdx).toBeGreaterThan(addIdx);
+    // No explicit BEGIN/COMMIT split — the DDL and INSERT share one implicit
+    // per-file transaction, so a failure anywhere rolls back both together.
+    expect(raw).not.toMatch(/^\s*BEGIN;/m);
+    expect(raw).not.toMatch(/^\s*COMMIT;/m);
+  });
+
+  it("uses a plain DROP CONSTRAINT (no IF EXISTS), preserves the exact constraint name, and adds no NOT VALID", () => {
+    expect(raw).toMatch(/DROP CONSTRAINT chk_rate_or_threshold;/);
+    expect(raw).not.toMatch(/DROP CONSTRAINT IF EXISTS/);
+    expect(raw).not.toMatch(/NOT VALID/);
+  });
+
+  it("the recreated predicate is exactly verified_at-aware, and this migration does not touch the other three CHECK constraints", () => {
+    const checkMatch = raw.match(/ADD CONSTRAINT chk_rate_or_threshold\s*\n\s*CHECK \(([\s\S]*?)\);/);
+    expect(checkMatch).not.toBeNull();
+    const predicate = checkMatch![1].replace(/\s+/g, " ").trim();
+    expect(predicate).toBe(
+      "verified_at IS NULL OR rate_is_threshold = TRUE OR rate_pct IS NOT NULL OR flat_tax_tzs IS NOT NULL",
+    );
+    expect(raw).not.toMatch(/chk_threshold_has_amount/);
+    expect(raw).not.toMatch(/chk_no_threshold_and_flat_tax/);
+    expect(raw).not.toMatch(/chk_effective_dates/);
+  });
+
+  const TRUTH_TABLE_CASES: Array<{
+    label: string;
+    row: { verifiedAt: string | null; rateIsThreshold: boolean; ratePct: number | null; flatTaxTzs: number | null };
+    current: boolean;
+    proposed: boolean;
+  }> = [
+    { label: "unverified, no rate", row: { verifiedAt: null, rateIsThreshold: false, ratePct: null, flatTaxTzs: null }, current: false, proposed: true },
+    { label: "unverified, rate_pct set", row: { verifiedAt: null, rateIsThreshold: false, ratePct: 5, flatTaxTzs: null }, current: true, proposed: true },
+    { label: "unverified, threshold set", row: { verifiedAt: null, rateIsThreshold: true, ratePct: null, flatTaxTzs: null }, current: true, proposed: true },
+    { label: "unverified, flat-tax set", row: { verifiedAt: null, rateIsThreshold: false, ratePct: null, flatTaxTzs: 100000 }, current: true, proposed: true },
+    { label: "verified, no rate", row: { verifiedAt: "2026-01-01", rateIsThreshold: false, ratePct: null, flatTaxTzs: null }, current: false, proposed: false },
+    { label: "verified, rate_pct set", row: { verifiedAt: "2026-01-01", rateIsThreshold: false, ratePct: 5, flatTaxTzs: null }, current: true, proposed: true },
+    { label: "verified, threshold set", row: { verifiedAt: "2026-01-01", rateIsThreshold: true, ratePct: null, flatTaxTzs: null }, current: true, proposed: true },
+    { label: "verified, flat-tax set", row: { verifiedAt: "2026-01-01", rateIsThreshold: false, ratePct: null, flatTaxTzs: 100000 }, current: true, proposed: true },
+  ];
+
+  it.each(TRUTH_TABLE_CASES)("truth table: $label", ({ row, current, proposed }) => {
+    expect(currentCheck(row)).toBe(current);
+    expect(proposedCheck(row)).toBe(proposed);
+  });
+
+  it("exactly one of the eight truth-table cases changes behavior (unverified/no-rate), and verified/no-rate remains rejected under both the current and proposed predicate", () => {
+    const changed = TRUTH_TABLE_CASES.filter((c) => c.current !== c.proposed);
+    expect(changed).toHaveLength(1);
+    expect(changed[0]!.label).toBe("unverified, no rate");
+    const verifiedNoRate = TRUTH_TABLE_CASES.find((c) => c.label === "verified, no rate")!;
+    expect(verifiedNoRate.current).toBe(false);
+    expect(verifiedNoRate.proposed).toBe(false);
+  });
+
+  // All 24 statutory_rules rows statically reconstructable from every
+  // INSERT/UPDATE before migration #67 (20260625110000: 9 rows;
+  // 20260626150000: 9 rows, later verified by 20260701000000;
+  // 20260626160000: 6 rows). Field values transcribed directly from the
+  // migration source read during the read-only audit.
+  const PRE_EXISTING_ROWS: Array<{
+    key: string;
+    rateIsThreshold: boolean;
+    ratePct: number | null;
+    flatTaxTzs: null;
+    verifiedAt?: string;
+  }> = [
+    { key: "sdl", rateIsThreshold: false, ratePct: 4.0, flatTaxTzs: null },
+    { key: "vat_withholding_goods_fa2025", rateIsThreshold: false, ratePct: 3.0, flatTaxTzs: null },
+    { key: "vat_withholding_services_fa2025", rateIsThreshold: false, ratePct: 6.0, flatTaxTzs: null },
+    { key: "vat_reduced_rate_electronic_b2c", rateIsThreshold: false, ratePct: 16.0, flatTaxTzs: null },
+    { key: "wht_undistributed_earnings", rateIsThreshold: false, ratePct: 10.0, flatTaxTzs: null },
+    { key: "wht_hired_motor_vehicles", rateIsThreshold: false, ratePct: 10.0, flatTaxTzs: null },
+    { key: "vat_registration_threshold", rateIsThreshold: true, ratePct: null, flatTaxTzs: null },
+    { key: "cpa_certification_required_individual", rateIsThreshold: true, ratePct: null, flatTaxTzs: null },
+    { key: "cpa_certification_required_corporate", rateIsThreshold: true, ratePct: null, flatTaxTzs: null },
+    { key: "retained_earnings_deemed_distribution", rateIsThreshold: false, ratePct: 15.0, flatTaxTzs: null, verifiedAt: "2026-07-01" },
+    { key: "vat_withholding_goods_fa2026", rateIsThreshold: false, ratePct: 15.0, flatTaxTzs: null, verifiedAt: "2026-07-01" },
+    { key: "vat_withholding_services_fa2026", rateIsThreshold: false, ratePct: 12.0, flatTaxTzs: null, verifiedAt: "2026-07-01" },
+    { key: "presumptive_tax_threshold", rateIsThreshold: true, ratePct: null, flatTaxTzs: null, verifiedAt: "2026-07-01" },
+    { key: "presumptive_tax_top_band_rate", rateIsThreshold: false, ratePct: 4.5, flatTaxTzs: null, verifiedAt: "2026-07-01" },
+    { key: "withholding_crops_livestock_fishery", rateIsThreshold: false, ratePct: 1.0, flatTaxTzs: null, verifiedAt: "2026-07-01" },
+    { key: "single_instalment_food_crops", rateIsThreshold: false, ratePct: 1.0, flatTaxTzs: null, verifiedAt: "2026-07-01" },
+    { key: "single_instalment_forest_produce", rateIsThreshold: false, ratePct: 2.0, flatTaxTzs: null, verifiedAt: "2026-07-01" },
+    { key: "nonresident_digital_service_tax", rateIsThreshold: false, ratePct: 3.0, flatTaxTzs: null, verifiedAt: "2026-07-01" },
+    { key: "presumptive_tax_band1", rateIsThreshold: false, ratePct: 0.0, flatTaxTzs: null },
+    { key: "presumptive_tax_band2_new_tin", rateIsThreshold: false, ratePct: 0.0, flatTaxTzs: null },
+    { key: "presumptive_tax_band3_compliant", rateIsThreshold: false, ratePct: 3.0, flatTaxTzs: null },
+    { key: "presumptive_tax_band3_noncompliant", rateIsThreshold: true, ratePct: null, flatTaxTzs: null },
+    { key: "presumptive_tax_band4_compliant", rateIsThreshold: true, ratePct: 3.0, flatTaxTzs: null },
+    { key: "presumptive_tax_band4_noncompliant", rateIsThreshold: true, ratePct: null, flatTaxTzs: null },
+  ];
+
+  it("has exactly 24 statically reconstructable pre-existing statutory_rules rows from before migration #67", () => {
+    expect(PRE_EXISTING_ROWS).toHaveLength(24);
+    expect(new Set(PRE_EXISTING_ROWS.map((r) => r.key)).size).toBe(24);
+  });
+
+  it("every pre-existing row satisfies the proposed constraint, both in its originally-unverified state and (for the 9 FA2026 rows) after 20260701000000 sets verified_at", () => {
+    for (const r of PRE_EXISTING_ROWS) {
+      expect(
+        proposedCheck({ verifiedAt: null, rateIsThreshold: r.rateIsThreshold, ratePct: r.ratePct, flatTaxTzs: r.flatTaxTzs }),
+        `${r.key} (unverified) must satisfy the proposed constraint`,
+      ).toBe(true);
+      if (r.verifiedAt) {
+        expect(
+          proposedCheck({ verifiedAt: r.verifiedAt, rateIsThreshold: r.rateIsThreshold, ratePct: r.ratePct, flatTaxTzs: r.flatTaxTzs }),
+          `${r.key} (verified) must satisfy the proposed constraint`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  interface PlaceholderRow {
+    triggerCategory: string;
+    statute: string;
+    obligation: string;
+    ratePct: string;
+    thresholdAmount: string;
+    rateIsThreshold: string;
+    jurisdiction: string;
+    industryPack: string;
+    effectiveFrom: string;
+    effectiveTo: string;
+    verifiedAt: string;
+    verifiedBy: string;
+  }
+
+  const ROW_RE =
+    /^'([^']*)',\s*\n\s*'([^']*)',\s*\n\s*'([^']*)',\s*\n\s*(NULL|-?[\d.]+),[^\n]*\n\s*(NULL|-?[\d.]+),[^\n]*\n\s*(true|false),\s*\n\s*'([^']*)',\s*\n\s*'([^']*)',\s*\n\s*'([^']*)',\s*\n\s*(NULL),\s*\n\s*(NULL),[^\n]*\n\s*(NULL),[^\n]*\n/;
+
+  function extractPlaceholderRows(): PlaceholderRow[] {
+    const names = ["min_tax", "thin_cap", "mgmt_fee_cap"];
+    const anchors = names.map((n) => raw.indexOf(`'${n}',`));
+    anchors.forEach((idx, i) => expect(idx, `expected to find row for ${names[i]}`).toBeGreaterThan(-1));
+    const conflictIdx = raw.indexOf("ON CONFLICT (trigger_category");
+    expect(conflictIdx).toBeGreaterThan(-1);
+    const boundaries = [...anchors, conflictIdx];
+
+    return anchors.map((start, i) => {
+      const chunk = raw.slice(start, boundaries[i + 1]);
+      const m = chunk.match(ROW_RE);
+      expect(m, `failed to parse row for ${names[i]}`).not.toBeNull();
+      const [
+        ,
+        triggerCategory,
+        statute,
+        obligation,
+        ratePct,
+        thresholdAmount,
+        rateIsThreshold,
+        jurisdiction,
+        industryPack,
+        effectiveFrom,
+        effectiveTo,
+        verifiedAt,
+        verifiedBy,
+      ] = m!;
+      return {
+        triggerCategory,
+        statute,
+        obligation,
+        ratePct,
+        thresholdAmount,
+        rateIsThreshold,
+        jurisdiction,
+        industryPack,
+        effectiveFrom,
+        effectiveTo,
+        verifiedAt,
+        verifiedBy,
+      };
+    });
+  }
+
+  it("all three placeholders (min_tax, thin_cap, mgmt_fee_cap) exist exactly once, each with every rate field NULL and verified_at/verified_by NULL", () => {
+    const rows = extractPlaceholderRows();
+    expect(rows.map((r) => r.triggerCategory)).toEqual(["min_tax", "thin_cap", "mgmt_fee_cap"]);
+    for (const r of rows) {
+      expect(r.ratePct).toBe("NULL");
+      expect(r.thresholdAmount).toBe("NULL");
+      expect(r.rateIsThreshold).toBe("false");
+      expect(r.verifiedAt).toBe("NULL");
+      expect(r.verifiedBy).toBe("NULL");
+      expect(r.jurisdiction).toBe("TZ");
+      expect(r.industryPack).toBe("general");
+      expect(r.effectiveFrom).toBe("2024-07-01");
+      expect(r.effectiveTo).toBe("NULL");
+    }
+    for (const name of ["min_tax", "thin_cap", "mgmt_fee_cap"]) {
+      const count = (raw.match(new RegExp(`'${name}',`, "g")) ?? []).length;
+      expect(count, `${name} must occur exactly once`).toBe(1);
+    }
+  });
+
+  it("all three placeholders pass every applicable CHECK constraint under the proposed predicate (chk_rate_or_threshold, chk_threshold_has_amount, chk_no_threshold_and_flat_tax, chk_effective_dates)", () => {
+    const rows = extractPlaceholderRows();
+    for (const r of rows) {
+      const parsed = {
+        verifiedAt: r.verifiedAt === "NULL" ? null : r.verifiedAt,
+        rateIsThreshold: r.rateIsThreshold === "true",
+        ratePct: r.ratePct === "NULL" ? null : Number(r.ratePct),
+        flatTaxTzs: null as number | null, // column omitted from this INSERT's column list -> defaults NULL
+      };
+      expect(proposedCheck(parsed), `${r.triggerCategory}: chk_rate_or_threshold`).toBe(true);
+      expect(parsed.rateIsThreshold, `${r.triggerCategory}: rate_is_threshold must be false so chk_threshold_has_amount/chk_no_threshold_and_flat_tax pass trivially`).toBe(false);
+      expect(r.effectiveTo, `${r.triggerCategory}: chk_effective_dates`).toBe("NULL");
+    }
+  });
+
+  it("a placeholder cannot be changed to verified_at NOT NULL while all rate fields remain NULL — the proposed constraint still rejects it", () => {
+    const attemptedVerify = { verifiedAt: "2026-09-08T00:00:00Z", rateIsThreshold: false, ratePct: null, flatTaxTzs: null };
+    expect(proposedCheck(attemptedVerify)).toBe(false);
+  });
+
+  it("is_mandatory does not appear anywhere in the corrected migration", () => {
+    expect(raw).not.toMatch(/is_mandatory/);
+  });
+
+  it("introduces no fabricated numeric rate or threshold value for any of the three placeholders", () => {
+    const rows = extractPlaceholderRows();
+    for (const r of rows) {
+      expect(r.ratePct).toBe("NULL");
+      expect(r.thresholdAmount).toBe("NULL");
+    }
+  });
+
+  it("the ON CONFLICT target columns and WHERE effective_to IS NULL predicate exactly match the uq_statutory_rule_active partial unique index", () => {
+    expect(raw).toMatch(
+      /ON CONFLICT \(trigger_category, jurisdiction, industry_pack\)\s*\n\s*WHERE effective_to IS NULL\s*\nDO NOTHING;/,
+    );
+    const creatorFile = "20260625100000_b3e5c891-7f4a-4d2e-9c18-a6f0d2e8b347.sql";
+    const creatorText = readMigration(creatorFile);
+    expect(creatorText).toMatch(
+      /CREATE UNIQUE INDEX uq_statutory_rule_active\s*\nON public\.statutory_rules \(trigger_category, jurisdiction, industry_pack\)\s*\nNULLS NOT DISTINCT\s*\nWHERE effective_to IS NULL;/,
+    );
+  });
+
+  it("trigger_category, statute, obligation, notes, effective_from, jurisdiction, and industry_pack are unchanged for all three rows", () => {
+    expect(raw).toContain("'Income Tax Act Cap.332 First Schedule para 3(3)'");
+    expect(raw).toContain(
+      "'Alternative Minimum Tax: 1% of turnover when entity has unrelieved losses in current and preceding 2 years. Exempt: agriculture, health, education, tea processing.'",
+    );
+    expect(raw).toContain("'Income Tax Act Cap.332 s.12(2)'");
+    expect(raw).toContain(
+      "'Thin capitalisation: interest disallowance on debt exceeding 7:3 debt-to-equity ratio for exempt-controlled resident entities (25%+ non-resident/exempt ownership). Local bank debt excluded by s.12(5)(ii).'",
+    );
+    expect(raw).toContain("'Income Tax Act Cap.332 s.33'");
+    expect(raw).toContain(
+      "'Management and professional fee cap: fees paid to foreign related parties deductible only up to specified percentage of gross income.'",
+    );
+    expect(raw).toContain("'GATED pending primary-source verification — see kinga-tax-engine gating diff 2026-07-12. '");
+    expect((raw.match(/'2024-07-01'/g) ?? []).length).toBe(3);
+    expect((raw.match(/'TZ'/g) ?? []).length).toBe(3);
+    expect((raw.match(/'general'/g) ?? []).length).toBe(3);
+  });
+
+  it("the enforce_verified_statutory_rule trigger and the findings engine's verified_at query filter remain present and untouched elsewhere in the repo", () => {
+    const triggerFile = "20260625140000_c4e8a291-6d3b-4f7e-a052-b9e1d5c7f384.sql";
+    const triggerText = readMigration(triggerFile);
+    expect(triggerText).toMatch(/CREATE OR REPLACE FUNCTION public\.enforce_verified_statutory_rule\(\)/);
+    expect(triggerText).toMatch(/v_rule\.verified_at IS NULL THEN/);
+
+    const findingsEnginePath = path.join(REPO_ROOT, "supabase/functions/kinga-findings-engine/index.ts");
+    const findingsEngineText = fs.readFileSync(findingsEnginePath, "utf-8");
+    expect(findingsEngineText).toMatch(/\.not\(\s*"verified_at"\s*,\s*"is"\s*,\s*null\s*\)/);
+
+    // This migration touches only public.statutory_rules — it never creates,
+    // drops, or alters the findings table, the trigger, or its function
+    // (its header comment merely names the trigger to explain the gate).
+    expect(raw).not.toMatch(/public\.findings/);
+    expect(raw).not.toMatch(/CREATE (OR REPLACE )?(FUNCTION|TRIGGER)/);
+    expect(raw).not.toMatch(/DROP TRIGGER/);
+  });
+
+  it("no later migration references public.statutory_rules at all — nothing supersedes this correction", () => {
+    const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
+    const idx = files.indexOf(FILE);
+    expect(idx).toBeGreaterThan(-1);
+    for (const f of files.slice(idx + 1)) {
+      const text = readMigration(f);
+      expect(text, `${f} unexpectedly references statutory_rules`).not.toMatch(/statutory_rules/);
+    }
+  });
+});
