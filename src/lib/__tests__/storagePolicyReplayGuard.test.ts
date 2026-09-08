@@ -21,9 +21,26 @@
  * migration that re-declares a policy name already created (on the same
  * relation) by an earlier migration will hit 42710 on sequential replay
  * unless it drops that exact name, on that exact relation, first. The
- * second describe block below scans every migration file and enforces
- * this for every (policy name, schema.relation) identity in the
- * repository, not just the four storage.objects names.
+ * "generalized replay guard" describe block below scans every migration
+ * file and enforces this for every (policy name, schema.relation)
+ * identity in the repository.
+ *
+ * QUOTED/UNQUOTED CORRECTION: an earlier version of the generalized
+ * scanner matched `CREATE POLICY "([^"]+)"` — it required the policy name
+ * to be double-quoted. PostgreSQL policy names do not require quoting
+ * (only identifiers with spaces, mixed case that must be preserved, or
+ * reserved words do), so any migration writing `CREATE POLICY foo ON
+ * bar` with no quotes at all was invisible to that scanner. This was not
+ * theoretical: `20260711200000_safisha_core.sql` declares nine SAFISHA
+ * policies entirely unquoted, duplicating an earlier migration
+ * (20260711162832) with no guard — a real `supabase db push` against a
+ * live database hit `policy "safisha_recon_select" on
+ * "safisha_reconciliations" already exists` (SQLSTATE 42710) at exactly
+ * this point. The scanner below is built on the same quote-aware token
+ * stream as `normalizeSqlPreservingTokens`, recognizes quoted and
+ * unquoted identifiers in either position (name or relation, schema or
+ * table) with correct PostgreSQL folding semantics, and is exercised by
+ * self-tests proving both forms.
  */
 
 import { describe, it, expect } from "vitest";
@@ -53,103 +70,13 @@ function stripComments(sql: string): string {
   return sql.replace(/--.*$/gm, "");
 }
 
-/**
- * Strips line comments, block comments, single-quoted string literals, and
- * dollar-quoted (PL/pgSQL) bodies from a migration's SQL text, replacing
- * each with a single space so surrounding statement structure and byte
- * offsets stay meaningful for substring/index-based checks. Without this,
- * a `CREATE POLICY` or `BEGIN`/`END` occurring inside a function body or a
- * string literal would be indistinguishable from a genuine top-level
- * statement.
- */
-function stripDollarQuotedStringsAndComments(sql: string): string {
-  let out = "";
-  let i = 0;
-  const dollarTagRe = /\$([a-zA-Z_]*)\$/y;
-  while (i < sql.length) {
-    if (sql[i] === "-" && sql[i + 1] === "-") {
-      const nl = sql.indexOf("\n", i);
-      i = nl === -1 ? sql.length : nl + 1;
-      continue;
-    }
-    if (sql[i] === "/" && sql[i + 1] === "*") {
-      const end = sql.indexOf("*/", i + 2);
-      i = end === -1 ? sql.length : end + 2;
-      continue;
-    }
-    if (sql[i] === "'") {
-      let j = i + 1;
-      while (j < sql.length) {
-        if (sql[j] === "'" && sql[j + 1] === "'") {
-          j += 2;
-          continue;
-        }
-        if (sql[j] === "'") {
-          j += 1;
-          break;
-        }
-        j++;
-      }
-      out += " ";
-      i = j;
-      continue;
-    }
-    if (sql[i] === "$") {
-      dollarTagRe.lastIndex = i;
-      const m = dollarTagRe.exec(sql);
-      if (m && m.index === i) {
-        const tag = m[0];
-        const endIdx = sql.indexOf(tag, i + tag.length);
-        i = endIdx === -1 ? sql.length : endIdx + tag.length;
-        out += " ";
-        continue;
-      }
-    }
-    out += sql[i];
-    i++;
-  }
-  return out;
-}
-
-interface PolicyOccurrence {
-  name: string;
-  relation: string; // always schema-qualified, e.g. "public.capital_allowances"
-  index: number; // character offset of the `CREATE POLICY` keyword in the stripped text
-}
-
-function extractPolicyOccurrences(strippedText: string): PolicyOccurrence[] {
-  const results: PolicyOccurrence[] = [];
-  const re = /CREATE POLICY\s+"([^"]+)"\s+ON\s+([a-zA-Z_][a-zA-Z0-9_.]*)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(strippedText)) !== null) {
-    const name = m[1];
-    const relation = m[2].includes(".") ? m[2] : `public.${m[2]}`;
-    results.push({ name, relation, index: m.index });
-  }
-  return results;
-}
-
-/** Extracts the full `CREATE POLICY ... ;` statement text starting at a known index. */
-function extractStatementAt(strippedText: string, startIndex: number): string {
-  let depth = 0;
-  let endIndex = -1;
-  for (let i = startIndex; i < strippedText.length; i++) {
-    const ch = strippedText[i];
-    if (ch === "(") depth++;
-    else if (ch === ")") depth--;
-    else if (ch === ";" && depth === 0) {
-      endIndex = i;
-      break;
-    }
-  }
-  return strippedText.slice(startIndex, endIndex + 1);
-}
-
 type SqlTokenType = "word" | "punct" | "string" | "ident" | "dollar";
 
 interface SqlToken {
   type: SqlTokenType;
   raw: string;
+  /** Character offset of this token's first character in the source string passed to tokenizeSql. */
+  start: number;
 }
 
 /**
@@ -162,7 +89,11 @@ interface SqlToken {
  * its matching close (including doubled `''`/`""` escapes) is consumed as
  * part of that one token's raw text, so nothing inside a string,
  * identifier, or dollar-quoted body is ever mistaken for whitespace,
- * a comment, or a separate token.
+ * a comment, or a separate token. Every token records its own start
+ * offset in the source, so callers can recover exact source spans (e.g.
+ * "from this CREATE keyword to the matching top-level semicolon")
+ * without re-scanning raw characters and risking a false match inside a
+ * string or comment.
  */
 function tokenizeSql(sql: string): SqlToken[] {
   const tokens: SqlToken[] = [];
@@ -214,7 +145,7 @@ function tokenizeSql(sql: string): SqlToken[] {
         }
         j++;
       }
-      tokens.push({ type: "string", raw: sql.slice(i, j) });
+      tokens.push({ type: "string", raw: sql.slice(i, j), start: i });
       i = j;
       continue;
     }
@@ -234,7 +165,7 @@ function tokenizeSql(sql: string): SqlToken[] {
         }
         j++;
       }
-      tokens.push({ type: "ident", raw: sql.slice(i, j) });
+      tokens.push({ type: "ident", raw: sql.slice(i, j), start: i });
       i = j;
       continue;
     }
@@ -248,7 +179,7 @@ function tokenizeSql(sql: string): SqlToken[] {
         const tag = tagMatch[0];
         const endIdx = sql.indexOf(tag, i + tag.length);
         const j = endIdx === -1 ? sql.length : endIdx + tag.length;
-        tokens.push({ type: "dollar", raw: sql.slice(i, j) });
+        tokens.push({ type: "dollar", raw: sql.slice(i, j), start: i });
         i = j;
         continue;
       }
@@ -265,7 +196,7 @@ function tokenizeSql(sql: string): SqlToken[] {
     if (isWordChar(ch)) {
       let j = i + 1;
       while (j < sql.length && isWordChar(sql[j])) j++;
-      tokens.push({ type: "word", raw: sql.slice(i, j) });
+      tokens.push({ type: "word", raw: sql.slice(i, j), start: i });
       i = j;
       continue;
     }
@@ -275,7 +206,7 @@ function tokenizeSql(sql: string): SqlToken[] {
     // adjacent single-character punctuation tokens, which re-serialize
     // byte-for-byte since no separator is ever inserted next to
     // punctuation (see normalizeSqlPreservingTokens below).
-    tokens.push({ type: "punct", raw: ch });
+    tokens.push({ type: "punct", raw: ch, start: i });
     i++;
   }
 
@@ -322,6 +253,146 @@ function normalizeSqlPreservingTokens(sql: string): string {
     out += tokens[i].raw;
   }
   return out;
+}
+
+/**
+ * Resolves a single SQL identifier token to its PostgreSQL catalog name,
+ * applying real folding semantics:
+ *   - a double-quoted identifier keeps its exact contents (with `""`
+ *     un-escaped to `"`), case included — quoted "Foo" and unquoted foo
+ *     are genuinely different catalog names;
+ *   - an unquoted identifier is case-folded to lowercase — unquoted Foo
+ *     and unquoted foo, or unquoted foo and quoted "foo", name the same
+ *     object.
+ * Returns null for any token that isn't a valid identifier position.
+ */
+function resolveSqlIdentifier(token: SqlToken | undefined): { value: string; quoted: boolean } | null {
+  if (!token) return null;
+  if (token.type === "ident") {
+    return { value: token.raw.slice(1, -1).replace(/""/g, '"'), quoted: true };
+  }
+  if (token.type === "word") {
+    return { value: token.raw.toLowerCase(), quoted: false };
+  }
+  return null;
+}
+
+function isKeywordToken(token: SqlToken | undefined, keyword: string): boolean {
+  return !!token && token.type === "word" && token.raw.toUpperCase() === keyword;
+}
+
+type PolicyStatementKind = "CREATE" | "DROP";
+
+interface PolicyStatementOccurrence {
+  kind: PolicyStatementKind;
+  /** Normalized identity: quoted names keep exact case, unquoted names are lowercased. */
+  name: string;
+  nameQuoted: boolean;
+  /** Normalized "schema.relation" — an unqualified relation is assigned schema "public". */
+  relation: string;
+  /** Character offset of the CREATE/DROP keyword in the source text passed to the scanner. */
+  index: number;
+}
+
+/**
+ * Structurally scans SQL text for `CREATE POLICY` and
+ * `DROP POLICY IF EXISTS` statements, recognizing every PostgreSQL
+ * identifier form for both the policy name and the relation — quoted,
+ * unquoted, schema-qualified, unqualified, or any mix of those — with
+ * correct PostgreSQL folding semantics (see `resolveSqlIdentifier`).
+ *
+ * Built directly on the `tokenizeSql` token stream rather than a regex:
+ * a regex that requires literal `"..."` around the name (the defect this
+ * scanner replaces) silently skips every unquoted `CREATE POLICY name ON
+ * table` statement — exactly the form nine real SAFISHA policies in
+ * 20260711200000_safisha_core.sql use. Operating on tokens instead means
+ * comments, string literals, and dollar-quoted bodies can never produce
+ * a false match (they were never tokenized as CREATE/POLICY/ON/IF/EXISTS
+ * keywords or identifiers to begin with), and both quoting styles are
+ * recognized identically because both resolve through the same
+ * `resolveSqlIdentifier` step.
+ */
+function scanPolicyStatements(sql: string): PolicyStatementOccurrence[] {
+  const tokens = tokenizeSql(sql);
+  const results: PolicyStatementOccurrence[] = [];
+
+  function readRelation(tokens: SqlToken[], firstIndex: number): { relation: string; nextIndex: number } | null {
+    const rel1 = resolveSqlIdentifier(tokens[firstIndex]);
+    if (!rel1) return null;
+    if (tokens[firstIndex + 1]?.type === "punct" && tokens[firstIndex + 1].raw === ".") {
+      const rel2 = resolveSqlIdentifier(tokens[firstIndex + 2]);
+      if (rel2) {
+        return { relation: `${rel1.value}.${rel2.value}`, nextIndex: firstIndex + 3 };
+      }
+    }
+    return { relation: `public.${rel1.value}`, nextIndex: firstIndex + 1 };
+  }
+
+  for (let i = 0; i < tokens.length; i++) {
+    if (isKeywordToken(tokens[i], "CREATE") && isKeywordToken(tokens[i + 1], "POLICY")) {
+      const nameInfo = resolveSqlIdentifier(tokens[i + 2]);
+      if (nameInfo && isKeywordToken(tokens[i + 3], "ON")) {
+        const rel = readRelation(tokens, i + 4);
+        if (rel) {
+          results.push({
+            kind: "CREATE",
+            name: nameInfo.value,
+            nameQuoted: nameInfo.quoted,
+            relation: rel.relation,
+            index: tokens[i].start,
+          });
+        }
+      }
+    }
+
+    if (
+      isKeywordToken(tokens[i], "DROP") &&
+      isKeywordToken(tokens[i + 1], "POLICY") &&
+      isKeywordToken(tokens[i + 2], "IF") &&
+      isKeywordToken(tokens[i + 3], "EXISTS")
+    ) {
+      const nameInfo = resolveSqlIdentifier(tokens[i + 4]);
+      if (nameInfo && isKeywordToken(tokens[i + 5], "ON")) {
+        const rel = readRelation(tokens, i + 6);
+        if (rel) {
+          results.push({
+            kind: "DROP",
+            name: nameInfo.value,
+            nameQuoted: nameInfo.quoted,
+            relation: rel.relation,
+            index: tokens[i].start,
+          });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Extracts the full statement text starting at a known token's source
+ * offset, ending at the matching top-level (paren-depth-0) semicolon.
+ * Token-based rather than a raw-character scan: a raw scan for `;` at
+ * depth 0 can be fooled by a semicolon sitting inside a string literal or
+ * comment, which `tokenizeSql` has already excluded from being anything
+ * but part of one string/comment token.
+ */
+function extractStatementAt(sql: string, index: number): string {
+  const tokens = tokenizeSql(sql);
+  const startTokenIndex = tokens.findIndex((t) => t.start === index);
+  if (startTokenIndex === -1) throw new Error(`No token starts at offset ${index}`);
+  let depth = 0;
+  for (let i = startTokenIndex; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type === "punct" && t.raw === "(") depth++;
+    else if (t.type === "punct" && t.raw === ")") depth--;
+    else if (t.type === "punct" && t.raw === ";" && depth === 0) {
+      return sql.slice(index, t.start + 1);
+    }
+  }
+  const last = tokens[tokens.length - 1];
+  return sql.slice(index, last ? last.start + last.raw.length : index);
 }
 
 function extractPolicyBody(sql: string, name: string): string {
@@ -456,75 +527,112 @@ describe("storage-policy replay guard — migration 20260625043303 (corrected re
   });
 });
 
-describe("generalized replay guard — every migration file, keyed by exact policy name + exact schema/relation", () => {
+describe("generalized replay guard — every migration file, keyed by exact normalized policy name + exact schema/relation (quoted and unquoted identifiers both recognized)", () => {
   const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
-  const strippedByFile = new Map<string, string>();
+  const rawByFile = new Map<string, string>();
+  const occurrencesByFile = new Map<string, PolicyStatementOccurrence[]>();
   for (const f of files) {
-    strippedByFile.set(f, stripDollarQuotedStringsAndComments(fs.readFileSync(path.join(MIGRATIONS_DIR, f), "utf-8")));
+    const raw = fs.readFileSync(path.join(MIGRATIONS_DIR, f), "utf-8");
+    rawByFile.set(f, raw);
+    occurrencesByFile.set(f, scanPolicyStatements(raw));
   }
 
-  // identity key = exact policy name + exact schema-qualified relation,
-  // NOT name alone — two different tables may legitimately share a policy
-  // name (e.g. a generic "select" policy), and that must never be treated
-  // as a collision.
-  const creatorsByKey = new Map<string, string[]>();
-  for (const f of files) {
-    const text = strippedByFile.get(f)!;
-    for (const occ of extractPolicyOccurrences(text)) {
+  interface GlobalEvent {
+    kind: PolicyStatementKind;
+    file: string;
+    fileOrder: number;
+    index: number;
+  }
+
+  // identity key = exact normalized policy name + exact normalized
+  // schema-qualified relation, NOT name alone — two different tables may
+  // legitimately share a policy name, and that must never be treated as
+  // a collision.
+  const eventsByKey = new Map<string, GlobalEvent[]>();
+  files.forEach((f, fileOrder) => {
+    for (const occ of occurrencesByFile.get(f)!) {
       const key = `${occ.name}::${occ.relation}`;
-      if (!creatorsByKey.has(key)) creatorsByKey.set(key, []);
-      const list = creatorsByKey.get(key)!;
-      if (!list.includes(f)) list.push(f);
+      if (!eventsByKey.has(key)) eventsByKey.set(key, []);
+      // Events for one file are already emitted in ascending token order
+      // by scanPolicyStatements, and files themselves are iterated here
+      // in filename/apply order, so each key's accumulated event list is
+      // already in true global apply order — no separate sort needed.
+      eventsByKey.get(key)!.push({ kind: occ.kind, file: f, fileOrder, index: occ.index });
     }
-  }
-
-  const duplicateKeys = [...creatorsByKey.entries()].filter(([, fs2]) => fs2.length > 1);
-
-  it("found at least the known duplicate policy identities (sanity check that the scanner is working)", () => {
-    // Guards against a silently-broken extractor reporting zero duplicates.
-    expect(duplicateKeys.length).toBeGreaterThanOrEqual(8);
   });
 
-  it("the first creator of any policy name+relation needs no guard; every later creator of that same name+relation contains its own same-relation DROP POLICY IF EXISTS strictly before its corresponding CREATE POLICY", () => {
+  const createEventsByKey = new Map<string, GlobalEvent[]>();
+  for (const [key, events] of eventsByKey) {
+    createEventsByKey.set(
+      key,
+      events.filter((e) => e.kind === "CREATE"),
+    );
+  }
+  const duplicateKeys = [...createEventsByKey.entries()].filter(([, creates]) => creates.length > 1);
+
+  /** True if event `e` falls strictly after `after` and strictly before `before`, in true file-then-position apply order. */
+  function isStrictlyBetween(e: GlobalEvent, after: GlobalEvent, before: GlobalEvent): boolean {
+    const afterOk = e.fileOrder > after.fileOrder || (e.fileOrder === after.fileOrder && e.index > after.index);
+    const beforeOk = e.fileOrder < before.fileOrder || (e.fileOrder === before.fileOrder && e.index < before.index);
+    return afterOk && beforeOk;
+  }
+
+  it("finds exactly 91 duplicate policy-name/relation identities across the repository", () => {
+    expect(duplicateKeys.length).toBe(91);
+  });
+
+  it("finds exactly 253 total CREATE POLICY occurrences among those 91 duplicate identities", () => {
+    let total = 0;
+    for (const [, creates] of duplicateKeys) total += creates.length;
+    expect(total).toBe(253);
+  });
+
+  it("finds exactly 162 later-creator occurrences — every CREATE POLICY occurrence beyond each identity's first", () => {
+    let total = 0;
+    for (const [, creates] of duplicateKeys) total += creates.length - 1;
+    expect(total).toBe(162);
+  });
+
+  it("every later CREATE POLICY occurrence has its own dedicated DROP POLICY IF EXISTS strictly between it and the immediately preceding CREATE for the same identity — validated occurrence by occurrence, so a single DROP can never incorrectly satisfy more than one later CREATE, even multiple occurrences inside one file", () => {
     const failures: string[] = [];
-    for (const [key, creatorFiles] of duplicateKeys) {
-      const [name, relation] = key.split("::");
-      const relBare = relation.startsWith("public.") ? relation.slice("public.".length) : relation;
-      const escapedName = escapeForRegex(name);
-      const createRe = new RegExp(`CREATE POLICY\\s+"${escapedName}"\\s+ON\\s+(public\\.)?${escapeForRegex(relBare)}\\b`);
-      // Accepts either a fully public.-qualified drop or an unqualified one
-      // (matching whatever schema-qualification style the CREATE itself used) —
-      // what matters is that it targets the same relation, not the exact spelling.
-      const dropRe = new RegExp(`DROP POLICY IF EXISTS\\s+"${escapedName}"\\s+ON\\s+(public\\.)?${escapeForRegex(relBare)}\\s*;`);
-
-      for (let i = 1; i < creatorFiles.length; i++) {
-        const laterFile = creatorFiles[i];
-        const laterText = strippedByFile.get(laterFile)!;
-        const createIndex = laterText.search(createRe);
-        const dropMatch = laterText.match(dropRe);
-        const dropIndex = dropMatch ? laterText.indexOf(dropMatch[0]) : -1;
-
-        if (createIndex === -1) {
-          failures.push(`${laterFile}: expected to find CREATE POLICY "${name}" ON ${relation}`);
-          continue;
-        }
-        if (dropIndex === -1) {
-          failures.push(`${laterFile}: re-creates "${name}" on ${relation} but has no relation-qualified DROP POLICY IF EXISTS for it in its own text`);
-          continue;
-        }
-        if (!(dropIndex < createIndex)) {
-          failures.push(`${laterFile}: drop for "${name}" on ${relation} must precede its own recreate`);
+    let guardedCount = 0;
+    for (const [key, creates] of duplicateKeys) {
+      const drops = eventsByKey.get(key)!.filter((e) => e.kind === "DROP");
+      for (let i = 1; i < creates.length; i++) {
+        const prevCreate = creates[i - 1];
+        const thisCreate = creates[i];
+        const guard = drops.find((d) => isStrictlyBetween(d, prevCreate, thisCreate));
+        if (guard) {
+          guardedCount++;
+        } else {
+          failures.push(
+            `${key}: CREATE POLICY occurrence #${i + 1} in ${thisCreate.file} has no dedicated DROP POLICY IF EXISTS strictly between it and the previous CREATE in ${prevCreate.file}`,
+          );
         }
       }
     }
     expect(failures, failures.join("\n")).toEqual([]);
+    expect(guardedCount).toBe(162);
   });
 
-  // The seven migrations touched by the replay-hardening correction pass.
-  // For each, every duplicated policy's CREATE body must still encode the
-  // exact same authorization rule (role, command, USING/WITH CHECK) as its
-  // original creator — proving the correction inserted DROP statements
-  // only, and never touched the CREATE POLICY bodies themselves.
+  it("zero unguarded later-creator occurrences remain after this correction", () => {
+    let unguarded = 0;
+    for (const [key, creates] of duplicateKeys) {
+      const drops = eventsByKey.get(key)!.filter((e) => e.kind === "DROP");
+      for (let i = 1; i < creates.length; i++) {
+        const guard = drops.find((d) => isStrictlyBetween(d, creates[i - 1], creates[i]));
+        if (!guard) unguarded++;
+      }
+    }
+    expect(unguarded).toBe(0);
+  });
+
+  // The migrations touched by the original replay-hardening correction
+  // pass (Correction B). For each, every duplicated policy's CREATE body
+  // must still encode the exact same authorization rule (role, command,
+  // USING/WITH CHECK) as its original creator — proving the correction
+  // inserted DROP statements only, and never touched the CREATE POLICY
+  // bodies themselves.
   const CORRECTED_FILES: Record<string, string> = {
     "20260629042520_7c1fccd0-e91a-42cb-b09e-93fa907ae316.sql": "20260628100000_tax_engine_schema.sql",
     "20260707200000_iron_dome_nuclear_full.sql": "20260707183617_6cb7067f-cf11-49a5-bf6a-4948c6a2b08b.sql",
@@ -535,13 +643,13 @@ describe("generalized replay guard — every migration file, keyed by exact poli
     "20260811054356_e4768bc4-04df-4222-b2e6-482e35dde61a.sql": "20260811000000_account_mapping_memory.sql",
   };
 
-  it("all 7 replay-hardening-corrected files' duplicated CREATE POLICY bodies still encode the exact same rule as their original creator (whitespace-insensitive) — the correction added only DROP statements", () => {
+  it("all 7 Correction-B files' duplicated CREATE POLICY bodies still encode the exact same rule as their original creator (whitespace-insensitive) — the correction added only DROP statements", () => {
     let checkedCount = 0;
     for (const [laterFile, creatorFile] of Object.entries(CORRECTED_FILES)) {
-      const laterText = strippedByFile.get(laterFile)!;
-      const creatorText2 = strippedByFile.get(creatorFile)!;
-      const laterOccurrences = extractPolicyOccurrences(laterText);
-      const creatorOccurrences = extractPolicyOccurrences(creatorText2);
+      const laterRaw = rawByFile.get(laterFile)!;
+      const creatorRaw = rawByFile.get(creatorFile)!;
+      const laterOccurrences = occurrencesByFile.get(laterFile)!.filter((o) => o.kind === "CREATE");
+      const creatorOccurrences = occurrencesByFile.get(creatorFile)!.filter((o) => o.kind === "CREATE");
 
       for (const laterOcc of laterOccurrences) {
         const creatorOcc = creatorOccurrences.find(
@@ -549,11 +657,11 @@ describe("generalized replay guard — every migration file, keyed by exact poli
         );
         if (!creatorOcc) continue; // unique to the later file, not a duplicate — nothing to compare
 
-        const laterBody = normalizeSqlPreservingTokens(extractStatementAt(laterText, laterOcc.index));
-        const creatorBody = normalizeSqlPreservingTokens(extractStatementAt(creatorText2, creatorOcc.index));
+        const laterBody = normalizeSqlPreservingTokens(extractStatementAt(laterRaw, laterOcc.index));
+        const creatorBody = normalizeSqlPreservingTokens(extractStatementAt(creatorRaw, creatorOcc.index));
         expect(
           laterBody,
-          `${laterFile}: CREATE POLICY "${laterOcc.name}" ON ${laterOcc.relation} must encode the same rule as its creator (${creatorFile}), aside from whitespace`,
+          `${laterFile}: CREATE POLICY ${laterOcc.name} ON ${laterOcc.relation} must encode the same rule as its creator (${creatorFile}), aside from whitespace`,
         ).toBe(creatorBody);
         checkedCount++;
       }
@@ -565,13 +673,48 @@ describe("generalized replay guard — every migration file, keyed by exact poli
     expect(checkedCount).toBe(44);
   });
 
-  it("each of the 10 blockers resolved by the replay-hardening correction pass is covered", () => {
+  it("the nine SAFISHA policy bodies in 20260711200000_safisha_core.sql remain token-identical to their original definitions in 20260711162832 — this correction added only DROP POLICY statements, all nine unquoted names included", () => {
+    const SAFISHA_LATER = "20260711200000_safisha_core.sql";
+    const SAFISHA_CREATOR = "20260711162832_180fac0d-7745-4e36-9902-e35e98cfac33.sql";
+    const SAFISHA_NAMES = [
+      "safisha_recon_select",
+      "safisha_recon_insert",
+      "safisha_recon_update",
+      "safisha_txn_select",
+      "safisha_txn_insert",
+      "safisha_exc_select",
+      "safisha_exc_insert",
+      "safisha_audit_select",
+      "safisha_mapping_all",
+    ];
+
+    const laterRaw = rawByFile.get(SAFISHA_LATER)!;
+    const creatorRaw = rawByFile.get(SAFISHA_CREATOR)!;
+    const laterOccs = occurrencesByFile.get(SAFISHA_LATER)!.filter((o) => o.kind === "CREATE");
+    const creatorOccs = occurrencesByFile.get(SAFISHA_CREATOR)!.filter((o) => o.kind === "CREATE");
+
+    let checked = 0;
+    for (const name of SAFISHA_NAMES) {
+      const laterOcc = laterOccs.find((o) => o.name === name);
+      const creatorOcc = creatorOccs.find((o) => o.name === name);
+      expect(laterOcc, `expected an unquoted CREATE POLICY ${name} in ${SAFISHA_LATER}`).toBeDefined();
+      expect(creatorOcc, `expected an unquoted CREATE POLICY ${name} in ${SAFISHA_CREATOR}`).toBeDefined();
+
+      const laterBody = normalizeSqlPreservingTokens(extractStatementAt(laterRaw, laterOcc!.index));
+      const creatorBody = normalizeSqlPreservingTokens(extractStatementAt(creatorRaw, creatorOcc!.index));
+      expect(laterBody, `${name}: must encode the same rule as its original creator`).toBe(creatorBody);
+      checked++;
+    }
+    expect(checked).toBe(9);
+  });
+
+  it("each of the 10 blockers resolved by the original replay-hardening correction pass is covered", () => {
     // Correction B — 7 files, 44 total guarded policy re-declarations.
     const correctionBFiles = Object.keys(CORRECTED_FILES);
     for (const f of correctionBFiles) {
       expect(files).toContain(f);
-      const text = strippedByFile.get(f)!;
-      expect(text, `${f} must contain at least one DROP POLICY IF EXISTS guard`).toMatch(/DROP POLICY IF EXISTS "/);
+      const drops = occurrencesByFile.get(f)!.filter((o) => o.kind === "DROP");
+      expect(drops.length, `${f} must contain at least one DROP POLICY IF EXISTS guard`).toBeGreaterThan(0);
     }
     expect(correctionBFiles.length).toBe(7);
   });
@@ -646,5 +789,92 @@ describe("normalizeSqlPreservingTokens — quote-aware SQL lexical normalization
     const crlf = lf.replace(/\n/g, "\r\n");
     expect(crlf).not.toBe(lf); // sanity: the two inputs really do differ
     expect(normalizeSqlPreservingTokens(crlf)).toBe(normalizeSqlPreservingTokens(lf));
+  });
+});
+
+describe("scanPolicyStatements — quoted/unquoted identifier recognition self-tests", () => {
+  it("recognizes an entirely unquoted CREATE POLICY statement — the exact form the previous quote-mandatory regex silently missed for all nine SAFISHA policies", () => {
+    const sql = "CREATE POLICY safisha_recon_select ON safisha_reconciliations FOR SELECT USING (client_id = auth.uid());";
+    const occs = scanPolicyStatements(sql);
+    expect(occs).toHaveLength(1);
+    expect(occs[0].kind).toBe("CREATE");
+    expect(occs[0].name).toBe("safisha_recon_select");
+    expect(occs[0].nameQuoted).toBe(false);
+    expect(occs[0].relation).toBe("public.safisha_reconciliations");
+  });
+
+  it("quoted \"foo\" and unquoted foo are the SAME identity (PostgreSQL folds an unquoted name to lowercase, matching an all-lowercase quoted name)", () => {
+    const quoted = scanPolicyStatements('CREATE POLICY "foo" ON t FOR SELECT USING (true);')[0];
+    const unquoted = scanPolicyStatements("CREATE POLICY foo ON t FOR SELECT USING (true);")[0];
+    expect(quoted.name).toBe(unquoted.name);
+    expect(quoted.relation).toBe(unquoted.relation);
+  });
+
+  it('quoted "Foo" remains DISTINCT from unquoted foo (quoting preserves case; folding only applies to the unquoted form)', () => {
+    const quotedMixedCase = scanPolicyStatements('CREATE POLICY "Foo" ON t FOR SELECT USING (true);')[0];
+    const unquoted = scanPolicyStatements("CREATE POLICY foo ON t FOR SELECT USING (true);")[0];
+    expect(quotedMixedCase.name).toBe("Foo");
+    expect(unquoted.name).toBe("foo");
+    expect(quotedMixedCase.name).not.toBe(unquoted.name);
+  });
+
+  it("handles a quoted schema-qualified relation, an unquoted schema-qualified relation, and a mix of the two", () => {
+    const bothQuoted = scanPolicyStatements('CREATE POLICY p ON "public"."t" FOR SELECT USING (true);')[0];
+    const bothUnquoted = scanPolicyStatements("CREATE POLICY p ON public.t FOR SELECT USING (true);")[0];
+    const mixed = scanPolicyStatements('CREATE POLICY p ON public."t" FOR SELECT USING (true);')[0];
+    expect(bothQuoted.relation).toBe("public.t");
+    expect(bothUnquoted.relation).toBe("public.t");
+    expect(mixed.relation).toBe("public.t");
+  });
+
+  it("normalizes an unqualified relation to public.<relation>", () => {
+    const occ = scanPolicyStatements("CREATE POLICY p ON bare_table FOR SELECT USING (true);")[0];
+    expect(occ.relation).toBe("public.bare_table");
+  });
+
+  it("recognizes DROP POLICY IF EXISTS in both quoted and unquoted form", () => {
+    const quotedDrop = scanPolicyStatements('DROP POLICY IF EXISTS "foo" ON public.t;')[0];
+    const unquotedDrop = scanPolicyStatements("DROP POLICY IF EXISTS foo ON public.t;")[0];
+    expect(quotedDrop.kind).toBe("DROP");
+    expect(unquotedDrop.kind).toBe("DROP");
+    expect(quotedDrop.name).toBe(unquotedDrop.name);
+    expect(quotedDrop.relation).toBe(unquotedDrop.relation);
+  });
+
+  it("never matches CREATE POLICY text sitting inside a line comment, a block comment, or a string literal", () => {
+    const sql = [
+      "-- CREATE POLICY fake_from_comment ON faketable FOR SELECT USING (true);",
+      "/* CREATE POLICY fake_from_block ON faketable FOR SELECT USING (true); */",
+      "SELECT 'CREATE POLICY fake_from_string ON faketable FOR SELECT USING (true);';",
+      "CREATE POLICY real_one ON realtable FOR SELECT USING (true);",
+    ].join("\n");
+    const occs = scanPolicyStatements(sql);
+    expect(occs).toHaveLength(1);
+    expect(occs[0].name).toBe("real_one");
+    expect(occs[0].relation).toBe("public.realtable");
+  });
+
+  it("never matches CREATE POLICY text sitting inside a dollar-quoted body", () => {
+    const sql = [
+      "CREATE FUNCTION f() RETURNS void AS $$",
+      "BEGIN",
+      "  -- not a real statement: CREATE POLICY fake_from_dollar ON faketable FOR SELECT USING (true);",
+      "  RAISE NOTICE 'noop';",
+      "END;",
+      "$$ LANGUAGE plpgsql;",
+      "CREATE POLICY real_one ON realtable FOR SELECT USING (true);",
+    ].join("\n");
+    const occs = scanPolicyStatements(sql);
+    expect(occs).toHaveLength(1);
+    expect(occs[0].name).toBe("real_one");
+  });
+
+  it("handles a multiline CREATE POLICY statement identically to the same statement written on one line", () => {
+    const oneLine = "CREATE POLICY p ON t FOR SELECT USING (a = 1);";
+    const multiline = "CREATE POLICY p\n  ON t\n  FOR SELECT\n  USING (\n    a = 1\n  );";
+    const occOne = scanPolicyStatements(oneLine)[0];
+    const occMulti = scanPolicyStatements(multiline)[0];
+    expect(occOne.name).toBe(occMulti.name);
+    expect(occOne.relation).toBe(occMulti.relation);
   });
 });

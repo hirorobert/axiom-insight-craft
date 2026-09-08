@@ -374,16 +374,20 @@ ALTER TABLE safisha_audit_log       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE safisha_client_mappings ENABLE ROW LEVEL SECURITY;
 
 -- safisha_reconciliations: user sees only their own
+DROP POLICY IF EXISTS safisha_recon_select ON public.safisha_reconciliations;
 CREATE POLICY safisha_recon_select ON safisha_reconciliations
   FOR SELECT USING (client_id = auth.uid());
 
+DROP POLICY IF EXISTS safisha_recon_insert ON public.safisha_reconciliations;
 CREATE POLICY safisha_recon_insert ON safisha_reconciliations
   FOR INSERT WITH CHECK (client_id = auth.uid());
 
+DROP POLICY IF EXISTS safisha_recon_update ON public.safisha_reconciliations;
 CREATE POLICY safisha_recon_update ON safisha_reconciliations
   FOR UPDATE USING (client_id = auth.uid());
 
 -- safisha_transactions: user sees only their reconciliations
+DROP POLICY IF EXISTS safisha_txn_select ON public.safisha_transactions;
 CREATE POLICY safisha_txn_select ON safisha_transactions
   FOR SELECT USING (
     reconciliation_id IN (
@@ -391,6 +395,7 @@ CREATE POLICY safisha_txn_select ON safisha_transactions
     )
   );
 
+DROP POLICY IF EXISTS safisha_txn_insert ON public.safisha_transactions;
 CREATE POLICY safisha_txn_insert ON safisha_transactions
   FOR INSERT WITH CHECK (
     reconciliation_id IN (
@@ -400,6 +405,7 @@ CREATE POLICY safisha_txn_insert ON safisha_transactions
 -- NO UPDATE or DELETE policy — trigger blocks it anyway, belt+suspenders
 
 -- safisha_exceptions: user sees only their reconciliations
+DROP POLICY IF EXISTS safisha_exc_select ON public.safisha_exceptions;
 CREATE POLICY safisha_exc_select ON safisha_exceptions
   FOR SELECT USING (
     reconciliation_id IN (
@@ -407,6 +413,7 @@ CREATE POLICY safisha_exc_select ON safisha_exceptions
     )
   );
 
+DROP POLICY IF EXISTS safisha_exc_insert ON public.safisha_exceptions;
 CREATE POLICY safisha_exc_insert ON safisha_exceptions
   FOR INSERT WITH CHECK (
     reconciliation_id IN (
@@ -416,6 +423,7 @@ CREATE POLICY safisha_exc_insert ON safisha_exceptions
 -- NO UPDATE/DELETE policy — must go through safisha_resolve_exception() RPC
 
 -- safisha_audit_log: read-only for the owning user
+DROP POLICY IF EXISTS safisha_audit_select ON public.safisha_audit_log;
 CREATE POLICY safisha_audit_select ON safisha_audit_log
   FOR SELECT USING (
     reconciliation_id IN (
@@ -425,6 +433,7 @@ CREATE POLICY safisha_audit_select ON safisha_audit_log
 -- NO INSERT/UPDATE/DELETE via RLS — only safisha_resolve_exception() SECURITY DEFINER writes here
 
 -- safisha_client_mappings: user manages their own
+DROP POLICY IF EXISTS safisha_mapping_all ON public.safisha_client_mappings;
 CREATE POLICY safisha_mapping_all ON safisha_client_mappings
   FOR ALL USING (client_id = auth.uid()) WITH CHECK (client_id = auth.uid());
 
