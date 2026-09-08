@@ -1470,9 +1470,26 @@ describe("Correction — Phase 1-B smoke test rewritten to remove the invalid ne
     expect(raw).not.toMatch(/^\s*ROLLBACK;/m);
   });
 
-  it("9. all production SQL before the smoke-test section is unchanged — only the smoke-test block differs (content-hash pin)", () => {
-    expect(sha256(preSmoke)).toBe(
-      "e08a4a97075033b2c050e9c3f46a0d0c21959d41d4d375bba4bff82525c87bd4",
+  it("9. all production SQL before the smoke-test section is unchanged — only the smoke-test block differs (content-hash pin, line-ending canonicalized)", () => {
+    // Hash line endings canonicalized to LF: a raw platform-dependent read
+    // (CRLF on a Windows checkout of this repo, LF as actually committed and
+    // as read by a Linux CI runner) would otherwise hash differently for
+    // semantically identical content — proven by the focused self-test below.
+    const canonicalProductionSql = preSmoke.replace(/\r\n?/g, "\n");
+    expect(sha256(canonicalProductionSql)).toBe(
+      "dde1c05f3fe2ef539ab20e21d1ed1c48149c38b60775837c1868c02a55677779",
+    );
+  });
+
+  it("line-ending canonicalization: LF and CRLF (and lone CR) representations of the same production SQL hash identically", () => {
+    const lf = preSmoke.replace(/\r\n?/g, "\n");
+    const crlf = lf.replace(/\n/g, "\r\n");
+    const cr = lf.replace(/\n/g, "\r");
+    const canonicalize = (s: string) => s.replace(/\r\n?/g, "\n");
+    expect(sha256(canonicalize(lf))).toBe(sha256(canonicalize(crlf)));
+    expect(sha256(canonicalize(lf))).toBe(sha256(canonicalize(cr)));
+    expect(sha256(canonicalize(crlf))).toBe(
+      "dde1c05f3fe2ef539ab20e21d1ed1c48149c38b60775837c1868c02a55677779",
     );
   });
 
