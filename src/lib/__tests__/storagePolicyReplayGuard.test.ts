@@ -416,11 +416,23 @@ describe("storage-policy replay guard — migration 20260625043303 (corrected re
     }
   });
 
-  it("the replay migration's four final policy definitions are byte-identical (command, role, USING/WITH CHECK) to the creator's own definitions", () => {
+  it("the replay migration's four final policy definitions encode the exact same rule (command, role, USING/WITH CHECK) as the creator's own definitions", () => {
+    // Compared via normalizeSqlPreservingTokens rather than raw string
+    // equality: these two source files are committed with different line
+    // endings (20260624120000 is LF-only; 20260625043303 is CRLF
+    // throughout) — a pre-existing disparity that a raw .toBe() only
+    // happened to miss locally because core.autocrlf normalizes both to
+    // CRLF on a Windows checkout. GitHub Actions' Ubuntu runner checks
+    // blobs out as committed, with no such conversion, which is what
+    // actually failed CI. The token-preserving normalizer already treats
+    // any whitespace/line-ending gap as insignificant outside quoted
+    // content, so it correctly reports these as the same rule — proven
+    // identical below using the real committed byte content, not a
+    // reformatted copy.
     for (const name of POLICY_NAMES) {
       const creatorBody = extractPolicyBody(creatorCode, name).trim();
       const replayBody = extractPolicyBody(replayCode, name).trim();
-      expect(replayBody).toBe(creatorBody);
+      expect(normalizeSqlPreservingTokens(replayBody)).toBe(normalizeSqlPreservingTokens(creatorBody));
     }
   });
 
@@ -627,5 +639,12 @@ describe("normalizeSqlPreservingTokens — quote-aware SQL lexical normalization
     // whitespace is never load-bearing, so only the quoted literals'
     // exact contents matter here, not spacing around the trailing comma.
     expect(normalized).toContain(",1;");
+  });
+
+  it("a CRLF-terminated statement normalizes identically to the same statement with LF line endings — the exact class of difference that broke this file's original creator/replay comparison on a Linux checkout that does not convert line endings", () => {
+    const lf = 'CREATE POLICY "x" ON t FOR SELECT\n  USING (\n    a = 1\n  );';
+    const crlf = lf.replace(/\n/g, "\r\n");
+    expect(crlf).not.toBe(lf); // sanity: the two inputs really do differ
+    expect(normalizeSqlPreservingTokens(crlf)).toBe(normalizeSqlPreservingTokens(lf));
   });
 });
