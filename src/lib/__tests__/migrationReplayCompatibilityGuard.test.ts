@@ -625,3 +625,105 @@ describe("idx_safisha_tx_dqc — corrected to reconciliation_id, matching its cr
     expect(failures, failures.join("\n")).toEqual([]);
   });
 });
+
+describe("hesabu_gate_before_signoff — corrected original trigger no longer references the nonexistent sign_off_tier column", () => {
+  // A live sequential db push against an empty staging database reached
+  // migration #63 (20260711400000_hesabu_validate.sql) and failed with
+  // `column "new.sign_off_tier" does not exist` (SQLSTATE 42703) at
+  // CREATE TRIGGER time — statement_sign_offs has never had a sign_off_tier
+  // column; the trigger encodes tier-1-only gating structurally (it is
+  // BEFORE INSERT, and only the preparer's initial signature is ever an
+  // INSERT — reviewer/approver sign via UPDATE on the same row). This exact
+  // defect was already diagnosed and fixed by 20260713000000, whose own
+  // header comment documents it; that fix's form is proven correct and
+  // reused verbatim here for the original migration.
+  const ORIGINAL_FILE = "20260711400000_hesabu_validate.sql";
+  const FIX_FILE = "20260713000000_hesabu_trigger_fix.sql";
+  const THIRD_CREATOR_FILE = "20260713090437_914640ba-74cf-4649-8570-30ea18e3fd1d.sql";
+
+  it("the original trigger in 20260711400000 no longer has a WHEN clause referencing sign_off_tier", () => {
+    const stripped = stripCommentsStringsAndDollarQuotes(readMigration(ORIGINAL_FILE));
+    const triggerMatch = stripped.match(/CREATE TRIGGER hesabu_gate_before_signoff[\s\S]*?;/);
+    expect(triggerMatch, "expected to find CREATE TRIGGER hesabu_gate_before_signoff in 20260711400000").toBeTruthy();
+    const triggerText = triggerMatch![0];
+    expect(triggerText).not.toMatch(/WHEN/i);
+    expect(triggerText).not.toMatch(/sign_off_tier/i);
+  });
+
+  it("hesabu_block_signoff() in 20260711400000 returns NEW when NEW.preparer_signed_at IS NULL, as its first executable statement", () => {
+    // The dollar-quoted function body is opaque to stripCommentsStringsAndDollarQuotes
+    // by design (it can't be told apart from an arbitrary PL/pgSQL body in
+    // general) — check the raw source, stripped only of line comments.
+    const commentsOnlyStripped = readMigration(ORIGINAL_FILE).replace(/--.*$/gm, "");
+    const fnMatch = commentsOnlyStripped.match(/CREATE OR REPLACE FUNCTION hesabu_block_signoff\(\)[\s\S]*?^\$\$;/m);
+    expect(fnMatch, "expected to find hesabu_block_signoff() function body").toBeTruthy();
+    const fnBody = fnMatch![0];
+    const beginIdx = fnBody.indexOf("BEGIN");
+    expect(beginIdx, "expected a BEGIN in the function body").toBeGreaterThan(-1);
+    const afterBegin = fnBody.slice(beginIdx + "BEGIN".length);
+    const firstStatement = afterBegin.match(/^\s*IF\s+NEW\.preparer_signed_at\s+IS\s+NULL\s+THEN\s+RETURN\s+NEW;\s*END\s+IF;/i);
+    expect(
+      firstStatement,
+      `expected the preparer_signed_at guard as the first statement after BEGIN, got: ${afterBegin.slice(0, 200)}`,
+    ).toBeTruthy();
+  });
+
+  it("no migration anywhere references NEW.sign_off_tier or statement_sign_offs.sign_off_tier", () => {
+    const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
+    const failures: string[] = [];
+    for (const f of files) {
+      const stripped = stripCommentsStringsAndDollarQuotes(readMigration(f));
+      if (/sign_off_tier/i.test(stripped)) failures.push(f);
+    }
+    expect(failures, `sign_off_tier must not appear in any migration's executable SQL: ${failures.join(", ")}`).toEqual([]);
+  });
+
+  it("the three hesabu_gate_before_signoff creators remain consistent: all three install the trigger with no WHEN clause, BEFORE INSERT, executing hesabu_block_signoff()", () => {
+    for (const f of [ORIGINAL_FILE, FIX_FILE, THIRD_CREATOR_FILE]) {
+      const stripped = stripCommentsStringsAndDollarQuotes(readMigration(f));
+      const triggerMatch = stripped.match(/CREATE TRIGGER hesabu_gate_before_signoff[\s\S]*?;/);
+      expect(triggerMatch, `expected CREATE TRIGGER hesabu_gate_before_signoff in ${f}`).toBeTruthy();
+      const triggerText = normalizeSqlWhitespace(triggerMatch![0]);
+      expect(triggerText, `${f}: trigger must have no WHEN clause`).not.toMatch(/WHEN/i);
+      expect(triggerText, `${f}: trigger must fire BEFORE INSERT on statement_sign_offs`).toMatch(
+        /BEFORE INSERT ON (public\.)?statement_sign_offs/i,
+      );
+      expect(triggerText, `${f}: trigger must execute hesabu_block_signoff()`).toMatch(
+        /EXECUTE FUNCTION (public\.)?hesabu_block_signoff\(\)/i,
+      );
+    }
+  });
+
+  it("both later trigger creators (20260713000000 and 20260713090437) retain their own relation-qualified DROP TRIGGER IF EXISTS guard before their CREATE TRIGGER", () => {
+    for (const f of [FIX_FILE, THIRD_CREATOR_FILE]) {
+      const stripped = stripCommentsStringsAndDollarQuotes(readMigration(f));
+      const dropIndex = stripped.search(/DROP TRIGGER IF EXISTS hesabu_gate_before_signoff ON (public\.)?statement_sign_offs\s*;/i);
+      const createIndex = stripped.search(/CREATE TRIGGER hesabu_gate_before_signoff/i);
+      expect(dropIndex, `${f}: expected a relation-qualified DROP TRIGGER IF EXISTS for hesabu_gate_before_signoff`).toBeGreaterThan(-1);
+      expect(createIndex, `${f}: expected CREATE TRIGGER hesabu_gate_before_signoff`).toBeGreaterThan(-1);
+      expect(dropIndex, `${f}: drop must precede its own recreate`).toBeLessThan(createIndex);
+    }
+  });
+
+  it("the corrected original function's preparer-gate logic matches the authoritative behavior already proven in 20260713000000 (token-normalized), and both triggers omit the WHEN clause", () => {
+    const originalCommentsOnly = readMigration(ORIGINAL_FILE).replace(/--.*$/gm, "");
+    const fixCommentsOnly = readMigration(FIX_FILE).replace(/--.*$/gm, "");
+
+    const originalGuard = originalCommentsOnly.match(/IF\s+NEW\.preparer_signed_at\s+IS\s+NULL\s+THEN\s+RETURN\s+NEW;\s*END\s+IF;/i);
+    const fixGuard = fixCommentsOnly.match(/IF\s+NEW\.preparer_signed_at\s+IS\s+NULL\s+THEN\s+RETURN\s+NEW;\s*END\s+IF;/i);
+    expect(originalGuard, "expected the preparer_signed_at guard in the corrected original").toBeTruthy();
+    expect(fixGuard, "expected the preparer_signed_at guard in the authoritative fix").toBeTruthy();
+    expect(normalizeSqlWhitespace(originalGuard![0])).toBe(normalizeSqlWhitespace(fixGuard![0]));
+
+    const originalTrigger = stripCommentsStringsAndDollarQuotes(readMigration(ORIGINAL_FILE)).match(
+      /CREATE TRIGGER hesabu_gate_before_signoff[\s\S]*?;/,
+    )![0];
+    const fixTrigger = stripCommentsStringsAndDollarQuotes(readMigration(FIX_FILE)).match(
+      /CREATE TRIGGER hesabu_gate_before_signoff[\s\S]*?;/,
+    )![0];
+    expect(originalTrigger).not.toMatch(/WHEN/i);
+    expect(fixTrigger).not.toMatch(/WHEN/i);
+    expect(normalizeSqlWhitespace(originalTrigger)).toMatch(/BEFORE INSERT ON statement_sign_offs/i);
+    expect(normalizeSqlWhitespace(fixTrigger)).toMatch(/BEFORE INSERT ON public\.statement_sign_offs/i);
+  });
+});

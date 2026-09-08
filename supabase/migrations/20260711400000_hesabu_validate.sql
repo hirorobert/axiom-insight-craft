@@ -315,6 +315,12 @@ DECLARE
   v_pass_count INTEGER;
   v_fail_run   hesabu_validations%ROWTYPE;
 BEGIN
+  -- Only gate when preparer is signing (first INSERT with preparer_signed_at set).
+  -- If this INSERT has no preparer_signed_at, it's a draft creation — allow through.
+  IF NEW.preparer_signed_at IS NULL THEN
+    RETURN NEW;
+  END IF;
+
   -- statement_sign_offs has upload_id column
   v_upload_id := NEW.upload_id;
 
@@ -357,7 +363,6 @@ $$;
 CREATE TRIGGER hesabu_gate_before_signoff
   BEFORE INSERT ON statement_sign_offs
   FOR EACH ROW
-  WHEN (NEW.sign_off_tier = 'preparer')   -- only gate the first tier
   EXECUTE FUNCTION hesabu_block_signoff();
 
 -- ── Comments ──────────────────────────────────────────────────────────────────
