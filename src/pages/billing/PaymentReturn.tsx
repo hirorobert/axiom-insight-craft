@@ -61,7 +61,7 @@ export default function PaymentReturn() {
 
     poll(); // immediate first poll
     timerRef.current = setInterval(async () => {
-      if (pollCount >= MAX_POLLS) {
+      if (pollCountRef.current >= MAX_POLLS) {
         clearInterval(timerRef.current!);
         setPhase("TIMEOUT");
         return;
