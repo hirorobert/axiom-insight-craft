@@ -1,10 +1,15 @@
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   TRUST_GUARANTEES,
   PLATFORM_TABLE,
   SECURITY_TABLE,
+  SECURITY_HEADLINE,
+  SECURITY_SUBHEAD,
   PRICING_TABLE,
   PRICING_SECTION,
+  PRICING,
+  JURISDICTION_SECTION,
 } from "@/constants/copy";
 import { ArrowRight } from "lucide-react";
 
@@ -41,10 +46,10 @@ export function Features() {
                   Module
                 </th>
                 <th className="text-left pb-3 pr-10 text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground/60 font-medium">
-                  Function
+                  Capability
                 </th>
                 <th className="text-left pb-3 text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground/60 font-medium w-64">
-                  Statutory Basis
+                  Framework
                 </th>
               </tr>
             </thead>
@@ -94,7 +99,6 @@ export function Features() {
           <SectionLabel label="Financial Integrity Guarantees" />
 
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-14 lg:gap-0">
-            {/* Left: description */}
             <div className="lg:col-span-2 lg:pr-16">
               <h2 className="text-xl font-bold text-foreground mb-4 leading-snug">
                 Non-negotiable structural constraints.
@@ -105,7 +109,6 @@ export function Features() {
                 achievable by bypassing application code.
               </p>
             </div>
-            {/* Right: numbered list */}
             <ol className="lg:col-span-3 lg:border-l lg:border-border lg:pl-14 space-y-4">
               {TRUST_GUARANTEES.map((g, i) => (
                 <li key={i} className="flex items-start gap-5">
@@ -131,17 +134,15 @@ export function Features() {
           <SectionLabel label="Security Architecture" />
 
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-14 lg:gap-0">
-            {/* Left: description */}
             <div className="lg:col-span-2 lg:pr-16">
+              {/* The strongest sentence on the site — given H2 weight per Iron Dome directive */}
               <h2 className="text-xl font-bold text-foreground mb-4 leading-snug">
-                Audit-grade security,<br />enforced structurally.
+                {SECURITY_HEADLINE}
               </h2>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Security properties are structural constraints at the database
-                trigger and function level — not application-layer configuration.
+                {SECURITY_SUBHEAD}
               </p>
             </div>
-            {/* Right: specification table */}
             <div className="lg:col-span-3 lg:border-l lg:border-border lg:pl-14">
               <table className="w-full border-collapse border-t border-border">
                 <tbody>
@@ -162,28 +163,68 @@ export function Features() {
         </div>
       </section>
 
-      {/* ── 04 · LICENSE TERMS ───────────────────────────── */}
-      <section id="pricing" className="px-6 py-20 border-b border-border">
+      {/* ── 04 · JURISDICTION COVERAGE ──────────────────── */}
+      <section
+        id="jurisdiction"
+        tabIndex={-1}
+        aria-label="Jurisdiction coverage"
+        className="px-6 py-20 border-b border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset"
+      >
         <div className="max-w-7xl mx-auto">
-          <SectionLabel label="License Terms" />
+          <SectionLabel label={JURISDICTION_SECTION.headline} />
 
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-14 lg:gap-0">
-            {/* Left: description + CTA */}
+            <div className="lg:col-span-2 lg:pr-16">
+              <h2 className="text-xl font-bold text-foreground mb-4 leading-snug">
+                Global workflow.<br />Jurisdiction-aware output.
+              </h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                The core financial statement workflow operates under IFRS globally.
+                Jurisdiction packs add statutory compliance — activated only when
+                independently validated for each jurisdiction.
+              </p>
+            </div>
+            <div className="lg:col-span-3 lg:border-l lg:border-border lg:pl-14 space-y-8">
+              {JURISDICTION_SECTION.items.map((item) => (
+                <div key={item.label}>
+                  <p className="text-[11px] font-mono font-semibold text-foreground mb-2 uppercase tracking-widest">
+                    {item.label}
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{item.detail}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── 05 · PRICING TEASER ──────────────────────────── */}
+      <section id="pricing" className="px-6 py-20 border-b border-border">
+        <div className="max-w-7xl mx-auto">
+          <SectionLabel label="Pricing" />
+
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-14 lg:gap-0">
             <div className="lg:col-span-2 lg:pr-16">
               <h2 className="text-xl font-bold text-foreground mb-4 leading-snug">
                 {PRICING_SECTION.headline}
               </h2>
-              <p className="text-sm text-muted-foreground leading-relaxed mb-8">
+              <p className="text-sm text-muted-foreground leading-relaxed mb-3">
                 {PRICING_SECTION.subhead}
               </p>
+              <p className="text-sm font-semibold text-foreground mb-8">
+                {PRICING.PAID_NAME} from{" "}
+                <span className="text-primary">
+                  {PRICING.CURRENCY_CODE} {PRICING.ANNUAL_USD}/year
+                </span>{" "}
+                or {PRICING.CURRENCY_CODE} {PRICING.MONTHLY_USD}/month.
+              </p>
               <Button variant="hero" size="default" asChild>
-                <a href={PRICING_SECTION.ctaHref}>
+                <Link to={PRICING_SECTION.ctaHref}>
                   {PRICING_SECTION.cta}
                   <ArrowRight size={14} />
-                </a>
+                </Link>
               </Button>
             </div>
-            {/* Right: terms table */}
             <div className="lg:col-span-3 lg:border-l lg:border-border lg:pl-14">
               <table className="w-full border-collapse border-t border-border">
                 <tbody>

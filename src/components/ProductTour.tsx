@@ -2,15 +2,18 @@ import { Fragment, useEffect, useRef, useState, useCallback } from "react";
 import { Pause, Play, RotateCcw, SkipForward } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────
-// SAFF ERP — 60-Second Inline Product Tour
+// CFOClose — 60-Second Inline Product Tour
 // 5 stages × 12s each. Auto-advances, pauses on hover/focus,
 // click any stage to jump. All mockups are inline SVG/HTML —
 // no external images, no marketing screenshots.
+//
+// Demo identity: MERIDIAN_HOLDINGS_TB_FY2025.CSV — explicitly
+// fictional neutral fixture. USD currency display.
 // ─────────────────────────────────────────────────────────────
 
 const STAGE_MS = 12_000;
 const TICK_MS  = 50;
-const SKIP_STORAGE_KEY = "saff.productTour.skipped";
+const SKIP_STORAGE_KEY = "cfoclose.productTour.skipped";
 
 type Stage = {
   id:       string;
@@ -21,24 +24,25 @@ type Stage = {
 };
 
 // ── Stage 1 · Upload trial balance ─────────────────────────
+// Fictional company: Meridian Holdings (FY2025). USD amounts.
 const UploadFrame: React.FC = () => (
   <div className="w-full h-full p-6 font-mono text-[11px] text-foreground/85 bg-muted/30">
     <div className="flex items-center justify-between border-b border-border pb-2 mb-3">
-      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">KAMANGA_MEDICS_TB_2025.csv</span>
-      <span className="text-[10px] text-success">✓ 46 accounts · balanced</span>
+      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">MERIDIAN_HOLDINGS_TB_FY2025.csv</span>
+      <span className="text-[10px] text-success">✓ 52 accounts · balanced</span>
     </div>
     <div className="grid grid-cols-[1fr_90px_90px] gap-x-4 gap-y-1">
       <span className="text-muted-foreground">Account</span>
-      <span className="text-muted-foreground text-right">Dr (TZS)</span>
-      <span className="text-muted-foreground text-right">Cr (TZS)</span>
+      <span className="text-muted-foreground text-right">Dr (USD)</span>
+      <span className="text-muted-foreground text-right">Cr (USD)</span>
       {[
-        ["Cash at bank",              "412,180,000", ""],
-        ["Trade receivables",         "1,204,050,300", ""],
-        ["Property, plant & equipment","1,777,286,907", ""],
-        ["Trade payables",            "", "684,220,150"],
-        ["Long-term loan — NBC",      "", "2,140,000,000"],
-        ["Sales revenue",             "", "9,396,638,868"],
-        ["Cost of goods sold",        "5,812,440,220", ""],
+        ["Cash and cash equivalents",  "312,480",    ""],
+        ["Trade receivables",          "1,104,250",  ""],
+        ["Property, plant & equipment","2,871,640",  ""],
+        ["Trade payables",             "",           "684,920"],
+        ["Long-term borrowings",       "",           "1,800,000"],
+        ["Revenue",                    "",           "5,396,800"],
+        ["Cost of sales",              "3,412,240",  ""],
       ].map(([a, d, c]) => (
         <Fragment key={a}>
           <span className="truncate">{a}</span>
@@ -49,35 +53,36 @@ const UploadFrame: React.FC = () => (
     </div>
     <div className="mt-3 pt-2 border-t border-border grid grid-cols-[1fr_90px_90px] gap-x-4 font-semibold">
       <span>Total</span>
-      <span className="text-right tabular-nums">17,371,317,215</span>
-      <span className="text-right tabular-nums">17,371,317,215</span>
+      <span className="text-right tabular-nums">11,482,310</span>
+      <span className="text-right tabular-nums">11,482,310</span>
     </div>
   </div>
 );
 
-// ── Stage 2 · Classify & validate ──────────────────────────
-const ClassifyFrame: React.FC = () => (
+// ── Stage 2 · Review & classify ────────────────────────────
+const ReviewFrame: React.FC = () => (
   <div className="w-full h-full p-6 font-mono text-[11px] bg-muted/30">
     <div className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-border pb-2 mb-3">
-      Account classification · confidence graded
+      Account review · confidence graded · reviewer signature required
     </div>
     {[
-      ["Cash at bank",         "Current Asset · Cash",       "99"],
-      ["Trade receivables",    "Current Asset · AR",         "98"],
-      ["Property, plant & equipment","Non-current · PPE",    "97"],
-      ["Long-term loan — NBC", "Non-current Liab · Loan",    "96"],
-      ["Sales revenue",        "Revenue · Operating",        "99"],
-      ["Cost of goods sold",   "Expense · COGS",             "98"],
-    ].map(([acct, cls, conf], i) => (
-      <div key={i} className="grid grid-cols-[1.2fr_1.4fr_60px] gap-3 py-1.5 border-b border-border/40 items-center">
+      ["Cash and cash equivalents",  "Current Asset · Cash",       "99", "✓ Certified"],
+      ["Trade receivables",          "Current Asset · AR",         "98", "✓ Certified"],
+      ["Property, plant & equipment","Non-current · PPE",          "97", "✓ Certified"],
+      ["Long-term borrowings",       "Non-current Liab · Loan",    "96", "✓ Certified"],
+      ["Revenue",                    "Revenue · Operating",        "99", "Pending"],
+      ["Cost of sales",              "Expense · COGS",             "98", "Pending"],
+    ].map(([acct, cls, conf, status], i) => (
+      <div key={i} className="grid grid-cols-[1.1fr_1.3fr_50px_70px] gap-3 py-1.5 border-b border-border/40 items-center">
         <span className="truncate">{acct}</span>
         <span className="text-primary/80">{cls}</span>
         <span className="text-right text-success tabular-nums">{conf}%</span>
+        <span className={`text-right text-[9px] ${status.startsWith("✓") ? "text-success" : "text-muted-foreground"}`}>{status}</span>
       </div>
     ))}
     <div className="mt-3 pt-2 flex items-center gap-4 text-[10px] text-muted-foreground">
       <span className="text-success">✓ Assets = Liabilities + Equity</span>
-      <span className="text-success">✓ 0 unmapped accounts</span>
+      <span className="text-muted-foreground">4 of 6 accounts certified</span>
     </div>
   </div>
 );
@@ -87,16 +92,16 @@ const StatementsFrame: React.FC = () => (
   <div className="w-full h-full p-6 font-mono text-[11px] bg-muted/30 grid grid-cols-2 gap-5">
     <div>
       <div className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-border pb-1.5 mb-2">
-        IAS 1 · Statement of Financial Position
+        Statement of Financial Position
       </div>
       {[
-        ["Non-current assets",  "1,777,286,907"],
-        ["Current assets",      "1,616,230,300"],
-        ["Total assets",        "3,393,517,207", true],
-        ["Equity",              "569,297,057"],
-        ["Non-current liab.",   "2,140,000,000"],
-        ["Current liab.",       "684,220,150"],
-        ["Total equity + liab.","3,393,517,207", true],
+        ["Non-current assets",  "2,871,640"],
+        ["Current assets",      "1,416,730"],
+        ["Total assets",        "4,288,370", true],
+        ["Equity",              "1,803,450"],
+        ["Non-current liab.",   "1,800,000"],
+        ["Current liab.",       "684,920"],
+        ["Total equity + liab.","4,288,370", true],
       ].map(([l, v, bold], i) => (
         <div key={i} className={`flex justify-between py-1 ${bold ? "font-semibold border-t border-border mt-1 pt-1.5" : ""}`}>
           <span className="truncate pr-2">{l}</span>
@@ -106,17 +111,17 @@ const StatementsFrame: React.FC = () => (
     </div>
     <div>
       <div className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-border pb-1.5 mb-2">
-        IAS 1 · Statement of Comprehensive Income
+        Statement of Comprehensive Income
       </div>
       {[
-        ["Revenue",              "9,396,638,868"],
-        ["Cost of sales",        "(5,812,440,220)"],
-        ["Gross profit",         "3,584,198,648", true],
-        ["Operating expenses",   "(3,244,227,852)"],
-        ["Finance costs",        "(158,904,033)"],
-        ["Profit before tax",    "181,066,763", true],
-        ["Income tax expense",   "(54,320,029)"],
-        ["Profit for the year",  "126,746,734", true],
+        ["Revenue",              "5,396,800"],
+        ["Cost of sales",        "(3,412,240)"],
+        ["Gross profit",         "1,984,560", true],
+        ["Operating expenses",   "(1,524,310)"],
+        ["Finance costs",        "(88,400)"],
+        ["Profit before tax",    "371,850", true],
+        ["Income tax expense",   "(111,555)"],
+        ["Profit for the year",  "260,295", true],
       ].map(([l, v, bold], i) => (
         <div key={i} className={`flex justify-between py-1 ${bold ? "font-semibold border-t border-border mt-1 pt-1.5" : ""}`}>
           <span className="truncate pr-2">{l}</span>
@@ -127,47 +132,46 @@ const StatementsFrame: React.FC = () => (
   </div>
 );
 
-// ── Stage 4 · Tax computation ──────────────────────────────
-const TaxFrame: React.FC = () => (
+// ── Stage 4 · Reconcile & verify ───────────────────────────
+const ReconcileFrame: React.FC = () => (
   <div className="w-full h-full p-6 font-mono text-[11px] bg-muted/30">
     <div className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-border pb-2 mb-3">
-      Corporate income tax · ITA Cap.332 + Finance Act 2026
+      Bank reconciliation · evidence verified · audit trail
     </div>
     {[
-      ["Profit before tax",                       "181,066,763"],
-      ["Add: Accounting depreciation",            "158,904,033"],
-      ["Less: ITA wear & tear (6 classes)",       "(158,904,033)"],
-      ["Add: Non-deductible expenses",            "0"],
-      ["Thin cap add-back (s.24A)",               "0"],
-      ["Taxable income",                          "181,066,763", true],
-      ["CIT @ 30%",                               "54,320,029",  true],
-      ["Minimum tax gate (s.65) — 3yr loss check","not triggered"],
-    ].map(([l, v, bold], i) => (
-      <div key={i} className={`flex justify-between py-1.5 ${bold ? "font-semibold border-t border-border mt-1 pt-1.5" : ""}`}>
-        <span className="truncate pr-2">{l}</span>
-        <span className="tabular-nums">{v}</span>
+      ["Opening balance — per bank",  "USD 298,140",  "✓ Matched"],
+      ["Total deposits",              "USD 1,884,300","✓ Matched"],
+      ["Total withdrawals",           "(USD 1,869,960)","✓ Matched"],
+      ["Outstanding cheques",         "(USD 0)",      "✓ Clear"],
+      ["Closing balance — per bank",  "USD 312,480",  "✓ Agrees TB"],
+    ].map(([label, value, status], i) => (
+      <div key={i} className="grid grid-cols-[1.4fr_1fr_90px] gap-3 py-2 border-b border-border/40 items-center">
+        <span className="truncate">{label}</span>
+        <span className="text-right tabular-nums">{value}</span>
+        <span className="text-right text-[9px] text-success">{status}</span>
       </div>
     ))}
     <div className="mt-3 pt-2 text-[10px] text-muted-foreground">
-      Every line traces to a mapped account. Every rate cites the statute section.
+      Every reconciliation line carries a verifiable evidence reference. No silent adjustments.
     </div>
   </div>
 );
 
-// ── Stage 5 · Filing package ───────────────────────────────
+// ── Stage 5 · Filing & monitoring ──────────────────────────
+// Jurisdiction-neutral: shows workflow capability, not TRA-specific items.
 const FilingFrame: React.FC = () => (
   <div className="w-full h-full p-6 font-mono text-[11px] bg-muted/30">
     <div className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-border pb-2 mb-3">
-      Filing package · TRA IDRAS ready
+      Filing package · jurisdiction pack applied · monitoring active
     </div>
     <div className="grid grid-cols-2 gap-3">
       {[
-        ["Tax computation",  "PDF · TRA format",     "ready"],
-        ["XBRL instance",    ".xbrl · schema-valid", "ready"],
-        ["Financial stmts",  "PDF · IFRS notes",     "ready"],
-        ["Wear & tear reg.", "PDF · 6 asset classes","ready"],
-        ["Thin cap workpaper","PDF · s.24A trace",   "ready"],
-        ["Filing checklist", "16/16 items",          "ready"],
+        ["Tax computation",   "Jurisdiction pack format",   "ready"],
+        ["XBRL instance",     "Schema-valid output",        "ready"],
+        ["Financial stmts",   "IFRS-oriented, PDF",         "ready"],
+        ["Workpapers",        "Full line-item trace",        "ready"],
+        ["Filing checklist",  "16/16 items",                "ready"],
+        ["Variance monitor",  "Comparative + alert rules",  "active"],
       ].map(([name, kind, status], i) => (
         <div key={i} className="border border-border p-2.5">
           <div className="flex items-center justify-between mb-1">
@@ -179,22 +183,22 @@ const FilingFrame: React.FC = () => (
       ))}
     </div>
     <div className="mt-4 text-[10px] text-muted-foreground">
-      One verified trial balance in. IFRS statements, tax computation, and TRA filing package out.
+      One verified trial balance in. Statements, jurisdiction-specific filing package, and monitoring out.
     </div>
   </div>
 );
 
 const STAGES: Stage[] = [
-  { id: "upload",     label: "01 · Upload",      title: "Import the trial balance",
-    detail: "CSV or XLSX. Duplicate detection and balance check on ingest.", Frame: UploadFrame },
-  { id: "classify",   label: "02 · Classify",    title: "Auto-map every account",
-    detail: "Each account is classified and confidence-graded before it enters the statements.", Frame: ClassifyFrame },
-  { id: "statements", label: "03 · Statements",  title: "IFRS statements generated",
-    detail: "Statement of Financial Position and Statement of Comprehensive Income, from the mapped ledger.", Frame: StatementsFrame },
-  { id: "tax",        label: "04 · Tax",         title: "Corporate tax computed",
-    detail: "Wear & tear, thin capitalisation, and minimum tax gate applied line by line to the statute.", Frame: TaxFrame },
-  { id: "filing",     label: "05 · Filing",      title: "TRA filing package ready",
-    detail: "PDF tax computation, XBRL instance, and workpapers assembled in one archive.", Frame: FilingFrame },
+  { id: "upload",    label: "01 · Upload",    title: "Import the trial balance",
+    detail: "CSV or XLSX accepted. MERIDIAN_HOLDINGS_TB_FY2025.csv — fictional neutral fixture. Duplicate detection and balance check on ingest.", Frame: UploadFrame },
+  { id: "review",   label: "02 · Review",    title: "Certify every account",
+    detail: "Each account is classified, confidence-graded, and requires professional certification before it enters the statements.", Frame: ReviewFrame },
+  { id: "report",   label: "03 · Report",    title: "IFRS-oriented statements",
+    detail: "Statement of Financial Position and Statement of Comprehensive Income, from the certified ledger. Comparative periods included.", Frame: StatementsFrame },
+  { id: "reconcile",label: "04 · Reconcile", title: "Bank reconciliation verified",
+    detail: "Bank statement matched to the trial balance with a complete evidence trail. No silent adjustments.", Frame: ReconcileFrame },
+  { id: "file",     label: "05 · File",      title: "Jurisdiction-aware filing",
+    detail: "Filing package assembled from the verified statements. Jurisdiction pack applied. Monitoring alerts configured.", Frame: FilingFrame },
 ];
 
 export function ProductTour() {
@@ -204,7 +208,7 @@ export function ProductTour() {
     catch { return false; }
   });
   const [active,  setActive]  = useState(0);
-  const [elapsed, setElapsed] = useState(0);   // ms into current stage
+  const [elapsed, setElapsed] = useState(0);
   const [playing, setPlaying] = useState(true);
   const timerRef = useRef<number | null>(null);
 
@@ -225,7 +229,6 @@ export function ProductTour() {
     return clear;
   }, [playing, skipped]);
 
-
   const jump = useCallback((i: number) => {
     setActive(i);
     setElapsed(0);
@@ -234,12 +237,12 @@ export function ProductTour() {
   const restart = useCallback(() => { setActive(0); setElapsed(0); setPlaying(true); }, []);
 
   const skip = useCallback(() => {
-    try { window.localStorage.setItem(SKIP_STORAGE_KEY, "1"); } catch {}
+    try { window.localStorage.setItem(SKIP_STORAGE_KEY, "1"); } catch (_e) { /* storage unavailable — ignored */ }
     setSkipped(true);
   }, []);
 
   const resume = useCallback(() => {
-    try { window.localStorage.removeItem(SKIP_STORAGE_KEY); } catch {}
+    try { window.localStorage.removeItem(SKIP_STORAGE_KEY); } catch (_e) { /* storage unavailable — ignored */ }
     setSkipped(false);
     setActive(0);
     setElapsed(0);
@@ -248,8 +251,8 @@ export function ProductTour() {
 
   useEffect(() => {
     const onReset = () => resume();
-    window.addEventListener("saff-reset-product-tour", onReset);
-    return () => window.removeEventListener("saff-reset-product-tour", onReset);
+    window.addEventListener("cfoclose-reset-product-tour", onReset);
+    return () => window.removeEventListener("cfoclose-reset-product-tour", onReset);
   }, [resume]);
 
   if (skipped) {
@@ -325,7 +328,7 @@ export function ProductTour() {
           </div>
         </div>
 
-        {/* Stage rail — scrolls horizontally on narrow viewports */}
+        {/* Stage rail */}
         <div className="flex sm:grid sm:grid-cols-5 gap-0 border-t border-border overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {STAGES.map((s, i) => {
             const isActive = i === active;
@@ -340,7 +343,6 @@ export function ProductTour() {
                   isActive ? "bg-muted/40" : "hover:bg-muted/20"
                 }`}
               >
-                {/* progress bar at top */}
                 <span className="absolute top-0 left-0 h-[2px] bg-primary transition-[width] duration-75 ease-linear"
                       style={{ width: `${fill}%` }} />
                 <div className={`text-[10px] font-mono uppercase tracking-widest mb-1 ${

@@ -39,7 +39,7 @@ export function Hero() {
         </div>
       </div>
 
-      {/* ── Proof ledger: the eye's resting place ─────────────── */}
+      {/* ── Proof ledger ─────────────────────────────────────── */}
       <div className="border-t border-border">
         <dl className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border">
           {HERO_LEDGER.map((item) => (
@@ -60,7 +60,7 @@ export function Hero() {
         </dl>
       </div>
 
-      {/* ── Statutory footing ─────────────────────────────────── */}
+      {/* ── Jurisdiction footing — global, honest ────────────── */}
       <div className="border-t border-border bg-muted/20">
         <p className="max-w-7xl mx-auto px-6 py-4 text-[10px] font-mono leading-relaxed text-muted-foreground/70">
           {HERO_FOOTING}

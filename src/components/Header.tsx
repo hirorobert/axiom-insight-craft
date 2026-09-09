@@ -39,20 +39,30 @@ export function Header() {
       <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
 
         {/* Logo */}
-        <Link to="/" className="inline-flex items-center" aria-label="SAFF ERP home">
+        <Link to="/" className="inline-flex items-center" aria-label="CFOClose home">
           <SaffLogo variant="header" className="h-11 md:h-12 lg:h-14 w-auto" />
         </Link>
 
         {/* Desktop Nav */}
         <nav className="hidden md:flex items-center gap-8">
           {isLanding && NAV.map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {item.label}
-            </a>
+            item.href.startsWith("/") ? (
+              <Link
+                key={item.href}
+                to={item.href}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {item.label}
+              </Link>
+            ) : (
+              <a
+                key={item.href}
+                href={item.href}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {item.label}
+              </a>
+            )
           ))}
           {user && (
             <Link to="/dashboard" className="text-sm font-medium text-primary hover:text-primary/80 transition-colors flex items-center gap-1.5">
@@ -103,9 +113,14 @@ export function Header() {
               </DropdownMenu>
             </>
           ) : (
-            <Button variant="hero" size="sm" asChild>
-              <Link to="/auth">Sign In</Link>
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/auth">Sign in</Link>
+              </Button>
+              <Button variant="hero" size="sm" asChild>
+                <Link to="/auth">Start free</Link>
+              </Button>
+            </div>
           )}
         </div>
 
@@ -150,7 +165,7 @@ export function Header() {
               </>
             ) : (
               <Button variant="hero" size="sm" asChild>
-                <Link to="/auth">Sign In</Link>
+                <Link to="/auth">Start free</Link>
               </Button>
             )}
           </div>

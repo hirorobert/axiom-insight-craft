@@ -568,9 +568,9 @@ export default function Auth() {
           </div>
         )}
 
-        {/* Trust indicator */}
+        {/* Trust indicator — no unverified claims, no jurisdiction-specific statutory citations */}
         <div className="mt-8 text-center text-xs text-muted-foreground">
-          AES-256 encrypted &nbsp;·&nbsp; ITA Cap.332 R.E.2023
+          Encrypted in transit and at rest &nbsp;·&nbsp; Session-bound identity verification
         </div>
       </div>
     </div>
