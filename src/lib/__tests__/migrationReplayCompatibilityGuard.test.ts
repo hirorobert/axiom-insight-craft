@@ -1470,26 +1470,29 @@ describe("Correction — Phase 1-B smoke test rewritten to remove the invalid ne
     expect(raw).not.toMatch(/^\s*ROLLBACK;/m);
   });
 
-  it("9. all production SQL before the smoke-test section is unchanged — only the smoke-test block differs (content-hash pin, line-ending canonicalized)", () => {
-    // Hash line endings canonicalized to LF: a raw platform-dependent read
-    // (CRLF on a Windows checkout of this repo, LF as actually committed and
-    // as read by a Linux CI runner) would otherwise hash differently for
-    // semantically identical content — proven by the focused self-test below.
-    const canonicalProductionSql = preSmoke.replace(/\r\n?/g, "\n");
-    expect(sha256(canonicalProductionSql)).toBe(
-      "dde1c05f3fe2ef539ab20e21d1ed1c48149c38b60775837c1868c02a55677779",
+  it("9. the smoke-test block itself is byte-identical to its previously corrected 25-pair form (content-hash pin, line-ending canonicalized)", () => {
+    // Pinned against the SMOKE BLOCK itself, not "everything before it": a
+    // later authorized correction (the UPDATE-FROM target-alias scoping fix)
+    // legitimately changes production SQL earlier in this same file, so a
+    // whole-preSmoke pin would no longer mean "nothing changed" — it would
+    // just be wrong. The smoke-test block's own content is the thing this
+    // test needs to prove is untouched, and it genuinely is. Line endings
+    // are canonicalized to LF for the same cross-platform reason as before.
+    const canonicalSmokeBlock = smokeBlock.replace(/\r\n?/g, "\n");
+    expect(sha256(canonicalSmokeBlock)).toBe(
+      "2ddb42012acfeb852fca36d5f6929f48d919db0d341f772d5b94689aa16b14d6",
     );
   });
 
-  it("line-ending canonicalization: LF and CRLF (and lone CR) representations of the same production SQL hash identically", () => {
-    const lf = preSmoke.replace(/\r\n?/g, "\n");
+  it("line-ending canonicalization: LF and CRLF (and lone CR) representations of the same smoke-test block hash identically", () => {
+    const lf = smokeBlock.replace(/\r\n?/g, "\n");
     const crlf = lf.replace(/\n/g, "\r\n");
     const cr = lf.replace(/\n/g, "\r");
     const canonicalize = (s: string) => s.replace(/\r\n?/g, "\n");
     expect(sha256(canonicalize(lf))).toBe(sha256(canonicalize(crlf)));
     expect(sha256(canonicalize(lf))).toBe(sha256(canonicalize(cr)));
     expect(sha256(canonicalize(crlf))).toBe(
-      "dde1c05f3fe2ef539ab20e21d1ed1c48149c38b60775837c1868c02a55677779",
+      "2ddb42012acfeb852fca36d5f6929f48d919db0d341f772d5b94689aa16b14d6",
     );
   });
 
@@ -1556,4 +1559,299 @@ describe("Repository-wide guard — no PL/pgSQL DO block may declare a nested PR
       ).toBe(false);
     }
   });
+});
+
+/**
+ * Splits already-normalized SQL (via normalizeSqlKeepingStructure) into
+ * top-level statements on `;`, treating any dollar-quoted span as an atomic,
+ * non-splittable unit — a `;` inside a DO block or function body is never a
+ * top-level statement boundary for the migration file itself.
+ */
+function splitTopLevelStatements(normalizedSql: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let i = 0;
+  const dollarTagRe = /\$([a-zA-Z_]*)\$/y;
+  while (i < normalizedSql.length) {
+    if (normalizedSql[i] === "$") {
+      dollarTagRe.lastIndex = i;
+      const m = dollarTagRe.exec(normalizedSql);
+      if (m && m.index === i) {
+        const tag = m[0];
+        const bodyStart = i + tag.length;
+        const closeIdx = normalizedSql.indexOf(tag, bodyStart);
+        const bodyEnd = closeIdx === -1 ? normalizedSql.length : closeIdx;
+        current += normalizedSql.slice(i, bodyEnd);
+        i = bodyEnd;
+        if (closeIdx !== -1) {
+          current += tag;
+          i += tag.length;
+        }
+        continue;
+      }
+    }
+    if (normalizedSql[i] === ";") {
+      current += ";";
+      statements.push(current);
+      current = "";
+      i++;
+      continue;
+    }
+    current += normalizedSql[i];
+    i++;
+  }
+  if (current.trim()) statements.push(current);
+  return statements;
+}
+
+interface UpdateFromJoinInfo {
+  targetTable: string;
+  targetAlias: string;
+  joinOnClauses: string[];
+}
+
+/**
+ * Parses a single normalized statement as `UPDATE table [alias] SET ...
+ * FROM fromlist [JOIN ... ON ...]* [WHERE ...]`. Returns null for anything
+ * that isn't an UPDATE statement (a SELECT, a CREATE POLICY, etc.) — the
+ * target-alias concept only exists for UPDATE's own target relation.
+ */
+function parseUpdateFromJoins(stmt: string): UpdateFromJoinInfo | null {
+  const updateMatch = stmt.match(/^\s*UPDATE\s+(?:\w+\.)?(\w+)(?:\s+(?:AS\s+)?(\w+))?\s+SET\b/i);
+  if (!updateMatch) return null;
+  const targetTable = updateMatch[1];
+  const targetAlias = updateMatch[2] ?? targetTable;
+  const fromMatch = stmt.match(/\bFROM\b([\s\S]*)/i);
+  if (!fromMatch) return { targetTable, targetAlias, joinOnClauses: [] };
+  let fromRegion = fromMatch[1];
+  const whereIdx = fromRegion.search(/\bWHERE\b/i);
+  if (whereIdx !== -1) fromRegion = fromRegion.slice(0, whereIdx);
+  const joinRe = /\bJOIN\s+(?:\w+\.)?\w+\s+\w+\s+ON\s+([\s\S]*?)(?=\bJOIN\b|$)/gi;
+  const joinOnClauses: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = joinRe.exec(fromRegion))) joinOnClauses.push(m[1]);
+  return { targetTable, targetAlias, joinOnClauses };
+}
+
+/** Returns every JOIN-ON clause (if any) that illegally references the UPDATE's own target alias. */
+function updateTargetAliasIllegallyInJoinOn(stmt: string): string[] {
+  const info = parseUpdateFromJoins(stmt);
+  if (!info) return [];
+  const re = new RegExp(`\\b${info.targetAlias}\\.`);
+  return info.joinOnClauses.filter((c) => re.test(c));
+}
+
+describe("Correction — UPDATE-FROM target-alias scoping fix for safisha_exceptions and evidence_requests backfills (20260712200000_phase1_b_identity_migration.sql)", () => {
+  const FILE = "20260712200000_phase1_b_identity_migration.sql";
+  const raw = readMigration(FILE);
+
+  function extractStatement(anchor: string): string {
+    const start = raw.indexOf(anchor);
+    expect(start, `expected to find statement starting with "${anchor}"`).toBeGreaterThan(-1);
+    const end = raw.indexOf(";", start);
+    expect(end).toBeGreaterThan(start);
+    return raw.slice(start, end + 1);
+  }
+
+  const safishaStmt = extractStatement("UPDATE public.safisha_exceptions se");
+  const evidenceStmt = extractStatement("UPDATE public.evidence_requests er");
+
+  it("1. both corrected statements keep their exact target table, alias, and SET expression", () => {
+    expect(safishaStmt).toMatch(/^UPDATE public\.safisha_exceptions se\s*\n/);
+    expect(safishaStmt).toMatch(/SET reviewer_member_id = fm\.id\s*\n/);
+    expect(evidenceStmt).toMatch(/^UPDATE public\.evidence_requests er\s*\n/);
+    expect(evidenceStmt).toMatch(/SET created_by_member_id = fm\.id\s*\n/);
+  });
+
+  it("2. every intended FROM relation remains present in both statements", () => {
+    expect(safishaStmt).toMatch(/FROM public\.firm_members fm/);
+    expect(safishaStmt).toMatch(/JOIN public\.trial_balance_uploads tbu/);
+    expect(safishaStmt).toMatch(/JOIN public\.safisha_reconciliations sr/);
+    expect(evidenceStmt).toMatch(/FROM public\.firm_members fm/);
+    expect(evidenceStmt).toMatch(/JOIN public\.findings f\b/);
+  });
+
+  it("3. FROM-table-to-FROM-table predicates remain inside their JOIN ON clauses", () => {
+    const safishaInfo = parseUpdateFromJoins(normalizeSqlKeepingStructure(safishaStmt));
+    expect(safishaInfo?.joinOnClauses.some((c) => /tbu\.company_id\s*=\s*fm\.company_id/.test(c))).toBe(true);
+    expect(safishaInfo?.joinOnClauses.some((c) => /sr\.tb_upload_id\s*=\s*tbu\.id/.test(c))).toBe(true);
+
+    const evidenceInfo = parseUpdateFromJoins(normalizeSqlKeepingStructure(evidenceStmt));
+    expect(evidenceInfo?.joinOnClauses.some((c) => /fm\.company_id\s*=\s*f\.company_id/.test(c))).toBe(true);
+  });
+
+  it("4. target-alias predicates are now in the top-level WHERE clause", () => {
+    expect(safishaStmt).toMatch(/WHERE sr\.id = se\.reconciliation_id\s*\n/);
+    expect(evidenceStmt).toMatch(/WHERE f\.id = er\.finding_id\s*\n/);
+  });
+
+  it("5. no se reference remains inside the safisha_exceptions statement's JOIN ON scope", () => {
+    const info = parseUpdateFromJoins(normalizeSqlKeepingStructure(safishaStmt));
+    expect(updateTargetAliasIllegallyInJoinOn(normalizeSqlKeepingStructure(safishaStmt))).toEqual([]);
+    expect(info?.joinOnClauses.some((c) => /\bse\./.test(c))).toBe(false);
+  });
+
+  it("6. no er reference remains inside the evidence_requests statement's JOIN ON scope", () => {
+    const info = parseUpdateFromJoins(normalizeSqlKeepingStructure(evidenceStmt));
+    expect(updateTargetAliasIllegallyInJoinOn(normalizeSqlKeepingStructure(evidenceStmt))).toEqual([]);
+    expect(info?.joinOnClauses.some((c) => /\ber\./.test(c))).toBe(false);
+  });
+
+  it("7. every original null/user predicate remains unchanged in both statements", () => {
+    expect(safishaStmt).toMatch(/AND fm\.user_id = se\.reviewer_id\s*\n/);
+    expect(safishaStmt).toMatch(/AND se\.reviewer_id IS NOT NULL AND se\.reviewer_member_id IS NULL;/);
+    expect(evidenceStmt).toMatch(/AND fm\.user_id = er\.created_by\s*\n/);
+    expect(evidenceStmt).toMatch(/AND er\.created_by IS NOT NULL AND er\.created_by_member_id IS NULL;/);
+  });
+
+  it("8. each moved predicate occurs exactly once in its statement", () => {
+    expect((safishaStmt.match(/sr\.id = se\.reconciliation_id/g) ?? []).length).toBe(1);
+    expect((evidenceStmt.match(/f\.id = er\.finding_id/g) ?? []).length).toBe(1);
+  });
+
+  it("9. no statement outside these two UPDATEs differs from the approved base (masked-file content-hash pin)", () => {
+    const canon = (s: string) => s.replace(/\r\n?/g, "\n");
+    const re1 = /UPDATE public\.safisha_exceptions se[\s\S]*?se\.reviewer_member_id IS NULL;/;
+    const re2 = /UPDATE public\.evidence_requests er[\s\S]*?er\.created_by_member_id IS NULL;/;
+    expect(re1.test(raw), "expected to find the safisha_exceptions statement to mask").toBe(true);
+    expect(re2.test(raw), "expected to find the evidence_requests statement to mask").toBe(true);
+    const masked = raw.replace(re1, "MASKED_UPDATE_1").replace(re2, "MASKED_UPDATE_2");
+    expect(sha256(canon(masked))).toBe(
+      "92c9cb861096ebc0331c5d8ddae7bd8bd047af0d85580c3dd526d52cdb970e9d",
+    );
+  });
+
+  it("10. the previously corrected 25-pair Phase 1B smoke test remains byte-identical after canonical line-ending normalization", () => {
+    const sectionIdx = raw.indexOf("-- ── SECTION 5: SMOKE TEST");
+    const canonicalSmokeBlock = raw.slice(sectionIdx).replace(/\r\n?/g, "\n");
+    expect(sha256(canonicalSmokeBlock)).toBe(
+      "2ddb42012acfeb852fca36d5f6929f48d919db0d341f772d5b94689aa16b14d6",
+    );
+  });
+});
+
+describe("Repository-wide guard — an UPDATE's own target alias must never be referenced inside a JOIN ON clause of its own FROM chain (SQLSTATE 42P01 class)", () => {
+  const allMigrationFiles = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
+
+  it("self-test: rejects the original defective safisha_exceptions shape", () => {
+    const defective = `
+      UPDATE public.safisha_exceptions se
+      SET reviewer_member_id = fm.id
+      FROM public.firm_members fm
+      JOIN public.trial_balance_uploads tbu ON tbu.company_id = fm.company_id
+      JOIN public.safisha_reconciliations sr
+        ON sr.tb_upload_id = tbu.id AND sr.id = se.reconciliation_id
+      WHERE fm.user_id = se.reviewer_id
+        AND se.reviewer_id IS NOT NULL AND se.reviewer_member_id IS NULL;
+    `;
+    const stmts = splitTopLevelStatements(normalizeSqlKeepingStructure(defective));
+    expect(stmts).toHaveLength(1);
+    expect(updateTargetAliasIllegallyInJoinOn(stmts[0]).length).toBeGreaterThan(0);
+  });
+
+  it("self-test: rejects the original defective evidence_requests shape", () => {
+    const defective = `
+      UPDATE public.evidence_requests er
+      SET created_by_member_id = fm.id
+      FROM public.firm_members fm
+      JOIN public.findings f ON f.id = er.finding_id AND fm.company_id = f.company_id
+      WHERE fm.user_id = er.created_by
+        AND er.created_by IS NOT NULL AND er.created_by_member_id IS NULL;
+    `;
+    const stmts = splitTopLevelStatements(normalizeSqlKeepingStructure(defective));
+    expect(updateTargetAliasIllegallyInJoinOn(stmts[0]).length).toBeGreaterThan(0);
+  });
+
+  it("self-test: accepts the corrected WHERE-based safisha_exceptions shape", () => {
+    const corrected = `
+      UPDATE public.safisha_exceptions se
+      SET reviewer_member_id = fm.id
+      FROM public.firm_members fm
+      JOIN public.trial_balance_uploads tbu ON tbu.company_id = fm.company_id
+      JOIN public.safisha_reconciliations sr
+        ON sr.tb_upload_id = tbu.id
+      WHERE sr.id = se.reconciliation_id
+        AND fm.user_id = se.reviewer_id
+        AND se.reviewer_id IS NOT NULL AND se.reviewer_member_id IS NULL;
+    `;
+    const stmts = splitTopLevelStatements(normalizeSqlKeepingStructure(corrected));
+    expect(updateTargetAliasIllegallyInJoinOn(stmts[0])).toEqual([]);
+  });
+
+  it("self-test: accepts the corrected WHERE-based evidence_requests shape", () => {
+    const corrected = `
+      UPDATE public.evidence_requests er
+      SET created_by_member_id = fm.id
+      FROM public.firm_members fm
+      JOIN public.findings f ON fm.company_id = f.company_id
+      WHERE f.id = er.finding_id
+        AND fm.user_id = er.created_by
+        AND er.created_by IS NOT NULL AND er.created_by_member_id IS NULL;
+    `;
+    const stmts = splitTopLevelStatements(normalizeSqlKeepingStructure(corrected));
+    expect(updateTargetAliasIllegallyInJoinOn(stmts[0])).toEqual([]);
+  });
+
+  it("self-test: legal target-alias use in SET and top-level WHERE is accepted", () => {
+    const legal = `
+      UPDATE public.foo x
+      SET note = x.note || ' updated'
+      FROM public.bar b
+      JOIN public.baz z ON z.bar_id = b.id
+      WHERE x.id = b.foo_id AND x.active;
+    `;
+    const stmts = splitTopLevelStatements(normalizeSqlKeepingStructure(legal));
+    expect(updateTargetAliasIllegallyInJoinOn(stmts[0])).toEqual([]);
+  });
+
+  it("self-test: similar text inside comments and strings is ignored", () => {
+    const withNoise = `
+      -- UPDATE public.foo x SET y=1 FROM b JOIN c ON c.id = x.id; (this is just a comment)
+      UPDATE public.foo x
+      SET note = 'contains the text ON c.id = x.id inside a string literal'
+      FROM public.bar b
+      JOIN public.baz z ON z.bar_id = b.id
+      WHERE x.id = b.foo_id;
+    `;
+    const stmts = splitTopLevelStatements(normalizeSqlKeepingStructure(withNoise));
+    expect(stmts.some((s) => updateTargetAliasIllegallyInJoinOn(s).length > 0)).toBe(false);
+  });
+
+  it("self-test: PL/pgSQL record-variable use inside a SELECT JOIN is not flagged (not an UPDATE statement)", () => {
+    const selectWithVar = `
+      SELECT fm.id INTO v_member_id
+      FROM public.firm_members fm
+      JOIN public.trial_balance_uploads tbu ON tbu.company_id = fm.company_id
+      JOIN public.safisha_reconciliations sr
+        ON sr.tb_upload_id = tbu.id AND sr.id = v_exception.reconciliation_id
+      WHERE fm.user_id = p_reviewer_id
+      LIMIT 1;
+    `;
+    const stmts = splitTopLevelStatements(normalizeSqlKeepingStructure(selectWithVar));
+    expect(stmts.every((s) => parseUpdateFromJoins(s) === null)).toBe(true);
+  });
+
+  it("self-test: CREATE POLICY ... FOR DELETE ... USING (...) is not misclassified as an UPDATE-FROM statement", () => {
+    const policy = `
+      CREATE POLICY "Users can delete their own mappings" ON public.account_mappings FOR DELETE TO authenticated USING (auth.uid() = user_id);
+    `;
+    const stmts = splitTopLevelStatements(normalizeSqlKeepingStructure(policy));
+    expect(stmts.every((s) => parseUpdateFromJoins(s) === null)).toBe(true);
+  });
+
+  it.each(allMigrationFiles)(
+    "%s: no UPDATE statement references its own target alias inside a JOIN ON clause of its FROM chain",
+    (file) => {
+      const raw = readMigration(file);
+      const normalized = normalizeSqlKeepingStructure(raw);
+      const statements = splitTopLevelStatements(normalized);
+      for (const stmt of statements) {
+        const violations = updateTargetAliasIllegallyInJoinOn(stmt);
+        expect(
+          violations,
+          `${file} contains an UPDATE statement whose target alias is illegally referenced inside a JOIN ON clause: ${violations.join("; ")}`,
+        ).toEqual([]);
+      }
+    },
+  );
 });

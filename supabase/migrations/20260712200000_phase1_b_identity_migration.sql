@@ -252,8 +252,9 @@ SET reviewer_member_id = fm.id
 FROM public.firm_members fm
 JOIN public.trial_balance_uploads tbu ON tbu.company_id = fm.company_id
 JOIN public.safisha_reconciliations sr
-  ON sr.tb_upload_id = tbu.id AND sr.id = se.reconciliation_id
-WHERE fm.user_id = se.reviewer_id
+  ON sr.tb_upload_id = tbu.id
+WHERE sr.id = se.reconciliation_id
+  AND fm.user_id = se.reviewer_id
   AND se.reviewer_id IS NOT NULL AND se.reviewer_member_id IS NULL;
 -- Note: safisha_audit_log is append-only — no backfill UPDATE possible.
 
@@ -341,8 +342,9 @@ WHERE fm.user_id = t.created_by AND fm.company_id = t.company_id
 UPDATE public.evidence_requests er
 SET created_by_member_id = fm.id
 FROM public.firm_members fm
-JOIN public.findings f ON f.id = er.finding_id AND fm.company_id = f.company_id
-WHERE fm.user_id = er.created_by
+JOIN public.findings f ON fm.company_id = f.company_id
+WHERE f.id = er.finding_id
+  AND fm.user_id = er.created_by
   AND er.created_by IS NOT NULL AND er.created_by_member_id IS NULL;
 
 -- ── SECTION 4: RECREATE SECURITY DEFINER FUNCTIONS WITH _member_id POPULATION ─
