@@ -188,15 +188,18 @@ const FilingFrame: React.FC = () => (
   </div>
 );
 
+// Order follows the CFOClose Ω∞ Execution Charter's mandated public-tour
+// sequence: Upload → Review → Reconcile → Report → File. Do not reorder
+// without updating the charter's Phase 1 acceptance criteria.
 const STAGES: Stage[] = [
   { id: "upload",    label: "01 · Upload",    title: "Import the trial balance",
     detail: "CSV or XLSX accepted. MERIDIAN_HOLDINGS_TB_FY2025.csv — fictional neutral fixture. Duplicate detection and balance check on ingest.", Frame: UploadFrame },
   { id: "review",   label: "02 · Review",    title: "Certify every account",
     detail: "Each account is classified, confidence-graded, and requires professional certification before it enters the statements.", Frame: ReviewFrame },
-  { id: "report",   label: "03 · Report",    title: "IFRS-oriented statements",
-    detail: "Statement of Financial Position and Statement of Comprehensive Income, from the certified ledger. Comparative periods included.", Frame: StatementsFrame },
-  { id: "reconcile",label: "04 · Reconcile", title: "Bank reconciliation verified",
+  { id: "reconcile",label: "03 · Reconcile", title: "Bank reconciliation verified",
     detail: "Bank statement matched to the trial balance with a complete evidence trail. No silent adjustments.", Frame: ReconcileFrame },
+  { id: "report",   label: "04 · Report",    title: "IFRS-oriented statements",
+    detail: "Statement of Financial Position and Statement of Comprehensive Income, from the certified ledger. Comparative periods included.", Frame: StatementsFrame },
   { id: "file",     label: "05 · File",      title: "Jurisdiction-aware filing",
     detail: "Filing package assembled from the verified statements. Jurisdiction pack applied. Monitoring alerts configured.", Frame: FilingFrame },
 ];

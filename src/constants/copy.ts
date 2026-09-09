@@ -61,7 +61,7 @@ export const PIPELINE = [
   "Review",
   "Reconcile",
   "Report",
-  "File & Monitor",
+  "File",
 ] as const;
 
 // ─────────────────────────────────────────────────────────────

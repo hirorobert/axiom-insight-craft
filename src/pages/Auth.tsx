@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, ArrowLeft, CheckCircle, MailCheck, AlertTriangle } from "lucide-react";
-import { SaffLogo } from "@/components/SaffLogo";
+import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { z } from "zod";
 import { useLoginRateLimit } from "@/hooks/useLoginRateLimit";
 import { lovable } from "@/integrations/lovable/index";
@@ -214,7 +214,7 @@ export default function Auth() {
 
   const getSubtitle = () => {
     switch (mode) {
-      case "login": return "Sign in to your SAFF ERP account";
+      case "login": return "Sign in to your CFOClose account";
       case "signup": return "Start transforming trial balances into insights";
       case "forgot-password": return "Enter your email and we'll send you a reset link";
       case "reset-password": return "Enter your new password below";
@@ -236,7 +236,7 @@ export default function Auth() {
         {/* Logo */}
         <div className="text-center mb-8">
           <Link to="/" className="inline-block mb-6">
-            <SaffLogo variant="full" className="h-20 w-auto mx-auto" />
+            <CFOCloseWordmark className="text-3xl" />
           </Link>
           <h1 className="text-2xl font-bold text-foreground">{getTitle()}</h1>
           <p className="text-muted-foreground mt-2">{getSubtitle()}</p>

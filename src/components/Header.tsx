@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { SaffLogo } from "@/components/SaffLogo";
+import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { Button } from "@/components/ui/button";
 import { Menu, X, LogOut, Settings, LayoutDashboard } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -40,7 +40,7 @@ export function Header() {
 
         {/* Logo */}
         <Link to="/" className="inline-flex items-center" aria-label="CFOClose home">
-          <SaffLogo variant="header" className="h-11 md:h-12 lg:h-14 w-auto" />
+          <CFOCloseWordmark className="text-xl md:text-2xl" />
         </Link>
 
         {/* Desktop Nav */}

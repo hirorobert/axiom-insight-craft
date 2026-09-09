@@ -15,9 +15,14 @@ import { CompanyManager } from "@/components/CompanyManager";
 import { PeriodCloseManager } from "@/components/PeriodCloseManager";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { useBillingSummary } from "@/hooks/useBillingSummary";
-import { FEATURE_DESCRIPTIONS, isFeatureCode } from "@/lib/commercial/featureRegistry";
 import { PRICING } from "@/constants/copy";
-import type { LicenceStatus } from "@/lib/commercial/entitlementContract";
+import {
+  displayPlanName,
+  displayEntitlement,
+  displayLicenceStatus,
+  licenceBadgeVariant,
+  EFFECTIVE_END_LABEL,
+} from "@/lib/commercial/billingDisplay";
 
 // ─────────────────────────────────────────────────────────────
 // Settings — CFOClose Ω3-BRAND
@@ -43,38 +48,6 @@ const SECTIONS: { id: SettingsSection; label: string; icon: React.FC<{ className
   { id: "billing",   label: "Plan & Billing",   icon: CreditCard },
   { id: "security",  label: "Security & Audit", icon: ShieldCheck },
 ];
-
-// Map server plan code → customer-facing name.
-// Never display raw plan codes to the customer.
-function displayPlanName(planCode: string | null): string {
-  if (!planCode) return PRICING.FREE_NAME;
-  if (planCode === "FREE") return PRICING.FREE_NAME;
-  // PAID or any future paid code maps to the customer-facing paid name.
-  return PRICING.PAID_NAME;
-}
-
-// Map licence status → customer-facing label.
-function displayLicenceStatus(status: LicenceStatus | null): string {
-  if (!status) return "Unknown";
-  const map: Record<LicenceStatus, string> = {
-    PENDING:   "Pending",
-    ACTIVE:    "Active",
-    GRACE:     "Grace period",
-    EXPIRED:   "Expired",
-    SUSPENDED: "Suspended",
-    CANCELLED: "Cancelled",
-  };
-  return map[status] ?? status;
-}
-
-function licenceBadgeVariant(status: LicenceStatus | null): "default" | "secondary" | "outline" | "destructive" {
-  if (status === "ACTIVE")    return "default";
-  if (status === "GRACE")     return "secondary";
-  if (status === "EXPIRED")   return "destructive";
-  if (status === "SUSPENDED") return "destructive";
-  if (status === "CANCELLED") return "destructive";
-  return "outline";
-}
 
 function SectionDivider({ title }: { title: string }) {
   return (
@@ -342,7 +315,7 @@ export default function Settings() {
                         </Badge>
                         {billing.effectiveEnd && (
                           <span className="text-xs text-muted-foreground">
-                            Renews {new Date(billing.effectiveEnd).toLocaleDateString()}
+                            {EFFECTIVE_END_LABEL} {new Date(billing.effectiveEnd).toLocaleDateString()}
                           </span>
                         )}
                       </div>
@@ -364,7 +337,7 @@ export default function Settings() {
                             {billing.entitlements.map((code) => (
                               <li key={code} className="text-xs text-muted-foreground flex items-start gap-2">
                                 <span className="text-success mt-0.5">·</span>
-                                {isFeatureCode(code) ? FEATURE_DESCRIPTIONS[code] : code}
+                                {displayEntitlement(code)}
                               </li>
                             ))}
                           </ul>

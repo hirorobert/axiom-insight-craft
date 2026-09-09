@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { SaffLogo } from "@/components/SaffLogo";
+import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { FOOTER, BRAND } from "@/constants/copy";
 
 export function Footer() {
@@ -11,7 +11,7 @@ export function Footer() {
 
           <div className="max-w-xs mx-auto md:mx-0 text-center md:text-left">
             <div className="mb-3 flex justify-center md:justify-start">
-              <SaffLogo variant="header" className="h-11 md:h-12 w-auto mx-auto md:mx-0" />
+              <CFOCloseWordmark className="text-xl" />
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
               {FOOTER.description}
