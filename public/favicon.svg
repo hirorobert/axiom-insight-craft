@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="CFOClose">
+  <!--
+    CFOClose favicon — original mark, Ω∞ Charter Phase 1.
+    Navy rounded square (this site's own primary color token, #0F1C3D) with a
+    single bold white "C" monogram drawn as a vector arc — not text, so it
+    renders identically everywhere with no font-loading dependency at
+    favicon size. No wordmark, no SAFF glyphs, no third-party visual
+    system. A full icon + wordmark system is a later, separate
+    design-system pass (Ω∞ Charter Phase 3); this is a minimal, original,
+    intentionally simple mark scoped to "complete the public favicon
+    identity" only.
+  -->
+  <rect width="32" height="32" rx="7" fill="#0F1C3D"/>
+  <path d="M22 10.5 A8 8 0 1 0 22 21.5" fill="none" stroke="#FFFFFF" stroke-width="4.2" stroke-linecap="round"/>
+</svg>

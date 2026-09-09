@@ -187,8 +187,14 @@ describe("Ω3-BRAND · Settings section — real billingDisplay.ts functions", (
     expect(displayPlanName("PAID")).toBe("CFOClose Professional");
   });
 
-  it("23 · null plan code maps to Free (no billing customer state)", () => {
-    expect(displayPlanName(null)).toBe("Free");
+  it("23 · null plan code fails closed as 'Plan unavailable' — Settings.tsx only calls displayPlanName after confirming a billing customer exists, so null here is an anomaly, not 'no billing customer'", () => {
+    expect(displayPlanName(null)).toBe("Plan unavailable");
+    expect(displayPlanName(null)).not.toBe("Free");
+    // The distinct "no billing customer at all" state is rendered by Settings.tsx's
+    // own separate `!billing.hasBillingCustomer` branch, upstream of this function —
+    // never inside displayPlanName itself. Confirmed against the real component source.
+    const settingsSrc = readSource("src/pages/Settings.tsx");
+    expect(settingsSrc).toMatch(/!billing(?:\?\.|\.)hasBillingCustomer/);
   });
 
   it("24 · Raw PAID string is never the customer-facing label", () => {
@@ -197,12 +203,16 @@ describe("Ω3-BRAND · Settings section — real billingDisplay.ts functions", (
     expect(label).not.toContain("PAID");
   });
 
-  it("34 · An unrecognized plan code fails closed as 'Plan unavailable', never as an active paid plan (charter item 5)", () => {
+  it("34 · An unrecognized, null, or empty plan code all fail closed as 'Plan unavailable', never as an active paid plan (charter item 5, corrected)", () => {
     expect(displayPlanName("SOME_FUTURE_CODE")).toBe("Plan unavailable");
-    expect(displayPlanName("")).not.toBe("CFOClose Professional");
     expect(displayPlanName("corrupted-value")).toBe("Plan unavailable");
-    // Empty string is falsy in JS — same branch as null, correctly Free (no billing customer), not "unavailable".
-    expect(displayPlanName("")).toBe("Free");
+    expect(displayPlanName("")).toBe("Plan unavailable");
+    expect(displayPlanName(null)).toBe("Plan unavailable");
+    for (const bad of ["SOME_FUTURE_CODE", "corrupted-value", "", null]) {
+      const label = displayPlanName(bad);
+      expect(label).not.toBe(PRICING.PAID_NAME);
+      expect(label).not.toBe(PRICING.FREE_NAME);
+    }
   });
 
   it("35 · A known feature code maps to its real description, never the raw code", () => {
@@ -212,10 +222,13 @@ describe("Ω3-BRAND · Settings section — real billingDisplay.ts functions", (
     expect(displayEntitlement("MULTI_COMPANY")).not.toBe("MULTI_COMPANY");
   });
 
-  it("36 · An unrecognized entitlement code never exposes the raw code (charter item 6)", () => {
+  it("36 · An unrecognized entitlement code never exposes the raw code and never claims inclusion (charter item 6, corrected)", () => {
     const label = displayEntitlement("SOME_UNKNOWN_CODE_v2");
     expect(label).toBe(UNKNOWN_ENTITLEMENT_LABEL);
+    expect(label).toBe("Capability details unavailable");
     expect(label).not.toContain("SOME_UNKNOWN_CODE_v2");
+    // Must not claim the unknown capability is included — only that its details are unavailable.
+    expect(label.toLowerCase()).not.toMatch(/\bincluded\b/);
   });
 
   it("37 · Licence status displays and badge variants are defined for every authoritative status, with no review-required state fabricated", () => {
@@ -229,6 +242,21 @@ describe("Ω3-BRAND · Settings section — real billingDisplay.ts functions", (
     // confirmed by the authoritative LicenceStatus union itself having exactly 6 members.
     const entitlementContractSrc = readSource("src/lib/commercial/entitlementContract.ts");
     expect(entitlementContractSrc).not.toMatch(/REVIEW_REQUIRED/);
+  });
+
+  it("37b · An unexpected runtime licence status fails closed as 'Status unavailable' — its raw text is never returned (charter item 3, corrected)", () => {
+    // The LicenceStatus type promises only 6 values, but a value crossing a
+    // real runtime boundary (an untyped RPC response, a future server status
+    // this build doesn't know about yet) can violate that promise. Simulate
+    // exactly that boundary crossing with an `as` cast, the same way an
+    // untyped `data.licence_status` from a Supabase RPC would arrive.
+    const bogusStatus = "SOME_FUTURE_STATUS_NOT_YET_KNOWN" as unknown as Parameters<
+      typeof displayLicenceStatus
+    >[0];
+    const label = displayLicenceStatus(bogusStatus);
+    expect(label).toBe("Status unavailable");
+    expect(label).not.toBe(bogusStatus);
+    expect(label).not.toContain("SOME_FUTURE_STATUS_NOT_YET_KNOWN");
   });
 
   it("38 · EFFECTIVE_END_LABEL is 'Effective through', never 'Renews' (charter item 7)", () => {
@@ -370,5 +398,68 @@ describe("Ω3-BRAND · ProductTour public-tour order (real source, charter item 
   it("54 · exactly 5 stages are declared, matching the 5-step charter sequence", () => {
     const idOrder = [...tourSrc.matchAll(/\{\s*id:\s*"(\w+)"/g)].map((m) => m[1]);
     expect(idOrder).toHaveLength(5);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// PART 5 — Public favicon identity (charter item 4, corrected)
+// ─────────────────────────────────────────────────────────────
+
+describe("Ω3-BRAND · public favicon identity (real source)", () => {
+  const html = readSource("index.html");
+  const PUBLIC_DIR = path.join(REPO_ROOT, "public");
+
+  it("55 · index.html references the CFOClose favicon via an explicit <link rel=\"icon\">", () => {
+    expect(html).toMatch(/<link\s+rel="icon"\s+type="image\/svg\+xml"\s+href="\/favicon\.svg"\s*\/>/);
+  });
+
+  it("56 · no legacy favicon.ico path remains referenced anywhere in index.html", () => {
+    expect(html).not.toMatch(/favicon\.ico/);
+  });
+
+  it("57 · the legacy favicon.ico file itself no longer exists in public/, so it cannot be served as a default-path fallback", () => {
+    expect(fs.existsSync(path.join(PUBLIC_DIR, "favicon.ico"))).toBe(false);
+  });
+
+  it("58 · public/favicon.svg exists and is well-formed (parses as valid XML with no comment-syntax errors)", () => {
+    const svgPath = path.join(PUBLIC_DIR, "favicon.svg");
+    expect(fs.existsSync(svgPath)).toBe(true);
+    const svg = fs.readFileSync(svgPath, "utf-8");
+    expect(svg).toMatch(/^<svg\b/);
+    // XML comments must never contain a literal "--" anywhere in their body —
+    // this is exactly the class of bug caught and fixed while authoring this file.
+    const commentBodies = [...svg.matchAll(/<!--([\s\S]*?)-->/g)].map((m) => m[1]);
+    for (const body of commentBodies) {
+      expect(body).not.toMatch(/--/);
+    }
+  });
+
+  it("59 · favicon.svg's rendered content contains no SAFF, AAA/American Accounting Association text, and no third-party visual system", () => {
+    // Check only the rendered (non-comment) SVG content — an explanatory
+    // authoring comment documenting "this replaces the legacy SAFF glyph"
+    // is legitimate, non-rendered, non-visible source commentary, not a
+    // visible identity violation. Strip XML comments before asserting.
+    const svg = readSource("public/favicon.svg");
+    const rendered = svg.replace(/<!--[\s\S]*?-->/g, "");
+    expect(rendered).not.toMatch(/\bSAFF\b/);
+    expect(rendered).not.toMatch(/\bAAA\b|American Accounting Association/);
+  });
+
+  it("60 · favicon.svg embeds no external asset reference (no <image>, no xlink:href, no remote url())", () => {
+    const svg = readSource("public/favicon.svg");
+    expect(svg).not.toMatch(/<image\b/i);
+    expect(svg).not.toMatch(/xlink:href/i);
+    expect(svg).not.toMatch(/url\(\s*["']?https?:/i);
+  });
+
+  it("61 · favicon.svg draws its mark as vector paths/shapes, not as embedded raster data (no base64 data: URI)", () => {
+    const svg = readSource("public/favicon.svg");
+    expect(svg).not.toMatch(/data:image\//i);
+  });
+
+  it("62 · public metadata remains fully CFOClose-branded alongside the favicon change (no regression)", () => {
+    expect(html).toMatch(/<title>CFOClose/);
+    expect(html).toMatch(/<meta name="author" content="CFOClose"/);
+    expect(html).not.toContain("SAFF ERP");
   });
 });

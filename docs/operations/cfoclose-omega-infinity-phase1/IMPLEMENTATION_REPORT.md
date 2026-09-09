@@ -80,6 +80,104 @@ The charter's Python-based smoke scripts (`test:routes`, `test:routes:auth`, `te
 
 None of these block Phase 1's stated exit criteria (PR #12 CI green, Codex `PASS`, fast-forward to `main`), which concern the public brand surfaces this changeset actually corrects.
 
+## Correction round 2 — Codex-flagged defects (this changeset)
+
+Base for this round: `d79a823457a02a770e9ddb1b57da52bdfd1a06a6` (the Phase 1
+commit above), plus one already-landed follow-up child commit
+`c349cba511d015e313f40171f6807635ce2d22a1` ("recreate CFOClose.com wordmark
+from approved logo image" — a direct product-owner-supplied refinement of
+`CFOCloseWordmark.tsx`, unrelated to this correction round, landed between
+rounds). Codex's independent audit of `d79a823` found four remaining
+defects, corrected here as one further normal child commit.
+
+**1. Plan display must fail closed (was: null/empty silently mapped to Free).**
+`billingDisplay.ts`'s `displayPlanName` previously treated `null`/`""` the
+same as "no billing customer" and returned `PRICING.FREE_NAME`. Corrected:
+`displayPlanName` now maps only `"FREE"` → Free and `"PAID"` → Professional;
+`null`, `""`, and any other value → `"Plan unavailable"`. The distinct "no
+billing customer at all" state remains Settings.tsx's own separate
+`!billing.hasBillingCustomer` branch, upstream of this call — confirmed by
+re-reading the real component source, not assumed. Every prior test
+assertion and comment claiming null/empty meant "no billing customer"
+*inside* `displayPlanName` was rewritten (tests 23, 34) to assert
+`"Plan unavailable"` instead, and test 23 now also asserts the real
+`Settings.tsx` source still contains the separate `hasBillingCustomer` gate,
+so the two code paths can't silently merge back together undetected.
+
+**2. Unknown entitlement must not overclaim.**
+`UNKNOWN_ENTITLEMENT_LABEL` changed from `"Additional capability included
+with your plan"` (which asserted the capability *is* included) to
+`"Capability details unavailable"`. Test 36 strengthened to also assert the
+label never matches `/\bincluded\b/`.
+
+**3. Unknown licence status must not leak raw values.**
+`displayLicenceStatus` previously fell back to `?? status` — returning the
+raw unrecognized value verbatim if it ever fell outside the six known
+labels. The `LicenceStatus` TypeScript type promises only six values, but a
+real runtime boundary (an untyped Supabase RPC response) can still violate
+that promise. Corrected: unknown/unexpected status → `"Status unavailable"`,
+never the raw value. New test 37b casts a bogus value through the exact
+kind of type boundary a live RPC response would cross (`"..." as unknown as
+...`) and proves the raw string is never returned.
+
+**4. Complete the public favicon identity.**
+`public/favicon.ico` (the old default-path binary icon, `256×256` MS icon
+resource) is deleted — `git rm`, recorded explicitly in this commit's diff,
+not merely stopped-referencing. Replaced with a new, original
+`public/favicon.svg`: a navy rounded square (`#0F1C3D`, this site's own
+existing `--primary` color token) with a single bold white "C" monogram
+drawn as a vector arc path — not embedded text, so it renders identically
+everywhere with no font-loading dependency at favicon size, and not a
+raster/base64 asset. `index.html` now carries an explicit
+`<link rel="icon" type="image/svg+xml" href="/favicon.svg" />`. Eight new
+tests (55–62) prove: the explicit link exists; no `favicon.ico` path remains
+referenced in `index.html`; the file itself no longer exists on disk (so it
+cannot be served as a default-path fallback even without an explicit
+reference); the SVG is well-formed XML (this file's own authoring surfaced
+and fixed a real bug — an SVG comment containing a literal CSS custom-property
+name `--primary` tripped the XML "no `--` inside a comment" rule; reworded);
+the *rendered* SVG content (comments stripped before the check, since a
+comment documenting "replaces the old SAFF glyph" is legitimate non-visible
+authoring commentary, not a visible identity violation) contains no
+SAFF/AAA text; no external asset reference (`<image>`, `xlink:href`, remote
+`url()`); no embedded raster (`data:image/`); and public metadata remains
+fully CFOClose-branded alongside the change.
+
+**New finding, flagged but explicitly not fixed (out of this round's
+authorized scope — Edge Functions are prohibited):**
+`supabase/functions/_shared/payments/providers/flutterwave.ts` line 150
+sends `logo: 'https://cfoclose.com/favicon.ico'` to the Flutterwave payment
+provider (branding for a hosted payment page). Now that `favicon.ico` is
+deleted, this URL would 404 if ever actually requested — but checkout is
+not implemented or enabled (Phase 6, not started), so this is currently
+inert. Left untouched per this round's explicit prohibition on modifying
+Edge Functions or payment systems; recorded here for the phase that
+implements checkout to update to `/favicon.svg` (or a raster export of it,
+since some payment-provider logo fields require PNG/JPG) before go-live.
+
+### Files changed, correction round 2
+
+| File | Change |
+|---|---|
+| `src/lib/commercial/billingDisplay.ts` | `displayPlanName`, `UNKNOWN_ENTITLEMENT_LABEL`, `displayLicenceStatus` corrected per items 1–3 above. |
+| `src/lib/commercial/__tests__/omega3BrandRegression.test.ts` | Tests 23/34/36/37 rewritten or strengthened; new test 37b; new "public favicon identity" describe block, tests 55–62. Test count: 54 → 63. |
+| `index.html` | Added explicit `<link rel="icon" type="image/svg+xml" href="/favicon.svg" />`. |
+| `public/favicon.ico` | **Deleted** (`git rm`). |
+| `public/favicon.svg` | **Created** — original CFOClose favicon (see item 4 above). |
+| `docs/operations/cfoclose-omega-infinity-phase1/IMPLEMENTATION_REPORT.md` | This section. |
+
+### Verification gates, correction round 2
+
+| Gate | Result |
+|---|---|
+| `npm run lint` | 2 pre-existing errors, both in `.claude/worktrees/*/supabase/functions/maono-root-cause/index.ts` — confirmed excluded via `.git/info/exclude`, untracked, unrelated to this branch/CI. 0 errors in any tracked, touched file. |
+| `npm run build` | succeeded (`✓ built in 28.01s`); only the same pre-existing chunk-size/dynamic-import advisories. |
+| Focused (`omega3BrandRegression.test.ts`) | **63/63 passed** |
+| `npx vitest run commercial` | **463/463 passed** (19 files) |
+| `npx vitest run` (full suite) | **1754/1754 passed** (69 files) |
+| `npx tsc --noEmit -p tsconfig.app.json` | exit 0 |
+| `git -c core.whitespace=cr-at-eol diff --check` | exit 0 (harmless pre-existing LF/CRLF advisories only) |
+
 ## Worktree and staging state after this report
 
 Recorded in the final consolidated response returned to the operator, captured at the moment immediately before the commit described above.
