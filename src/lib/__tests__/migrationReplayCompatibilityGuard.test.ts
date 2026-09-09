@@ -1855,3 +1855,415 @@ describe("Repository-wide guard — an UPDATE's own target alias must never be r
     },
   );
 });
+
+/**
+ * Strips comments and dollar-quoted bodies for CREATE TABLE / CREATE INDEX
+ * identity scanning. Unlike stripCommentsStringsAndDollarQuotes, this keeps
+ * double-quoted identifiers completely verbatim (case preserved) since an
+ * object's real name may be quoted — only single-quoted string content and
+ * dollar-quoted PL/pgSQL bodies are blanked, since neither can legally
+ * contain the object name that follows CREATE TABLE/INDEX.
+ */
+function stripForObjectScan(sql: string): string {
+  let out = "";
+  let i = 0;
+  const dollarTagRe = /\$([a-zA-Z_]*)\$/y;
+  while (i < sql.length) {
+    if (sql[i] === "-" && sql[i + 1] === "-") {
+      const nl = sql.indexOf("\n", i);
+      out += "\n";
+      i = nl === -1 ? sql.length : nl + 1;
+      continue;
+    }
+    if (sql[i] === "/" && sql[i + 1] === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      out += " ";
+      i = end === -1 ? sql.length : end + 2;
+      continue;
+    }
+    if (sql[i] === "'") {
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === "'" && sql[j + 1] === "'") { j += 2; continue; }
+        if (sql[j] === "'") { j += 1; break; }
+        j++;
+      }
+      out += " ";
+      i = j;
+      continue;
+    }
+    if (sql[i] === '"') {
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === '"' && sql[j + 1] === '"') { j += 2; continue; }
+        if (sql[j] === '"') { j += 1; break; }
+        j++;
+      }
+      out += sql.slice(i, j);
+      i = j;
+      continue;
+    }
+    if (sql[i] === "$") {
+      dollarTagRe.lastIndex = i;
+      const m = dollarTagRe.exec(sql);
+      if (m && m.index === i) {
+        const tag = m[0];
+        const end = sql.indexOf(tag, i + tag.length);
+        i = end === -1 ? sql.length : end + tag.length;
+        out += " ";
+        continue;
+      }
+    }
+    out += sql[i];
+    i++;
+  }
+  return out;
+}
+
+/** PostgreSQL identifier folding: double-quoted keeps exact case; unquoted is lowercased. */
+function foldIdentForGuard(raw: string): string {
+  const dq = raw.match(/^"((?:[^"]|"")*)"$/);
+  if (dq) return dq[1].replace(/""/g, '"');
+  return raw.toLowerCase();
+}
+function qualifyForGuard(schema: string | undefined, name: string): string {
+  const s = schema ? foldIdentForGuard(schema) : "public";
+  return `${s}.${foldIdentForGuard(name)}`;
+}
+
+const GUARD_IDENT = `(?:"(?:[^"]|"")*"|\\w+)`;
+
+interface TableIndexCollision {
+  kind: "TABLE" | "INDEX";
+  key: string;
+  firstFile: string;
+  laterFile: string;
+}
+
+/**
+ * Scans one file's already-object-stripped text for CREATE TABLE / CREATE
+ * INDEX identity collisions against a registry carried across files, in
+ * true text order (CREATE and DROP events for the same file are sorted by
+ * position before being applied) — so a same-file "DROP ... IF EXISTS x;
+ * CREATE ... x" guard sequence is honored correctly, not evaluated as two
+ * separate whole-file passes that could see the CREATE before the DROP.
+ */
+function scanTableIndexCollisionsInFile(
+  sql: string,
+  file: string,
+  tableRegistry: Map<string, string>,
+  indexRegistry: Map<string, string>,
+  findings: TableIndexCollision[],
+): void {
+  type Event =
+    | { pos: number; type: "table-create"; key: string; ifne: boolean }
+    | { pos: number; type: "table-drop"; key: string }
+    | { pos: number; type: "index-create"; key: string; ifne: boolean }
+    | { pos: number; type: "index-drop"; key: string };
+  const events: Event[] = [];
+
+  const tableRe = new RegExp(`CREATE\\s+TABLE(\\s+IF\\s+NOT\\s+EXISTS)?\\s+(?:(${GUARD_IDENT})\\.)?(${GUARD_IDENT})`, "gi");
+  let m: RegExpExecArray | null;
+  while ((m = tableRe.exec(sql))) {
+    events.push({ pos: m.index, type: "table-create", key: qualifyForGuard(m[2], m[3]), ifne: !!m[1] });
+  }
+  const dropTableRe = new RegExp(`DROP\\s+TABLE(?:\\s+IF\\s+EXISTS)?\\s+(?:(${GUARD_IDENT})\\.)?(${GUARD_IDENT})`, "gi");
+  while ((m = dropTableRe.exec(sql))) {
+    events.push({ pos: m.index, type: "table-drop", key: qualifyForGuard(m[1], m[2]) });
+  }
+  const indexRe = new RegExp(`CREATE(?:\\s+UNIQUE)?\\s+INDEX(?:\\s+CONCURRENTLY)?(\\s+IF\\s+NOT\\s+EXISTS)?\\s+(${GUARD_IDENT})`, "gi");
+  while ((m = indexRe.exec(sql))) {
+    events.push({ pos: m.index, type: "index-create", key: foldIdentForGuard(m[2]), ifne: !!m[1] });
+  }
+  const dropIndexRe = new RegExp(`DROP\\s+INDEX(?:\\s+IF\\s+EXISTS)?\\s+(?:(${GUARD_IDENT})\\.)?(${GUARD_IDENT})`, "gi");
+  while ((m = dropIndexRe.exec(sql))) {
+    events.push({ pos: m.index, type: "index-drop", key: foldIdentForGuard(m[2]) });
+  }
+
+  events.sort((a, b) => a.pos - b.pos);
+  for (const ev of events) {
+    if (ev.type === "table-create") {
+      const existing = tableRegistry.get(ev.key);
+      if (existing && !ev.ifne) findings.push({ kind: "TABLE", key: ev.key, firstFile: existing, laterFile: file });
+      tableRegistry.set(ev.key, file);
+    } else if (ev.type === "table-drop") {
+      tableRegistry.delete(ev.key);
+    } else if (ev.type === "index-create") {
+      const existing = indexRegistry.get(ev.key);
+      if (existing && !ev.ifne) findings.push({ kind: "INDEX", key: ev.key, firstFile: existing, laterFile: file });
+      indexRegistry.set(ev.key, file);
+    } else {
+      indexRegistry.delete(ev.key);
+    }
+  }
+}
+
+describe("Correction — #91 duplicate table/index creators made idempotent, view/anon security hardened (20260811054356_e4768bc4-04df-4222-b2e6-482e35dde61a.sql)", () => {
+  const CREATOR_FILE = "20260811000000_account_mapping_memory.sql";
+  const FIXED_FILE = "20260811054356_e4768bc4-04df-4222-b2e6-482e35dde61a.sql";
+  const creatorRaw = readMigration(CREATOR_FILE);
+  const fixedRaw = readMigration(FIXED_FILE);
+
+  it("1. #89 remains the authoritative first table/index creator, unchanged and ordered before #91", () => {
+    expect(creatorRaw).toMatch(/^CREATE TABLE public\.account_mapping_memory \(/m);
+    expect(creatorRaw).not.toMatch(/CREATE TABLE IF NOT EXISTS/);
+    expect(creatorRaw).toMatch(/^CREATE INDEX idx_amm_company_period\s*\n/m);
+    expect(creatorRaw).toMatch(/^CREATE INDEX idx_amm_company_code_period\s*\n/m);
+    expect(creatorRaw).toMatch(/^CREATE INDEX idx_amm_company_normalized_name_period\s*\n/m);
+    expect(creatorRaw).not.toMatch(/CREATE INDEX IF NOT EXISTS/);
+
+    const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
+    expect(files.indexOf(CREATOR_FILE)).toBeLessThan(files.indexOf(FIXED_FILE));
+  });
+
+  it("2. #91's later table creator now contains IF NOT EXISTS", () => {
+    expect(fixedRaw).toMatch(/^CREATE TABLE IF NOT EXISTS public\.account_mapping_memory \(/m);
+  });
+
+  it("3. all three later index creators now contain IF NOT EXISTS", () => {
+    expect(fixedRaw).toMatch(/^CREATE INDEX IF NOT EXISTS idx_amm_company_period\s*\n/m);
+    expect(fixedRaw).toMatch(/^CREATE INDEX IF NOT EXISTS idx_amm_company_code_period\s*\n/m);
+    expect(fixedRaw).toMatch(/^CREATE INDEX IF NOT EXISTS idx_amm_company_normalized_name_period\s*\n/m);
+  });
+
+  it("4. table and index bodies remain identical to #89 after removing only the idempotency tokens", () => {
+    const stripIdempotency = (s: string) => s.replace(/ IF NOT EXISTS/g, "");
+    const extractBetween = (text: string, startAnchor: string, endMarker: string) => {
+      const start = text.indexOf(startAnchor);
+      expect(start, `expected to find "${startAnchor}"`).toBeGreaterThan(-1);
+      const end = text.indexOf(endMarker, start);
+      expect(end).toBeGreaterThan(start);
+      return text.slice(start, end + endMarker.length);
+    };
+
+    const creatorTableBody = extractBetween(creatorRaw, "CREATE TABLE public.account_mapping_memory (", ");");
+    const fixedTableBody = stripIdempotency(
+      extractBetween(fixedRaw, "CREATE TABLE IF NOT EXISTS public.account_mapping_memory (", ");"),
+    );
+    expect(fixedTableBody).toBe(creatorTableBody);
+
+    for (const indexName of ["idx_amm_company_period", "idx_amm_company_code_period", "idx_amm_company_normalized_name_period"]) {
+      const creatorIdx = extractBetween(creatorRaw, `CREATE INDEX ${indexName}`, ";");
+      const fixedIdx = stripIdempotency(extractBetween(fixedRaw, `CREATE INDEX IF NOT EXISTS ${indexName}`, ";"));
+      expect(fixedIdx, `${indexName} body must match #89 after removing IF NOT EXISTS`).toBe(creatorIdx);
+    }
+  });
+
+  it("5. trigger and policy guards remain immediately before their creators", () => {
+    expect(fixedRaw).toMatch(
+      /DROP TRIGGER IF EXISTS "trg_amm_immutable" ON public\.account_mapping_memory;\r?\nCREATE TRIGGER trg_amm_immutable\r?\n/,
+    );
+    expect(fixedRaw).toMatch(
+      /DROP POLICY IF EXISTS "amm_select" ON public\.account_mapping_memory;\r?\nCREATE POLICY "amm_select" ON public\.account_mapping_memory\r?\n/,
+    );
+  });
+
+  it("6. the view explicitly declares security_invoker = true", () => {
+    expect(fixedRaw).toMatch(
+      /CREATE OR REPLACE VIEW public\.v_latest_account_mapping_memory\s*\r?\n\s*WITH \(security_invoker = true\) AS\r?\n/,
+    );
+  });
+
+  it("7. both anon revocations are present, positioned after the view/table reconciliation and before any grant", () => {
+    const revokeTableIdx = fixedRaw.indexOf("REVOKE ALL ON public.account_mapping_memory FROM anon;");
+    const revokeViewIdx = fixedRaw.indexOf("REVOKE ALL ON public.v_latest_account_mapping_memory FROM anon;");
+    const firstGrantIdx = fixedRaw.indexOf("GRANT SELECT ON public.account_mapping_memory TO authenticated;");
+    const viewCreateIdx = fixedRaw.indexOf("CREATE OR REPLACE VIEW public.v_latest_account_mapping_memory");
+    const tableCreateIdx = fixedRaw.indexOf("CREATE TABLE IF NOT EXISTS public.account_mapping_memory");
+
+    expect(revokeTableIdx).toBeGreaterThan(-1);
+    expect(revokeViewIdx).toBeGreaterThan(-1);
+    expect(revokeTableIdx).toBeGreaterThan(tableCreateIdx);
+    expect(revokeViewIdx).toBeGreaterThan(viewCreateIdx);
+    expect(revokeTableIdx).toBeLessThan(firstGrantIdx);
+    expect(revokeViewIdx).toBeLessThan(firstGrantIdx);
+  });
+
+  it("8. #91 cannot weaken the security state established by #90 — security_invoker and anon revokes are baked into #91's own creation sequence, not deferred", () => {
+    // The view is never created without security_invoker=true in this file — there is
+    // no separate later ALTER VIEW ... SET (security_invoker = on) step, unlike #90's
+    // own historical fix — meaning #91 alone (fresh replay, no #90 dependency) never
+    // passes through an invoker-less, RLS-bypassing intermediate state.
+    expect(fixedRaw).not.toMatch(/ALTER VIEW public\.v_latest_account_mapping_memory/);
+    // anon is revoked from both objects strictly before any authenticated/service_role
+    // grant is issued, so no window exists where anon holds default-privilege access.
+    const revokeTableIdx = fixedRaw.indexOf("REVOKE ALL ON public.account_mapping_memory FROM anon;");
+    const revokeViewIdx = fixedRaw.indexOf("REVOKE ALL ON public.v_latest_account_mapping_memory FROM anon;");
+    const anyGrantIdx = fixedRaw.indexOf("GRANT");
+    expect(revokeTableIdx).toBeLessThan(anyGrantIdx === -1 ? Infinity : fixedRaw.indexOf("GRANT SELECT ON public.account_mapping_memory TO authenticated;"));
+    expect(revokeViewIdx).toBeGreaterThan(-1);
+  });
+
+  it("9. no DROP TABLE, destructive alteration, or data mutation was introduced in the active (non-comment) SQL", () => {
+    const activeSql = fixedRaw
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n");
+    expect(activeSql).not.toMatch(/\bDROP TABLE\b/i);
+    expect(activeSql).not.toMatch(/\bTRUNCATE\b/i);
+    expect(activeSql).not.toMatch(/\bDELETE FROM\b/i);
+    expect(activeSql).not.toMatch(/\bUPDATE\s+public\./i);
+    // The commented-out rollback block at the bottom is untouched reference-only text.
+    expect(fixedRaw).toMatch(/-- DROP TABLE IF EXISTS public\.account_mapping_memory CASCADE;/);
+  });
+
+  it("all unrelated #91 production SQL is unchanged after canonical line-ending normalization (masked content-hash pin)", () => {
+    const canon = (s: string) => s.replace(/\r\n?/g, "\n");
+    let masked = fixedRaw;
+    masked = masked.replace(
+      /CREATE TABLE IF NOT EXISTS public\.account_mapping_memory \(/,
+      "CREATE TABLE MASKED_IDEMPOTENCY public.account_mapping_memory (",
+    );
+    masked = masked.replace(/CREATE INDEX IF NOT EXISTS idx_amm_company_period/, "CREATE INDEX MASKED_IDEMPOTENCY idx_amm_company_period");
+    masked = masked.replace(/CREATE INDEX IF NOT EXISTS idx_amm_company_code_period/, "CREATE INDEX MASKED_IDEMPOTENCY idx_amm_company_code_period");
+    masked = masked.replace(
+      /CREATE INDEX IF NOT EXISTS idx_amm_company_normalized_name_period/,
+      "CREATE INDEX MASKED_IDEMPOTENCY idx_amm_company_normalized_name_period",
+    );
+    masked = masked.replace(
+      /CREATE OR REPLACE VIEW public\.v_latest_account_mapping_memory\s*\n\s*WITH \(security_invoker = true\) AS/,
+      "CREATE OR REPLACE VIEW public.v_latest_account_mapping_memory MASKED_SECURITY_CLAUSE AS",
+    );
+    masked = masked.replace(
+      /REVOKE ALL ON public\.account_mapping_memory FROM anon;\nREVOKE ALL ON public\.v_latest_account_mapping_memory FROM anon;\n/,
+      "MASKED_ANON_REVOKES\n",
+    );
+    expect(masked, "expected all 6 authorized masks to apply").not.toBe(fixedRaw);
+    expect(sha256(canon(masked))).toBe(
+      "698f69b6a5d30a58bd73091b8ff0c35548dab86fdb60d7f42238dac064192f26",
+    );
+  });
+});
+
+describe("Repository-wide guard — CREATE TABLE / CREATE INDEX must never silently collide with an earlier unguarded creator", () => {
+  const allMigrationFiles = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
+
+  function scanAll(fileTexts: Array<{ file: string; text: string }>): TableIndexCollision[] {
+    const tableRegistry = new Map<string, string>();
+    const indexRegistry = new Map<string, string>();
+    const findings: TableIndexCollision[] = [];
+    for (const { file, text } of fileTexts) {
+      scanTableIndexCollisionsInFile(stripForObjectScan(text), file, tableRegistry, indexRegistry, findings);
+    }
+    return findings;
+  }
+
+  it("self-test: detects an unguarded duplicate CREATE TABLE across two files", () => {
+    const findings = scanAll([
+      { file: "a.sql", text: "CREATE TABLE public.foo (id uuid);" },
+      { file: "b.sql", text: "CREATE TABLE public.foo (id uuid);" },
+    ]);
+    expect(findings).toContainEqual({ kind: "TABLE", key: "public.foo", firstFile: "a.sql", laterFile: "b.sql" });
+  });
+
+  it("self-test: detects an unguarded duplicate CREATE INDEX across two files", () => {
+    const findings = scanAll([
+      { file: "a.sql", text: "CREATE INDEX idx_foo ON public.foo (id);" },
+      { file: "b.sql", text: "CREATE INDEX idx_foo ON public.foo (id);" },
+    ]);
+    expect(findings).toContainEqual({ kind: "INDEX", key: "idx_foo", firstFile: "a.sql", laterFile: "b.sql" });
+  });
+
+  it("self-test: IF NOT EXISTS on the later creator suppresses the finding", () => {
+    const findings = scanAll([
+      { file: "a.sql", text: "CREATE TABLE public.foo (id uuid);" },
+      { file: "b.sql", text: "CREATE TABLE IF NOT EXISTS public.foo (id uuid);" },
+    ]);
+    expect(findings).toEqual([]);
+  });
+
+  it("self-test: a preceding same-file DROP ... IF EXISTS guard suppresses the finding, in correct text order", () => {
+    const findings = scanAll([
+      { file: "a.sql", text: "CREATE INDEX idx_foo ON public.foo (id);" },
+      { file: "b.sql", text: "DROP INDEX IF EXISTS idx_foo;\nCREATE INDEX idx_foo ON public.foo (id);" },
+    ]);
+    expect(findings).toEqual([]);
+  });
+
+  it("self-test: a DROP appearing AFTER a bare re-CREATE in the same file does not retroactively guard it", () => {
+    const findings = scanAll([
+      { file: "a.sql", text: "CREATE INDEX idx_foo ON public.foo (id);" },
+      { file: "b.sql", text: "CREATE INDEX idx_foo ON public.foo (id);\nDROP INDEX IF EXISTS idx_foo;" },
+    ]);
+    expect(findings).toHaveLength(1);
+  });
+
+  it("self-test: quoted and unquoted identifiers of the same name fold to the same identity", () => {
+    const findings = scanAll([
+      { file: "a.sql", text: 'CREATE TABLE public.foo (id uuid);' },
+      { file: "b.sql", text: 'CREATE TABLE public."foo" (id uuid);' },
+    ]);
+    expect(findings).toHaveLength(1);
+  });
+
+  it("self-test: a quoted identifier with different case is a genuinely distinct identity, not a collision", () => {
+    const findings = scanAll([
+      { file: "a.sql", text: 'CREATE TABLE public."Foo" (id uuid);' },
+      { file: "b.sql", text: 'CREATE TABLE public.foo (id uuid);' },
+    ]);
+    expect(findings).toEqual([]);
+  });
+
+  it("self-test: an unqualified table name is schema-folded to public and still collides with an explicitly public.-qualified one", () => {
+    const findings = scanAll([
+      { file: "a.sql", text: "CREATE TABLE foo (id uuid);" },
+      { file: "b.sql", text: "CREATE TABLE public.foo (id uuid);" },
+    ]);
+    expect(findings).toHaveLength(1);
+  });
+
+  it("self-test: multiline CREATE TABLE definitions are detected across newlines", () => {
+    const findings = scanAll([
+      { file: "a.sql", text: "CREATE TABLE\n  public.foo (\n    id uuid\n  );" },
+      { file: "b.sql", text: "CREATE TABLE\n  public.foo (\n    id uuid\n  );" },
+    ]);
+    expect(findings).toHaveLength(1);
+  });
+
+  it("self-test: a comment mentioning CREATE TABLE is ignored, not treated as a real creator", () => {
+    const findings = scanAll([
+      { file: "a.sql", text: "CREATE TABLE public.foo (id uuid);" },
+      { file: "b.sql", text: "-- CREATE TABLE public.foo (id uuid); (just a comment)\nSELECT 1;" },
+    ]);
+    expect(findings).toEqual([]);
+  });
+
+  it("self-test: a string literal mentioning CREATE TABLE is ignored", () => {
+    const findings = scanAll([
+      { file: "a.sql", text: "CREATE TABLE public.foo (id uuid);" },
+      { file: "b.sql", text: "COMMENT ON TABLE public.foo IS 'do not CREATE TABLE public.foo again';" },
+    ]);
+    expect(findings).toEqual([]);
+  });
+
+  it("self-test: CREATE TABLE text embedded inside a dollar-quoted function body is not treated as a top-level creator", () => {
+    const findings = scanAll([
+      { file: "a.sql", text: "CREATE TABLE public.foo (id uuid);" },
+      {
+        file: "b.sql",
+        text: "CREATE OR REPLACE FUNCTION public.f() RETURNS void AS $$\nBEGIN\n  EXECUTE 'CREATE TABLE public.foo (id uuid)';\nEND;\n$$ LANGUAGE plpgsql;",
+      },
+    ]);
+    expect(findings).toEqual([]);
+  });
+
+  it("account_mapping_memory: the exact real-world case resolves to zero findings after the fix", () => {
+    const findings = scanAll([
+      { file: "20260811000000_account_mapping_memory.sql", text: readMigration("20260811000000_account_mapping_memory.sql") },
+      {
+        file: "20260811054356_e4768bc4-04df-4222-b2e6-482e35dde61a.sql",
+        text: readMigration("20260811054356_e4768bc4-04df-4222-b2e6-482e35dde61a.sql"),
+      },
+    ]);
+    expect(findings).toEqual([]);
+  });
+
+  it("scans all 113 migrations with no whitelist or exclusion and finds zero unguarded TABLE/INDEX creator collisions", () => {
+    const fileTexts = allMigrationFiles.map((file) => ({ file, text: readMigration(file) }));
+    const findings = scanAll(fileTexts);
+    expect(
+      findings,
+      findings.map((f) => `[${f.kind}] ${f.key}: first in ${f.firstFile}, unguarded re-creation in ${f.laterFile}`).join("\n"),
+    ).toEqual([]);
+  });
+});

@@ -10,7 +10,7 @@
 SET search_path TO public, pg_catalog;
 
 -- ── Table ─────────────────────────────────────────────────────────────────────
-CREATE TABLE public.account_mapping_memory (
+CREATE TABLE IF NOT EXISTS public.account_mapping_memory (
   id                    UUID         NOT NULL DEFAULT gen_random_uuid(),
   company_id            UUID         NOT NULL,
   source_system         TEXT         NOT NULL DEFAULT 'UNKNOWN',
@@ -66,14 +66,14 @@ COMMENT ON TABLE public.account_mapping_memory IS
   'an existing one (see trg_amm_immutable below).';
 
 -- ── Indexes ───────────────────────────────────────────────────────────────────
-CREATE INDEX idx_amm_company_period
+CREATE INDEX IF NOT EXISTS idx_amm_company_period
   ON public.account_mapping_memory (company_id, effective_period_year);
 
-CREATE INDEX idx_amm_company_code_period
+CREATE INDEX IF NOT EXISTS idx_amm_company_code_period
   ON public.account_mapping_memory (company_id, natural_account_code, effective_period_year)
   WHERE natural_account_code IS NOT NULL;
 
-CREATE INDEX idx_amm_company_normalized_name_period
+CREATE INDEX IF NOT EXISTS idx_amm_company_normalized_name_period
   ON public.account_mapping_memory (company_id, normalized_account_name, effective_period_year);
 
 -- ── Immutability (append-only ledger) ────────────────────────────────────────
@@ -97,7 +97,8 @@ CREATE TRIGGER trg_amm_immutable
   FOR EACH ROW EXECUTE FUNCTION public.account_mapping_memory_immutable();
 
 -- ── "Latest confirmed mapping per (company, code, period)" helper view ───────
-CREATE OR REPLACE VIEW public.v_latest_account_mapping_memory AS
+CREATE OR REPLACE VIEW public.v_latest_account_mapping_memory
+  WITH (security_invoker = true) AS
   SELECT DISTINCT ON (company_id, natural_account_code, effective_period_year)
     *
   FROM public.account_mapping_memory
@@ -124,6 +125,8 @@ CREATE POLICY "amm_select" ON public.account_mapping_memory
   );
 
 -- INSERT: service_role only (Edge Functions hold sole write authority).
+REVOKE ALL ON public.account_mapping_memory FROM anon;
+REVOKE ALL ON public.v_latest_account_mapping_memory FROM anon;
 GRANT SELECT ON public.account_mapping_memory TO authenticated;
 GRANT SELECT ON public.v_latest_account_mapping_memory TO authenticated;
 GRANT ALL    ON public.account_mapping_memory TO service_role;
