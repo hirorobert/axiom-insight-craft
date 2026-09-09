@@ -5,17 +5,21 @@ interface Props {
 }
 
 /**
- * Public CFOClose text wordmark. Original — plain text set in this site's
- * own typography, not derived from, resembling, or implying affiliation
- * with any other organization's visual system. Used only on public
- * surfaces (Header, Footer, Auth). The authenticated workspace's brand
- * mark and any future icon/wordmark graphic are a separate design-system
- * concern (Ω∞ Charter Phase 3).
+ * Public CFOClose text wordmark: "CFOCLOSE" (max weight, tight tracking) +
+ * ".com" (lighter weight) in the site's own navy foreground color — a CSS
+ * recreation of the approved logo image (bold navy "CFOCLOSE.com", no
+ * icon), built from this site's existing Inter font stack rather than a
+ * new asset or webfont dependency. Not pixel-identical to the source
+ * image by design (confirmed acceptable) — an exact vector/raster asset
+ * replacement can supersede this if one is supplied later. Used only on
+ * public surfaces (Header, Footer, Auth). The authenticated workspace's
+ * brand mark is a separate concern (Ω∞ Charter Phase 3/4).
  */
 export function CFOCloseWordmark({ className = "" }: Props) {
   return (
-    <span className={`font-bold tracking-tight text-foreground ${className}`}>
-      {BRAND.name}
+    <span className={`inline-flex items-baseline text-foreground ${className}`}>
+      <span className="font-black uppercase tracking-tight">{BRAND.name}</span>
+      <span className="font-medium">.com</span>
     </span>
   );
 }
