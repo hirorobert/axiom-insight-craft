@@ -50,6 +50,21 @@ function sha256(text: string): string {
 }
 
 /**
+ * Canonicalizes line endings to LF. Required before hashing or regex-masking
+ * ANY content that ultimately originates from readFileSync: this repository
+ * contains a genuine mix of LF- and CRLF-committed migration blobs (not just
+ * a Windows-checkout artifact — some files' git objects are themselves
+ * CRLF), so a raw byte-level operation over such content is not portable
+ * across checkouts/platforms. Canonicalizing first makes every downstream
+ * regex match and hash pin identical regardless of which line-ending
+ * convention the underlying git blob or local checkout happens to use.
+ */
+const canonicalizeLineEndings = (value: string): string => value.replace(/\r\n?/g, "\n");
+
+/** Centralized helper for every cross-platform, filesystem-derived content hash pin in this file. */
+const sha256Canonical = (value: string): string => sha256(canonicalizeLineEndings(value));
+
+/**
  * Strips line comments, block comments, single-quoted string literals, and
  * dollar-quoted (PL/pgSQL) bodies, replacing each with a single space so
  * that top-level SQL structure (BEGIN/COMMIT, CREATE ..., etc.) can be
@@ -191,8 +206,8 @@ describe("Correction A — smoke-test-after-COMMIT hazard removed from 202606261
     const beginIdx = text.indexOf("BEGIN;");
     const commitIdx = text.indexOf("COMMIT;", beginIdx);
     const prodBlock = text.slice(beginIdx, commitIdx + "COMMIT;".length);
-    expect(sha256(prodBlock)).toBe(
-      "46d60ffb849112b600c50f85295ab1d05d5795fbe1edf025bfd7279280370bb2",
+    expect(sha256Canonical(prodBlock)).toBe(
+      "d734c89eb582975c1ee401c545e740b71bd5c513b2aa6e4534dc657369533369",
     );
   });
 
@@ -234,8 +249,8 @@ describe("Correction A — smoke-test-after-COMMIT hazard removed from 202607010
     const beginIdx = text.indexOf("BEGIN;");
     const commitIdx = text.indexOf("COMMIT;", beginIdx);
     const prodBlock = text.slice(beginIdx, commitIdx + "COMMIT;".length);
-    expect(sha256(prodBlock)).toBe(
-      "7fc0e655dd66f409e0c8758d0336982396ff02646efe95e2ee9ce562be79dedb",
+    expect(sha256Canonical(prodBlock)).toBe(
+      "7a3b96eb35f52b830e916aabf2d1cd34abb3e681b4b3c08c96d7757a5b8ccb02",
     );
   });
 
@@ -1478,20 +1493,21 @@ describe("Correction — Phase 1-B smoke test rewritten to remove the invalid ne
     // just be wrong. The smoke-test block's own content is the thing this
     // test needs to prove is untouched, and it genuinely is. Line endings
     // are canonicalized to LF for the same cross-platform reason as before.
-    const canonicalSmokeBlock = smokeBlock.replace(/\r\n?/g, "\n");
-    expect(sha256(canonicalSmokeBlock)).toBe(
+    expect(sha256Canonical(smokeBlock)).toBe(
       "2ddb42012acfeb852fca36d5f6929f48d919db0d341f772d5b94689aa16b14d6",
     );
   });
 
   it("line-ending canonicalization: LF and CRLF (and lone CR) representations of the same smoke-test block hash identically", () => {
-    const lf = smokeBlock.replace(/\r\n?/g, "\n");
+    // Synthetic LF/CRLF/CR variants constructed in-memory (not from readFileSync) —
+    // this self-test's whole purpose is proving raw-byte equivalence after
+    // canonicalization, so it intentionally builds and compares raw variants.
+    const lf = canonicalizeLineEndings(smokeBlock);
     const crlf = lf.replace(/\n/g, "\r\n");
     const cr = lf.replace(/\n/g, "\r");
-    const canonicalize = (s: string) => s.replace(/\r\n?/g, "\n");
-    expect(sha256(canonicalize(lf))).toBe(sha256(canonicalize(crlf)));
-    expect(sha256(canonicalize(lf))).toBe(sha256(canonicalize(cr)));
-    expect(sha256(canonicalize(crlf))).toBe(
+    expect(sha256Canonical(lf)).toBe(sha256Canonical(crlf));
+    expect(sha256Canonical(lf)).toBe(sha256Canonical(cr));
+    expect(sha256Canonical(crlf)).toBe(
       "2ddb42012acfeb852fca36d5f6929f48d919db0d341f772d5b94689aa16b14d6",
     );
   });
@@ -1710,21 +1726,19 @@ describe("Correction — UPDATE-FROM target-alias scoping fix for safisha_except
   });
 
   it("9. no statement outside these two UPDATEs differs from the approved base (masked-file content-hash pin)", () => {
-    const canon = (s: string) => s.replace(/\r\n?/g, "\n");
     const re1 = /UPDATE public\.safisha_exceptions se[\s\S]*?se\.reviewer_member_id IS NULL;/;
     const re2 = /UPDATE public\.evidence_requests er[\s\S]*?er\.created_by_member_id IS NULL;/;
     expect(re1.test(raw), "expected to find the safisha_exceptions statement to mask").toBe(true);
     expect(re2.test(raw), "expected to find the evidence_requests statement to mask").toBe(true);
     const masked = raw.replace(re1, "MASKED_UPDATE_1").replace(re2, "MASKED_UPDATE_2");
-    expect(sha256(canon(masked))).toBe(
+    expect(sha256Canonical(masked)).toBe(
       "92c9cb861096ebc0331c5d8ddae7bd8bd047af0d85580c3dd526d52cdb970e9d",
     );
   });
 
   it("10. the previously corrected 25-pair Phase 1B smoke test remains byte-identical after canonical line-ending normalization", () => {
     const sectionIdx = raw.indexOf("-- ── SECTION 5: SMOKE TEST");
-    const canonicalSmokeBlock = raw.slice(sectionIdx).replace(/\r\n?/g, "\n");
-    expect(sha256(canonicalSmokeBlock)).toBe(
+    expect(sha256Canonical(raw.slice(sectionIdx))).toBe(
       "2ddb42012acfeb852fca36d5f6929f48d919db0d341f772d5b94689aa16b14d6",
     );
   });
@@ -2108,8 +2122,17 @@ describe("Correction — #91 duplicate table/index creators made idempotent, vie
   });
 
   it("all unrelated #91 production SQL is unchanged after canonical line-ending normalization (masked content-hash pin)", () => {
-    const canon = (s: string) => s.replace(/\r\n?/g, "\n");
-    let masked = fixedRaw;
+    // Canonicalize BEFORE masking, not after: several of these masking
+    // regexes match a literal "\n" immediately following a semicolon or
+    // keyword with no intervening \s* buffer, so on CRLF-encoded content
+    // they would silently fail to match at all, leaving that region
+    // unmasked and producing a platform-dependent final hash even though
+    // the hash itself was computed over "canonicalized" text — the bug
+    // this test previously had. Canonicalizing the input first guarantees
+    // every mask applies identically regardless of the underlying
+    // checkout's or git blob's line-ending convention.
+    const canonicalFixedRaw = canonicalizeLineEndings(fixedRaw);
+    let masked = canonicalFixedRaw;
     masked = masked.replace(
       /CREATE TABLE IF NOT EXISTS public\.account_mapping_memory \(/,
       "CREATE TABLE MASKED_IDEMPOTENCY public.account_mapping_memory (",
@@ -2128,9 +2151,9 @@ describe("Correction — #91 duplicate table/index creators made idempotent, vie
       /REVOKE ALL ON public\.account_mapping_memory FROM anon;\nREVOKE ALL ON public\.v_latest_account_mapping_memory FROM anon;\n/,
       "MASKED_ANON_REVOKES\n",
     );
-    expect(masked, "expected all 6 authorized masks to apply").not.toBe(fixedRaw);
-    expect(sha256(canon(masked))).toBe(
-      "698f69b6a5d30a58bd73091b8ff0c35548dab86fdb60d7f42238dac064192f26",
+    expect(masked, "expected all 6 authorized masks to apply").not.toBe(canonicalFixedRaw);
+    expect(sha256Canonical(masked)).toBe(
+      "91e07bf514fc9fe92de239a6cc5bb9df7b09ed1d0aa73d1456430fcfbcdabd90",
     );
   });
 });
