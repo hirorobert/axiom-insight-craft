@@ -959,9 +959,13 @@ This requires a new field, `providerCreatedAt: string`, on `NormalizedTransactio
 1. **Line `IF now() > v_intent.expires_at THEN`** compares wall-clock now against `expires_at` — exactly the canonical-rule violation Blocker 1 names — and, worse, **unconditionally mutates `status` to `'EXPIRED'`** before even checking whether `p_normalized_status = 'SUCCEEDED'`. A genuinely successful, correctly-verified payment arriving after `expires_at` hits this branch FIRST and is rejected `INTENT_EXPIRED` without ever reaching the commit logic at all — the exact "CUSTOMER CHARGED → PAYMENT VERIFIED → LICENCE DENIED BECAUSE LOCAL WALL CLOCK PASSED expires_at" scenario, confirmed present in the real, currently-deployed function.
 2. **The `payment_events` INSERT's `provider_created_at` column (the table already has this column — `payment_events.provider_created_at TIMESTAMPTZ NULL`, added by this same Ω2-G migration, confirmed by direct read) is populated with a literal `now()`**, not any provider-supplied value — silently discarding the one piece of evidence the canonical rule's point 3 depends on (High 1).
 
-**PROPOSED** — one new parameter, one corrected `IF`, one corrected `INSERT` value; nothing else in this ~170-line function changes:
+**Correction, round 6 (item 1 — a confirmed defect in round 5's own design):** round 5 wrote this as a single `CREATE OR REPLACE FUNCTION` adding `p_provider_created_at` as a 13th parameter and called it "a true replace... not a rewrite." **This is factually wrong about how Postgres identifies functions.** A function's identity is `(schema, name, argument type list)` — `CREATE OR REPLACE` only replaces a function whose argument list is UNCHANGED; adding a new parameter (with no default) changes the argument-type list, so `CREATE OR REPLACE FUNCTION commit_verified_commercial_payment(<12 args>, p_provider_created_at TIMESTAMPTZ)` does **not** touch the existing 12-argument function at all — it creates a **second, co-existing overload**. The OLD 12-argument signature, with its uncorrected wall-clock `IF now() > v_intent.expires_at` check, would remain fully present, fully `GRANT EXECUTE`'d to `service_role`, and fully callable by anything that still invokes it with 12 arguments — silently reopening exactly the canonical-rule violation Blocker 1 (round 5) believed it had closed, through a back door round 5 never named. This is corrected below into the same explicit three-phase overload discipline already used for `resolve_commercial_offer`, `admin_upsert_commercial_offer`, and `admin_supersede_commercial_offer` — treated identically, not as a special case.
+
+**Phase 0 (independent of the overload question — a true, same-signature, in-place replace):** the customer-level advisory lock (item 6, round 1) changes only the function BODY, not its argument list — `CREATE OR REPLACE FUNCTION commit_verified_commercial_payment(<the original 12 args, unchanged>)` legitimately replaces the live function in place here, safely, with no overload created. This may ship as its own migration step independent of everything below.
+
+**Phase A (new overload — the new 13-argument signature, co-existing with the 12-argument one from Phase 0):**
 ```sql
-CREATE OR REPLACE FUNCTION public.commit_verified_commercial_payment(
+CREATE FUNCTION public.commit_verified_commercial_payment(
   p_checkout_intent_id       UUID,
   p_provider                 TEXT,
   p_provider_transaction_id  TEXT,
@@ -977,7 +981,13 @@ CREATE OR REPLACE FUNCTION public.commit_verified_commercial_payment(
   p_provider_created_at      TIMESTAMPTZ  -- NEW (item 3/Blocker 1, High 1): the provider's OWN
                                             -- payment-completion timestamp, sourced by both callers
                                             -- (webhook and reconciliation) from the corrected
-                                            -- NormalizedTransaction.providerCreatedAt (§ below)
+                                            -- NormalizedTransaction.providerCreatedAt (§ below).
+                                            -- No default — a caller that omits it fails to resolve
+                                            -- to this overload at all, never silently falls through
+                                            -- to the (still-present-until-Phase-C) 12-arg overload's
+                                            -- wall-clock behaviour by accident, since PostgreSQL
+                                            -- overload resolution is by exact argument count/type,
+                                            -- not by "closest match."
 )
 RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER VOLATILE
@@ -1026,8 +1036,43 @@ BEGIN
   -- payment_checkout_intents status='SUCCEEDED' update, return value ...
 END;
 $$;
+
+-- The 13-arg overload gets its OWN grant — it does not inherit the 12-arg
+-- overload's grant, because in PostgreSQL grants are per-signature, not
+-- per-function-name. Omitting this step would leave the new overload
+-- entirely uncallable by service_role.
+REVOKE ALL ON FUNCTION public.commit_verified_commercial_payment(
+  UUID,TEXT,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TIMESTAMPTZ,TEXT,TEXT,TEXT,TIMESTAMPTZ
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.commit_verified_commercial_payment(
+  UUID,TEXT,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TIMESTAMPTZ,TEXT,TEXT,TEXT,TIMESTAMPTZ
+) TO service_role;
 ```
-Both callers of `commit_verified_commercial_payment` (`commercial-payment-webhook/index.ts` and `commercial-payment-reconcile/index.ts`) pass `p_provider_created_at` from the SAME `NormalizedTransaction.providerCreatedAt` field `authoriseCommit` already validated moments earlier — no second, independently-derived timestamp, no possibility of the RPC's re-check disagreeing with `authoriseCommit`'s own decision about the same transaction.
+Both callers of the 13-arg overload (`commercial-payment-webhook-sandbox`/`commercial-payment-webhook-production` — item 4 below — and `commercial-payment-reconcile/index.ts`) pass `p_provider_created_at` from the SAME `NormalizedTransaction.providerCreatedAt` field `authoriseCommit` already validated moments earlier.
+
+**Phase B (application deploy):** both Edge Functions are redeployed to call the 13-argument overload EXCLUSIVELY — neither caller is ever changed to still invoke the 12-argument form once Phase A has shipped. Both overloads exist simultaneously during this phase (the 12-arg one, with Phase 0's lock but the OLD wall-clock check, still technically present but no longer invoked by any code in this repository); this is the same "old signature present but unused" window every other overload migration in this package goes through.
+
+**Phase C (cleanup — the step round 5 omitted entirely for this function):**
+```sql
+REVOKE ALL ON FUNCTION public.commit_verified_commercial_payment(
+  UUID,TEXT,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TIMESTAMPTZ,TEXT,TEXT,TEXT
+) FROM PUBLIC, anon, authenticated, service_role;
+DROP FUNCTION public.commit_verified_commercial_payment(
+  UUID,TEXT,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TIMESTAMPTZ,TEXT,TEXT,TEXT
+);
+```
+Run ONLY after Phase B is confirmed — i.e., only after staging/production logs confirm zero invocations of the 12-argument form for a full observation window (the same discipline already applied to the resolver/admin-function overload cleanups). Until this runs, the OLD, wall-clock-vulnerable signature remains a live, callable, correctly-permissioned attack surface — Phase C is not optional cleanup, it is the step that actually closes Blocker 1 for this function.
+
+**Executable proof the old signature is absent (item 1's explicit requirement, `ACCEPTANCE_MATRIX.md` §10):**
+```sql
+-- Must return zero rows after Phase C:
+SELECT p.oid, pg_get_function_identity_arguments(p.oid)
+  FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+ WHERE n.nspname = 'public' AND p.proname = 'commit_verified_commercial_payment'
+   AND pronargs = 12;
+```
+A direct `supabase.rpc('commit_verified_commercial_payment', {...12 args...})` call after Phase C must fail with a PostgREST "function not found" / `PGRST202` error, not a successful (and therefore uncorrected) commit.
 
 **Reconciliation claim/terminal predicates realigned:** §7.2 below drops every `expires_at > now()` reference from both the claim and terminal logic, per point 2 of the canonical rule.
 
@@ -1148,6 +1193,11 @@ BEGIN
        AND t.reconciliation_attempt_count >= 8
        AND t.reconciliation_claim_token IS NOT NULL
        AND t.reconciliation_lease_expires_at <= now()
+       AND t.requires_manual_review = false  -- item 2 (round 6): a row already flagged for
+         -- manual review (e.g. via an earlier PAYMENT_AFTER_EXPIRY at an attempt below the
+         -- cap, then crashed later at attempt 8) must not have this sweep fire on it a
+         -- second time and duplicate evidence — once flagged, ONLY admin_reopen_reconciliation
+         -- (below) may ever clear the flag and re-arm any automatic path
        FOR UPDATE SKIP LOCKED
   ),
   crashed_evidence AS (
@@ -1190,9 +1240,16 @@ BEGIN
   RETURN QUERY
   WITH claimable AS (
     -- Item 3 (round 4): NO expires_at reference anywhere in this predicate.
+    -- Item 2 (round 6): requires_manual_review = false is now a hard,
+    -- unconditional gate on the ENTIRE predicate — a row flagged for
+    -- manual review is excluded from every automatic claim/reclaim path
+    -- (normal claim, crash recovery alike), regardless of attempt_count or
+    -- backoff timing. Only admin_reopen_reconciliation (below) may clear
+    -- this flag and make the row automatically claimable again.
     SELECT t.id, t.reconciliation_attempt_count FROM public.payment_checkout_intents t
      WHERE t.status = 'PENDING' AND t.created_at < now() - interval '10 minutes'
        AND t.reconciliation_attempt_count < 8
+       AND t.requires_manual_review = false
        AND (
          (t.reconciliation_attempt_count = 0 AND t.reconciliation_claim_token IS NULL)
          OR (
@@ -1381,6 +1438,60 @@ REVOKE ALL ON FUNCTION public.finalize_reconciliation_attempt(UUID,UUID,TEXT,TEX
 GRANT EXECUTE ON FUNCTION public.finalize_reconciliation_attempt(UUID,UUID,TEXT,TEXT,UUID,TEXT) TO service_role;
 ```
 
+**RPC — `admin_reopen_reconciliation`: the ONE audited, administrator-only mechanism for re-entry (item 2 — required now that `requires_manual_review = true` rows are excluded from every automatic path):**
+```sql
+CREATE OR REPLACE FUNCTION public.admin_reopen_reconciliation(p_intent_id UUID, p_reason TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER VOLATILE
+SET search_path = public, pg_catalog
+AS $$
+DECLARE
+  v_user_id UUID := auth.uid();
+  v_intent  RECORD;
+BEGIN
+  IF v_user_id IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF NOT public.is_commercial_admin() THEN RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501'; END IF;
+  IF p_reason IS NULL OR trim(p_reason) = '' THEN RAISE EXCEPTION 'REASON_REQUIRED' USING ERRCODE = '22023'; END IF;
+
+  SELECT * INTO v_intent FROM public.payment_checkout_intents WHERE id = p_intent_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'INTENT_NOT_FOUND: %', p_intent_id USING ERRCODE = '22023'; END IF;
+  IF NOT v_intent.requires_manual_review THEN
+    RAISE EXCEPTION 'INTENT_NOT_FLAGGED_FOR_MANUAL_REVIEW' USING ERRCODE = '22023';
+    -- Fails closed on a no-op call — an admin invoking this on a row that
+    -- was never flagged is almost certainly operating on the wrong intent
+    -- id; silently succeeding would mask that mistake.
+  END IF;
+  IF v_intent.status != 'PENDING' THEN
+    RAISE EXCEPTION 'INTENT_NOT_PENDING: %', v_intent.status USING ERRCODE = '22023';
+    -- Never re-arms reconciliation for an intent already resolved
+    -- (SUCCEEDED/FAILED/EXPIRED/CANCELLED) by some other path in the
+    -- meantime — reopening is scoped strictly to the still-undetermined case.
+  END IF;
+
+  UPDATE public.payment_checkout_intents
+     SET requires_manual_review = false,
+         reconciliation_attempt_count = 0,        -- a fresh, full 8-attempt cycle —
+                                                     -- the admin has presumably resolved
+                                                     -- whatever ambiguity existed
+         reconciliation_claim_token = NULL,        -- clears any stale lease state
+         reconciliation_lease_expires_at = NULL,
+         reconciliation_last_completed_at = NULL   -- no artificial backoff carried over
+   WHERE id = p_intent_id;
+
+  INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
+    VALUES (v_intent.billing_customer_id, v_user_id, 'ADMIN_REOPENED_RECONCILIATION',
+      jsonb_build_object('requires_manual_review', true, 'reconciliation_attempt_count', v_intent.reconciliation_attempt_count),
+      jsonb_build_object('requires_manual_review', false, 'reconciliation_attempt_count', 0),
+      p_reason);
+
+  RETURN jsonb_build_object('reopened', true, 'intent_id', p_intent_id);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.admin_reopen_reconciliation(UUID, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_reopen_reconciliation(UUID, TEXT) TO authenticated;
+```
+Same pattern as every other `admin_*` function in this package: ordinary `authenticated` grant, `is_commercial_admin()`-gated internally, non-blank reason required, every action durably audited via `billing_audit_events`. This is the ONLY way a `requires_manual_review = true` row ever becomes automatically claimable again — no automatic timeout, no automatic retry-after-N-days, nothing but a deliberate, attributed human action.
+
 **Reconciliation Edge Function protocol per claimed row:**
 1. Call `verifyTransactionByReference` (§7.4).
 2. On a definitive, verified `SUCCEEDED` result: run `authoriseCommit` + `commit_verified_commercial_payment` (passing `p_provider_created_at`, §7.0). If `authoriseCommit`/the RPC rejects with `PAYMENT_AFTER_INTENT_EXPIRY`, call `finalize_reconciliation_attempt(..., 'PAYMENT_AFTER_EXPIRY', ...)`. On a genuine commit, call `finalize_reconciliation_attempt(intent_id, claim_token, 'RECONCILED', providerTransactionId, correlationId, NULL)`.
@@ -1414,7 +1525,20 @@ Fixed schedule (minutes of delay before each numbered attempt): attempt 1 waits 
 | **Non-successful status (a real match, but `status` is `pending`/`failed`/`cancelled`/etc.)** | `pending` → treated the same as "not yet confirmed," retriable. `failed`/`cancelled`/`refunded` → a **definitive, non-retriable** outcome — `finalize_reconciliation_attempt(..., 'NON_SUCCESS_STATUS', ...)` transitions the intent directly to `FAILED` without exhausting the remaining backoff schedule (§7.2) — there is no reason to keep polling a transaction the provider itself has already definitively closed out. |
 | **Missing, malformed, or impossible `data.created_at`** (new, High 1 round 5) | **Fail closed.** If `data.created_at` is absent, fails `new Date(...)` parsing (`isNaN(parsed.getTime())`), or resolves to a timestamp after the CURRENT moment (a provider clock anomaly — a payment cannot have completed in the future), `verifyTransactionByReference`/`verifyTransaction` return `{verified:false, reason:'PROVIDER_TIMESTAMP_INVALID'}` — the transaction is treated as NOT verified, never defaulted to `now()` or silently accepted with a missing/impossible timestamp. This is the direct enforcement of §7.0's canonical rule depending on a value that must itself be trustworthy before it is trusted. |
 
-**High 1 — `data.created_at` semantics, proven rather than assumed:** Flutterwave's `GET /transactions/:id/verify` and `GET /transactions?tx_ref=...` responses both return, inside `data`, a `created_at` field documented by Flutterwave's own API reference as the transaction record's creation timestamp on their platform, in ISO-8601 format. **This design does not claim independent, first-party confirmation of that documentation beyond what is stated here** — no live sandbox fixture was captured during this design pass (this environment has no Flutterwave sandbox credentials or network access). Recorded honestly, not overstated: `data.created_at` is Flutterwave's own stated field for "when this transaction record was created," which this design treats as the authoritative payment-completion instant for the canonical rule's purposes; if a future implementation pass, working against a real sandbox account, finds Flutterwave's actual behavior differs from the documented contract (e.g. the field reflects checkout-session creation rather than payment-capture completion), `authoriseCommit`'s comparison must be revisited before this design ships — this is recorded as an explicit **pre-implementation verification requirement**, not silently assumed correct. The fail-closed handling above (missing/malformed/impossible values rejected, never defaulted) is what makes this safe to depend on even before that live verification happens: a wrong-but-present timestamp that fails a sanity check is rejected, not silently trusted.
+**High 1, hardened round 6 (item 6) — `GATE-FLUTTERWAVE-CREATED-AT-SEMANTICS`, a named, tracked, BLOCKING pre-implementation gate, not merely a caveat:**
+
+**Status: OPEN. Implementation of the `providerCreatedAt`-based expiry comparison (§7.0 points 3/7, `authoriseCommit`, `commit_verified_commercial_payment`) MUST NOT proceed against real payment traffic — sandbox or production — until this gate is explicitly closed.**
+
+What is known: Flutterwave's `GET /transactions/:id/verify` and `GET /transactions?tx_ref=...` responses both document, inside `data`, a `created_at` field, described in Flutterwave's own API reference as the transaction record's creation timestamp, in ISO-8601 format.
+
+What is NOT known, and is not permitted to be assumed: whether `created_at` reflects the moment the transaction record was first created on Flutterwave's platform (which could precede actual payment capture — e.g. the instant the customer lands on the hosted checkout page, before they enter card details) or the moment payment was actually captured/settled. These are materially different instants, and the canonical rule's entire correctness (§7.0 point 3: "a payment that completed... BEFORE `expires_at` may commit") depends on comparing the RIGHT one against `expires_at`. **No live sandbox fixture was captured during any design round** (this environment has never had Flutterwave sandbox credentials or network access) — every prior round's framing of this as "Flutterwave's own documented field" was true but insufficient: documentation naming a field is not the same as proving its semantics match what this design needs.
+
+**Exact closure criteria — ALL required before implementation may depend on `data.created_at` as payment-completion authority:**
+1. At least one CAPTURED, real Flutterwave sandbox transaction fixture (the full raw JSON response from both `GET /transactions/:id/verify` and the reference-lookup endpoint), obtained against a real sandbox account, with the actual wall-clock time the test payment was submitted independently recorded by whoever captured it.
+2. A direct comparison, published alongside that fixture, between the independently-recorded submission time and the fixture's own `data.created_at` value — proving which real-world instant the field actually corresponds to, not merely which instant Flutterwave's prose says it should.
+3. A named engineer or reviewer sign-off recorded in this repository (e.g. a follow-up commit updating this section with the fixture reference, the comparison result, and an explicit "GATE-FLUTTERWAVE-CREATED-AT-SEMANTICS: CLOSED, confirmed by <name> on <date>, fixture at <path>" line) before any implementation PR depending on this comparison may be merged.
+
+**Until closed, this design's own fail-closed handling (missing/malformed/future-dated values rejected outright, never defaulted — the table below, unchanged) is what makes it SAFE to have specified the mechanism at all without yet having proven the field's semantics: a wrong-but-present timestamp that fails a sanity check is rejected, not silently trusted, so no incorrect commit or incorrect rejection can occur merely from an unverified field — but the mechanism's overall CORRECTNESS (as opposed to its safety against garbage input) remains unproven until this gate closes.** This distinction — safe-but-unproven versus proven-correct — is the one this design draws explicitly rather than blurring.
 
 **Timezone, boundary, malformed, and clock-skew handling (High 1's explicit test requirement — executable cases specified in `ACCEPTANCE_MATRIX.md` §9):** `data.created_at` is parsed via `new Date(data.created_at)`, which correctly normalizes any ISO-8601 offset (including a bare `Z`/UTC or an explicit `+03:00`-style offset) to the same UTC instant `expires_at` (a `TIMESTAMPTZ`, always stored/compared in UTC) uses — no separate timezone-conversion logic is needed since JavaScript's `Date` and Postgres's `TIMESTAMPTZ` both operate on absolute instants, never wall-clock-without-zone values. At the exact boundary (`providerCreatedAt === expires_at` to the microsecond), the comparison `providerCreatedAt > expires_at` is `false` — an exact-boundary payment is authorised, consistent with `expires_at` being defined as the moment the session becomes invalid FOR REUSE, not the last valid instant for a payment already in flight on that session. Clock skew between this system and Flutterwave's own clock is not separately compensated — both `expires_at` (set by this system) and `data.created_at` (set by Flutterwave) are absolute UTC instants from two independently-run clocks; any skew is a genuine, if small, source of edge-case disagreement, and is explicitly NOT corrected for in this design (no fabricated tolerance window) — if operational experience after implementation shows this causes real false rejections, a small explicit tolerance (e.g. ±30 seconds) would be a narrow, separately-reviewed follow-up change, not silently built in now.
 
@@ -1634,7 +1758,7 @@ SELECT * INTO v_current_lic FROM public.commercial_licences
 
 This is the one function in this design package changed from **MUST NOT CHANGE** (its original classification) to **MUST CHANGE** — the change is scoped narrowly to one lock acquisition plus one re-read at a specific point, touching no existing amount/currency/status validation, idempotency check, or audit-row insertion.
 
-**Second, unrelated change to the same function (item 3/Blocker 1 — full CURRENT-vs-PROPOSED SQL, quoted verbatim against the real, live function body, now lives in §7.0):** the existing `IF now() > v_intent.expires_at THEN UPDATE ... SET status='EXPIRED' ...` block is corrected to a new `p_provider_created_at TIMESTAMPTZ` parameter compared against `expires_at` (never `now()`), and — critically — the corrected branch no longer mutates `status` at all on rejection, since status ownership for a rejected-but-possibly-still-live intent belongs to reconciliation's four-part lifecycle model (§7.0), not to a single rejected commit attempt. Scoped to one added parameter, one corrected `IF`, and one corrected `INSERT` value (`payment_events.provider_created_at`, High 1) — the licence-period math, idempotency handling, and customer-level lock above are all unaffected.
+**Second, unrelated change to the same function (item 3/Blocker 1 — full CURRENT-vs-PROPOSED SQL, quoted verbatim against the real, live function body, now lives in §7.0):** the existing `IF now() > v_intent.expires_at THEN UPDATE ... SET status='EXPIRED' ...` block is corrected to a new `p_provider_created_at TIMESTAMPTZ` parameter compared against `expires_at` (never `now()`), and — critically — the corrected branch no longer mutates `status` at all on rejection. **Corrected round 6 (item 1): this is a new parameter, not a same-signature body edit — it does NOT ship via a single `CREATE OR REPLACE`.** The customer-level lock above (Phase 0) is a genuine in-place replace of the existing 12-argument signature; the `p_provider_created_at` addition creates a NEW, 13-argument overload (Phase A), requiring the sole callers to cut over (Phase B) and the old 12-argument signature to be explicitly `REVOKE`d and `DROP`ped (Phase C) before this fix is actually complete — see §7.0 for the full three-phase treatment and the executable proof the old signature is gone.
 
 ## 12. Dual-environment Flutterwave credentials (Blocker 5)
 
@@ -1709,24 +1833,128 @@ export function getConfiguredProviders(): PaymentProviderCapabilities[] {
 ```
 **New gap this design closes, found while specifying Blocker 5 (not previously identified):** with up to two simultaneously-configured FLUTTERWAVE entries, `selectPaymentProvider`'s existing currency/market-only eligibility filter (unchanged, `routing.ts`) could non-deterministically pick either environment's entry for a NEW checkout — and, separately, Part B's own capability lookup (`getConfiguredProviders().find(p => p.provider === provider)`) would become ambiguous the moment two entries share the same `provider` value. **Both are corrected together, in place, in §2's own steps 7–8** (not shown a second time here to avoid two documents of this package disagreeing about the exact code) — `commercial-create-checkout` computes `requiredEnv` from `state` and filters `getConfiguredProviders()` to `envFilteredProviders` BEFORE calling `selectPaymentProvider`, and Part B's lookup reuses that SAME filtered array rather than re-querying the full list. See §2 for the exact, current code.
 
-### 12.4 — Webhook environment selection: routing-based, never payload-trusted
+### 12.4 — Webhook environment selection: two source-controlled wrapper functions, never a per-function env-var assumption (corrected round 6, items 4/5)
 
-The mission's explicit requirement — "Webhook verification selects the correct webhook secret without trusting an attacker-supplied environment field... derived from the matched intent/provider account or separately authenticated routing" — is closed by **routing**, not by inspecting the payload: Flutterwave's own dashboard configuration sends sandbox events to one URL and production events to a different URL (the standard, correct pattern for this exact problem — a merchant configures ONE webhook URL per environment in Flutterwave's own settings). `commercial-payment-webhook` is deployed to two distinct routes, each hardcoded (at deploy time, via its own Edge Function environment variable — never inferred from the request) to exactly one environment:
+**Rejected, round 6:** round 5's `WEBHOOK_ENVIRONMENT = Deno.env.get('WEBHOOK_ENVIRONMENT')` design assumed "the same Edge Function source, deployed twice, each given a different environment variable" — but this is not how Supabase Edge Functions actually work: a function's source lives at exactly one path (`supabase/functions/<slug>/index.ts`) and deploys as exactly one slug; there is no supported mechanism for deploying that one source file twice under two different runtime configurations. Depending on an env var to distinguish "which of two deployments am I" was an unverified assumption about deployment tooling this design never actually checked.
+
+**Corrected: two small, source-controlled wrapper functions, each with the environment identity hardcoded as a literal, both calling ONE shared handler:**
 ```ts
-// commercial-payment-webhook/index.ts
-const WEBHOOK_ENVIRONMENT = Deno.env.get('WEBHOOK_ENVIRONMENT'); // 'SANDBOX' | 'PRODUCTION' — set
-  // once, at deploy time, per Edge Function deployment target. NEVER read from
-  // the incoming request, a header, or any field inside the webhook payload.
-if (WEBHOOK_ENVIRONMENT !== 'SANDBOX' && WEBHOOK_ENVIRONMENT !== 'PRODUCTION') {
-  throw new Error('Iron Dome: WEBHOOK_ENVIRONMENT must be explicitly configured at deploy time.');
+// supabase/functions/_shared/commercialPaymentWebhookHandler.ts
+// ALL webhook logic (Gate A, normalize, load intent, Gate B, authoriseCommit,
+// commit, evidence recording) lives here ONCE, parameterized by environment —
+// unchanged behavior from round 5 except where items 3/5 add new steps below.
+export async function handleCommercialPaymentWebhook(req: Request, environment: 'SANDBOX' | 'PRODUCTION'): Promise<Response> {
+  const adapter = getFlutterwaveAdapter(environment);
+  // ... Gate A: adapter.verifyWebhookAuthenticity(rawBody, headers) — UNCHANGED ...
+  // ... normalizeWebhook, load intent by saff_reference — UNCHANGED ...
+
+  // NEW (item 5): the intent's OWN recorded environment must match the
+  // environment THIS deployment target is hardcoded for, checked
+  // immediately after loading the intent and BEFORE Gate B or any commit
+  // attempt. Gate A proves the webhook genuinely came from Flutterwave's
+  // sandbox (or production) account; it does NOT prove the REFERENCED
+  // INTENT was itself created under that same environment. Without this
+  // check, a validly-signed sandbox webhook whose saff_reference happened
+  // to match a production intent could cause Gate B to verify against the
+  // sandbox provider API and — if that independently succeeded — commit
+  // against a production intent using sandbox-corroborated data.
+  if (intent.provider_environment !== environment) {
+    await supabase.rpc('flag_webhook_payment_requires_manual_review', {
+      p_intent_id: intent.id, p_reason_code: 'PROVIDER_ENVIRONMENT_MISMATCH',
+      p_provider_transaction_id: normalized.providerTransactionId, p_correlation_id: correlationId,
+    });
+    return new Response(JSON.stringify({ received: true }), { status: 200 }); // 200 — no retry storm, same convention as INVALID_SIGNATURE
+  }
+
+  // ... Gate B: adapter.verifyTransaction(...) — UNCHANGED ...
+  // ... authoriseCommit(intent, transaction) — UNCHANGED ...
+
+  // NEW (item 3): a webhook has NO reconciliation claim_token — it never
+  // participates in the claim/lease protocol at all, and must never
+  // fabricate one merely to call finalize_reconciliation_attempt (which
+  // REQUIRES a real, matching token). PAYMENT_AFTER_INTENT_EXPIRY discovered
+  // via the webhook path is escalated through the SAME narrow RPC as the
+  // environment-mismatch case above, never through the reconciliation-only
+  // finalize path.
+  if (authResult.reason === 'PAYMENT_AFTER_INTENT_EXPIRY') {
+    await supabase.rpc('flag_webhook_payment_requires_manual_review', {
+      p_intent_id: intent.id, p_reason_code: 'PAYMENT_AFTER_INTENT_EXPIRY',
+      p_provider_transaction_id: transaction.providerTransactionId, p_correlation_id: correlationId,
+    });
+    return new Response(JSON.stringify({ received: true }), { status: 200 });
+  }
+
+  // ... commit_verified_commercial_payment(..., p_provider_created_at) — UNCHANGED ...
 }
-const adapter = getFlutterwaveAdapter(WEBHOOK_ENVIRONMENT);
-// Gate A (verifyWebhookAuthenticity) now runs against EXACTLY the one
-// webhook secret this deployment target was configured for — an attacker
-// cannot claim to be "production" by adding a field to the payload, because
-// no field in the payload is ever consulted for this decision.
 ```
-Flutterwave's dashboard is configured (an operational step, not code) with two webhook URLs: the sandbox account's events point at the deployment carrying `WEBHOOK_ENVIRONMENT=SANDBOX`, the production account's at the one carrying `WEBHOOK_ENVIRONMENT=PRODUCTION`. Both may be the same Edge Function SOURCE deployed twice (Supabase supports deploying one function under two different slugs/environments) — an operational/deployment-configuration decision, not a second code path to maintain.
+```ts
+// supabase/functions/commercial-payment-webhook-sandbox/index.ts — the
+// ENTIRE file; environment is a literal in committed source, never an
+// env var, never inferred from the request.
+import { handleCommercialPaymentWebhook } from '../_shared/commercialPaymentWebhookHandler.ts';
+Deno.serve((req) => handleCommercialPaymentWebhook(req, 'SANDBOX'));
+```
+```ts
+// supabase/functions/commercial-payment-webhook-production/index.ts — the
+// ENTIRE file.
+import { handleCommercialPaymentWebhook } from '../_shared/commercialPaymentWebhookHandler.ts';
+Deno.serve((req) => handleCommercialPaymentWebhook(req, 'PRODUCTION'));
+```
+These are two genuinely distinct Edge Function deployments (`supabase/functions/commercial-payment-webhook-sandbox/`, `supabase/functions/commercial-payment-webhook-production/`) — a real, fully-supported Supabase pattern, not an assumption about how one deployment could behave differently under different configuration. Flutterwave's dashboard is configured (an operational step, not code) with two webhook URLs: the sandbox account's events point at `.../functions/v1/commercial-payment-webhook-sandbox`, the production account's at `.../functions/v1/commercial-payment-webhook-production`. `Gate A` runs against exactly the one webhook secret the CALLED function's own hardcoded environment identity selects — an attacker cannot claim to be "production" by adding a field to the payload, because no field in the payload, and no runtime-configurable value, is ever consulted for this decision; only which literal, committed source file is executing.
+
+**RPC — `flag_webhook_payment_requires_manual_review`: the explicit, service-role-only, claim-token-free escalation path for both webhook-originated cases above (items 3, 5):**
+```sql
+CREATE OR REPLACE FUNCTION public.flag_webhook_payment_requires_manual_review(
+  p_intent_id               UUID,
+  p_reason_code             TEXT,  -- 'PAYMENT_AFTER_INTENT_EXPIRY' | 'PROVIDER_ENVIRONMENT_MISMATCH' —
+                                    -- validated against this exact vocabulary below, never an
+                                    -- arbitrary caller-supplied audit-action string
+  p_provider_transaction_id TEXT,
+  p_correlation_id          UUID
+) RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER VOLATILE
+SET search_path = public, pg_catalog
+AS $$
+DECLARE v_intent RECORD;
+BEGIN
+  IF p_reason_code NOT IN ('PAYMENT_AFTER_INTENT_EXPIRY', 'PROVIDER_ENVIRONMENT_MISMATCH') THEN
+    RAISE EXCEPTION 'INVALID_REASON_CODE: %', p_reason_code USING ERRCODE = '22023';
+  END IF;
+
+  -- Deliberately NO claim_token parameter and NO check against
+  -- reconciliation_claim_token anywhere in this function — a webhook never
+  -- holds one, and this function must never require, accept, or synthesize
+  -- one (item 3's explicit "must never fabricate one").
+  SELECT * INTO v_intent FROM public.payment_checkout_intents WHERE id = p_intent_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'INTENT_NOT_FOUND: %', p_intent_id USING ERRCODE = '22023'; END IF;
+
+  -- Never overwrites an already-resolved intent — mirrors finalize_
+  -- reconciliation_attempt's own "never overwrite SUCCEEDED" discipline,
+  -- here generalized to any terminal status, since a webhook racing a
+  -- concurrent reconciliation commit (or another webhook delivery) must
+  -- never regress an already-settled outcome back into "needs review."
+  IF v_intent.status != 'PENDING' THEN
+    RETURN jsonb_build_object('flagged', false, 'reason', 'INTENT_NOT_PENDING', 'intent_status', v_intent.status);
+  END IF;
+
+  UPDATE public.payment_checkout_intents SET requires_manual_review = true WHERE id = p_intent_id;
+
+  INSERT INTO public.billing_audit_events
+    (billing_customer_id, actor_user_id, action, previous_state, new_state, reason, correlation_id)
+  VALUES
+    (v_intent.billing_customer_id, NULL,
+     CASE p_reason_code WHEN 'PAYMENT_AFTER_INTENT_EXPIRY' THEN 'WEBHOOK_PAYMENT_AFTER_EXPIRY' ELSE 'WEBHOOK_PROVIDER_ENVIRONMENT_MISMATCH' END,
+     jsonb_build_object('requires_manual_review', false, 'provider_transaction_id', p_provider_transaction_id),
+     jsonb_build_object('requires_manual_review', true),
+     format('Webhook-originated escalation: %s', p_reason_code), p_correlation_id);
+
+  RETURN jsonb_build_object('flagged', true);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.flag_webhook_payment_requires_manual_review(UUID,TEXT,TEXT,UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.flag_webhook_payment_requires_manual_review(UUID,TEXT,TEXT,UUID) TO service_role;
+```
+No row is ever written to `payment_reconciliation_attempts` for a webhook-originated event — that table's model is exclusively claim-token/attempt-number-keyed, tied to the reconciliation worker protocol; a webhook event has neither, and forcing it into that shape would mean fabricating meaningless values for both columns. `billing_audit_events` alone is this path's evidence trail, exactly as it already is for every other licence/status transition in this package regardless of origin.
 
 ### 12.5 — Rollout, secret installation, rotation, rollback
 
