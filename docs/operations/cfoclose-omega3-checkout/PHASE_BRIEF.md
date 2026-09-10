@@ -2,6 +2,25 @@
 
 **Status: DESIGN / AUDIT ONLY. NO IMPLEMENTATION PERFORMED.**
 
+## Design-correction round
+
+An independent review of the first draft of this package found several concrete defects and gaps, all resolved in this revision without any implementation being performed:
+
+1. The proposed `resolve_commercial_offer` signature was invalid Postgres (a required parameter declared after a defaulted one, and a `NOT NULL` annotation in a function parameter list, which is not valid syntax) — corrected in `DATA_CONTRACTS.md` §1.
+2. The signature change would have created a second, overloaded function rather than replacing the original — the old, ambiguous 2-arg overload would have remained live and callable. Corrected with an explicit three-phase deployment order (schema → application → `REVOKE`/`DROP` cleanup) in `DATA_CONTRACTS.md` §1 and `IMPLEMENTATION_PLAN.md` §3.
+3. `marketCode` is removed from the browser checkout contract entirely — market is a server-owned literal (`'GLOBAL'`) for this launch, never client-supplied or inferred from locale/IP/currency/jurisdiction. A future persisted, admin-controlled per-customer market is recorded as separate, later scope.
+4. A new, confirmed finding: plan-code resolution was not scoped to the billing customer's product, relying on `commercial_plans.code` being globally unique when the schema only guarantees uniqueness per-product. Corrected in `COMMERCIAL_ARCHITECTURE_AUDIT.md` §3a and `DATA_CONTRACTS.md` §1.
+5. `commercial_platform_state` (created by Ω3.0) was never enforced by any Edge Function — a confirmed, previously-unaddressed gap. A full state × provider-environment × caller-identity matrix is now specified in `DATA_CONTRACTS.md` §2 and §10.
+6. The checkout-intent concurrency design (an Edge-Function-level `SELECT`-then-reuse) was not atomic and could not guarantee its own invariant under a genuine race. Replaced with a database-enforced, advisory-lock-based `acquire_or_reuse_checkout_intent` RPC — `DATA_CONTRACTS.md` §6.
+7. `commit_verified_commercial_payment` was assessed as needing no change; independent review correctly identified that its locking was scoped to the intent, not the customer, leaving two different successful payments for the same customer able to race. Corrected with a customer-level advisory lock — `DATA_CONTRACTS.md` §7. This moves the function from MUST NOT CHANGE to MUST CHANGE in `IMPLEMENTATION_PLAN.md`.
+8. Webhook Gate B failures are now split into definitive (rejected, never retried) and transient (retriable, plus a new reconciliation mechanism for paid-but-uncommitted transactions) — `DATA_CONTRACTS.md` §8.
+9. The launch product is explicitly defined as a prepaid term licence with manual renewal — no automatic recurring billing, automatic renewal, or provider-initiated cancellation is implemented or implied anywhere in this package. Recurring billing is recorded as a later, separate phase.
+10. The DB commercial offer is restated as the sole pricing authority with an *enforcing* (checkout-disabling), not merely advisory, parity check against the frontend's display constants — `IMPLEMENTATION_PLAN.md` §5. The previously-proposed `list_purchasable_commercial_offers` function is withdrawn entirely; no caller was ever proven for it.
+11. Public `/pricing` authentication behavior (unauthenticated → sign-in/signup with interval preserved; authenticated → billing-state-aware CTA suppression for existing PAID/GRACE customers) is newly specified.
+12. The Flutterwave payment-identity correction is completed in full (title/description/logo/metadata, a forward-only `CFOCLOSE-` reference prefix that never touches historical column names or historical row values, and a two-phase redirect-env-var migration path if one is found necessary at implementation time) — `DATA_CONTRACTS.md` §9.
+13. The two USD offers are now seeded non-purchasable, with activation as a separate, later, explicitly audited operation gated on staging acceptance — `DATA_CONTRACTS.md` §5, `IMPLEMENTATION_PLAN.md` §1.
+14. The acceptance matrix is expanded with simultaneous-checkout, crash-recovery, two-different-successful-intents, transient-verification-outage, platform-state-matrix, server-owned-market, product-binding, and manual-renewal-disclosure tests.
+
 - Repository: `hirorobert/axiom-insight-craft`
 - Main at mission start: `d75f92f7e0ca06b1d7c38de0fb45d41079336166`
 - Code baseline actually audited: `6ac832b03371329faa8a6738771b5523e9ef15bf` (identical commercial-relevant source to `d75f92f7`; the only diff between the two is the addition of the non-authoritative `.lovable/plan.md` file — see "Correcting the Lovable plan" below)
