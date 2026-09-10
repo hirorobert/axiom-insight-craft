@@ -283,28 +283,40 @@ const { data: resolution, error: resolveErr } = await supabase.rpc('resolve_comm
 });
 // ... UNKNOWN(404) / NOT_AVAILABLE(402) / AMBIGUOUS(500) / AVAILABLE(proceed) — UNCHANGED shape from round 1.
 
-// 7. Route to a provider — UNCHANGED call, but its RESULT now drives the
-//    platform-state Part B check below, instead of an arbitrary array index.
+// 7. Route to a provider — CORRECTED round 5 (Blocker 5, closing a gap
+//    found while specifying dual-environment credentials, DATA_CONTRACTS.md
+//    §12.3): getConfiguredProviders() can now return TWO Flutterwave
+//    entries (sandbox + production) simultaneously configured during a
+//    transition window. Filtering to the ONE environment `state` currently
+//    requires, BEFORE calling selectPaymentProvider, is what makes the
+//    Part B lookup below unambiguous — without this filter,
+//    selectPaymentProvider (and the naive `.find(p => p.provider ===
+//    provider)` a Part B lookup against the FULL list would otherwise use)
+//    could match either environment's entry for the identical
+//    provider==='FLUTTERWAVE' value, silently picking the wrong one.
+const requiredEnv = (state === 'SANDBOX_ONLY') ? 'sandbox'
+  : (state === 'LIVE_ACCEPTANCE' || state === 'CUSTOMER_PAYMENTS_ENABLED') ? 'production'
+  : null; // PAYMENTS_DISABLED already rejected in Part A; state has no other value here
+const envFilteredProviders = getConfiguredProviders().filter(p => p.environment === requiredEnv);
 const providerSelection = selectPaymentProvider(
   { currencyCode: offer.currency_code!, marketCode: offer.market_code!, providerRestriction: offer.provider_restriction ?? null },
-  getConfiguredProviders(),
+  envFilteredProviders,
 );
 if (!providerSelection.selected) return json(503, {error:'PAYMENT_PROVIDER_UNAVAILABLE', correlationId});
 const provider = providerSelection.provider;
 
-// 8. Platform-state gate, PART B — corrected (item 8 round 2's bug fix,
-//    FURTHER corrected this round for item 9's fail-closed requirement):
-//    round 1 checked getConfiguredProviders()[0].environment, an arbitrary
-//    array element that need not be the provider actually selected for
-//    THIS offer. Round 2 corrected the lookup to the SAME capability entry
-//    selectPaymentProvider() just chose — but left a fail-OPEN gap: if that
-//    lookup itself resolved to undefined (a race between routing and this
-//    check, or a coding error), `selectedCapabilities?.environment ===
-//    'sandbox'` silently evaluates to `false`, which the LIVE_ACCEPTANCE/
-//    CUSTOMER_PAYMENTS_ENABLED branch below would then treat as "not
-//    sandbox, therefore fine" — an unresolved capability must never be
-//    treated as a passing check.
-const selectedCapabilities = getConfiguredProviders().find(p => p.provider === provider);
+// 8. Platform-state gate, PART B — corrected (item 8 round 2's bug fix;
+//    corrected again round 3 for the fail-closed requirement; corrected
+//    again round 5 for the environment-ambiguity gap above): round 1
+//    checked getConfiguredProviders()[0].environment, an arbitrary array
+//    element. Round 3 fixed the fail-open gap on an unresolved capability.
+//    Round 5's fix is REUSING envFilteredProviders (step 7) here, rather
+//    than re-querying the FULL, unfiltered getConfiguredProviders() — since
+//    providerSelection.provider was chosen FROM the single-environment
+//    filtered list, looking it up again in that SAME list is unambiguous
+//    by construction; looking it up in the full list would not be, once
+//    two same-provider/different-environment entries can coexist.
+const selectedCapabilities = envFilteredProviders.find(p => p.provider === provider);
 if (!selectedCapabilities) {
   // Fail closed (item 9): the provider selectPaymentProvider() just chose
   // has no resolvable capability entry. This should be structurally
@@ -383,7 +395,7 @@ if (!cas.data.persisted) {
 return json(200, { saffReference: lease.data.saff_reference, checkoutUrl: checkoutResult.checkoutUrl, expiresAt: cas.data.expires_at, provider, correlationId });
 ```
 
-**Client contract for `LEASE_HELD`/202 (item 8, full specification):** the frontend's `createCheckoutIntent` helper, on receiving a 202 with `status:'CHECKOUT_IN_PROGRESS'`, waits the server-specified `Retry-After` seconds (default 2 if the header is somehow absent) and re-issues the identical checkout-creation request, up to **3 total attempts**, with a **hard 15-second wall-clock cap** measured from the first attempt regardless of individual retry timing. The retry loop terminates on any of: `acquired:'REUSED'`-shaped 200 (success — the customer proceeds to the checkout URL), a definitive provider failure (502, surfaced as an error toast, no further retries), a fourth would-be attempt or the 15-second cap being reached while still receiving 202 (surfaced as "Checkout is taking longer than expected — please try again in a moment," never an infinite/silent retry loop), or — although not separately detectable by the client, since the server does not expose lease timing directly — the natural resolution of the underlying lease's own 60-second expiry, which by design resolves well within the client's 15-second budget only in the ordinary case; if the original holder is unusually slow, the client's own bounded retry gives up first and surfaces the "try again" message rather than waiting out a lease that could take up to a minute.
+**Client contract for `LEASE_HELD`/202 — ONE canonical definition, corrected round 5 (High 2A) to match the actual implementation exactly, used identically in this section, §8 below, and `ACCEPTANCE_MATRIX.md`:** `maxAttempts = 3` means **one initial request plus two retries** — three HTTP requests total, never a fourth. The frontend's `createCheckoutIntent` helper, on receiving a 202 with `status:'CHECKOUT_IN_PROGRESS'`, waits the server-specified (sanitized — §8) `Retry-After` seconds and re-issues the identical checkout-creation request, up to that 3-attempt cap, with a **hard 15-second wall-clock deadline enforced before EVERY request (including the first) and before every sleep**, not merely checked once. The retry sequence terminates on any of: a 200 response (success), a definitive provider failure (502, surfaced as an error toast, no further retries), the 3rd attempt still returning 202 (surfaced as "Checkout is taking longer than expected — please try again in a moment" — no 4th request is ever issued), or the 15-second deadline being reached before a request would otherwise fire (same message, same no-further-requests guarantee) — or, although not separately detectable by the client since the server does not expose lease timing directly, the natural resolution of the underlying lease's own 60-second expiry, which by design resolves well within the client's 15-second budget in the ordinary case.
 
 ## 3. Checkout-intent lease/fencing protocol — corrected to the real `payment_checkout_intents` schema (round 3)
 
@@ -494,14 +506,32 @@ BEGIN
 
   PERFORM pg_advisory_xact_lock(v_lock_key);
 
-  -- Deterministic staleness sweep — covers ordinary CREATED/PENDING expiry
-  -- AND PROVIDER_CREATING rows whose lease has expired (a crashed prior
-  -- attempt) — the CORRECT and ONLY place a PROVIDER_CREATING row may ever
-  -- be superseded: its own expired lease, never a live one.
+  -- Deterministic staleness sweep — CORRECTED (item 1 round 5, canonical
+  -- lifecycle split, §7.0 below). This sweep may ONLY expire rows that
+  -- NEVER obtained a real provider checkout URL — 'CREATED' (legacy,
+  -- dormant status this design never writes but the CHECK constraint still
+  -- permits) and 'PROVIDER_CREATING' whose lease has expired (a crashed
+  -- prior attempt, so no checkout URL was ever persisted for it either).
+  -- Neither case carries any payment risk: the customer never saw a real
+  -- Flutterwave page, so no charge could conceivably exist.
+  --
+  -- 'PENDING' is DELIBERATELY EXCLUDED from this sweep. A PENDING row has a
+  -- real, once-live provider_checkout_url — the customer may have already
+  -- paid on it. Transitioning it to EXPIRED merely because expires_at
+  -- passed would be exactly the canonical-rule violation this round exists
+  -- to remove: CUSTOMER CHARGED → PAYMENT VERIFIED → intent no longer
+  -- PENDING → webhook/reconciliation commit rejected as
+  -- INTENT_ALREADY_RESOLVED. A PENDING row past expires_at is simply no
+  -- longer eligible for FRESH acquisition/REUSE (enforced by the REUSED
+  -- check's own `expires_at > now()` clause below, unchanged) — it remains
+  -- untouched here, and remains reconciliation-eligible (§7.2) until
+  -- reconciliation's own COMPLETED terminal attempt classifies it, per
+  -- §7.0's four-part lifecycle. "Reconciliation owns the terminal
+  -- classification of unresolved PENDING intents" (item 1's own words).
   UPDATE public.payment_checkout_intents
      SET status = 'EXPIRED'
    WHERE billing_customer_id = p_billing_customer_id AND commercial_offer_id = p_offer_id
-     AND status IN ('CREATED','PENDING') AND expires_at <= now();
+     AND status = 'CREATED' AND expires_at <= now();
 
   UPDATE public.payment_checkout_intents
      SET status = 'FAILED', creation_token = NULL, lease_expires_at = NULL
@@ -835,14 +865,22 @@ Purely additive (`DROP`+`ADD` on the same column, no data migration — no exist
 
 **Root cause:** `expires_at` and "how long reconciliation may keep trying" are two different concepts that round 2/3 conflated by reusing one column for both. **`expires_at` governs ONLY the checkout SESSION's own browsable-URL lifetime** — how long a customer may still land on the Flutterwave-hosted page via a `REUSED` link, and the point past which `acquire_checkout_intent_lease`'s staleness sweep may mark a still-unresolved `CREATED`/`PENDING` row `EXPIRED` for FRESH-ACQUISITION purposes. It says nothing about whether a payment that genuinely completed on that page, in its final moments, may still be found and committed afterward — reconciliation's entire reason to exist is exactly that case (a webhook that never arrives, or arrives very late, for a real payment).
 
-**Canonical rule, stated once, governing every point below:**
+**Canonical rule, stated once, governing every point below — corrected round 5 into an explicit four-part lifecycle (Blocker 1), because a single column (`expires_at`) or a single status field cannot honestly represent four different questions at once:**
 
-1. **`expires_at` (unchanged, 1 hour) governs checkout-session freshness only** — `acquire_checkout_intent_lease`'s reuse/staleness-sweep logic (§3a), unchanged from round 3.
-2. **Reconciliation eligibility is fully decoupled from `expires_at`.** The claim predicates (§7.2, corrected below) never reference `expires_at` at all — reconciliation runs for the intent's own reconciliation-programme window (265/305 minutes, §7.3), independent of whether the 1-hour checkout-session window has separately lapsed.
-3. **A payment that completed, on the provider's own side, BEFORE `expires_at` may commit even if verified/reconciled AFTER `expires_at`.** This requires comparing the PROVIDER'S OWN payment timestamp against `expires_at` — never wall-clock "now" against `expires_at`, which is what `authoriseCommit` currently does and is corrected below.
-4. **A payment that genuinely never happened (reconciliation exhausts its full window with every attempt finding no transaction) becomes `EXPIRED`** — this is the only path to `EXPIRED`, and it requires a COMPLETED, definitive `NO_TRANSACTION_FOUND` outcome on the terminal attempt, not merely "attempt count reached 8" (a crashed, never-completed terminal attempt must NOT be classified this way — see `finalize_reconciliation_attempt`, §7.2).
-5. **A payment whose true outcome could never be determined (every attempt hit `VERIFICATION_TRANSIENT_FAILURE`, or the terminal attempt itself crashed before completing) is NEVER auto-classified as `EXPIRED` or `FAILED`.** It is escalated for mandatory human review (an audit event + structured log, §7.2) and the intent's `status` remains `PENDING` — an honest "unknown," never a guess dressed up as a determination. This is item 3's "how paid-but-late cases are escalated without silent loss."
-6. **A definitive non-success (Flutterwave itself reports `failed`/`cancelled`/`refunded`) transitions to `FAILED` immediately, at whatever attempt discovers it** — never waits out the remaining backoff schedule, and is unaffected by `expires_at` in either direction.
+| Dimension | What it answers | Where it lives | What may set it |
+|---|---|---|---|
+| **A. URL reuse freshness** | May this specific `provider_checkout_url` still be handed back to the customer? | `expires_at` (unchanged, 1 hour) | Nothing mutates `expires_at` itself; it is a fixed deadline set once at row creation. Only READ, never written after `INSERT` |
+| **B. Payment-resolution status** | Did the customer's money actually move, and is a licence owed? | `payment_checkout_intents.status` (`PENDING`/`SUCCEEDED`/`FAILED`/`CANCELLED`/`EXPIRED`) | ONLY `commit_verified_commercial_payment` (→`SUCCEEDED`), a definitive non-success verification (→`FAILED`), or a COMPLETED reconciliation terminal attempt finding no transaction (→`EXPIRED`, §7.2). **Never** set by `expires_at` passing alone |
+| **C. Reconciliation status** | Is the system still actively trying to find out what happened? | `reconciliation_attempt_count`, `reconciliation_claim_token`, `reconciliation_lease_expires_at`, `reconciliation_last_completed_at` (§7.2) | `claim_stale_checkout_intents_for_reconciliation` / `finalize_reconciliation_attempt` only — fully decoupled from `expires_at` (point 2 below) |
+| **D. Manual-review status** | Does a human need to look at this, because the system genuinely cannot determine B on its own? | **NEW column, item 1 round 5:** `payment_checkout_intents.requires_manual_review BOOLEAN NOT NULL DEFAULT false` (DDL in §7.2) | Only `finalize_reconciliation_attempt`'s ambiguous/transient-cap-exhaustion branch and the crashed-terminal-attempt sweep (§7.2) ever set this `true`; nothing ever sets it back to `false` automatically — clearing it is a deliberate, out-of-band admin action (via `admin_billing_lookup`'s existing review tooling), not part of this design's automated surface |
+
+1. **`expires_at` (A) governs checkout-session freshness only** — `acquire_checkout_intent_lease`'s reuse check (§3a), corrected this round to never touch `status` for a `PENDING` row.
+2. **Reconciliation eligibility (C) is fully decoupled from `expires_at`.** The claim predicates (§7.2) never reference `expires_at` at all.
+3. **A payment that completed, on the provider's own side, BEFORE `expires_at` may commit (B) even if verified/reconciled AFTER `expires_at`.** Requires comparing the PROVIDER'S OWN payment timestamp against `expires_at` — never wall-clock "now."
+4. **A payment that genuinely never happened becomes `EXPIRED` (B) ONLY via a COMPLETED, definitive `NO_TRANSACTION_FOUND` terminal reconciliation attempt** — never merely because an attempt counter reached 8, and never because `expires_at` passed. A crashed, never-completed terminal attempt sets `requires_manual_review` (D) instead — see the crashed-terminal-attempt sweep, §7.2, Blocker 2.
+5. **A payment whose true outcome could never be determined is NEVER auto-classified `EXPIRED` or `FAILED` (B).** It sets `requires_manual_review = true` (D) instead, `status` unchanged — an honest "unknown," never a guess.
+6. **A definitive non-success (Flutterwave reports `failed`/`cancelled`/`refunded`) transitions to `FAILED` (B) immediately** — unaffected by `expires_at` in either direction.
+7. **A payment whose OWN provider timestamp is itself after `expires_at`** (the customer genuinely paid outside the checkout window, as opposed to paying on time but being verified late) **is rejected from commit (`PAYMENT_AFTER_INTENT_EXPIRY`) without mutating `status`** — real money may have moved on the provider's side, so this is never silently discarded; the caller (webhook or reconciliation) records it as evidence and sets `requires_manual_review = true` (D), since a human, not an automated heuristic, should decide how to handle a genuinely late but real payment.
 
 **Corrected `authoriseCommit` (`supabase/functions/_shared/payments/authority.ts`) — CURRENT vs. PROPOSED:**
 
@@ -886,11 +924,112 @@ export function authoriseCommit(intent: IntentRecord, transaction: NormalizedTra
   return { authorised: true };
 }
 ```
-This requires a new field, `providerCreatedAt: string`, on `NormalizedTransaction` (`_shared/payments/contracts.ts`) — the provider's own transaction-completion timestamp, distinct from the existing `verifiedAt` field (which records when THIS system ran Gate B, not when Flutterwave processed the charge). Flutterwave's real verify response carries this as `data.created_at` (a genuine, already-present field in the payload `flutterwave.ts`'s `verifyTransaction`/`verifyTransactionByReference` already parse for `id`/`status`/`currency`/`amount`/`tx_ref` — `created_at` is read from the exact same `data` object, no new API surface, only one more field extracted from a response already being read). Both adapter methods populate `providerCreatedAt: String(data.created_at)` when constructing the returned `NormalizedTransaction`.
+This requires a new field, `providerCreatedAt: string`, on `NormalizedTransaction` (`_shared/payments/contracts.ts`) — sourced from Flutterwave's `data.created_at` (a genuine, already-present field in the payload `flutterwave.ts`'s `verifyTransaction`/`verifyTransactionByReference` already parse for `id`/`status`/`currency`/`amount`/`tx_ref` — no new API surface, one more field read from a response already being read), and distinct from the existing `verifiedAt` field (which records when THIS system ran Gate B, not any provider-side timestamp). **The exact semantics of `data.created_at`, and the fail-closed handling required before this field can be trusted, are specified precisely — not assumed — in §7.4's "High 1" discussion below; read that before treating this field as settled.** Both adapter methods populate `providerCreatedAt` only after the fail-closed validation §7.4 specifies.
 
-**`commit_verified_commercial_payment`'s own re-check must align identically** (the RPC's fourth-layer defense-in-depth check, per `COMMERCIAL_ARCHITECTURE_AUDIT.md`'s payment-authority-chain trace) — its existing `IF now() > v_intent.expires_at THEN RAISE EXCEPTION 'INTENT_EXPIRED'`-shaped check (Ω2-G, pre-existing) must be changed to accept an explicit `p_provider_created_at TIMESTAMPTZ` parameter from the caller (both the webhook path and the reconciliation path now pass this, sourced from the same `NormalizedTransaction.providerCreatedAt`) and compare THAT against `expires_at`, mirroring `authoriseCommit` exactly — otherwise the RPC's own independent re-check would reject a payment `authoriseCommit` just approved, defeating the fix at the very last checkpoint in the chain. This is a genuinely necessary, minimal, single-condition change to an existing Ω2-G function's parameter list and one `IF` check — not a rewrite of its commit logic, idempotency handling, or licence-period math, all of which are unaffected and unchanged.
+**`commit_verified_commercial_payment` — CURRENT vs. PROPOSED (round 5: quoted verbatim for the first time; rounds 1–4 described this function only in prose, which is exactly how the real defect below went unnoticed for four rounds).**
 
-**Reconciliation claim/terminal predicates realigned:** §7.2 below drops every `expires_at > now()` reference from both the claim and terminal logic, per point 2 of the canonical rule — the corrected RPCs are shown in full there, replacing round 3's contradictory versions.
+**CURRENT** (quoted verbatim, `supabase/migrations/20260906083524_eca6c272-4a62-4468-995b-1c70e2cd67e5.sql:547-553,630-644`):
+```sql
+  IF v_intent.status NOT IN ('CREATED','PENDING') THEN
+    RETURN jsonb_build_object('status','INTENT_ALREADY_RESOLVED','intent_status',v_intent.status,'committed',false);
+  END IF;
+  IF now() > v_intent.expires_at THEN
+    UPDATE public.payment_checkout_intents SET status='EXPIRED' WHERE id=p_checkout_intent_id;
+    RETURN jsonb_build_object('status','INTENT_EXPIRED','committed',false);
+  END IF;
+  -- ... amount/currency checks unchanged ...
+  -- (on the SUCCEEDED path, further down:)
+  INSERT INTO public.payment_events (
+    billing_customer_id, licence_id, provider, external_event_id, idempotency_key,
+    event_type, amount, currency, amount_minor, provider_transaction_id,
+    provider_status, normalized_status, saff_reference, provider_reference,
+    payload_hash, verified_at, verification_method, checkout_intent_id,
+    commercial_offer_id, plan_id, provider_created_at, event_time, metadata
+  ) VALUES (
+    v_intent.billing_customer_id, v_licence_id, p_provider, p_provider_transaction_id,
+    p_idempotency_key, 'PAYMENT_CONFIRMED', v_display_amt, p_currency_code,
+    p_amount_minor, p_provider_transaction_id, p_provider_status, p_normalized_status,
+    p_saff_reference, p_saff_reference, p_payload_hash, p_verified_at,
+    p_verification_method, p_checkout_intent_id, v_intent.commercial_offer_id,
+    v_intent.plan_id, now(), now(),
+    jsonb_build_object('licence_id',v_licence_id,'period_start',v_period_start,'period_end',v_period_end)
+  ) RETURNING id INTO v_event_id;
+```
+**Two confirmed, independent defects in the real, live function**, neither previously quoted or fixed in rounds 1–4:
+1. **Line `IF now() > v_intent.expires_at THEN`** compares wall-clock now against `expires_at` — exactly the canonical-rule violation Blocker 1 names — and, worse, **unconditionally mutates `status` to `'EXPIRED'`** before even checking whether `p_normalized_status = 'SUCCEEDED'`. A genuinely successful, correctly-verified payment arriving after `expires_at` hits this branch FIRST and is rejected `INTENT_EXPIRED` without ever reaching the commit logic at all — the exact "CUSTOMER CHARGED → PAYMENT VERIFIED → LICENCE DENIED BECAUSE LOCAL WALL CLOCK PASSED expires_at" scenario, confirmed present in the real, currently-deployed function.
+2. **The `payment_events` INSERT's `provider_created_at` column (the table already has this column — `payment_events.provider_created_at TIMESTAMPTZ NULL`, added by this same Ω2-G migration, confirmed by direct read) is populated with a literal `now()`**, not any provider-supplied value — silently discarding the one piece of evidence the canonical rule's point 3 depends on (High 1).
+
+**PROPOSED** — one new parameter, one corrected `IF`, one corrected `INSERT` value; nothing else in this ~170-line function changes:
+```sql
+CREATE OR REPLACE FUNCTION public.commit_verified_commercial_payment(
+  p_checkout_intent_id       UUID,
+  p_provider                 TEXT,
+  p_provider_transaction_id  TEXT,
+  p_provider_status          TEXT,
+  p_normalized_status        TEXT,
+  p_amount_minor             BIGINT,
+  p_currency_code            TEXT,
+  p_payload_hash             TEXT,
+  p_verified_at              TIMESTAMPTZ,
+  p_verification_method      TEXT,
+  p_idempotency_key          TEXT,
+  p_saff_reference           TEXT,
+  p_provider_created_at      TIMESTAMPTZ  -- NEW (item 3/Blocker 1, High 1): the provider's OWN
+                                            -- payment-completion timestamp, sourced by both callers
+                                            -- (webhook and reconciliation) from the corrected
+                                            -- NormalizedTransaction.providerCreatedAt (§ below)
+)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER VOLATILE
+SET search_path = public, pg_catalog
+AS $$
+-- ... unchanged declarations ...
+BEGIN
+  -- ... unchanged idempotency pre-check ...
+  -- ... unchanged SELECT ... FOR UPDATE on the intent ...
+  IF v_intent.status NOT IN ('CREATED','PENDING') THEN
+    RETURN jsonb_build_object('status','INTENT_ALREADY_RESOLVED','intent_status',v_intent.status,'committed',false);
+  END IF;
+
+  -- CORRECTED (Blocker 1, item 3): compare the PROVIDER'S OWN payment
+  -- timestamp against expires_at, never wall-clock now(); NEVER mutate
+  -- status on this path — status ownership for a rejected-but-possibly-
+  -- still-live intent belongs to reconciliation (§7.0's four-part model),
+  -- not to a single rejected commit attempt.
+  IF p_provider_created_at > v_intent.expires_at THEN
+    RETURN jsonb_build_object('status','PAYMENT_AFTER_INTENT_EXPIRY','committed',false);
+  END IF;
+
+  -- ... unchanged amount/currency checks, unchanged NON-SUCCESS branch,
+  -- unchanged licence-period math, unchanged customer-level advisory lock
+  -- (item 6, round 1) ...
+
+  INSERT INTO public.payment_events (
+    billing_customer_id, licence_id, provider, external_event_id, idempotency_key,
+    event_type, amount, currency, amount_minor, provider_transaction_id,
+    provider_status, normalized_status, saff_reference, provider_reference,
+    payload_hash, verified_at, verification_method, checkout_intent_id,
+    commercial_offer_id, plan_id, provider_created_at, event_time, metadata
+  ) VALUES (
+    v_intent.billing_customer_id, v_licence_id, p_provider, p_provider_transaction_id,
+    p_idempotency_key, 'PAYMENT_CONFIRMED', v_display_amt, p_currency_code,
+    p_amount_minor, p_provider_transaction_id, p_provider_status, p_normalized_status,
+    p_saff_reference, p_saff_reference, p_payload_hash, p_verified_at,
+    p_verification_method, p_checkout_intent_id, v_intent.commercial_offer_id,
+    v_intent.plan_id,
+    p_provider_created_at,  -- CORRECTED: was `now()`; now the real provider timestamp (High 1)
+    now(),                  -- event_time (this system's own ledger timestamp) — correctly unchanged
+    jsonb_build_object('licence_id',v_licence_id,'period_start',v_period_start,'period_end',v_period_end)
+  ) RETURNING id INTO v_event_id;
+
+  -- ... unchanged commercial_licences insert, billing_audit_events insert,
+  -- payment_checkout_intents status='SUCCEEDED' update, return value ...
+END;
+$$;
+```
+Both callers of `commit_verified_commercial_payment` (`commercial-payment-webhook/index.ts` and `commercial-payment-reconcile/index.ts`) pass `p_provider_created_at` from the SAME `NormalizedTransaction.providerCreatedAt` field `authoriseCommit` already validated moments earlier — no second, independently-derived timestamp, no possibility of the RPC's re-check disagreeing with `authoriseCommit`'s own decision about the same transaction.
+
+**Reconciliation claim/terminal predicates realigned:** §7.2 below drops every `expires_at > now()` reference from both the claim and terminal logic, per point 2 of the canonical rule.
 
 ### 7.1 — `payment_reconciliation_attempts`: a dedicated, append-only evidence table (item 4)
 
@@ -904,9 +1043,15 @@ CREATE TABLE public.payment_reconciliation_attempts (
   attempt_number          INTEGER     NOT NULL,
   result                  TEXT        NOT NULL
     CONSTRAINT chk_pra_result CHECK (
+      -- Corrected round 5: 'RELEASED_RETRIABLE' removed (vestigial — every
+      -- retriable outcome is recorded under its own real result value, e.g.
+      -- 'NO_TRANSACTION_FOUND', never a generic placeholder); 'PAYMENT_AFTER_
+      -- EXPIRY' added (item 7 round 5, §7.0 point 7 — a real, verified
+      -- payment found outside the checkout window).
       result IN (
         'CLAIMED','RECONCILED','NO_TRANSACTION_FOUND','AMBIGUOUS_MULTIPLE_TRANSACTIONS',
-        'NON_SUCCESS_STATUS','VERIFICATION_TRANSIENT_FAILURE','TERMINAL_FAILURE','RELEASED_RETRIABLE'
+        'NON_SUCCESS_STATUS','VERIFICATION_TRANSIENT_FAILURE','TERMINAL_FAILURE','PAYMENT_AFTER_EXPIRY',
+        'PROVIDER_CREDENTIALS_UNAVAILABLE_FOR_ENVIRONMENT'  -- item 5 (Blocker 5), §12.5
       )
     ),
   provider_transaction_id TEXT        NULL,
@@ -962,14 +1107,18 @@ ALTER TABLE public.payment_checkout_intents
   ADD COLUMN reconciliation_claim_token       UUID        NULL,
   ADD COLUMN reconciliation_lease_expires_at  TIMESTAMPTZ NULL,
   ADD COLUMN reconciliation_attempt_count     INTEGER     NOT NULL DEFAULT 0,
-  ADD COLUMN reconciliation_last_completed_at TIMESTAMPTZ NULL;  -- item 6: the exact instant
+  ADD COLUMN reconciliation_last_completed_at TIMESTAMPTZ NULL,  -- item 6: the exact instant
     -- finalize_reconciliation_attempt last recorded a real outcome for this
     -- intent — the authoritative backoff anchor. reconciliation_lease_
     -- expires_at is used ONLY to detect a crashed (never-finalized) claim,
-    -- never as a backoff anchor (item 6's explicit requirement).
+    -- never as a backoff anchor.
+  ADD COLUMN requires_manual_review           BOOLEAN     NOT NULL DEFAULT false;  -- item 1 round 5
+    -- (§7.0's dimension D) — set true ONLY by finalize_reconciliation_attempt's
+    -- ambiguous/transient-cap-exhaustion branch and by the crashed-terminal-
+    -- attempt sweep below; never cleared automatically.
 ```
 
-**RPC — `claim_stale_checkout_intents_for_reconciliation`: claim + atomic `CLAIMED` evidence, `SKIP LOCKED`, backoff anchored to actual completion:**
+**RPC — `claim_stale_checkout_intents_for_reconciliation`: claim + atomic `CLAIMED` evidence + the crashed-terminal-attempt sweep, `SKIP LOCKED`, correct composite return type (Blockers 2 and 4):**
 ```sql
 CREATE OR REPLACE FUNCTION public.claim_stale_checkout_intents_for_reconciliation(p_batch_size INT DEFAULT 25)
 RETURNS TABLE(intent public.payment_checkout_intents, claim_token UUID)
@@ -981,33 +1130,77 @@ DECLARE
   -- (1-indexed) — a deterministic table, not a formula (item 6, §7.3).
   v_backoff_minutes CONSTANT INTEGER[] := ARRAY[0,5,10,20,40,60,60,60]; -- index 1..8
 BEGIN
+  -- STEP 1 (Blocker 2): the crashed-terminal-attempt sweep runs FIRST, as
+  -- its own complete statement — not prose, not an omitted CTE. Detects
+  -- EXACTLY the shape named in the mission: status='PENDING',
+  -- reconciliation_attempt_count>=8, reconciliation_claim_token IS NOT
+  -- NULL, reconciliation_lease_expires_at<=now(). FOR UPDATE SKIP LOCKED
+  -- so this never blocks on, or double-processes against, a row a
+  -- concurrent invocation already holds. The WHERE clause's own
+  -- status='PENDING' guard means this can NEVER touch a row that has since
+  -- become SUCCEEDED/FAILED/CANCELLED/EXPIRED by any other path — the
+  -- mission's explicit "never overwrite" requirement, enforced structurally
+  -- by the predicate itself, not by a separate check.
+  WITH crashed_terminal AS (
+    SELECT t.id, t.reconciliation_claim_token, t.reconciliation_attempt_count, t.billing_customer_id
+      FROM public.payment_checkout_intents t
+     WHERE t.status = 'PENDING'
+       AND t.reconciliation_attempt_count >= 8
+       AND t.reconciliation_claim_token IS NOT NULL
+       AND t.reconciliation_lease_expires_at <= now()
+       FOR UPDATE SKIP LOCKED
+  ),
+  crashed_evidence AS (
+    -- Atomic terminal/manual-review evidence (Blocker 2's "insert terminal/
+    -- manual-review evidence atomically"). Never classified NO_TRANSACTION_
+    -- FOUND / EXPIRED — no worker ever obtained a final provider result for
+    -- this attempt, so §7.0 point 4 (EXPIRED requires a COMPLETED
+    -- definitive attempt) is structurally not satisfied here.
+    INSERT INTO public.payment_reconciliation_attempts
+      (checkout_intent_id, claim_token, attempt_number, result, completed_at, error_class)
+    SELECT id, reconciliation_claim_token, reconciliation_attempt_count, 'TERMINAL_FAILURE', now(),
+           'WORKER_CRASHED_BEFORE_FINALIZE'
+      FROM crashed_terminal
+    RETURNING checkout_intent_id
+  ),
+  crashed_audit AS (
+    -- Blocker 3: billing_customer_id (NOT NULL) supplied from the locked
+    -- intent row itself; correlation_id (UUID NULL) genuinely has none for
+    -- a system-detected crash, so it is correctly omitted (defaults NULL),
+    -- never coerced from an unrelated TEXT value.
+    INSERT INTO public.billing_audit_events
+      (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
+    SELECT billing_customer_id, NULL, 'CHECKOUT_INTENT_RECONCILIATION_TERMINAL_UNKNOWN',
+           jsonb_build_object('status','PENDING','requires_manual_review',false),
+           jsonb_build_object('status','PENDING','requires_manual_review',true),
+           'Reconciliation worker crashed before completing the terminal (8th) attempt — no final provider result was ever obtained; escalated for manual review, never classified as no-payment-found'
+      FROM crashed_terminal
+    RETURNING billing_customer_id
+  )
+  UPDATE public.payment_checkout_intents t
+     SET reconciliation_claim_token = NULL, reconciliation_lease_expires_at = NULL,
+         requires_manual_review = true
+    FROM crashed_terminal c
+   WHERE t.id = c.id AND t.status = 'PENDING';  -- re-asserted: never overwrites a
+                                                  -- status that changed between the
+                                                  -- CTE read and this UPDATE
+
+  -- STEP 2: ordinary claim, exactly as round 4, with the composite return
+  -- type corrected (Blocker 4).
   RETURN QUERY
   WITH claimable AS (
-    -- Item 3 (round 4): NO expires_at reference anywhere in this predicate —
-    -- reconciliation eligibility is governed solely by the reconciliation
-    -- programme's own attempt-count/backoff/lease state, per §7.0's
-    -- canonical rule. A row well past its 1-hour checkout-session expiry is
-    -- exactly the normal, expected case reconciliation exists to handle.
+    -- Item 3 (round 4): NO expires_at reference anywhere in this predicate.
     SELECT t.id, t.reconciliation_attempt_count FROM public.payment_checkout_intents t
      WHERE t.status = 'PENDING' AND t.created_at < now() - interval '10 minutes'
        AND t.reconciliation_attempt_count < 8
        AND (
-         -- Case A: never yet attempted, no active lease — immediately eligible.
          (t.reconciliation_attempt_count = 0 AND t.reconciliation_claim_token IS NULL)
-         -- Case B: previously completed (finalize_reconciliation_attempt ran),
-         -- no active lease, backoff satisfied from the ACTUAL completion time
-         -- (item 6) — never from lease-start, never an approximation.
          OR (
            t.reconciliation_claim_token IS NULL
            AND t.reconciliation_last_completed_at IS NOT NULL
            AND now() >= t.reconciliation_last_completed_at
                          + (v_backoff_minutes[LEAST(t.reconciliation_attempt_count + 1, 8)] * interval '1 minute')
          )
-         -- Case C: a lease exists but has expired — the prior worker crashed
-         -- before calling finalize_reconciliation_attempt at all (item 5's
-         -- crash-recovery case). Reclaim immediately, no backoff wait — the
-         -- crash itself already cost time, and no completion timestamp
-         -- exists yet to compute a backoff from.
          OR (t.reconciliation_claim_token IS NOT NULL AND t.reconciliation_lease_expires_at <= now())
        )
      ORDER BY t.created_at
@@ -1024,30 +1217,77 @@ BEGIN
     RETURNING t.*
   ),
   -- Item 4: the CLAIMED evidence row is inserted HERE, in the SAME
-  -- statement-level transaction as the claim itself — a crash the instant
-  -- after this function returns still leaves durable proof the attempt
-  -- began, closing the exact gap round 3 left open.
+  -- statement-level transaction as the claim itself.
   evidence AS (
     INSERT INTO public.payment_reconciliation_attempts (checkout_intent_id, claim_token, attempt_number, result, started_at)
     SELECT id, reconciliation_claim_token, reconciliation_attempt_count, 'CLAIMED', now() FROM claimed
     RETURNING checkout_intent_id, claim_token
   )
-  SELECT c.*, c.reconciliation_claim_token FROM claimed c;
+  -- Blocker 4 CORRECTED: `claimed` referenced bare (not `claimed.*`) casts
+  -- the whole CTE row — whose column set is exactly payment_checkout_
+  -- intents' own, via `RETURNING t.*` above — to the named composite type
+  -- the function's own signature declares. This is standard, executable
+  -- PostgreSQL (the same "whole-row reference cast to a named composite"
+  -- idiom used throughout PL/pgSQL RETURNING clauses), not pseudocode. The
+  -- INNER JOIN to `evidence` (Blocker 4's "reference the evidence CTE
+  -- explicitly") makes the atomicity contract structural: a row is
+  -- returned to the caller ONLY if its CLAIMED evidence row was actually
+  -- inserted in this same statement — never the reverse.
+  SELECT claimed::public.payment_checkout_intents AS intent, claimed.reconciliation_claim_token AS claim_token
+    FROM claimed
+    JOIN evidence ON evidence.checkout_intent_id = claimed.id
+                  AND evidence.claim_token = claimed.reconciliation_claim_token;
 END;
 $$;
 REVOKE ALL ON FUNCTION public.claim_stale_checkout_intents_for_reconciliation(INT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_stale_checkout_intents_for_reconciliation(INT) TO service_role;
 ```
 
-**RPC — `finalize_reconciliation_attempt`: the SOLE place an attempt's outcome — including cap-exhaustion — is recorded (item 5):**
+**Exact TypeScript decoding shape (Blocker 4's explicit requirement) — `commercial-payment-reconcile/index.ts`:**
+```ts
+interface ClaimedRow {
+  intent: {
+    id: string; billing_customer_id: string; commercial_offer_id: string; plan_id: string;
+    market_code: string; expected_amount_minor: string /* bigint arrives as string over PostgREST */;
+    currency_code: string; currency_exponent: number; billing_interval: string;
+    billing_interval_count: number; provider: string; provider_environment: 'SANDBOX' | 'PRODUCTION';
+    saff_reference: string; provider_checkout_ref: string | null; provider_checkout_url: string | null;
+    status: string; created_by_user_id: string; created_at: string; expires_at: string;
+    completed_at: string | null; metadata: Record<string, unknown>;
+    creation_token: string | null; lease_expires_at: string | null;
+    reconciliation_claim_token: string; reconciliation_lease_expires_at: string;
+    reconciliation_attempt_count: number; reconciliation_last_completed_at: string | null;
+    requires_manual_review: boolean;
+  };
+  claim_token: string;
+}
+
+const { data, error } = await supabase.rpc('claim_stale_checkout_intents_for_reconciliation', { p_batch_size: 25 });
+// data: ClaimedRow[] — each element's `intent` is the full composite row (supabase-js/PostgREST
+// decodes a function returning `TABLE(intent public.payment_checkout_intents, ...)` as a nested
+// object keyed by the OUT-parameter name, exactly as any other PostgREST composite-returning RPC).
+for (const row of (data ?? []) as ClaimedRow[]) {
+  await processClaimedIntent(row.intent, row.claim_token);
+}
+```
+
+**RPC — `finalize_reconciliation_attempt`: the SOLE place an attempt's outcome — including cap-exhaustion — is recorded (item 5), billing-audit inserts corrected against the real schema (Blocker 3):**
 ```sql
 CREATE OR REPLACE FUNCTION public.finalize_reconciliation_attempt(
   p_intent_id              UUID,
   p_claim_token            UUID,
   p_outcome                TEXT,  -- 'RECONCILED' | 'NO_TRANSACTION_FOUND' | 'AMBIGUOUS_MULTIPLE_TRANSACTIONS'
                                    -- | 'NON_SUCCESS_STATUS' | 'VERIFICATION_TRANSIENT_FAILURE'
+                                   -- | 'PAYMENT_AFTER_EXPIRY' (new, item 7 round 5, §7.0 point 7)
   p_provider_transaction_id TEXT,
-  p_correlation_id          TEXT,
+  p_correlation_id          UUID,  -- CORRECTED (Blocker 3): UUID, matching
+                                    -- billing_audit_events.correlation_id's real
+                                    -- type exactly — never unrestricted TEXT coerced
+                                    -- into a UUID column. The Edge Function generates
+                                    -- this with crypto.randomUUID() (Deno's own
+                                    -- correlationId helper already returns a UUID
+                                    -- string, so no format conversion is needed at
+                                    -- the call site either).
   p_error_class             TEXT
 ) RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER VOLATILE
@@ -1055,100 +1295,102 @@ SET search_path = public, pg_catalog
 AS $$
 DECLARE v_intent RECORD;
 BEGIN
-  -- Require the CURRENT claim token; reject stale workers (item 5's
-  -- explicit requirements). Locking the intent row here also serializes
-  -- against a concurrent webhook commit racing this same call.
   SELECT * INTO v_intent FROM public.payment_checkout_intents WHERE id = p_intent_id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INTENT_NOT_FOUND: %', p_intent_id USING ERRCODE = '22023';
   END IF;
 
-  -- p_outcome = 'RECONCILED' is called AFTER commit_verified_commercial_payment
-  -- has ALREADY transitioned status to SUCCEEDED (the webhook-identical
-  -- path, §7's Edge Function protocol below) — so status is no longer
-  -- PENDING by the time this branch runs, and the claim-token check alone
-  -- (not a status check) is what proves this call is legitimate.
   IF p_outcome = 'RECONCILED' THEN
+    -- Called AFTER commit_verified_commercial_payment already transitioned
+    -- status to SUCCEEDED — the claim-token check alone proves legitimacy.
     IF v_intent.status != 'SUCCEEDED' OR v_intent.reconciliation_claim_token != p_claim_token THEN
       RAISE EXCEPTION 'STALE_OR_INVALID_FINALIZE_CALL' USING ERRCODE = '40001';
     END IF;
   ELSE
     -- Every other outcome requires status still PENDING and the token to
-    -- match exactly — a stale worker (its own claim superseded by a crash
-    -- recovery, or the intent independently resolved via a concurrent
-    -- webhook) is rejected outright, NEVER allowed to overwrite a
-    -- meanwhile-SUCCEEDED (or otherwise resolved) intent. This is item 5's
-    -- "reject stale workers" and "never overwrite SUCCEEDED" in one check.
+    -- match exactly — item 5's "reject stale workers" and "never overwrite
+    -- SUCCEEDED" in one check.
     IF v_intent.status != 'PENDING' OR v_intent.reconciliation_claim_token != p_claim_token THEN
       RAISE EXCEPTION 'STALE_OR_INVALID_FINALIZE_CALL' USING ERRCODE = '40001';
     END IF;
   END IF;
 
-  -- Atomic outcome-evidence insert (item 5) — the FINAL row for this
-  -- attempt, distinct from the CLAIMED row §7.2's claim function already
-  -- wrote; both share the same claim_token, letting every attempt's full
-  -- lifecycle be reconstructed from payment_reconciliation_attempts alone.
   INSERT INTO public.payment_reconciliation_attempts
     (checkout_intent_id, claim_token, attempt_number, result, provider_transaction_id, correlation_id, completed_at, error_class)
   VALUES
-    (p_intent_id, p_claim_token, v_intent.reconciliation_attempt_count, p_outcome, p_provider_transaction_id, p_correlation_id, now(), p_error_class);
+    (p_intent_id, p_claim_token, v_intent.reconciliation_attempt_count, p_outcome, p_provider_transaction_id, p_correlation_id::text, now(), p_error_class);
+    -- payment_reconciliation_attempts.correlation_id is TEXT (§7.1's own
+    -- DDL, unaffected by this round) — the UUID is cast to text ONLY at
+    -- this one boundary, never the reverse; billing_audit_events.correlation_id
+    -- (below) receives the UUID value directly, untouched.
 
-  -- Release the lease and stamp the real completion time — item 6's
-  -- authoritative backoff anchor for the NEXT claim, if any.
   UPDATE public.payment_checkout_intents
      SET reconciliation_claim_token = NULL, reconciliation_lease_expires_at = NULL,
          reconciliation_last_completed_at = now()
    WHERE id = p_intent_id;
 
-  -- Status transitions — PENDING→FAILED only for a DEFINITIVE terminal
-  -- outcome (item 5's explicit scope), never for a retriable one.
   IF p_outcome = 'NON_SUCCESS_STATUS' THEN
     UPDATE public.payment_checkout_intents SET status = 'FAILED' WHERE id = p_intent_id AND status = 'PENDING';
+    INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason, correlation_id)
+      VALUES (v_intent.billing_customer_id, NULL, 'CHECKOUT_INTENT_RECONCILIATION_FAILED',
+        jsonb_build_object('status','PENDING'), jsonb_build_object('status','FAILED'),
+        'Reconciliation found a definitive non-success provider transaction', p_correlation_id);
     RETURN jsonb_build_object('finalized', true, 'intent_status', 'FAILED');
   END IF;
 
-  -- Cap exhaustion, handled atomically HERE (item 5) — reachable only via a
-  -- worker that actually COMPLETED the terminal attempt (never via a
-  -- crashed one, which the claim function's own re-claim logic — §7.2 above
-  -- — handles separately and never auto-classifies).
-  IF v_intent.reconciliation_attempt_count >= 8 AND p_outcome IN ('NO_TRANSACTION_FOUND') THEN
-    -- Only a COMPLETED, definitive "no transaction found" terminal attempt
-    -- proves the customer never paid (§7.0 point 4) — EXPIRED is reachable
-    -- this one way only.
+  -- NEW (item 7 round 5, §7.0 point 7): a REAL, verified payment exists,
+  -- but its own provider timestamp is after expires_at — never silently
+  -- discarded, always escalated, status left untouched (commit_verified_
+  -- commercial_payment never mutated it either — see §7.0's corrected body).
+  IF p_outcome = 'PAYMENT_AFTER_EXPIRY' THEN
+    UPDATE public.payment_checkout_intents SET requires_manual_review = true WHERE id = p_intent_id;
+    INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason, correlation_id)
+      VALUES (v_intent.billing_customer_id, NULL, 'CHECKOUT_INTENT_PAYMENT_AFTER_EXPIRY',
+        jsonb_build_object('requires_manual_review',false), jsonb_build_object('requires_manual_review',true),
+        'A verified successful provider transaction was found, but its own payment timestamp is after this intent''s expires_at — real funds may have moved; escalated for manual review, never auto-discarded',
+        p_correlation_id);
+    RETURN jsonb_build_object('finalized', true, 'intent_status', 'PENDING', 'requires_manual_review', true);
+  END IF;
+
+  -- Cap exhaustion via a COMPLETED terminal attempt (Blocker 3: billing_customer_id supplied).
+  IF v_intent.reconciliation_attempt_count >= 8 AND p_outcome = 'NO_TRANSACTION_FOUND' THEN
     UPDATE public.payment_checkout_intents SET status = 'EXPIRED' WHERE id = p_intent_id AND status = 'PENDING';
-    INSERT INTO public.billing_audit_events (action, previous_state, new_state, reason)
-      VALUES ('CHECKOUT_INTENT_RECONCILIATION_EXPIRED', jsonb_build_object('status','PENDING'), jsonb_build_object('status','EXPIRED'), 'Reconciliation exhausted with no transaction ever found');
+    INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason, correlation_id)
+      VALUES (v_intent.billing_customer_id, NULL, 'CHECKOUT_INTENT_RECONCILIATION_EXPIRED',
+        jsonb_build_object('status','PENDING'), jsonb_build_object('status','EXPIRED'),
+        'Reconciliation exhausted (8 completed attempts) with no transaction ever found', p_correlation_id);
     RETURN jsonb_build_object('finalized', true, 'intent_status', 'EXPIRED');
   END IF;
   IF v_intent.reconciliation_attempt_count >= 8 AND p_outcome IN ('VERIFICATION_TRANSIENT_FAILURE','AMBIGUOUS_MULTIPLE_TRANSACTIONS') THEN
-    -- §7.0 point 5: genuinely unknown outcome, NEVER auto-classified as
-    -- EXPIRED or FAILED — status stays PENDING (an honest "we don't know"),
-    -- escalated for mandatory human review.
+    UPDATE public.payment_checkout_intents SET requires_manual_review = true WHERE id = p_intent_id;
     INSERT INTO public.payment_reconciliation_attempts
       (checkout_intent_id, claim_token, attempt_number, result, completed_at)
       VALUES (p_intent_id, p_claim_token, v_intent.reconciliation_attempt_count, 'TERMINAL_FAILURE', now());
-    INSERT INTO public.billing_audit_events (action, previous_state, new_state, reason)
-      VALUES ('CHECKOUT_INTENT_RECONCILIATION_TERMINAL_UNKNOWN', jsonb_build_object('status','PENDING'), jsonb_build_object('status','PENDING'), 'Reconciliation exhausted with no definitive answer — requires manual review');
+    INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason, correlation_id)
+      VALUES (v_intent.billing_customer_id, NULL, 'CHECKOUT_INTENT_RECONCILIATION_TERMINAL_UNKNOWN',
+        jsonb_build_object('status','PENDING','requires_manual_review',false),
+        jsonb_build_object('status','PENDING','requires_manual_review',true),
+        'Reconciliation exhausted with no definitive answer', p_correlation_id);
     RETURN jsonb_build_object('finalized', true, 'intent_status', 'PENDING', 'requires_manual_review', true);
   END IF;
 
   RETURN jsonb_build_object('finalized', true, 'intent_status', v_intent.status);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.finalize_reconciliation_attempt(UUID,UUID,TEXT,TEXT,TEXT,TEXT) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.finalize_reconciliation_attempt(UUID,UUID,TEXT,TEXT,TEXT,TEXT) TO service_role;
+REVOKE ALL ON FUNCTION public.finalize_reconciliation_attempt(UUID,UUID,TEXT,TEXT,UUID,TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.finalize_reconciliation_attempt(UUID,UUID,TEXT,TEXT,UUID,TEXT) TO service_role;
 ```
 
-**Reconciliation Edge Function protocol per claimed row** (the `CLAIMED` evidence row already exists, written atomically by the claim RPC — item 4):
+**Reconciliation Edge Function protocol per claimed row:**
 1. Call `verifyTransactionByReference` (§7.4).
-2. On a definitive, verified `SUCCEEDED` result: run `authoriseCommit` + `commit_verified_commercial_payment` (identical to the webhook path, both now comparing `transaction.providerCreatedAt` against `expires_at` per §7.0) — then call `finalize_reconciliation_attempt(intent_id, claim_token, 'RECONCILED', providerTransactionId, correlationId, NULL)`.
-3. On `NO_TRANSACTION_FOUND`, `AMBIGUOUS_MULTIPLE_TRANSACTIONS`, or `VERIFICATION_TRANSIENT_FAILURE`: call `finalize_reconciliation_attempt(..., <matching outcome>, ..., errorClass)` — the function itself decides, atomically, whether this is a retriable release (lease cleared, status unchanged, attempt < 8) or a terminal transition (attempt = 8 → `EXPIRED` or manual-review escalation per §7.0).
-4. On a definitive non-retriable provider status (`FAILED`/`CANCELLED`/`REFUNDED` — §7.4): call `finalize_reconciliation_attempt(..., 'NON_SUCCESS_STATUS', ...)` — transitions to `FAILED` immediately regardless of attempt number, per §7.0 point 6.
+2. On a definitive, verified `SUCCEEDED` result: run `authoriseCommit` + `commit_verified_commercial_payment` (passing `p_provider_created_at`, §7.0). If `authoriseCommit`/the RPC rejects with `PAYMENT_AFTER_INTENT_EXPIRY`, call `finalize_reconciliation_attempt(..., 'PAYMENT_AFTER_EXPIRY', ...)`. On a genuine commit, call `finalize_reconciliation_attempt(intent_id, claim_token, 'RECONCILED', providerTransactionId, correlationId, NULL)`.
+3. On `NO_TRANSACTION_FOUND`, `AMBIGUOUS_MULTIPLE_TRANSACTIONS`, or `VERIFICATION_TRANSIENT_FAILURE`: call `finalize_reconciliation_attempt(..., <matching outcome>, ...)` — the function decides atomically whether this is retriable or terminal.
+4. On a definitive non-retriable provider status (`FAILED`/`CANCELLED`/`REFUNDED` — §7.4): call `finalize_reconciliation_attempt(..., 'NON_SUCCESS_STATUS', ...)`.
 
-**Crash recovery, every case (item 5's explicit scenarios):**
-- **Crash between claim and worker start** (the claim RPC returned, but the Edge Function's own process dies before calling `verifyTransactionByReference` at all): the `CLAIMED` evidence row already exists (item 4); the lease expires after 2 minutes; the next tick's claim function reclaims it via Case C above — no special handling needed, the general crash-recovery path covers this exactly.
-- **Crash on the final (8th) attempt**, before `finalize_reconciliation_attempt` ever runs: the lease expires; the next claim tick's Case C reclaims it — but `reconciliation_attempt_count` is already 8, so the claim predicate's own `< 8` guard means it will NOT be reclaimed as a 9th normal attempt. This is intentional: since no worker will ever report a real outcome for the crashed 8th attempt, and only a COMPLETED terminal attempt may set `EXPIRED` (§7.0 point 5), this row would otherwise sit unresolved. **Corrected handling:** the claim function's Case C condition is deliberately written WITHOUT the `attempt_count < 8` restriction applying to crash-reclaim specifically — re-read the predicate above: `reconciliation_attempt_count < 8` gates the WHOLE `claimable` CTE, so a crashed 8th attempt is in fact excluded from being claimed a 9th time. This is correct: a 9th real attempt is never made. Instead, a SEPARATE, narrow sweep — run at the end of every `claim_stale_checkout_intents_for_reconciliation` invocation, in the same function, same transaction — detects exactly this shape (`reconciliation_attempt_count >= 8 AND reconciliation_claim_token IS NOT NULL AND reconciliation_lease_expires_at <= now() AND status = 'PENDING'`) and calls the identical manual-review escalation `finalize_reconciliation_attempt`'s cap-exhaustion branch performs (a `TERMINAL_FAILURE` evidence row + `billing_audit_events` insert, status remains `PENDING`) — added as a final `UPDATE ... RETURNING` clause inside the SAME claim function, never a separate scheduled job, so it inherits the exact same `SKIP LOCKED`/atomicity guarantees. This is the one narrow addition to the claim function beyond straightforward claiming — necessary specifically because a crashed terminal attempt can never call `finalize_reconciliation_attempt` itself.
-- **Stale worker terminalization after another worker succeeds** (two workers somehow hold claims for the same intent — should not happen given the advisory-lock-free but token-fenced design, but defended against anyway): the second worker's `finalize_reconciliation_attempt` call fails the `status != 'PENDING'` (already `SUCCEEDED`) or `reconciliation_claim_token != p_claim_token` (superseded) check and is rejected with `STALE_OR_INVALID_FINALIZE_CALL` — it never overwrites the successful outcome.
+**Crash recovery, every case (item 5/Blocker 2's explicit scenarios):**
+- **Crash between claim and worker start:** the `CLAIMED` evidence row already exists (item 4); the lease expires after 2 minutes; the next tick's ordinary claim (STEP 2) reclaims it — no special handling needed.
+- **Crash on the final (8th) attempt**, before `finalize_reconciliation_attempt` ever runs: the lease expires; `reconciliation_attempt_count` is already 8, so the ordinary claim's `< 8` guard correctly excludes it from a 9th real attempt. **The crashed-terminal-attempt sweep (STEP 1 above, now fully executable) is the dedicated, atomic mechanism that resolves this** — it runs as the FIRST statement of every `claim_stale_checkout_intents_for_reconciliation` invocation, so resolution happens within one `pg_cron` tick (≤5 minutes) of the crash, never left indefinitely, and never classifies the row as `EXPIRED` (no completed terminal attempt ever ran) — only `requires_manual_review = true`.
+- **Stale worker terminalization after another worker succeeds:** the second worker's `finalize_reconciliation_attempt` call fails the `status != 'PENDING'` (already `SUCCEEDED`) or token-mismatch check and is rejected with `STALE_OR_INVALID_FINALIZE_CALL` — it never overwrites the successful outcome.
 
 ### 7.3 — Corrected backoff arithmetic and exact maximum elapsed window (item 6, round 3; anchor corrected round 4)
 
@@ -1170,34 +1412,40 @@ Fixed schedule (minutes of delay before each numbered attempt): attempt 1 waits 
 | **Wrong merchant/account** | **Structurally foreclosed, not separately checked.** Flutterwave's REST API authenticates every call via the deployment's own `FLUTTERWAVE_SECRET_KEY`, which is merchant-account-scoped by Flutterwave's own platform design — a query made with this deployment's key can only ever return this deployment's own account's transactions. No additional cross-tenant check is fabricated here because none is needed; the API's own authentication model already provides this guarantee. |
 | **Sandbox/production mismatch** | **Correction, round 4:** round 3 called this out-of-scope, reasoning that no environment tracking existed on `payment_checkout_intents`. Item 1 (round 4) adds exactly that — `provider_environment` (§3.0) — so reconciliation now has a genuine signal: `commercial-payment-reconcile` selects the Flutterwave adapter instance matching the CLAIMED intent's own `provider_environment` (never the currently-configured default), so a sandbox-created intent is always looked up against the sandbox account and a production one against production, regardless of what `commercial_platform_state` happens to be set to at reconciliation time. This closes the mismatch risk directly rather than leaving it to resolve to an indistinguishable `NO_TRANSACTION_FOUND`. |
 | **Non-successful status (a real match, but `status` is `pending`/`failed`/`cancelled`/etc.)** | `pending` → treated the same as "not yet confirmed," retriable. `failed`/`cancelled`/`refunded` → a **definitive, non-retriable** outcome — `finalize_reconciliation_attempt(..., 'NON_SUCCESS_STATUS', ...)` transitions the intent directly to `FAILED` without exhausting the remaining backoff schedule (§7.2) — there is no reason to keep polling a transaction the provider itself has already definitively closed out. |
+| **Missing, malformed, or impossible `data.created_at`** (new, High 1 round 5) | **Fail closed.** If `data.created_at` is absent, fails `new Date(...)` parsing (`isNaN(parsed.getTime())`), or resolves to a timestamp after the CURRENT moment (a provider clock anomaly — a payment cannot have completed in the future), `verifyTransactionByReference`/`verifyTransaction` return `{verified:false, reason:'PROVIDER_TIMESTAMP_INVALID'}` — the transaction is treated as NOT verified, never defaulted to `now()` or silently accepted with a missing/impossible timestamp. This is the direct enforcement of §7.0's canonical rule depending on a value that must itself be trustworthy before it is trusted. |
+
+**High 1 — `data.created_at` semantics, proven rather than assumed:** Flutterwave's `GET /transactions/:id/verify` and `GET /transactions?tx_ref=...` responses both return, inside `data`, a `created_at` field documented by Flutterwave's own API reference as the transaction record's creation timestamp on their platform, in ISO-8601 format. **This design does not claim independent, first-party confirmation of that documentation beyond what is stated here** — no live sandbox fixture was captured during this design pass (this environment has no Flutterwave sandbox credentials or network access). Recorded honestly, not overstated: `data.created_at` is Flutterwave's own stated field for "when this transaction record was created," which this design treats as the authoritative payment-completion instant for the canonical rule's purposes; if a future implementation pass, working against a real sandbox account, finds Flutterwave's actual behavior differs from the documented contract (e.g. the field reflects checkout-session creation rather than payment-capture completion), `authoriseCommit`'s comparison must be revisited before this design ships — this is recorded as an explicit **pre-implementation verification requirement**, not silently assumed correct. The fail-closed handling above (missing/malformed/impossible values rejected, never defaulted) is what makes this safe to depend on even before that live verification happens: a wrong-but-present timestamp that fails a sanity check is rejected, not silently trusted.
+
+**Timezone, boundary, malformed, and clock-skew handling (High 1's explicit test requirement — executable cases specified in `ACCEPTANCE_MATRIX.md` §9):** `data.created_at` is parsed via `new Date(data.created_at)`, which correctly normalizes any ISO-8601 offset (including a bare `Z`/UTC or an explicit `+03:00`-style offset) to the same UTC instant `expires_at` (a `TIMESTAMPTZ`, always stored/compared in UTC) uses — no separate timezone-conversion logic is needed since JavaScript's `Date` and Postgres's `TIMESTAMPTZ` both operate on absolute instants, never wall-clock-without-zone values. At the exact boundary (`providerCreatedAt === expires_at` to the microsecond), the comparison `providerCreatedAt > expires_at` is `false` — an exact-boundary payment is authorised, consistent with `expires_at` being defined as the moment the session becomes invalid FOR REUSE, not the last valid instant for a payment already in flight on that session. Clock skew between this system and Flutterwave's own clock is not separately compensated — both `expires_at` (set by this system) and `data.created_at` (set by Flutterwave) are absolute UTC instants from two independently-run clocks; any skew is a genuine, if small, source of edge-case disagreement, and is explicitly NOT corrected for in this design (no fabricated tolerance window) — if operational experience after implementation shows this causes real false rejections, a small explicit tolerance (e.g. ±30 seconds) would be a narrow, separately-reviewed follow-up change, not silently built in now.
 
 ### 7.5 — Deployable cron authentication (item 7): project-URL provisioning, Vault+Edge secret installation, SHA-256 preflight gate, rotation
 
 **Rejected: putting any credential literal in migration SQL** (unchanged from round 3). **Rejected: using the Supabase service-role key as the cron credential** (unchanged from round 3).
 
-**Corrected, round 4 — the project-URL source, which round 3 assumed without proof:** `current_setting('app.settings.project_url')` referenced a GUC round 3 never provisioned — a real migration calling an unset `current_setting` (without its two-argument `missing_ok` form) raises an error. The corrected migration EXPLICITLY sets it, in the same file that reads it:
+**Rejected, round 5 (Blocker 6): `ALTER DATABASE postgres SET app.settings.project_url = 'https://<project-ref>.supabase.co'` inside a committed migration.** Round 4's own migration file is byte-identical across staging and production (that is the entire point of a migration file — the same SQL applies everywhere) — it cannot simultaneously set the correct value for two different project references. A `<project-ref>` placeholder in committed SQL is exactly as unsafe as a placeholder secret: whichever single value gets committed becomes wrong for every OTHER environment the migration also runs against.
+
+**Corrected: the project URL is provisioned the SAME way the cron secret already is (§ below) — a named Vault entry, installed manually, per-environment, NEVER inside migration SQL.** This is not a new mechanism; it reuses the exact pattern already established for `omega3_reconciliation_cron_secret`, so there is only one provisioning discipline to operate, not two.
 ```sql
--- Explicit provisioning (item 7 round 4) — NOT a secret: this is the
--- project's own public API base URL, already visible in every client-side
--- VITE_SUPABASE_URL build and in the Supabase dashboard. ALTER DATABASE
--- persists it as a database-level default setting, available to any
--- session (including pg_cron's) without depending on a per-connection
--- environment variable Postgres has no other way to receive.
-ALTER DATABASE postgres SET app.settings.project_url = 'https://<project-ref>.supabase.co';
--- <project-ref> is filled in with this deployment's actual Supabase
--- project reference at migration-authoring time — a real, known value at
--- the point this migration is written, not a runtime unknown. If the
--- project is ever migrated to a different project-ref, this line must be
--- updated in a follow-up migration; there is no dynamic alternative inside
--- a SQL migration file.
+-- One-time setup, per environment, run via the Supabase dashboard's Vault
+-- UI or vault.create_secret() — NEVER via a migration file:
+--   staging:    SELECT vault.create_secret('https://<staging-project-ref>.supabase.co',
+--                 'omega3_reconciliation_project_url', 'Ω3 reconciliation target URL — STAGING');
+--   production: SELECT vault.create_secret('https://<production-project-ref>.supabase.co',
+--                 'omega3_reconciliation_project_url', 'Ω3 reconciliation target URL — PRODUCTION');
+-- Each environment's own Supabase project has its OWN Vault — there is no
+-- shared Vault instance across staging and production, so this value is
+-- naturally, structurally environment-scoped the moment it is installed
+-- via each project's own dashboard/CLI session, never by a value baked
+-- into shared source.
 ```
-`cron.schedule(...)`'s body (unchanged shape from round 3, now backed by a real setting):
+`cron.schedule(...)`'s body reads the URL from Vault, exactly like the secret header:
 ```sql
 SELECT cron.schedule(
   'omega3_checkout_reconciliation', '*/5 * * * *',
   $$
   SELECT net.http_post(
-    url := current_setting('app.settings.project_url') || '/functions/v1/commercial-payment-reconcile',
+    url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'omega3_reconciliation_project_url')
+           || '/functions/v1/commercial-payment-reconcile',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'X-Reconciliation-Cron-Secret',
@@ -1208,7 +1456,39 @@ SELECT cron.schedule(
   $$
 );
 ```
-**This `cron.schedule` call itself is NOT part of the Phase A migration** — see the preflight gate below for why it ships as a separate, later, manually-gated step.
+**This `cron.schedule` call itself is NOT part of the Phase A migration** — see the preflight gate below for why it ships as a separate, later, manually-gated step. The Phase A migration may create the validation FUNCTION below (schema, portable across environments); it embeds no environment-specific URL or project-ref anywhere.
+
+**URL validation, run as part of the SAME deployment preflight as the secret fingerprint check (item 7's explicit HTTPS/hostname/project-ref/no-trailing-path/cross-environment requirements):**
+```sql
+CREATE OR REPLACE FUNCTION public.reconciliation_validate_project_url(p_expected_project_ref TEXT)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER STABLE
+SET search_path = public, pg_catalog AS $$
+DECLARE v_url TEXT;
+BEGIN
+  SELECT decrypted_secret INTO v_url FROM vault.decrypted_secrets WHERE name = 'omega3_reconciliation_project_url';
+  IF v_url IS NULL THEN
+    RETURN jsonb_build_object('valid', false, 'reason', 'PROJECT_URL_NOT_CONFIGURED');
+  END IF;
+  -- The trailing '$' anchor is what proves "no trailing path injection" —
+  -- any path/query/fragment after the hostname fails this exact match.
+  -- The literal p_expected_project_ref (supplied by the operator running
+  -- THIS preflight, who knows which environment they intend to target —
+  -- staging's own runbook names staging's ref, production's names
+  -- production's) is what proves cross-environment targeting is
+  -- impossible: a staging operator's preflight, run with staging's own
+  -- expected ref, fails closed if Vault happens to hold a production URL
+  -- (or vice versa) — the check compares WHAT IS CONFIGURED against WHAT
+  -- THE OPERATOR INTENDS, never merely "is this syntactically a URL."
+  IF v_url !~ ('^https://' || p_expected_project_ref || '\.supabase\.co$') THEN
+    RETURN jsonb_build_object('valid', false, 'reason', 'URL_MISMATCH_OR_INVALID', 'configured_url', v_url);
+  END IF;
+  RETURN jsonb_build_object('valid', true, 'url', v_url);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.reconciliation_validate_project_url(TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.reconciliation_validate_project_url(TEXT) TO service_role;
+```
+**Deployment preflight procedure, extended:** before EVER running `cron.schedule(...)`, the operator runs `SELECT reconciliation_validate_project_url('<this-environment-own-known-project-ref>');` and confirms `valid: true`, IN ADDITION TO the secret-fingerprint comparison below. Both checks must pass; `cron.schedule(...)` is never executed if either fails. This closes items 14/15 of the required executable validation design ("staging cron configuration cannot target production" / "production cannot target staging") structurally — an operator who runs the staging preflight with staging's own known ref, against a Vault holding a production URL, gets `URL_MISMATCH_OR_INVALID`, not a silent pass.
 
 **Exact secret installation procedure (item 7's own explicit requirement — "define how one generated secret value is installed into Vault and Edge Function secrets"):**
 1. An authorized operator generates one cryptographically random value OUTSIDE any committed file (e.g. `openssl rand -base64 32` run locally, never pasted into a commit, PR description, or chat log).
@@ -1247,27 +1527,56 @@ if (req.headers.get('X-Reconciliation-Preflight') === 'fingerprint') {
 
 The `marketCode`-removed, `billingInterval`-required request/response contracts specified in round 1 are unchanged; `CheckoutUpgradeButton`'s display call still targets `resolve_commercial_offer` (§1a, unchanged public signature) and its checkout call still goes through `createCheckoutIntent` → `commercial-create-checkout`, which internally now uses `resolve_commercial_checkout_offer` (§1b) — this internal routing change is invisible to the frontend contract.
 
-**New this round:** `commercialRpc.ts`'s `createCheckoutIntent` gains the bounded-retry logic the `LEASE_HELD`/202 contract (§2) requires:
+**New this round, corrected in round 5 (High 2A) — the exact deadline/attempt-count contract §2 declares, with full `Retry-After` sanitization:**
 ```ts
+const MAX_ATTEMPTS = 3;      // one initial request plus two retries — THE canonical
+                              // definition, matching §2's prose and ACCEPTANCE_MATRIX.md
+                              // §9 test 16/17 exactly; no other number appears anywhere
+const DEADLINE_MS = 15_000;
+const DEFAULT_RETRY_SECONDS = 2;
+const MAX_RETRY_SECONDS = 10;  // bounded maximum — a hostile or malfunctioning server
+                                 // sending an enormous Retry-After can never stall the
+                                 // client beyond this, regardless of what it requests
+
+/** Sanitizes a server-supplied Retry-After value: numeric, finite, positive,
+ *  bounded, and never allowed to exceed the remaining deadline. */
+function sanitizeRetryAfterSeconds(raw: string | null, remainingMs: number): number {
+  const parsed = raw === null ? NaN : Number(raw);
+  const remainingSeconds = Math.max(0, remainingMs / 1000);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    // Missing, non-numeric, NaN, zero, or negative — falls back to the
+    // default, itself still capped by whatever time remains.
+    return Math.min(DEFAULT_RETRY_SECONDS, remainingSeconds);
+  }
+  return Math.min(parsed, MAX_RETRY_SECONDS, remainingSeconds);
+}
+
 export async function createCheckoutIntent(
   planCode: string, billingInterval: "MONTHLY" | "ANNUAL",
 ): Promise<{ data: CheckoutIntentResponse | null; error: string | null }> {
   const startedAt = Date.now();
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  const TIMEOUT_MESSAGE = 'Checkout is taking longer than expected — please try again in a moment.';
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // Deadline enforced BEFORE every request, including the first — never
+    // issue a request once the 15-second budget is already exhausted.
+    if (Date.now() - startedAt >= DEADLINE_MS) return { data: null, error: TIMEOUT_MESSAGE };
+
     const res = await fetch(/* ... unchanged request construction ... */);
+
     if (res.status === 202) {
-      const retryAfterSeconds = Number(res.headers.get('Retry-After') ?? '2');
-      if (attempt === 3 || Date.now() - startedAt > 15_000) {
-        return { data: null, error: 'Checkout is taking longer than expected — please try again in a moment.' };
-      }
-      await new Promise(r => setTimeout(r, retryAfterSeconds * 1000));
+      const remainingMs = DEADLINE_MS - (Date.now() - startedAt);
+      if (attempt === MAX_ATTEMPTS || remainingMs <= 0) return { data: null, error: TIMEOUT_MESSAGE };
+      const delaySeconds = sanitizeRetryAfterSeconds(res.headers.get('Retry-After'), remainingMs);
+      await new Promise(r => setTimeout(r, delaySeconds * 1000));
       continue;
     }
+
     const json = await res.json();
     if (!res.ok) return { data: null, error: json?.error ?? 'Checkout failed' };
     return { data: json as CheckoutIntentResponse, error: null };
   }
-  return { data: null, error: 'Checkout is taking longer than expected — please try again in a moment.' };
+  return { data: null, error: TIMEOUT_MESSAGE };
 }
 ```
 `CheckoutUpgradeButton.tsx` itself is unchanged — it only ever sees this function's eventual resolved `{data, error}` shape, never the intermediate 202 responses, exactly as it already handles any other error today.
@@ -1325,4 +1634,108 @@ SELECT * INTO v_current_lic FROM public.commercial_licences
 
 This is the one function in this design package changed from **MUST NOT CHANGE** (its original classification) to **MUST CHANGE** — the change is scoped narrowly to one lock acquisition plus one re-read at a specific point, touching no existing amount/currency/status validation, idempotency check, or audit-row insertion.
 
-**Second, unrelated change to the same function, added round 4 (item 3 — see §7.0 for the full derivation):** `commit_verified_commercial_payment`'s existing expiry re-check (its fourth-layer defense-in-depth, Ω2-G, pre-existing) must accept a new `p_provider_created_at TIMESTAMPTZ` parameter — sourced by both callers (webhook and reconciliation) from `NormalizedTransaction.providerCreatedAt` — and compare THAT against `expires_at`, never `now()`, mirroring `authoriseCommit`'s corrected check exactly. Without this second change, the RPC's own independent re-check would reject a payment `authoriseCommit` just approved, defeating §7.0's fix at the final checkpoint in the authority chain. Scoped to one added parameter and one changed `IF` condition — the licence-period math, idempotency handling, and customer-level lock above are all unaffected.
+**Second, unrelated change to the same function (item 3/Blocker 1 — full CURRENT-vs-PROPOSED SQL, quoted verbatim against the real, live function body, now lives in §7.0):** the existing `IF now() > v_intent.expires_at THEN UPDATE ... SET status='EXPIRED' ...` block is corrected to a new `p_provider_created_at TIMESTAMPTZ` parameter compared against `expires_at` (never `now()`), and — critically — the corrected branch no longer mutates `status` at all on rejection, since status ownership for a rejected-but-possibly-still-live intent belongs to reconciliation's four-part lifecycle model (§7.0), not to a single rejected commit attempt. Scoped to one added parameter, one corrected `IF`, and one corrected `INSERT` value (`payment_events.provider_created_at`, High 1) — the licence-period math, idempotency handling, and customer-level lock above are all unaffected.
+
+## 12. Dual-environment Flutterwave credentials (Blocker 5)
+
+**Confirmed non-implementability, round 5:** the real, live codebase has exactly one `FLUTTERWAVE_SECRET_KEY`/`FLUTTERWAVE_WEBHOOK_SECRET` pair and one `FLUTTERWAVE_ENVIRONMENT` flag, consumed by a single-instance adapter (`getFlutterwaveAdapter()`, a module-level singleton in `flutterwave.ts`) and a single capability entry in `routing.ts`'s `getConfiguredProviders()`. Round 4's claim that reconciliation could "select the Flutterwave adapter instance matching the claimed intent's own `provider_environment`" had nothing to select between — there was only ever one instance, configured with whichever single key pair `FLUTTERWAVE_ENVIRONMENT` currently names. **Chosen architecture: OPTION A — dual environment credentials**, per the mission's own stated preference for uninterrupted transition and forensic resolution of historical sandbox transactions (a real CFOClose requirement: sandbox testing must continue to be reconcilable after a production go-live, not cut off).
+
+### 12.1 — Secrets
+
+```
+FLUTTERWAVE_SANDBOX_SECRET_KEY
+FLUTTERWAVE_SANDBOX_WEBHOOK_SECRET
+FLUTTERWAVE_PRODUCTION_SECRET_KEY
+FLUTTERWAVE_PRODUCTION_WEBHOOK_SECRET
+```
+`FLUTTERWAVE_SECRET_KEY`/`FLUTTERWAVE_WEBHOOK_SECRET`/`FLUTTERWAVE_ENVIRONMENT` are retired (rollout order in §12.5). Never logged, never returned in any response — the existing `flutterwave.ts` header discipline ("FLUTTERWAVE_SECRET_KEY never leaves this module. Never logged.") applies identically to all four new names.
+
+### 12.2 — Adapter construction takes an explicit environment
+
+```ts
+// flutterwave.ts — CORRECTED: environment-parameterized construction,
+// replacing the single module-level singleton.
+export class FlutterwaveAdapter implements ProviderAdapter {
+  readonly provider = 'FLUTTERWAVE' as const;
+  readonly environment: 'SANDBOX' | 'PRODUCTION';
+  private readonly secretKey: string;
+  private readonly webhookSecret: string;
+
+  constructor(environment: 'SANDBOX' | 'PRODUCTION') {
+    const keyVar     = environment === 'PRODUCTION' ? 'FLUTTERWAVE_PRODUCTION_SECRET_KEY'     : 'FLUTTERWAVE_SANDBOX_SECRET_KEY';
+    const webhookVar = environment === 'PRODUCTION' ? 'FLUTTERWAVE_PRODUCTION_WEBHOOK_SECRET' : 'FLUTTERWAVE_SANDBOX_WEBHOOK_SECRET';
+    const key = Deno.env.get(keyVar);
+    const webhookSecret = Deno.env.get(webhookVar);
+    if (!key || !webhookSecret) {
+      throw new Error(`Iron Dome: ${keyVar} and ${webhookVar} are required for the ${environment} adapter.`);
+    }
+    this.environment = environment;
+    this.secretKey = key;
+    this.webhookSecret = webhookSecret;
+  }
+  // ... createCheckout / verifyTransaction / verifyTransactionByReference /
+  // verifyWebhookAuthenticity / normalizeWebhook bodies UNCHANGED from
+  // rounds 1–4, operating on THIS instance's own secretKey/webhookSecret ...
+}
+
+// Two independent singletons, not one — each constructed lazily, only if
+// that environment's secrets are actually configured (never throws at
+// module load for an environment nobody is using yet).
+let _sandboxAdapter: FlutterwaveAdapter | null = null;
+let _productionAdapter: FlutterwaveAdapter | null = null;
+export function getFlutterwaveAdapter(environment: 'SANDBOX' | 'PRODUCTION'): FlutterwaveAdapter {
+  if (environment === 'PRODUCTION') { _productionAdapter ??= new FlutterwaveAdapter('PRODUCTION'); return _productionAdapter; }
+  _sandboxAdapter ??= new FlutterwaveAdapter('SANDBOX'); return _sandboxAdapter;
+}
+```
+
+### 12.3 — `routing.ts`: up to two capability entries, environment-filtered by the caller before selection
+
+```ts
+// getConfiguredProviders() now returns ZERO, ONE, or TWO entries for
+// FLUTTERWAVE — one per environment that has BOTH its secrets configured.
+// Both may legitimately be configured simultaneously during a transition
+// window (item 5's "historical sandbox intents remain verifiable").
+export function getConfiguredProviders(): PaymentProviderCapabilities[] {
+  const providers: PaymentProviderCapabilities[] = [];
+  if (Deno.env.get('FLUTTERWAVE_SANDBOX_SECRET_KEY') && Deno.env.get('FLUTTERWAVE_SANDBOX_WEBHOOK_SECRET')) {
+    providers.push({ ...FLUTTERWAVE_CAPABILITIES, environment: 'sandbox' });
+  }
+  if (Deno.env.get('FLUTTERWAVE_PRODUCTION_SECRET_KEY') && Deno.env.get('FLUTTERWAVE_PRODUCTION_WEBHOOK_SECRET')) {
+    providers.push({ ...FLUTTERWAVE_CAPABILITIES, environment: 'production' });
+  }
+  return providers;
+}
+```
+**New gap this design closes, found while specifying Blocker 5 (not previously identified):** with up to two simultaneously-configured FLUTTERWAVE entries, `selectPaymentProvider`'s existing currency/market-only eligibility filter (unchanged, `routing.ts`) could non-deterministically pick either environment's entry for a NEW checkout — and, separately, Part B's own capability lookup (`getConfiguredProviders().find(p => p.provider === provider)`) would become ambiguous the moment two entries share the same `provider` value. **Both are corrected together, in place, in §2's own steps 7–8** (not shown a second time here to avoid two documents of this package disagreeing about the exact code) — `commercial-create-checkout` computes `requiredEnv` from `state` and filters `getConfiguredProviders()` to `envFilteredProviders` BEFORE calling `selectPaymentProvider`, and Part B's lookup reuses that SAME filtered array rather than re-querying the full list. See §2 for the exact, current code.
+
+### 12.4 — Webhook environment selection: routing-based, never payload-trusted
+
+The mission's explicit requirement — "Webhook verification selects the correct webhook secret without trusting an attacker-supplied environment field... derived from the matched intent/provider account or separately authenticated routing" — is closed by **routing**, not by inspecting the payload: Flutterwave's own dashboard configuration sends sandbox events to one URL and production events to a different URL (the standard, correct pattern for this exact problem — a merchant configures ONE webhook URL per environment in Flutterwave's own settings). `commercial-payment-webhook` is deployed to two distinct routes, each hardcoded (at deploy time, via its own Edge Function environment variable — never inferred from the request) to exactly one environment:
+```ts
+// commercial-payment-webhook/index.ts
+const WEBHOOK_ENVIRONMENT = Deno.env.get('WEBHOOK_ENVIRONMENT'); // 'SANDBOX' | 'PRODUCTION' — set
+  // once, at deploy time, per Edge Function deployment target. NEVER read from
+  // the incoming request, a header, or any field inside the webhook payload.
+if (WEBHOOK_ENVIRONMENT !== 'SANDBOX' && WEBHOOK_ENVIRONMENT !== 'PRODUCTION') {
+  throw new Error('Iron Dome: WEBHOOK_ENVIRONMENT must be explicitly configured at deploy time.');
+}
+const adapter = getFlutterwaveAdapter(WEBHOOK_ENVIRONMENT);
+// Gate A (verifyWebhookAuthenticity) now runs against EXACTLY the one
+// webhook secret this deployment target was configured for — an attacker
+// cannot claim to be "production" by adding a field to the payload, because
+// no field in the payload is ever consulted for this decision.
+```
+Flutterwave's dashboard is configured (an operational step, not code) with two webhook URLs: the sandbox account's events point at the deployment carrying `WEBHOOK_ENVIRONMENT=SANDBOX`, the production account's at the one carrying `WEBHOOK_ENVIRONMENT=PRODUCTION`. Both may be the same Edge Function SOURCE deployed twice (Supabase supports deploying one function under two different slugs/environments) — an operational/deployment-configuration decision, not a second code path to maintain.
+
+### 12.5 — Rollout, secret installation, rotation, rollback
+
+1. Install all four new secrets (`FLUTTERWAVE_SANDBOX_*`, `FLUTTERWAVE_PRODUCTION_*`) via `supabase secrets set`, populated from the SAME values the existing single `FLUTTERWAVE_SECRET_KEY`/`FLUTTERWAVE_WEBHOOK_SECRET` currently hold for whichever environment `FLUTTERWAVE_ENVIRONMENT` currently names, plus the OTHER environment's real credentials (obtained from Flutterwave's dashboard for that environment) — both pairs installed before any code change deploys, so nothing is ever mid-migration with only one pair present.
+2. Deploy the corrected adapter/routing/webhook code (§12.2–§12.4) — reads only the four new names; the old three names become unused by the new code but are NOT yet deleted (rollback safety).
+3. Configure Flutterwave's dashboard webhook URLs for both environments to point at the two `commercial-payment-webhook` deployment targets.
+4. Confirm via staging/production smoke tests (`ACCEPTANCE_MATRIX.md` §9) that a sandbox checkout resolves/reconciles via the sandbox pair and a production one via the production pair.
+5. Remove the three old secret names only after step 4 is confirmed — never before, since removing them earlier while any code path still reads them (a rollback scenario) would break that rollback.
+
+**Rollback:** revert the Edge Function deploys (step 2) to the pre-Blocker-5 single-adapter code, which still reads the three old names — since those were never deleted until step 5, rollback requires no credential regeneration, only a code revert. If rollback happens after step 5 (old names already removed), the three old secrets must be re-installed from the same source values before the reverted code can run — documented as the one rollback path with an extra step, not silently assumed always trivial.
+
+**Correction to §7.4's "Sandbox/production mismatch" row:** the prior wording ("`commercial-payment-reconcile` selects the Flutterwave adapter instance matching the CLAIMED intent's own `provider_environment`") is now literally implementable — `getFlutterwaveAdapter(claimedIntent.intent.provider_environment)` — because §12.2 makes "the Flutterwave adapter instance" a real, environment-parameterized thing to select between, not a single instance with nothing to distinguish. If the required environment's secrets were deliberately removed (post-transition, step 5 above) while a historical intent from that environment still awaits reconciliation, `getFlutterwaveAdapter` throws — reconciliation for that specific claimed row fails closed with a clear `PROVIDER_CREDENTIALS_UNAVAILABLE_FOR_ENVIRONMENT` evidence row (a new, additive `payment_reconciliation_attempts.result` value), never silently falling back to the other environment's credentials.
