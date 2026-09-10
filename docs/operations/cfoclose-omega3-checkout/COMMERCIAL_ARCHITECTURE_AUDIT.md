@@ -6,7 +6,9 @@ Design/audit document. No source code in this file describes a change that has b
 
 **Design-correction round 2:** a second independent review found that revision 1's own product-scoping fix for `resolve_commercial_offer` relied on `auth.uid()`, but `commercial-create-checkout` calls every RPC through a **service-role client**, where `auth.uid()` is always `NULL` — meaning the fix would have silently never activated for its actual caller. Also found: no privilege DDL was specified for the new functions; the checkout-intent supersession design could steal a live in-flight lease; the offer-activation plan pointed at a function (`admin_supersede_commercial_offer`) that cannot do what was asked of it; `admin_upsert_commercial_offer` still has no product identifier; the webhook CHECK constraint was never given exact migration DDL; reconciliation was left as an unresolved "Edge Function or pg_cron" choice; the platform-state gate checked an arbitrary provider array index instead of the actually-selected provider; and the GLOBAL-only checkout decision's effect on Tanzania offers was understated.
 
-**Design-correction round 3 (this revision):** a third independent review checked round 2's proposed SQL against the actual `payment_checkout_intents` schema (re-read directly from the live migration, not assumed) and found the lease RPC's `INSERT` referenced a nonexistent `checkout_url` column (the real column is `provider_checkout_url`) and omitted four `NOT NULL` columns (`plan_id`, `market_code`, `provider`, `created_by_user_id`) — it would have failed the first time it executed. Also found: `PROVIDER_CREATING` was never added to `chk_pci_status`/`idx_pci_status_active` with exact DDL; reconciliation outcomes were routed to a table whose `receipt_id` is `NOT NULL`, structurally incompatible with evidence that has no webhook receipt; the reconciliation claim was not a durable fenced lease, risking a permanently stranded intent after a worker crash; the backoff/window arithmetic was never stated exactly; cron authentication was an unusable placeholder; the `LEASE_HELD` client contract was underspecified; the platform-state gate had a fail-open gap on an unresolved provider capability; `admin_supersede_commercial_offer`'s identical unscoped-plan-lookup defect was left as a bare, uncompensated risk; and Flutterwave's lookup-by-reference had no specified per-outcome behavior. All resolved in `DATA_CONTRACTS.md` §1–11 (see especially §3, §5, §7, §10) and this document's new §9; see `THREAT_AND_FAILURE_MODEL.md`, `ACCEPTANCE_MATRIX.md`, and `IMPLEMENTATION_PLAN.md` for the corresponding scenario, test, and file-slice updates.
+**Design-correction round 3:** a third independent review checked round 2's proposed SQL against the actual `payment_checkout_intents` schema (re-read directly from the live migration, not assumed) and found the lease RPC's `INSERT` referenced a nonexistent `checkout_url` column (the real column is `provider_checkout_url`) and omitted four `NOT NULL` columns (`plan_id`, `market_code`, `provider`, `created_by_user_id`) — it would have failed the first time it executed. Also found: `PROVIDER_CREATING` was never added to `chk_pci_status`/`idx_pci_status_active` with exact DDL; reconciliation outcomes were routed to a table whose `receipt_id` is `NOT NULL`, structurally incompatible with evidence that has no webhook receipt; the reconciliation claim was not a durable fenced lease; the backoff/window arithmetic was never stated exactly; cron authentication was an unusable placeholder; the `LEASE_HELD` client contract was underspecified; the platform-state gate had a fail-open gap on an unresolved provider capability; `admin_supersede_commercial_offer`'s identical unscoped-plan-lookup defect was left as a bare, uncompensated risk; and Flutterwave's lookup-by-reference had no specified per-outcome behavior.
+
+**Design-correction round 4 (this revision, surgical):** a fourth independent review found that round 3's own reconciliation claim AND terminal predicates both required `expires_at > now()` — a genuine, load-bearing contradiction, since `expires_at` defaults to 1 hour while the reconciliation programme runs up to 305 minutes; any intent past its checkout-session expiry would have been silently excluded from both further claiming and the terminal transition, permanently stranded. `DATA_CONTRACTS.md` §7.0 (new) states one canonical rule resolving this, and corrects `authoriseCommit`/`commit_verified_commercial_payment` to compare the provider's own payment timestamp against `expires_at`, never wall-clock now(). Also found and fixed: no `provider_environment` tracking (risking a sandbox checkout URL surviving a platform-state transition to production); the offer row read inside `acquire_checkout_intent_lease` without a lock or cross-product/provider-restriction verification; the `CLAIMED` reconciliation-evidence row written non-atomically; lease termination with no token-based staleness rejection and no "never overwrite `SUCCEEDED`" guarantee (now `finalize_reconciliation_attempt`, replacing round 3's `release_reconciliation_lease`); a backoff anchor that was an approximation rather than the real completion time; and a cron job whose project-URL source was assumed rather than provisioned, with no mechanism to catch a Vault/Edge-secret mismatch before it silently and permanently disabled reconciliation. All resolved in `DATA_CONTRACTS.md` (see especially the new §7.0 and the corrected §3a, §7.2, §7.5) and this document's grant table (§8); see `THREAT_AND_FAILURE_MODEL.md`, `ACCEPTANCE_MATRIX.md`, and `IMPLEMENTATION_PLAN.md` for the corresponding scenario, test, and file-slice updates.
 
 ## 1. System inventory (what exists today, with provenance)
 
@@ -142,10 +144,13 @@ commercial-create-checkout (Edge Function, service-role client throughout)
      selectPaymentProvider() actually chose — never a fixed array index — for an environment
      mismatch against the current platform state
   9. acquire_checkout_intent_lease(...) RPC (item 3, round 2)        — token-fenced lease acquire;
-     REUSED short-circuits to an existing usable provider_checkout_url (the real column — round 3
-     correction, see COMMERCIAL_ARCHITECTURE_AUDIT.md §9 below); LEASE_HELD returns 202
-     CHECKOUT_IN_PROGRESS with Retry-After (round 3, item 8 — corrected from round 2's 409) and
-     means a live, unexpired concurrent attempt is in flight and is never stolen; NEW proceeds to step 10
+     locks the offer row FOR SHARE and re-verifies cross-product/provider-restriction independently
+     (item 2, round 4); snapshots provider_environment onto the new row, and REUSED requires an
+     exact provider_environment match, never merely offer_id+provider (item 1, round 4); REUSED
+     short-circuits to an existing usable provider_checkout_url (the real column — round 3
+     correction, see §9 below); LEASE_HELD returns 202 CHECKOUT_IN_PROGRESS with Retry-After (round
+     3, item 8) and means a live, unexpired concurrent attempt is in flight and is never stolen;
+     NEW proceeds to step 10
   10. adapter.createCheckout(...)                                    — Flutterwave hosted page,
      with corrected CFOClose branding (item 11, round 1); amount NOT in the returned URL
   11. persist_checkout_provider_result(...) RPC (item 3, round 2)    — token-based CAS; on a failed
@@ -163,25 +168,38 @@ commercial-payment-webhook (Edge Function, public endpoint) — UNCHANGED by thi
   5. Gate B: adapter.verifyTransaction(...) — definitive mismatch/forgery still rejected outright;
      a transient network/5xx failure now returns a distinct, RETRIABLE outcome (500 to Flutterwave,
      triggering its own redelivery) instead of being folded into the same bucket as a genuine mismatch
-  6. authoriseCommit(intent, transaction)                             — 3rd layer, unchanged
+  6. authoriseCommit(intent, transaction)                             — 3rd layer; expiry check
+     corrected (item 3, round 4, DATA_CONTRACTS.md §7.0) to compare transaction.providerCreatedAt
+     against intent.expires_at, never wall-clock now() against expires_at — a payment completed
+     before the checkout session expired is authorised regardless of when verification runs
   7. commit_verified_commercial_payment(...) RPC (service_role, SECURITY DEFINER)
      — idempotency_key check FIRST; SELECT...FOR UPDATE on the intent row; NEW: customer-level
        advisory lock (item 6) acquired before re-reading and closing out the current licence;
-       re-validates status/expiry/amount/currency; closes out any existing ACTIVE/GRACE period
-       (this term licence's manual-renewal closeout, not a subscription-cycle operation — item 8);
-       inserts the new licence period; records billing_audit_events
+       re-validates status/amount/currency and, aligned with authoriseCommit (item 3 round 4), the
+       CALLER-SUPPLIED p_provider_created_at against expires_at, never now(); closes out any
+       existing ACTIVE/GRACE period (this term licence's manual-renewal closeout, not a
+       subscription-cycle operation — item 8); inserts the new licence period; records
+       billing_audit_events
   8. record processing outcome → payment_webhook_processing_events (append-only)
   ↓
-Reconciliation (item 7; round 1 left "Edge Function or pg_cron" unresolved — round 2 commits to ONE
-  mechanism, design-only, not implemented): pg_cron triggers commercial-payment-reconcile every 5
-  minutes via pg_net; it claims stale PENDING intents through claim_stale_checkout_intents_for_
-  reconciliation (FOR UPDATE SKIP LOCKED — two concurrent runs claim disjoint batches, never block
-  or double-process), with exponential backoff (2^attempt minutes, capped) and a terminal-failure
-  cap (8 attempts) that escalates to an audit row and a structured log line (this codebase has no
-  external alerting provider wired yet — stated honestly, not invented). Each claimed row is
-  verified via a NEW adapter method, verifyTransactionByReference, then committed through the
-  IDENTICAL authoriseCommit + commit_verified_commercial_payment path a webhook would use — never a
-  lesser-authority shortcut. Full design: DATA_CONTRACTS.md §7.
+Reconciliation (item 7; round 1 left "Edge Function or pg_cron" unresolved — round 2 committed to
+  ONE mechanism, design-only, not implemented; corrected substantially in round 4): pg_cron triggers
+  commercial-payment-reconcile every 5 minutes via pg_net, authenticated via a dedicated Vault-backed
+  secret with a SHA-256 preflight gate blocking activation on mismatch (item 7, round 4,
+  DATA_CONTRACTS.md §7.5). claim_stale_checkout_intents_for_reconciliation claims eligible PENDING
+  intents (FOR UPDATE SKIP LOCKED — disjoint batches, never double-process) and atomically records
+  a CLAIMED evidence row in the same statement (item 4, round 4) — eligibility is fully decoupled
+  from expires_at (item 3, round 4, §7.0: reconciliation's whole purpose is intents whose checkout
+  session already expired), using a fixed backoff schedule anchored to the ACTUAL completion of the
+  prior attempt (reconciliation_last_completed_at, item 6, round 4), not an approximation. Each
+  claimed row is verified via verifyTransactionByReference (using the adapter instance matching the
+  intent's own provider_environment, item 1, round 4), then on success committed through the
+  IDENTICAL authoriseCommit + commit_verified_commercial_payment path a webhook would use.
+  finalize_reconciliation_attempt (item 5, round 4, replacing round 3's release_reconciliation_lease)
+  is the sole place any outcome — including the 8-attempt cap — is recorded: token-CAS'd, rejects
+  stale workers, never overwrites SUCCEEDED, and only a COMPLETED terminal attempt finding no
+  transaction may set EXPIRED (a crashed terminal attempt escalates to manual review instead, never
+  auto-classified). Full design: DATA_CONTRACTS.md §7.0–§7.5.
   ↓
 Licence transition committed → get_effective_entitlement / _resolve_entitlement_for_owner reflect it
   ↓
@@ -208,7 +226,8 @@ Unchanged foundations, re-verified against both correction rounds: `REVOKE UPDAT
 | `admin_set_offer_purchasable(...)` (item 4, round 2) | `authenticated`, gated by internal `is_commercial_admin()` check | Same pattern as every other `admin_*` function — an ordinary authenticated user can call it, but the internal check rejects non-admins; this is intentionally NOT `service_role`-only, since real human admins invoke it directly, not through a service-role Edge Function |
 | `admin_upsert_commercial_offer(...)`, new 12-arg overload (item 5, round 2) | `authenticated`, `is_commercial_admin()`-gated | Same pattern; old 11-arg overload `REVOKE`d and `DROP`ped in Phase C once the new one is confirmed live |
 | `claim_stale_checkout_intents_for_reconciliation(INT)` (item 7, round 2, corrected round 3) | **`service_role` only** | Called exclusively by `commercial-payment-reconcile`, itself invoked by `pg_cron`/`pg_net` authenticated with a dedicated Vault-backed cron secret (never the service-role key itself as a credential — `DATA_CONTRACTS.md` §7.5) — never customer-reachable |
-| `release_reconciliation_lease(UUID,UUID,TEXT)` (new, round 3, item 5) | **`service_role` only** | Lease-bookkeeping write path for the reconciliation Edge Function only |
+| `finalize_reconciliation_attempt(UUID,UUID,TEXT,TEXT,TEXT,TEXT)` (round 4, item 5 — replaces round 3's `release_reconciliation_lease`) | **`service_role` only** | Sole path recording an attempt's outcome, including cap-exhaustion; token-CAS'd, rejects stale workers, never overwrites `SUCCEEDED` |
+| `reconciliation_cron_secret_fingerprint()` (new, round 4, item 7) | **`service_role` only** | Diagnostic-only, returns a SHA-256 fingerprint, never the secret itself; used for the deployment preflight gate |
 | `admin_supersede_commercial_offer(...)`, new 12-arg overload (new, round 3, item 10) | `authenticated`, `is_commercial_admin()`-gated | Same pattern as its sibling admin functions; old 11-arg overload `REVOKE`d and `DROP`ped in the same Phase C as `admin_upsert_commercial_offer`'s cleanup |
 
 **`payment_reconciliation_attempts` table (new, round 3, item 4)** follows the identical admin-read/service-role-write shape as `payment_webhook_processing_events`: `REVOKE ALL ... FROM anon, authenticated; GRANT SELECT ... TO authenticated` gated by an `is_commercial_admin()`-only RLS policy, `GRANT ALL ... TO service_role` — see `DATA_CONTRACTS.md` §7.1 for the exact DDL.
