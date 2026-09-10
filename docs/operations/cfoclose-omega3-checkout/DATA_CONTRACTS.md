@@ -855,6 +855,40 @@ Purely additive (`DROP`+`ADD` on the same column, no data migration — no exist
 
 **Correction, round 3 (item 4): reconciliation outcomes are NOT recorded here.** Round 2 proposed adding `RECONCILED`/`RECONCILIATION_NO_TRANSACTION_FOUND`/`RECONCILIATION_TERMINAL_FAILURE` to this same constraint and inserting reconciliation attempts into `payment_webhook_processing_events`. **This is structurally impossible against the real schema**: `payment_webhook_processing_events.receipt_id` is `NOT NULL`, foreign-keyed to `payment_webhook_receipts(id)` (`20260906083524...sql:407,425`) — every row in this table must reference a real webhook delivery receipt, and reconciliation, by definition, runs for intents that never received a webhook at all. There is no receipt to reference; any attempted `INSERT` from the reconciliation path would fail the `NOT NULL` constraint outright. §7 below specifies a dedicated, purpose-built table for reconciliation evidence instead.
 
+### 6a. Webhook rejection evidence for `PROVIDER_ENVIRONMENT_MISMATCH` (new, round 7, item 3)
+
+**Confirmed gap in round 6's own design:** the round-6 shared handler (§12.4 below) responded to a `provider_environment` mismatch by calling `flag_webhook_payment_requires_manual_review` and returning 200 — but that RPC's evidence trail (`billing_audit_events`, §7.2) records the intent-level CONSEQUENCE of the mismatch, not the webhook DELIVERY itself. Unlike `PAYMENT_AFTER_INTENT_EXPIRY` (discovered only after Gate B's own `verifyTransaction` call, which — like every other Gate B outcome — is already covered by this table's existing vocabulary once it completes), a `provider_environment` mismatch is detected BEFORE Gate B ever runs, immediately after Gate A. **Gate A always succeeds first for this case** (the signature is genuinely valid — the problem is which INTENT the otherwise-legitimate webhook references, not whether the webhook itself is authentic) — meaning a real `payment_webhook_receipts` row already exists for every one of these deliveries, exactly as it does for every other Gate-A-passed webhook. Round 6 never added a corresponding `payment_webhook_processing_events` row for this specific rejection reason, leaving this delivery's processing outcome unrecorded in the one table this package's own established convention uses for exactly this purpose (`THREAT_AND_FAILURE_MODEL.md`: "Gate A rejects, receipt recorded, no commit" — recording the processing outcome alongside the receipt is the pattern for every other Gate A–adjacent rejection reason already in the vocabulary above; `provider_environment` mismatch was the one exception, undocumented rather than deliberate).
+
+**Corrected — exact, additive migration DDL (second additive change to this constraint; purely additive, no data migration, no existing row affected):**
+```sql
+ALTER TABLE public.payment_webhook_processing_events DROP CONSTRAINT chk_pwpe_result;
+ALTER TABLE public.payment_webhook_processing_events ADD CONSTRAINT chk_pwpe_result CHECK (
+  processing_result IN (
+    'PROCESSED','INVALID_SIGNATURE','REPLAY',
+    'VERIFICATION_FAILED','AMOUNT_MISMATCH','CURRENCY_MISMATCH',
+    'REFERENCE_MISMATCH','REFERENCE_MISSING','UNKNOWN_PROVIDER_STATUS','ERROR',
+    'VERIFICATION_TRANSIENT_FAILURE',       -- round 3, unchanged
+    'PROVIDER_ENVIRONMENT_MISMATCH'         -- NEW, round 7 (item 3): the webhook's
+                                              -- signature verified (Gate A passed) but
+                                              -- the REFERENCED intent's own
+                                              -- provider_environment does not match this
+                                              -- deployment's hardcoded environment
+                                              -- (DATA_CONTRACTS.md §12.4). This value is
+                                              -- recorded IN ADDITION TO, never instead
+                                              -- of, calling flag_webhook_payment_
+                                              -- requires_manual_review — the two evidence
+                                              -- trails answer different questions
+                                              -- ("what did this specific delivery do"
+                                              -- versus "does this intent now need a
+                                              -- human"), and both must exist.
+  )
+);
+```
+
+**Corrected shared-handler contract (supersedes the round-6 mismatch branch in §12.4 below — the exact code is shown there; this is the evidence-recording requirement it must satisfy):** on a `provider_environment` mismatch, the handler must, in order: (1) allow Gate A's own existing receipt insert to proceed exactly as it already does for every other webhook delivery — the immutable `payment_webhook_receipts` row is written regardless of what happens next, unchanged; (2) insert one `payment_webhook_processing_events` row referencing that SAME `receipt_id`, with `processing_result = 'PROVIDER_ENVIRONMENT_MISMATCH'`; (3) call `flag_webhook_payment_requires_manual_review(..., 'PROVIDER_ENVIRONMENT_MISMATCH')` exactly as round 6 specified; (4) return 200. **What this rejection path never produces, in any order:** no `payment_events` row recording a successful/verified payment, no licence mutation, no entitlement mutation, and no call to `commit_verified_commercial_payment` — Gate B never runs for this case, so none of Gate B's own downstream effects are reachable. **What it is explicitly no longer asserted to produce:** `ACCEPTANCE_MATRIX.md` §12 test 8 (round 6) asserted "no verification-attempt row was written for this delivery" in a way that could be misread as "zero webhook-processing evidence of any kind" — corrected (round 7) to assert specifically that no Gate-B/verification-attempt row exists, while a `PROVIDER_ENVIRONMENT_MISMATCH` processing-event row DOES exist, alongside the unaffected, always-present receipt.
+
+**Idempotency of a replayed mismatch (round 7):** Flutterwave's own redelivery policy, or a genuinely duplicate delivery of the same event, may cause this handler to run twice for the same underlying webhook. Each genuine delivery attempt (each with its own `payment_webhook_receipts` row, per the existing, unchanged receipt-per-delivery model) gets its own `payment_webhook_processing_events` row — this is not a violation of idempotency, since each is a distinct, immutable record of a distinct delivery attempt, exactly as `INVALID_SIGNATURE`/`REPLAY`/every other existing rejection reason already behaves today. The idempotent part is the intent-level consequence: `flag_webhook_payment_requires_manual_review`'s own guard (§7.2 above) ensures a second or third delivery of the same mismatch produces `ALREADY_FLAGGED` with no further `billing_audit_events` row, even though each delivery still gets its own receipt and its own processing-event row. **Two distinct kinds of idempotency, deliberately not conflated:** delivery-evidence idempotency (each delivery is recorded once, always — never suppressed) versus intent-state-transition idempotency (the flag itself transitions at most once — see §7.2's RPC and its concurrency guarantee).
+
 ## 7. Reconciliation — one fully-specified mechanism with a dedicated evidence table, a durable lease, corrected arithmetic, and real cron authentication (items 4, 5, 6, 7, 11)
 
 **Chosen mechanism, unchanged from round 2: `pg_cron` schedules a periodic HTTP call (via `pg_net`) to a dedicated Edge Function, `commercial-payment-reconcile`.** Everything downstream of that choice is corrected this round — including, per item 7, the schedule's own authentication, which round 2 left as an unusable placeholder (`'Bearer <service-role-key-or-dedicated-cron-secret>'`, a literal that cannot appear in a real migration and hedged between two different credential types without choosing).
@@ -1052,27 +1086,37 @@ Both callers of the 13-arg overload (`commercial-payment-webhook-sandbox`/`comme
 
 **Phase B (application deploy):** both Edge Functions are redeployed to call the 13-argument overload EXCLUSIVELY — neither caller is ever changed to still invoke the 12-argument form once Phase A has shipped. Both overloads exist simultaneously during this phase (the 12-arg one, with Phase 0's lock but the OLD wall-clock check, still technically present but no longer invoked by any code in this repository); this is the same "old signature present but unused" window every other overload migration in this package goes through.
 
-**Phase C (cleanup — the step round 5 omitted entirely for this function):**
-```sql
-REVOKE ALL ON FUNCTION public.commit_verified_commercial_payment(
-  UUID,TEXT,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TIMESTAMPTZ,TEXT,TEXT,TEXT
-) FROM PUBLIC, anon, authenticated, service_role;
-DROP FUNCTION public.commit_verified_commercial_payment(
-  UUID,TEXT,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TIMESTAMPTZ,TEXT,TEXT,TEXT
-);
-```
-Run ONLY after Phase B is confirmed — i.e., only after staging/production logs confirm zero invocations of the 12-argument form for a full observation window (the same discipline already applied to the resolver/admin-function overload cleanups). Until this runs, the OLD, wall-clock-vulnerable signature remains a live, callable, correctly-permissioned attack surface — Phase C is not optional cleanup, it is the step that actually closes Blocker 1 for this function.
+**Corrected release rule, round 7 (item 4) — replaces round 6's open-ended "full observation window" with a bounded, provable, checkout-gated sequence.** Round 6's Phase C required only that logs confirm "zero invocations... for a full observation window" before dropping the old signature — an unbounded, subjective, log-dependent judgment call with no stated duration and no hard gate preventing checkout from going live while the vulnerable 12-arg signature was still callable by construction. Corrected to an exact, checkout-gated sequence, every step of which is either a deploy action or an executable proof, none of which is "wait and watch logs":
 
-**Executable proof the old signature is absent (item 1's explicit requirement, `ACCEPTANCE_MATRIX.md` §10):**
-```sql
--- Must return zero rows after Phase C:
-SELECT p.oid, pg_get_function_identity_arguments(p.oid)
-  FROM pg_proc p
-  JOIN pg_namespace n ON n.oid = p.pronamespace
- WHERE n.nspname = 'public' AND p.proname = 'commit_verified_commercial_payment'
-   AND pronargs = 12;
-```
-A direct `supabase.rpc('commit_verified_commercial_payment', {...12 args...})` call after Phase C must fail with a PostgREST "function not found" / `PGRST202` error, not a successful (and therefore uncorrected) commit.
+1. **Checkout remains disabled** (`commercial_platform_state` stays at `PAYMENTS_DISABLED` or `SANDBOX_ONLY` — never `LIVE_ACCEPTANCE`/`CUSTOMER_PAYMENTS_ENABLED` for ordinary customers) for the ENTIRE duration of Phase A and Phase B below. No customer-facing checkout traffic exists while both signatures are simultaneously live.
+2. **Deploy every 13-argument caller** — both webhook wrapper functions (`commercial-payment-webhook-sandbox`/`-production`, item 4 of round 6) and `commercial-payment-reconcile`, all calling the 13-arg overload exclusively (Phase B above).
+3. **Verify those callers immediately** — a synthetic/staging invocation of each deployed caller's payment-commit code path (not a live customer payment, since checkout is still disabled per step 1) confirms each one successfully reaches and completes the 13-arg overload.
+4. **`REVOKE` `service_role` from the 12-argument overload, in this SAME controlled release, before checkout is enabled:**
+   ```sql
+   REVOKE ALL ON FUNCTION public.commit_verified_commercial_payment(
+     UUID,TEXT,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TIMESTAMPTZ,TEXT,TEXT,TEXT
+   ) FROM PUBLIC, anon, authenticated, service_role;
+   ```
+   This alone already closes the exploitable surface — no caller, including a compromised or misconfigured one, can invoke the 12-arg form after this statement runs, independent of whether `DROP FUNCTION` has executed yet.
+5. **Prove the 12-argument call fails** — a direct `supabase.rpc('commit_verified_commercial_payment', {...12 args...})` call (staging, service-role client) must fail with a Postgres permission-denied error (`42501`) immediately after step 4, before proceeding to step 6.
+6. **`DROP` the old signature and prove its absence:**
+   ```sql
+   DROP FUNCTION public.commit_verified_commercial_payment(
+     UUID,TEXT,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TIMESTAMPTZ,TEXT,TEXT,TEXT
+   );
+   ```
+   ```sql
+   -- Must return zero rows:
+   SELECT p.oid, pg_get_function_identity_arguments(p.oid)
+     FROM pg_proc p
+     JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'commit_verified_commercial_payment'
+      AND pronargs = 12;
+   ```
+   A direct `supabase.rpc('commit_verified_commercial_payment', {...12 args...})` call after this step must fail with a PostgREST "function not found" / `PGRST202` error (the error CODE changes from step 5's `42501` to `PGRST202` once the function no longer exists at all — both are required, at their respective steps, as proof of the correct failure mode at each stage, not merely "any error").
+7. **Checkout activation is prohibited until steps 1–6 have all passed.** `commercial_platform_state` may not be transitioned to `LIVE_ACCEPTANCE` or `CUSTOMER_PAYMENTS_ENABLED` for ordinary customers until: every 13-arg caller is deployed and verified (steps 2–3), the 12-arg overload's `service_role` grant is revoked and proven to fail (steps 4–5), and the 12-arg overload is dropped and proven absent (step 6). This is an explicit release gate, enforced by the deployment runbook, not merely a recommended ordering.
+
+**Rollback, explicitly:** if a defect is found in the 13-arg overload AFTER Phase C (step 6) has run and checkout has NOT yet been re-enabled, rollback is `CREATE FUNCTION` re-adding the 12-argument signature verbatim (its body is preserved, quoted in full, in this section's history) and re-`GRANT EXECUTE ... TO service_role` on it explicitly — an affirmative, auditable, two-statement action restoring a known, reviewed prior state. **Rollback is never "leave the vulnerable overload callable and skip step 4/6"** — that is not a rollback mechanism, it is simply never having closed the vulnerability items 1 exists to close, and it is explicitly rejected as a valid response to a defect found at any later stage, including post-Phase-C.
 
 **Reconciliation claim/terminal predicates realigned:** §7.2 below drops every `expires_at > now()` reference from both the claim and terminal logic, per point 2 of the canonical rule.
 
@@ -1158,9 +1202,20 @@ ALTER TABLE public.payment_checkout_intents
     -- expires_at is used ONLY to detect a crashed (never-finalized) claim,
     -- never as a backoff anchor.
   ADD COLUMN requires_manual_review           BOOLEAN     NOT NULL DEFAULT false;  -- item 1 round 5
-    -- (§7.0's dimension D) — set true ONLY by finalize_reconciliation_attempt's
-    -- ambiguous/transient-cap-exhaustion branch and by the crashed-terminal-
-    -- attempt sweep below; never cleared automatically.
+    -- (§7.0's dimension D) — set true by finalize_reconciliation_attempt's
+    -- ambiguous/transient-cap-exhaustion branch, by the crashed-terminal-
+    -- attempt sweep below, and by flag_webhook_payment_requires_manual_review
+    -- (round 6, item 3). Canonical clearing invariant (corrected round 7,
+    -- item 1 — NOT "never cleared by any code path," which round 6's own
+    -- admin_reopen_reconciliation below would itself violate, and which an
+    -- executable acceptance test asserting literally zero clearing UPDATEs
+    -- would therefore fail against this design's own intended RPC): no
+    -- AUTOMATIC system path ever clears this column back to false; the ONLY
+    -- function authorized to clear it is admin_reopen_reconciliation, which
+    -- requires an authenticated commercial administrator, a non-blank
+    -- reason, and a PENDING flagged intent, and which durably audits the
+    -- transition. A repository check proves no OTHER function clears it —
+    -- see `ACCEPTANCE_MATRIX.md` §12 test 4 (corrected round 7).
 ```
 
 **RPC — `claim_stale_checkout_intents_for_reconciliation`: claim + atomic `CLAIMED` evidence + the crashed-terminal-attempt sweep, `SKIP LOCKED`, correct composite return type (Blockers 2 and 4):**
@@ -1527,7 +1582,10 @@ Fixed schedule (minutes of delay before each numbered attempt): attempt 1 waits 
 
 **High 1, hardened round 6 (item 6) — `GATE-FLUTTERWAVE-CREATED-AT-SEMANTICS`, a named, tracked, BLOCKING pre-implementation gate, not merely a caveat:**
 
-**Status: OPEN. Implementation of the `providerCreatedAt`-based expiry comparison (§7.0 points 3/7, `authoriseCommit`, `commit_verified_commercial_payment`) MUST NOT proceed against real payment traffic — sandbox or production — until this gate is explicitly closed.**
+**Status: OPEN. Hardened, round 7 (item 5) — explicit permitted/prohibited boundary:**
+- **Permitted now, without closing this gate:** Phase-0 provider investigation (reading Flutterwave's documentation and support channels, requesting written clarification from Flutterwave) and disposable, throwaway test-harness work against Flutterwave's sandbox purely to CAPTURE the evidence closure criterion 1 below requires. None of this is payment-authority implementation — it produces evidence, never a merged code path.
+- **Prohibited until this gate is explicitly closed:** no payment-authority implementation, PR, or deployment that depends on `providerCreatedAt`/`data.created_at` semantics — the `authoriseCommit`/`commit_verified_commercial_payment` expiry comparison (§7.0 points 3/7) specifically — may be **approved, merged, or deployed**, to any environment, sandbox or production. This is broader than "must not run against real payment traffic": a merged-but-undeployed PR implementing this comparison is already prohibited, because merging is itself the point past which the assumption becomes load-bearing on the mainline branch.
+- **If closure disproves the assumption:** if the evidence gathered under closure criterion 1/2 below shows `data.created_at` is NOT the authoritative successful-payment instant (e.g. it is transaction-record-creation time, preceding actual capture), this design's expiry comparison must be **redesigned around a provider field with independently proven payment-completion semantics** — never reinterpreted, patched, or fudged with an assumed offset to keep using `data.created_at` by construction. Closing this gate can conclude "this field does not mean what we need"; it cannot conclude "close enough, proceed anyway."
 
 What is known: Flutterwave's `GET /transactions/:id/verify` and `GET /transactions?tx_ref=...` responses both document, inside `data`, a `created_at` field, described in Flutterwave's own API reference as the transaction record's creation timestamp, in ISO-8601 format.
 
@@ -1859,6 +1917,15 @@ export async function handleCommercialPaymentWebhook(req: Request, environment: 
   // sandbox provider API and — if that independently succeeded — commit
   // against a production intent using sandbox-corroborated data.
   if (intent.provider_environment !== environment) {
+    // NEW (item 3, round 7): record the rejection against THIS delivery's
+    // own receipt — receiptId comes from Gate A's own existing, unchanged
+    // payment_webhook_receipts insert, exactly as every other rejection
+    // reason already below it in this handler already does. This is
+    // evidence about the DELIVERY; the RPC call right after it is evidence
+    // about the INTENT — both are written, neither substitutes the other.
+    await supabase.from('payment_webhook_processing_events').insert({
+      receipt_id: receiptId, processing_result: 'PROVIDER_ENVIRONMENT_MISMATCH',
+    });
     await supabase.rpc('flag_webhook_payment_requires_manual_review', {
       p_intent_id: intent.id, p_reason_code: 'PROVIDER_ENVIRONMENT_MISMATCH',
       p_provider_transaction_id: normalized.providerTransactionId, p_correlation_id: correlationId,
@@ -1902,7 +1969,9 @@ Deno.serve((req) => handleCommercialPaymentWebhook(req, 'PRODUCTION'));
 ```
 These are two genuinely distinct Edge Function deployments (`supabase/functions/commercial-payment-webhook-sandbox/`, `supabase/functions/commercial-payment-webhook-production/`) — a real, fully-supported Supabase pattern, not an assumption about how one deployment could behave differently under different configuration. Flutterwave's dashboard is configured (an operational step, not code) with two webhook URLs: the sandbox account's events point at `.../functions/v1/commercial-payment-webhook-sandbox`, the production account's at `.../functions/v1/commercial-payment-webhook-production`. `Gate A` runs against exactly the one webhook secret the CALLED function's own hardcoded environment identity selects — an attacker cannot claim to be "production" by adding a field to the payload, because no field in the payload, and no runtime-configurable value, is ever consulted for this decision; only which literal, committed source file is executing.
 
-**RPC — `flag_webhook_payment_requires_manual_review`: the explicit, service-role-only, claim-token-free escalation path for both webhook-originated cases above (items 3, 5):**
+**RPC — `flag_webhook_payment_requires_manual_review`: the explicit, service-role-only, claim-token-free, transition-idempotent escalation path for both webhook-originated cases above (items 3, 5; hardened for idempotency round 7, item 2):**
+
+**Corrected, round 7 (item 2):** the round-6 body above always ran its `UPDATE`+`INSERT` once `status = 'PENDING'`, with no check for the row already being flagged. A retried webhook delivery (Flutterwave's own redelivery policy, or a duplicate/concurrent delivery of the same event) that reaches this RPC a second time for an intent ALREADY flagged would re-run the `UPDATE` (a harmless no-op write, since the value is already `true`) but would also insert a SECOND `billing_audit_events` row claiming a `false→true` transition that did not actually happen this time — a false audit trail, not merely a redundant one. Corrected so that only a genuine `false→true` transition ever produces a mutation or an audit row; every other call is a proven no-op that reports its own no-op-ness explicitly rather than silently repeating work:
 ```sql
 CREATE OR REPLACE FUNCTION public.flag_webhook_payment_requires_manual_review(
   p_intent_id               UUID,
@@ -1924,7 +1993,10 @@ BEGIN
   -- Deliberately NO claim_token parameter and NO check against
   -- reconciliation_claim_token anywhere in this function — a webhook never
   -- holds one, and this function must never require, accept, or synthesize
-  -- one (item 3's explicit "must never fabricate one").
+  -- one (item 3's explicit "must never fabricate one"). The row is locked
+  -- FIRST, before any branch below reads or reasons about its state, so a
+  -- concurrent duplicate call (see the concurrency test below) blocks on
+  -- this lock rather than racing it.
   SELECT * INTO v_intent FROM public.payment_checkout_intents WHERE id = p_intent_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'INTENT_NOT_FOUND: %', p_intent_id USING ERRCODE = '22023'; END IF;
 
@@ -1933,10 +2005,25 @@ BEGIN
   -- here generalized to any terminal status, since a webhook racing a
   -- concurrent reconciliation commit (or another webhook delivery) must
   -- never regress an already-settled outcome back into "needs review."
+  -- Returns WITHOUT mutation — no UPDATE, no INSERT.
   IF v_intent.status != 'PENDING' THEN
     RETURN jsonb_build_object('flagged', false, 'reason', 'INTENT_NOT_PENDING', 'intent_status', v_intent.status);
   END IF;
 
+  -- NEW, round 7 (item 2): idempotency guard. A row already flagged is a
+  -- proven no-op for THIS call — the transition already happened, whether
+  -- from an earlier delivery of this same event or a different reason code
+  -- entirely. Returns WITHOUT a second UPDATE and WITHOUT a second
+  -- billing_audit_events insertion — exactly one transition, exactly one
+  -- transition audit event, no matter how many times this RPC is invoked
+  -- for the same intent while it remains flagged.
+  IF v_intent.requires_manual_review THEN
+    RETURN jsonb_build_object('flagged', false, 'reason', 'ALREADY_FLAGGED', 'intent_status', v_intent.status);
+  END IF;
+
+  -- Only reachable on a genuine false→true transition, proven by the two
+  -- guards above (status = PENDING, requires_manual_review = false, both
+  -- read under the FOR UPDATE lock taken at the top of this function).
   UPDATE public.payment_checkout_intents SET requires_manual_review = true WHERE id = p_intent_id;
 
   INSERT INTO public.billing_audit_events
@@ -1944,7 +2031,16 @@ BEGIN
   VALUES
     (v_intent.billing_customer_id, NULL,
      CASE p_reason_code WHEN 'PAYMENT_AFTER_INTENT_EXPIRY' THEN 'WEBHOOK_PAYMENT_AFTER_EXPIRY' ELSE 'WEBHOOK_PROVIDER_ENVIRONMENT_MISMATCH' END,
-     jsonb_build_object('requires_manual_review', false, 'provider_transaction_id', p_provider_transaction_id),
+     -- previous_state reflects the REAL locked row read above, not a
+     -- constant literal — corrected round 7 (item 2): since this branch is
+     -- only reached when v_intent.requires_manual_review is proven false by
+     -- the guard immediately above, jsonb_build_object('requires_manual_
+     -- review', v_intent.requires_manual_review, ...) and the previous
+     -- hardcoded `false` literal are equivalent in VALUE at this line, but
+     -- the expression form is corrected to read from the row so this insert
+     -- remains correct if a future round adds another field to previous_state
+     -- that is not already proven constant by an earlier guard.
+     jsonb_build_object('requires_manual_review', v_intent.requires_manual_review, 'provider_transaction_id', p_provider_transaction_id),
      jsonb_build_object('requires_manual_review', true),
      format('Webhook-originated escalation: %s', p_reason_code), p_correlation_id);
 
@@ -1954,7 +2050,9 @@ $$;
 REVOKE ALL ON FUNCTION public.flag_webhook_payment_requires_manual_review(UUID,TEXT,TEXT,UUID) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.flag_webhook_payment_requires_manual_review(UUID,TEXT,TEXT,UUID) TO service_role;
 ```
-No row is ever written to `payment_reconciliation_attempts` for a webhook-originated event — that table's model is exclusively claim-token/attempt-number-keyed, tied to the reconciliation worker protocol; a webhook event has neither, and forcing it into that shape would mean fabricating meaningless values for both columns. `billing_audit_events` alone is this path's evidence trail, exactly as it already is for every other licence/status transition in this package regardless of origin.
+No row is ever written to `payment_reconciliation_attempts` for a webhook-originated event — that table's model is exclusively claim-token/attempt-number-keyed, tied to the reconciliation worker protocol; a webhook event has neither, and forcing it into that shape would mean fabricating meaningless values for both columns. `billing_audit_events` alone is this RPC's evidence trail for the manual-review flag itself, exactly as it already is for every other licence/status transition in this package regardless of origin — this is distinct from, and in addition to, the webhook-receipt/processing-event evidence trail §6a below adds for the `PROVIDER_ENVIRONMENT_MISMATCH` case specifically.
+
+**Concurrency and duplicate-delivery guarantee (round 7, item 2):** because the row is locked (`FOR UPDATE`) before either the status check or the `requires_manual_review` check runs, two calls racing for the same `p_intent_id` — whether two genuinely concurrent Edge Function invocations (e.g. Flutterwave redelivering while the original delivery is still being processed) or two sequential calls after the first has already committed — serialize on that lock. Whichever call acquires the lock first performs the transition (if eligible) and commits; the second call then acquires the lock, re-reads the NOW-updated row, finds `requires_manual_review = true`, and returns `ALREADY_FLAGGED` without mutation. **Exactly one `false→true` transition and exactly one transition-audit `billing_audit_events` row are produced no matter how many duplicate or concurrent calls occur** — proven by `ACCEPTANCE_MATRIX.md` §12 tests 6b (sequential duplicates) and 6c (concurrent duplicates).
 
 ### 12.5 — Rollout, secret installation, rotation, rollback
 
