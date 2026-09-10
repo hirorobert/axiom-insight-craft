@@ -885,9 +885,15 @@ ALTER TABLE public.payment_webhook_processing_events ADD CONSTRAINT chk_pwpe_res
 );
 ```
 
-**Corrected shared-handler contract (supersedes the round-6 mismatch branch in §12.4 below — the exact code is shown there; this is the evidence-recording requirement it must satisfy):** on a `provider_environment` mismatch, the handler must, in order: (1) allow Gate A's own existing receipt insert to proceed exactly as it already does for every other webhook delivery — the immutable `payment_webhook_receipts` row is written regardless of what happens next, unchanged; (2) insert one `payment_webhook_processing_events` row referencing that SAME `receipt_id`, with `processing_result = 'PROVIDER_ENVIRONMENT_MISMATCH'`; (3) call `flag_webhook_payment_requires_manual_review(..., 'PROVIDER_ENVIRONMENT_MISMATCH')` exactly as round 6 specified; (4) return 200. **What this rejection path never produces, in any order:** no `payment_events` row recording a successful/verified payment, no licence mutation, no entitlement mutation, and no call to `commit_verified_commercial_payment` — Gate B never runs for this case, so none of Gate B's own downstream effects are reachable. **What it is explicitly no longer asserted to produce:** `ACCEPTANCE_MATRIX.md` §12 test 8 (round 6) asserted "no verification-attempt row was written for this delivery" in a way that could be misread as "zero webhook-processing evidence of any kind" — corrected (round 7) to assert specifically that no Gate-B/verification-attempt row exists, while a `PROVIDER_ENVIRONMENT_MISMATCH` processing-event row DOES exist, alongside the unaffected, always-present receipt.
+**Corrected shared-handler contract, round 7 — SUPERSEDED, round 8 (item 2):** round 7's own contract specified a raw `INSERT` naming only `receipt_id`/`processing_result`. **Confirmed against the real schema (Codex's direct finding, round 8):** `payment_webhook_processing_events` also declares `provider` and `signature_valid` `NOT NULL`, with no default for either — a raw insert naming only two of the table's required columns fails outright the first time it runs, the identical class of defect this package's own discipline exists to catch (round 3's `checkout_url`, round 5's unquoted `commit_verified_commercial_payment` body). **Corrected: reuse the EXISTING `recordProcessingEvent` helper** — already used, unchanged, by this same handler's Gate A/Gate B evidence writes elsewhere in this UNCHANGED logic — rather than hand-rolling a second, independently-incomplete insert path for this one new case. Its call shape (`{signatureValid, processingResult, providerTransactionId, saffReference}`, no `receiptId`/`provider` argument) reflects that it already resolves `receipt_id` and `provider` internally from the request's own established context, exactly as it does for every pre-existing call site — this design does not need to, and must not, re-derive those columns itself. The exact call is shown in §12.4's handler code.
 
-**Idempotency of a replayed mismatch (round 7):** Flutterwave's own redelivery policy, or a genuinely duplicate delivery of the same event, may cause this handler to run twice for the same underlying webhook. Each genuine delivery attempt (each with its own `payment_webhook_receipts` row, per the existing, unchanged receipt-per-delivery model) gets its own `payment_webhook_processing_events` row — this is not a violation of idempotency, since each is a distinct, immutable record of a distinct delivery attempt, exactly as `INVALID_SIGNATURE`/`REPLAY`/every other existing rejection reason already behaves today. The idempotent part is the intent-level consequence: `flag_webhook_payment_requires_manual_review`'s own guard (§7.2 above) ensures a second or third delivery of the same mismatch produces `ALREADY_FLAGGED` with no further `billing_audit_events` row, even though each delivery still gets its own receipt and its own processing-event row. **Two distinct kinds of idempotency, deliberately not conflated:** delivery-evidence idempotency (each delivery is recorded once, always — never suppressed) versus intent-state-transition idempotency (the flag itself transitions at most once — see §7.2's RPC and its concurrency guarantee).
+**Corrected `recordProcessingEvent` return contract (item 2, round 8):** every prior round's description of this UNCHANGED helper implicitly assumed it either always succeeds or silently swallows its own database error — neither was ever verified, and for a case where the processing-event row is the ONLY durable evidence of a specific rejection reason (unlike a best-effort audit write elsewhere), silently swallowing a failure here would silently recreate exactly the evidence gap round 7 was written to close. **Corrected: `recordProcessingEvent` returns `{ success: boolean }` (or `{ success: false, error }` on failure) rather than `void`**, so its caller can distinguish "evidence durably recorded" from "evidence NOT recorded, treat as if this delivery is still pending resolution."
+
+**Corrected shared-handler contract (item 2, round 8 — the exact code is in §12.4; this is the requirement it must satisfy):** on a `provider_environment` mismatch, the handler must, in order: (1) allow Gate A's own existing receipt insert to proceed exactly as it already does for every other webhook delivery — the immutable `payment_webhook_receipts` row is written regardless of what happens next, unchanged; (2) call `recordProcessingEvent({signatureValid: true, processingResult: 'PROVIDER_ENVIRONMENT_MISMATCH', providerTransactionId, saffReference})` and check its result explicitly; (2a) **if that call reports failure, return HTTP 500 immediately — do NOT call the flag RPC, do NOT return 200.** A processing-event failure means this delivery has NO durable evidence yet; returning 200 here would tell Flutterwave "handled, do not redeliver" for a delivery this system has not actually recorded, and calling the flag RPC without that evidence would silently reopen the exact gap round 7 closed. Flutterwave's own redelivery on a 500 is how this converges — see the retry-convergence proof below; (3) only once (2) has succeeded, call `flag_webhook_payment_requires_manual_review(..., 'PROVIDER_ENVIRONMENT_MISMATCH')` and check ITS error channel explicitly — a genuine database error (not a normal `{flagged:false, reason:...}` return value) must also return HTTP 500, never be treated as success merely because step (2) succeeded; (4) return 200 ONLY once step (2) succeeded AND step (3) returned without a database error, regardless of whether its own JSON result was `{flagged:true}`, `{flagged:false, reason:'ALREADY_FLAGGED'}`, or `{flagged:false, reason:'INTENT_NOT_PENDING'}` — all three are proven, explicitly-safe, non-error outcomes of that RPC, not failures. **What this rejection path never produces, in any order, regardless of which of the above outcomes occurs:** no `payment_events` row recording a successful/verified payment, no licence mutation, no entitlement mutation, and no call to `commit_verified_commercial_payment` — Gate B never runs for this case, so none of Gate B's own downstream effects are reachable. **What it is explicitly no longer asserted to produce:** `ACCEPTANCE_MATRIX.md` §12 test 8 (round 6) asserted "no verification-attempt row was written for this delivery" in a way that could be misread as "zero webhook-processing evidence of any kind" — corrected (round 7) to assert specifically that no Gate-B/verification-attempt row exists, while a `PROVIDER_ENVIRONMENT_MISMATCH` processing-event row DOES exist, alongside the unaffected, always-present receipt.
+
+**Retry convergence, explicitly (item 2, round 8, test D):** a delivery that receives a 500 at step (2a) above is, by Flutterwave's own redelivery policy, retried as a genuinely NEW delivery — its own new `payment_webhook_receipts` row, its own new `recordProcessingEvent` attempt. Three starting states converge safely on retry: **(i)** the first attempt failed before `recordProcessingEvent` ever ran (e.g. Gate A's own receipt insert failed) — the retry re-runs the whole sequence from a clean state, no different from a first delivery; **(ii)** the first attempt's `recordProcessingEvent` call itself failed (a transient DB error) — the retry's own `recordProcessingEvent` call is a fresh attempt, unrelated to the failed one, and succeeds or fails independently; **(iii)** the first attempt's `recordProcessingEvent` succeeded but the SUBSEQUENT flag-RPC call then failed with a genuine database error (also a 500, per step (3)) — the retry's `recordProcessingEvent` call succeeds again (delivery-evidence is never deduplicated, per the idempotency note below), and its flag-RPC call now either performs the genuine `false→true` transition (if the first attempt's failure truly rolled back / never committed the flag) or observes `ALREADY_FLAGGED` (if the first attempt's flag-RPC call had, in fact, committed before the error was reported to the caller — a genuine possibility for some classes of transient failure). **Both sub-cases of (iii) are safe and require no special handling**, because `ALREADY_FLAGGED` is an explicitly-safe, non-error outcome (step (4) above) — the retry never needs to know which sub-case occurred to behave correctly.
+
+**Idempotency of a replayed mismatch (round 7; evidence-write behavior unchanged by round 8's error handling):** Flutterwave's own redelivery policy, or a genuinely duplicate delivery of the same event, may cause this handler to run twice for the same underlying webhook. Each genuine delivery attempt (each with its own `payment_webhook_receipts` row, per the existing, unchanged receipt-per-delivery model) gets its own `payment_webhook_processing_events` row via its own `recordProcessingEvent` call — this is not a violation of idempotency, since each is a distinct, immutable record of a distinct delivery attempt, exactly as `INVALID_SIGNATURE`/`REPLAY`/every other existing rejection reason already behaves today. The idempotent part is the intent-level consequence: `flag_webhook_payment_requires_manual_review`'s own guard (§7.2 above) ensures a second or third delivery of the same mismatch produces `ALREADY_FLAGGED` with no further `billing_audit_events` row, even though each delivery still gets its own receipt and its own processing-event row. **Two distinct kinds of idempotency, deliberately not conflated:** delivery-evidence idempotency (each delivery is recorded once, always — never suppressed, and never skipped merely because an EARLIER delivery already recorded evidence) versus intent-state-transition idempotency (the flag itself transitions at most once — see §7.2's RPC and its concurrency guarantee).
 
 ## 7. Reconciliation — one fully-specified mechanism with a dedicated evidence table, a durable lease, corrected arithmetic, and real cron authentication (items 4, 5, 6, 7, 11)
 
@@ -1917,19 +1923,75 @@ export async function handleCommercialPaymentWebhook(req: Request, environment: 
   // sandbox provider API and — if that independently succeeded — commit
   // against a production intent using sandbox-corroborated data.
   if (intent.provider_environment !== environment) {
-    // NEW (item 3, round 7): record the rejection against THIS delivery's
-    // own receipt — receiptId comes from Gate A's own existing, unchanged
-    // payment_webhook_receipts insert, exactly as every other rejection
-    // reason already below it in this handler already does. This is
-    // evidence about the DELIVERY; the RPC call right after it is evidence
-    // about the INTENT — both are written, neither substitutes the other.
-    await supabase.from('payment_webhook_processing_events').insert({
-      receipt_id: receiptId, processing_result: 'PROVIDER_ENVIRONMENT_MISMATCH',
+    // CORRECTED (item 2, round 8 — supersedes round 7's raw .insert() below,
+    // which is REJECTED as unexecutable, not merely simplified):
+    //
+    //   REJECTED, round 7's own code (kept here, struck through, as this
+    //   package's established discipline of preserving what was wrong and
+    //   why — see round 3/5/6's identical practice for prior defects):
+    //     await supabase.from('payment_webhook_processing_events').insert({
+    //       receipt_id: receiptId, processing_result: 'PROVIDER_ENVIRONMENT_MISMATCH',
+    //     });
+    //   This targets only two of the real table's columns. The real table
+    //   (already establishing this evidence trail for Gate A/Gate B outcomes
+    //   throughout this UNCHANGED handler logic) also requires `provider`
+    //   and `signature_valid` — a direct insert naming only `receipt_id`/
+    //   `processing_result` fails the real table's NOT NULL constraints
+    //   outright, the exact class of defect this package's own discipline
+    //   (round 3's `checkout_url`, round 5's unquoted `commit_verified_
+    //   commercial_payment`) exists to catch before it reaches a reviewer.
+    //
+    // CORRECTED: reuse the EXISTING recordProcessingEvent helper — already
+    // used, unchanged, by this same handler's Gate A/Gate B evidence writes
+    // elsewhere — rather than a fresh, incompletely-specified raw insert.
+    // It resolves receipt_id/provider internally from the request's own
+    // already-established context (the receipt Gate A already inserted,
+    // and this deployment's own hardcoded environment/adapter identity),
+    // which is why the call site below never passes them explicitly.
+    const processingRecorded = await recordProcessingEvent({
+      signatureValid: true, // Gate A passed — this rejection is NOT a signature failure
+      processingResult: 'PROVIDER_ENVIRONMENT_MISMATCH',
+      providerTransactionId: normalized.providerTransactionId,
+      saffReference: intent.saff_reference,
     });
-    await supabase.rpc('flag_webhook_payment_requires_manual_review', {
+
+    // CORRECTED (item 2, round 8): recordProcessingEvent's return contract
+    // is corrected below (§12.4a) to report success/failure explicitly,
+    // rather than silently swallowing its own database error as every
+    // prior round's un-examined description implicitly assumed. For this
+    // MANDATORY-evidence path (unlike a best-effort audit write elsewhere),
+    // a failed insert must not be treated as "logged and move on."
+    if (!processingRecorded.success) {
+      // Do NOT call the flag RPC — calling it without durable delivery-level
+      // evidence would produce exactly the gap round 7 closed, reopened.
+      // Do NOT return 200 — Flutterwave must be allowed to redeliver so a
+      // later attempt can persist the evidence this attempt could not.
+      return new Response(JSON.stringify({ error: 'PROCESSING_EVENT_PERSIST_FAILED' }), { status: 500 });
+    }
+
+    const { data: flagResult, error: flagError } = await supabase.rpc('flag_webhook_payment_requires_manual_review', {
       p_intent_id: intent.id, p_reason_code: 'PROVIDER_ENVIRONMENT_MISMATCH',
       p_provider_transaction_id: normalized.providerTransactionId, p_correlation_id: correlationId,
     });
+
+    // CORRECTED (item 2, round 8): the RPC's own error channel is checked
+    // explicitly — never ignored. A genuine database error here (connection
+    // failure, an unexpected exception inside the function body) must not
+    // be silently treated as success merely because the earlier insert
+    // succeeded; it must surface as a 500 so Flutterwave retries.
+    if (flagError) {
+      return new Response(JSON.stringify({ error: 'FLAG_RPC_FAILED' }), { status: 500 });
+    }
+
+    // 200 is reachable ONLY once processing evidence is durably persisted
+    // AND the flag RPC returned one of its own explicitly-safe outcomes —
+    // never merely "the RPC call didn't throw." `flagged:true` (a genuine
+    // new transition), `reason:'ALREADY_FLAGGED'` (round 7's idempotency
+    // guard — a proven no-op, not a failure), and `reason:'INTENT_NOT_
+    // PENDING'` (the intent already resolved through some other path — also
+    // a proven no-op, never an error) are the three outcomes this RPC can
+    // return without having encountered a database error; anything else
+    // reaching this line would already have been caught by flagError above.
     return new Response(JSON.stringify({ received: true }), { status: 200 }); // 200 — no retry storm, same convention as INVALID_SIGNATURE
   }
 
@@ -1969,9 +2031,11 @@ Deno.serve((req) => handleCommercialPaymentWebhook(req, 'PRODUCTION'));
 ```
 These are two genuinely distinct Edge Function deployments (`supabase/functions/commercial-payment-webhook-sandbox/`, `supabase/functions/commercial-payment-webhook-production/`) — a real, fully-supported Supabase pattern, not an assumption about how one deployment could behave differently under different configuration. Flutterwave's dashboard is configured (an operational step, not code) with two webhook URLs: the sandbox account's events point at `.../functions/v1/commercial-payment-webhook-sandbox`, the production account's at `.../functions/v1/commercial-payment-webhook-production`. `Gate A` runs against exactly the one webhook secret the CALLED function's own hardcoded environment identity selects — an attacker cannot claim to be "production" by adding a field to the payload, because no field in the payload, and no runtime-configurable value, is ever consulted for this decision; only which literal, committed source file is executing.
 
-**RPC — `flag_webhook_payment_requires_manual_review`: the explicit, service-role-only, claim-token-free, transition-idempotent escalation path for both webhook-originated cases above (items 3, 5; hardened for idempotency round 7, item 2):**
+**RPC — `flag_webhook_payment_requires_manual_review`: the explicit, service-role-only, claim-token-free, transition-idempotent escalation path for both webhook-originated cases above (items 3, 5; hardened for idempotency round 7, item 2; NULL-reason validation corrected round 8, item 1):**
 
-**Corrected, round 7 (item 2):** the round-6 body above always ran its `UPDATE`+`INSERT` once `status = 'PENDING'`, with no check for the row already being flagged. A retried webhook delivery (Flutterwave's own redelivery policy, or a duplicate/concurrent delivery of the same event) that reaches this RPC a second time for an intent ALREADY flagged would re-run the `UPDATE` (a harmless no-op write, since the value is already `true`) but would also insert a SECOND `billing_audit_events` row claiming a `false→true` transition that did not actually happen this time — a false audit trail, not merely a redundant one. Corrected so that only a genuine `false→true` transition ever produces a mutation or an audit row; every other call is a proven no-op that reports its own no-op-ness explicitly rather than silently repeating work:
+**Corrected, round 7 (item 2):** the round-6 body above always ran its `UPDATE`+`INSERT` once `status = 'PENDING'`, with no check for the row already being flagged. A retried webhook delivery (Flutterwave's own redelivery policy, or a duplicate/concurrent delivery of the same event) that reaches this RPC a second time for an intent ALREADY flagged would re-run the `UPDATE` (a harmless no-op write, since the value is already `true`) but would also insert a SECOND `billing_audit_events` row claiming a `false→true` transition that did not actually happen this time — a false audit trail, not merely a redundant one. Corrected so that only a genuine `false→true` transition ever produces a mutation or an audit row; every other call is a proven no-op that reports its own no-op-ness explicitly rather than silently repeating work.
+
+**Confirmed defect, round 8 (item 1):** round 7's own `IF p_reason_code NOT IN (...) THEN` relies on standard SQL three-valued logic silently working against it — `NULL NOT IN (...)` evaluates to `NULL`, never `TRUE`, in every SQL dialect including Postgres. An `IF` statement only branches on `TRUE`; a `NULL` condition is treated as `FALSE` and falls through WITHOUT raising. **A caller passing `p_reason_code = NULL` — a coding defect in an Edge Function, a malformed RPC call, or a future caller that forgets this parameter is required — would silently bypass validation entirely** and proceed into the function body with a `NULL` reason code, producing a `billing_audit_events` row whose `action` column (`CASE p_reason_code WHEN ... ELSE ...`) resolves to the `ELSE` branch regardless of the true intended reason, misrecording the audit trail rather than rejecting the call outright. Corrected to check `IS NULL` explicitly, first, before the vocabulary check:
 ```sql
 CREATE OR REPLACE FUNCTION public.flag_webhook_payment_requires_manual_review(
   p_intent_id               UUID,
@@ -1986,8 +2050,14 @@ SET search_path = public, pg_catalog
 AS $$
 DECLARE v_intent RECORD;
 BEGIN
-  IF p_reason_code NOT IN ('PAYMENT_AFTER_INTENT_EXPIRY', 'PROVIDER_ENVIRONMENT_MISMATCH') THEN
-    RAISE EXCEPTION 'INVALID_REASON_CODE: %', p_reason_code USING ERRCODE = '22023';
+  IF p_reason_code IS NULL
+     OR p_reason_code NOT IN (
+       'PAYMENT_AFTER_INTENT_EXPIRY',
+       'PROVIDER_ENVIRONMENT_MISMATCH'
+     )
+  THEN
+    RAISE EXCEPTION 'INVALID_REASON_CODE: %', p_reason_code
+      USING ERRCODE = '22023';
   END IF;
 
   -- Deliberately NO claim_token parameter and NO check against
@@ -2053,6 +2123,8 @@ GRANT EXECUTE ON FUNCTION public.flag_webhook_payment_requires_manual_review(UUI
 No row is ever written to `payment_reconciliation_attempts` for a webhook-originated event — that table's model is exclusively claim-token/attempt-number-keyed, tied to the reconciliation worker protocol; a webhook event has neither, and forcing it into that shape would mean fabricating meaningless values for both columns. `billing_audit_events` alone is this RPC's evidence trail for the manual-review flag itself, exactly as it already is for every other licence/status transition in this package regardless of origin — this is distinct from, and in addition to, the webhook-receipt/processing-event evidence trail §6a below adds for the `PROVIDER_ENVIRONMENT_MISMATCH` case specifically.
 
 **Concurrency and duplicate-delivery guarantee (round 7, item 2):** because the row is locked (`FOR UPDATE`) before either the status check or the `requires_manual_review` check runs, two calls racing for the same `p_intent_id` — whether two genuinely concurrent Edge Function invocations (e.g. Flutterwave redelivering while the original delivery is still being processed) or two sequential calls after the first has already committed — serialize on that lock. Whichever call acquires the lock first performs the transition (if eligible) and commits; the second call then acquires the lock, re-reads the NOW-updated row, finds `requires_manual_review = true`, and returns `ALREADY_FLAGGED` without mutation. **Exactly one `false→true` transition and exactly one transition-audit `billing_audit_events` row are produced no matter how many duplicate or concurrent calls occur** — proven by `ACCEPTANCE_MATRIX.md` §12 tests 6b (sequential duplicates) and 6c (concurrent duplicates).
+
+**Executable proof, NULL and arbitrary reason codes both reject with no mutation (item 1, round 8):** the `IS NULL OR NOT IN (...)` check runs as the FIRST statement in the function body, before the `FOR UPDATE` lock is ever acquired — a rejected call never reads, locks, or mutates `payment_checkout_intents`, and never inserts into `billing_audit_events`. `supabase.rpc('flag_webhook_payment_requires_manual_review', {p_intent_id: <valid>, p_reason_code: null, ...})` and the same call with `p_reason_code: 'SOMETHING_INVENTED'` must both raise a Postgres exception carrying `SQLSTATE 22023`; a direct `SELECT requires_manual_review FROM payment_checkout_intents WHERE id = <valid>` immediately after each rejected call must show the value UNCHANGED from before the call, and a direct `SELECT count(*) FROM billing_audit_events WHERE ...` scoped to that intent and call window must return the same count as before the call — proving the rejection is a true no-op, not merely an error response masking a partial write (`ACCEPTANCE_MATRIX.md` §12 tests 10a–10b).
 
 ### 12.5 — Rollout, secret installation, rotation, rollback
 
