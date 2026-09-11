@@ -560,6 +560,7 @@ try {
         -TestLabel 'A' -CaptureSessionId $sessionId -TransactionId $realTransactionId `
         -EvidenceRoot $e2eEvidenceRoot -HttpGet $fakeHttpGet -NowUtc $fakeClock `
         -CollectorScriptGitSha 'test-sha' -CollectorScriptContentSha256 'test-content-hash'
+    if (-not $verifyResult.Success) { Write-Host "  DIAGNOSTIC: Verify failed with Reason='$($verifyResult.Reason)'" -ForegroundColor Magenta }
     Assert-Equal -Expected $true -Actual $verifyResult.Success -Name 'E2E: Verify orchestration succeeds when tx_ref and transaction id both match'
 
     # --- Step 4: FinalizeManifest ---
