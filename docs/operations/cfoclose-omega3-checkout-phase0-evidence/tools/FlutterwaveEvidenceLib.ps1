@@ -340,11 +340,20 @@ function Get-DataField {
         [Parameter(Mandatory = $true)]
         [string]$FieldName
     )
+    # NOTE: property-existence is checked via `@(...Properties.Name) -contains
+    # ...` rather than `.Properties.Match(...).Count` -- the latter's exact
+    # behavior on an empty/absent match differs across PowerShell versions
+    # (Windows PowerShell 5.1 vs. PowerShell 7+ on Linux, as run in CI), and
+    # this project has already hit that class of cross-version quirk more
+    # than once. `-contains` against a plain string array is unambiguous and
+    # version-stable everywhere.
     if ($null -eq $Parsed) { return $null }
-    if (-not ($Parsed.PSObject.Properties.Match('data').Count -gt 0)) { return $null }
+    $topLevelNames = @($Parsed.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($topLevelNames -notcontains 'data') { return $null }
     $data = $Parsed.data
     if ($null -eq $data) { return $null }
-    if (-not ($data.PSObject.Properties.Match($FieldName).Count -gt 0)) { return $null }
+    $dataNames = @($data.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($dataNames -notcontains $FieldName) { return $null }
     $value = $data.$FieldName
     if ($null -eq $value) { return $null }
     return [string]$value
@@ -391,7 +400,8 @@ function Get-HostedCheckoutLink {
     }
 
     $status = $null
-    if ($Parsed.PSObject.Properties.Match('status').Count -gt 0) { $status = $Parsed.status }
+    $topLevelNames = @($Parsed.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($topLevelNames -contains 'status') { $status = $Parsed.status }
     if ($status -ne 'success') {
         return @{ Success = $false; Reason = 'STATUS_NOT_SUCCESS'; Link = $null }
     }
