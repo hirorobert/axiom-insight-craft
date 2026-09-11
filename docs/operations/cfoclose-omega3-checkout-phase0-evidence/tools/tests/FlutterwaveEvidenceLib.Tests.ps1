@@ -293,6 +293,18 @@ $p1 = [DateTime]::Parse($ts1, [System.Globalization.CultureInfo]::InvariantCultu
 $p2 = [DateTime]::Parse($ts2, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
 Assert-True -Condition ($p2 -ge $p1) -Name 'a later timestamp is not earlier than an earlier one'
 
+# Isolated repro: a timestamp round-tripped through ConvertTo-Json/
+# ConvertFrom-Json (exactly what every stage file does) must still validate.
+# PowerShell 5.1 (Windows, JavaScriptSerializer-based JSON) and PowerShell 7+
+# (Linux CI, System.Text.Json-based) use different JSON engines internally,
+# so this round-trip is tested explicitly rather than assumed identical.
+$rawTs = Get-UtcTimestamp
+$roundTripObj = [PSCustomObject]@{ ts = $rawTs } | ConvertTo-Json | ConvertFrom-Json
+$roundTrippedTs = [string]$roundTripObj.ts
+Write-Host "  DIAGNOSTIC: raw='$rawTs' (len=$($rawTs.Length)) roundtripped='$roundTrippedTs' (len=$($roundTrippedTs.Length)) equal=$($rawTs -eq $roundTrippedTs)" -ForegroundColor DarkGray
+Assert-Equal -Expected $rawTs -Actual $roundTrippedTs -Name 'a UTC timestamp is byte-for-byte identical after a ConvertTo-Json/ConvertFrom-Json round-trip'
+Assert-True -Condition (Test-IsValidUtcTimestamp -Value $roundTrippedTs) -Name 'a timestamp round-tripped through JSON still validates as a valid UTC timestamp'
+
 # ============================================================
 # Category: timeline ordering / Test B minimum (High 1)
 # ============================================================
