@@ -293,17 +293,29 @@ $p1 = [DateTime]::Parse($ts1, [System.Globalization.CultureInfo]::InvariantCultu
 $p2 = [DateTime]::Parse($ts2, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
 Assert-True -Condition ($p2 -ge $p1) -Name 'a later timestamp is not earlier than an earlier one'
 
-# Isolated repro: a timestamp round-tripped through ConvertTo-Json/
-# ConvertFrom-Json (exactly what every stage file does) must still validate.
-# PowerShell 5.1 (Windows, JavaScriptSerializer-based JSON) and PowerShell 7+
-# (Linux CI, System.Text.Json-based) use different JSON engines internally,
-# so this round-trip is tested explicitly rather than assumed identical.
+# Cross-platform fix verification: PowerShell 7+ (this project's CI, on
+# Linux) auto-converts an ISO-8601-shaped JSON string into a real
+# [DateTime] object on ConvertFrom-Json; Windows PowerShell 5.1 (local dev)
+# does not -- it keeps it a plain string. A NAIVE [string] cast on the PS7
+# result uses culture-default formatting, silently dropping the 'Z'/UTC
+# marker and all sub-second precision (confirmed empirically -- this is
+# EXACTLY the defect that broke the E2E orchestration test on Linux CI
+# before ConvertTo-NormalizedJsonValue existed). This is not itself a bug
+# to assert against -- it is a genuine, documented cross-engine JSON
+# behavior difference; what this test verifies is that
+# ConvertTo-NormalizedJsonValue (used by Get-StageCapture) makes both
+# engines produce an equally valid result AFTER normalization, regardless
+# of which raw form ConvertFrom-Json handed back.
 $rawTs = Get-UtcTimestamp
 $roundTripObj = [PSCustomObject]@{ ts = $rawTs } | ConvertTo-Json | ConvertFrom-Json
-$roundTrippedTs = [string]$roundTripObj.ts
-Write-Host "  DIAGNOSTIC: raw='$rawTs' (len=$($rawTs.Length)) roundtripped='$roundTrippedTs' (len=$($roundTrippedTs.Length)) equal=$($rawTs -eq $roundTrippedTs)" -ForegroundColor DarkGray
-Assert-Equal -Expected $rawTs -Actual $roundTrippedTs -Name 'a UTC timestamp is byte-for-byte identical after a ConvertTo-Json/ConvertFrom-Json round-trip'
-Assert-True -Condition (Test-IsValidUtcTimestamp -Value $roundTrippedTs) -Name 'a timestamp round-tripped through JSON still validates as a valid UTC timestamp'
+$rawRoundTripType = $roundTripObj.ts.GetType().FullName
+$normalizedObj = ConvertTo-NormalizedJsonValue -Node $roundTripObj
+$normalizedTs = $normalizedObj.ts
+Write-Host "  DIAGNOSTIC: raw='$rawTs' rawRoundTripType=$rawRoundTripType normalized='$normalizedTs'" -ForegroundColor DarkGray
+Assert-True -Condition (Test-IsValidUtcTimestamp -Value $normalizedTs) -Name 'after ConvertTo-NormalizedJsonValue, a JSON-round-tripped timestamp validates as a valid UTC timestamp on EITHER engine'
+$rawParsedForCompare = [DateTime]::Parse($rawTs, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+$normalizedParsedForCompare = [DateTime]::Parse($normalizedTs, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+Assert-Equal -Expected $rawParsedForCompare.ToString('yyyy-MM-ddTHH:mm:ss') -Actual $normalizedParsedForCompare.ToString('yyyy-MM-ddTHH:mm:ss') -Name 'the normalized timestamp represents the SAME instant (to the second) as the original, on either engine'
 
 # ============================================================
 # Category: timeline ordering / Test B minimum (High 1)

@@ -515,6 +515,69 @@ function Test-TimelineOrdering {
     return @{ Valid = $true; Reason = 'OK' }
 }
 
+function ConvertTo-NormalizedJsonValue {
+    <#
+    CROSS-PLATFORM FIX: `ConvertFrom-Json` on PowerShell 7+ (the engine this
+    project's CI runs under, on Linux) auto-detects ISO-8601-shaped JSON
+    string values and silently deserializes them as real `[DateTime]`
+    objects -- Windows PowerShell 5.1 (used for local development on this
+    project) does NOT do this; it keeps them as plain strings. The practical
+    effect: a stage file written as `"request_start_utc":
+    "2026-09-11T18:00:30.3901135Z"` reads back, on PS7, as a genuine
+    `[DateTime]` object; a later NAIVE `[string]$value` cast on it then uses
+    the CURRENT CULTURE's default ToString() format ("09/11/2026 18:00:30")
+    -- silently dropping the 'Z'/UTC marker AND all sub-second precision,
+    which then fails `Test-IsValidUtcTimestamp`'s round-trip check. This was
+    confirmed empirically via an isolated JSON round-trip repro in
+    tests/FlutterwaveEvidenceLib.Tests.ps1 before this fix was written.
+
+    This function walks a parsed JSON object graph (PSCustomObject/array/
+    scalar) and converts any `[DateTime]`-typed value back to the SAME
+    round-trippable ISO-8601 UTC string form `Get-UtcTimestamp` itself
+    produces (`.ToString('o')`), so every consumer downstream of
+    `Get-StageCapture` sees the identical string shape regardless of which
+    PowerShell version/engine wrote or read the file.
+    #>
+    [OutputType([object])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        $Node
+    )
+
+    if ($null -eq $Node) { return $Node }
+
+    if ($Node -is [DateTime]) {
+        # RELABEL (never re-convert) as Utc: PS7's auto-parse of a
+        # 'Z'-suffixed ISO string preserves the correct underlying instant
+        # (confirmed empirically -- the wall-clock digits survive the round
+        # trip unchanged) but can leave the object's own .Kind tag as
+        # something other than Utc, and a naive default ToString() also
+        # drops sub-second precision from the display. `SpecifyKind` re-tags
+        # the SAME numeric value as Utc without shifting it (unlike
+        # `ToUniversalTime()`, which would incorrectly shift an
+        # Unspecified-kind value by treating it as local time first) --
+        # exactly correct here, since Get-UtcTimestamp only ever produces
+        # genuinely UTC instants in the first place.
+        $asUtc = [DateTime]::SpecifyKind($Node, [System.DateTimeKind]::Utc)
+        return $asUtc.ToString('o')
+    }
+
+    if ($Node -is [System.Management.Automation.PSCustomObject]) {
+        $result = [ordered]@{}
+        foreach ($prop in $Node.PSObject.Properties) {
+            $result[$prop.Name] = ConvertTo-NormalizedJsonValue -Node $prop.Value
+        }
+        return [PSCustomObject]$result
+    }
+
+    if ($Node -is [System.Collections.IEnumerable] -and -not ($Node -is [string])) {
+        return @($Node | ForEach-Object { ConvertTo-NormalizedJsonValue -Node $_ })
+    }
+
+    return $Node
+}
+
 function Get-StageCapture {
     <#
     Loads exactly one stage-capture file for a given (ActionName, TestLabel,
@@ -558,6 +621,9 @@ function Get-StageCapture {
     }
 
     $data = Get-Content -Path $found[0].FullName -Raw | ConvertFrom-Json
+    # Normalize away any PS7-vs-5.1 auto-DateTime-conversion difference
+    # BEFORE this data is used for anything -- see ConvertTo-NormalizedJsonValue.
+    $data = ConvertTo-NormalizedJsonValue -Node $data
 
     if ($data.capture_session_id -ne $CaptureSessionId) {
         return @{ Success = $false; Reason = 'SESSION_MISMATCH'; Data = $null }
