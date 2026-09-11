@@ -182,6 +182,25 @@ Assert-True -Condition (Test-IsApprovedTimestampValue -Value '1584041727000') -N
 Assert-True -Condition (-not (Test-IsApprovedTimestampValue -Value '99')) -Name 'a too-short numeric value is never treated as an epoch'
 Assert-True -Condition (-not (Test-IsApprovedTimestampValue -Value '0000000000')) -Name 'a 10-digit epoch value outside the sane [2000,2100) range is never approved'
 
+# CROSS-PLATFORM: a genuine [DateTime] object (what PS7's ConvertFrom-Json
+# hands back for an ISO-shaped JSON string, even for a fresh HTTP response
+# body -- not only a re-read stage file) must be accepted, not rejected
+# outright the way an arbitrary non-string/non-numeric type would be.
+$realDateTimeValue = [DateTime]::Parse('2020-03-11T19:22:07.000Z', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+Assert-True -Condition (Test-IsApprovedTimestampValue -Value $realDateTimeValue) -Name 'a genuine [DateTime]-typed value (PS7 auto-conversion) is accepted, not rejected as an unrecognized type'
+
+# And the field this value is stored under, via Get-AllowlistedEvidenceFields,
+# must come back as a plain STRING in canonical round-trip form -- never the
+# raw [DateTime] object -- so it survives a later JSON write/read unchanged.
+$dateTimeShapedResponse = [PSCustomObject]@{ data = [PSCustomObject]@{ created_at = $realDateTimeValue } }
+$dateTimeShapedFields = Get-AllowlistedEvidenceFields -Node $dateTimeShapedResponse
+$createdAtField = @($dateTimeShapedFields | Where-Object { $_.path -eq 'data.created_at' })
+Assert-Equal -Expected 1 -Actual $createdAtField.Count -Name 'a [DateTime]-typed created_at field is still captured by the allowlist'
+if ($createdAtField.Count -eq 1) {
+    Assert-True -Condition ($createdAtField[0].value -is [string]) -Name 'the STORED value for a [DateTime]-typed field is a plain string, never the raw DateTime object'
+    Assert-True -Condition (Test-IsValidUtcTimestamp -Value $createdAtField[0].value) -Name 'the stored string form of a [DateTime]-typed field is itself a valid, round-trippable UTC timestamp'
+}
+
 # ============================================================
 # Category: Get-HostedCheckoutLink -- the ACTUAL link, never the API endpoint (Blocker 1)
 # ============================================================

@@ -216,6 +216,19 @@ function Test-IsApprovedTimestampValue {
 
     $textValue = $null
     if ($Value -is [string]) { $textValue = $Value }
+    elseif ($Value -is [DateTime]) {
+        # CROSS-PLATFORM: PowerShell 7+ (this project's CI) auto-converts an
+        # ISO-8601-shaped JSON string into a real [DateTime] during
+        # ConvertFrom-Json -- this happens for FRESH HTTP response bodies
+        # too, not only stage files re-read from disk (Get-StageCapture's
+        # own ConvertTo-NormalizedJsonValue only protects the latter). A
+        # genuine [DateTime] object is unambiguously a real timestamp by
+        # construction -- it cannot be a card-expiry-shaped false positive
+        # like "09/22" -- so it is reformatted to the same canonical
+        # round-trip UTC string form and re-validated the same way a
+        # string value would be, never trusted blindly.
+        $textValue = ([DateTime]::SpecifyKind($Value, [System.DateTimeKind]::Utc)).ToString('o')
+    }
     elseif ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) {
         $textValue = [string]$Value
     }
@@ -302,7 +315,15 @@ function Add-AllowlistedFields {
                 # A field named exactly `created_at` whose value is NOT a
                 # valid timestamp (a hypothetical malformed/mistyped date) is
                 # still rejected here -- the key alone is never sufficient.
-                $Results.Add([PSCustomObject]@{ path = $childPath; key = $prop.Name; value = $val })
+                # The STORED value is always normalized to a plain string
+                # (never a raw [DateTime] object) -- PS7's ConvertFrom-Json
+                # can hand back a real DateTime for an ISO-shaped value even
+                # for a FRESH HTTP response (not only a re-read stage file),
+                # and storing that object as-is would reintroduce the exact
+                # culture-formatting/precision-loss defect
+                # ConvertTo-NormalizedJsonValue exists to prevent elsewhere.
+                $storedValue = if ($val -is [DateTime]) { ([DateTime]::SpecifyKind($val, [System.DateTimeKind]::Utc)).ToString('o') } else { $val }
+                $Results.Add([PSCustomObject]@{ path = $childPath; key = $prop.Name; value = $storedValue })
             }
             # Every other field -- named or not, including `expiry`/
             # `expiration`/`created_by`/`processed_by` and any field whose
