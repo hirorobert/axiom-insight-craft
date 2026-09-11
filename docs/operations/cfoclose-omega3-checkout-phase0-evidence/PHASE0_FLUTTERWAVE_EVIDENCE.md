@@ -1,6 +1,8 @@
 # Ω3-CHECKOUT — Phase 0 Evidence: `GATE-FLUTTERWAVE-CREATED-AT-SEMANTICS`
 
-**Status: GATE REMAINS OPEN.** This document records desk-research evidence only. It does NOT close the gate — the gate's own closure criteria (`DATA_CONTRACTS.md` §7.4) require a captured, real Flutterwave sandbox transaction fixture with an independently-recorded submission time, which this pass could not produce (see §3, "Blocked work").
+**Status: GATE REMAINS OPEN.** Desk research (§2 below) supports NO completion-time interpretation of `data.created_at` — it neither proves nor disproves one; it only narrows the hypothesis. This document does NOT close the gate — the gate's own closure criteria (`DATA_CONTRACTS.md` §7.4) require a captured, real Flutterwave sandbox transaction fixture with an independently-recorded submission time, which this pass could not produce (see §3, "Blocked work"). **No sandbox evidence of any kind has yet been produced. No payment-authority implementation is authorized by anything in this document.**
+
+**Corrected, this revision (executability correction):** the collection tooling this evidence depends on is itself corrected in this revision — `SANDBOX_TEST_PROTOCOL.md` now mandates one single, deterministic Flutterwave v3 path (no mixing dashboard-created and API-created transactions, no substituting reference lookup for transaction-ID verification), and a safe, TEST-mode-only PowerShell collector (`tools/Invoke-FlutterwaveEvidenceCapture.ps1`, with its pure logic covered by 82 passing focused tests in `tools/tests/`) now exists to run that protocol consistently, with automatic redaction, automatic timestamp capture, and a hashed provenance manifest. **The corrected collector is required for any future sandbox evidence submitted against this gate** — evidence gathered by any other means (ad hoc scripts, unredacted manual capture) should not be accepted as closure evidence without independently verifying it meets the same redaction and provenance standard.
 
 Mission base: this branch (`ci/omega3-phase0-flutterwave-evidence`) forks from `origin/main` at `3768fe8d473ca9a167e18b933cc1ac70776e9dc1`, the exact commit produced by merging PR #13 (the Ω3-CHECKOUT design/audit package, rounds 1–8).
 
@@ -57,9 +59,9 @@ This page's example `charge.completed` payload uses a different shape than the v
 
 **This pass has no Flutterwave sandbox account, no sandbox API keys, and no browser session authenticated to any Flutterwave dashboard for this project.** The mission's own authorized-work list permits "disposable Flutterwave SANDBOX probing," but performing it requires credentials this environment does not have and cannot obtain on its own — this is a capability gap, not a policy decision. Fabricating or guessing at transaction data would violate this entire package's own first principle (never assert unverified provider behavior as fact), so none is fabricated here.
 
-**What is needed to unblock this:** either (a) a project maintainer with Flutterwave sandbox dashboard access runs the two required test transactions per the exact protocol in `SANDBOX_TEST_PROTOCOL.md` (this branch) and shares back the resulting **sanitized** JSON (protocol below specifies exactly what to redact), or (b) sandbox API keys are made available through a secure channel outside chat (never pasted directly into this conversation) for a session with the appropriate tool access to run the two calls itself.
+**What is needed to unblock this:** either (a) a project maintainer with Flutterwave sandbox dashboard access runs `tools/Invoke-FlutterwaveEvidenceCapture.ps1` per `SANDBOX_TEST_PROTOCOL.md` (this branch) and shares back the resulting sanitized manifest (the tool redacts and hashes automatically), or (b) sandbox API keys are made available through a secure channel outside chat (never pasted directly into this conversation) for a session with the appropriate tool access to run the two calls itself.
 
-See `SANDBOX_TEST_PROTOCOL.md` in this same branch for the exact, step-by-step protocol — what to click, what to record independently, and how to sanitize before sharing.
+See `SANDBOX_TEST_PROTOCOL.md` and `tools/README.md` in this same branch for the exact, mandatory, single-path protocol (one Flutterwave v3 endpoint for both tests, transaction-ID verification as the primary check, no dashboard/API mixing) and how to run the corrected collector.
 
 ## 4. Decision (per mission instructions)
 
@@ -69,7 +71,8 @@ Per the mission's own decision rule: **evidence remains insufficient, so the gat
 
 ## 5. Next steps
 
-1. A maintainer with Flutterwave sandbox access runs `SANDBOX_TEST_PROTOCOL.md`'s two test transactions and returns the sanitized output (or shares sandbox credentials through a secure, non-chat channel for a future session to run them).
-2. On receipt, this evidence is added to this same document (or a follow-up commit on this branch), the SHA-256 hashes of the original unredacted captures are recorded, and the comparison in `DATA_CONTRACTS.md` §7.4's exact closure criteria is performed.
+1. A maintainer with Flutterwave sandbox access runs `tools/Invoke-FlutterwaveEvidenceCapture.ps1` per `SANDBOX_TEST_PROTOCOL.md`'s single mandatory path for both Test A and Test B, and returns the resulting sanitized, hashed manifests (or shares sandbox credentials through a secure, non-chat channel for a future session to run them).
+2. On receipt, this evidence is added to this same document (or a follow-up commit on this branch), and the comparison in `DATA_CONTRACTS.md` §7.4's exact closure criteria is performed against the manifests' bound provenance (raw-response SHA-256, request timestamps, provider timestamps).
 3. Only then is the gate's CLOSED/OPEN decision finalized, with a named sign-off, per §7.4's criterion 3.
-4. Item 4 of the mission's authorized-work list (a disposable Postgres/migration-replay harness) is deferred to a follow-up pass — it is orthogonal to closing this specific gate and was not started here, so as to keep this evidence-only commit narrowly scoped to the gate this mission names as its objective.
+4. Item 4 of the mission's authorized-work list (a disposable Postgres/migration-replay harness) remains deferred to a follow-up pass — it is orthogonal to closing this specific gate and was not started here, so as to keep this evidence-only work narrowly scoped to the gate this mission names as its objective.
+5. **No implementation is authorized by this document, this revision, or any prior revision.** Checkout implementation remains blocked on this gate closing AND on separate explicit authorization; the webhook flagResult contract remains PINNED, not implemented, per `IMPLEMENTATION_CONDITIONS_PINNED.md`.

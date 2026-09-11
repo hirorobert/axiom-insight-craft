@@ -1,41 +1,45 @@
 # Sandbox Test Protocol — `GATE-FLUTTERWAVE-CREATED-AT-SEMANTICS` closure evidence
 
-For whoever runs this: a Flutterwave **sandbox** (test-mode) account is required. Never use production/live keys for this. Nothing here should touch this project's real Supabase, real customers, or real money.
+For whoever runs this: a Flutterwave **TEST mode** (sandbox) account is required. Never use LIVE/production keys for this. Nothing here should touch this project's real Supabase, real customers, or real money.
 
-## What you need
-- A Flutterwave sandbox account and its **test** secret key.
-- Flutterwave's published test card numbers (in their sandbox docs) for a "successful" test charge.
-- A way to make two HTTP calls (curl, Postman, or the Flutterwave dashboard's own "Transactions" log export) and note down wall-clock times as you go.
-- A plain text editor to record your own independently-observed timestamps — do this in real time, not from memory afterward.
+**Corrected, this revision — one mandatory, deterministic path.** An earlier draft of this protocol left room for either dashboard-driven or API-driven checkout creation, and for either transaction-ID verification or reference lookup, without requiring both tests to use the same mechanism. That ambiguity is closed here: **both Test A and Test B must be created and verified through the exact same mechanism, below — never dashboard-created and API-created transactions compared against each other, and never reference-lookup used as a substitute for transaction-ID verification.** Mixing origins would let a difference between dashboard-side and API-side transaction handling masquerade as a difference in `created_at` semantics, corrupting the comparison this evidence exists to produce.
 
-## Test A — immediate completion
+**Recommended: use the corrected PowerShell collector** at `tools/Invoke-FlutterwaveEvidenceCapture.ps1` (this same directory) to run this protocol — it performs every step below consistently, redacts sensitive data automatically, and produces the provenance manifest `PHASE0_FLUTTERWAVE_EVIDENCE.md` requires. See `tools/README.md` for usage. The manual steps below remain the authoritative specification of what the collector does and why, and are what to follow if running by hand instead.
 
-1. Note the wall-clock time (UTC, to the second) **right before** you initiate a new sandbox checkout. Call this `A_checkout_initiated_at`.
-2. Create a sandbox checkout/payment (via the dashboard's test-payment flow, or a test `POST` to the standard checkout-initiation endpoint).
-3. Immediately complete the test payment with a "successful" test card, with no deliberate delay — go through the flow as fast as normally possible.
-4. Note the wall-clock time right after the payment shows as successful in the UI/response. Call this `A_payment_completed_at`.
-5. Wait a few seconds, then call `GET /transactions/:id/verify` (or the reference-lookup equivalent) for this transaction. Note the wall-clock time of this call: `A_verify_called_at`.
-6. Save the FULL raw JSON response from step 5 to a local file NOT committed to git yet (see "Sanitizing before sharing" below).
+## The one mandatory path (applies identically to Test A and Test B)
 
-## Test B — deliberately delayed completion
+1. **Flutterwave TEST mode only.** Confirm the secret key in use is a TEST key (Flutterwave's own TEST/LIVE key prefixes distinguish this — verify before proceeding, never assume).
+2. **Create the checkout through the same documented v3 endpoint for both tests** — the standard hosted-payment-link creation call (`POST https://api.flutterwave.com/v3/payments`, the v3 REST endpoint this design's own webhook/verification flow is built against). Do not create one test via the dashboard's own "create payment link" UI and the other via this API call — pick this API path for both, with no exception.
+3. **Generate a unique `tx_ref` locally**, before making the creation call, and pass it in the creation request. Never let the provider assign the reference. Record the generated `tx_ref` (or, if withheld from the shared evidence for extra caution, its SHA-256 hash).
+4. **Record UTC timestamps immediately before and after the checkout-creation call** — `checkout_request_start_utc` (captured right before the HTTP call is sent) and `checkout_request_end_utc` (captured right after the HTTP response is received). This brackets the creation call itself, not a human's perception of it.
+5. **Open the returned hosted-checkout URL** from the creation response (in a browser, using TEST-mode test-card details from Flutterwave's own published test-card list).
+6. **Test A: complete the payment immediately** — proceed through the hosted checkout with no deliberate delay, as fast as normally possible.
+7. **Test B: wait at least 10 minutes between opening the checkout URL and completing the payment** — leave the checkout page open (or note the reference and return to it) for a real, meaningful, observable gap. Ten minutes is a floor, not a target — longer is fine, shorter invalidates the test.
+8. **Record a UTC completion-observation timestamp** — `payment_completion_observed_utc`, the wall-clock moment the hosted checkout UI shows success (this is an observation, not a provider-verified fact — it exists only to compare against the provider's own returned timestamps).
+9. **Verify by transaction ID**, not by reference, as the PRIMARY verification call:
+   ```
+   GET https://api.flutterwave.com/v3/transactions/{id}/verify
+   ```
+   where `{id}` is the transaction ID Flutterwave itself returned (from the webhook, the redirect callback, or the checkout-creation response's own follow-up — however this design's real flow obtains it; never re-derive it from the `tx_ref` for this step, since that is what step 11 is for, kept separate).
+10. **Record UTC timestamps immediately before and after this verification call** — `verify_request_start_utc` and `verify_request_end_utc`, bracketing the call the same way step 4 brackets checkout creation.
+11. **A reference-lookup call (`GET /transactions?tx_ref=...` or equivalent) may be made as a SUPPLEMENTAL, ADDITIONAL data point — it must never replace the transaction-ID verification in step 9.** If made, record its own timestamps and response the same way, clearly labeled as supplemental, never substituted into the primary comparison.
+12. **Record every provider-returned timestamp field verbatim, without interpreting any of them.** Whatever field names appear in the raw response (`created_at`, `created_datetime`, anything nested under `customer` or `payment_method` or elsewhere, anything containing `_at`/`_date`/`time`/`settled`/`charged`/`processed`) — copy the exact field name and exact value. Do not decide at capture time what a field "really means"; that analysis happens afterward, against the recorded raw values, not instead of recording them.
 
-1. Note `B_checkout_initiated_at` the same way as step 1 above.
-2. Create a second sandbox checkout the same way.
-3. **Deliberately wait at least 5–10 minutes** before completing the test payment (leave the checkout page open, or note the reference and come back to it). The goal is a real, meaningful, independently-observable gap between checkout creation and payment completion.
-4. Complete the test payment. Note `B_payment_completed_at`.
-5. Call `GET /transactions/:id/verify` shortly after. Note `B_verify_called_at`.
-6. Save the full raw JSON response, same as Test A.
+## Do not mix test origins
 
-## What to record (in a plain text file, one block per test)
+**Test A and Test B must both be produced by this exact sequence, start to finish, with no shortcuts on either one.** A comparison between a dashboard-created Test A and an API-created Test B (or a transaction-ID-verified Test A against a reference-lookup-only Test B) is invalid evidence for this gate and must not be submitted as such — the whole point of the comparison is isolating whether `created_at` shifts with a delayed COMPLETION, which requires everything else about how the two transactions were created and verified to be identical.
 
-For each of Test A and Test B, record:
-- `checkout_initiated_at` (your own clock, step 1)
-- `payment_completed_at` (your own clock, the moment the UI/API confirmed success)
-- `verify_called_at` (your own clock, when you made the verify call)
-- `data.created_at` from the verify response
-- `data.created_at` from a SEPARATE call using reference/`tx_ref` lookup, if that endpoint is also being exercised (it should return the same or a related value — record it either way)
-- Every OTHER timestamp-shaped field anywhere in the raw response body, whatever it's called (e.g. anything containing `_at`, `_date`, `time`, `settled`, `charged`, `processed`) — copy the field name and value verbatim, don't paraphrase
+## What to record (one block per test, both Test A and Test B)
+
+- `tx_ref` (or its SHA-256 hash)
+- `checkout_request_start_utc`, `checkout_request_end_utc` (step 4)
+- `payment_completion_observed_utc` (step 8)
+- `verify_request_start_utc`, `verify_request_end_utc` (step 10)
+- `data.created_at` from the transaction-ID verify response (step 9) — the PRIMARY value this gate needs
+- Every other timestamp-shaped field found anywhere in that same response body (step 12), verbatim
+- If a supplemental reference lookup was made (step 11): its own timestamps and its own `created_at`/timestamp fields, clearly labeled SUPPLEMENTAL
 - The transaction `status` value
+- `amount` and `currency` (needed to confirm the two test transactions are otherwise comparable, not to prove anything about timestamps)
 
 ## Sanitizing before sharing back
 
@@ -44,21 +48,23 @@ For each of Test A and Test B, record:
 - Card number, CVV, expiry, cardholder name — even sandbox/test values, as a matter of discipline
 - Customer email/phone/name if the test used anything resembling a real person's details (use an obviously fake test identity, e.g. `phase0-evidence-test@example.invalid`)
 - Your Flutterwave account ID or merchant identifier, if present in the payload
+- IP address or device-fingerprint fields, if present
 
 **Keep, because the gate needs it:**
 - The `created_at` (and any other timestamp) field names and values
-- The transaction `status`
-- The `id` and `tx_ref`/reference (sandbox-only test references carry no real risk, but redact them too if you'd rather — they aren't needed for the timestamp comparison itself)
+- The transaction `status`, `amount`, `currency`
+- The `tx_ref` and transaction `id` — or, if you'd rather not share even sandbox references, their SHA-256 hashes instead (either is acceptable; be consistent within one submission)
 
 **Before discarding the original, unredacted capture:**
-- Compute its SHA-256 hash (`sha256sum <file>` or equivalent) and record the hash string.
-- Note where the original (unredacted) capture is retained — e.g. a password-protected local file, a private note — so it can be re-checked later if a question arises about whether the sanitized version was transcribed correctly. **Do not commit the original.**
+- Compute its SHA-256 hash (`Get-FileHash` in PowerShell, or `sha256sum` elsewhere) and record the hash string.
+- Note where the original (unredacted) capture is retained — e.g. a password-protected local file, a private note — so it can be re-checked later if a question arises about whether the sanitized version was transcribed correctly. **Do not commit the original.** The PowerShell collector in `tools/` writes raw captures OUTSIDE this repository by design, specifically so this step is automatic rather than a manual discipline to remember.
 
 ## What to send back
 
 A short message or file containing:
-1. Both tests' recorded timestamps (your own clock + every provider-returned timestamp field).
-2. The two SHA-256 hashes (one per test) of the original unredacted captures, and where those originals are kept.
-3. The sanitized JSON bodies (or just the relevant timestamp fields, if you'd rather not share the full body even sanitized).
+1. Both tests' recorded timestamps (every field named in "What to record" above), for Test A and Test B separately.
+2. The SHA-256 hash of each test's original unredacted raw-response capture, and where those originals are kept.
+3. The sanitized JSON bodies (or just the relevant fields, if you'd rather not share the full body even sanitized).
+4. If the PowerShell collector was used: its generated evidence manifest (already sanitized and hashed per `tools/README.md`).
 
 This will be added to `PHASE0_FLUTTERWAVE_EVIDENCE.md` as the closure evidence `DATA_CONTRACTS.md` §7.4 requires, and the gate's CLOSED/OPEN decision will be made from it.
