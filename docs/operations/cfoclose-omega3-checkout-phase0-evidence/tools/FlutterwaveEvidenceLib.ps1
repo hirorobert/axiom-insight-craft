@@ -153,13 +153,93 @@ function Get-CaptureOutcome {
 # ALLOWLIST evidence projection (replaces the removed denylist redaction).
 # ---------------------------------------------------------------------------
 
-# A field is treated as timestamp-shaped by NAME (case-insensitive). This is
-# deliberately a NAME-based allowlist, not a "does the value parse as a
-# date" heuristic -- a numeric-string field like first_6digits ("123456")
-# must never be mistaken for a timestamp, and name-based matching also means
-# a field is either obviously a timestamp by its own name or it is dropped,
-# with no ambiguous middle ground.
-$script:TimestampKeyPattern = '(?i)(_at$|_date$|^date$|datetime|created|completed|settled|charged|processed|expire|expiry|^timestamp$|_time$)'
+# CORRECTED, this revision (Blocker 2 of the live-path re-audit): the prior
+# pattern matched broad SUBSTRINGS ('created', 'completed', 'processed',
+# 'expire', 'expiry', ...) against ANY key name, with no check on the VALUE
+# at all. Two concrete failures resulted: (1) a card field literally named
+# `expiry` (Flutterwave's real card-expiry field, e.g. "09/22") matched the
+# substring 'expire|expiry' and would have entered the manifest as if it
+# were a timestamp; (2) unrelated fields like `created_by`/`processed_by`
+# (an actor identifier, not a time) matched the substrings 'created'/
+# 'processed' with no value check to catch the mistake.
+#
+# Corrected to an EXACT-KEY allowlist (never a substring) combined with a
+# MANDATORY value-shape check (Test-IsApprovedTimestampValue, below) -- a
+# field enters provider_evidence_fields only when BOTH conditions hold.
+# `expiry`/`expiration` are not in this list and never will be; a card
+# expiry value like "09/22" also fails the value check independently (it is
+# neither a valid ISO-8601 timestamp nor a plausible epoch number), so even
+# a hypothetical future field named exactly `created_at` that somehow held
+# a non-timestamp string would still be rejected on the value side.
+$script:ApprovedTimestampExactKeys = @('created_at', 'completed_at', 'processed_at', 'settled_at', 'timestamp')
+$script:ApprovedTimestampKeySuffixPattern = '(?i)_datetime$'
+
+function Test-IsApprovedTimestampKey {
+    <#
+    EXACT match only (case-insensitive) against a fixed, closed list, plus
+    the one explicitly-approved suffix pattern (*_datetime). Never a
+    substring match against 'created'/'completed'/'processed'/'expire' or
+    similar -- that broad-substring behavior is exactly what let `expiry`
+    and `created_by` through in the prior revision.
+    #>
+    [OutputType([bool])]
+    param([Parameter(Mandatory = $true)][string]$KeyName)
+    $lname = $KeyName.ToLowerInvariant()
+    if ($script:ApprovedTimestampExactKeys -contains $lname) { return $true }
+    if ($KeyName -match $script:ApprovedTimestampKeySuffixPattern) { return $true }
+    return $false
+}
+
+function Test-IsApprovedTimestampValue {
+    <#
+    A field's KEY name alone is never sufficient -- the VALUE must also
+    independently validate as either:
+      (a) a strict ISO-8601 UTC/offset timestamp (date, time, and an
+          explicit 'Z' or +hh:mm/-hh:mm offset -- never a bare date, never
+          a locale-ambiguous format like "09/22" or "22/09/2020"), or
+      (b) an explicitly-supported epoch representation: a purely-numeric
+          string of EXACTLY 10 digits (epoch seconds) or 13 digits (epoch
+          milliseconds), whose resulting instant falls within a sane
+          [2000-01-01, 2100-01-01) range.
+    A card expiry value such as "09/22" satisfies NEITHER shape (it is not
+    ISO-8601 -- no time component, no zone -- and it is not purely numeric
+    for the epoch check, since it contains "/"), so it is rejected on the
+    value side independent of whatever key name it might appear under.
+    #>
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        $Value
+    )
+    if ($null -eq $Value) { return $false }
+
+    $textValue = $null
+    if ($Value -is [string]) { $textValue = $Value }
+    elseif ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) {
+        $textValue = [string]$Value
+    }
+    else { return $false }
+
+    if ([string]::IsNullOrWhiteSpace($textValue)) { return $false }
+
+    if ($textValue -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$') {
+        try {
+            [void][DateTime]::Parse($textValue, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+            return $true
+        }
+        catch { return $false }
+    }
+
+    if ($textValue -match '^\d{10}$' -or $textValue -match '^\d{13}$') {
+        $epochSeconds = if ($textValue.Length -eq 13) { [long]([double]$textValue / 1000) } else { [long]$textValue }
+        $minEpoch = 946684800   # 2000-01-01T00:00:00Z
+        $maxEpoch = 4102444800  # 2100-01-01T00:00:00Z
+        return ($epochSeconds -ge $minEpoch -and $epochSeconds -lt $maxEpoch)
+    }
+
+    return $false
+}
 
 # The ONLY non-timestamp scalar key names ever allowed into shareable
 # evidence, matched case-insensitively, anywhere in the tree.
@@ -217,10 +297,18 @@ function Add-AllowlistedFields {
             elseif ($script:AllowlistedScalarKeys -contains $lname) {
                 $Results.Add([PSCustomObject]@{ path = $childPath; key = $prop.Name; value = $val })
             }
-            elseif ($val -is [string] -and $lname -match $script:TimestampKeyPattern) {
+            elseif ((Test-IsApprovedTimestampKey -KeyName $prop.Name) -and (Test-IsApprovedTimestampValue -Value $val)) {
+                # BOTH the exact-key check AND the value-shape check must pass.
+                # A field named exactly `created_at` whose value is NOT a
+                # valid timestamp (a hypothetical malformed/mistyped date) is
+                # still rejected here -- the key alone is never sufficient.
                 $Results.Add([PSCustomObject]@{ path = $childPath; key = $prop.Name; value = $val })
             }
-            # Every other field -- named or not -- is discarded here, by omission.
+            # Every other field -- named or not, including `expiry`/
+            # `expiration`/`created_by`/`processed_by` and any field whose
+            # name merely CONTAINS created/completed/processed/settled/
+            # expire without being an exact match -- is discarded here, by
+            # omission, never by an exclusion rule that could miss a case.
         }
     }
     elseif ($Node -is [System.Collections.IEnumerable] -and -not ($Node -is [string])) {
@@ -260,6 +348,110 @@ function Get-DataField {
     $value = $data.$FieldName
     if ($null -eq $value) { return $null }
     return [string]$value
+}
+
+# The one documented Flutterwave v3 hosted-checkout domain, per Flutterwave's
+# own Standard Checkout documentation example response
+# ({"status":"success","message":"Hosted Link","data":{"link":"https://checkout.flutterwave.com/v3/hosted/pay/..."}}).
+# A strict, exact-host allowlist -- never a substring/wildcard match -- so a
+# link on an unrelated or look-alike domain is rejected, not "close enough."
+$script:ApprovedHostedCheckoutHost = 'checkout.flutterwave.com'
+
+function Get-HostedCheckoutLink {
+    <#
+    CORRECTED, this revision (Blocker 1 of the live-path re-audit): the
+    collector previously called Start-Process against the API REQUEST URI
+    (https://api.flutterwave.com/v3/payments) instead of the hosted
+    checkout page Flutterwave's response actually returns in `data.link` --
+    it never even read that field. This function is the single, pure
+    extraction-and-validation point every caller must go through before
+    opening anything in a browser.
+
+    Requires ALL of, in order:
+      - $Parsed.status is exactly 'success' (Flutterwave's own documented
+        success indicator for this endpoint)
+      - $Parsed.data.link exists and is non-empty
+      - it parses as an ABSOLUTE URI
+      - its scheme is exactly 'https' (never a bare http link)
+      - its host is exactly the documented Flutterwave hosted-checkout host
+
+    Returns @{ Success; Reason; Link } -- Link is $null on any failure.
+    Reason values: 'NULL_RESPONSE', 'STATUS_NOT_SUCCESS', 'MISSING_LINK',
+    'MALFORMED_LINK', 'NOT_HTTPS', 'UNAPPROVED_HOST', 'OK'.
+    #>
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        $Parsed
+    )
+
+    if ($null -eq $Parsed) {
+        return @{ Success = $false; Reason = 'NULL_RESPONSE'; Link = $null }
+    }
+
+    $status = $null
+    if ($Parsed.PSObject.Properties.Match('status').Count -gt 0) { $status = $Parsed.status }
+    if ($status -ne 'success') {
+        return @{ Success = $false; Reason = 'STATUS_NOT_SUCCESS'; Link = $null }
+    }
+
+    $link = Get-DataField -Parsed $Parsed -FieldName 'link'
+    if ([string]::IsNullOrWhiteSpace($link)) {
+        return @{ Success = $false; Reason = 'MISSING_LINK'; Link = $null }
+    }
+
+    $uri = $null
+    if (-not [System.Uri]::TryCreate($link, [System.UriKind]::Absolute, [ref]$uri)) {
+        return @{ Success = $false; Reason = 'MALFORMED_LINK'; Link = $null }
+    }
+
+    if ($uri.Scheme -ne 'https') {
+        return @{ Success = $false; Reason = 'NOT_HTTPS'; Link = $null }
+    }
+
+    if ($uri.Host -ne $script:ApprovedHostedCheckoutHost) {
+        return @{ Success = $false; Reason = 'UNAPPROVED_HOST'; Link = $null }
+    }
+
+    return @{ Success = $true; Reason = 'OK'; Link = $link }
+}
+
+function New-ImmutableJsonFile {
+    <#
+    CORRECTED, this revision (write-once stages, Codex re-audit High):
+    writes $Content to $Path using atomic CREATE-NEW file semantics --
+    [System.IO.FileMode]::CreateNew throws if the file already exists,
+    which .NET/the OS guarantee is checked atomically (no separate
+    Test-Path-then-write race window). If the target already exists, this
+    function returns failure and writes NOTHING -- it never overwrites,
+    never appends, and never silently picks a different filename.
+    Returns @{ Success; Reason } -- Reason 'OK' or 'STAGE_ALREADY_EXISTS'
+    (or 'WRITE_FAILED' for any other I/O error, e.g. an unwritable
+    directory, which is a distinct failure mode from "already exists").
+    #>
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Content
+    )
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write)
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Content)
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+        return @{ Success = $true; Reason = 'OK' }
+    }
+    catch [System.IO.IOException] {
+        return @{ Success = $false; Reason = 'STAGE_ALREADY_EXISTS' }
+    }
+    catch {
+        return @{ Success = $false; Reason = 'WRITE_FAILED' }
+    }
+    finally {
+        if ($stream) { $stream.Dispose() }
+    }
 }
 
 function Test-TimelineOrdering {
@@ -487,4 +679,341 @@ function New-EvidenceManifest {
         powershell_version                 = $PowerShellVersion
         machine_utc_offset_minutes         = $MachineUtcOffsetMinutes
     }
+}
+
+# ===========================================================================
+# ORCHESTRATION FUNCTIONS (Codex live-path re-audit, item 5)
+# ===========================================================================
+# Each function below implements ONE full action end to end (HTTP call,
+# validation, stage write) using ONLY: pure functions from this file, and
+# four injected PORTS -- HttpPost/HttpGet (network transport), OpenUrl
+# (browser dispatch), and NowUtc (the clock). Filesystem writes go through
+# EvidenceRoot + New-ImmutableJsonFile (a real, deterministic filesystem
+# operation against whatever directory is passed in -- a temp directory in
+# tests, the real evidence root in production -- rather than a mocked
+# filesystem, since a real write-once check against a real temp directory
+# is stronger evidence than a recorded mock call).
+#
+# The REAL CLI script (Invoke-FlutterwaveEvidenceCapture.ps1) builds the
+# real ports (Invoke-WebRequest, Start-Process, Get-UtcTimestamp) as
+# closures capturing the secret/headers, and calls these same functions.
+# The test suite builds SYNTHETIC ports (canned responses, a fake clock, a
+# browser-open recorder) and calls the identical functions -- proving the
+# real orchestration logic, not a parallel re-implementation of it.
+# ===========================================================================
+
+function Invoke-CreateCheckoutOrchestration {
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('A', 'B')][string]$TestLabel,
+        [Parameter(Mandatory = $true)][string]$CaptureSessionId,
+        [Parameter(Mandatory = $true)][string]$TxRef,
+        [Parameter(Mandatory = $true)][string]$Amount,
+        [Parameter(Mandatory = $true)][string]$Currency,
+        [Parameter(Mandatory = $true)][string]$RedirectUrl,
+        [Parameter(Mandatory = $true)][string]$CustomerEmail,
+        [Parameter(Mandatory = $true)][string]$EvidenceRoot,
+        [Parameter(Mandatory = $true)][scriptblock]$HttpPost,   # param($Uri, $BodyJson) -> @{StatusCode; Body}
+        [Parameter(Mandatory = $true)][scriptblock]$OpenUrl,    # param($Url) -> (throws on failure, never suppressed)
+        [Parameter(Mandatory = $true)][scriptblock]$NowUtc,     # () -> UTC ISO-8601 string
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$CollectorScriptGitSha,
+        [Parameter(Mandatory = $true)][string]$CollectorScriptContentSha256
+    )
+
+    $uri = 'https://api.flutterwave.com/v3/payments'
+    $bodyJson = (@{
+            tx_ref       = $TxRef
+            amount       = $Amount
+            currency     = $Currency
+            redirect_url = $RedirectUrl
+            customer     = @{ email = $CustomerEmail }
+        }) | ConvertTo-Json -Depth 5
+
+    $requestStartUtc = & $NowUtc
+    $httpResult = & $HttpPost $uri $bodyJson
+    $requestEndUtc = & $NowUtc
+
+    $outcome = Get-CaptureOutcome -StatusCode $httpResult.StatusCode -RawBody $httpResult.Body
+    if (-not $outcome.Success) {
+        return @{ Success = $false; Reason = $outcome.Reason }
+    }
+
+    # CORRECTED (Blocker 1): extract and validate data.link -- the ONLY URL
+    # this function will ever pass to OpenUrl. $uri (the API endpoint) is
+    # NEVER passed to OpenUrl anywhere in this function.
+    $linkResult = Get-HostedCheckoutLink -Parsed $outcome.Parsed
+    if (-not $linkResult.Success) {
+        return @{ Success = $false; Reason = $linkResult.Reason }
+    }
+
+    try {
+        & $OpenUrl $linkResult.Link
+    }
+    catch {
+        # Browser-launch failure is NOT suppressed -- it aborts this action
+        # and writes no stage file, exactly like every other failure path.
+        return @{ Success = $false; Reason = 'BROWSER_LAUNCH_FAILED'; Detail = $_.Exception.Message }
+    }
+
+    # checkout_opened_utc is captured ONLY after OpenUrl returned without
+    # throwing -- a timestamp is never recorded for a dispatch that failed.
+    $checkoutOpenedUtc = & $NowUtc
+
+    $stage = [ordered]@{
+        capture_session_id              = $CaptureSessionId
+        test_label                      = $TestLabel
+        action                          = 'CreateCheckout'
+        endpoint                        = $uri
+        tx_ref_sha256                   = Get-Sha256Hex -Text $TxRef
+        request_start_utc               = $requestStartUtc
+        request_end_utc                 = $requestEndUtc
+        checkout_opened_utc             = $checkoutOpenedUtc
+        http_status                     = $httpResult.StatusCode
+        raw_response_sha256             = Get-Sha256Hex -Text $httpResult.Body
+        provider_evidence_fields        = Get-AllowlistedEvidenceFields -Node $outcome.Parsed
+        collector_script_git_sha        = $CollectorScriptGitSha
+        collector_script_content_sha256 = $CollectorScriptContentSha256
+    }
+    $stagePath = Join-Path $EvidenceRoot "stage-CreateCheckout-Test$TestLabel-$CaptureSessionId.json"
+    $writeResult = New-ImmutableJsonFile -Path $stagePath -Content ($stage | ConvertTo-Json -Depth 12)
+    if (-not $writeResult.Success) {
+        return @{ Success = $false; Reason = $writeResult.Reason }
+    }
+
+    return @{ Success = $true; Reason = 'OK'; StagePath = $stagePath; Link = $linkResult.Link }
+}
+
+function Invoke-ObservePaymentSuccessOrchestration {
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('A', 'B')][string]$TestLabel,
+        [Parameter(Mandatory = $true)][string]$CaptureSessionId,
+        [Parameter(Mandatory = $true)][string]$EvidenceRoot,
+        [Parameter(Mandatory = $true)][bool]$Confirmed,
+        [Parameter(Mandatory = $true)][scriptblock]$NowUtc,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$CollectorScriptGitSha,
+        [Parameter(Mandatory = $true)][string]$CollectorScriptContentSha256
+    )
+
+    $checkoutResult = Get-StageCapture -EvidenceRoot $EvidenceRoot -ActionName 'CreateCheckout' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    if (-not $checkoutResult.Success) {
+        return @{ Success = $false; Reason = "CHECKOUT_STAGE_$($checkoutResult.Reason)" }
+    }
+
+    if (-not $Confirmed) {
+        return @{ Success = $false; Reason = 'CONFIRMATION_NOT_PROVIDED' }
+    }
+
+    $observedUtc = & $NowUtc
+    $elapsedSeconds = ([DateTime]::Parse($observedUtc, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind) -
+                        [DateTime]::Parse([string]$checkoutResult.Data.checkout_opened_utc, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)).TotalSeconds
+
+    $isTestB = ($TestLabel -eq 'B')
+    if ($isTestB -and $elapsedSeconds -lt 600) {
+        return @{ Success = $false; Reason = "TEST_B_MINIMUM_NOT_MET:$([math]::Round($elapsedSeconds, 3))s" }
+    }
+
+    $stage = [ordered]@{
+        capture_session_id                    = $CaptureSessionId
+        test_label                            = $TestLabel
+        action                                 = 'ObservePaymentSuccess'
+        checkout_opened_utc                   = [string]$checkoutResult.Data.checkout_opened_utc
+        payment_completion_observed_utc       = $observedUtc
+        elapsed_seconds_since_checkout_opened = $elapsedSeconds
+        test_b_minimum_met                    = $(if ($isTestB) { $elapsedSeconds -ge 600 } else { $null })
+        collector_script_git_sha              = $CollectorScriptGitSha
+        collector_script_content_sha256       = $CollectorScriptContentSha256
+    }
+    $stagePath = Join-Path $EvidenceRoot "stage-ObservePaymentSuccess-Test$TestLabel-$CaptureSessionId.json"
+    $writeResult = New-ImmutableJsonFile -Path $stagePath -Content ($stage | ConvertTo-Json -Depth 8)
+    if (-not $writeResult.Success) {
+        return @{ Success = $false; Reason = $writeResult.Reason }
+    }
+
+    return @{ Success = $true; Reason = 'OK'; StagePath = $stagePath }
+}
+
+function Invoke-VerifyOrchestration {
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('A', 'B')][string]$TestLabel,
+        [Parameter(Mandatory = $true)][string]$CaptureSessionId,
+        [Parameter(Mandatory = $true)][string]$TransactionId,
+        [Parameter(Mandatory = $true)][string]$EvidenceRoot,
+        [Parameter(Mandatory = $true)][scriptblock]$HttpGet,   # param($Uri) -> @{StatusCode; Body}
+        [Parameter(Mandatory = $true)][scriptblock]$NowUtc,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$CollectorScriptGitSha,
+        [Parameter(Mandatory = $true)][string]$CollectorScriptContentSha256
+    )
+
+    $checkoutResult = Get-StageCapture -EvidenceRoot $EvidenceRoot -ActionName 'CreateCheckout' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    if (-not $checkoutResult.Success) {
+        return @{ Success = $false; Reason = "CHECKOUT_STAGE_$($checkoutResult.Reason)" }
+    }
+    $observeResult = Get-StageCapture -EvidenceRoot $EvidenceRoot -ActionName 'ObservePaymentSuccess' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    if (-not $observeResult.Success) {
+        return @{ Success = $false; Reason = "OBSERVE_STAGE_$($observeResult.Reason)" }
+    }
+
+    $uri = "https://api.flutterwave.com/v3/transactions/$TransactionId/verify"
+    $requestStartUtc = & $NowUtc
+    $httpResult = & $HttpGet $uri
+    $requestEndUtc = & $NowUtc
+
+    $outcome = Get-CaptureOutcome -StatusCode $httpResult.StatusCode -RawBody $httpResult.Body
+    if (-not $outcome.Success) {
+        return @{ Success = $false; Reason = $outcome.Reason }
+    }
+
+    # CORRECTED (item 4, complete transaction binding): BOTH data.id and
+    # data.tx_ref are now required, and BOTH are checked -- previously only
+    # tx_ref was verified; data.id was hashed without ever confirming it
+    # equals the TransactionId this call actually requested.
+    $providerTxRef = Get-DataField -Parsed $outcome.Parsed -FieldName 'tx_ref'
+    $providerId = Get-DataField -Parsed $outcome.Parsed -FieldName 'id'
+
+    if ([string]::IsNullOrWhiteSpace($providerTxRef)) {
+        return @{ Success = $false; Reason = 'MISSING_TX_REF' }
+    }
+    if ([string]::IsNullOrWhiteSpace($providerId)) {
+        return @{ Success = $false; Reason = 'MISSING_TRANSACTION_ID' }
+    }
+
+    $providerTxRefSha256 = Get-Sha256Hex -Text $providerTxRef
+    if ($providerTxRefSha256 -ne $checkoutResult.Data.tx_ref_sha256) {
+        return @{ Success = $false; Reason = 'TX_REF_MISMATCH' }
+    }
+
+    if ($providerId -ne $TransactionId) {
+        return @{ Success = $false; Reason = 'TRANSACTION_ID_MISMATCH' }
+    }
+
+    $timeline = Test-TimelineOrdering `
+        -CheckoutRequestStartUtc ([string]$checkoutResult.Data.request_start_utc) `
+        -CheckoutRequestEndUtc ([string]$checkoutResult.Data.request_end_utc) `
+        -CheckoutOpenedUtc ([string]$checkoutResult.Data.checkout_opened_utc) `
+        -PaymentCompletionObservedUtc ([string]$observeResult.Data.payment_completion_observed_utc) `
+        -VerifyRequestStartUtc $requestStartUtc `
+        -VerifyRequestEndUtc $requestEndUtc `
+        -IsTestB ($TestLabel -eq 'B')
+    if (-not $timeline.Valid) {
+        return @{ Success = $false; Reason = $timeline.Reason }
+    }
+
+    $stage = [ordered]@{
+        capture_session_id             = $CaptureSessionId
+        test_label                     = $TestLabel
+        action                          = 'Verify'
+        endpoint                        = $uri
+        tx_ref_sha256                   = $providerTxRefSha256
+        transaction_id_sha256           = Get-Sha256Hex -Text $providerId
+        tx_ref_hash_matches_checkout    = $true
+        transaction_id_matches_request  = $true
+        request_start_utc              = $requestStartUtc
+        request_end_utc                = $requestEndUtc
+        http_status                     = $httpResult.StatusCode
+        raw_response_sha256            = Get-Sha256Hex -Text $httpResult.Body
+        provider_evidence_fields        = Get-AllowlistedEvidenceFields -Node $outcome.Parsed
+        timeline_valid                   = $true
+        collector_script_git_sha        = $CollectorScriptGitSha
+        collector_script_content_sha256 = $CollectorScriptContentSha256
+    }
+    $stagePath = Join-Path $EvidenceRoot "stage-Verify-Test$TestLabel-$CaptureSessionId.json"
+    $writeResult = New-ImmutableJsonFile -Path $stagePath -Content ($stage | ConvertTo-Json -Depth 12)
+    if (-not $writeResult.Success) {
+        return @{ Success = $false; Reason = $writeResult.Reason }
+    }
+
+    return @{ Success = $true; Reason = 'OK'; StagePath = $stagePath }
+}
+
+function Invoke-FinalizeManifestOrchestration {
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('A', 'B')][string]$TestLabel,
+        [Parameter(Mandatory = $true)][string]$CaptureSessionId,
+        [Parameter(Mandatory = $true)][string]$EvidenceRoot,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$CollectorScriptGitSha,
+        [Parameter(Mandatory = $true)][string]$CollectorScriptContentSha256,
+        [Parameter(Mandatory = $true)][string]$PowerShellVersion,
+        [Parameter(Mandatory = $true)][double]$MachineUtcOffsetMinutes
+    )
+
+    $checkoutResult = Get-StageCapture -EvidenceRoot $EvidenceRoot -ActionName 'CreateCheckout' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    if (-not $checkoutResult.Success) {
+        return @{ Success = $false; Reason = "CHECKOUT_STAGE_$($checkoutResult.Reason)" }
+    }
+    $observeResult = Get-StageCapture -EvidenceRoot $EvidenceRoot -ActionName 'ObservePaymentSuccess' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    if (-not $observeResult.Success) {
+        return @{ Success = $false; Reason = "OBSERVE_STAGE_$($observeResult.Reason)" }
+    }
+    $verifyResult = Get-StageCapture -EvidenceRoot $EvidenceRoot -ActionName 'Verify' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    if (-not $verifyResult.Success) {
+        return @{ Success = $false; Reason = "VERIFY_STAGE_$($verifyResult.Reason)" }
+    }
+
+    # Cross-stage checks (item 4): Get-StageCapture already proved each
+    # file's OWN capture_session_id/test_label match what was requested,
+    # which transitively proves all three agree with EACH OTHER too. The
+    # two checks below are the ones NOT already implied by that: tx_ref
+    # hash equality between checkout and verify, and collector-version
+    # equality across all three stages (proving one consistent tool
+    # version handled the whole session, not a mix of versions with
+    # potentially different behavior).
+    if ($checkoutResult.Data.tx_ref_sha256 -ne $verifyResult.Data.tx_ref_sha256) {
+        return @{ Success = $false; Reason = 'TX_REF_HASH_MISMATCH_ACROSS_STAGES' }
+    }
+    $contentHashes = @(
+        [string]$checkoutResult.Data.collector_script_content_sha256,
+        [string]$observeResult.Data.collector_script_content_sha256,
+        [string]$verifyResult.Data.collector_script_content_sha256
+    )
+    if (@($contentHashes | Select-Object -Unique).Count -ne 1) {
+        return @{ Success = $false; Reason = 'COLLECTOR_VERSION_MISMATCH' }
+    }
+
+    $timeline = Test-TimelineOrdering `
+        -CheckoutRequestStartUtc ([string]$checkoutResult.Data.request_start_utc) `
+        -CheckoutRequestEndUtc ([string]$checkoutResult.Data.request_end_utc) `
+        -CheckoutOpenedUtc ([string]$checkoutResult.Data.checkout_opened_utc) `
+        -PaymentCompletionObservedUtc ([string]$observeResult.Data.payment_completion_observed_utc) `
+        -VerifyRequestStartUtc ([string]$verifyResult.Data.request_start_utc) `
+        -VerifyRequestEndUtc ([string]$verifyResult.Data.request_end_utc) `
+        -IsTestB ($TestLabel -eq 'B')
+    if (-not $timeline.Valid) {
+        return @{ Success = $false; Reason = $timeline.Reason }
+    }
+
+    $manifest = New-EvidenceManifest `
+        -CaptureSessionId $CaptureSessionId `
+        -TestLabel $TestLabel `
+        -TxRefSha256 ([string]$checkoutResult.Data.tx_ref_sha256) `
+        -TransactionIdSha256 ([string]$verifyResult.Data.transaction_id_sha256) `
+        -TestModeConfirmed $true `
+        -ApiVersion 'v3' `
+        -CheckoutEndpoint ([string]$checkoutResult.Data.endpoint) `
+        -VerifyEndpoint ([string]$verifyResult.Data.endpoint) `
+        -CheckoutRequestStartUtc ([string]$checkoutResult.Data.request_start_utc) `
+        -CheckoutRequestEndUtc ([string]$checkoutResult.Data.request_end_utc) `
+        -CheckoutOpenedUtc ([string]$checkoutResult.Data.checkout_opened_utc) `
+        -PaymentCompletionObservedUtc ([string]$observeResult.Data.payment_completion_observed_utc) `
+        -VerifyRequestStartUtc ([string]$verifyResult.Data.request_start_utc) `
+        -VerifyRequestEndUtc ([string]$verifyResult.Data.request_end_utc) `
+        -ElapsedSecondsSinceCheckoutOpened ([double]$observeResult.Data.elapsed_seconds_since_checkout_opened) `
+        -TimelineValid $true `
+        -ProviderEvidenceFields (@($checkoutResult.Data.provider_evidence_fields) + @($verifyResult.Data.provider_evidence_fields)) `
+        -CheckoutRawResponseSha256 ([string]$checkoutResult.Data.raw_response_sha256) `
+        -VerifyRawResponseSha256 ([string]$verifyResult.Data.raw_response_sha256) `
+        -CollectorScriptGitSha $CollectorScriptGitSha `
+        -CollectorScriptContentSha256 $CollectorScriptContentSha256 `
+        -PowerShellVersion $PowerShellVersion `
+        -MachineUtcOffsetMinutes $MachineUtcOffsetMinutes
+
+    $manifestPath = Join-Path $EvidenceRoot "manifest-Test$TestLabel-$CaptureSessionId.json"
+    $writeResult = New-ImmutableJsonFile -Path $manifestPath -Content ($manifest | ConvertTo-Json -Depth 12)
+    if (-not $writeResult.Success) {
+        return @{ Success = $false; Reason = $writeResult.Reason }
+    }
+
+    return @{ Success = $true; Reason = 'OK'; ManifestPath = $manifestPath }
 }
