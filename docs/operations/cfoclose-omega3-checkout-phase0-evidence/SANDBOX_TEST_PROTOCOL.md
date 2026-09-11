@@ -4,7 +4,7 @@ For whoever runs this: a Flutterwave **TEST mode** (sandbox) account is required
 
 **Corrected, this revision — one mandatory, deterministic path.** An earlier draft of this protocol left room for either dashboard-driven or API-driven checkout creation, and for either transaction-ID verification or reference lookup, without requiring both tests to use the same mechanism. That ambiguity is closed here: **both Test A and Test B must be created and verified through the exact same mechanism, below — never dashboard-created and API-created transactions compared against each other, and never reference-lookup used as a substitute for transaction-ID verification.** Mixing origins would let a difference between dashboard-side and API-side transaction handling masquerade as a difference in `created_at` semantics, corrupting the comparison this evidence exists to produce.
 
-**Recommended: use the corrected PowerShell collector** at `tools/Invoke-FlutterwaveEvidenceCapture.ps1` (this same directory) to run this protocol — it performs every step below consistently, redacts sensitive data automatically, and produces the provenance manifest `PHASE0_FLUTTERWAVE_EVIDENCE.md` requires. See `tools/README.md` for usage. The manual steps below remain the authoritative specification of what the collector does and why, and are what to follow if running by hand instead.
+**Recommended: use the corrected PowerShell collector** at `tools/Invoke-FlutterwaveEvidenceCapture.ps1` (this same directory) to run this protocol — it performs every step below consistently, projects only ALLOWLISTED evidence fields (never a redacted copy of the full response — see the collector's own header comments), binds every capture to one immutable session id so a checkout and its verification can never be silently mismatched, machine-captures the completion timestamp instead of accepting one as free-form input, and produces the provenance manifest `PHASE0_FLUTTERWAVE_EVIDENCE.md` requires. See `tools/README.md` for exact usage (`CreateCheckout` → `ObservePaymentSuccess` → `Verify` → `FinalizeManifest`). The manual steps below remain the authoritative specification of what the collector does and why, and are what to follow if running by hand instead.
 
 ## The one mandatory path (applies identically to Test A and Test B)
 
@@ -15,7 +15,7 @@ For whoever runs this: a Flutterwave **TEST mode** (sandbox) account is required
 5. **Open the returned hosted-checkout URL** from the creation response (in a browser, using TEST-mode test-card details from Flutterwave's own published test-card list).
 6. **Test A: complete the payment immediately** — proceed through the hosted checkout with no deliberate delay, as fast as normally possible.
 7. **Test B: wait at least 10 minutes between opening the checkout URL and completing the payment** — leave the checkout page open (or note the reference and return to it) for a real, meaningful, observable gap. Ten minutes is a floor, not a target — longer is fine, shorter invalidates the test.
-8. **Record a UTC completion-observation timestamp** — `payment_completion_observed_utc`, the wall-clock moment the hosted checkout UI shows success (this is an observation, not a provider-verified fact — it exists only to compare against the provider's own returned timestamps).
+8. **Record a UTC completion-observation timestamp** — `payment_completion_observed_utc`, the wall-clock moment the hosted checkout UI shows success (this is an observation, not a provider-verified fact — it exists only to compare against the provider's own returned timestamps). **When using the collector, this is captured by the `ObservePaymentSuccess` action itself (`DateTime.UtcNow` at the moment you type the exact confirmation phrase) — never typed in as a free-form timestamp string.** If running by hand, record it the same way: the instant you observe success, not a value reconstructed afterward from memory.
 9. **Verify by transaction ID**, not by reference, as the PRIMARY verification call:
    ```
    GET https://api.flutterwave.com/v3/transactions/{id}/verify
@@ -43,17 +43,14 @@ For whoever runs this: a Flutterwave **TEST mode** (sandbox) account is required
 
 ## Sanitizing before sharing back
 
-**Before this data is added to `PHASE0_FLUTTERWAVE_EVIDENCE.md` or committed to git, strip:**
-- Any API key, secret key, or `Authorization` header value
-- Card number, CVV, expiry, cardholder name — even sandbox/test values, as a matter of discipline
-- Customer email/phone/name if the test used anything resembling a real person's details (use an obviously fake test identity, e.g. `phase0-evidence-test@example.invalid`)
-- Your Flutterwave account ID or merchant identifier, if present in the payload
-- IP address or device-fingerprint fields, if present
+**Corrected, this revision: this is an ALLOWLIST, not a denylist.** An earlier draft of this protocol described this step as "strip these known-sensitive fields, keep everything else" — the same structural weakness Blocker 1 identified in the collector itself (a denylist cannot anticipate every field a provider might return, and this project's own denylist attempt missed Flutterwave's real `first_6digits`/`last_4digits` spelling). If you are running this BY HAND rather than using the collector, apply the same allowlist discipline the collector enforces automatically: **the shared evidence may contain ONLY** —
+- timestamp-shaped fields (by name — anything like `created_at`, `*_date`, `*datetime*`, `completed`, `settled`, `charged`, `processed`, `expire*`, `timestamp`), keeping their exact field name/path and value
+- `status`, `amount`, `currency`
+- the SHA-256 hash of `tx_ref` — **never the raw value**
+- the SHA-256 hash of the transaction `id` — **never the raw value**
+- your own request-timing metadata (the UTC timestamps this protocol asks you to record)
 
-**Keep, because the gate needs it:**
-- The `created_at` (and any other timestamp) field names and values
-- The transaction `status`, `amount`, `currency`
-- The `tx_ref` and transaction `id` — or, if you'd rather not share even sandbox references, their SHA-256 hashes instead (either is acceptable; be consistent within one submission)
+**Everything else is discarded, not merely reviewed for sensitivity** — including anything you don't recognize as sensitive, since an unrecognized field is exactly the case a denylist fails on. If you use the collector (`tools/Invoke-FlutterwaveEvidenceCapture.ps1`), this projection happens automatically via `Get-AllowlistedEvidenceFields` and you do not need to do this step by hand — its output manifest is already safe to share as-is, after your own final review.
 
 **Before discarding the original, unredacted capture:**
 - Compute its SHA-256 hash (`Get-FileHash` in PowerShell, or `sha256sum` elsewhere) and record the hash string.

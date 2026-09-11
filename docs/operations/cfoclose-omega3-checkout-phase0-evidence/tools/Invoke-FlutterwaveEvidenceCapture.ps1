@@ -1,80 +1,106 @@
 <#
 .SYNOPSIS
-  Ω3-CHECKOUT Phase 0 evidence collector for GATE-FLUTTERWAVE-CREATED-AT-SEMANTICS.
+  Omega3-CHECKOUT Phase 0 evidence collector for GATE-FLUTTERWAVE-CREATED-AT-SEMANTICS.
   TEST MODE ONLY. Implements SANDBOX_TEST_PROTOCOL.md (one directory up).
 
 .DESCRIPTION
-  Narrowly-scoped, disposable tool. It performs exactly the HTTP calls the
-  protocol specifies, against Flutterwave's real v3 API, in TEST mode only.
+  Hardened, this revision, against a Codex re-audit of the prior collector:
 
-  Safety properties (see docs/operations/cfoclose-omega3-checkout-phase0-evidence
-  for the full requirements this implements):
+  BLOCKER 1 FIX -- no more denylist redaction of a full response. Every
+  manifest field comes from Get-AllowlistedEvidenceFields (an ALLOWLIST:
+  only timestamp-shaped fields by name, plus 'status'/'amount'/'currency'),
+  plus separately-hashed tx_ref/transaction-id, plus collector-generated
+  provenance. No code path in this script ever writes a "sanitized copy of
+  the full response" anywhere.
+
+  BLOCKER 2 FIX -- every capture belongs to one immutable
+  capture_session_id, generated exactly once by CreateCheckout and required
+  as an explicit parameter to every later action. Verify extracts the
+  provider's own returned tx_ref and REFUSES to write a stage file (exits
+  non-zero) if its hash does not match the checkout stage's tx_ref hash.
+  FinalizeManifest requires an explicit -CaptureSessionId, loads ONLY the
+  stage files whose filename encodes that exact session id and test label,
+  and fails if any required stage is missing, duplicated, or reports a
+  mismatched session id or test label internally. There is no "select the
+  newest file" anywhere in this script.
+
+  HIGH 1 FIX -- payment-completion time is no longer an arbitrary command-
+  line string. ObservePaymentSuccess is its own action: it requires the
+  operator to type an exact confirmation phrase, and records DateTime.UtcNow
+  itself. checkout_opened_utc is captured by CreateCheckout, immediately
+  around the attempt to open the hosted checkout URL. Verify and
+  FinalizeManifest both re-validate the full six-point timeline (via
+  Test-TimelineOrdering) and REFUSE to proceed on any malformed, non-UTC,
+  out-of-order, or (for Test B) too-fast timeline.
+
+  HIGH 2 -- see .github/workflows/ci.yml, which now runs
+  tools/tests/FlutterwaveEvidenceLib.Tests.ps1 as part of the existing
+  "Lint, Build and Type Check" job.
+
+  Safety properties carried over unchanged:
     - Never accepts a secret key as a command-line argument.
-    - Obtains the secret via Read-Host -AsSecureString; never writes it,
-      never includes it in any log line, error message, or output object.
+    - Obtains the secret via Read-Host -AsSecureString.
     - Requires an explicit, exact TEST-MODE-CONFIRMED typed confirmation
       before making any network call.
-    - Refuses to write any evidence file inside this git repository —
-      -EvidenceRoot must resolve outside the repo, checked at startup.
-    - Generates a fresh, locally-created tx_ref for CreateCheckout.
-    - Records UTC timestamps around every request.
-    - Persists the full raw response OUTSIDE the repo, and computes its
-      SHA-256 — the raw file is never deleted by this script.
-    - Produces a REDACTED, sanitized view for the manifest via
-      ConvertTo-RedactedObject (FlutterwaveEvidenceLib.ps1) — account/
-      merchant/customer identifiers, card token, first-six/last-four
-      digits, IP/device fingerprint, authorization material, email, phone,
-      and name are stripped; timestamps, status, amount, and currency are
-      retained.
-    - Exits immediately (non-zero) on a non-2xx response or malformed JSON,
-      via the pure Get-CaptureOutcome function, writing no manifest.
-    - Zeroes/removes every secret-bearing variable in a `finally` block.
+    - Refuses to write any evidence file inside this git repository.
+    - Persists the full raw response OUTSIDE the repo; never deletes it.
+    - Exits immediately (non-zero) on a non-2xx response or malformed JSON.
+    - Clears secret-bearing variables in a `finally` block on a best-effort
+      basis (see note below -- this is NOT a cryptographic erasure
+      guarantee).
 
-  Actions:
-    CreateCheckout   : POST https://api.flutterwave.com/v3/payments
-    Verify           : GET  https://api.flutterwave.com/v3/transactions/{TransactionId}/verify
-    ReferenceLookup  : GET  https://api.flutterwave.com/v3/transactions?tx_ref={TxRef}  (SUPPLEMENTAL ONLY)
-    FinalizeManifest : combines the CreateCheckout + Verify (+ optional
-                       ReferenceLookup) stage captures for one TestLabel into
-                       the single provenance manifest Correction 4 requires,
-                       and hashes that manifest.
+  A note on secret clearing (HIGH 4 correction): `ZeroFreeBSTR` zeroes the
+  unmanaged BSTR buffer the secure string was decrypted into, which IS a
+  real, immediate zeroing of that specific buffer. It does NOT, and cannot,
+  guarantee that the managed .NET string `$secretPlain` was copied into is
+  also zeroed or has been garbage-collected by the time this script exits --
+  .NET strings are immutable and the runtime may have relocated or copied
+  the underlying memory during normal operation. Setting `$secretPlain =
+  $null` and calling `[System.GC]::Collect()` is best-effort hygiene that
+  reduces the window the secret's plaintext might remain resident in memory;
+  it is not a cryptographic erasure guarantee, and this script never claims
+  otherwise.
 
-.PARAMETER PaymentCompletionObservedUtc
-  Required for FinalizeManifest. The UTC timestamp (ISO-8601, e.g. from
-  Get-UtcTimestamp run by hand at the moment) you personally observed the
-  hosted checkout report success. This is a human observation, not something
-  this script can capture on its own — record it the moment it happens.
+.PARAMETER Action
+  CreateCheckout, ObservePaymentSuccess, Verify, ReferenceLookup, or FinalizeManifest.
 
 .EXAMPLE
+  # 1) Create the checkout (generates and prints a NEW capture_session_id):
   ./Invoke-FlutterwaveEvidenceCapture.ps1 -Action CreateCheckout -TestLabel A `
     -Amount 100 -Currency NGN -RedirectUrl https://example.invalid/return `
     -CustomerEmail phase0-evidence-test@example.invalid
 
-.EXAMPLE
-  ./Invoke-FlutterwaveEvidenceCapture.ps1 -Action Verify -TestLabel A -TransactionId 1234567
+  # 2) After completing the hosted checkout (or waiting 10+ min for Test B),
+  #    type the exact confirmation phrase when prompted:
+  ./Invoke-FlutterwaveEvidenceCapture.ps1 -Action ObservePaymentSuccess `
+    -TestLabel A -CaptureSessionId <the session id from step 1>
 
-.EXAMPLE
+  # 3) Verify by transaction ID (from the redirect/webhook callback):
+  ./Invoke-FlutterwaveEvidenceCapture.ps1 -Action Verify -TestLabel A `
+    -CaptureSessionId <the session id from step 1> -TransactionId <id>
+
+  # 4) Finalize:
   ./Invoke-FlutterwaveEvidenceCapture.ps1 -Action FinalizeManifest -TestLabel A `
-    -PaymentCompletionObservedUtc '2026-09-11T10:15:00.0000000Z'
+    -CaptureSessionId <the session id from step 1>
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('CreateCheckout', 'Verify', 'ReferenceLookup', 'FinalizeManifest')]
+    [ValidateSet('CreateCheckout', 'ObservePaymentSuccess', 'Verify', 'ReferenceLookup', 'FinalizeManifest')]
     [string]$Action,
 
     [Parameter(Mandatory = $true)]
     [ValidateSet('A', 'B')]
     [string]$TestLabel,
 
+    [string]$CaptureSessionId,
     [string]$TransactionId,
     [string]$TxRef,
     [string]$Amount,
     [string]$Currency,
     [string]$RedirectUrl,
     [string]$CustomerEmail,
-    [string]$PaymentCompletionObservedUtc,
 
     [string]$EvidenceRoot = (Join-Path $env:TEMP 'omega3-phase0-flutterwave-evidence')
 )
@@ -84,77 +110,174 @@ Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot 'FlutterwaveEvidenceLib.ps1')
 
+function Get-CollectorScriptContentSha256 {
+    $libPath = Join-Path $PSScriptRoot 'FlutterwaveEvidenceLib.ps1'
+    $mainPath = $PSCommandPath
+    $combined = (Get-Content -Path $libPath -Raw) + (Get-Content -Path $mainPath -Raw)
+    return Get-Sha256Hex -Text $combined
+}
+
+function Get-CollectorScriptGitSha {
+    try { return [string](git -C $PSScriptRoot rev-parse HEAD 2>$null) } catch { return '' }
+}
+
+function Get-RequiredStage {
+    <#
+    Thin, exit-on-failure wrapper around the library's pure Get-StageCapture,
+    for use at the top level of this script's action handlers.
+    #>
+    param([string]$ActionName, [string]$TestLabel, [string]$CaptureSessionId)
+    $result = Get-StageCapture -EvidenceRoot $EvidenceRoot -ActionName $ActionName -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    if (-not $result.Success) {
+        $reasonText = switch ($result.Reason) {
+            'MISSING' { "not found (expected file: stage-$ActionName-Test$TestLabel-$CaptureSessionId.json). Run that action first." }
+            'DUPLICATE' { "matched by more than one file -- structurally unexpected for an exact filename; aborting rather than guessing." }
+            'SESSION_MISMATCH' { "found, but its own capture_session_id field disagrees with the requested session '$CaptureSessionId'." }
+            'LABEL_MISMATCH' { "found, but its own test_label field disagrees with the requested Test$TestLabel." }
+            default { "failed with reason $($result.Reason)." }
+        }
+        Write-Error "Required stage '$ActionName' for Test$TestLabel / session $CaptureSessionId $reasonText"
+        exit 1
+    }
+    return $result.Data
+}
+
 # --- Safety: refuse to write evidence inside the git repository ---
 $repoRoot = $null
 try { $repoRoot = (git -C $PSScriptRoot rev-parse --show-toplevel 2>$null) } catch { }
+New-Item -ItemType Directory -Force -Path $EvidenceRoot | Out-Null
 if ($repoRoot) {
     $resolvedRepoRoot = (Resolve-Path $repoRoot).Path
-    New-Item -ItemType Directory -Force -Path $EvidenceRoot | Out-Null
     $resolvedEvidenceRoot = (Resolve-Path $EvidenceRoot).Path
     if ($resolvedEvidenceRoot.StartsWith($resolvedRepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
         Write-Error "EvidenceRoot ($EvidenceRoot) resolves INSIDE the git repository ($resolvedRepoRoot). Raw evidence and manifests must never be written inside the repo. Aborting without making any request."
         exit 1
     }
 }
-else {
-    New-Item -ItemType Directory -Force -Path $EvidenceRoot | Out-Null
+
+# ===========================================================================
+# ObservePaymentSuccess -- machine-captured completion timestamp
+# ===========================================================================
+if ($Action -eq 'ObservePaymentSuccess') {
+    if ([string]::IsNullOrWhiteSpace($CaptureSessionId)) {
+        Write-Error "ObservePaymentSuccess requires -CaptureSessionId (from CreateCheckout)."
+        exit 1
+    }
+    $checkoutStage = Get-RequiredStage -ActionName 'CreateCheckout' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+
+    Write-Host ""
+    Write-Host "Only proceed once the hosted checkout page has shown PAYMENT SUCCESS." -ForegroundColor Yellow
+    $confirm = Read-Host "Type exactly PAYMENT-SUCCESS-CONFIRMED the moment you see success"
+    $observedUtc = Get-UtcTimestamp
+    if ($confirm -cne 'PAYMENT-SUCCESS-CONFIRMED') {
+        Write-Error "Confirmation phrase did not match exactly. No observation recorded. Aborting."
+        exit 1
+    }
+
+    $elapsedSeconds = ([DateTime]::Parse($observedUtc, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind) -
+                        [DateTime]::Parse($checkoutStage.checkout_opened_utc, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)).TotalSeconds
+
+    $isTestB = ($TestLabel -eq 'B')
+    if ($isTestB -and $elapsedSeconds -lt 600) {
+        Write-Error "Test B requires at least 600 seconds between checkout_opened_utc and payment_completion_observed_utc; only $([math]::Round($elapsedSeconds, 3)) seconds elapsed. No observation recorded. Wait longer and retry."
+        exit 1
+    }
+
+    $stage = [ordered]@{
+        capture_session_id                 = $CaptureSessionId
+        test_label                         = $TestLabel
+        action                              = 'ObservePaymentSuccess'
+        checkout_opened_utc                = $checkoutStage.checkout_opened_utc
+        payment_completion_observed_utc    = $observedUtc
+        elapsed_seconds_since_checkout_opened = $elapsedSeconds
+        test_b_minimum_met                 = $(if ($isTestB) { $elapsedSeconds -ge 600 } else { $null })
+    }
+    $stagePath = Join-Path $EvidenceRoot "stage-ObservePaymentSuccess-Test$TestLabel-$CaptureSessionId.json"
+    Set-Content -Path $stagePath -Value ($stage | ConvertTo-Json -Depth 8) -Encoding UTF8 -NoNewline
+
+    Write-Host ""
+    Write-Host "Payment-success observation recorded for Test$TestLabel." -ForegroundColor Green
+    Write-Host "  Elapsed since checkout_opened_utc: $([math]::Round($elapsedSeconds, 3)) seconds"
+    Write-Host "  Stage file: $stagePath"
+    exit 0
 }
 
+# ===========================================================================
+# FinalizeManifest -- exact session id, exactly-one-each stage requirement
+# ===========================================================================
 if ($Action -eq 'FinalizeManifest') {
-    if ([string]::IsNullOrWhiteSpace($PaymentCompletionObservedUtc)) {
-        Write-Error "FinalizeManifest requires -PaymentCompletionObservedUtc (the UTC time you personally observed checkout success)."
+    if ([string]::IsNullOrWhiteSpace($CaptureSessionId)) {
+        Write-Error "FinalizeManifest requires -CaptureSessionId. There is no 'latest file' fallback."
         exit 1
     }
 
-    $checkoutStage = Get-ChildItem -Path $EvidenceRoot -Filter "stage-CreateCheckout-Test$TestLabel-*.json" | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-    $verifyStage = Get-ChildItem -Path $EvidenceRoot -Filter "stage-Verify-Test$TestLabel-*.json" | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-    $refStage = Get-ChildItem -Path $EvidenceRoot -Filter "stage-ReferenceLookup-Test$TestLabel-*.json" | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    $checkoutStage = Get-RequiredStage -ActionName 'CreateCheckout' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    $observeStage = Get-RequiredStage -ActionName 'ObservePaymentSuccess' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    $verifyStage = Get-RequiredStage -ActionName 'Verify' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
 
-    if (-not $checkoutStage -or -not $verifyStage) {
-        Write-Error "Could not find both a CreateCheckout and a Verify stage capture for Test$TestLabel under $EvidenceRoot. Run those actions first."
+    if ($checkoutStage.tx_ref_sha256 -ne $verifyStage.tx_ref_sha256) {
+        Write-Error "tx_ref hash mismatch between CreateCheckout and Verify stages for session $CaptureSessionId. This should have already been rejected at Verify time -- refusing to finalize regardless."
         exit 1
     }
 
-    $checkoutData = Get-Content -Path $checkoutStage.FullName -Raw | ConvertFrom-Json
-    $verifyData = Get-Content -Path $verifyStage.FullName -Raw | ConvertFrom-Json
-    $refData = if ($refStage) { Get-Content -Path $refStage.FullName -Raw | ConvertFrom-Json } else { $null }
+    $timeline = Test-TimelineOrdering `
+        -CheckoutRequestStartUtc $checkoutStage.request_start_utc `
+        -CheckoutRequestEndUtc $checkoutStage.request_end_utc `
+        -CheckoutOpenedUtc $checkoutStage.checkout_opened_utc `
+        -PaymentCompletionObservedUtc $observeStage.payment_completion_observed_utc `
+        -VerifyRequestStartUtc $verifyStage.request_start_utc `
+        -VerifyRequestEndUtc $verifyStage.request_end_utc `
+        -IsTestB ($TestLabel -eq 'B')
+
+    if (-not $timeline.Valid) {
+        Write-Error "Timeline validation failed at finalize time: $($timeline.Reason). Refusing to produce a manifest for an invalid timeline."
+        exit 1
+    }
 
     $manifest = New-EvidenceManifest `
+        -CaptureSessionId $CaptureSessionId `
         -TestLabel $TestLabel `
-        -TxRefSha256 $checkoutData.tx_ref_sha256 `
+        -TxRefSha256 $checkoutStage.tx_ref_sha256 `
+        -TransactionIdSha256 $verifyStage.transaction_id_sha256 `
         -TestModeConfirmed $true `
         -ApiVersion 'v3' `
-        -CheckoutEndpoint $checkoutData.endpoint `
-        -CheckoutRequestStartUtc $checkoutData.request_start_utc `
-        -CheckoutRequestEndUtc $checkoutData.request_end_utc `
-        -PaymentCompletionObservedUtc $PaymentCompletionObservedUtc `
-        -VerifyEndpoint $verifyData.endpoint `
-        -VerifyRequestStartUtc $verifyData.request_start_utc `
-        -VerifyRequestEndUtc $verifyData.request_end_utc `
-        -ProviderTimestamps $verifyData.sanitized_response `
-        -CheckoutRawResponseSha256 $checkoutData.raw_response_sha256 `
-        -VerifyRawResponseSha256 $verifyData.raw_response_sha256 `
-        -CollectorScriptGitSha (if ($repoRoot) { (git -C $PSScriptRoot rev-parse HEAD 2>$null) } else { '' }) `
+        -CheckoutEndpoint $checkoutStage.endpoint `
+        -VerifyEndpoint $verifyStage.endpoint `
+        -CheckoutRequestStartUtc $checkoutStage.request_start_utc `
+        -CheckoutRequestEndUtc $checkoutStage.request_end_utc `
+        -CheckoutOpenedUtc $checkoutStage.checkout_opened_utc `
+        -PaymentCompletionObservedUtc $observeStage.payment_completion_observed_utc `
+        -VerifyRequestStartUtc $verifyStage.request_start_utc `
+        -VerifyRequestEndUtc $verifyStage.request_end_utc `
+        -ElapsedSecondsSinceCheckoutOpened $observeStage.elapsed_seconds_since_checkout_opened `
+        -TimelineValid $true `
+        -ProviderEvidenceFields (@($checkoutStage.provider_evidence_fields) + @($verifyStage.provider_evidence_fields)) `
+        -CheckoutRawResponseSha256 $checkoutStage.raw_response_sha256 `
+        -VerifyRawResponseSha256 $verifyStage.raw_response_sha256 `
+        -CollectorScriptGitSha (Get-CollectorScriptGitSha) `
+        -CollectorScriptContentSha256 (Get-CollectorScriptContentSha256) `
         -PowerShellVersion $PSVersionTable.PSVersion.ToString() `
-        -MachineUtcOffsetMinutes ([System.TimeZoneInfo]::Local.GetUtcOffset([DateTime]::UtcNow).TotalMinutes) `
-        -SupplementalReferenceLookup $(if ($refData) { $refData.sanitized_response } else { $null })
+        -MachineUtcOffsetMinutes ([System.TimeZoneInfo]::Local.GetUtcOffset([DateTime]::UtcNow).TotalMinutes)
 
     $manifestJson = $manifest | ConvertTo-Json -Depth 12
-    $manifestFileName = "manifest-Test$TestLabel-$([guid]::NewGuid().ToString('N')).json"
-    $manifestPath = Join-Path $EvidenceRoot $manifestFileName
+    $manifestPath = Join-Path $EvidenceRoot "manifest-Test$TestLabel-$CaptureSessionId.json"
     Set-Content -Path $manifestPath -Value $manifestJson -Encoding UTF8 -NoNewline
     $manifestHash = (Get-FileHash -Path $manifestPath -Algorithm SHA256).Hash
 
     Write-Host ""
-    Write-Host "Manifest finalized for Test$TestLabel." -ForegroundColor Green
+    Write-Host "Manifest finalized for Test$TestLabel, session $CaptureSessionId." -ForegroundColor Green
     Write-Host "  Manifest: $manifestPath"
     Write-Host "  Manifest SHA-256: $manifestHash"
     Write-Host ""
-    Write-Host "This manifest is already sanitized. Review it, then copy it into PHASE0_FLUTTERWAVE_EVIDENCE.md if you choose to share it. The manifest file itself is OUTSIDE the git repo and is never committed automatically." -ForegroundColor Cyan
+    Write-Host "This manifest contains ONLY allowlisted evidence fields (timestamps/status/amount/currency), hashed identifiers, and collector provenance -- never a copy of the full provider response. Review it, then copy it into PHASE0_FLUTTERWAVE_EVIDENCE.md if you choose to share it." -ForegroundColor Cyan
     exit 0
 }
 
-# --- Explicit TEST-MODE confirmation (required before any network call) ---
+# ===========================================================================
+# CreateCheckout / Verify / ReferenceLookup -- the real network-calling,
+# secret-handling actions.
+# ===========================================================================
+
 Write-Host ""
 Write-Host "=== Omega3-CHECKOUT Phase 0 Flutterwave Evidence Collector ===" -ForegroundColor Yellow
 Write-Host "This tool MUST ONLY be used with a Flutterwave TEST-mode secret key." -ForegroundColor Yellow
@@ -165,7 +288,6 @@ if ($confirmation -cne 'TEST-MODE-CONFIRMED') {
     exit 1
 }
 
-# --- Obtain the secret key securely; never accepted as a parameter/argument ---
 $secureSecret = Read-Host -Prompt 'Enter Flutterwave TEST secret key (input hidden)' -AsSecureString
 $bstr = [IntPtr]::Zero
 $secretPlain = $null
@@ -176,13 +298,33 @@ try {
     $secretPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
 
     if (-not (Test-IsTestModeKey -KeyValue $secretPlain)) {
-        Write-Error "The provided key does not look like a Flutterwave TEST secret key (expected something containing 'TEST'). Aborting -- refusing to guess whether this is a live key."
+        Write-Error "The provided key does not match Flutterwave's documented TEST secret-key format (FLWSECK_TEST-<32 hex chars>-X). Aborting -- refusing to guess whether this is a live key or a malformed input."
+        exit 1
+    }
+
+    if ($Action -eq 'CreateCheckout') {
+        if ([string]::IsNullOrWhiteSpace($CaptureSessionId)) {
+            $CaptureSessionId = [guid]::NewGuid().ToString('N')
+        }
+        else {
+            Write-Error "CreateCheckout ALWAYS generates a new capture_session_id -- it does not accept one as input. This is what makes session reuse across unrelated checkouts structurally impossible. Remove -CaptureSessionId and re-run."
+            exit 1
+        }
+    }
+    elseif ([string]::IsNullOrWhiteSpace($CaptureSessionId)) {
+        Write-Error "$Action requires -CaptureSessionId (from CreateCheckout)."
         exit 1
     }
 
     $txRefToUse = $TxRef
     if ($Action -eq 'CreateCheckout' -and [string]::IsNullOrWhiteSpace($txRefToUse)) {
-        $txRefToUse = "omega3-phase0-$TestLabel-$([guid]::NewGuid().ToString('N').Substring(0, 12))"
+        $txRefToUse = "omega3-phase0-$TestLabel-$CaptureSessionId"
+    }
+
+    $checkoutStageForVerify = $null
+    if ($Action -eq 'Verify') {
+        $checkoutStageForVerify = Get-RequiredStage -ActionName 'CreateCheckout' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+        $observeStageForVerify = Get-RequiredStage -ActionName 'ObservePaymentSuccess' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
     }
 
     $headers = @{
@@ -203,14 +345,13 @@ try {
                     exit 1
                 }
                 $uri = 'https://api.flutterwave.com/v3/payments'
-                $bodyObject = @{
-                    tx_ref       = $txRefToUse
-                    amount       = $Amount
-                    currency     = $Currency
-                    redirect_url = $RedirectUrl
-                    customer     = @{ email = $CustomerEmail }
-                }
-                $bodyJson = $bodyObject | ConvertTo-Json -Depth 5
+                $bodyJson = (@{
+                        tx_ref       = $txRefToUse
+                        amount       = $Amount
+                        currency     = $Currency
+                        redirect_url = $RedirectUrl
+                        customer     = @{ email = $CustomerEmail }
+                    }) | ConvertTo-Json -Depth 5
                 $webResponse = Invoke-WebRequest -Uri $uri -Method Post -Headers $headers -Body $bodyJson -ContentType 'application/json' -UseBasicParsing
             }
             'Verify' {
@@ -241,9 +382,7 @@ try {
                 $reader = New-Object System.IO.StreamReader($stream)
                 $rawBody = $reader.ReadToEnd()
             }
-            catch {
-                $rawBody = ''
-            }
+            catch { $rawBody = '' }
         }
         else {
             $statusCode = 0
@@ -254,55 +393,121 @@ try {
     $requestEndUtc = Get-UtcTimestamp
 
     $outcome = Get-CaptureOutcome -StatusCode $statusCode -RawBody $rawBody
-
     if (-not $outcome.Success) {
         $failPath = Join-Path $EvidenceRoot "FAILED-$Action-Test$TestLabel-$([guid]::NewGuid().ToString('N')).json"
         Set-Content -Path $failPath -Value $rawBody -Encoding UTF8
-        Write-Error "Capture failed (reason: $($outcome.Reason), status: $statusCode). No manifest written. Raw failure body saved (outside the repo) for debugging at: $failPath. Aborting."
+        Write-Error "Capture failed (reason: $($outcome.Reason), status: $statusCode). No stage file written. Raw failure body saved (outside the repo) at: $failPath. Aborting."
         exit 1
     }
 
-    $sanitized = ConvertTo-RedactedObject -Node $outcome.Parsed
-
-    $captureId = [guid]::NewGuid().ToString('N')
-    $rawFileName = "raw-$Action-Test$TestLabel-$captureId.json"
+    $rawFileName = "raw-$Action-Test$TestLabel-$CaptureSessionId-$([guid]::NewGuid().ToString('N').Substring(0,8)).json"
     $rawFilePath = Join-Path $EvidenceRoot $rawFileName
     Set-Content -Path $rawFilePath -Value $rawBody -Encoding UTF8 -NoNewline
     $rawHash = (Get-FileHash -Path $rawFilePath -Algorithm SHA256).Hash
 
-    $stage = [ordered]@{
-        test_label          = $TestLabel
-        action              = $Action
-        endpoint            = $uri
-        tx_ref_sha256       = if ($txRefToUse) { Get-Sha256Hex -Text $txRefToUse } elseif ($TxRef) { Get-Sha256Hex -Text $TxRef } else { $null }
-        request_start_utc   = $requestStartUtc
-        request_end_utc     = $requestEndUtc
-        http_status         = $statusCode
-        raw_response_sha256 = $rawHash
-        sanitized_response  = $sanitized
-    }
-    $stageJson = $stage | ConvertTo-Json -Depth 12
-    $stagePath = Join-Path $EvidenceRoot "stage-$Action-Test$TestLabel-$captureId.json"
-    Set-Content -Path $stagePath -Value $stageJson -Encoding UTF8 -NoNewline
+    $evidenceFields = Get-AllowlistedEvidenceFields -Node $outcome.Parsed
 
-    Write-Host ""
-    Write-Host "$Action capture complete for Test$TestLabel." -ForegroundColor Green
-    Write-Host "  Raw (unredacted) response: $rawFilePath  (retained -- never deleted by this script)"
-    Write-Host "  Raw response SHA-256:      $rawHash"
-    Write-Host "  Stage file:                $stagePath"
-    Write-Host ""
-    if ($Action -eq 'Verify') {
-        Write-Host "Next: run -Action FinalizeManifest -TestLabel $TestLabel -PaymentCompletionObservedUtc <the UTC time you observed checkout success>" -ForegroundColor Cyan
+    if ($Action -eq 'CreateCheckout') {
+        $checkoutOpenedUtc = Get-UtcTimestamp
+        try {
+            Start-Process $uri -ErrorAction SilentlyContinue | Out-Null
+        }
+        catch { }
+        # checkout_opened_utc is captured immediately around the attempt to
+        # open the hosted checkout URL, whether or not Start-Process actually
+        # succeeded (e.g. headless environments) -- it marks the moment this
+        # tool handed off to the operator, which is what the timeline needs.
+
+        $stage = [ordered]@{
+            capture_session_id      = $CaptureSessionId
+            test_label              = $TestLabel
+            action                   = 'CreateCheckout'
+            endpoint                 = $uri
+            tx_ref_sha256            = Get-Sha256Hex -Text $txRefToUse
+            request_start_utc       = $requestStartUtc
+            request_end_utc         = $requestEndUtc
+            checkout_opened_utc     = $checkoutOpenedUtc
+            http_status              = $statusCode
+            raw_response_sha256     = $rawHash
+            provider_evidence_fields = $evidenceFields
+        }
+        $stagePath = Join-Path $EvidenceRoot "stage-CreateCheckout-Test$TestLabel-$CaptureSessionId.json"
+        Set-Content -Path $stagePath -Value ($stage | ConvertTo-Json -Depth 12) -Encoding UTF8 -NoNewline
+
+        Write-Host ""
+        Write-Host "CreateCheckout complete for Test$TestLabel." -ForegroundColor Green
+        Write-Host "  CAPTURE SESSION ID (save this -- every later step needs it exactly): $CaptureSessionId" -ForegroundColor Magenta
+        Write-Host "  Stage file: $stagePath"
+        Write-Host ""
+        if ($TestLabel -eq 'B') {
+            Write-Host "Test B: wait at least 10 minutes AFTER checkout_opened_utc before completing payment." -ForegroundColor Cyan
+        }
+        Write-Host "Next: complete the hosted checkout, then run -Action ObservePaymentSuccess -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId" -ForegroundColor Cyan
+    }
+    elseif ($Action -eq 'Verify') {
+        $providerTxRef = Get-DataField -Parsed $outcome.Parsed -FieldName 'tx_ref'
+        if ([string]::IsNullOrWhiteSpace($providerTxRef)) {
+            Write-Error "Verify response did not contain data.tx_ref -- cannot bind this verification to the checkout session. No stage file written."
+            exit 1
+        }
+        $providerTxRefSha256 = Get-Sha256Hex -Text $providerTxRef
+        if ($providerTxRefSha256 -ne $checkoutStageForVerify.tx_ref_sha256) {
+            Write-Error "tx_ref MISMATCH: the verify response's own tx_ref does not match the tx_ref this session's CreateCheckout generated. This verification does NOT describe the same transaction as this capture session. No stage file written -- this is exactly the cross-transaction contamination this check exists to prevent."
+            exit 1
+        }
+
+        $providerTransactionId = Get-DataField -Parsed $outcome.Parsed -FieldName 'id'
+        $transactionIdSha256 = if ($providerTransactionId) { Get-Sha256Hex -Text $providerTransactionId } else { Get-Sha256Hex -Text $TransactionId }
+
+        $timeline = Test-TimelineOrdering `
+            -CheckoutRequestStartUtc $checkoutStageForVerify.request_start_utc `
+            -CheckoutRequestEndUtc $checkoutStageForVerify.request_end_utc `
+            -CheckoutOpenedUtc $checkoutStageForVerify.checkout_opened_utc `
+            -PaymentCompletionObservedUtc $observeStageForVerify.payment_completion_observed_utc `
+            -VerifyRequestStartUtc $requestStartUtc `
+            -VerifyRequestEndUtc $requestEndUtc `
+            -IsTestB ($TestLabel -eq 'B')
+
+        if (-not $timeline.Valid) {
+            Write-Error "Timeline validation failed: $($timeline.Reason). No stage file written."
+            exit 1
+        }
+
+        $stage = [ordered]@{
+            capture_session_id           = $CaptureSessionId
+            test_label                   = $TestLabel
+            action                        = 'Verify'
+            endpoint                      = $uri
+            tx_ref_sha256                 = $providerTxRefSha256
+            transaction_id_sha256         = $transactionIdSha256
+            tx_ref_hash_matches_checkout  = $true
+            request_start_utc            = $requestStartUtc
+            request_end_utc              = $requestEndUtc
+            http_status                   = $statusCode
+            raw_response_sha256          = $rawHash
+            provider_evidence_fields      = $evidenceFields
+            timeline_valid                = $true
+        }
+        $stagePath = Join-Path $EvidenceRoot "stage-Verify-Test$TestLabel-$CaptureSessionId.json"
+        Set-Content -Path $stagePath -Value ($stage | ConvertTo-Json -Depth 12) -Encoding UTF8 -NoNewline
+
+        Write-Host ""
+        Write-Host "Verify complete for Test$TestLabel -- tx_ref confirmed to match this capture session." -ForegroundColor Green
+        Write-Host "  Stage file: $stagePath"
+        Write-Host ""
+        Write-Host "Next: -Action FinalizeManifest -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId" -ForegroundColor Cyan
+    }
+    else {
+        # ReferenceLookup -- supplemental only, not written as a required stage.
+        Write-Host ""
+        Write-Host "ReferenceLookup complete (SUPPLEMENTAL ONLY -- not used by FinalizeManifest)." -ForegroundColor Green
+        Write-Host "  Raw response SHA-256: $rawHash"
+        Write-Host "  Allowlisted fields: $($evidenceFields | ConvertTo-Json -Depth 6)"
     }
 }
 finally {
-    # --- Zero/remove every secret-bearing variable, always, even on failure ---
-    if ($secretPlain) {
-        $secretPlain = $null
-    }
-    if ($bstr -ne [IntPtr]::Zero) {
-        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-    }
+    if ($secretPlain) { $secretPlain = $null }
+    if ($bstr -ne [IntPtr]::Zero) { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
     if ($headers) {
         $headers.Authorization = $null
         Remove-Variable -Name headers -ErrorAction SilentlyContinue
