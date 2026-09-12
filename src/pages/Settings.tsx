@@ -23,7 +23,7 @@ import {
   licenceBadgeVariant,
   EFFECTIVE_END_LABEL,
 } from "@/lib/commercial/billingDisplay";
-import { CheckoutUpgradeButton, intervalLabelFor } from "@/components/commercial/CheckoutUpgradeButton";
+import { CheckoutUpgradeButton, intervalLabelFor, type ResolvedOfferData } from "@/components/commercial/CheckoutUpgradeButton";
 
 // ─────────────────────────────────────────────────────────────
 // Settings — CFOClose Ω3-BRAND
@@ -76,10 +76,34 @@ export default function Settings() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const { logAction } = useAuditLog();
   const { summary: billing, loading: billingLoading, error: billingError } = useBillingSummary();
+  // Ω3-CHECKOUT audit HIGH fix (pricing parity): same discipline as
+  // Pricing.tsx — the static "$X/year or $Y/month" reference text above
+  // the renewal button is marketing copy, never checkout authority. `null`
+  // means "not yet proven either way" (never a silent pass).
+  const [renewalPricingParityOk, setRenewalPricingParityOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/auth");
   }, [user, authLoading, navigate]);
+
+  useEffect(() => {
+    // A parity verdict from a previous render (or a previous billing
+    // interval) must never be displayed against the current one.
+    setRenewalPricingParityOk(null);
+  }, [billing?.planCode, billing?.billingInterval]);
+
+  function handleRenewalOfferResolved(data: ResolvedOfferData | null) {
+    if (data?.resolution !== "AVAILABLE" || data.amount_minor == null || !data.currency_code) {
+      setRenewalPricingParityOk(null);
+      return;
+    }
+    const expectedAmountMinor = Math.round(
+      (billing?.billingInterval === "ANNUAL" ? PRICING.ANNUAL_USD : PRICING.MONTHLY_USD) * 100,
+    );
+    setRenewalPricingParityOk(
+      data.amount_minor === expectedAmountMinor && data.currency_code === PRICING.CURRENCY_CODE,
+    );
+  }
 
   useEffect(() => {
     if (user) fetchProfile();
@@ -350,11 +374,18 @@ export default function Settings() {
                           licence's effective_end automatically. */}
                       {billing.planCode === "PAID" && billing.billingInterval && (
                         <div className="max-w-xs mb-2">
-                          <CheckoutUpgradeButton
-                            billingStatus={null}
-                            planCode={billing.planCode}
-                            billingInterval={billing.billingInterval}
-                          />
+                          {renewalPricingParityOk === false ? (
+                            <p className="text-xs text-muted-foreground text-center py-2 border border-border">
+                              Pricing verification issue — please contact support to renew.
+                            </p>
+                          ) : (
+                            <CheckoutUpgradeButton
+                              billingStatus={null}
+                              planCode={billing.planCode}
+                              billingInterval={billing.billingInterval}
+                              onOfferResolved={handleRenewalOfferResolved}
+                            />
+                          )}
                         </div>
                       )}
 

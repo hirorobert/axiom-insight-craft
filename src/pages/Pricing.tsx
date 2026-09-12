@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { PRICING, BRAND } from "@/constants/copy";
-import { CheckoutUpgradeButton } from "@/components/commercial/CheckoutUpgradeButton";
+import { CheckoutUpgradeButton, type ResolvedOfferData } from "@/components/commercial/CheckoutUpgradeButton";
 
 // ─────────────────────────────────────────────────────────────
 // /pricing — CFOClose Pricing Page
@@ -50,11 +50,42 @@ const PAID_FEATURES = [
 
 export default function Pricing() {
   const [interval, setInterval] = useState<BillingInterval>("annual");
+  // Ω3-CHECKOUT audit HIGH fix (pricing parity): this page's own PRICING
+  // constants are marketing copy, not authority — resolve_commercial_offer
+  // (via CheckoutUpgradeButton's onOfferResolved) is the sole source of
+  // truth for what checkout will actually charge. `null` means "not yet
+  // proven either way" (still loading, or the offer is genuinely
+  // UNAVAILABLE/AMBIGUOUS/UNKNOWN for a reason CheckoutUpgradeButton
+  // already surfaces on its own) — never treated as a silent pass. Only an
+  // explicit `false` disables checkout here.
+  const [pricingParityOk, setPricingParityOk] = useState<boolean | null>(null);
 
   const monthlyDisplay = `${PRICING.CURRENCY_CODE} ${PRICING.MONTHLY_USD}/month`;
   const annualDisplay  = `${PRICING.CURRENCY_CODE} ${PRICING.ANNUAL_USD}/year`;
   const annualSavingDisplay = `Save ${PRICING.CURRENCY_CODE} ${PRICING.ANNUAL_SAVING_USD}`;
   const annualFullDisplay   = `${PRICING.CURRENCY_CODE} ${PRICING.ANNUAL_FULL_USD}/year`;
+
+  const expectedAmountMinor = Math.round(
+    (interval === "annual" ? PRICING.ANNUAL_USD : PRICING.MONTHLY_USD) * 100,
+  );
+
+  function handleIntervalChange(next: BillingInterval) {
+    // A parity verdict for the PREVIOUS interval must never be displayed
+    // against the NEW one — reset to "not yet proven" until the resolver
+    // responds again for this interval.
+    setPricingParityOk(null);
+    setInterval(next);
+  }
+
+  function handleOfferResolved(data: ResolvedOfferData | null) {
+    if (data?.resolution !== "AVAILABLE" || data.amount_minor == null || !data.currency_code) {
+      setPricingParityOk(null);
+      return;
+    }
+    setPricingParityOk(
+      data.amount_minor === expectedAmountMinor && data.currency_code === PRICING.CURRENCY_CODE,
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -81,7 +112,7 @@ export default function Pricing() {
           <div className="flex justify-center mb-10">
             <div className="inline-flex border border-border" role="group" aria-label="Billing interval">
               <button
-                onClick={() => setInterval("monthly")}
+                onClick={() => handleIntervalChange("monthly")}
                 aria-pressed={interval === "monthly"}
                 className={`px-6 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
                   interval === "monthly"
@@ -92,7 +123,7 @@ export default function Pricing() {
                 Monthly
               </button>
               <button
-                onClick={() => setInterval("annual")}
+                onClick={() => handleIntervalChange("annual")}
                 aria-pressed={interval === "annual"}
                 className={`px-6 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 border-l border-border ${
                   interval === "annual"
@@ -185,12 +216,25 @@ export default function Pricing() {
                   Fails closed to "not yet available" on its own if the
                   server hasn't yet resolved a purchasable offer for this
                   plan/interval (including while platform_state remains
-                  PAYMENTS_DISABLED) — never a client-side guess. */}
-              <CheckoutUpgradeButton
-                billingStatus={null}
-                planCode="PAID"
-                billingInterval={interval === "annual" ? "ANNUAL" : "MONTHLY"}
-              />
+                  PAYMENTS_DISABLED) — never a client-side guess.
+                  Audit HIGH fix (pricing parity): this page's own PRICING
+                  copy above is never itself the checkout authority — if the
+                  server-resolved offer's economics explicitly DISAGREE with
+                  that copy, checkout is disabled here rather than letting a
+                  customer pay an amount that doesn't match what they were
+                  shown. */}
+              {pricingParityOk === false ? (
+                <p className="text-xs text-muted-foreground text-center py-2 border border-border">
+                  Pricing verification issue — please contact support to upgrade.
+                </p>
+              ) : (
+                <CheckoutUpgradeButton
+                  billingStatus={null}
+                  planCode="PAID"
+                  billingInterval={interval === "annual" ? "ANNUAL" : "MONTHLY"}
+                  onOfferResolved={handleOfferResolved}
+                />
+              )}
               <p className="text-[10px] text-muted-foreground/60 text-center mt-2">
                 Start with a free workspace to explore the platform first.{" "}
                 <Link to="/auth" className="underline hover:text-foreground">Start free</Link>

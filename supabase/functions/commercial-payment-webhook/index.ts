@@ -39,6 +39,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getFlutterwaveAdapter } from '../_shared/payments/providers/flutterwave.ts';
 import { authoriseCommit, sha256Hex } from '../_shared/payments/authority.ts';
 import { generateCorrelationId } from '../_shared/correlationId.ts';
+import { FLUTTERWAVE_CAPABILITIES } from '../_shared/payments/routing.ts';
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -242,6 +243,12 @@ Deno.serve(async (req: Request) => {
       p_verification_method:      tx.verificationMethod,
       p_idempotency_key:          idempotencyKey,
       p_saff_reference:           tx.saffReference,
+      // Ω3-CHECKOUT (HIGH fix): the environment THIS webhook is currently
+      // running under — validated against the value snapshotted on the
+      // intent at checkout-creation time. commit_verified_commercial_
+      // payment fails closed on any mismatch or NULL, never silently
+      // committing across a sandbox/production boundary mismatch.
+      p_provider_environment:     FLUTTERWAVE_CAPABILITIES.environment,
     }
   );
 

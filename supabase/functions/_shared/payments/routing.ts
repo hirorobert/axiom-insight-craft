@@ -31,7 +31,7 @@ export interface OfferRoutingInput {
 }
 
 export type ProviderSelectionResult =
-  | { selected: true; provider: PaymentProvider }
+  | { selected: true; provider: PaymentProvider; environment: 'sandbox' | 'production' }
   | { selected: false; reason: 'PAYMENT_PROVIDER_UNAVAILABLE' | 'OFFER_RESTRICTED_TO_UNAVAILABLE_PROVIDER' };
 
 /**
@@ -54,7 +54,7 @@ export function selectPaymentProvider(
   if (offer.providerRestriction) {
     const restricted = eligible.find((p) => p.provider === offer.providerRestriction);
     return restricted
-      ? { selected: true, provider: restricted.provider }
+      ? { selected: true, provider: restricted.provider, environment: restricted.environment }
       : { selected: false, reason: 'OFFER_RESTRICTED_TO_UNAVAILABLE_PROVIDER' };
   }
 
@@ -62,7 +62,7 @@ export function selectPaymentProvider(
     return { selected: false, reason: 'PAYMENT_PROVIDER_UNAVAILABLE' };
   }
 
-  return { selected: true, provider: eligible[0].provider };
+  return { selected: true, provider: eligible[0].provider, environment: eligible[0].environment };
 }
 
 // ── Flutterwave capabilities ────────────────────────────────────────────────

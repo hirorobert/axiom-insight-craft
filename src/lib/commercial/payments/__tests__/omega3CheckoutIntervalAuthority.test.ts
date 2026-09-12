@@ -291,8 +291,9 @@ describe("Atomic checkout-intent acquisition — partial unique index", () => {
     expect(checkoutCode).toMatch(/\.in\('status', \['CREATED', 'PENDING'\]\)/);
   });
 
-  it("commercial-create-checkout safely reuses a still-open PENDING intent with a provider_checkout_url instead of creating a second one", () => {
-    expect(checkoutCode).toMatch(/existingIntent\.status === 'PENDING' && existingIntent\.provider_checkout_url/);
+  it("commercial-create-checkout safely reuses a still-open intent with a provider_checkout_url instead of creating a second one — Ω∞ A+ audit HIGH fix additionally requires the reused link to be UNEXPIRED, since a status filter alone said nothing about whether the hosted link itself had already expired", () => {
+    expect(checkoutCode).toMatch(/existingIntent\.provider_checkout_url && notExpired/);
+    expect(checkoutCode).toMatch(/const notExpired = existingIntent\.expires_at > nowIso;/);
   });
 
   it("commercial-create-checkout refuses to start a second concurrent provider checkout when another request for the same offer is genuinely mid-flight (status CREATED, no url yet)", () => {
@@ -303,8 +304,10 @@ describe("Atomic checkout-intent acquisition — partial unique index", () => {
     expect(checkoutCode).toMatch(/intentErr\?\.code === '23505'/);
   });
 
-  it("an expired-but-unresolved open intent is self-healed (marked EXPIRED) rather than permanently blocking new attempts", () => {
-    expect(checkoutCode).toMatch(/status: 'EXPIRED', completed_at: nowIso/);
+  it("an expired-but-unresolved open intent is self-healed rather than permanently blocking new attempts — EXPIRED when a hosted link had existed, FAILED when one never did (Ω∞ A+ audit HIGH fix: an age-based window also self-heals a no-url intent that is old enough to be abandoned, rather than blocking every future retry forever)", () => {
+    const selfHealBlock = checkoutCode.match(/status: existingIntent\.provider_checkout_url \? 'EXPIRED' : 'FAILED',\s*\n\s*completed_at: nowIso,/);
+    expect(selfHealBlock).not.toBeNull();
+    expect(checkoutCode).toMatch(/const IN_FLIGHT_WINDOW_MS = 30_000;/);
   });
 });
 

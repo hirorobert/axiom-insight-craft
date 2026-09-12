@@ -48,26 +48,43 @@ interface Props {
   /** Plan the upgrade button targets. Defaults to the paid firm-licence plan. */
   planCode?: string;
   /**
-   * Explicit, caller-supplied commercial market code (e.g. "TZ"). SAFF has
-   * no authoritative persisted commercial-market source for a customer or
-   * workspace today — this is NEVER derived here from accounting
-   * jurisdiction, entity/company country, user locale, or currency. Those
-   * are different concepts entirely (accounting jurisdiction governs
-   * statutory tax rules; commercial market governs pricing/offer
-   * selection) and conflating them would silently encode a guess into a
-   * financial-commerce decision.
+   * Explicit, caller-supplied commercial market code (e.g. "TZ"), used
+   * ONLY for the DISPLAY resolution call (resolve_commercial_offer) below
+   * — NEVER derived here from accounting jurisdiction, entity/company
+   * country, user locale, or currency. Those are different concepts
+   * entirely (accounting jurisdiction governs statutory tax rules;
+   * commercial market governs pricing/offer selection) and conflating
+   * them would silently encode a guess into a financial-commerce
+   * decision.
    *
-   * Omitting this prop (undefined) is not a TZ default and never becomes
-   * one: it resolves to the neutral 'GLOBAL' market on the server, exactly
-   * as passing "GLOBAL" explicitly would. The identical value is threaded
-   * into BOTH the display resolution (resolve_commercial_offer) and the
-   * checkout creation (commercial-create-checkout) calls below, so the
-   * customer can never see one market's economics and then check out
-   * against a different one (DISPLAY_MARKET == CHECKOUT_MARKET). A future
-   * Pricing page with a real market-selection UI can pass a genuine value
-   * through this same prop with no further plumbing changes.
+   * Ω3-CHECKOUT correction: this prop is NO LONGER threaded into checkout
+   * creation. The charter's own frozen launch decision ("Market for this
+   * launch: server-owned GLOBAL") and trust boundary ("the browser may
+   * submit only: planCode, billingInterval") mean commercial-create-
+   * checkout never accepts a market from any caller, including this
+   * component — it always resolves against GLOBAL server-side, regardless
+   * of what this prop is set to. Omitting this prop (undefined) is not a
+   * TZ default and never becomes one: it resolves to the neutral 'GLOBAL'
+   * market for display too, exactly as passing "GLOBAL" explicitly would.
+   * A future Pricing page with a real market-selection UI could still use
+   * this prop to show market-specific PRICING, but doing so would require
+   * a corresponding, deliberate charter change to the checkout trust
+   * boundary itself before it could ever affect what is actually
+   * purchased — not merely passing a new prop value here.
    */
   marketCode?: string;
+  /**
+   * Ω3-CHECKOUT audit HIGH fix (pricing parity): fired with the RAW
+   * resolve_commercial_offer() response every time this component's own
+   * display-resolution effect completes — including with `null` while a
+   * result is still loading or the offer is UNAVAILABLE/AMBIGUOUS/UNKNOWN.
+   * Lets a caller (e.g. Pricing.tsx) compare the server-resolved economics
+   * against its own static marketing copy and react to a mismatch, without
+   * this component duplicating that policy or making a second RPC call of
+   * its own. Optional — omitting it changes nothing about this component's
+   * own behavior.
+   */
+  onOfferResolved?: (data: ResolvedOfferData | null) => void;
 }
 
 type OfferDisplayState =
@@ -142,7 +159,7 @@ export function shouldShowUpgradeAction(
   return !(alreadyOnThisPlan && licenceIsCurrent);
 }
 
-export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, planCode = "PAID", billingInterval, marketCode }: Props) {
+export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, planCode = "PAID", billingInterval, marketCode, onOfferResolved }: Props) {
   const [loading, setLoading] = useState(false);
   const [offer, setOffer] = useState<OfferDisplayState>({ phase: "LOADING" });
   const navigate = useNavigate();
@@ -163,8 +180,14 @@ export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, p
       });
       if (cancelled) return;
       setOffer(deriveOfferDisplayState(data));
+      onOfferResolved?.(data ?? null);
     })();
     return () => { cancelled = true; };
+    // onOfferResolved intentionally excluded: callers may pass a fresh
+    // closure each render, and this effect's identity must stay tied to
+    // the actual resolution inputs (plan/interval/market), not the
+    // caller's own render cadence.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planCode, billingInterval, marketCode]);
 
   if (!shouldShowUpgradeAction(currentPlanCode, planCode, billingStatus)) {
@@ -189,7 +212,7 @@ export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, p
         return;
       }
 
-      const { data, error } = await createCheckoutIntent(planCode, billingInterval, marketCode);
+      const { data, error } = await createCheckoutIntent(planCode, billingInterval);
 
       if (error || !data) {
         toast.error(error ?? "Could not start checkout. Please try again.");

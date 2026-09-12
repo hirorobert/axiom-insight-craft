@@ -34,10 +34,24 @@ export function authoriseCommit(
     return { authorised: false, reason: `INTENT_ALREADY_RESOLVED:${intent.status}` };
   }
 
-  // Intent must not be expired
-  if (new Date() > new Date(intent.expires_at)) {
-    return { authorised: false, reason: 'INTENT_EXPIRED' };
-  }
+  // CORRECTED (Codex Ω∞ A+ audit, BLOCKER): this function previously
+  // rejected an already-independently-verified SUCCEEDED payment purely
+  // because local wall-clock time had passed intent.expires_at — directly
+  // contradicting TIMESTAMP_AUTHORITY_DECISION.md's own stated invariant
+  // ("checkout expires_at controls only whether a NEW provider checkout
+  // page may be opened... an already-completed, independently-verified
+  // provider charge is never invalidated by that local expiry"). A
+  // customer whose webhook or status-poll verification arrives even
+  // slightly late (network delay, provider retry backoff, a slow customer
+  // completing checkout near the 1-hour boundary) would have been charged
+  // by Flutterwave — Gate A and Gate B both already passed by the time
+  // this function runs — and then PERMANENTLY denied the licence they
+  // paid for, with no automatic recovery path. expires_at is checked ONLY
+  // where it belongs: gating whether commercial-create-checkout may still
+  // treat an open intent as reusable / whether a NEW provider checkout
+  // page may be opened for it. It is never re-checked here, at the
+  // payment-authority boundary, once a provider has already independently
+  // confirmed SUCCEEDED.
 
   // Payment must be SUCCEEDED
   if (transaction.normalizedStatus !== 'SUCCEEDED') {

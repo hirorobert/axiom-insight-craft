@@ -156,18 +156,21 @@ interface RawCheckoutStatusResponse {
 
 /**
  * Call the commercial-create-checkout Edge Function.
- * Browser sends ONLY a plan code, a MANDATORY billing interval (MONTHLY or
- * ANNUAL — the Ω3-CHECKOUT trust boundary), and an optional market
- * suggestion — the server independently resolves the actual commercial
- * offer (plan + interval + market + currency + price) via
- * resolve_commercial_offer(); it never trusts a browser-supplied amount or
- * currency, and never derives market from locale/IP. Never accepted:
- * price, amount, currency, paid=true, any provider secret.
+ * Browser sends ONLY a plan code and a MANDATORY billing interval (MONTHLY
+ * or ANNUAL) — nothing else. The Ω3-CHECKOUT trust boundary is exactly
+ * these two fields; market is NOT accepted here even optionally — the
+ * server always resolves against GLOBAL (this launch's frozen, server-
+ * owned market decision), and the Edge Function itself ignores any
+ * marketCode field a caller might still send directly via the HTTP API.
+ * The server independently resolves the actual commercial offer (plan +
+ * interval + market + currency + price) via resolve_commercial_offer();
+ * it never trusts a browser-supplied amount, currency, or market. Never
+ * accepted: price, amount, currency, market, paid=true, any provider
+ * secret.
  */
 export async function createCheckoutIntent(
   planCode: string,
   billingInterval: "MONTHLY" | "ANNUAL",
-  marketCode?: string,
 ): Promise<{ data: CheckoutIntentResponse | null; error: string | null }> {
   const { supabase } = await import("@/integrations/supabase/client");
   const { data: { session } } = await supabase.auth.getSession();
@@ -181,7 +184,7 @@ export async function createCheckoutIntent(
         "Authorization": `Bearer ${session.access_token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ planCode, billingInterval, marketCode }),
+      body: JSON.stringify({ planCode, billingInterval }),
     },
   );
   const json = await res.json();

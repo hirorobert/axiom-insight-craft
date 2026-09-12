@@ -157,9 +157,41 @@ describe("commercial-create-checkout — provider never reached on auth failure"
 });
 
 describe("commercial-payment-status — genuine owner-scoping, no cross-customer leakage", () => {
-  it("no longer creates the RPC client with the service-role key", () => {
-    expect(paymentStatusCode).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY/);
-    expect(paymentStatusCode).not.toMatch(/SERVICE_KEY/);
+  // CORRECTED (Ω3-CHECKOUT, BLOCKER fix — webhook/status convergence): a
+  // service-role client is now intentionally present, but ONLY for the
+  // independent verify+commit fallback (commit_verified_commercial_payment
+  // requires service_role, same as the webhook) — never for the READ path
+  // that proves ownership of the polled reference. The tests below assert
+  // that ownership-proving invariant directly, and separately confirm the
+  // service-role usage is narrowly scoped to the commit RPC call alone.
+  it("get_checkout_status is still called via the anon-key + caller's-own-JWT client — the ownership-proving read is unaffected by the new service-role fallback", () => {
+    const readClientBlock = paymentStatusCode.match(/const supabase = createClient\(SUPABASE_URL, SUPABASE_ANON_KEY, \{[\s\S]*?\}\);/)?.[0] ?? "";
+    expect(readClientBlock).toMatch(/SUPABASE_ANON_KEY/);
+    expect(readClientBlock).not.toMatch(/SERVICE_KEY/);
+    expect(paymentStatusCode).toMatch(/supabase\.rpc\('get_checkout_status'/);
+  });
+
+  it("the service-role client exists ONLY for the commit_verified_commercial_payment fallback call, constructed separately from (and after) the ownership-proving anon-key client", () => {
+    const anonClientIndex = paymentStatusCode.indexOf("createClient(SUPABASE_URL, SUPABASE_ANON_KEY");
+    const serviceClientIndex = paymentStatusCode.indexOf("createClient(SUPABASE_URL, SERVICE_KEY)");
+    expect(anonClientIndex).toBeGreaterThan(-1);
+    expect(serviceClientIndex).toBeGreaterThan(-1);
+    expect(anonClientIndex).toBeLessThan(serviceClientIndex);
+    // The service-role client is used for exactly one RPC call.
+    const serviceClientToEnd = paymentStatusCode.slice(serviceClientIndex);
+    const rpcCallsAfter = serviceClientToEnd.match(/serviceClient\.rpc\(/g) ?? [];
+    expect(rpcCallsAfter.length).toBe(1);
+    expect(serviceClientToEnd).toMatch(/serviceClient\.rpc\(\s*'commit_verified_commercial_payment'/);
+  });
+
+  it("the independent verify+commit fallback only runs for a non-terminal (CREATED/PENDING) status — never re-attempted for an already-terminal intent", () => {
+    expect(paymentStatusCode).toMatch(/status === 'CREATED' \|\| status === 'PENDING'/);
+  });
+
+  it("the fallback is wrapped so its own failure can never break the underlying successful read this endpoint already produced", () => {
+    const fallbackBlock = paymentStatusCode.match(/if \(status === 'CREATED' \|\| status === 'PENDING'\) \{[\s\S]*?\n {2}\}/)?.[0] ?? "";
+    expect(fallbackBlock).toMatch(/try \{/);
+    expect(fallbackBlock).toMatch(/catch \(fallbackErr\)/);
   });
 
   it("creates the RPC client with the anon key and forwards the caller's own bearer token — preserving auth.uid() inside get_checkout_status", () => {
@@ -191,10 +223,15 @@ describe("payment firewall — zero semantic change outside the auth-helper inte
     expect(createCheckoutCode).toMatch(/expected_amount_minor:\s*offer\.amount_minor,/);
   });
 
-  it("neither file references the webhook, Gate A/B verification, commit_verified_commercial_payment, licence, or entitlement authority", () => {
-    for (const code of [createCheckoutCode, paymentStatusCode]) {
-      expect(code).not.toMatch(/verifyWebhookAuthenticity|verifyTransaction|commit_verified_commercial_payment|commercial_licences|entitlement/i);
-    }
+  it("commercial-create-checkout never references webhook/Gate-B verification, commit_verified_commercial_payment, licence, or entitlement authority — it only ever creates an intent, never commits one", () => {
+    expect(createCheckoutCode).not.toMatch(/verifyWebhookAuthenticity|verifyTransaction|commit_verified_commercial_payment|commercial_licences|entitlement/i);
+  });
+
+  it("commercial-payment-status (Ω3-CHECKOUT correction) DOES now reference verifyTransactionByReference and commit_verified_commercial_payment — the intentional independent verify+commit fallback for a lost/delayed webhook — but still never references Gate A webhook-signature verification or entitlement resolution, which remain the webhook's and get_effective_entitlement's own exclusive concerns", () => {
+    expect(paymentStatusCode).toMatch(/verifyTransactionByReference/);
+    expect(paymentStatusCode).toMatch(/commit_verified_commercial_payment/);
+    expect(paymentStatusCode).not.toMatch(/verifyWebhookAuthenticity/i);
+    expect(paymentStatusCode).not.toMatch(/entitlement/i);
   });
 
   it("neither file requires commercial_admin — both remain ordinary-customer entry points", () => {

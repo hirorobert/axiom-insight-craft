@@ -2,16 +2,20 @@
  * commercial-create-checkout — Ω2-G Edge Function
  *
  * Creates a checkout intent server-side and returns a hosted payment URL.
- * Browser sends: { planCode: string, billingInterval: string, marketCode?: string }
- * Server resolves: the commercial offer (plan + interval + market + currency
- * + price), routes to an eligible configured provider, and creates the
- * intent.
+ * Browser sends: { planCode: string, billingInterval: string } — nothing
+ * else. Server resolves: the commercial offer (plan + interval + market +
+ * currency + price), routes to an eligible configured provider, and
+ * creates the intent.
  *
- * Browser NEVER supplies price, currency, offer identity, billing owner, or
- * entitlements. Browser may suggest a market (e.g. from a UI toggle a user
- * explicitly picked) but the server independently RESOLVES the offer via
- * resolve_commercial_offer() — it never trusts a browser-supplied amount or
- * currency, and never derives market from IP/locale.
+ * Browser NEVER supplies price, currency, market, offer identity, billing
+ * owner, or entitlements. Market is ALWAYS 'GLOBAL' — the Ω3-CHECKOUT
+ * charter's own frozen decision ("Market for this launch: server-owned
+ * GLOBAL") and trust boundary ("the browser may submit only: planCode,
+ * billingInterval") are absolute, not a default that a caller could
+ * override. A prior revision accepted an optional marketCode field from
+ * the request body; that capability is removed entirely, not merely
+ * unused by the current UI — a direct API caller could otherwise request
+ * a DIFFERENT market's offer/pricing than what the UI ever displays.
  *
  * Ω3-CHECKOUT correction: billingInterval (MONTHLY or ANNUAL — the ONLY two
  * values the Ω3-CHECKOUT charter authorizes) is now MANDATORY from the
@@ -88,20 +92,19 @@ Deno.serve(async (req: Request) => {
   }
   const user = { id: authResult.userId, email: authResult.email };
 
-  // 2. Parse request — browser supplies planCode + billingInterval + an
-  //    optional market suggestion. Neither price nor currency is ever
-  //    accepted here. billingInterval is the ONLY other economic-shaping
-  //    input the browser may supply (Ω3-CHECKOUT trust boundary), and it
-  //    is validated against the exact same two-value vocabulary the
-  //    charter authorizes — never passed through unchecked.
+  // 2. Parse request — browser supplies planCode + billingInterval ONLY
+  //    (Ω3-CHECKOUT trust boundary). Neither price, currency, NOR market
+  //    is ever accepted from the request body — market is hardcoded
+  //    GLOBAL, matching the charter's own frozen "server-owned GLOBAL"
+  //    launch decision. A body field named marketCode, if present, is
+  //    silently ignored, never read.
   let planCode: string;
   let billingInterval: string;
-  let marketCode: string;
+  const marketCode = 'GLOBAL';
   try {
     const body = await req.json();
     planCode = body.planCode;
     billingInterval = body.billingInterval;
-    marketCode = typeof body.marketCode === 'string' && body.marketCode ? body.marketCode : 'GLOBAL';
     if (!planCode || typeof planCode !== 'string') throw new Error('planCode required');
     if (billingInterval !== 'MONTHLY' && billingInterval !== 'ANNUAL') {
       return new Response(JSON.stringify({ error: 'billingInterval must be MONTHLY or ANNUAL', correlationId }), { status: 400 });
@@ -113,11 +116,12 @@ Deno.serve(async (req: Request) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
   // 3. Resolve the commercial offer server-side. Never trust a browser-
-  //    supplied amount/currency; never derive market from IP/locale.
-  //    billingInterval is passed through exactly as validated above —
-  //    resolve_commercial_offer treats it as mandatory and will itself
-  //    refuse an unsupported value, but this function never relies on
-  //    that as its only line of defense.
+  //    supplied amount/currency; market is always the hardcoded GLOBAL
+  //    constant above, never a request-body value. billingInterval is
+  //    passed through exactly as validated above — resolve_commercial_
+  //    offer treats it as mandatory and will itself refuse an unsupported
+  //    value, but this function never relies on that as its only line of
+  //    defense.
   const { data: resolution, error: resolveErr } = await supabase.rpc('resolve_commercial_offer', {
     p_plan_code: planCode,
     p_billing_interval: billingInterval,
@@ -167,6 +171,11 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'PAYMENT_PROVIDER_UNAVAILABLE', correlationId }), { status: 503 });
   }
   const provider = providerSelection.provider;
+  // Ω3-CHECKOUT (HIGH fix): snapshotted onto the intent below and
+  // independently re-validated by commit_verified_commercial_payment at
+  // commit time — never trusted implicitly across the gap between
+  // checkout creation and verification.
+  const providerEnvironment = providerSelection.environment;
 
   // 5. Resolve billing customer for this user
   const { data: billingCustomer, error: bcErr } = await supabase
@@ -202,39 +211,63 @@ Deno.serve(async (req: Request) => {
   //    Check for an already-open intent FIRST (the common, non-racing
   //    case never needs to hit the unique-constraint path at all); the
   //    genuinely concurrent case is still caught atomically below.
-  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  // HIGH fix: a CREATED intent with no provider_checkout_url yet is
+  // genuinely "in flight" ONLY for a short window after it was created —
+  // if step 11's own persistence update below ever fails (or the
+  // function crashes between steps 8 and 11), the intent would otherwise
+  // stay CREATED forever with no url, permanently blocking every future
+  // retry with a false CHECKOUT_ALREADY_IN_PROGRESS. Past this window, a
+  // CREATED-with-no-url row is treated as an abandoned attempt and self-
+  // healed to FAILED, exactly like an expired row below.
+  const IN_FLIGHT_WINDOW_MS = 30_000;
   const { data: existingIntent } = await supabase
     .from('payment_checkout_intents')
-    .select('id, saff_reference, expires_at, status, provider_checkout_url')
+    .select('id, saff_reference, expires_at, status, provider_checkout_url, created_at')
     .eq('billing_customer_id', billingCustomer.id)
     .eq('commercial_offer_id', offer.offer_id)
     .in('status', ['CREATED', 'PENDING'])
     .maybeSingle();
 
   if (existingIntent) {
-    if (existingIntent.expires_at > nowIso) {
-      if (existingIntent.status === 'PENDING' && existingIntent.provider_checkout_url) {
-        // Safe reuse: the SAME checkout the customer already started for
-        // this exact offer is still open — return it again rather than
-        // creating (and potentially provider-charging) a second one.
-        return new Response(JSON.stringify({
-          saffReference: existingIntent.saff_reference,
-          checkoutUrl:   existingIntent.provider_checkout_url,
-          expiresAt:     existingIntent.expires_at,
-          provider,
-          correlationId,
-        }), { status: 200, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
-      }
-      // status === 'CREATED': another request for this exact offer is
-      // mid-flight (the provider call below hasn't completed yet). Never
-      // start a second, concurrent provider-side checkout for the same
-      // offer — ask the caller to retry shortly instead.
-      return new Response(JSON.stringify({ error: 'CHECKOUT_ALREADY_IN_PROGRESS', correlationId }), { status: 409 });
+    const notExpired = existingIntent.expires_at > nowIso;
+    if (existingIntent.provider_checkout_url && notExpired) {
+      // Safe reuse: the SAME checkout the customer already started for
+      // this exact offer is still open AND its hosted link has not
+      // expired — return it again rather than creating (and potentially
+      // provider-charging) a second one.
+      return new Response(JSON.stringify({
+        saffReference: existingIntent.saff_reference,
+        checkoutUrl:   existingIntent.provider_checkout_url,
+        expiresAt:     existingIntent.expires_at,
+        provider,
+        correlationId,
+      }), { status: 200, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
     }
-    // Expired but never resolved by the customer — self-heal so a new
-    // attempt is never blocked by a stale row.
+    if (!existingIntent.provider_checkout_url && notExpired) {
+      const ageMs = nowMs - new Date(existingIntent.created_at).getTime();
+      if (ageMs < IN_FLIGHT_WINDOW_MS) {
+        // No url yet, but genuinely fresh — another request for this
+        // exact offer is very likely still mid-flight. Never start a
+        // second, concurrent provider-side checkout for the same offer —
+        // ask the caller to retry shortly instead.
+        return new Response(JSON.stringify({ error: 'CHECKOUT_ALREADY_IN_PROGRESS', correlationId }), { status: 409 });
+      }
+      // No url, and old enough that the prior attempt almost certainly
+      // failed or crashed before ever reaching step 11 — fall through to
+      // self-heal below rather than blocking every future retry forever.
+    }
+    // Either the hosted link expired, or the prior attempt is old enough
+    // to be considered abandoned (see above) — self-heal so a new attempt
+    // is never blocked by a stale row. EXPIRED is used when a real
+    // (possibly still-valid-looking) url existed but the window passed;
+    // FAILED is used when no url was ever successfully persisted.
     await supabase.from('payment_checkout_intents')
-      .update({ status: 'EXPIRED', completed_at: nowIso })
+      .update({
+        status: existingIntent.provider_checkout_url ? 'EXPIRED' : 'FAILED',
+        completed_at: nowIso,
+      })
       .eq('id', existingIntent.id);
   }
 
@@ -263,6 +296,7 @@ Deno.serve(async (req: Request) => {
         billing_interval:       offer.billing_interval,
         billing_interval_count: offer.billing_interval_count,
         provider,
+        provider_environment:   providerEnvironment,
         saff_reference:         saffReference,
         status:                 'CREATED',
         created_by_user_id:     user.id,
@@ -314,14 +348,34 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'Payment service temporarily unavailable. Please try again.', correlationId }), { status: 502 });
   }
 
-  // 11. Update intent with provider checkout reference
-  await supabase.from('payment_checkout_intents')
+  // 11. Update intent with provider checkout reference. Ω3-CHECKOUT
+  //     (HIGH fix): the prior revision never checked this update's own
+  //     error — if it silently failed, the intent stayed CREATED with no
+  //     provider_checkout_url recorded even though a real, already-
+  //     charged-if-completed provider checkout page WAS returned to the
+  //     browser below. The webhook path is unaffected either way (it
+  //     looks the intent up by saff_reference and accepts CREATED or
+  //     PENDING), but this function's OWN acquire-or-reuse logic (step
+  //     6.5) would then treat any retry as a false "in progress" forever.
+  //     A failure here is therefore logged loudly for operator visibility
+  //     — but the checkoutUrl is still genuinely valid and still returned
+  //     to the browser, since withholding a real, already-created
+  //     provider checkout over a bookkeeping write failure would be worse
+  //     (the step 6.5 age-based self-heal is what actually prevents the
+  //     permanent-block failure mode, independent of whether this
+  //     specific update succeeds).
+  const { error: persistErr } = await supabase.from('payment_checkout_intents')
     .update({
       status:                'PENDING',
       provider_checkout_ref: checkoutResult.providerRef,
       provider_checkout_url: checkoutResult.checkoutUrl,
     })
     .eq('id', acquiredIntent.id);
+  if (persistErr) {
+    console.error("Iron Dome: failed to persist provider_checkout_url onto intent — checkoutUrl is still returned to the browser, but step 6.5's age-based self-heal (not this row's own status) is what protects a future retry", {
+      correlationId, intentId: acquiredIntent.id, error: persistErr.message,
+    });
+  }
 
   // 12. Return SAFE response — no secrets, no raw provider data
   return new Response(JSON.stringify({

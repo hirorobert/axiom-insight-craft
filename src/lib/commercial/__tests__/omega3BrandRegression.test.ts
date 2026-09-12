@@ -174,7 +174,10 @@ describe("Ω3-BRAND · pricing and checkout guards", () => {
     expect(src).not.toMatch(/supabase\.functions\.invoke/);
     expect(src).not.toMatch(/\bcreateCheckoutIntent\(/);
     expect(src).toMatch(/<CheckoutUpgradeButton\b/);
-    expect(src).toMatch(/import \{ CheckoutUpgradeButton \} from "@\/components\/commercial\/CheckoutUpgradeButton";/);
+    // Ω3-CHECKOUT audit HIGH fix (pricing parity) also imports the
+    // ResolvedOfferData type alongside the component — still the SAME
+    // single source module, never a second/duplicated import path.
+    expect(src).toMatch(/import \{ CheckoutUpgradeButton,[^}]*\} from "@\/components\/commercial\/CheckoutUpgradeButton";/);
   });
 
   it("33 · Ω3-CHECKOUT — Settings.tsx (real source) invokes checkout/renewal ONLY through the shared CheckoutUpgradeButton component, never a direct/duplicated call of its own", () => {
