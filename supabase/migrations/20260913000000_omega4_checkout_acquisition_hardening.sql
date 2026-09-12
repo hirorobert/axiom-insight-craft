@@ -147,11 +147,22 @@ COMMENT ON COLUMN public.payment_checkout_intents.verification_claimed_until IS
 -- 2. Status vocabulary correction: CREATED -> CREATING, + MANUAL_REVIEW
 -- ============================================================
 
+-- The constraint must widen to accept 'CREATING'/'MANUAL_REVIEW' BEFORE
+-- the UPDATE below writes 'CREATING' into any pre-existing row — the OLD
+-- constraint (CREATED/PENDING/SUCCEEDED/FAILED/CANCELLED/EXPIRED) would
+-- otherwise reject that value outright.
+ALTER TABLE public.payment_checkout_intents DROP CONSTRAINT chk_pci_status;
+ALTER TABLE public.payment_checkout_intents ADD CONSTRAINT chk_pci_status CHECK (
+  status IN ('CREATED','CREATING','PENDING','SUCCEEDED','FAILED','CANCELLED','EXPIRED','MANUAL_REVIEW')
+);
+
 -- No row has ever existed under 'CREATED' in any live database (checkout
 -- has never been deployed) — this UPDATE is a correctness safety net for
 -- a sandbox/test database only, not a production data migration.
 UPDATE public.payment_checkout_intents SET status = 'CREATING' WHERE status = 'CREATED';
 
+-- Now that no row can still be 'CREATED', narrow the constraint to drop
+-- it from the vocabulary entirely — the final, permanent status set.
 ALTER TABLE public.payment_checkout_intents DROP CONSTRAINT chk_pci_status;
 ALTER TABLE public.payment_checkout_intents ADD CONSTRAINT chk_pci_status CHECK (
   status IN ('CREATING','PENDING','SUCCEEDED','FAILED','CANCELLED','EXPIRED','MANUAL_REVIEW')
