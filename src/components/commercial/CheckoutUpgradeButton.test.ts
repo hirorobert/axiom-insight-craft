@@ -153,18 +153,19 @@ describe("intervalLabelFor — presentation only, never a pricing decision", () 
 });
 
 describe("Test 3 (static): the client can never override amount/currency/price", () => {
-  it("handleUpgrade calls createCheckoutIntent with only planCode and marketCode — no amount/currency/price argument, even though the component legitimately DISPLAYS the server-resolved offer's amount/currency elsewhere", () => {
+  it("handleUpgrade calls createCheckoutIntent with only planCode, billingInterval and marketCode — no amount/currency/price argument, even though the component legitimately DISPLAYS the server-resolved offer's amount/currency elsewhere", () => {
     // The component never constructs its own request body — it delegates
-    // entirely to createCheckoutIntent(planCode, marketCode). Scoped to the
-    // call site itself (not the whole file) because the file legitimately
-    // reads amount_minor/currency_code from the server response to DISPLAY
-    // the resolved price — that is presentation, not a client-supplied value.
+    // entirely to createCheckoutIntent(planCode, billingInterval,
+    // marketCode). Scoped to the call site itself (not the whole file)
+    // because the file legitimately reads amount_minor/currency_code from
+    // the server response to DISPLAY the resolved price — that is
+    // presentation, not a client-supplied value.
     const callSite = SRC.match(/await createCheckoutIntent\(([^)]*)\)/);
     expect(callSite).not.toBeNull();
-    expect(callSite![1].trim()).toBe("planCode, marketCode");
+    expect(callSite![1].trim()).toBe("planCode, billingInterval, marketCode");
   });
 
-  it("commercialRpc.ts's createCheckoutIntent request body is exactly { planCode, marketCode } — no amount/currency field", () => {
+  it("commercialRpc.ts's createCheckoutIntent request body is exactly { planCode, billingInterval, marketCode } — no amount/currency field", () => {
     const rpcSrc = fs.readFileSync(
       path.join(__dirname, "../../lib/commercial/commercialRpc.ts"),
       "utf-8",
@@ -172,25 +173,30 @@ describe("Test 3 (static): the client can never override amount/currency/price",
     const fnMatch = rpcSrc.match(/export async function createCheckoutIntent\([\s\S]*?\n\}/);
     expect(fnMatch).not.toBeNull();
     const fnBody = fnMatch![0];
-    expect(fnBody).toMatch(/body:\s*JSON\.stringify\(\{\s*planCode,\s*marketCode\s*\}\)/);
+    expect(fnBody).toMatch(/body:\s*JSON\.stringify\(\{\s*planCode,\s*billingInterval,\s*marketCode\s*\}\)/);
     expect(fnBody).not.toMatch(/amount|currency|price/i);
   });
 });
 
 describe("Test 4 (static): checkout uses the existing server authority, not a new endpoint", () => {
   it("handleUpgrade calls createCheckoutIntent — the same client function already wired to commercial-create-checkout", () => {
-    expect(SRC).toMatch(/const \{ data, error \} = await createCheckoutIntent\(planCode, marketCode\);/);
+    expect(SRC).toMatch(/const \{ data, error \} = await createCheckoutIntent\(planCode, billingInterval, marketCode\);/);
   });
 
   it("does not construct any direct fetch()/RPC call of its own — createCheckoutIntent is the sole authority boundary", () => {
     expect(SRC).not.toMatch(/fetch\(/);
     expect(SRC).not.toMatch(/supabase\.rpc\(/);
   });
+
+  it("the pre-flight authenticated-CTA check reads the session only — it never itself creates the checkout or navigates anywhere but /auth", () => {
+    expect(SRC).toMatch(/await supabase\.auth\.getSession\(\)/);
+    expect(SRC).toMatch(/navigate\("\/auth"\)/);
+  });
 });
 
 describe("Ω∞ market propagation — DISPLAY_MARKET == CHECKOUT_MARKET, never guessed, never hardcoded", () => {
   it("resolve_commercial_offer (display) is called with p_market_code: marketCode — the same prop, not a derived/guessed value", () => {
-    expect(SRC).toMatch(/callCommercialRpc\("resolve_commercial_offer", \{ p_plan_code: planCode, p_market_code: marketCode \}\)/);
+    expect(SRC).toMatch(/p_plan_code: planCode,[\s\S]*?p_billing_interval: billingInterval,[\s\S]*?p_market_code: marketCode,/);
   });
 
   it("createCheckoutIntent (checkout) is called with the identical marketCode identifier used for display resolution — no second, independently-derived market value exists anywhere in this file", () => {
@@ -204,7 +210,7 @@ describe("Ω∞ market propagation — DISPLAY_MARKET == CHECKOUT_MARKET, never 
     // or replaces the prop at one call site but not the other.
     expect(marketCodeUses.length).toBeGreaterThanOrEqual(2);
     expect(SRC).toMatch(/p_market_code: marketCode/);
-    expect(SRC).toMatch(/createCheckoutIntent\(planCode, marketCode\)/);
+    expect(SRC).toMatch(/createCheckoutIntent\(planCode, billingInterval, marketCode\)/);
   });
 
   it("never hardcodes the 'TZ' market (or any other specific market literal) anywhere in this file's actual code (comments may illustrate examples)", () => {
@@ -215,7 +221,7 @@ describe("Ω∞ market propagation — DISPLAY_MARKET == CHECKOUT_MARKET, never 
   });
 
   it("the marketCode prop carries no default value — omission must resolve via the server's own neutral GLOBAL default, never a client-side guess", () => {
-    expect(SRC).toMatch(/planCode = "PAID", marketCode \}: Props/);
+    expect(SRC).toMatch(/planCode = "PAID", billingInterval, marketCode \}: Props/);
     expect(CODE).not.toMatch(/marketCode\s*=\s*["']/);
   });
 
@@ -225,6 +231,28 @@ describe("Ω∞ market propagation — DISPLAY_MARKET == CHECKOUT_MARKET, never 
 
   it("requires no commercial_admin authority anywhere in this customer-facing checkout entry point", () => {
     expect(CODE).not.toMatch(/commercial_admin|is_commercial_admin/i);
+  });
+});
+
+describe("Ω3-CHECKOUT — DISPLAY_INTERVAL == CHECKOUT_INTERVAL, mandatory, never defaulted", () => {
+  it("the billingInterval prop carries no default value in the destructure", () => {
+    expect(CODE).not.toMatch(/billingInterval\s*=\s*["']/);
+  });
+
+  it("resolve_commercial_offer (display) and createCheckoutIntent (checkout) both use the identical billingInterval identifier", () => {
+    const billingIntervalUses = SRC.match(/\bbillingInterval\b/g) ?? [];
+    expect(billingIntervalUses.length).toBeGreaterThanOrEqual(2);
+    expect(SRC).toMatch(/p_billing_interval: billingInterval/);
+    expect(SRC).toMatch(/createCheckoutIntent\(planCode, billingInterval, marketCode\)/);
+  });
+
+  it("never hardcodes 'MONTHLY' or 'ANNUAL' as the VALUE passed into either the display-resolution or checkout-creation call — both calls forward the billingInterval prop verbatim, never a literal", () => {
+    // Scoped to the two actual call sites (not the whole file):
+    // intervalLabelFor's own switch statement legitimately names these
+    // literals for PRESENTATION formatting (e.g. "/ month" vs "/ year"),
+    // which is not a business/pricing decision and predates this prop.
+    expect(CODE).not.toMatch(/p_billing_interval:\s*["'](MONTHLY|ANNUAL)["']/);
+    expect(CODE).not.toMatch(/createCheckoutIntent\(planCode,\s*["'](MONTHLY|ANNUAL)["']/);
   });
 });
 
