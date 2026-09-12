@@ -57,12 +57,15 @@ describe("Ω3-CHECKOUT migration — presence and ordering", () => {
     expect(fs.existsSync(MIGRATION_PATH)).toBe(true);
   });
 
-  it("sorts after every prior live migration (including the Ω3.0 platform-state migration)", () => {
+  it("sorts after every prior live migration (including the Ω3.0 platform-state migration) and before the Ω∞ A+ closure migration that builds on it", () => {
     const migrationsDir = path.join(REPO_ROOT, "supabase/migrations");
     const files = fs.readdirSync(migrationsDir).filter((f) => f.endsWith(".sql"));
     const sorted = [...files].sort();
+    const thisIndex = sorted.indexOf("20260912100000_omega3_checkout_cfoclose_offers_and_interval_authority.sql");
+    expect(thisIndex).toBeGreaterThan(-1);
+    expect(thisIndex).toBe(sorted.length - 2);
     expect(sorted[sorted.length - 1]).toBe(
-      "20260912100000_omega3_checkout_cfoclose_offers_and_interval_authority.sql",
+      "20260913000000_omega4_checkout_acquisition_hardening.sql",
     );
   });
 
@@ -279,35 +282,62 @@ describe("get_my_billing_summary — reports the current licence's billing inter
 });
 
 // ============================================================
-// Atomic checkout-intent acquisition
+// Atomic checkout-intent acquisition — Ω∞ A+ closure rewrite. The
+// (customer, offer) partial unique index and the inline read-then-insert
+// acquire-or-reuse logic from 20260912100000 were both retired in
+// 20260913000000 (see omega4AcquisitionHardening.test.ts for the DB-side
+// contract in full). This describe block now checks only that
+// commercial-create-checkout delegates acquisition/persistence entirely
+// to the new token-fenced RPCs, never re-implementing that logic itself.
 // ============================================================
 
-describe("Atomic checkout-intent acquisition — partial unique index", () => {
-  it("adds a partial unique index on (billing_customer_id, commercial_offer_id) scoped to open (CREATED/PENDING) statuses only", () => {
-    expect(migrationCode).toMatch(/CREATE UNIQUE INDEX uq_pci_one_open_intent_per_customer_offer\s*\n\s*ON public\.payment_checkout_intents \(billing_customer_id, commercial_offer_id\)\s*\n\s*WHERE status IN \('CREATED', 'PENDING'\);/);
+describe("Atomic checkout-intent acquisition — delegated to Ω∞ A+ RPCs, never re-implemented in the Edge Function", () => {
+  it("commercial-create-checkout never does its own read-then-insert acquisition — no direct .from('payment_checkout_intents').insert(...) exists in this file", () => {
+    expect(checkoutCode).not.toMatch(/\.from\('payment_checkout_intents'\)\s*\n?\s*\.insert\(/);
   });
 
-  it("commercial-create-checkout checks for an existing open intent before inserting a new one", () => {
-    expect(checkoutCode).toMatch(/\.in\('status', \['CREATED', 'PENDING'\]\)/);
+  it("acquisition is the sole responsibility of acquire_checkout_attempt — called with the server-resolved product/plan/offer identity, never a browser-supplied one", () => {
+    expect(checkoutCode).toMatch(/supabase\.rpc\('acquire_checkout_attempt', \{/);
+    const rpcCall = checkoutCode.match(/supabase\.rpc\('acquire_checkout_attempt', \{([\s\S]*?)\}\)/)?.[1] ?? "";
+    expect(rpcCall).toMatch(/p_billing_customer_id:\s*billingCustomer\.id/);
+    expect(rpcCall).toMatch(/p_product_id:\s*plan\.product_id/);
+    expect(rpcCall).toMatch(/p_commercial_offer_id:\s*offer\.offer_id/);
   });
 
-  it("commercial-create-checkout safely reuses a still-open intent with a provider_checkout_url instead of creating a second one — Ω∞ A+ audit HIGH fix additionally requires the reused link to be UNEXPIRED, since a status filter alone said nothing about whether the hosted link itself had already expired", () => {
-    expect(checkoutCode).toMatch(/existingIntent\.provider_checkout_url && notExpired/);
-    expect(checkoutCode).toMatch(/const notExpired = existingIntent\.expires_at > nowIso;/);
+  it("only the NEW_ATTEMPT acquisition outcome is permitted to proceed to a provider network call — REUSE_EXISTING, ALREADY_IN_PROGRESS, CONFLICT_DIFFERENT_INTERVAL and MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT all return before adapter.createCheckout", () => {
+    const acquireIndex = checkoutCode.indexOf("supabase.rpc('acquire_checkout_attempt'");
+    const createCheckoutCallIndex = checkoutCode.indexOf("adapter.createCheckout(");
+    for (const action of ["REUSE_EXISTING", "ALREADY_IN_PROGRESS", "CONFLICT_DIFFERENT_INTERVAL", "MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT"]) {
+      const branchIndex = checkoutCode.indexOf(`acquisition.action === '${action}'`);
+      expect(branchIndex, `missing branch for ${action}`).toBeGreaterThan(acquireIndex);
+      expect(branchIndex, `${action} branch must appear before the provider call`).toBeLessThan(createCheckoutCallIndex);
+    }
   });
 
-  it("commercial-create-checkout refuses to start a second concurrent provider checkout when another request for the same offer is genuinely mid-flight (status CREATED, no url yet)", () => {
-    expect(checkoutCode).toMatch(/CHECKOUT_ALREADY_IN_PROGRESS/);
+  it("a provider checkout URL is returned ONLY after persist_checkout_provider_result reports persisted:true — never checkoutResult.checkoutUrl returned unconditionally", () => {
+    const persistIndex = checkoutCode.indexOf("supabase.rpc('persist_checkout_provider_result'");
+    expect(persistIndex).toBeGreaterThan(-1);
+    const finalReturnIndex = checkoutCode.lastIndexOf("checkoutUrl:   checkoutResult.checkoutUrl,");
+    expect(finalReturnIndex).toBeGreaterThan(persistIndex);
+    const persistedCheckBlock = checkoutCode.match(/const persisted = !persistErr[\s\S]*?if \(!persisted\) \{([\s\S]*?)\n {2}\}/)?.[0] ?? "";
+    expect(persistedCheckBlock).toMatch(/mark_checkout_attempt_uncertain/);
+    expect(persistedCheckBlock).toMatch(/CHECKOUT_OUTCOME_UNCERTAIN/);
   });
 
-  it("commercial-create-checkout catches the unique-constraint violation (Postgres 23505) on the insert itself as the atomic backstop for a genuine race, never lets it surface as an unhandled 500", () => {
-    expect(checkoutCode).toMatch(/intentErr\?\.code === '23505'/);
+  it("a thrown provider error (network/timeout — genuinely unknown outcome) routes to mark_checkout_attempt_uncertain, never mark_checkout_attempt_failed or a silent retry", () => {
+    const catchBlock = checkoutCode.match(/\} catch \(err\) \{([\s\S]*?)\n {2}\}/)?.[0] ?? "";
+    expect(catchBlock).toMatch(/mark_checkout_attempt_uncertain/);
   });
 
-  it("an expired-but-unresolved open intent is self-healed rather than permanently blocking new attempts — EXPIRED when a hosted link had existed, FAILED when one never did (Ω∞ A+ audit HIGH fix: an age-based window also self-heals a no-url intent that is old enough to be abandoned, rather than blocking every future retry forever)", () => {
-    const selfHealBlock = checkoutCode.match(/status: existingIntent\.provider_checkout_url \? 'EXPIRED' : 'FAILED',\s*\n\s*completed_at: nowIso,/);
-    expect(selfHealBlock).not.toBeNull();
-    expect(checkoutCode).toMatch(/const IN_FLIGHT_WINDOW_MS = 30_000;/);
+  it("a definitive provider failure (checkoutResult.success === false — a real, non-ambiguous rejection) routes to mark_checkout_attempt_failed, safe to retry", () => {
+    const failBlock = checkoutCode.match(/if \(!checkoutResult\.success\) \{([\s\S]*?)\n {2}\}/)?.[0] ?? "";
+    expect(failBlock).toMatch(/mark_checkout_attempt_failed/);
+  });
+
+  it("no network call (adapter.createCheckout) happens between acquire_checkout_attempt and its own RPC call returning — acquisition is fully committed before any provider request", () => {
+    const acquireCallEnd = checkoutCode.indexOf("});", checkoutCode.indexOf("supabase.rpc('acquire_checkout_attempt'"));
+    const between = checkoutCode.slice(acquireCallEnd, checkoutCode.indexOf("adapter.createCheckout("));
+    expect(between).not.toMatch(/BEGIN|supabase\.rpc\('acquire_checkout_attempt'/);
   });
 });
 
@@ -318,7 +348,8 @@ describe("Atomic checkout-intent acquisition — partial unique index", () => {
 describe("commercial-create-checkout — billingInterval is mandatory and validated (Ω3-CHECKOUT trust boundary)", () => {
   it("rejects any billingInterval other than MONTHLY or ANNUAL before ever resolving an offer", () => {
     expect(checkoutCode).toMatch(/if \(billingInterval !== 'MONTHLY' && billingInterval !== 'ANNUAL'\) \{/);
-    expect(checkoutCode).toMatch(/status: 400/);
+    const rejectBlock = checkoutCode.match(/if \(billingInterval !== 'MONTHLY' && billingInterval !== 'ANNUAL'\) \{([\s\S]*?)\n {4}\}/)?.[0] ?? "";
+    expect(rejectBlock).toMatch(/jsonResponse\(.*,\s*400\)/);
   });
 
   it("passes billingInterval through to resolve_commercial_offer unmodified, alongside planCode and marketCode", () => {

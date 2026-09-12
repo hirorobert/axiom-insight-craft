@@ -117,10 +117,15 @@ describe.each([
   });
 
   it("the 401 response includes the CORS headers", () => {
+    // Ω∞ A+ closure: both functions now build every JSON response through a
+    // shared jsonResponse(body, status) helper whose headers always spread
+    // ...CORS_HEADERS — proven once at the helper definition, which every
+    // 401 (and every other) response goes through, rather than requiring
+    // each call site to repeat the spread inline.
     const src = getSrc();
-    const authFailBlock = src.match(/if \(authError \|\| !authResult\) \{([\s\S]*?)\n {2}\}/)?.[1] ?? "";
-    expect(authFailBlock).toMatch(/status: 401/);
-    expect(authFailBlock).toMatch(/\.\.\.CORS_HEADERS/);
+    const helperMatch = src.match(/function jsonResponse\([\s\S]*?\n\}/)?.[0] ?? "";
+    expect(helperMatch).toMatch(/\.\.\.CORS_HEADERS/);
+    expect(getCode()).toMatch(/return jsonResponse\(\{ error: 'Unauthorized', correlationId \}, 401\)/);
   });
 
   it("the 401 response preserves the request's own correlationId", () => {
@@ -150,51 +155,60 @@ describe("commercial-create-checkout — provider never reached on auth failure"
 
   it("the 401 return statement is a genuine early return — no code path falls through to `user` before it", () => {
     const userDeclIndex = createCheckoutCode.indexOf("const user = { id: authResult.userId, email: authResult.email };");
-    const authFailReturnIndex = createCheckoutCode.indexOf("return new Response(JSON.stringify({ error: 'Unauthorized', correlationId }), {");
+    const authFailReturnIndex = createCheckoutCode.indexOf("return jsonResponse({ error: 'Unauthorized', correlationId }, 401);");
     expect(authFailReturnIndex).toBeGreaterThan(-1);
     expect(authFailReturnIndex).toBeLessThan(userDeclIndex);
   });
 });
 
 describe("commercial-payment-status — genuine owner-scoping, no cross-customer leakage", () => {
-  // CORRECTED (Ω3-CHECKOUT, BLOCKER fix — webhook/status convergence): a
-  // service-role client is now intentionally present, but ONLY for the
-  // independent verify+commit fallback (commit_verified_commercial_payment
-  // requires service_role, same as the webhook) — never for the READ path
-  // that proves ownership of the polled reference. The tests below assert
-  // that ownership-proving invariant directly, and separately confirm the
-  // service-role usage is narrowly scoped to the commit RPC call alone.
-  it("get_checkout_status is still called via the anon-key + caller's-own-JWT client — the ownership-proving read is unaffected by the new service-role fallback", () => {
-    const readClientBlock = paymentStatusCode.match(/const supabase = createClient\(SUPABASE_URL, SUPABASE_ANON_KEY, \{[\s\S]*?\}\);/)?.[0] ?? "";
+  // Ω∞ A+ closure HIGH-1: GET and POST are now separate contracts.
+  // get_checkout_status (the ownership-proving read) is used by BOTH, via
+  // the SAME anon-key + caller's-own-JWT client (`readClient`). A
+  // service-role client (`serviceClient`) exists only inside the POST
+  // branch, and only for two RPCs: claim_verification_attempt (the durable
+  // throttle claim) and commit_verified_commercial_payment (the actual
+  // commit) — never for the ownership-proving read itself.
+  it("get_checkout_status is called via the anon-key + caller's-own-JWT client (readClient), never the service-role client", () => {
+    const readClientBlock = paymentStatusCode.match(/const readClient = createClient\(SUPABASE_URL, SUPABASE_ANON_KEY, \{[\s\S]*?\}\);/)?.[0] ?? "";
     expect(readClientBlock).toMatch(/SUPABASE_ANON_KEY/);
     expect(readClientBlock).not.toMatch(/SERVICE_KEY/);
-    expect(paymentStatusCode).toMatch(/supabase\.rpc\('get_checkout_status'/);
+    expect(paymentStatusCode).toMatch(/readClient\.rpc\('get_checkout_status'/);
   });
 
-  it("the service-role client exists ONLY for the commit_verified_commercial_payment fallback call, constructed separately from (and after) the ownership-proving anon-key client", () => {
-    const anonClientIndex = paymentStatusCode.indexOf("createClient(SUPABASE_URL, SUPABASE_ANON_KEY");
+  it("GET returns immediately after the ownership-proving read — no provider call, no RPC other than get_checkout_status, on the GET path", () => {
+    const getBranch = paymentStatusCode.match(/if \(req\.method === 'GET'\) \{([\s\S]*?)\n {2}\}/)?.[1] ?? "";
+    expect(getBranch).not.toMatch(/serviceClient|adapterFor|verifyTransactionByReference/);
+    expect(getBranch).toMatch(/return jsonResponse/);
+  });
+
+  it("the service-role client is constructed only inside the POST branch, strictly after the ownership-proving anon-key client, and is used for exactly claim_verification_attempt and commit_verified_commercial_payment — nothing else", () => {
+    const readClientIndex = paymentStatusCode.indexOf("createClient(SUPABASE_URL, SUPABASE_ANON_KEY");
     const serviceClientIndex = paymentStatusCode.indexOf("createClient(SUPABASE_URL, SERVICE_KEY)");
-    expect(anonClientIndex).toBeGreaterThan(-1);
+    expect(readClientIndex).toBeGreaterThan(-1);
     expect(serviceClientIndex).toBeGreaterThan(-1);
-    expect(anonClientIndex).toBeLessThan(serviceClientIndex);
-    // The service-role client is used for exactly one RPC call.
+    expect(readClientIndex).toBeLessThan(serviceClientIndex);
+
     const serviceClientToEnd = paymentStatusCode.slice(serviceClientIndex);
     const rpcCallsAfter = serviceClientToEnd.match(/serviceClient\.rpc\(/g) ?? [];
-    expect(rpcCallsAfter.length).toBe(1);
-    expect(serviceClientToEnd).toMatch(/serviceClient\.rpc\(\s*'commit_verified_commercial_payment'/);
+    expect(rpcCallsAfter.length).toBe(2);
+    expect(serviceClientToEnd).toMatch(/serviceClient\.rpc\('claim_verification_attempt'/);
+    expect(serviceClientToEnd).toMatch(/serviceClient\.rpc\('commit_verified_commercial_payment'/);
   });
 
-  it("the independent verify+commit fallback only runs for a non-terminal (CREATED/PENDING) status — never re-attempted for an already-terminal intent", () => {
-    expect(paymentStatusCode).toMatch(/status === 'CREATED' \|\| status === 'PENDING'/);
+  it("a verification/commit attempt can only ever be reached via a successful claim_verification_attempt claim — the durable server-side throttle authority, never an in-process check", () => {
+    expect(paymentStatusCode).toMatch(/claim_verification_attempt/);
+    expect(paymentStatusCode).not.toMatch(/setTimeout|setInterval|Map\(\)|new Map</);
+    const claimBranch = paymentStatusCode.match(/if \(!claim\.claimed\) \{([\s\S]*?)\n {2}\}/)?.[0] ?? "";
+    expect(claimBranch).toMatch(/202/);
+    expect(claimBranch).toMatch(/Retry-After/);
   });
 
-  it("the fallback is wrapped so its own failure can never break the underlying successful read this endpoint already produced", () => {
-    const fallbackBlock = paymentStatusCode.match(/if \(status === 'CREATED' \|\| status === 'PENDING'\) \{[\s\S]*?\n {2}\}/)?.[0] ?? "";
-    expect(fallbackBlock).toMatch(/try \{/);
-    expect(fallbackBlock).toMatch(/catch \(fallbackErr\)/);
+  it("the claimed-verification branch is wrapped so its own failure can never break the underlying successful read this endpoint already produced", () => {
+    expect(paymentStatusCode).toMatch(/try \{[\s\S]*?verifyTransactionByReference[\s\S]*?\} catch \(fallbackErr\)/);
   });
 
-  it("creates the RPC client with the anon key and forwards the caller's own bearer token — preserving auth.uid() inside get_checkout_status", () => {
+  it("readClient forwards the caller's own bearer token — preserving auth.uid() inside get_checkout_status", () => {
     expect(paymentStatusCode).toMatch(/createClient\(SUPABASE_URL, SUPABASE_ANON_KEY, \{\s*global: \{ headers: \{ Authorization: authHeader! \} \},\s*\}\)/);
   });
 
@@ -207,8 +221,16 @@ describe("commercial-payment-status — genuine owner-scoping, no cross-customer
   });
 
   it("get_checkout_status is called with only the saff_reference — no owner/user id is ever passed from the browser; ownership is enforced server-side via the caller's own JWT", () => {
-    const rpcCall = paymentStatusCode.match(/supabase\.rpc\('get_checkout_status', \{([\s\S]*?)\}\)/)?.[1] ?? "";
-    expect(rpcCall.trim()).toBe("p_saff_reference: saffReference,");
+    const rpcCalls = [...paymentStatusCode.matchAll(/\.rpc\('get_checkout_status', \{([\s\S]*?)\}\)/g)];
+    expect(rpcCalls.length).toBeGreaterThanOrEqual(1);
+    for (const call of rpcCalls) {
+      expect(call[1].trim().replace(/,$/, "")).toBe("p_saff_reference: saffReference");
+    }
+  });
+
+  it("claim_verification_attempt is called with the caller's own authenticated user id (authResult.userId), proving ownership server-side — never a browser-supplied owner id", () => {
+    const rpcCall = paymentStatusCode.match(/serviceClient\.rpc\('claim_verification_attempt', \{([\s\S]*?)\}\)/)?.[1] ?? "";
+    expect(rpcCall).toMatch(/p_requesting_user_id:\s*authResult\.userId/);
   });
 });
 
@@ -218,12 +240,14 @@ describe("payment firewall — zero semantic change outside the auth-helper inte
     expect(createCheckoutCode).toMatch(/selectPaymentProvider\(/);
   });
 
-  it("commercial-create-checkout still snapshots offer economics into payment_checkout_intents unchanged", () => {
-    expect(createCheckoutCode).toMatch(/\.from\('payment_checkout_intents'\)\s*\n\s*\.insert\(\{/);
-    expect(createCheckoutCode).toMatch(/expected_amount_minor:\s*offer\.amount_minor,/);
+  it("commercial-create-checkout still snapshots offer economics into the checkout intent unchanged — now via acquire_checkout_attempt's RPC arguments rather than a raw table insert, since the atomic acquisition boundary (Ω∞ A+ closure BLOCKER-2) moved that INSERT into a DB-authoritative RPC", () => {
+    const rpcCall = createCheckoutCode.match(/supabase\.rpc\('acquire_checkout_attempt', \{([\s\S]*?)\}\)/)?.[1] ?? "";
+    expect(rpcCall).toMatch(/p_amount_minor:\s*offer\.amount_minor,/);
+    expect(rpcCall).toMatch(/p_currency_code:\s*offer\.currency_code,/);
+    expect(rpcCall).toMatch(/p_market_code:\s*offer\.market_code,/);
   });
 
-  it("commercial-create-checkout never references webhook/Gate-B verification, commit_verified_commercial_payment, licence, or entitlement authority — it only ever creates an intent, never commits one", () => {
+  it("commercial-create-checkout never references webhook/Gate-B verification, commit_verified_commercial_payment, licence, or entitlement authority — it only ever acquires/persists an intent, never commits one", () => {
     expect(createCheckoutCode).not.toMatch(/verifyWebhookAuthenticity|verifyTransaction|commit_verified_commercial_payment|commercial_licences|entitlement/i);
   });
 
