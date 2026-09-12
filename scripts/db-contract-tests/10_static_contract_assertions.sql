@@ -274,7 +274,7 @@ BEGIN
   UPDATE public.commercial_platform_state SET state = 'CUSTOMER_PAYMENTS_ENABLED' WHERE id = true;
 
   v_acquire := public.acquire_checkout_attempt(
-    v_bc_id, v_product_id, v_plan_id, v_offer_id, 'GLOBAL', 'USD', 2, 4900, 'MONTHLY', 1,
+    v_bc_id, v_product_id, v_plan_id, v_offer_id, 'GLOBAL', 'USD', 2::smallint, 4900::bigint, 'MONTHLY', 1::smallint,
     'FLUTTERWAVE', 'production', v_user_id, 'CI-HAPPY-PATH-REF'
   );
   IF v_acquire->>'action' != 'NEW_ATTEMPT' THEN
@@ -294,7 +294,7 @@ BEGIN
   -- verification response would.
   v_commit := public.commit_verified_commercial_payment(
     v_intent_id, 'FLUTTERWAVE', 'flw-txn-happy-path-001', 'successful', 'SUCCEEDED',
-    4900, 'USD', 'deadbeef', now(), 'PROVIDER_API_VERIFY',
+    4900::bigint, 'USD', 'deadbeef', now(), 'PROVIDER_API_VERIFY',
     'ci-happy-path-idempotency-key-001', 'CI-HAPPY-PATH-REF', 'production'
   );
   IF (v_commit->>'committed')::boolean IS NOT TRUE THEN
@@ -312,7 +312,7 @@ BEGIN
   -- the licence/payment_event — proves duplicate-commit convergence.
   v_commit := public.commit_verified_commercial_payment(
     v_intent_id, 'FLUTTERWAVE', 'flw-txn-happy-path-001', 'successful', 'SUCCEEDED',
-    4900, 'USD', 'deadbeef', now(), 'PROVIDER_API_VERIFY',
+    4900::bigint, 'USD', 'deadbeef', now(), 'PROVIDER_API_VERIFY',
     'ci-happy-path-idempotency-key-001', 'CI-HAPPY-PATH-REF', 'production'
   );
   IF v_commit->>'status' != 'ALREADY_COMMITTED' THEN
@@ -329,7 +329,7 @@ BEGIN
   v_failed := false;
   BEGIN
     PERFORM public.commit_verified_commercial_payment(
-      v_intent_id, 'FLUTTERWAVE', '', 'successful', 'SUCCEEDED', 4900, 'USD', 'deadbeef', now(),
+      v_intent_id, 'FLUTTERWAVE', '', 'successful', 'SUCCEEDED', 4900::bigint, 'USD', 'deadbeef', now(),
       'PROVIDER_API_VERIFY', 'ci-happy-path-blank-txn-id', 'CI-HAPPY-PATH-REF', 'production'
     );
   EXCEPTION WHEN OTHERS THEN v_failed := true;
@@ -391,7 +391,7 @@ BEGIN
   EXECUTE 'SET ROLE authenticated';
   PERFORM set_config('request.jwt.claim.sub', v_admin_id::text, false);
   v_offer := public.admin_upsert_commercial_offer(
-    'CFOCLOSE_PROFESSIONAL_TZ_TZS_MONTHLY_CITEST', 'PAID', 'TZ', 'TZS', 100000, 0, 'MONTHLY', 1,
+    'CFOCLOSE_PROFESSIONAL_TZ_TZS_MONTHLY_CITEST', 'PAID', 'TZ', 'TZS', 100000::bigint, 0::smallint, 'MONTHLY', 1::smallint,
     true, false, 'CI harness TZ vocabulary check'
   );
   EXECUTE 'RESET ROLE';

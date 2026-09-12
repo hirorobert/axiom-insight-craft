@@ -31,7 +31,7 @@ acquire() {
   local offer_id="$1" ref="$2"
   "${PSQL_T[@]}" -c "SELECT acquire_checkout_attempt(
     '$BILLING_CUSTOMER_ID'::uuid, '$CFOCLOSE_PRODUCT_ID'::uuid, '$PAID_PLAN_ID'::uuid, '$offer_id'::uuid,
-    'GLOBAL', 'USD', 2, 4900, 'MONTHLY', 1, 'FLUTTERWAVE', 'production', '$CUSTOMER_USER'::uuid, '$ref'
+    'GLOBAL', 'USD', 2::smallint, 4900::bigint, 'MONTHLY', 1::smallint, 'FLUTTERWAVE', 'production', '$CUSTOMER_USER'::uuid, '$ref'
   )::text;"
 }
 
@@ -142,7 +142,7 @@ OTHER_BILLING_CUSTOMER=$(sql "INSERT INTO public.billing_customers (owner_user_i
 acquire "$MONTHLY_OFFER_ID" "CI-T6-A" > "$TMP_DIR/t6a" &
 "${PSQL_T[@]}" -c "SELECT acquire_checkout_attempt(
     '$OTHER_BILLING_CUSTOMER'::uuid, '$CFOCLOSE_PRODUCT_ID'::uuid, '$PAID_PLAN_ID'::uuid, '$MONTHLY_OFFER_ID'::uuid,
-    'GLOBAL', 'USD', 2, 4900, 'MONTHLY', 1, 'FLUTTERWAVE', 'production', '$OTHER_USER'::uuid, 'CI-T6-B'
+    'GLOBAL', 'USD', 2::smallint, 4900::bigint, 'MONTHLY', 1::smallint, 'FLUTTERWAVE', 'production', '$OTHER_USER'::uuid, 'CI-T6-B'
   )::text;" > "$TMP_DIR/t6b" &
 wait
 NEW_COUNT=$(grep -c '"action": "NEW_ATTEMPT"' "$TMP_DIR/t6a" "$TMP_DIR/t6b" | awk -F: '{s+=$2} END {print s+0}')
