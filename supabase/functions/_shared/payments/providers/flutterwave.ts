@@ -134,6 +134,17 @@ export class FlutterwaveAdapter implements ProviderAdapter {
     // this adapter processes.
     const paymentOptions = params.currencyCode === 'TZS' ? 'card,mobilemoneytzania' : 'card';
 
+    // Ω3-CHECKOUT branding correction: the prior revision sent 'SAFF ERP'
+    // as the hosted-checkout page title — customer-visible legacy
+    // branding on the live Flutterwave payment page — plus a `logo` URL
+    // pointing at a favicon.ico that is not a real, approved raster
+    // CFOClose asset (a dead/placeholder logo URL is worse than no logo
+    // at all on a real payment page). Corrected: CFOClose title, no logo
+    // field until an approved raster asset exists, and CFOClose-branded
+    // description/meta.source. `saff_reference`/tx_ref/`SAFF-` reference
+    // prefixes are UNCHANGED — those are internal historical identifiers
+    // this schema and its evidence trail depend on, not customer-visible
+    // branding, and renaming them would corrupt evidence, not improve it.
     const body = {
       tx_ref:        params.saffReference,
       amount:        displayAmount,
@@ -145,13 +156,12 @@ export class FlutterwaveAdapter implements ProviderAdapter {
         name:        params.customerName ?? params.customerEmail,
       },
       customizations: {
-        title:       'SAFF ERP',
-        description: `Firm Licence — ${params.planName}`,
-        logo:        'https://cfoclose.com/favicon.ico',
+        title:       'CFOClose',
+        description: `CFOClose subscription — ${params.planName}`,
       },
       meta: {
         saff_reference: params.saffReference,
-        source:         'SAFF_ERP_OMEGA2',
+        source:         'CFOCLOSE_OMEGA3',
       },
     };
 

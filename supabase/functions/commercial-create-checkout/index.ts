@@ -2,9 +2,10 @@
  * commercial-create-checkout — Ω2-G Edge Function
  *
  * Creates a checkout intent server-side and returns a hosted payment URL.
- * Browser sends: { planCode: string, marketCode?: string }
- * Server resolves: the commercial offer (plan + market + currency + price),
- * routes to an eligible configured provider, and creates the intent.
+ * Browser sends: { planCode: string, billingInterval: string, marketCode?: string }
+ * Server resolves: the commercial offer (plan + interval + market + currency
+ * + price), routes to an eligible configured provider, and creates the
+ * intent.
  *
  * Browser NEVER supplies price, currency, offer identity, billing owner, or
  * entitlements. Browser may suggest a market (e.g. from a UI toggle a user
@@ -12,9 +13,20 @@
  * resolve_commercial_offer() — it never trusts a browser-supplied amount or
  * currency, and never derives market from IP/locale.
  *
+ * Ω3-CHECKOUT correction: billingInterval (MONTHLY or ANNUAL — the ONLY two
+ * values the Ω3-CHECKOUT charter authorizes) is now MANDATORY from the
+ * browser and is passed through, unmodified, to resolve_commercial_offer's
+ * own mandatory p_billing_interval argument — never defaulted, never
+ * inferred. This function also now acquires the checkout intent atomically:
+ * a customer can never hold two open (CREATED/PENDING) intents against the
+ * SAME resolved offer at once — a concurrent duplicate request (double-
+ * click, retried POST) safely reuses the still-open intent instead of
+ * creating (and potentially provider-charging) a second one.
+ *
  * Iron Dome:
  *   - Authenticated only (validateAuth)
- *   - Offer resolved server-side via resolve_commercial_offer() RPC
+ *   - Offer resolved server-side via resolve_commercial_offer() RPC,
+ *     which itself now also gates on commercial_platform_state
  *   - Provider selected server-side via selectPaymentProvider() — no
  *     fake checkout when no eligible provider is configured
  *   - No secrets in response
@@ -76,25 +88,39 @@ Deno.serve(async (req: Request) => {
   }
   const user = { id: authResult.userId, email: authResult.email };
 
-  // 2. Parse request — browser supplies planCode + an optional market
-  //    suggestion. Neither price nor currency is ever accepted here.
+  // 2. Parse request — browser supplies planCode + billingInterval + an
+  //    optional market suggestion. Neither price nor currency is ever
+  //    accepted here. billingInterval is the ONLY other economic-shaping
+  //    input the browser may supply (Ω3-CHECKOUT trust boundary), and it
+  //    is validated against the exact same two-value vocabulary the
+  //    charter authorizes — never passed through unchecked.
   let planCode: string;
+  let billingInterval: string;
   let marketCode: string;
   try {
     const body = await req.json();
     planCode = body.planCode;
+    billingInterval = body.billingInterval;
     marketCode = typeof body.marketCode === 'string' && body.marketCode ? body.marketCode : 'GLOBAL';
     if (!planCode || typeof planCode !== 'string') throw new Error('planCode required');
+    if (billingInterval !== 'MONTHLY' && billingInterval !== 'ANNUAL') {
+      return new Response(JSON.stringify({ error: 'billingInterval must be MONTHLY or ANNUAL', correlationId }), { status: 400 });
+    }
   } catch {
-    return new Response(JSON.stringify({ error: 'planCode is required', correlationId }), { status: 400 });
+    return new Response(JSON.stringify({ error: 'planCode and billingInterval are required', correlationId }), { status: 400 });
   }
 
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
   // 3. Resolve the commercial offer server-side. Never trust a browser-
   //    supplied amount/currency; never derive market from IP/locale.
+  //    billingInterval is passed through exactly as validated above —
+  //    resolve_commercial_offer treats it as mandatory and will itself
+  //    refuse an unsupported value, but this function never relies on
+  //    that as its only line of defense.
   const { data: resolution, error: resolveErr } = await supabase.rpc('resolve_commercial_offer', {
     p_plan_code: planCode,
+    p_billing_interval: billingInterval,
     p_market_code: marketCode,
   });
 
@@ -169,35 +195,90 @@ Deno.serve(async (req: Request) => {
     .eq('id', offer.plan_id)
     .maybeSingle();
 
+  // 6.5. Atomic checkout-intent acquisition — Ω3-CHECKOUT correction.
+  //    A billing customer may hold at most one open (CREATED/PENDING)
+  //    intent against this exact resolved offer at once (enforced by the
+  //    uq_pci_one_open_intent_per_customer_offer partial unique index).
+  //    Check for an already-open intent FIRST (the common, non-racing
+  //    case never needs to hit the unique-constraint path at all); the
+  //    genuinely concurrent case is still caught atomically below.
+  const nowIso = new Date().toISOString();
+  const { data: existingIntent } = await supabase
+    .from('payment_checkout_intents')
+    .select('id, saff_reference, expires_at, status, provider_checkout_url')
+    .eq('billing_customer_id', billingCustomer.id)
+    .eq('commercial_offer_id', offer.offer_id)
+    .in('status', ['CREATED', 'PENDING'])
+    .maybeSingle();
+
+  if (existingIntent) {
+    if (existingIntent.expires_at > nowIso) {
+      if (existingIntent.status === 'PENDING' && existingIntent.provider_checkout_url) {
+        // Safe reuse: the SAME checkout the customer already started for
+        // this exact offer is still open — return it again rather than
+        // creating (and potentially provider-charging) a second one.
+        return new Response(JSON.stringify({
+          saffReference: existingIntent.saff_reference,
+          checkoutUrl:   existingIntent.provider_checkout_url,
+          expiresAt:     existingIntent.expires_at,
+          provider,
+          correlationId,
+        }), { status: 200, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+      }
+      // status === 'CREATED': another request for this exact offer is
+      // mid-flight (the provider call below hasn't completed yet). Never
+      // start a second, concurrent provider-side checkout for the same
+      // offer — ask the caller to retry shortly instead.
+      return new Response(JSON.stringify({ error: 'CHECKOUT_ALREADY_IN_PROGRESS', correlationId }), { status: 409 });
+    }
+    // Expired but never resolved by the customer — self-heal so a new
+    // attempt is never blocked by a stale row.
+    await supabase.from('payment_checkout_intents')
+      .update({ status: 'EXPIRED', completed_at: nowIso })
+      .eq('id', existingIntent.id);
+  }
+
   // 7. Generate unique SAFF reference
   const saffReference = `SAFF-${Date.now()}-${crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 
   // 8. Create checkout intent — snapshots the offer's economic facts NOW,
   //    so a later offer edit can never mutate this in-flight or historical
-  //    checkout.
-  const { data: intent, error: intentErr } = await supabase
-    .from('payment_checkout_intents')
-    .insert({
-      billing_customer_id:    billingCustomer.id,
-      commercial_offer_id:    offer.offer_id,
-      plan_id:                offer.plan_id,
-      market_code:            offer.market_code,
-      expected_amount_minor:  offer.amount_minor,
-      currency_code:          offer.currency_code,
-      currency_exponent:      offer.currency_exponent,
-      billing_interval:       offer.billing_interval,
-      billing_interval_count: offer.billing_interval_count,
-      provider,
-      saff_reference:         saffReference,
-      status:                 'CREATED',
-      created_by_user_id:     user.id,
-    })
-    .select('id, saff_reference, expires_at')
-    .single();
+  //    checkout. A 23505 unique-constraint violation here means a
+  //    concurrent request for the SAME offer won the acquisition race
+  //    between our check above and this insert — that is not an error;
+  //    it is exactly what the atomic index exists to catch. Re-fetch and
+  //    respond the same way the pre-check above would have.
+  let intent: { id: string; saff_reference: string; expires_at: string } | null = null;
+  {
+    const { data: insertedIntent, error: intentErr } = await supabase
+      .from('payment_checkout_intents')
+      .insert({
+        billing_customer_id:    billingCustomer.id,
+        commercial_offer_id:    offer.offer_id,
+        plan_id:                offer.plan_id,
+        market_code:            offer.market_code,
+        expected_amount_minor:  offer.amount_minor,
+        currency_code:          offer.currency_code,
+        currency_exponent:      offer.currency_exponent,
+        billing_interval:       offer.billing_interval,
+        billing_interval_count: offer.billing_interval_count,
+        provider,
+        saff_reference:         saffReference,
+        status:                 'CREATED',
+        created_by_user_id:     user.id,
+      })
+      .select('id, saff_reference, expires_at')
+      .single();
 
-  if (intentErr || !intent) {
-    console.error('Intent creation failed', { correlationId, error: intentErr?.message });
-    return new Response(JSON.stringify({ error: 'Could not initiate checkout. Please try again.', correlationId }), { status: 500 });
+    if (intentErr?.code === '23505') {
+      console.warn('Concurrent checkout-intent acquisition race lost — another request already holds an open intent for this offer', { correlationId, offerId: offer.offer_id });
+      return new Response(JSON.stringify({ error: 'CHECKOUT_ALREADY_IN_PROGRESS', correlationId }), { status: 409 });
+    }
+    if (intentErr || !insertedIntent) {
+      console.error('Intent creation failed', { correlationId, error: intentErr?.message });
+      return new Response(JSON.stringify({ error: 'Could not initiate checkout. Please try again.', correlationId }), { status: 500 });
+    }
+    intent = insertedIntent;
   }
 
   // 9. Resolve customer display info
@@ -220,11 +301,16 @@ Deno.serve(async (req: Request) => {
     redirectUrl:      `${REDIRECT_URL}?ref=${saffReference}`,
   });
 
+  // intent is guaranteed non-null here: every branch above that could
+  // leave it null returns a Response immediately instead of falling
+  // through.
+  const acquiredIntent = intent!;
+
   if (!checkoutResult.success) {
     console.error('Provider checkout failed', { correlationId, provider, error: checkoutResult.error });
     await supabase.from('payment_checkout_intents')
       .update({ status: 'FAILED', completed_at: new Date().toISOString() })
-      .eq('id', intent.id);
+      .eq('id', acquiredIntent.id);
     return new Response(JSON.stringify({ error: 'Payment service temporarily unavailable. Please try again.', correlationId }), { status: 502 });
   }
 
@@ -235,13 +321,13 @@ Deno.serve(async (req: Request) => {
       provider_checkout_ref: checkoutResult.providerRef,
       provider_checkout_url: checkoutResult.checkoutUrl,
     })
-    .eq('id', intent.id);
+    .eq('id', acquiredIntent.id);
 
   // 12. Return SAFE response — no secrets, no raw provider data
   return new Response(JSON.stringify({
     saffReference: saffReference,
     checkoutUrl:   checkoutResult.checkoutUrl,
-    expiresAt:     intent.expires_at,
+    expiresAt:     acquiredIntent.expires_at,
     provider,
     correlationId,
   }), {
