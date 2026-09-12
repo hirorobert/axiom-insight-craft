@@ -287,33 +287,52 @@ try {
     # from the library) does not otherwise see this script's local
     # variables.
     #
-    # CORRECTED, this revision (Codex provenance-closure re-audit, Blocker
-    # 1, byte-authority rule): both ports now return @{StatusCode;
-    # BodyBytes} -- a [byte[]] -- instead of a decoded string. This is what
-    # makes it possible for the orchestration layer to persist, hash, and
-    # decode the EXACT SAME byte sequence, rather than hashing a value that
-    # already passed through .NET's own string-decoding logic once. A
-    # thrown HTTP error is converted into the SAME @{StatusCode; BodyBytes}
-    # shape a success returns -- the orchestration layer never has to deal
-    # with exceptions from the transport, only data.
+    # CORRECTED AGAIN, this revision (Codex FINAL LIVE HTTP BYTE-BOUNDARY
+    # audit): the prior revision's ports returned @{StatusCode; BodyBytes}
+    # but manufactured those bytes from the response object's own decoded-
+    # text property, re-encoded, or from a decoded-text stream reader --
+    # both are a STRING reconstruction of the body, not the genuine wire
+    # bytes, and a response using a different encoding (or carrying a BOM,
+    # or any byte sequence that isn't perfectly round-trippable through
+    # UTF-8 decode + re-encode) would silently corrupt what gets hashed and
+    # persisted as "the exact provider response." Both ports now call
+    # Get-WebResponseBytes
+    # / Get-ErrorResponseBytes (FlutterwaveEvidenceLib.ps1) -- the SAME
+    # byte-extraction functions the test suite exercises directly -- which
+    # read the response's raw byte stream with no string step in between.
+    # If genuine bytes cannot be obtained even though a real HTTP response
+    # was received, the port returns BodyBytes = $null (never a fabricated
+    # substitute), which Invoke-CreateCheckoutOrchestration / Invoke-
+    # VerifyOrchestration then reject with RAW_RESPONSE_BYTES_UNAVAILABLE.
+    #
+    # A TOTAL transport failure (no HTTP response object at all -- DNS
+    # failure, connection refused, TLS failure, timeout) returns
+    # StatusCode = $null and BodyBytes = $null: there is no provider-
+    # response boundary to report, so none is invented. The exception
+    # message is preserved ONLY as TransportError, a local diagnostic never
+    # hashed, never persisted as evidence, and never treated as a
+    # provider-response byte sequence.
     $realHttpPost = {
         param($Uri, $BodyJson)
         try {
             $webResponse = Invoke-WebRequest -Uri $Uri -Method Post -Headers $headers -Body $BodyJson -ContentType 'application/json' -UseBasicParsing
-            return @{ StatusCode = [int]$webResponse.StatusCode; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($webResponse.Content) }
+            $extraction = Get-WebResponseBytes -WebResponse $webResponse
+            if (-not $extraction.Success) {
+                return @{ StatusCode = [int]$webResponse.StatusCode; BodyBytes = $null; TransportError = $extraction.Reason }
+            }
+            return @{ StatusCode = [int]$webResponse.StatusCode; BodyBytes = $extraction.Bytes }
         }
         catch {
             if ($_.Exception.Response) {
-                $sc = [int]$_.Exception.Response.StatusCode
-                try {
-                    $stream = $_.Exception.Response.GetResponseStream()
-                    $reader = New-Object System.IO.StreamReader($stream)
-                    $body = $reader.ReadToEnd()
+                $sc = $null
+                try { $sc = [int]$_.Exception.Response.StatusCode } catch { $sc = $null }
+                $extraction = Get-ErrorResponseBytes -ErrorResponse $_.Exception.Response
+                if (-not $extraction.Success) {
+                    return @{ StatusCode = $sc; BodyBytes = $null; TransportError = $extraction.Reason }
                 }
-                catch { $body = '' }
-                return @{ StatusCode = $sc; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body) }
+                return @{ StatusCode = $sc; BodyBytes = $extraction.Bytes }
             }
-            return @{ StatusCode = 0; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$_.Exception.Message) }
+            return @{ StatusCode = $null; BodyBytes = $null; TransportError = [string]$_.Exception.Message }
         }
     }.GetNewClosure()
 
@@ -321,20 +340,23 @@ try {
         param($Uri)
         try {
             $webResponse = Invoke-WebRequest -Uri $Uri -Method Get -Headers $headers -UseBasicParsing
-            return @{ StatusCode = [int]$webResponse.StatusCode; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($webResponse.Content) }
+            $extraction = Get-WebResponseBytes -WebResponse $webResponse
+            if (-not $extraction.Success) {
+                return @{ StatusCode = [int]$webResponse.StatusCode; BodyBytes = $null; TransportError = $extraction.Reason }
+            }
+            return @{ StatusCode = [int]$webResponse.StatusCode; BodyBytes = $extraction.Bytes }
         }
         catch {
             if ($_.Exception.Response) {
-                $sc = [int]$_.Exception.Response.StatusCode
-                try {
-                    $stream = $_.Exception.Response.GetResponseStream()
-                    $reader = New-Object System.IO.StreamReader($stream)
-                    $body = $reader.ReadToEnd()
+                $sc = $null
+                try { $sc = [int]$_.Exception.Response.StatusCode } catch { $sc = $null }
+                $extraction = Get-ErrorResponseBytes -ErrorResponse $_.Exception.Response
+                if (-not $extraction.Success) {
+                    return @{ StatusCode = $sc; BodyBytes = $null; TransportError = $extraction.Reason }
                 }
-                catch { $body = '' }
-                return @{ StatusCode = $sc; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body) }
+                return @{ StatusCode = $sc; BodyBytes = $extraction.Bytes }
             }
-            return @{ StatusCode = 0; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$_.Exception.Message) }
+            return @{ StatusCode = $null; BodyBytes = $null; TransportError = [string]$_.Exception.Message }
         }
     }.GetNewClosure()
 
@@ -411,8 +433,12 @@ try {
             $requestStartUtc = & $realNowUtc
             $httpResult = & $realHttpGet $uri
             $requestEndUtc = & $realNowUtc
-            if (-not (Test-IsSafeResponseBoundary -StatusCode $httpResult.StatusCode -BodyBytes $httpResult.BodyBytes)) {
+            if (-not (Test-IsValidHttpStatusCode -StatusCode $httpResult.StatusCode)) {
                 Write-Error "ReferenceLookup failed (reason: NO_RESPONSE_RECEIVED). This is supplemental-only; no stage file was ever written for it."
+                exit 1
+            }
+            if ($null -eq $httpResult.BodyBytes) {
+                Write-Error "ReferenceLookup failed (reason: RAW_RESPONSE_BYTES_UNAVAILABLE). This is supplemental-only; no stage file was ever written for it."
                 exit 1
             }
             $bodyText = [System.Text.Encoding]::UTF8.GetString($httpResult.BodyBytes)

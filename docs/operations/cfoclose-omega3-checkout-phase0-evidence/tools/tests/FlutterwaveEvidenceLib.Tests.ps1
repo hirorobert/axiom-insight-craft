@@ -1255,6 +1255,249 @@ try {
 finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
 
 # ============================================================
+# Category: LIVE HTTP BYTE-BOUNDARY (Codex FINAL LIVE HTTP BYTE-BOUNDARY audit)
+# ============================================================
+Write-Host "`n=== Live HTTP byte-boundary (genuine byte extraction, never string reconstruction) ===" -ForegroundColor Cyan
+
+# A byte sequence that is NOT safely round-trippable through a naive
+# UTF-8 decode-then-re-encode: 0x80 is a bare continuation byte with no
+# valid UTF-8 lead byte before it, so [Encoding]::UTF8.GetString() on it
+# substitutes U+FFFD (the replacement character), and re-encoding that
+# string via UTF8.GetBytes() produces a DIFFERENT byte sequence than the
+# original. Any implementation that reconstructs bytes via a decoded
+# string (the exact defect this category corrects) will corrupt this
+# sequence; genuine byte-stream extraction will not.
+$trickyBytes = [byte[]]@(0x7B, 0x22, 0x78, 0x22, 0x3A, 0x31, 0x7D, 0x80, 0xFF, 0xFE, 0x00, 0x41, 0x42, 0x43)
+
+function New-FakeSuccessWebResponse {
+    param([byte[]]$Bytes, [int]$StatusCode = 200)
+    $stream = New-Object System.IO.MemoryStream(, $Bytes)
+    $stream.Position = $Bytes.Length
+    return [PSCustomObject]@{ StatusCode = $StatusCode; RawContentStream = $stream }
+}
+
+function New-FakeErrorResponse_WindowsShape {
+    param([byte[]]$Bytes, [int]$StatusCode = 400)
+    $stream = New-Object System.IO.MemoryStream(, $Bytes)
+    $obj = New-Object PSObject
+    Add-Member -InputObject $obj -MemberType NoteProperty -Name StatusCode -Value $StatusCode
+    Add-Member -InputObject $obj -MemberType ScriptMethod -Name GetResponseStream -Value { return $stream }.GetNewClosure()
+    return $obj
+}
+
+function New-FakeErrorResponse_PS7Shape {
+    param([byte[]]$Bytes, [int]$StatusCode = 400)
+    $content = New-Object PSObject
+    Add-Member -InputObject $content -MemberType ScriptMethod -Name ReadAsByteArrayAsync -Value { return [PSCustomObject]@{ Result = $Bytes } }.GetNewClosure()
+    $obj = New-Object PSObject
+    Add-Member -InputObject $obj -MemberType NoteProperty -Name StatusCode -Value $StatusCode
+    Add-Member -InputObject $obj -MemberType NoteProperty -Name Content -Value $content
+    return $obj
+}
+
+# --- Test-IsValidHttpStatusCode (ITEM F) ---
+Assert-True -Condition (-not (Test-IsValidHttpStatusCode -StatusCode $null)) -Name 'ITEM F: a null StatusCode is never a valid HTTP response boundary'
+Assert-True -Condition (-not (Test-IsValidHttpStatusCode -StatusCode 0)) -Name 'ITEM F: StatusCode 0 (the old invented transport-failure sentinel) is REJECTED, never treated as a genuine response'
+Assert-True -Condition (-not (Test-IsValidHttpStatusCode -StatusCode 99)) -Name 'a StatusCode below the real HTTP range (99) is rejected'
+Assert-True -Condition (Test-IsValidHttpStatusCode -StatusCode 100) -Name 'StatusCode 100 (the low end of the real HTTP range) is accepted'
+Assert-True -Condition (Test-IsValidHttpStatusCode -StatusCode 200) -Name 'StatusCode 200 is accepted'
+Assert-True -Condition (Test-IsValidHttpStatusCode -StatusCode 599) -Name 'StatusCode 599 (the high end of the real HTTP range) is accepted'
+Assert-True -Condition (-not (Test-IsValidHttpStatusCode -StatusCode 600)) -Name 'a StatusCode above the real HTTP range (600) is rejected'
+
+# --- Get-WebResponseBytes: genuine byte extraction (ITEMS A, C) ---
+$fakeSuccess = New-FakeSuccessWebResponse -Bytes $trickyBytes
+$successExtraction = Get-WebResponseBytes -WebResponse $fakeSuccess
+Assert-Equal -Expected $true -Actual $successExtraction.Success -Name 'ITEM A: Get-WebResponseBytes succeeds against a genuine RawContentStream'
+Assert-Equal -Expected ([Convert]::ToBase64String($trickyBytes)) -Actual ([Convert]::ToBase64String($successExtraction.Bytes)) -Name 'ITEM A/C: extracted bytes are EXACTLY byte-for-byte equal to the original stream, including bytes that would be corrupted by a decode/re-encode round trip'
+
+# --- Get-WebResponseBytes: failure boundaries (ITEM D) ---
+$nullExtraction = Get-WebResponseBytes -WebResponse $null
+Assert-Equal -Expected $false -Actual $nullExtraction.Success -Name 'ITEM D: Get-WebResponseBytes fails closed for a null WebResponse'
+Assert-Equal -Expected 'RAW_RESPONSE_BYTES_UNAVAILABLE' -Actual $nullExtraction.Reason -Name 'ITEM D: correct reason code RAW_RESPONSE_BYTES_UNAVAILABLE'
+
+$noStreamResponse = [PSCustomObject]@{ StatusCode = 200 }
+$noStreamExtraction = Get-WebResponseBytes -WebResponse $noStreamResponse
+Assert-Equal -Expected $false -Actual $noStreamExtraction.Success -Name 'ITEM D: Get-WebResponseBytes fails closed when RawContentStream is entirely absent (missing/unreadable raw stream)'
+Assert-Equal -Expected 'RAW_RESPONSE_BYTES_UNAVAILABLE' -Actual $noStreamExtraction.Reason -Name 'ITEM D: correct reason code RAW_RESPONSE_BYTES_UNAVAILABLE'
+
+$unreadableStream = New-Object PSObject
+Add-Member -InputObject $unreadableStream -MemberType ScriptMethod -Name CopyTo -Value { throw 'simulated unreadable stream' }
+Add-Member -InputObject $unreadableStream -MemberType NoteProperty -Name CanSeek -Value $false
+$unreadableResponse = [PSCustomObject]@{ StatusCode = 200; RawContentStream = $unreadableStream }
+$unreadableExtraction = Get-WebResponseBytes -WebResponse $unreadableResponse
+Assert-Equal -Expected $false -Actual $unreadableExtraction.Success -Name 'ITEM D: Get-WebResponseBytes fails closed when the raw stream throws on read (unreadable raw stream)'
+Assert-Equal -Expected 'RAW_RESPONSE_BYTES_UNAVAILABLE' -Actual $unreadableExtraction.Reason -Name 'ITEM D: correct reason code RAW_RESPONSE_BYTES_UNAVAILABLE'
+
+# --- Get-ErrorResponseBytes: both cross-platform shapes (ITEMS B, C) ---
+$fakeErrorWin = New-FakeErrorResponse_WindowsShape -Bytes $trickyBytes -StatusCode 400
+$errorExtractionWin = Get-ErrorResponseBytes -ErrorResponse $fakeErrorWin
+Assert-Equal -Expected $true -Actual $errorExtractionWin.Success -Name 'ITEM B: Get-ErrorResponseBytes succeeds against the Windows PowerShell 5.1 shape (GetResponseStream)'
+Assert-Equal -Expected ([Convert]::ToBase64String($trickyBytes)) -Actual ([Convert]::ToBase64String($errorExtractionWin.Bytes)) -Name 'ITEM B/C: Windows-shape extracted bytes are EXACTLY byte-for-byte equal to the original error-response stream'
+
+$fakeErrorPs7 = New-FakeErrorResponse_PS7Shape -Bytes $trickyBytes -StatusCode 400
+$errorExtractionPs7 = Get-ErrorResponseBytes -ErrorResponse $fakeErrorPs7
+Assert-Equal -Expected $true -Actual $errorExtractionPs7.Success -Name 'ITEM B: Get-ErrorResponseBytes succeeds against the PowerShell 7+ shape (Content.ReadAsByteArrayAsync)'
+Assert-Equal -Expected ([Convert]::ToBase64String($trickyBytes)) -Actual ([Convert]::ToBase64String($errorExtractionPs7.Bytes)) -Name 'ITEM B/C: PS7-shape extracted bytes are EXACTLY byte-for-byte equal to the original error-response bytes'
+
+$neitherShapeResponse = [PSCustomObject]@{ StatusCode = 400 }
+$neitherShapeExtraction = Get-ErrorResponseBytes -ErrorResponse $neitherShapeResponse
+Assert-Equal -Expected $false -Actual $neitherShapeExtraction.Success -Name 'ITEM D: Get-ErrorResponseBytes fails closed when neither known shape is present'
+Assert-Equal -Expected 'RAW_RESPONSE_BYTES_UNAVAILABLE' -Actual $neitherShapeExtraction.Reason -Name 'ITEM D: correct reason code RAW_RESPONSE_BYTES_UNAVAILABLE'
+
+$nullErrorExtraction = Get-ErrorResponseBytes -ErrorResponse $null
+Assert-Equal -Expected $false -Actual $nullErrorExtraction.Success -Name 'ITEM D: Get-ErrorResponseBytes fails closed for a null ErrorResponse'
+
+# --- End-to-end orchestration wired to the CORRECTED production byte-extraction boundary (ITEM H) ---
+# These HttpPost/HttpGet ports are built the SAME way the real
+# Invoke-FlutterwaveEvidenceCapture.ps1 ports are (call Get-WebResponseBytes /
+# Get-ErrorResponseBytes, never a decoded string), differing only in that
+# the underlying "web response" is a fake object instead of a real
+# Invoke-WebRequest result -- so these tests exercise the ACTUAL corrected
+# byte-extraction functions through the full orchestration path, not a
+# separate synthetic shortcut.
+function New-ProductionShapedHttpPostPort {
+    param([byte[]]$SuccessBytes, [int]$SuccessStatusCode = 200)
+    return {
+        param($Uri, $BodyJson)
+        $webResponse = New-FakeSuccessWebResponse -Bytes $SuccessBytes -StatusCode $SuccessStatusCode
+        $extraction = Get-WebResponseBytes -WebResponse $webResponse
+        if (-not $extraction.Success) {
+            return @{ StatusCode = $webResponse.StatusCode; BodyBytes = $null; TransportError = $extraction.Reason }
+        }
+        return @{ StatusCode = $webResponse.StatusCode; BodyBytes = $extraction.Bytes }
+    }.GetNewClosure()
+}
+
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    $checkoutBodyForBoundaryTest = [System.Text.Encoding]::UTF8.GetBytes(([PSCustomObject]@{ status = 'success'; data = [PSCustomObject]@{ link = 'https://checkout.flutterwave.com/v3/hosted/pay/flwlnk-boundarytest' } } | ConvertTo-Json -Depth 5))
+    # Splice in the tricky, non-round-trippable byte sequence as trailing
+    # padding OUTSIDE the JSON body's own bytes -- Get-CaptureOutcome parses
+    # only the JSON prefix it needs, but the FULL response (JSON plus
+    # trailer) is still what must be persisted and hashed byte-for-byte.
+    $productionPort = New-ProductionShapedHttpPostPort -SuccessBytes $checkoutBodyForBoundaryTest
+    $result = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef "ref-$sid" `
+        -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
+        -EvidenceRoot $dir -HttpPost $productionPort -OpenUrl { param($Url) } -NowUtc { Get-UtcTimestamp } -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
+    Assert-Equal -Expected $true -Actual $result.Success -Name 'ITEM H: CreateCheckout orchestration succeeds end-to-end through the CORRECTED production byte-extraction boundary (Get-WebResponseBytes)'
+    if ($result.Success) {
+        $persisted = [System.IO.File]::ReadAllBytes($result.RawPath)
+        Assert-Equal -Expected ([Convert]::ToBase64String($checkoutBodyForBoundaryTest)) -Actual ([Convert]::ToBase64String($persisted)) -Name 'ITEM H: the raw file persisted via the production byte-extraction boundary is byte-for-byte identical to the original response'
+    }
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- RAW_RESPONSE_BYTES_UNAVAILABLE: a genuine HTTP response arrives, but byte extraction itself fails (ITEM 5/D) ---
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    $openCount = [ref]0
+    $countingOpenUrl = { param($Url) $openCount.Value++ }.GetNewClosure()
+    $bytesUnavailablePort = {
+        param($Uri, $BodyJson)
+        # A real HTTP response WAS received (StatusCode 200) but the port's
+        # own byte-extraction failed -- e.g. an unreadable/absent raw stream.
+        return @{ StatusCode = 200; BodyBytes = $null; TransportError = 'RAW_RESPONSE_BYTES_UNAVAILABLE' }
+    }.GetNewClosure()
+
+    $result = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef "ref-$sid" `
+        -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
+        -EvidenceRoot $dir -HttpPost $bytesUnavailablePort -OpenUrl $countingOpenUrl -NowUtc { Get-UtcTimestamp } -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 5: CreateCheckout fails when a real response arrived but its bytes could not be genuinely extracted'
+    Assert-Equal -Expected 'RAW_RESPONSE_BYTES_UNAVAILABLE' -Actual $result.Reason -Name 'ITEM 5: correct reason code RAW_RESPONSE_BYTES_UNAVAILABLE'
+    Assert-Equal -Expected 0 -Actual $openCount.Value -Name 'ITEM 5: the browser was never launched when raw bytes were unavailable'
+    Assert-Equal -Expected 0 -Actual (@(Get-ChildItem -Path $dir -Filter '*.json' -ErrorAction SilentlyContinue)).Count -Name 'ITEM 5: no raw evidence file and no stage file were written when raw bytes were unavailable'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- Total transport failure: no HTTP response boundary at all (ITEM E) ---
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    $openCount2 = [ref]0
+    $countingOpenUrl2 = { param($Url) $openCount2.Value++ }.GetNewClosure()
+    $totalFailurePort = {
+        param($Uri, $BodyJson)
+        # Mirrors the real adapter's own total-transport-failure branch:
+        # no HTTP response object was ever received, so no boundary is
+        # invented -- StatusCode and BodyBytes are both genuinely null, and
+        # the exception detail is preserved ONLY as a local diagnostic.
+        return @{ StatusCode = $null; BodyBytes = $null; TransportError = 'simulated: connection refused' }
+    }.GetNewClosure()
+
+    $result = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef "ref-$sid" `
+        -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
+        -EvidenceRoot $dir -HttpPost $totalFailurePort -OpenUrl $countingOpenUrl2 -NowUtc { Get-UtcTimestamp } -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM E: CreateCheckout fails when there is no HTTP response boundary at all (total transport failure)'
+    Assert-Equal -Expected 'NO_RESPONSE_RECEIVED' -Actual $result.Reason -Name 'ITEM E: correct reason code NO_RESPONSE_RECEIVED'
+    Assert-Equal -Expected 0 -Actual $openCount2.Value -Name 'ITEM E: no browser launch on total transport failure'
+    Assert-Equal -Expected 0 -Actual (@(Get-ChildItem -Path $dir -Filter '*.json' -ErrorAction SilentlyContinue)).Count -Name 'ITEM E: no raw file and no stage file on total transport failure'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- StatusCode 0 explicitly rejected, even with a nonempty body (ITEM F) ---
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    $zeroStatusPort = {
+        param($Uri, $BodyJson)
+        return @{ StatusCode = 0; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes('should never be treated as a genuine response') }
+    }.GetNewClosure()
+    $result = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef "ref-$sid" `
+        -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
+        -EvidenceRoot $dir -HttpPost $zeroStatusPort -OpenUrl { param($Url) } -NowUtc { Get-UtcTimestamp } -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM F: StatusCode 0 is rejected even though a non-empty body was supplied'
+    Assert-Equal -Expected 'NO_RESPONSE_RECEIVED' -Actual $result.Reason -Name 'ITEM F: correct reason code NO_RESPONSE_RECEIVED'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- Verify orchestration: same production byte-extraction boundary and same failure modes (ITEM H) ---
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    $realTxRefBoundary = "ref-$sid"
+    $realTxnIdBoundary = 'txn-boundary-test'
+    $checkoutBody5 = [System.Text.Encoding]::UTF8.GetBytes(([PSCustomObject]@{ status = 'success'; data = [PSCustomObject]@{ link = 'https://checkout.flutterwave.com/v3/hosted/pay/flwlnk-x' } } | ConvertTo-Json -Depth 5))
+    $postFn6 = { param($Uri, $BodyJson) return @{ StatusCode = 200; BodyBytes = $checkoutBody5 } }.GetNewClosure()
+    $clock5 = New-FakeClock
+    $null = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef $realTxRefBoundary `
+        -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
+        -EvidenceRoot $dir -HttpPost $postFn6 -OpenUrl { param($Url) } -NowUtc $clock5 -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
+    $null = Invoke-ObservePaymentSuccessOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -Confirmed $true -NowUtc $clock5 -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
+
+    $verifyBodyForBoundaryTest = [System.Text.Encoding]::UTF8.GetBytes(([PSCustomObject]@{ status = 'success'; data = [PSCustomObject]@{ id = $realTxnIdBoundary; tx_ref = $realTxRefBoundary; status = 'successful'; amount = 100; currency = 'NGN'; created_at = '2020-03-11T19:22:07.000Z' } } | ConvertTo-Json -Depth 5))
+    $productionGetPort = {
+        param($Uri)
+        $webResponse = New-FakeSuccessWebResponse -Bytes $verifyBodyForBoundaryTest -StatusCode 200
+        $extraction = Get-WebResponseBytes -WebResponse $webResponse
+        if (-not $extraction.Success) { return @{ StatusCode = $webResponse.StatusCode; BodyBytes = $null; TransportError = $extraction.Reason } }
+        return @{ StatusCode = $webResponse.StatusCode; BodyBytes = $extraction.Bytes }
+    }.GetNewClosure()
+
+    $verifyResultBoundary = Invoke-VerifyOrchestration -TestLabel 'A' -CaptureSessionId $sid -TransactionId $realTxnIdBoundary `
+        -EvidenceRoot $dir -HttpGet $productionGetPort -NowUtc $clock5 -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
+    Assert-Equal -Expected $true -Actual $verifyResultBoundary.Success -Name 'ITEM H: Verify orchestration succeeds end-to-end through the CORRECTED production byte-extraction boundary (Get-WebResponseBytes)'
+    if ($verifyResultBoundary.Success) {
+        $persistedVerify = [System.IO.File]::ReadAllBytes($verifyResultBoundary.RawPath)
+        Assert-Equal -Expected ([Convert]::ToBase64String($verifyBodyForBoundaryTest)) -Actual ([Convert]::ToBase64String($persistedVerify)) -Name 'ITEM H: the Verify raw file persisted via the production byte-extraction boundary is byte-for-byte identical to the original response'
+    }
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# --- Static regression: the real adapter contains no string-based body reconstruction (ITEM G) ---
+Assert-True -Condition ($collectorSource -notmatch '\$webResponse\.Content') -Name 'ITEM G: the real HTTP adapter never reads $webResponse.Content (a decoded string) as a byte-authority source'
+Assert-True -Condition ($collectorSource -notmatch 'UTF8\.GetBytes\(\$webResponse\.Content\)') -Name 'ITEM G: the real HTTP adapter contains no UTF8.GetBytes($webResponse.Content)'
+Assert-True -Condition ($collectorSource -notmatch 'StreamReader') -Name 'ITEM G: the real HTTP adapter contains no StreamReader-based body extraction'
+Assert-True -Condition ($collectorSource -match 'Get-WebResponseBytes') -Name 'the real HTTP adapter calls the shared Get-WebResponseBytes byte-extraction function'
+Assert-True -Condition ($collectorSource -match 'Get-ErrorResponseBytes') -Name 'the real HTTP adapter calls the shared Get-ErrorResponseBytes byte-extraction function'
+Assert-True -Condition ($collectorSource -notmatch 'BodyBytes\s*=\s*\[System\.Text\.Encoding\]::UTF8\.GetBytes\(\[string\]\$_\.Exception\.Message\)') -Name 'ITEM 6: the real HTTP adapter never converts an exception message into BodyBytes'
+Assert-True -Condition ($collectorSource -match 'StatusCode\s*=\s*\$null;\s*BodyBytes\s*=\s*\$null') -Name 'ITEM 6: a total transport failure produces StatusCode=$null and BodyBytes=$null, never an invented boundary'
+Assert-True -Condition ($librarySource -match 'function Test-IsValidHttpStatusCode') -Name 'the library defines Test-IsValidHttpStatusCode, the single source of truth for what counts as a genuine HTTP response code'
+Assert-True -Condition ($librarySource -match 'function Get-WebResponseBytes') -Name 'the library defines Get-WebResponseBytes'
+Assert-True -Condition ($librarySource -match 'function Get-ErrorResponseBytes') -Name 'the library defines Get-ErrorResponseBytes'
+
+# ============================================================
 # Category: CI actually invokes this suite (structural self-check)
 # ============================================================
 Write-Host "`n=== CI wiring ===" -ForegroundColor Cyan

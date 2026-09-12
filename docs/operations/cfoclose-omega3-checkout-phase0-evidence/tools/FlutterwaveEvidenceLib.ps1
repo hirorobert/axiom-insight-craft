@@ -116,6 +116,29 @@ function Get-Sha256HexFromBytes {
     }
 }
 
+function Test-IsValidHttpStatusCode {
+    <#
+    CORRECTED (Codex FINAL LIVE HTTP BYTE-BOUNDARY audit): a genuine HTTP
+    response always carries a status code in the real HTTP range [100,599].
+    The prior real-adapter implementation used the INVENTED value 0 to mean
+    "no response at all" -- but 0 is not itself validated anywhere as
+    unsafe, so a future change that let 0 flow through as if it were a real
+    status code would silently be accepted. This function is the single
+    place that decides whether a StatusCode value could ever have come from
+    an actual HTTP response. $null and 0 both fail -- neither represents a
+    response Flutterwave (or any HTTP server) could genuinely return.
+    #>
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [Nullable[int]]$StatusCode
+    )
+    if ($null -eq $StatusCode) { return $false }
+    if ($StatusCode -lt 100 -or $StatusCode -gt 599) { return $false }
+    return $true
+}
+
 function Test-IsSafeResponseBoundary {
     <#
     The "validate safe response boundary" step of the required byte-
@@ -130,6 +153,12 @@ function Test-IsSafeResponseBoundary {
     raw file for a rejected capture is explicitly acceptable; persisting
     nothing for a connection that never produced a response is not useful
     evidence to begin with.
+
+    CORRECTED (Codex FINAL LIVE HTTP BYTE-BOUNDARY audit): StatusCode is now
+    validated via Test-IsValidHttpStatusCode -- $null OR 0 OR any value
+    outside [100,599] fails this boundary, closing the gap where an
+    invented sentinel status code could have been mistaken for a genuine
+    response.
     #>
     [OutputType([bool])]
     param(
@@ -141,9 +170,111 @@ function Test-IsSafeResponseBoundary {
         [AllowNull()]
         [byte[]]$BodyBytes
     )
-    if ($null -eq $StatusCode) { return $false }
+    if (-not (Test-IsValidHttpStatusCode -StatusCode $StatusCode)) { return $false }
     if ($null -eq $BodyBytes) { return $false }
     return $true
+}
+
+function Get-WebResponseBytes {
+    <#
+    CORRECTED (Codex FINAL LIVE HTTP BYTE-BOUNDARY audit): extracts the
+    GENUINE byte sequence of a successful Invoke-WebRequest response body,
+    never through $webResponse.Content (a decoded STRING -- re-encoding it
+    via UTF8.GetBytes() does not reproduce the original bytes unless the
+    response happened to be UTF-8 with no BOM/encoding quirks, which cannot
+    be assumed for a third-party provider). Invoke-WebRequest's response
+    object (WebResponseObject / BasicHtmlWebResponseObject, identical shape
+    on Windows PowerShell 5.1 and PowerShell 7+) exposes RawContentStream --
+    the actual bytes read off the wire, before any string decoding -- and
+    this function reads that stream directly into a byte array. Property
+    access is duck-typed (via .PSObject.Properties) rather than a type
+    check, so the SAME function is directly callable from tests with a
+    lightweight fake object carrying just a RawContentStream property --
+    the production adapter and the tests exercise this exact code path,
+    never two parallel implementations.
+    #>
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        $WebResponse
+    )
+    if ($null -eq $WebResponse) {
+        return @{ Success = $false; Reason = 'RAW_RESPONSE_BYTES_UNAVAILABLE'; Bytes = $null }
+    }
+    try {
+        $rawStreamProperty = $WebResponse.PSObject.Properties['RawContentStream']
+        $stream = if ($rawStreamProperty) { $rawStreamProperty.Value } else { $null }
+        if ($null -eq $stream) {
+            return @{ Success = $false; Reason = 'RAW_RESPONSE_BYTES_UNAVAILABLE'; Bytes = $null }
+        }
+        if ($stream.CanSeek) { $stream.Position = 0 }
+        $memoryStream = New-Object System.IO.MemoryStream
+        $stream.CopyTo($memoryStream)
+        return @{ Success = $true; Reason = 'OK'; Bytes = $memoryStream.ToArray() }
+    }
+    catch {
+        return @{ Success = $false; Reason = 'RAW_RESPONSE_BYTES_UNAVAILABLE'; Bytes = $null }
+    }
+}
+
+function Get-ErrorResponseBytes {
+    <#
+    CORRECTED (Codex FINAL LIVE HTTP BYTE-BOUNDARY audit): extracts the
+    GENUINE byte sequence of a non-2xx error response body, never through a
+    StreamReader-decoded string (the same byte-fidelity problem as
+    Get-WebResponseBytes above -- ReadToEnd() decodes to a STRING using a
+    detected/default encoding, and there is no safe way back to the exact
+    original bytes from that string). Windows PowerShell 5.1 throws
+    System.Net.WebException with a .Response of type
+    System.Net.HttpWebResponse (GetResponseStream()); PowerShell 7+ throws
+    Microsoft.PowerShell.Commands.HttpResponseException with a .Response of
+    type System.Net.Http.HttpResponseMessage (.Content.ReadAsByteArrayAsync().
+    Result). Both shapes are tried, via duck-typed member detection (never a
+    hard [type] check, so a lightweight fake object of either shape is
+    directly usable from tests) -- neither call touches a decoded string at
+    any point. If neither shape is present/usable, this fails closed rather
+    than guessing.
+    #>
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        $ErrorResponse
+    )
+    if ($null -eq $ErrorResponse) {
+        return @{ Success = $false; Reason = 'RAW_RESPONSE_BYTES_UNAVAILABLE'; Bytes = $null }
+    }
+
+    $getResponseStreamMethod = $ErrorResponse.PSObject.Methods['GetResponseStream']
+    if ($getResponseStreamMethod) {
+        try {
+            $stream = $ErrorResponse.GetResponseStream()
+            if ($stream) {
+                $memoryStream = New-Object System.IO.MemoryStream
+                $stream.CopyTo($memoryStream)
+                return @{ Success = $true; Reason = 'OK'; Bytes = $memoryStream.ToArray() }
+            }
+        }
+        catch { }
+    }
+
+    $contentProperty = $ErrorResponse.PSObject.Properties['Content']
+    if ($contentProperty -and $contentProperty.Value) {
+        try {
+            $readMethod = $contentProperty.Value.PSObject.Methods['ReadAsByteArrayAsync']
+            if ($readMethod) {
+                $task = $contentProperty.Value.ReadAsByteArrayAsync()
+                $bytes = $task.Result
+                if ($null -ne $bytes) {
+                    return @{ Success = $true; Reason = 'OK'; Bytes = $bytes }
+                }
+            }
+        }
+        catch { }
+    }
+
+    return @{ Success = $false; Reason = 'RAW_RESPONSE_BYTES_UNAVAILABLE'; Bytes = $null }
 }
 
 function New-ImmutableBytesFile {
@@ -999,9 +1130,18 @@ function Invoke-CreateCheckoutOrchestration {
 
     # Step 1 of the byte-authority sequence: validate a real response
     # boundary exists at all (never attempt to persist a total transport
-    # failure with no status code and no bytes).
-    if (-not (Test-IsSafeResponseBoundary -StatusCode $httpResult.StatusCode -BodyBytes $httpResult.BodyBytes)) {
+    # failure with no status code and no bytes). CORRECTED (Codex FINAL
+    # LIVE HTTP BYTE-BOUNDARY audit): the two distinct failure modes are
+    # now told apart, since they mean different things -- no HTTP response
+    # was ever received at all (a genuine transport failure, StatusCode
+    # null/0/out-of-range) versus a real HTTP response WAS received but its
+    # body bytes could not be genuinely extracted (the port's own
+    # byte-extraction boundary failed, e.g. an unreadable response stream).
+    if (-not (Test-IsValidHttpStatusCode -StatusCode $httpResult.StatusCode)) {
         return @{ Success = $false; Reason = 'NO_RESPONSE_RECEIVED' }
+    }
+    if ($null -eq $httpResult.BodyBytes) {
+        return @{ Success = $false; Reason = 'RAW_RESPONSE_BYTES_UNAVAILABLE' }
     }
 
     # Step 2: atomically persist the EXACT bytes received -- write-once,
@@ -1164,8 +1304,13 @@ function Invoke-VerifyOrchestration {
     $httpResult = & $HttpGet $uri
     $requestEndUtc = & $NowUtc
 
-    if (-not (Test-IsSafeResponseBoundary -StatusCode $httpResult.StatusCode -BodyBytes $httpResult.BodyBytes)) {
+    # See the identical comment in Invoke-CreateCheckoutOrchestration: these
+    # are two distinct failure modes with two distinct reasons.
+    if (-not (Test-IsValidHttpStatusCode -StatusCode $httpResult.StatusCode)) {
         return @{ Success = $false; Reason = 'NO_RESPONSE_RECEIVED' }
+    }
+    if ($null -eq $httpResult.BodyBytes) {
+        return @{ Success = $false; Reason = 'RAW_RESPONSE_BYTES_UNAVAILABLE' }
     }
 
     $rawFileName = Get-RawEvidenceFileName -ActionName 'Verify' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
