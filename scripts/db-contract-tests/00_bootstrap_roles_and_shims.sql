@@ -82,3 +82,14 @@ $$;
 
 GRANT USAGE ON SCHEMA auth, storage TO anon, authenticated, service_role;
 GRANT SELECT ON auth.users TO anon, authenticated, service_role;
+
+-- Every real Supabase project auto-provisions an empty `supabase_realtime`
+-- publication on creation; at least one pre-existing migration
+-- (20260116154912) ALTERs it to add a table. A vanilla postgres:16
+-- container has no such publication by default.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    CREATE PUBLICATION supabase_realtime;
+  END IF;
+END $$;
