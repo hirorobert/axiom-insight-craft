@@ -1348,26 +1348,22 @@ $nullErrorExtraction = Get-ErrorResponseBytes -ErrorResponse $null
 Assert-Equal -Expected $false -Actual $nullErrorExtraction.Success -Name 'ITEM D: Get-ErrorResponseBytes fails closed for a null ErrorResponse'
 
 # --- End-to-end orchestration wired to the CORRECTED production byte-extraction boundary (ITEM H) ---
-# These HttpPost/HttpGet ports are built the SAME way the real
-# Invoke-FlutterwaveEvidenceCapture.ps1 ports are (call Get-WebResponseBytes /
-# Get-ErrorResponseBytes, never a decoded string), differing only in that
-# the underlying "web response" is a fake object instead of a real
-# Invoke-WebRequest result -- so these tests exercise the ACTUAL corrected
-# byte-extraction functions through the full orchestration path, not a
-# separate synthetic shortcut.
-function New-ProductionShapedHttpPostPort {
-    param([byte[]]$SuccessBytes, [int]$SuccessStatusCode = 200)
-    return {
-        param($Uri, $BodyJson)
-        $webResponse = New-FakeSuccessWebResponse -Bytes $SuccessBytes -StatusCode $SuccessStatusCode
-        $extraction = Get-WebResponseBytes -WebResponse $webResponse
-        if (-not $extraction.Success) {
-            return @{ StatusCode = $webResponse.StatusCode; BodyBytes = $null; TransportError = $extraction.Reason }
-        }
-        return @{ StatusCode = $webResponse.StatusCode; BodyBytes = $extraction.Bytes }
-    }.GetNewClosure()
-}
-
+# These HttpPost/HttpGet ports route through Get-WebResponseBytes against a
+# fake-but-genuinely-stream-shaped "web response" object, exactly as the
+# real Invoke-FlutterwaveEvidenceCapture.ps1 ports do -- so these tests
+# exercise the ACTUAL corrected byte-extraction function, not a separate
+# synthetic shortcut.
+#
+# NOTE: the extraction is performed ONCE, OUTSIDE the closure, and the
+# closure itself only returns the already-computed result literal --
+# calling ANY function (library or test-file-local) from FROM INSIDE a
+# .GetNewClosure() scriptblock that is later invoked across the
+# orchestration-library call boundary does not resolve reliably on every
+# PowerShell engine (confirmed: doing so fails on PowerShell 7+/Linux even
+# though the identical construct runs on Windows PowerShell 5.1). Every
+# closure in this file -- including the pre-existing ones -- only ever
+# returns literal/precomputed values for exactly this reason; this test
+# follows that same proven, engine-portable pattern.
 $dir = New-OrchestrationTestContext
 try {
     $sid = [guid]::NewGuid().ToString('N')
@@ -1376,7 +1372,17 @@ try {
     # padding OUTSIDE the JSON body's own bytes -- Get-CaptureOutcome parses
     # only the JSON prefix it needs, but the FULL response (JSON plus
     # trailer) is still what must be persisted and hashed byte-for-byte.
-    $productionPort = New-ProductionShapedHttpPostPort -SuccessBytes $checkoutBodyForBoundaryTest
+    $fakeStreamForCreateCheckoutBoundary = New-Object System.IO.MemoryStream(, $checkoutBodyForBoundaryTest)
+    $fakeStreamForCreateCheckoutBoundary.Position = $checkoutBodyForBoundaryTest.Length
+    $fakeWebResponseForCreateCheckoutBoundary = [PSCustomObject]@{ StatusCode = 200; RawContentStream = $fakeStreamForCreateCheckoutBoundary }
+    $createCheckoutBoundaryExtraction = Get-WebResponseBytes -WebResponse $fakeWebResponseForCreateCheckoutBoundary
+    $createCheckoutBoundaryPortResult = if ($createCheckoutBoundaryExtraction.Success) {
+        @{ StatusCode = $fakeWebResponseForCreateCheckoutBoundary.StatusCode; BodyBytes = $createCheckoutBoundaryExtraction.Bytes }
+    }
+    else {
+        @{ StatusCode = $fakeWebResponseForCreateCheckoutBoundary.StatusCode; BodyBytes = $null; TransportError = $createCheckoutBoundaryExtraction.Reason }
+    }
+    $productionPort = { return $createCheckoutBoundaryPortResult }.GetNewClosure()
     $result = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef "ref-$sid" `
         -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
         -EvidenceRoot $dir -HttpPost $productionPort -OpenUrl { param($Url) } -NowUtc { Get-UtcTimestamp } -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
@@ -1467,13 +1473,20 @@ try {
     $null = Invoke-ObservePaymentSuccessOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -Confirmed $true -NowUtc $clock5 -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
 
     $verifyBodyForBoundaryTest = [System.Text.Encoding]::UTF8.GetBytes(([PSCustomObject]@{ status = 'success'; data = [PSCustomObject]@{ id = $realTxnIdBoundary; tx_ref = $realTxRefBoundary; status = 'successful'; amount = 100; currency = 'NGN'; created_at = '2020-03-11T19:22:07.000Z' } } | ConvertTo-Json -Depth 5))
-    $productionGetPort = {
-        param($Uri)
-        $webResponse = New-FakeSuccessWebResponse -Bytes $verifyBodyForBoundaryTest -StatusCode 200
-        $extraction = Get-WebResponseBytes -WebResponse $webResponse
-        if (-not $extraction.Success) { return @{ StatusCode = $webResponse.StatusCode; BodyBytes = $null; TransportError = $extraction.Reason } }
-        return @{ StatusCode = $webResponse.StatusCode; BodyBytes = $extraction.Bytes }
-    }.GetNewClosure()
+    # Same engine-portable pattern as the CreateCheckout boundary test above:
+    # extraction happens ONCE, outside the closure; the closure only returns
+    # the already-computed literal result.
+    $fakeStreamForVerifyBoundary = New-Object System.IO.MemoryStream(, $verifyBodyForBoundaryTest)
+    $fakeStreamForVerifyBoundary.Position = $verifyBodyForBoundaryTest.Length
+    $fakeWebResponseForVerifyBoundary = [PSCustomObject]@{ StatusCode = 200; RawContentStream = $fakeStreamForVerifyBoundary }
+    $verifyBoundaryExtraction = Get-WebResponseBytes -WebResponse $fakeWebResponseForVerifyBoundary
+    $verifyBoundaryPortResult = if ($verifyBoundaryExtraction.Success) {
+        @{ StatusCode = $fakeWebResponseForVerifyBoundary.StatusCode; BodyBytes = $verifyBoundaryExtraction.Bytes }
+    }
+    else {
+        @{ StatusCode = $fakeWebResponseForVerifyBoundary.StatusCode; BodyBytes = $null; TransportError = $verifyBoundaryExtraction.Reason }
+    }
+    $productionGetPort = { return $verifyBoundaryPortResult }.GetNewClosure()
 
     $verifyResultBoundary = Invoke-VerifyOrchestration -TestLabel 'A' -CaptureSessionId $sid -TransactionId $realTxnIdBoundary `
         -EvidenceRoot $dir -HttpGet $productionGetPort -NowUtc $clock5 -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
