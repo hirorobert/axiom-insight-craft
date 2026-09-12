@@ -501,10 +501,11 @@ $manifest = New-EvidenceManifest `
     -ElapsedSecondsSinceCheckoutOpened 1.0 -TimelineValid $true `
     -ProviderEvidenceFields @([PSCustomObject]@{ path = 'data.created_at'; key = 'created_at'; value = $t0 }) `
     -CheckoutRawResponseSha256 'deadbeef' -VerifyRawResponseSha256 'cafebabe' `
+    -CheckoutRawEvidenceFilename 'raw-CreateCheckout-TestA-session-abc.json' -VerifyRawEvidenceFilename 'raw-Verify-TestA-session-abc.json' `
     -CollectorScriptGitSha 'abc123' -CollectorScriptContentSha256 'contenthash' `
     -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
 
-$requiredKeys = @('capture_session_id', 'test_label', 'tx_ref_sha256', 'transaction_id_sha256', 'test_mode_confirmed', 'api_version', 'checkout_endpoint', 'verify_endpoint', 'checkout_request_start_utc', 'checkout_request_end_utc', 'checkout_opened_utc', 'payment_completion_observed_utc', 'verify_request_start_utc', 'verify_request_end_utc', 'elapsed_seconds_since_checkout_opened', 'timeline_valid', 'provider_evidence_fields', 'checkout_raw_response_sha256', 'verify_raw_response_sha256', 'collector_script_git_sha', 'collector_script_content_sha256', 'powershell_version', 'machine_utc_offset_minutes')
+$requiredKeys = @('capture_session_id', 'test_label', 'tx_ref_sha256', 'transaction_id_sha256', 'test_mode_confirmed', 'api_version', 'checkout_endpoint', 'verify_endpoint', 'checkout_request_start_utc', 'checkout_request_end_utc', 'checkout_opened_utc', 'payment_completion_observed_utc', 'verify_request_start_utc', 'verify_request_end_utc', 'elapsed_seconds_since_checkout_opened', 'timeline_valid', 'provider_evidence_fields', 'checkout_raw_response_sha256', 'verify_raw_response_sha256', 'checkout_raw_evidence_filename', 'verify_raw_evidence_filename', 'collector_script_git_sha', 'collector_script_content_sha256', 'powershell_version', 'machine_utc_offset_minutes')
 foreach ($key in $requiredKeys) {
     Assert-True -Condition ($manifest.Contains($key)) -Name "manifest binds required field '$key'"
 }
@@ -574,8 +575,8 @@ try {
         $openedUrls.Add($Url)
     }.GetNewClosure()
 
-    $fakeHttpPost = { param($Uri, $BodyJson) return @{ StatusCode = 200; Body = $checkoutSuccessResponse } }.GetNewClosure()
-    $fakeHttpGet = { param($Uri) return @{ StatusCode = 200; Body = $verifySuccessResponse } }.GetNewClosure()
+    $fakeHttpPost = { param($Uri, $BodyJson) return @{ StatusCode = 200; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($checkoutSuccessResponse) } }.GetNewClosure()
+    $fakeHttpGet = { param($Uri) return @{ StatusCode = 200; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($verifySuccessResponse) } }.GetNewClosure()
     $fakeClock = New-FakeClock
 
     # --- Step 1: CreateCheckout ---
@@ -669,7 +670,7 @@ foreach ($scenario in $failScenarios) {
         $openCount = [ref]0
         $noopOpenUrl = { param($Url) $openCount.Value++ }.GetNewClosure()
         $canned = $scenario.Response
-        $postFn = { param($Uri, $BodyJson) return @{ StatusCode = 200; Body = $canned } }.GetNewClosure()
+        $postFn = { param($Uri, $BodyJson) return @{ StatusCode = 200; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($canned) } }.GetNewClosure()
         $sid = [guid]::NewGuid().ToString('N')
 
         $result = Invoke-CreateCheckoutOrchestration `
@@ -692,7 +693,7 @@ foreach ($scenario in $failScenarios) {
 $dir = New-OrchestrationTestContext
 try {
     $validResp = ([PSCustomObject]@{ status = 'success'; data = [PSCustomObject]@{ link = 'https://checkout.flutterwave.com/v3/hosted/pay/x' } } | ConvertTo-Json)
-    $postFn = { param($Uri, $BodyJson) return @{ StatusCode = 200; Body = $validResp } }.GetNewClosure()
+    $postFn = { param($Uri, $BodyJson) return @{ StatusCode = 200; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($validResp) } }.GetNewClosure()
     $throwingOpenUrl = { param($Url) throw "Simulated: no application is associated with this URL." }
     $sid = [guid]::NewGuid().ToString('N')
 
@@ -712,69 +713,546 @@ finally {
 }
 
 # --- Verify failure boundaries: tx_ref mismatch, transaction id mismatch ---
-$dir = New-OrchestrationTestContext
-try {
+# NOTE: each scenario below uses its OWN CaptureSessionId. Raw-evidence
+# persistence (Blocker 1) happens BEFORE the tx_ref/transaction-id matching
+# check, is write-once per deterministic session-bound filename, and an
+# orphan raw file is explicitly acceptable when a LATER step fails (per this
+# mission's own correction) -- so reusing one session id across three
+# successive Verify calls would make the second and third calls fail with
+# RAW_ALREADY_EXISTS instead of exercising the matching checks this test
+# exists to prove.
+function New-VerifyMismatchTestSetup {
+    param([string]$Dir, [string]$TxRef)
     $sid = [guid]::NewGuid().ToString('N')
     $checkoutResp = ([PSCustomObject]@{ status = 'success'; data = [PSCustomObject]@{ link = 'https://checkout.flutterwave.com/v3/hosted/pay/x' } } | ConvertTo-Json)
-    $postFn = { param($Uri, $BodyJson) return @{ StatusCode = 200; Body = $checkoutResp } }.GetNewClosure()
-    $openUrl = { param($Url) }
+    $postFn = { param($Uri, $BodyJson) return @{ StatusCode = 200; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($checkoutResp) } }.GetNewClosure()
     $clock = New-FakeClock
-
-    $null = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef 'the-real-ref' `
+    $null = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef $TxRef `
         -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
-        -EvidenceRoot $dir -HttpPost $postFn -OpenUrl $openUrl -NowUtc $clock -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
-    $null = Invoke-ObservePaymentSuccessOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -Confirmed $true -NowUtc $clock -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
+        -EvidenceRoot $Dir -HttpPost $postFn -OpenUrl { param($Url) } -NowUtc $clock -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
+    $null = Invoke-ObservePaymentSuccessOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $Dir -Confirmed $true -NowUtc $clock -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
+    return @{ Sid = $sid; Clock = $clock }
+}
 
+$dir = New-OrchestrationTestContext
+try {
     # Verify response returns a DIFFERENT tx_ref than the checkout stage recorded.
+    $setup1 = New-VerifyMismatchTestSetup -Dir $dir -TxRef 'the-real-ref-1'
     $wrongTxRefResp = ([PSCustomObject]@{ status = 'success'; data = [PSCustomObject]@{ id = '999'; tx_ref = 'a-completely-different-ref' } } | ConvertTo-Json)
-    $getFn = { param($Uri) return @{ StatusCode = 200; Body = $wrongTxRefResp } }.GetNewClosure()
-    $verifyResult = Invoke-VerifyOrchestration -TestLabel 'A' -CaptureSessionId $sid -TransactionId '999' `
-        -EvidenceRoot $dir -HttpGet $getFn -NowUtc $clock -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
+    $getFn = { param($Uri) return @{ StatusCode = 200; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($wrongTxRefResp) } }.GetNewClosure()
+    $verifyResult = Invoke-VerifyOrchestration -TestLabel 'A' -CaptureSessionId $setup1.Sid -TransactionId '999' `
+        -EvidenceRoot $dir -HttpGet $getFn -NowUtc $setup1.Clock -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
     Assert-Equal -Expected $false -Actual $verifyResult.Success -Name 'FAILURE BOUNDARY: Verify with a mismatched tx_ref -- Success is false'
     Assert-Equal -Expected 'TX_REF_MISMATCH' -Actual $verifyResult.Reason -Name 'FAILURE BOUNDARY: Verify with a mismatched tx_ref -- correct reason code'
-    Assert-Equal -Expected 0 -Actual (@(Get-ChildItem -Path $dir -Filter 'stage-Verify-*.json' -ErrorAction SilentlyContinue)).Count -Name 'FAILURE BOUNDARY: tx_ref mismatch -- no Verify stage file was written'
+    Assert-Equal -Expected 0 -Actual (@(Get-ChildItem -Path $dir -Filter "stage-Verify-TestA-$($setup1.Sid).json" -ErrorAction SilentlyContinue)).Count -Name 'FAILURE BOUNDARY: tx_ref mismatch -- no Verify stage file was written'
 
     # Verify response returns the CORRECT tx_ref but a DIFFERENT transaction id than requested.
-    $wrongIdResp = ([PSCustomObject]@{ status = 'success'; data = [PSCustomObject]@{ id = 'DIFFERENT-ID'; tx_ref = 'the-real-ref' } } | ConvertTo-Json)
-    $getFn2 = { param($Uri) return @{ StatusCode = 200; Body = $wrongIdResp } }.GetNewClosure()
-    $verifyResult2 = Invoke-VerifyOrchestration -TestLabel 'A' -CaptureSessionId $sid -TransactionId '999' `
-        -EvidenceRoot $dir -HttpGet $getFn2 -NowUtc $clock -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
+    $setup2 = New-VerifyMismatchTestSetup -Dir $dir -TxRef 'the-real-ref-2'
+    $wrongIdResp = ([PSCustomObject]@{ status = 'success'; data = [PSCustomObject]@{ id = 'DIFFERENT-ID'; tx_ref = 'the-real-ref-2' } } | ConvertTo-Json)
+    $getFn2 = { param($Uri) return @{ StatusCode = 200; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($wrongIdResp) } }.GetNewClosure()
+    $verifyResult2 = Invoke-VerifyOrchestration -TestLabel 'A' -CaptureSessionId $setup2.Sid -TransactionId '999' `
+        -EvidenceRoot $dir -HttpGet $getFn2 -NowUtc $setup2.Clock -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
     Assert-Equal -Expected $false -Actual $verifyResult2.Success -Name 'FAILURE BOUNDARY: Verify with a mismatched transaction id -- Success is false'
     Assert-Equal -Expected 'TRANSACTION_ID_MISMATCH' -Actual $verifyResult2.Reason -Name 'FAILURE BOUNDARY: Verify with a mismatched transaction id -- correct reason code'
-    Assert-Equal -Expected 0 -Actual (@(Get-ChildItem -Path $dir -Filter 'stage-Verify-*.json' -ErrorAction SilentlyContinue)).Count -Name 'FAILURE BOUNDARY: transaction-id mismatch -- no Verify stage file was written'
+    Assert-Equal -Expected 0 -Actual (@(Get-ChildItem -Path $dir -Filter "stage-Verify-TestA-$($setup2.Sid).json" -ErrorAction SilentlyContinue)).Count -Name 'FAILURE BOUNDARY: transaction-id mismatch -- no Verify stage file was written'
 
     # Missing tx_ref / missing id in the verify response.
+    $setup3 = New-VerifyMismatchTestSetup -Dir $dir -TxRef 'the-real-ref-3'
     $missingTxRefResp = ([PSCustomObject]@{ status = 'success'; data = [PSCustomObject]@{ id = '999' } } | ConvertTo-Json)
-    $getFn3 = { param($Uri) return @{ StatusCode = 200; Body = $missingTxRefResp } }.GetNewClosure()
-    $verifyResult3 = Invoke-VerifyOrchestration -TestLabel 'A' -CaptureSessionId $sid -TransactionId '999' `
-        -EvidenceRoot $dir -HttpGet $getFn3 -NowUtc $clock -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
+    $getFn3 = { param($Uri) return @{ StatusCode = 200; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($missingTxRefResp) } }.GetNewClosure()
+    $verifyResult3 = Invoke-VerifyOrchestration -TestLabel 'A' -CaptureSessionId $setup3.Sid -TransactionId '999' `
+        -EvidenceRoot $dir -HttpGet $getFn3 -NowUtc $setup3.Clock -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
     Assert-Equal -Expected 'MISSING_TX_REF' -Actual $verifyResult3.Reason -Name 'FAILURE BOUNDARY: Verify response missing data.tx_ref entirely -- correct reason code'
 }
 finally {
     Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# --- FinalizeManifest failure boundary: collector-version mismatch across stages ---
+# ============================================================
+# Category: RAW-RESPONSE RETENTION (Blocker 1, mission items 1-15)
+# ============================================================
+Write-Host "`n=== Raw-response retention (Blocker 1) ===" -ForegroundColor Cyan
+
+$rawMarkerCheckout = 'MARKER-RAW-CHECKOUT-BODY-CONTENT-DO-NOT-LEAK'
+$rawMarkerVerify = 'MARKER-RAW-VERIFY-BODY-CONTENT-DO-NOT-LEAK'
+
+function New-CheckoutSuccessBodyWithMarker {
+    param([string]$Link = 'https://checkout.flutterwave.com/v3/hosted/pay/flwlnk-rawtest', [string]$Marker = $rawMarkerCheckout)
+    # The marker is embedded as the value of an ARBITRARY, non-allowlisted
+    # field inside otherwise genuinely valid JSON (never trailing garbage
+    # after the closing brace, which would just make the body malformed
+    # JSON and fail parsing before persistence is even relevant). Because
+    # this field is not on the allowlist, it must be persisted in the raw
+    # bytes (byte-authority) but must NEVER appear in the sanitized stage
+    # or the finalized manifest -- exactly what these tests check.
+    $json = ([PSCustomObject]@{ status = 'success'; message = 'Hosted Link'; data = [PSCustomObject]@{ link = $Link; unexpected_marker_field = $Marker } } | ConvertTo-Json -Depth 5)
+    return $json
+}
+
+function New-VerifySuccessBodyWithMarker {
+    param([Parameter(Mandatory)][string]$TxRef, [Parameter(Mandatory)][string]$TransactionId, [string]$Marker = $rawMarkerVerify)
+    $json = ([PSCustomObject]@{
+            status  = 'success'
+            message = 'Transaction fetched successfully'
+            data    = [PSCustomObject]@{ id = $TransactionId; tx_ref = $TxRef; status = 'successful'; amount = 100; currency = 'NGN'; created_at = '2020-03-11T19:22:07.000Z'; unexpected_marker_field = $Marker }
+        } | ConvertTo-Json -Depth 5)
+    return $json
+}
+
+# --- 1/3/4/5/6: CreateCheckout persists the EXACT raw bytes, deterministic filename, outside the repo, hash matches ---
 $dir = New-OrchestrationTestContext
 try {
     $sid = [guid]::NewGuid().ToString('N')
-    $checkoutStage = @{ capture_session_id = $sid; test_label = 'A'; action = 'CreateCheckout'; tx_ref_sha256 = 'abc'; endpoint = 'x'; request_start_utc = $t0; request_end_utc = $t1; checkout_opened_utc = $t2; provider_evidence_fields = @(); raw_response_sha256 = 'x'; collector_script_content_sha256 = 'VERSION-1' }
-    $observeStage = @{ capture_session_id = $sid; test_label = 'A'; action = 'ObservePaymentSuccess'; checkout_opened_utc = $t2; payment_completion_observed_utc = $t3; elapsed_seconds_since_checkout_opened = 1.0; collector_script_content_sha256 = 'VERSION-1' }
-    $verifyStage = @{ capture_session_id = $sid; test_label = 'A'; action = 'Verify'; tx_ref_sha256 = 'abc'; transaction_id_sha256 = 'def'; endpoint = 'y'; request_start_utc = $t4; request_end_utc = $t5; provider_evidence_fields = @(); raw_response_sha256 = 'y'; collector_script_content_sha256 = 'VERSION-2-DIFFERENT' }
+    $checkoutBodyText = New-CheckoutSuccessBodyWithMarker
+    $checkoutBodyBytes = [System.Text.Encoding]::UTF8.GetBytes($checkoutBodyText)
+    $postFn = { param($Uri, $BodyJson) return @{ StatusCode = 200; BodyBytes = $checkoutBodyBytes } }.GetNewClosure()
+    $openUrl = { param($Url) }
+    $clock = New-FakeClock
 
-    $null = New-ImmutableJsonFile -Path (Join-Path $dir "stage-CreateCheckout-TestA-$sid.json") -Content ($checkoutStage | ConvertTo-Json)
-    $null = New-ImmutableJsonFile -Path (Join-Path $dir "stage-ObservePaymentSuccess-TestA-$sid.json") -Content ($observeStage | ConvertTo-Json)
-    $null = New-ImmutableJsonFile -Path (Join-Path $dir "stage-Verify-TestA-$sid.json") -Content ($verifyStage | ConvertTo-Json)
+    $createResult = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef "ref-$sid" `
+        -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
+        -EvidenceRoot $dir -HttpPost $postFn -OpenUrl $openUrl -NowUtc $clock -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
 
-    $finalizeResult = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir `
-        -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
-    Assert-Equal -Expected $false -Actual $finalizeResult.Success -Name 'FAILURE BOUNDARY: FinalizeManifest with mismatched collector-version across stages -- Success is false'
-    Assert-Equal -Expected 'COLLECTOR_VERSION_MISMATCH' -Actual $finalizeResult.Reason -Name 'FAILURE BOUNDARY: mismatched collector version -- correct reason code'
-    Assert-Equal -Expected 0 -Actual (@(Get-ChildItem -Path $dir -Filter 'manifest-*.json' -ErrorAction SilentlyContinue)).Count -Name 'FAILURE BOUNDARY: mismatched collector version -- no manifest was written'
+    Assert-Equal -Expected $true -Actual $createResult.Success -Name 'ITEM 1: CreateCheckout persists a raw response and succeeds'
+    Assert-True -Condition (Test-Path $createResult.RawPath) -Name 'ITEM 1: the raw evidence file actually exists on disk'
+
+    $expectedFileName = Get-RawEvidenceFileName -ActionName 'CreateCheckout' -TestLabel 'A' -CaptureSessionId $sid
+    Assert-Equal -Expected $expectedFileName -Actual (Split-Path $createResult.RawPath -Leaf) -Name 'ITEM 5: the raw filename is exactly the deterministic session-bound pattern, no random suffix'
+
+    $persistedBytes = [System.IO.File]::ReadAllBytes($createResult.RawPath)
+    Assert-Equal -Expected ([Convert]::ToBase64String($checkoutBodyBytes)) -Actual ([Convert]::ToBase64String($persistedBytes)) -Name 'ITEM 3: persisted bytes are EXACTLY equal to the mocked HTTP response bytes (byte-for-byte, including the trailing marker)'
+
+    $stageContent = Get-Content -Path $createResult.StagePath -Raw | ConvertFrom-Json
+    $recomputedHash = Get-Sha256HexFromBytes -Bytes $persistedBytes
+    Assert-Equal -Expected $recomputedHash -Actual $stageContent.raw_response_sha256 -Name 'ITEM 4: the stage-recorded raw_response_sha256 equals SHA-256 of the PERSISTED bytes'
+    Assert-Equal -Expected $expectedFileName -Actual $stageContent.raw_evidence_filename -Name 'the stage records the bare raw evidence filename'
+
+    $repoRootForRawTest = $null
+    try { $repoRootForRawTest = (git -C $toolsRoot rev-parse --show-toplevel 2>$null) } catch { }
+    if ($repoRootForRawTest) {
+        $resolvedRepoRootForRawTest = (Resolve-Path $repoRootForRawTest).Path
+        Assert-True -Condition (-not $createResult.RawPath.StartsWith($resolvedRepoRootForRawTest, [System.StringComparison]::OrdinalIgnoreCase)) -Name 'ITEM 6: the raw evidence file lives OUTSIDE the git repository'
+    }
+
+    # ITEM 12: no raw body (or its unique marker) in the sanitized stage JSON
+    $stageRawText = Get-Content -Path $createResult.StagePath -Raw
+    Assert-True -Condition ($stageRawText -notmatch [regex]::Escape($rawMarkerCheckout)) -Name 'ITEM 12: the raw response marker never appears in the sanitized CreateCheckout stage JSON'
+    Assert-True -Condition ($stageRawText -notmatch [regex]::Escape($createResult.Link)) -Name 'ITEM 14: the hosted checkout URL never appears in the sanitized stage JSON'
+
+    # ITEM 7/8: cannot be overwritten; a second CreateCheckout attempt with the SAME session/label returns an explicit already-exists result
+    $overwriteAttempt = New-ImmutableBytesFile -Path $createResult.RawPath -Bytes ([System.Text.Encoding]::UTF8.GetBytes('SHOULD-NEVER-BE-WRITTEN'))
+    Assert-Equal -Expected $false -Actual $overwriteAttempt.Success -Name 'ITEM 7: a direct second write to the same raw path is refused'
+    Assert-Equal -Expected 'RAW_ALREADY_EXISTS' -Actual $overwriteAttempt.Reason -Name 'ITEM 7: the refusal reason is RAW_ALREADY_EXISTS'
+    Assert-Equal -Expected ([Convert]::ToBase64String($checkoutBodyBytes)) -Actual ([Convert]::ToBase64String([System.IO.File]::ReadAllBytes($createResult.RawPath))) -Name 'ITEM 7: the ORIGINAL raw bytes are unchanged after a rejected overwrite attempt'
+
+    $secondCreateAttempt = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef "ref-$sid" `
+        -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
+        -EvidenceRoot $dir -HttpPost $postFn -OpenUrl $openUrl -NowUtc $clock -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
+    Assert-Equal -Expected $false -Actual $secondCreateAttempt.Success -Name 'ITEM 8: a second CreateCheckout attempt for the SAME session/label returns an explicit failure, not a silent overwrite'
+    Assert-Equal -Expected 'RAW_ALREADY_EXISTS' -Actual $secondCreateAttempt.Reason -Name 'ITEM 8: the second-attempt reason is RAW_ALREADY_EXISTS'
 }
 finally {
     Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+# --- 9/10: raw-write failure prevents browser launch AND prevents stage creation ---
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    $rawFileName = Get-RawEvidenceFileName -ActionName 'CreateCheckout' -TestLabel 'A' -CaptureSessionId $sid
+    # Pre-occupy the exact deterministic raw path BEFORE the orchestration ever runs,
+    # so its own atomic create-new write is forced to fail.
+    $null = New-ImmutableBytesFile -Path (Join-Path $dir $rawFileName) -Bytes ([System.Text.Encoding]::UTF8.GetBytes('PRE-EXISTING'))
+
+    $openCount = [ref]0
+    $countingOpenUrl = { param($Url) $openCount.Value++ }.GetNewClosure()
+    $checkoutBodyBytes2 = [System.Text.Encoding]::UTF8.GetBytes((New-CheckoutSuccessBodyWithMarker))
+    $postFn2 = { param($Uri, $BodyJson) return @{ StatusCode = 200; BodyBytes = $checkoutBodyBytes2 } }.GetNewClosure()
+
+    $result = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef "ref-$sid" `
+        -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
+        -EvidenceRoot $dir -HttpPost $postFn2 -OpenUrl $countingOpenUrl -NowUtc { Get-UtcTimestamp } -CollectorScriptGitSha '' -CollectorScriptContentSha256 'x'
+
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 9/10: CreateCheckout fails when raw persistence fails'
+    Assert-Equal -Expected 'RAW_ALREADY_EXISTS' -Actual $result.Reason -Name 'ITEM 9/10: the failure reason correctly identifies the raw-persistence collision'
+    Assert-Equal -Expected 0 -Actual $openCount.Value -Name 'ITEM 9: the browser (OpenUrl port) was NEVER launched when raw persistence failed'
+    Assert-Equal -Expected 0 -Actual (@(Get-ChildItem -Path $dir -Filter 'stage-CreateCheckout-*.json' -ErrorAction SilentlyContinue)).Count -Name 'ITEM 10: no CreateCheckout stage file was written when raw persistence failed'
+}
+finally {
+    Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# --- 2/11: Verify persists raw response; a Verify raw-write failure prevents the verification stage ---
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    $realTxRef2 = "ref-$sid"
+    $realTxnId2 = 'txn-verify-raw-test'
+    $checkoutBody2 = [System.Text.Encoding]::UTF8.GetBytes((New-CheckoutSuccessBodyWithMarker))
+    $postFn3 = { param($Uri, $BodyJson) return @{ StatusCode = 200; BodyBytes = $checkoutBody2 } }.GetNewClosure()
+    $clock2 = New-FakeClock
+
+    $null = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef $realTxRef2 `
+        -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
+        -EvidenceRoot $dir -HttpPost $postFn3 -OpenUrl { param($Url) } -NowUtc $clock2 -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
+    $null = Invoke-ObservePaymentSuccessOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -Confirmed $true -NowUtc $clock2 -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
+
+    $verifyBodyText2 = New-VerifySuccessBodyWithMarker -TxRef $realTxRef2 -TransactionId $realTxnId2
+    $verifyBodyBytes2 = [System.Text.Encoding]::UTF8.GetBytes($verifyBodyText2)
+    $getFnGood = { param($Uri) return @{ StatusCode = 200; BodyBytes = $verifyBodyBytes2 } }.GetNewClosure()
+
+    $verifyResultGood = Invoke-VerifyOrchestration -TestLabel 'A' -CaptureSessionId $sid -TransactionId $realTxnId2 `
+        -EvidenceRoot $dir -HttpGet $getFnGood -NowUtc $clock2 -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
+    Assert-Equal -Expected $true -Actual $verifyResultGood.Success -Name 'ITEM 2: Verify persists a raw response and succeeds'
+    Assert-True -Condition (Test-Path $verifyResultGood.RawPath) -Name 'ITEM 2: the Verify raw evidence file actually exists on disk'
+    $verifyStageText = Get-Content -Path $verifyResultGood.StagePath -Raw
+    Assert-True -Condition ($verifyStageText -notmatch [regex]::Escape($rawMarkerVerify)) -Name 'ITEM 12: the raw response marker never appears in the sanitized Verify stage JSON'
+}
+finally {
+    Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    $realTxRef3 = "ref-$sid"
+    $realTxnId3 = 'txn-verify-raw-fail-test'
+    $checkoutBody3 = [System.Text.Encoding]::UTF8.GetBytes((New-CheckoutSuccessBodyWithMarker))
+    $postFn4 = { param($Uri, $BodyJson) return @{ StatusCode = 200; BodyBytes = $checkoutBody3 } }.GetNewClosure()
+    $clock3 = New-FakeClock
+
+    $null = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef $realTxRef3 `
+        -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
+        -EvidenceRoot $dir -HttpPost $postFn4 -OpenUrl { param($Url) } -NowUtc $clock3 -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
+    $null = Invoke-ObservePaymentSuccessOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -Confirmed $true -NowUtc $clock3 -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
+
+    # Pre-occupy the deterministic Verify raw path so its atomic write fails.
+    $verifyRawFileName3 = Get-RawEvidenceFileName -ActionName 'Verify' -TestLabel 'A' -CaptureSessionId $sid
+    $null = New-ImmutableBytesFile -Path (Join-Path $dir $verifyRawFileName3) -Bytes ([System.Text.Encoding]::UTF8.GetBytes('PRE-EXISTING-VERIFY'))
+
+    $verifyBodyText3 = New-VerifySuccessBodyWithMarker -TxRef $realTxRef3 -TransactionId $realTxnId3
+    $getFnFail = { param($Uri) return @{ StatusCode = 200; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($verifyBodyText3) } }.GetNewClosure()
+
+    $verifyResultFail = Invoke-VerifyOrchestration -TestLabel 'A' -CaptureSessionId $sid -TransactionId $realTxnId3 `
+        -EvidenceRoot $dir -HttpGet $getFnFail -NowUtc $clock3 -CollectorScriptGitSha 'gsha' -CollectorScriptContentSha256 'csha'
+    Assert-Equal -Expected $false -Actual $verifyResultFail.Success -Name 'ITEM 11: Verify fails when its raw persistence fails'
+    Assert-Equal -Expected 'RAW_ALREADY_EXISTS' -Actual $verifyResultFail.Reason -Name 'ITEM 11: the failure reason correctly identifies the raw-persistence collision'
+    Assert-Equal -Expected 0 -Actual (@(Get-ChildItem -Path $dir -Filter 'stage-Verify-*.json' -ErrorAction SilentlyContinue)).Count -Name 'ITEM 11: no Verify stage file was written when raw persistence failed'
+}
+finally {
+    Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# --- 13/15: no raw body anywhere in a finalized manifest; no raw body ever printed to console (structural source check) ---
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    $realTxRef4 = "ref-$sid"
+    $realTxnId4 = 'txn-manifest-marker-test'
+    $checkoutBody4 = [System.Text.Encoding]::UTF8.GetBytes((New-CheckoutSuccessBodyWithMarker))
+    $postFn5 = { param($Uri, $BodyJson) return @{ StatusCode = 200; BodyBytes = $checkoutBody4 } }.GetNewClosure()
+    $clock4 = New-FakeClock
+
+    $null = Invoke-CreateCheckoutOrchestration -TestLabel 'A' -CaptureSessionId $sid -TxRef $realTxRef4 `
+        -Amount '100' -Currency 'NGN' -RedirectUrl 'https://example.invalid/return' -CustomerEmail 'test@example.invalid' `
+        -EvidenceRoot $dir -HttpPost $postFn5 -OpenUrl { param($Url) } -NowUtc $clock4 -CollectorScriptGitSha 'gsha-13' -CollectorScriptContentSha256 'csha-13'
+    $null = Invoke-ObservePaymentSuccessOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -Confirmed $true -NowUtc $clock4 -CollectorScriptGitSha 'gsha-13' -CollectorScriptContentSha256 'csha-13'
+    $verifyBodyText4 = New-VerifySuccessBodyWithMarker -TxRef $realTxRef4 -TransactionId $realTxnId4
+    $getFn5 = { param($Uri) return @{ StatusCode = 200; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($verifyBodyText4) } }.GetNewClosure()
+    $null = Invoke-VerifyOrchestration -TestLabel 'A' -CaptureSessionId $sid -TransactionId $realTxnId4 `
+        -EvidenceRoot $dir -HttpGet $getFn5 -NowUtc $clock4 -CollectorScriptGitSha 'gsha-13' -CollectorScriptContentSha256 'csha-13'
+
+    $finalizeForMarkerTest = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir `
+        -CollectorScriptGitSha 'gsha-13' -CollectorScriptContentSha256 'csha-13' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $true -Actual $finalizeForMarkerTest.Success -Name 'setup: finalize succeeds so the manifest marker check has a manifest to inspect'
+    if ($finalizeForMarkerTest.Success) {
+        $manifestRawText = Get-Content -Path $finalizeForMarkerTest.ManifestPath -Raw
+        Assert-True -Condition ($manifestRawText -notmatch [regex]::Escape($rawMarkerCheckout)) -Name 'ITEM 13: the raw checkout response marker never appears in the finalized manifest JSON'
+        Assert-True -Condition ($manifestRawText -notmatch [regex]::Escape($rawMarkerVerify)) -Name 'ITEM 13: the raw verify response marker never appears in the finalized manifest JSON'
+    }
+}
+finally {
+    Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# Every Write-Host line that mentions BodyBytes at all must be printing a
+# HASH of it (via Get-Sha256HexFromBytes), never the raw bytes themselves.
+$bodyBytesPrintLines = @([regex]::Matches($collectorSource, 'Write-Host[^\n]*BodyBytes[^\n]*') | ForEach-Object { $_.Value })
+$unsafeBodyBytesPrintLines = @($bodyBytesPrintLines | Where-Object { $_ -notmatch 'Get-Sha256HexFromBytes' })
+Assert-True -Condition ($unsafeBodyBytesPrintLines.Count -eq 0) -Name 'ITEM 15: every console line mentioning BodyBytes prints only its HASH (via Get-Sha256HexFromBytes), never the raw bytes themselves'
+Assert-True -Condition ($collectorSource -notmatch 'Write-Host[^\n]*bodyText') -Name 'ITEM 15: collector script source never writes the decoded raw body text to the console'
+Assert-True -Condition ($librarySource -notmatch 'Write-Host') -Name 'ITEM 15: the orchestration library itself contains no Write-Host calls at all (all console output belongs to the thin CLI wrapper, which never prints raw bytes)'
+
+# ============================================================
+# Category: FINALIZATION INTEGRITY -- raw re-verification (mission items 16-22)
+# ============================================================
+Write-Host "`n=== Finalization integrity: raw re-verification ===" -ForegroundColor Cyan
+
+function New-ProvenanceTestStageSet {
+    <#
+    Builds a complete, internally-consistent CreateCheckout + ObservePaymentSuccess
+    + Verify stage-file set, PLUS matching retained raw-evidence files, directly on
+    disk (bypassing the real orchestration functions) so finalization-integrity and
+    collector-provenance failure boundaries can be tested in isolation, one
+    deliberately-broken property at a time.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Dir,
+        [Parameter(Mandatory)][string]$Sid,
+        [string]$CheckoutContentSha = 'CONTENT-CURRENT',
+        [string]$ObserveContentSha = 'CONTENT-CURRENT',
+        [string]$VerifyContentSha = 'CONTENT-CURRENT',
+        [string]$CheckoutGitSha = 'GIT-CURRENT',
+        [string]$ObserveGitSha = 'GIT-CURRENT',
+        [string]$VerifyGitSha = 'GIT-CURRENT',
+        [switch]$SkipCheckoutRaw,
+        [switch]$SkipVerifyRaw,
+        [switch]$TamperCheckoutRawAfterHashing,
+        [switch]$TamperVerifyRawAfterHashing
+    )
+
+    $checkoutBytes = [System.Text.Encoding]::UTF8.GetBytes("RAW-CHECKOUT-BODY-$Sid")
+    $verifyBytes = [System.Text.Encoding]::UTF8.GetBytes("RAW-VERIFY-BODY-$Sid")
+    $checkoutHash = Get-Sha256HexFromBytes -Bytes $checkoutBytes
+    $verifyHash = Get-Sha256HexFromBytes -Bytes $verifyBytes
+
+    $checkoutRawFileName = Get-RawEvidenceFileName -ActionName 'CreateCheckout' -TestLabel 'A' -CaptureSessionId $Sid
+    $verifyRawFileName = Get-RawEvidenceFileName -ActionName 'Verify' -TestLabel 'A' -CaptureSessionId $Sid
+
+    if (-not $SkipCheckoutRaw) {
+        $null = New-ImmutableBytesFile -Path (Join-Path $Dir $checkoutRawFileName) -Bytes $checkoutBytes
+        if ($TamperCheckoutRawAfterHashing) {
+            [System.IO.File]::WriteAllBytes((Join-Path $Dir $checkoutRawFileName), [System.Text.Encoding]::UTF8.GetBytes("TAMPERED-CHECKOUT-$Sid"))
+        }
+    }
+    if (-not $SkipVerifyRaw) {
+        $null = New-ImmutableBytesFile -Path (Join-Path $Dir $verifyRawFileName) -Bytes $verifyBytes
+        if ($TamperVerifyRawAfterHashing) {
+            [System.IO.File]::WriteAllBytes((Join-Path $Dir $verifyRawFileName), [System.Text.Encoding]::UTF8.GetBytes("TAMPERED-VERIFY-$Sid"))
+        }
+    }
+
+    $txRefHash = Get-Sha256Hex -Text "ref-$Sid"
+
+    $checkoutStage = [ordered]@{
+        capture_session_id              = $Sid
+        test_label                      = 'A'
+        action                          = 'CreateCheckout'
+        tx_ref_sha256                   = $txRefHash
+        endpoint                        = 'https://api.flutterwave.com/v3/payments'
+        request_start_utc               = $t0
+        request_end_utc                 = $t1
+        checkout_opened_utc             = $t2
+        http_status                     = 200
+        raw_evidence_filename           = $checkoutRawFileName
+        raw_response_sha256             = $checkoutHash
+        provider_evidence_fields        = @(@{ path = 'data.created_at'; key = 'created_at'; value = $t0 })
+        collector_script_git_sha        = $CheckoutGitSha
+        collector_script_content_sha256 = $CheckoutContentSha
+    }
+    $observeStage = [ordered]@{
+        capture_session_id                   = $Sid
+        test_label                           = 'A'
+        action                                = 'ObservePaymentSuccess'
+        checkout_opened_utc                  = $t2
+        payment_completion_observed_utc      = $t3
+        elapsed_seconds_since_checkout_opened = 1.0
+        collector_script_git_sha             = $ObserveGitSha
+        collector_script_content_sha256      = $ObserveContentSha
+    }
+    $verifyStage = [ordered]@{
+        capture_session_id              = $Sid
+        test_label                      = 'A'
+        action                          = 'Verify'
+        tx_ref_sha256                   = $txRefHash
+        transaction_id_sha256           = (Get-Sha256Hex -Text "txn-$Sid")
+        tx_ref_hash_matches_checkout    = $true
+        transaction_id_matches_request  = $true
+        endpoint                        = "https://api.flutterwave.com/v3/transactions/txn-$Sid/verify"
+        request_start_utc               = $t4
+        request_end_utc                 = $t5
+        http_status                     = 200
+        raw_evidence_filename           = $verifyRawFileName
+        raw_response_sha256             = $verifyHash
+        provider_evidence_fields        = @(@{ path = 'data.created_at'; key = 'created_at'; value = $t4 })
+        timeline_valid                  = $true
+        collector_script_git_sha        = $VerifyGitSha
+        collector_script_content_sha256 = $VerifyContentSha
+    }
+
+    $null = New-ImmutableJsonFile -Path (Join-Path $Dir "stage-CreateCheckout-TestA-$Sid.json") -Content ($checkoutStage | ConvertTo-Json -Depth 6)
+    $null = New-ImmutableJsonFile -Path (Join-Path $Dir "stage-ObservePaymentSuccess-TestA-$Sid.json") -Content ($observeStage | ConvertTo-Json -Depth 6)
+    $null = New-ImmutableJsonFile -Path (Join-Path $Dir "stage-Verify-TestA-$Sid.json") -Content ($verifyStage | ConvertTo-Json -Depth 6)
+}
+
+function Test-NoManifestWritten {
+    param([string]$Dir, [string]$Name)
+    Assert-Equal -Expected 0 -Actual (@(Get-ChildItem -Path $Dir -Filter 'manifest-*.json' -ErrorAction SilentlyContinue)).Count -Name $Name
+}
+
+# ITEM 16: missing checkout raw file rejects finalization
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    New-ProvenanceTestStageSet -Dir $dir -Sid $sid -SkipCheckoutRaw
+    $result = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -CollectorScriptGitSha 'GIT-CURRENT' -CollectorScriptContentSha256 'CONTENT-CURRENT' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 16: finalization fails when the checkout raw file is missing'
+    Assert-Equal -Expected 'CHECKOUT_RAW_MISSING' -Actual $result.Reason -Name 'ITEM 16: correct reason code CHECKOUT_RAW_MISSING'
+    Test-NoManifestWritten -Dir $dir -Name 'ITEM 22: no manifest written when checkout raw file is missing'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# ITEM 16 (verify side): missing verify raw file rejects finalization
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    New-ProvenanceTestStageSet -Dir $dir -Sid $sid -SkipVerifyRaw
+    $result = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -CollectorScriptGitSha 'GIT-CURRENT' -CollectorScriptContentSha256 'CONTENT-CURRENT' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 16: finalization fails when the verify raw file is missing'
+    Assert-Equal -Expected 'VERIFY_RAW_MISSING' -Actual $result.Reason -Name 'ITEM 16: correct reason code VERIFY_RAW_MISSING'
+    Test-NoManifestWritten -Dir $dir -Name 'ITEM 22: no manifest written when verify raw file is missing'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# ITEM 17/21: modified checkout raw bytes reject finalization (retained hash no longer matches the stage-recorded hash)
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    New-ProvenanceTestStageSet -Dir $dir -Sid $sid -TamperCheckoutRawAfterHashing
+    $result = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -CollectorScriptGitSha 'GIT-CURRENT' -CollectorScriptContentSha256 'CONTENT-CURRENT' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 17/21: finalization fails when the checkout raw bytes have changed since capture'
+    Assert-Equal -Expected 'CHECKOUT_RAW_HASH_MISMATCH' -Actual $result.Reason -Name 'ITEM 17/21: correct reason code CHECKOUT_RAW_HASH_MISMATCH'
+    Test-NoManifestWritten -Dir $dir -Name 'ITEM 22: no manifest written when checkout raw bytes were tampered'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# ITEM 17/21: modified verify raw bytes reject finalization
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    New-ProvenanceTestStageSet -Dir $dir -Sid $sid -TamperVerifyRawAfterHashing
+    $result = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -CollectorScriptGitSha 'GIT-CURRENT' -CollectorScriptContentSha256 'CONTENT-CURRENT' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 17/21: finalization fails when the verify raw bytes have changed since capture'
+    Assert-Equal -Expected 'VERIFY_RAW_HASH_MISMATCH' -Actual $result.Reason -Name 'ITEM 17/21: correct reason code VERIFY_RAW_HASH_MISMATCH'
+    Test-NoManifestWritten -Dir $dir -Name 'ITEM 22: no manifest written when verify raw bytes were tampered'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# ITEM 20: cross-session/cross-file raw substitution -- swapping which physical
+# bytes sit under the checkout vs. verify raw filenames is caught by the SAME
+# per-file hash re-verification (the checkout stage's hash no longer matches
+# whatever bytes now sit at the checkout raw path, and likewise for verify).
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    New-ProvenanceTestStageSet -Dir $dir -Sid $sid
+    $checkoutRawFileName = Get-RawEvidenceFileName -ActionName 'CreateCheckout' -TestLabel 'A' -CaptureSessionId $sid
+    $verifyRawFileName = Get-RawEvidenceFileName -ActionName 'Verify' -TestLabel 'A' -CaptureSessionId $sid
+    $checkoutBytesOnDisk = [System.IO.File]::ReadAllBytes((Join-Path $dir $checkoutRawFileName))
+    $verifyBytesOnDisk = [System.IO.File]::ReadAllBytes((Join-Path $dir $verifyRawFileName))
+    # Substitute: checkout path now holds what used to be the verify bytes.
+    [System.IO.File]::WriteAllBytes((Join-Path $dir $checkoutRawFileName), $verifyBytesOnDisk)
+
+    $result = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -CollectorScriptGitSha 'GIT-CURRENT' -CollectorScriptContentSha256 'CONTENT-CURRENT' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 20: finalization fails when raw bytes are substituted across files (cross-file/cross-session simulation)'
+    Assert-Equal -Expected 'CHECKOUT_RAW_HASH_MISMATCH' -Actual $result.Reason -Name 'ITEM 20: the substitution is caught as a checkout raw hash mismatch'
+    Test-NoManifestWritten -Dir $dir -Name 'ITEM 22: no manifest written after cross-file raw substitution'
+    # Keep $checkoutBytesOnDisk referenced so static analysis never flags it as unused.
+    Assert-True -Condition ($checkoutBytesOnDisk.Length -ge 0) -Name 'setup: original checkout bytes were captured before substitution'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# ============================================================
+# Category: COLLECTOR PROVENANCE binding (Blocker 2, mission items 23-32)
+# ============================================================
+Write-Host "`n=== Collector provenance binding (Blocker 2) ===" -ForegroundColor Cyan
+
+# ITEM 23/27/32: all three stages match EACH OTHER and match the CURRENT finalizer identity -> success, and the manifest records the validated values.
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    New-ProvenanceTestStageSet -Dir $dir -Sid $sid -CheckoutContentSha 'CONTENT-CURRENT' -ObserveContentSha 'CONTENT-CURRENT' -VerifyContentSha 'CONTENT-CURRENT' -CheckoutGitSha 'GIT-CURRENT' -ObserveGitSha 'GIT-CURRENT' -VerifyGitSha 'GIT-CURRENT'
+    $result = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -CollectorScriptGitSha 'GIT-CURRENT' -CollectorScriptContentSha256 'CONTENT-CURRENT' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $true -Actual $result.Success -Name 'ITEM 23/27: finalization succeeds when all three stages AND the current finalizer identity agree (content hash and Git SHA)'
+    if ($result.Success) {
+        $m = Get-Content -Path $result.ManifestPath -Raw | ConvertFrom-Json
+        Assert-Equal -Expected 'CONTENT-CURRENT' -Actual $m.collector_script_content_sha256 -Name 'ITEM 32: the finalized manifest records the validated CURRENT collector_script_content_sha256'
+        Assert-Equal -Expected 'GIT-CURRENT' -Actual $m.collector_script_git_sha -Name 'ITEM 32: the finalized manifest records the validated CURRENT collector_script_git_sha'
+    }
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# ITEM 24: all three stages match EACH OTHER but differ from the current finalizer content hash -> fail
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    New-ProvenanceTestStageSet -Dir $dir -Sid $sid -CheckoutContentSha 'CONTENT-OLD' -ObserveContentSha 'CONTENT-OLD' -VerifyContentSha 'CONTENT-OLD'
+    $result = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -CollectorScriptGitSha 'GIT-CURRENT' -CollectorScriptContentSha256 'CONTENT-CURRENT' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 24: finalization fails when stages agree with EACH OTHER but not with the CURRENT finalizer content hash'
+    Assert-Equal -Expected 'COLLECTOR_CONTENT_VERSION_MISMATCH' -Actual $result.Reason -Name 'ITEM 24: correct reason code COLLECTOR_CONTENT_VERSION_MISMATCH (never merely a unique-count check)'
+    Test-NoManifestWritten -Dir $dir -Name 'ITEM 31: no manifest written on content-version mismatch (all-agree-but-stale case)'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# ITEM 25: one differing stage fails, even though it would have been the "unique count == 1" majority under the OLD defective check
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    New-ProvenanceTestStageSet -Dir $dir -Sid $sid -CheckoutContentSha 'CONTENT-CURRENT' -ObserveContentSha 'CONTENT-CURRENT' -VerifyContentSha 'CONTENT-DIFFERENT'
+    $result = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -CollectorScriptGitSha 'GIT-CURRENT' -CollectorScriptContentSha256 'CONTENT-CURRENT' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 25: finalization fails when just ONE stage (Verify) disagrees on content hash'
+    Assert-Equal -Expected 'COLLECTOR_CONTENT_VERSION_MISMATCH' -Actual $result.Reason -Name 'ITEM 25: correct reason code COLLECTOR_CONTENT_VERSION_MISMATCH'
+    Test-NoManifestWritten -Dir $dir -Name 'ITEM 31: no manifest written on a single-stage content-hash disagreement'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# ITEM 26: an empty content hash on any stage fails, even if it happens to be the "same" as another empty stage
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    New-ProvenanceTestStageSet -Dir $dir -Sid $sid -CheckoutContentSha '' -ObserveContentSha 'CONTENT-CURRENT' -VerifyContentSha 'CONTENT-CURRENT'
+    $result = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -CollectorScriptGitSha 'GIT-CURRENT' -CollectorScriptContentSha256 'CONTENT-CURRENT' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 26: finalization fails when a stage carries an EMPTY collector_script_content_sha256'
+    Assert-Equal -Expected 'COLLECTOR_CONTENT_VERSION_MISMATCH' -Actual $result.Reason -Name 'ITEM 26: correct reason code COLLECTOR_CONTENT_VERSION_MISMATCH'
+    Test-NoManifestWritten -Dir $dir -Name 'ITEM 31: no manifest written when a stage content hash is empty'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# ITEM 28: all three stages match EACH OTHER on Git SHA but differ from the current finalizer's Git SHA -> fail
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    New-ProvenanceTestStageSet -Dir $dir -Sid $sid -CheckoutGitSha 'GIT-OLD' -ObserveGitSha 'GIT-OLD' -VerifyGitSha 'GIT-OLD'
+    $result = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -CollectorScriptGitSha 'GIT-CURRENT' -CollectorScriptContentSha256 'CONTENT-CURRENT' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 28: finalization fails when stages agree with EACH OTHER but not with the CURRENT finalizer Git SHA'
+    Assert-Equal -Expected 'COLLECTOR_GIT_VERSION_MISMATCH' -Actual $result.Reason -Name 'ITEM 28: correct reason code COLLECTOR_GIT_VERSION_MISMATCH'
+    Test-NoManifestWritten -Dir $dir -Name 'ITEM 31: no manifest written on Git SHA version mismatch (all-agree-but-stale case)'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# ITEM 29: one differing stage Git SHA fails
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    New-ProvenanceTestStageSet -Dir $dir -Sid $sid -CheckoutGitSha 'GIT-CURRENT' -ObserveGitSha 'GIT-CURRENT' -VerifyGitSha 'GIT-DIFFERENT'
+    $result = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -CollectorScriptGitSha 'GIT-CURRENT' -CollectorScriptContentSha256 'CONTENT-CURRENT' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 29: finalization fails when just ONE stage (Verify) disagrees on Git SHA'
+    Assert-Equal -Expected 'COLLECTOR_GIT_VERSION_MISMATCH' -Actual $result.Reason -Name 'ITEM 29: correct reason code COLLECTOR_GIT_VERSION_MISMATCH'
+    Test-NoManifestWritten -Dir $dir -Name 'ITEM 31: no manifest written on a single-stage Git SHA disagreement'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# ITEM 30: an empty Git SHA (undeterminable) is never a pass, even when the current finalizer's own Git SHA is also empty
+$dir = New-OrchestrationTestContext
+try {
+    $sid = [guid]::NewGuid().ToString('N')
+    New-ProvenanceTestStageSet -Dir $dir -Sid $sid -CheckoutGitSha '' -ObserveGitSha '' -VerifyGitSha ''
+    $result = Invoke-FinalizeManifestOrchestration -TestLabel 'A' -CaptureSessionId $sid -EvidenceRoot $dir -CollectorScriptGitSha '' -CollectorScriptContentSha256 'CONTENT-CURRENT' -PowerShellVersion '7.4.0' -MachineUtcOffsetMinutes 0
+    Assert-Equal -Expected $false -Actual $result.Success -Name 'ITEM 30: finalization fails when the Git SHA is empty/undeterminable, even if every stage AND the finalizer agree it is empty'
+    Assert-Equal -Expected 'COLLECTOR_GIT_VERSION_MISMATCH' -Actual $result.Reason -Name 'ITEM 30: correct reason code COLLECTOR_GIT_VERSION_MISMATCH (an undeterminable Git SHA is a provenance gap, never a pass)'
+    Test-NoManifestWritten -Dir $dir -Name 'ITEM 31: no manifest written when Git SHA is empty everywhere'
+}
+finally { Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue }
 
 # ============================================================
 # Category: CI actually invokes this suite (structural self-check)

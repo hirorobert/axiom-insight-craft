@@ -87,6 +87,155 @@ function Get-Sha256Hex {
     }
 }
 
+function Get-Sha256HexFromBytes {
+    <#
+    BYTE-AUTHORITY RULE (Codex provenance-closure re-audit, Blocker 1): the
+    persisted bytes, hashed bytes, and parsed bytes must be the SAME byte
+    sequence. This function hashes a raw byte array directly -- it never
+    goes through a string encode/decode step, and it is called on the
+    EXACT SAME `[byte[]]` that gets persisted to the raw evidence file and
+    later decoded for JSON parsing. `Get-Sha256Hex` (string-based) remains
+    for non-provenance uses (hashing a tx_ref/transaction-id value); this
+    function exists specifically so a provider RESPONSE is never hashed by
+    way of a re-serialized/reconstructed representation.
+    #>
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [byte[]]$Bytes
+    )
+    if ($null -eq $Bytes) { $Bytes = [byte[]]@() }
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha256.ComputeHash($Bytes)
+        return ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
+
+function Test-IsSafeResponseBoundary {
+    <#
+    The "validate safe response boundary" step of the required byte-
+    authority sequence (HTTP bytes -> validate boundary -> persist -> hash
+    -> decode -> stage). This is deliberately NOT a content/JSON validity
+    check (that happens later, via Get-CaptureOutcome, AFTER the bytes are
+    already persisted) -- it exists only to refuse to attempt persisting a
+    genuinely absent response (a total transport failure with no status
+    code and no bytes at all), where there is nothing meaningful to write.
+    A non-2xx status WITH a real body (e.g. a 400 with a JSON error) still
+    passes this boundary check and gets its bytes persisted -- an orphaned
+    raw file for a rejected capture is explicitly acceptable; persisting
+    nothing for a connection that never produced a response is not useful
+    evidence to begin with.
+    #>
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [Nullable[int]]$StatusCode,
+
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [byte[]]$BodyBytes
+    )
+    if ($null -eq $StatusCode) { return $false }
+    if ($null -eq $BodyBytes) { return $false }
+    return $true
+}
+
+function New-ImmutableBytesFile {
+    <#
+    The raw-evidence counterpart of New-ImmutableJsonFile: atomic CREATE-NEW
+    write of an exact byte sequence (never text-encoded/decoded first, so
+    no intermediate encoding step can alter what gets written). Fails with
+    'RAW_ALREADY_EXISTS' if the target already exists -- never overwrites,
+    never appends, never silently picks a different filename -- and
+    'RAW_WRITE_FAILED' for any other I/O error.
+    #>
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][AllowNull()][byte[]]$Bytes
+    )
+    if ($null -eq $Bytes) { $Bytes = [byte[]]@() }
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write)
+        $stream.Write($Bytes, 0, $Bytes.Length)
+        $stream.Flush()
+        return @{ Success = $true; Reason = 'OK' }
+    }
+    catch [System.IO.IOException] {
+        return @{ Success = $false; Reason = 'RAW_ALREADY_EXISTS' }
+    }
+    catch {
+        return @{ Success = $false; Reason = 'RAW_WRITE_FAILED' }
+    }
+    finally {
+        if ($stream) { $stream.Dispose() }
+    }
+}
+
+function Get-RawEvidenceFileName {
+    <#
+    The one, deterministic, session-bound raw-evidence filename builder --
+    used identically when WRITING (CreateCheckout/Verify orchestration) and
+    when RE-READING (FinalizeManifest's independent hash re-verification),
+    so there is only one naming rule to keep in sync. Never includes a
+    random/timestamp suffix -- the whole point is that this exact filename
+    is reproducible from (ActionName, TestLabel, CaptureSessionId) alone,
+    which is also what makes atomic create-new semantics meaningful (a
+    retry of the same action for the same session correctly collides,
+    rather than silently creating a second, differently-named raw file).
+    #>
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)][string]$ActionName,
+        [Parameter(Mandatory = $true)][string]$TestLabel,
+        [Parameter(Mandatory = $true)][string]$CaptureSessionId
+    )
+    return "raw-$ActionName-Test$TestLabel-$CaptureSessionId.json"
+}
+
+function Get-RetainedRawBytes {
+    <#
+    Loads the exact retained raw-evidence bytes for one (ActionName,
+    TestLabel, CaptureSessionId), by EXACT filename match -- the same
+    missing/duplicate discipline as Get-StageCapture, applied to raw
+    evidence. Used by FinalizeManifest to independently re-hash the
+    retained originals and compare against each stage's own recorded
+    raw_response_sha256, per the finalization-integrity requirement.
+    Returns @{ Success; Reason; Bytes }. Reason: 'MISSING', 'DUPLICATE',
+    'UNREADABLE', or 'OK'.
+    #>
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)][string]$EvidenceRoot,
+        [Parameter(Mandatory = $true)][string]$ActionName,
+        [Parameter(Mandatory = $true)][string]$TestLabel,
+        [Parameter(Mandatory = $true)][string]$CaptureSessionId
+    )
+    $pattern = Get-RawEvidenceFileName -ActionName $ActionName -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    $found = @(Get-ChildItem -Path $EvidenceRoot -Filter $pattern -ErrorAction SilentlyContinue)
+
+    if ($found.Count -eq 0) {
+        return @{ Success = $false; Reason = 'MISSING'; Bytes = $null }
+    }
+    if ($found.Count -gt 1) {
+        return @{ Success = $false; Reason = 'DUPLICATE'; Bytes = $null }
+    }
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($found[0].FullName)
+        return @{ Success = $true; Reason = 'OK'; Bytes = $bytes }
+    }
+    catch {
+        return @{ Success = $false; Reason = 'UNREADABLE'; Bytes = $null }
+    }
+}
+
 function Test-IsTestModeKey {
     <#
     Fail-closed validation of Flutterwave's documented TEST secret-key
@@ -745,6 +894,8 @@ function New-EvidenceManifest {
         [Parameter(Mandatory = $true)][object[]]$ProviderEvidenceFields,
         [Parameter(Mandatory = $true)][string]$CheckoutRawResponseSha256,
         [Parameter(Mandatory = $true)][string]$VerifyRawResponseSha256,
+        [Parameter(Mandatory = $true)][string]$CheckoutRawEvidenceFilename,
+        [Parameter(Mandatory = $true)][string]$VerifyRawEvidenceFilename,
         [Parameter(Mandatory = $true)][AllowEmptyString()][string]$CollectorScriptGitSha,
         [Parameter(Mandatory = $true)][string]$CollectorScriptContentSha256,
         [Parameter(Mandatory = $true)][string]$PowerShellVersion,
@@ -771,6 +922,8 @@ function New-EvidenceManifest {
         provider_evidence_fields           = $ProviderEvidenceFields
         checkout_raw_response_sha256       = $CheckoutRawResponseSha256
         verify_raw_response_sha256         = $VerifyRawResponseSha256
+        checkout_raw_evidence_filename     = $CheckoutRawEvidenceFilename
+        verify_raw_evidence_filename       = $VerifyRawEvidenceFilename
         collector_script_git_sha           = $CollectorScriptGitSha
         collector_script_content_sha256    = $CollectorScriptContentSha256
         powershell_version                 = $PowerShellVersion
@@ -800,6 +953,20 @@ function New-EvidenceManifest {
 # ===========================================================================
 
 function Invoke-CreateCheckoutOrchestration {
+    <#
+    CORRECTED, this revision (Codex provenance-closure re-audit, Blocker 1):
+    the raw provider response is now RETAINED, not merely hashed. The exact
+    byte sequence returned by the HTTP port is persisted, write-once, to a
+    deterministic session-bound raw-evidence file OUTSIDE the repository,
+    BEFORE the browser is ever opened and BEFORE the sanitized stage is
+    written -- following the required sequence: bytes -> validate safe
+    response boundary -> persist -> hash THOSE SAME bytes -> decode THOSE
+    SAME bytes for JSON parsing -> build the sanitized stage. If raw
+    persistence fails for any reason, this function aborts immediately: it
+    never launches the hosted checkout and never writes a stage. A
+    sanitized stage is therefore never created without its corresponding
+    raw file already existing on disk.
+    #>
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory = $true)][ValidateSet('A', 'B')][string]$TestLabel,
@@ -810,7 +977,7 @@ function Invoke-CreateCheckoutOrchestration {
         [Parameter(Mandatory = $true)][string]$RedirectUrl,
         [Parameter(Mandatory = $true)][string]$CustomerEmail,
         [Parameter(Mandatory = $true)][string]$EvidenceRoot,
-        [Parameter(Mandatory = $true)][scriptblock]$HttpPost,   # param($Uri, $BodyJson) -> @{StatusCode; Body}
+        [Parameter(Mandatory = $true)][scriptblock]$HttpPost,   # param($Uri, $BodyJson) -> @{StatusCode; BodyBytes}
         [Parameter(Mandatory = $true)][scriptblock]$OpenUrl,    # param($Url) -> (throws on failure, never suppressed)
         [Parameter(Mandatory = $true)][scriptblock]$NowUtc,     # () -> UTC ISO-8601 string
         [Parameter(Mandatory = $true)][AllowEmptyString()][string]$CollectorScriptGitSha,
@@ -830,14 +997,45 @@ function Invoke-CreateCheckoutOrchestration {
     $httpResult = & $HttpPost $uri $bodyJson
     $requestEndUtc = & $NowUtc
 
-    $outcome = Get-CaptureOutcome -StatusCode $httpResult.StatusCode -RawBody $httpResult.Body
+    # Step 1 of the byte-authority sequence: validate a real response
+    # boundary exists at all (never attempt to persist a total transport
+    # failure with no status code and no bytes).
+    if (-not (Test-IsSafeResponseBoundary -StatusCode $httpResult.StatusCode -BodyBytes $httpResult.BodyBytes)) {
+        return @{ Success = $false; Reason = 'NO_RESPONSE_RECEIVED' }
+    }
+
+    # Step 2: atomically persist the EXACT bytes received -- write-once,
+    # outside the repo (EvidenceRoot is already verified outside the repo
+    # by the caller), deterministic session-bound filename, never
+    # overwritten. If this fails, abort immediately: no browser launch, no
+    # stage. An orphan raw file from a PRIOR failed attempt is acceptable;
+    # a stage without a raw file is not, so this check gates everything
+    # that follows.
+    $rawFileName = Get-RawEvidenceFileName -ActionName 'CreateCheckout' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    $rawPath = Join-Path $EvidenceRoot $rawFileName
+    $rawWriteResult = New-ImmutableBytesFile -Path $rawPath -Bytes $httpResult.BodyBytes
+    if (-not $rawWriteResult.Success) {
+        return @{ Success = $false; Reason = $rawWriteResult.Reason }
+    }
+
+    # Step 3: hash the SAME bytes just persisted -- never a re-encoded or
+    # re-serialized representation.
+    $rawResponseSha256 = Get-Sha256HexFromBytes -Bytes $httpResult.BodyBytes
+
+    # Step 4: decode those SAME bytes (never different bytes) for parsing.
+    $bodyText = [System.Text.Encoding]::UTF8.GetString($httpResult.BodyBytes)
+
+    $outcome = Get-CaptureOutcome -StatusCode $httpResult.StatusCode -RawBody $bodyText
     if (-not $outcome.Success) {
+        # The raw file remains on disk as an explicitly-acceptable orphan --
+        # this rejection produces no stage, per the required behavior.
         return @{ Success = $false; Reason = $outcome.Reason }
     }
 
-    # CORRECTED (Blocker 1): extract and validate data.link -- the ONLY URL
-    # this function will ever pass to OpenUrl. $uri (the API endpoint) is
-    # NEVER passed to OpenUrl anywhere in this function.
+    # CORRECTED (Blocker 1 of the prior live-path re-audit, unchanged here):
+    # extract and validate data.link -- the ONLY URL this function will
+    # ever pass to OpenUrl. $uri (the API endpoint) is NEVER passed to
+    # OpenUrl anywhere in this function.
     $linkResult = Get-HostedCheckoutLink -Parsed $outcome.Parsed
     if (-not $linkResult.Success) {
         return @{ Success = $false; Reason = $linkResult.Reason }
@@ -866,7 +1064,8 @@ function Invoke-CreateCheckoutOrchestration {
         request_end_utc                 = $requestEndUtc
         checkout_opened_utc             = $checkoutOpenedUtc
         http_status                     = $httpResult.StatusCode
-        raw_response_sha256             = Get-Sha256Hex -Text $httpResult.Body
+        raw_evidence_filename           = $rawFileName
+        raw_response_sha256             = $rawResponseSha256
         provider_evidence_fields        = Get-AllowlistedEvidenceFields -Node $outcome.Parsed
         collector_script_git_sha        = $CollectorScriptGitSha
         collector_script_content_sha256 = $CollectorScriptContentSha256
@@ -877,7 +1076,7 @@ function Invoke-CreateCheckoutOrchestration {
         return @{ Success = $false; Reason = $writeResult.Reason }
     }
 
-    return @{ Success = $true; Reason = 'OK'; StagePath = $stagePath; Link = $linkResult.Link }
+    return @{ Success = $true; Reason = 'OK'; StagePath = $stagePath; Link = $linkResult.Link; RawPath = $rawPath }
 }
 
 function Invoke-ObservePaymentSuccessOrchestration {
@@ -931,13 +1130,21 @@ function Invoke-ObservePaymentSuccessOrchestration {
 }
 
 function Invoke-VerifyOrchestration {
+    <#
+    CORRECTED, this revision (Codex provenance-closure re-audit, Blocker 1):
+    the raw verify response is now RETAINED, not merely hashed -- same
+    byte-authority sequence as Invoke-CreateCheckoutOrchestration. If raw
+    persistence fails, this function aborts immediately: it never writes a
+    verification stage (and therefore FinalizeManifest can never succeed
+    for this session, since it requires a Verify stage to exist).
+    #>
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory = $true)][ValidateSet('A', 'B')][string]$TestLabel,
         [Parameter(Mandatory = $true)][string]$CaptureSessionId,
         [Parameter(Mandatory = $true)][string]$TransactionId,
         [Parameter(Mandatory = $true)][string]$EvidenceRoot,
-        [Parameter(Mandatory = $true)][scriptblock]$HttpGet,   # param($Uri) -> @{StatusCode; Body}
+        [Parameter(Mandatory = $true)][scriptblock]$HttpGet,   # param($Uri) -> @{StatusCode; BodyBytes}
         [Parameter(Mandatory = $true)][scriptblock]$NowUtc,
         [Parameter(Mandatory = $true)][AllowEmptyString()][string]$CollectorScriptGitSha,
         [Parameter(Mandatory = $true)][string]$CollectorScriptContentSha256
@@ -957,7 +1164,21 @@ function Invoke-VerifyOrchestration {
     $httpResult = & $HttpGet $uri
     $requestEndUtc = & $NowUtc
 
-    $outcome = Get-CaptureOutcome -StatusCode $httpResult.StatusCode -RawBody $httpResult.Body
+    if (-not (Test-IsSafeResponseBoundary -StatusCode $httpResult.StatusCode -BodyBytes $httpResult.BodyBytes)) {
+        return @{ Success = $false; Reason = 'NO_RESPONSE_RECEIVED' }
+    }
+
+    $rawFileName = Get-RawEvidenceFileName -ActionName 'Verify' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    $rawPath = Join-Path $EvidenceRoot $rawFileName
+    $rawWriteResult = New-ImmutableBytesFile -Path $rawPath -Bytes $httpResult.BodyBytes
+    if (-not $rawWriteResult.Success) {
+        return @{ Success = $false; Reason = $rawWriteResult.Reason }
+    }
+
+    $rawResponseSha256 = Get-Sha256HexFromBytes -Bytes $httpResult.BodyBytes
+    $bodyText = [System.Text.Encoding]::UTF8.GetString($httpResult.BodyBytes)
+
+    $outcome = Get-CaptureOutcome -StatusCode $httpResult.StatusCode -RawBody $bodyText
     if (-not $outcome.Success) {
         return @{ Success = $false; Reason = $outcome.Reason }
     }
@@ -1009,7 +1230,8 @@ function Invoke-VerifyOrchestration {
         request_start_utc              = $requestStartUtc
         request_end_utc                = $requestEndUtc
         http_status                     = $httpResult.StatusCode
-        raw_response_sha256            = Get-Sha256Hex -Text $httpResult.Body
+        raw_evidence_filename           = $rawFileName
+        raw_response_sha256            = $rawResponseSha256
         provider_evidence_fields        = Get-AllowlistedEvidenceFields -Node $outcome.Parsed
         timeline_valid                   = $true
         collector_script_git_sha        = $CollectorScriptGitSha
@@ -1021,7 +1243,7 @@ function Invoke-VerifyOrchestration {
         return @{ Success = $false; Reason = $writeResult.Reason }
     }
 
-    return @{ Success = $true; Reason = 'OK'; StagePath = $stagePath }
+    return @{ Success = $true; Reason = 'OK'; StagePath = $stagePath; RawPath = $rawPath }
 }
 
 function Invoke-FinalizeManifestOrchestration {
@@ -1052,21 +1274,86 @@ function Invoke-FinalizeManifestOrchestration {
     # Cross-stage checks (item 4): Get-StageCapture already proved each
     # file's OWN capture_session_id/test_label match what was requested,
     # which transitively proves all three agree with EACH OTHER too. The
-    # two checks below are the ones NOT already implied by that: tx_ref
-    # hash equality between checkout and verify, and collector-version
-    # equality across all three stages (proving one consistent tool
-    # version handled the whole session, not a mix of versions with
-    # potentially different behavior).
+    # checks below are NOT already implied by that.
     if ($checkoutResult.Data.tx_ref_sha256 -ne $verifyResult.Data.tx_ref_sha256) {
         return @{ Success = $false; Reason = 'TX_REF_HASH_MISMATCH_ACROSS_STAGES' }
     }
+
+    <#
+    CORRECTED, this revision (Codex provenance-closure re-audit, Blocker 1):
+    a sanitized stage can never exist without ITS OWN raw evidence file
+    already having been written successfully at capture time (see
+    Invoke-CreateCheckoutOrchestration / Invoke-VerifyOrchestration -- raw
+    persistence failure aborts before the stage is ever written). But that
+    guarantee is only as good as the file still being exactly what was
+    persisted. FinalizeManifest is the ONE place that independently proves
+    it, by reopening the exact session-bound raw files right now and
+    re-hashing their CURRENT on-disk bytes -- never trusting the stage's
+    own recorded hash as self-evidently still correct. Any of missing,
+    duplicated (ambiguous which file is authoritative), unreadable, or a
+    changed/substituted byte sequence fails closed here, before any
+    manifest is written.
+    #>
+    $checkoutRaw = Get-RetainedRawBytes -EvidenceRoot $EvidenceRoot -ActionName 'CreateCheckout' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    if (-not $checkoutRaw.Success) {
+        return @{ Success = $false; Reason = "CHECKOUT_RAW_$($checkoutRaw.Reason)" }
+    }
+    if ((Get-Sha256HexFromBytes -Bytes $checkoutRaw.Bytes) -ne [string]$checkoutResult.Data.raw_response_sha256) {
+        return @{ Success = $false; Reason = 'CHECKOUT_RAW_HASH_MISMATCH' }
+    }
+
+    $verifyRaw = Get-RetainedRawBytes -EvidenceRoot $EvidenceRoot -ActionName 'Verify' -TestLabel $TestLabel -CaptureSessionId $CaptureSessionId
+    if (-not $verifyRaw.Success) {
+        return @{ Success = $false; Reason = "VERIFY_RAW_$($verifyRaw.Reason)" }
+    }
+    if ((Get-Sha256HexFromBytes -Bytes $verifyRaw.Bytes) -ne [string]$verifyResult.Data.raw_response_sha256) {
+        return @{ Success = $false; Reason = 'VERIFY_RAW_HASH_MISMATCH' }
+    }
+
+    <#
+    CORRECTED, this revision (Codex provenance-closure re-audit, Blocker 2):
+    the OLD check here only proved the three stages agree WITH EACH OTHER
+    (Select-Object -Unique .Count -eq 1) -- it never compared that common
+    value against the CURRENTLY EXECUTING finalizer's own collector
+    identity. That meant stages produced by collector version X could be
+    finalized by a differently-versioned collector Y, and the manifest
+    would still silently record whichever value happened to be common to
+    the stages (or, worse, whatever the finalizer's own values were, never
+    checked against the stages at all) -- neither of which proves the
+    manifest names the version that ACTUALLY produced the evidence. The
+    correct check is explicit three-way equality: every stage AND the
+    current finalizer must agree, for content hash and Git SHA
+    independently. Git SHA additionally may never be empty -- an
+    undeterminable Git SHA is not a pass, it is a provenance gap.
+    #>
     $contentHashes = @(
         [string]$checkoutResult.Data.collector_script_content_sha256,
         [string]$observeResult.Data.collector_script_content_sha256,
         [string]$verifyResult.Data.collector_script_content_sha256
     )
-    if (@($contentHashes | Select-Object -Unique).Count -ne 1) {
-        return @{ Success = $false; Reason = 'COLLECTOR_VERSION_MISMATCH' }
+    $contentMismatch = $false
+    foreach ($hash in $contentHashes) {
+        if ([string]::IsNullOrEmpty($hash) -or $hash -ne $CollectorScriptContentSha256) {
+            $contentMismatch = $true
+        }
+    }
+    if ($contentMismatch) {
+        return @{ Success = $false; Reason = 'COLLECTOR_CONTENT_VERSION_MISMATCH' }
+    }
+
+    $gitShas = @(
+        [string]$checkoutResult.Data.collector_script_git_sha,
+        [string]$observeResult.Data.collector_script_git_sha,
+        [string]$verifyResult.Data.collector_script_git_sha
+    )
+    $gitShaMismatch = [string]::IsNullOrEmpty($CollectorScriptGitSha)
+    foreach ($sha in $gitShas) {
+        if ([string]::IsNullOrEmpty($sha) -or $sha -ne $CollectorScriptGitSha) {
+            $gitShaMismatch = $true
+        }
+    }
+    if ($gitShaMismatch) {
+        return @{ Success = $false; Reason = 'COLLECTOR_GIT_VERSION_MISMATCH' }
     }
 
     $timeline = Test-TimelineOrdering `
@@ -1101,6 +1388,8 @@ function Invoke-FinalizeManifestOrchestration {
         -ProviderEvidenceFields (@($checkoutResult.Data.provider_evidence_fields) + @($verifyResult.Data.provider_evidence_fields)) `
         -CheckoutRawResponseSha256 ([string]$checkoutResult.Data.raw_response_sha256) `
         -VerifyRawResponseSha256 ([string]$verifyResult.Data.raw_response_sha256) `
+        -CheckoutRawEvidenceFilename ([string]$checkoutResult.Data.raw_evidence_filename) `
+        -VerifyRawEvidenceFilename ([string]$verifyResult.Data.raw_evidence_filename) `
         -CollectorScriptGitSha $CollectorScriptGitSha `
         -CollectorScriptContentSha256 $CollectorScriptContentSha256 `
         -PowerShellVersion $PowerShellVersion `

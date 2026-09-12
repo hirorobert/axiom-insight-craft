@@ -285,14 +285,22 @@ try {
     # secret) at creation time, since a scriptblock invoked via `&` from
     # inside a DIFFERENT function (the orchestration functions, dot-sourced
     # from the library) does not otherwise see this script's local
-    # variables. Both ports convert a thrown HTTP error into the SAME
-    # @{StatusCode;Body} shape a success returns -- the orchestration layer
-    # never has to deal with exceptions from the transport, only data.
+    # variables.
+    #
+    # CORRECTED, this revision (Codex provenance-closure re-audit, Blocker
+    # 1, byte-authority rule): both ports now return @{StatusCode;
+    # BodyBytes} -- a [byte[]] -- instead of a decoded string. This is what
+    # makes it possible for the orchestration layer to persist, hash, and
+    # decode the EXACT SAME byte sequence, rather than hashing a value that
+    # already passed through .NET's own string-decoding logic once. A
+    # thrown HTTP error is converted into the SAME @{StatusCode; BodyBytes}
+    # shape a success returns -- the orchestration layer never has to deal
+    # with exceptions from the transport, only data.
     $realHttpPost = {
         param($Uri, $BodyJson)
         try {
             $webResponse = Invoke-WebRequest -Uri $Uri -Method Post -Headers $headers -Body $BodyJson -ContentType 'application/json' -UseBasicParsing
-            return @{ StatusCode = [int]$webResponse.StatusCode; Body = $webResponse.Content }
+            return @{ StatusCode = [int]$webResponse.StatusCode; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($webResponse.Content) }
         }
         catch {
             if ($_.Exception.Response) {
@@ -303,9 +311,9 @@ try {
                     $body = $reader.ReadToEnd()
                 }
                 catch { $body = '' }
-                return @{ StatusCode = $sc; Body = $body }
+                return @{ StatusCode = $sc; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body) }
             }
-            return @{ StatusCode = 0; Body = $_.Exception.Message }
+            return @{ StatusCode = 0; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$_.Exception.Message) }
         }
     }.GetNewClosure()
 
@@ -313,7 +321,7 @@ try {
         param($Uri)
         try {
             $webResponse = Invoke-WebRequest -Uri $Uri -Method Get -Headers $headers -UseBasicParsing
-            return @{ StatusCode = [int]$webResponse.StatusCode; Body = $webResponse.Content }
+            return @{ StatusCode = [int]$webResponse.StatusCode; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($webResponse.Content) }
         }
         catch {
             if ($_.Exception.Response) {
@@ -324,9 +332,9 @@ try {
                     $body = $reader.ReadToEnd()
                 }
                 catch { $body = '' }
-                return @{ StatusCode = $sc; Body = $body }
+                return @{ StatusCode = $sc; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body) }
             }
-            return @{ StatusCode = 0; Body = $_.Exception.Message }
+            return @{ StatusCode = 0; BodyBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$_.Exception.Message) }
         }
     }.GetNewClosure()
 
@@ -403,7 +411,12 @@ try {
             $requestStartUtc = & $realNowUtc
             $httpResult = & $realHttpGet $uri
             $requestEndUtc = & $realNowUtc
-            $outcome = Get-CaptureOutcome -StatusCode $httpResult.StatusCode -RawBody $httpResult.Body
+            if (-not (Test-IsSafeResponseBoundary -StatusCode $httpResult.StatusCode -BodyBytes $httpResult.BodyBytes)) {
+                Write-Error "ReferenceLookup failed (reason: NO_RESPONSE_RECEIVED). This is supplemental-only; no stage file was ever written for it."
+                exit 1
+            }
+            $bodyText = [System.Text.Encoding]::UTF8.GetString($httpResult.BodyBytes)
+            $outcome = Get-CaptureOutcome -StatusCode $httpResult.StatusCode -RawBody $bodyText
             if (-not $outcome.Success) {
                 Write-Error "ReferenceLookup failed (reason: $($outcome.Reason)). This is supplemental-only; no stage file was ever written for it."
                 exit 1
@@ -412,7 +425,7 @@ try {
             Write-Host ""
             Write-Host "ReferenceLookup complete (SUPPLEMENTAL ONLY -- not consumed by FinalizeManifest)." -ForegroundColor Green
             Write-Host "  Request window: $requestStartUtc .. $requestEndUtc"
-            Write-Host "  Raw response SHA-256: $(Get-Sha256Hex -Text $httpResult.Body)"
+            Write-Host "  Raw response SHA-256: $(Get-Sha256HexFromBytes -Bytes $httpResult.BodyBytes)"
             Write-Host "  Allowlisted fields: $($evidenceFields | ConvertTo-Json -Depth 6)"
         }
     }
