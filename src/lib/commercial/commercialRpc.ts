@@ -39,6 +39,9 @@ export interface CommercialRpcSignature {
       effective_start: string | null;
       effective_end: string | null;
       entitlements: string[];
+      /** Ω3-CHECKOUT: the current licence's originating checkout interval, when one exists (NULL for FREE/admin-granted licences). */
+      billing_interval: "MONTHLY" | "ANNUAL" | null;
+      billing_interval_count: number | null;
     };
   };
   get_effective_entitlement: {
@@ -52,7 +55,13 @@ export interface CommercialRpcSignature {
     };
   };
   resolve_commercial_offer: {
-    args: { p_plan_code: string; p_market_code?: string };
+    /**
+     * Ω3-CHECKOUT: p_billing_interval is MANDATORY — never omitted, never
+     * defaulted client-side. The Ω3-CHECKOUT trust boundary is exactly
+     * { planCode, billingInterval } as the only economics-adjacent input
+     * the browser may ever supply; everything else is server-resolved.
+     */
+    args: { p_plan_code: string; p_billing_interval: "MONTHLY" | "ANNUAL"; p_market_code?: string };
     returns: {
       resolution: "AVAILABLE" | "NOT_AVAILABLE" | "AMBIGUOUS" | "UNKNOWN";
       offer_id?: string;
@@ -87,6 +96,8 @@ export interface CommercialRpcSignature {
       p_currency_code: string; p_amount_minor: number; p_currency_exponent: number;
       p_billing_interval: string; p_billing_interval_count: number;
       p_is_active: boolean; p_is_purchasable: boolean; p_reason: string;
+      /** Ω3-CHECKOUT: product-scoped plan lookup. Defaults to 'CFOCLOSE' server-side if omitted. */
+      p_product_code?: string;
     };
     returns: { offer_id: string; offer_code: string };
   };
@@ -145,15 +156,17 @@ interface RawCheckoutStatusResponse {
 
 /**
  * Call the commercial-create-checkout Edge Function.
- * Browser sends ONLY a plan code and an optional market suggestion — the
- * server independently resolves the actual commercial offer (plan + market
- * + currency + price) via resolve_commercial_offer(); it never trusts a
- * browser-supplied amount or currency, and never derives market from
- * locale/IP. Never accepted: price, amount, currency, paid=true, any
- * provider secret.
+ * Browser sends ONLY a plan code, a MANDATORY billing interval (MONTHLY or
+ * ANNUAL — the Ω3-CHECKOUT trust boundary), and an optional market
+ * suggestion — the server independently resolves the actual commercial
+ * offer (plan + interval + market + currency + price) via
+ * resolve_commercial_offer(); it never trusts a browser-supplied amount or
+ * currency, and never derives market from locale/IP. Never accepted:
+ * price, amount, currency, paid=true, any provider secret.
  */
 export async function createCheckoutIntent(
   planCode: string,
+  billingInterval: "MONTHLY" | "ANNUAL",
   marketCode?: string,
 ): Promise<{ data: CheckoutIntentResponse | null; error: string | null }> {
   const { supabase } = await import("@/integrations/supabase/client");
@@ -168,7 +181,7 @@ export async function createCheckoutIntent(
         "Authorization": `Bearer ${session.access_token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ planCode, marketCode }),
+      body: JSON.stringify({ planCode, billingInterval, marketCode }),
     },
   );
   const json = await res.json();

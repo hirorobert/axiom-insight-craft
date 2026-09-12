@@ -14,15 +14,25 @@
  */
 
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ExternalLink, Loader2 } from "lucide-react";
 import { createCheckoutIntent, callCommercialRpc } from "@/lib/commercial/commercialRpc";
+import { supabase } from "@/integrations/supabase/client";
 import type { LicenceStatus } from "@/lib/commercial/entitlementContract";
 import { moneyToDisplay, type CurrencyCode } from "@/lib/commercial/payments/money";
 import { toast } from "sonner";
 
 interface Props {
   billingStatus: LicenceStatus | null;
+  /**
+   * Ω3-CHECKOUT trust boundary: the ONLY two billing intervals the charter
+   * authorizes. Mandatory — never defaulted here or anywhere downstream.
+   * Threaded, unmodified, into BOTH the display-resolution call and the
+   * checkout-creation call below, exactly like `marketCode` (see its own
+   * doc comment) — DISPLAY_INTERVAL must always equal CHECKOUT_INTERVAL.
+   */
+  billingInterval: "MONTHLY" | "ANNUAL";
   /**
    * The customer's CURRENT plan code (e.g. "FREE"), from the same
    * get_my_billing_summary() read that supplies `billingStatus`. Required
@@ -132,23 +142,30 @@ export function shouldShowUpgradeAction(
   return !(alreadyOnThisPlan && licenceIsCurrent);
 }
 
-export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, planCode = "PAID", marketCode }: Props) {
+export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, planCode = "PAID", billingInterval, marketCode }: Props) {
   const [loading, setLoading] = useState(false);
   const [offer, setOffer] = useState<OfferDisplayState>({ phase: "LOADING" });
+  const navigate = useNavigate();
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Same `marketCode` value used for display resolution here is reused,
-      // unmodified, in handleUpgrade()'s createCheckoutIntent call below —
-      // this is what guarantees DISPLAY_MARKET == CHECKOUT_MARKET. Do not
-      // let these two calls diverge onto separately-derived market values.
-      const { data } = await callCommercialRpc("resolve_commercial_offer", { p_plan_code: planCode, p_market_code: marketCode });
+      // Same `marketCode`/`billingInterval` values used for display
+      // resolution here are reused, unmodified, in handleUpgrade()'s
+      // createCheckoutIntent call below — this is what guarantees
+      // DISPLAY_MARKET == CHECKOUT_MARKET and DISPLAY_INTERVAL ==
+      // CHECKOUT_INTERVAL. Do not let these calls diverge onto separately-
+      // derived values.
+      const { data } = await callCommercialRpc("resolve_commercial_offer", {
+        p_plan_code: planCode,
+        p_billing_interval: billingInterval,
+        p_market_code: marketCode,
+      });
       if (cancelled) return;
       setOffer(deriveOfferDisplayState(data));
     })();
     return () => { cancelled = true; };
-  }, [planCode, marketCode]);
+  }, [planCode, billingInterval, marketCode]);
 
   if (!shouldShowUpgradeAction(currentPlanCode, planCode, billingStatus)) {
     return (
@@ -161,7 +178,18 @@ export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, p
   async function handleUpgrade() {
     setLoading(true);
     try {
-      const { data, error } = await createCheckoutIntent(planCode, marketCode);
+      // Authenticated checkout CTA: an anonymous visitor (e.g. on the
+      // public /pricing page) is sent to sign in first, rather than
+      // reaching the Edge Function only to be told "Not authenticated" —
+      // this is a UX improvement only; createCheckoutIntent's own
+      // session check remains the real, authoritative gate regardless.
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate("/auth");
+        return;
+      }
+
+      const { data, error } = await createCheckoutIntent(planCode, billingInterval, marketCode);
 
       if (error || !data) {
         toast.error(error ?? "Could not start checkout. Please try again.");

@@ -23,6 +23,7 @@ import {
   licenceBadgeVariant,
   EFFECTIVE_END_LABEL,
 } from "@/lib/commercial/billingDisplay";
+import { CheckoutUpgradeButton, intervalLabelFor } from "@/components/commercial/CheckoutUpgradeButton";
 
 // ─────────────────────────────────────────────────────────────
 // Settings — CFOClose Ω3-BRAND
@@ -34,8 +35,12 @@ import {
 //   4. Plan & Billing
 //   5. Security & Audit
 //
-// Checkout is DISABLED during Ω3-BRAND.
-// The upgrade CTA routes to /pricing only.
+// Ω3-CHECKOUT: the Plan & Billing panel's "View plans" CTA still routes to
+// /pricing for a FREE customer, but a PAID customer now also sees a
+// manual-renewal CheckoutUpgradeButton for their own current plan/interval
+// — server-gated exactly like /pricing's own button (platform_state,
+// offer resolution, and provider configuration all still fail closed
+// independently of this page).
 // Raw plan codes (e.g. "PAID") are never shown to the customer.
 // ─────────────────────────────────────────────────────────────
 
@@ -316,6 +321,9 @@ export default function Settings() {
                         {billing.effectiveEnd && (
                           <span className="text-xs text-muted-foreground">
                             {EFFECTIVE_END_LABEL} {new Date(billing.effectiveEnd).toLocaleDateString()}
+                            {billing.billingInterval && (
+                              <> ({intervalLabelFor(billing.billingInterval, billing.billingIntervalCount ?? 1).replace(/^\//, "").trim()} billing)</>
+                            )}
                           </span>
                         )}
                       </div>
@@ -327,6 +335,27 @@ export default function Settings() {
                           {PRICING.CURRENCY_CODE} {PRICING.MONTHLY_USD}/month.{" "}
                           {PRICING.TAX_DISCLAIMER}
                         </p>
+                      )}
+
+                      {/* Ω3-CHECKOUT: manual renewal — a prepaid fixed-term
+                          licence has no auto-renewal; this starts a fresh
+                          checkout for the SAME plan and interval the
+                          customer already holds. currentPlanCode/
+                          billingStatus are intentionally omitted (null) so
+                          shouldShowUpgradeAction never suppresses this
+                          action merely because the customer is already
+                          ACTIVE on this plan — renewal must remain
+                          available precisely then. commit_verified_
+                          commercial_payment extends from the current
+                          licence's effective_end automatically. */}
+                      {billing.planCode === "PAID" && billing.billingInterval && (
+                        <div className="max-w-xs mb-2">
+                          <CheckoutUpgradeButton
+                            billingStatus={null}
+                            planCode={billing.planCode}
+                            billingInterval={billing.billingInterval}
+                          />
+                        </div>
                       )}
 
                       {/* Included capabilities — friendly language, no raw feature codes */}
@@ -344,7 +373,7 @@ export default function Settings() {
                         </div>
                       )}
 
-                      {/* CTA — Ω3-BRAND: "View plans" → /pricing only. No checkout. */}
+                      {/* "View plans" always routes to /pricing (the FREE-customer upgrade path is unchanged); the PAID-only renewal action above is the sole checkout entry point on this page. */}
                       <div className="flex flex-wrap gap-3">
                         <Button variant="outline" size="sm" asChild className="gap-2">
                           <Link to="/pricing">

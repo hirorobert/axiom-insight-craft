@@ -1,19 +1,26 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, ArrowRight, Lock } from "lucide-react";
+import { Check, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { PRICING, BRAND } from "@/constants/copy";
+import { CheckoutUpgradeButton } from "@/components/commercial/CheckoutUpgradeButton";
 
 // ─────────────────────────────────────────────────────────────
 // /pricing — CFOClose Pricing Page
-// Ω3-BRAND: presentation only. Paid checkout is disabled during
-// this sprint — "Secure self-service checkout is being activated."
-// No amount, interval, or currency is sent to any payment function.
-// Checkout will be enabled in Ω3-CHECKOUT once the interval-aware
-// server resolver (resolve_commercial_offer with explicit billing
-// interval) is completed.
+// Ω3-CHECKOUT: the interval-aware server resolver (resolve_commercial_offer
+// with a mandatory explicit billing interval) is now live, so
+// CheckoutUpgradeButton replaces the earlier static "checkout disabled"
+// panel. The button itself still fails closed to "not yet available"
+// whenever the server's own resolution is anything other than AVAILABLE —
+// including while commercial_platform_state remains PAYMENTS_DISABLED,
+// its current live value — so this page change alone does not make
+// checkout usable; that requires a separate, explicit platform-state
+// transition outside this codebase's authority. No amount, interval, or
+// currency is ever sent to any payment function from here — only the
+// selected billing interval (MONTHLY/ANNUAL), exactly as the trust
+// boundary requires.
 // ─────────────────────────────────────────────────────────────
 
 type BillingInterval = "monthly" | "annual";
@@ -174,19 +181,20 @@ export default function Pricing() {
                 ))}
               </ul>
 
-              {/* Checkout disabled during Ω3-BRAND — enabled in Ω3-CHECKOUT */}
-              <div className="border border-border p-4 flex flex-col items-center gap-3 text-center">
-                <Lock size={16} className="text-muted-foreground" />
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  {PRICING.CHECKOUT_DISABLED_MSG}
-                </p>
-                <p className="text-[10px] text-muted-foreground/60">
-                  Start with a free workspace to explore the platform.
-                </p>
-                <Button variant="outline" size="sm" asChild className="w-full mt-1">
-                  <Link to="/auth">Start free first</Link>
-                </Button>
-              </div>
+              {/* Ω3-CHECKOUT: server-authoritative checkout entry point.
+                  Fails closed to "not yet available" on its own if the
+                  server hasn't yet resolved a purchasable offer for this
+                  plan/interval (including while platform_state remains
+                  PAYMENTS_DISABLED) — never a client-side guess. */}
+              <CheckoutUpgradeButton
+                billingStatus={null}
+                planCode="PAID"
+                billingInterval={interval === "annual" ? "ANNUAL" : "MONTHLY"}
+              />
+              <p className="text-[10px] text-muted-foreground/60 text-center mt-2">
+                Start with a free workspace to explore the platform first.{" "}
+                <Link to="/auth" className="underline hover:text-foreground">Start free</Link>
+              </p>
             </div>
 
           </div>
