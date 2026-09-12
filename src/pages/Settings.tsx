@@ -23,6 +23,7 @@ import {
   licenceBadgeVariant,
   EFFECTIVE_END_LABEL,
 } from "@/lib/commercial/billingDisplay";
+import { CheckoutUpgradeButton, intervalLabelFor, type ResolvedOfferData } from "@/components/commercial/CheckoutUpgradeButton";
 
 // ─────────────────────────────────────────────────────────────
 // Settings — CFOClose Ω3-BRAND
@@ -34,8 +35,12 @@ import {
 //   4. Plan & Billing
 //   5. Security & Audit
 //
-// Checkout is DISABLED during Ω3-BRAND.
-// The upgrade CTA routes to /pricing only.
+// Ω3-CHECKOUT: the Plan & Billing panel's "View plans" CTA still routes to
+// /pricing for a FREE customer, but a PAID customer now also sees a
+// manual-renewal CheckoutUpgradeButton for their own current plan/interval
+// — server-gated exactly like /pricing's own button (platform_state,
+// offer resolution, and provider configuration all still fail closed
+// independently of this page).
 // Raw plan codes (e.g. "PAID") are never shown to the customer.
 // ─────────────────────────────────────────────────────────────
 
@@ -71,10 +76,47 @@ export default function Settings() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const { logAction } = useAuditLog();
   const { summary: billing, loading: billingLoading, error: billingError } = useBillingSummary();
+  // Ω3-CHECKOUT audit HIGH fix (pricing parity): same discipline as
+  // Pricing.tsx — the static "$X/year or $Y/month" reference text above
+  // the renewal button is marketing copy, never checkout authority. `null`
+  // means "not yet proven either way" (never a silent pass).
+  const [renewalPricingParityOk, setRenewalPricingParityOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/auth");
   }, [user, authLoading, navigate]);
+
+  useEffect(() => {
+    // A parity verdict from a previous render (or a previous billing
+    // interval) must never be displayed against the current one.
+    setRenewalPricingParityOk(null);
+  }, [billing?.planCode, billing?.billingInterval]);
+
+  function handleRenewalOfferResolved(data: ResolvedOfferData | null) {
+    if (
+      data?.resolution !== "AVAILABLE" ||
+      data.amount_minor == null || !data.currency_code ||
+      data.currency_exponent == null || !data.billing_interval || data.billing_interval_count == null ||
+      data.market_code == null
+    ) {
+      setRenewalPricingParityOk(null);
+      return;
+    }
+    const expectedAmountMinor = Math.round(
+      (billing?.billingInterval === "ANNUAL" ? PRICING.ANNUAL_USD : PRICING.MONTHLY_USD) * 100,
+    );
+    // Ω∞ A+ closure HIGH-3 fix: same full-field comparison as Pricing.tsx —
+    // exponent, interval, interval count and market too, not amount/
+    // currency alone.
+    setRenewalPricingParityOk(
+      data.amount_minor === expectedAmountMinor &&
+      data.currency_code === PRICING.CURRENCY_CODE &&
+      data.currency_exponent === 2 &&
+      data.billing_interval === billing?.billingInterval &&
+      data.billing_interval_count === 1 &&
+      data.market_code === "GLOBAL",
+    );
+  }
 
   useEffect(() => {
     if (user) fetchProfile();
@@ -316,6 +358,9 @@ export default function Settings() {
                         {billing.effectiveEnd && (
                           <span className="text-xs text-muted-foreground">
                             {EFFECTIVE_END_LABEL} {new Date(billing.effectiveEnd).toLocaleDateString()}
+                            {billing.billingInterval && (
+                              <> ({intervalLabelFor(billing.billingInterval, billing.billingIntervalCount ?? 1).replace(/^\//, "").trim()} billing)</>
+                            )}
                           </span>
                         )}
                       </div>
@@ -327,6 +372,45 @@ export default function Settings() {
                           {PRICING.CURRENCY_CODE} {PRICING.MONTHLY_USD}/month.{" "}
                           {PRICING.TAX_DISCLAIMER}
                         </p>
+                      )}
+
+                      {/* Ω3-CHECKOUT: manual renewal — a prepaid fixed-term
+                          licence has no auto-renewal; this starts a fresh
+                          checkout for the SAME plan and interval the
+                          customer already holds. currentPlanCode/
+                          billingStatus are intentionally omitted (null) so
+                          shouldShowUpgradeAction never suppresses this
+                          action merely because the customer is already
+                          ACTIVE on this plan — renewal must remain
+                          available precisely then. commit_verified_
+                          commercial_payment extends from the current
+                          licence's effective_end automatically. */}
+                      {billing.planCode === "PAID" && billing.billingInterval && (
+                        <div className="max-w-xs mb-2">
+                          {/* Ω∞ A+ closure HIGH-3: identical discipline to
+                              Pricing.tsx — CheckoutUpgradeButton stays
+                              mounted (it performs the resolution), but is
+                              non-interactive via the native `hidden`
+                              attribute until parity is explicitly true. */}
+                          <div hidden={renewalPricingParityOk !== true}>
+                            <CheckoutUpgradeButton
+                              billingStatus={null}
+                              planCode={billing.planCode}
+                              billingInterval={billing.billingInterval}
+                              onOfferResolved={handleRenewalOfferResolved}
+                            />
+                          </div>
+                          {renewalPricingParityOk === null && (
+                            <p className="text-xs text-muted-foreground text-center py-2 border border-border">
+                              Verifying pricing…
+                            </p>
+                          )}
+                          {renewalPricingParityOk === false && (
+                            <p className="text-xs text-muted-foreground text-center py-2 border border-border">
+                              Pricing verification issue — please contact support to renew.
+                            </p>
+                          )}
+                        </div>
                       )}
 
                       {/* Included capabilities — friendly language, no raw feature codes */}
@@ -344,7 +428,7 @@ export default function Settings() {
                         </div>
                       )}
 
-                      {/* CTA — Ω3-BRAND: "View plans" → /pricing only. No checkout. */}
+                      {/* "View plans" always routes to /pricing (the FREE-customer upgrade path is unchanged); the PAID-only renewal action above is the sole checkout entry point on this page. */}
                       <div className="flex flex-wrap gap-3">
                         <Button variant="outline" size="sm" asChild className="gap-2">
                           <Link to="/pricing">

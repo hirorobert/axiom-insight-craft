@@ -159,16 +159,35 @@ describe("Ω3-BRAND · pricing and checkout guards", () => {
     expect(PRICING_SECTION.cta.toLowerCase()).not.toContain("contact");
   });
 
-  it("32 · Pricing.tsx (real source) invokes no checkout, payment, or commercial-create-checkout call anywhere", () => {
+  it("32 · Ω3-CHECKOUT — Pricing.tsx (real source) invokes checkout ONLY through the shared CheckoutUpgradeButton component, never a direct/duplicated call of its own", () => {
+    // CORRECTED (Ω3-CHECKOUT supersedes Ω3-BRAND's "checkout stays fully
+    // disabled" milestone): checkout is now server-gated (platform_state,
+    // offer resolution, provider configuration all still fail this closed
+    // independently of this page), not statically disabled in the UI, so
+    // Pricing.tsx legitimately renders <CheckoutUpgradeButton> now. What
+    // this test still guards, unchanged in spirit: Pricing.tsx itself must
+    // never construct a second, independent checkout call that bypasses
+    // the one authorized entry point (CheckoutUpgradeButton ->
+    // createCheckoutIntent -> commercial-create-checkout).
     const src = readSource("src/pages/Pricing.tsx");
-    expect(src).not.toMatch(/commercial-create-checkout|payment-status|createCheckout|initiatePayment/i);
+    expect(src).not.toMatch(/commercial-create-checkout|payment-status|initiatePayment/i);
     expect(src).not.toMatch(/supabase\.functions\.invoke/);
-    expect(src).toContain("PRICING.CHECKOUT_DISABLED_MSG");
+    expect(src).not.toMatch(/\bcreateCheckoutIntent\(/);
+    expect(src).toMatch(/<CheckoutUpgradeButton\b/);
+    // Ω3-CHECKOUT audit HIGH fix (pricing parity) also imports the
+    // ResolvedOfferData type alongside the component — still the SAME
+    // single source module, never a second/duplicated import path.
+    expect(src).toMatch(/import \{ CheckoutUpgradeButton,[^}]*\} from "@\/components\/commercial\/CheckoutUpgradeButton";/);
   });
 
-  it("33 · Settings.tsx (real source) Plan & Billing CTA links to /pricing only, invokes no checkout function", () => {
+  it("33 · Ω3-CHECKOUT — Settings.tsx (real source) invokes checkout/renewal ONLY through the shared CheckoutUpgradeButton component, never a direct/duplicated call of its own", () => {
+    // CORRECTED, same reasoning as test 32: the Plan & Billing panel now
+    // legitimately offers a like-for-like manual-renewal action via the
+    // SAME shared component, not a bespoke renewal implementation.
     const src = readSource("src/pages/Settings.tsx");
-    expect(src).not.toMatch(/commercial-create-checkout|payment-status|createCheckout|initiatePayment/i);
+    expect(src).not.toMatch(/commercial-create-checkout|payment-status|initiatePayment/i);
+    expect(src).not.toMatch(/supabase\.functions\.invoke/);
+    expect(src).not.toMatch(/\bcreateCheckoutIntent\(/);
     expect(src).toMatch(/to=["']\/pricing["']/);
   });
 });

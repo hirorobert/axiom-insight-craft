@@ -134,6 +134,17 @@ export class FlutterwaveAdapter implements ProviderAdapter {
     // this adapter processes.
     const paymentOptions = params.currencyCode === 'TZS' ? 'card,mobilemoneytzania' : 'card';
 
+    // Ω3-CHECKOUT branding correction: the prior revision sent 'SAFF ERP'
+    // as the hosted-checkout page title — customer-visible legacy
+    // branding on the live Flutterwave payment page — plus a `logo` URL
+    // pointing at a favicon.ico that is not a real, approved raster
+    // CFOClose asset (a dead/placeholder logo URL is worse than no logo
+    // at all on a real payment page). Corrected: CFOClose title, no logo
+    // field until an approved raster asset exists, and CFOClose-branded
+    // description/meta.source. `saff_reference`/tx_ref/`SAFF-` reference
+    // prefixes are UNCHANGED — those are internal historical identifiers
+    // this schema and its evidence trail depend on, not customer-visible
+    // branding, and renaming them would corrupt evidence, not improve it.
     const body = {
       tx_ref:        params.saffReference,
       amount:        displayAmount,
@@ -145,13 +156,12 @@ export class FlutterwaveAdapter implements ProviderAdapter {
         name:        params.customerName ?? params.customerEmail,
       },
       customizations: {
-        title:       'SAFF ERP',
-        description: `Firm Licence — ${params.planName}`,
-        logo:        'https://cfoclose.com/favicon.ico',
+        title:       'CFOClose',
+        description: `CFOClose subscription — ${params.planName}`,
       },
       meta: {
         saff_reference: params.saffReference,
-        source:         'SAFF_ERP_OMEGA2',
+        source:         'CFOCLOSE_OMEGA3',
       },
     };
 
@@ -187,32 +197,21 @@ export class FlutterwaveAdapter implements ProviderAdapter {
     return { success: true, checkoutUrl: link, providerRef: params.saffReference };
   }
 
-  /** GATE B: Independent server-side transaction verification */
-  async verifyTransaction(
-    txId: string,
+  /**
+   * Shared Gate-B corroboration logic, extracted so verifyTransaction
+   * (lookup by provider transaction id) and verifyTransactionByReference
+   * (lookup by SAFF's own tx_ref — Ω3-CHECKOUT BLOCKER fix, see contracts.ts)
+   * apply IDENTICAL independent-verification discipline regardless of which
+   * Flutterwave endpoint produced the raw response. Never weakened for
+   * either caller.
+   */
+  private async validateVerifiedTransactionData(
+    data: Record<string, unknown>,
     expectedMinor: bigint,
     expectedCurrency: string,
     saffRef: string,
+    fallbackTransactionId = '',
   ): Promise<VerifyTransactionResult> {
-    let resp: Response;
-    try {
-      resp = await fetch(`${FLW_BASE_URL}/transactions/${encodeURIComponent(txId)}/verify`, {
-        headers: { 'Authorization': `Bearer ${this.secretKey}` },
-      });
-    } catch (err) {
-      return { verified: false, reason: `Network error verifying with Flutterwave: ${String(err)}` };
-    }
-
-    if (!resp.ok) {
-      return { verified: false, reason: `Flutterwave verify API returned ${resp.status}` };
-    }
-
-    let json: Record<string, unknown>;
-    try { json = await resp.json(); } catch {
-      return { verified: false, reason: 'Flutterwave verify returned non-JSON' };
-    }
-
-    const data = (json.data ?? {}) as Record<string, unknown>;
     const rawStatus = String(data.status ?? '');
     const normalizedStatus = normalizeFlwStatus(rawStatus);
     const rawCurrency = String(data.currency ?? '');
@@ -262,11 +261,29 @@ export class FlutterwaveAdapter implements ProviderAdapter {
       };
     }
 
+    // Ω∞ A+ closure BLOCKER-4 fix: the provider transaction id is
+    // mandatory evidence, not optional metadata. `data.id` absent, null,
+    // an empty/whitespace string, or a non-string/non-number type (an
+    // object or array slipping through a malformed provider response)
+    // must never fall through to producing verified:true with a blank or
+    // synthetic id — that would let a genuinely-unverified transaction
+    // masquerade as identified evidence, and a blank id would corrupt the
+    // (provider, provider_transaction_id, checkout_intent_id) idempotency
+    // identity two entirely different transactions could then collide on.
+    const rawId = data.id;
+    const candidateId =
+      typeof rawId === 'string' || typeof rawId === 'number'
+        ? String(rawId).trim()
+        : (fallbackTransactionId ?? '').trim();
+    if (!candidateId) {
+      return { verified: false, reason: `PROVIDER_TRANSACTION_ID_MISSING: Flutterwave verify response had no usable id (expected ${saffRef})` };
+    }
+
     const payloadHash = await sha256Hex(JSON.stringify(data));
 
     const transaction: NormalizedTransaction = {
       provider: 'FLUTTERWAVE',
-      providerTransactionId: String(data.id ?? txId),
+      providerTransactionId: candidateId,
       providerStatus: rawStatus,
       normalizedStatus,
       amountMinor: verifiedMinor,
@@ -279,6 +296,80 @@ export class FlutterwaveAdapter implements ProviderAdapter {
     };
 
     return { verified: true, transaction };
+  }
+
+  /** GATE B: Independent server-side transaction verification, by provider transaction id */
+  async verifyTransaction(
+    txId: string,
+    expectedMinor: bigint,
+    expectedCurrency: string,
+    saffRef: string,
+  ): Promise<VerifyTransactionResult> {
+    let resp: Response;
+    try {
+      resp = await fetch(`${FLW_BASE_URL}/transactions/${encodeURIComponent(txId)}/verify`, {
+        headers: { 'Authorization': `Bearer ${this.secretKey}` },
+      });
+    } catch (err) {
+      return { verified: false, reason: `Network error verifying with Flutterwave: ${String(err)}` };
+    }
+
+    if (!resp.ok) {
+      return { verified: false, reason: `Flutterwave verify API returned ${resp.status}` };
+    }
+
+    let json: Record<string, unknown>;
+    try { json = await resp.json(); } catch {
+      return { verified: false, reason: 'Flutterwave verify returned non-JSON' };
+    }
+
+    const data = (json.data ?? {}) as Record<string, unknown>;
+    return this.validateVerifiedTransactionData(data, expectedMinor, expectedCurrency, saffRef, txId);
+  }
+
+  /**
+   * GATE B, by reference (Ω3-CHECKOUT BLOCKER fix — webhook/status
+   * convergence): independently verifies a transaction using ONLY SAFF's
+   * own tx_ref, via Flutterwave's documented verify-by-reference endpoint.
+   * commercial-payment-status uses this when a customer polls a still-
+   * PENDING intent and no webhook has (yet, or ever) delivered the
+   * provider transaction id — without this, a lost or delayed webhook
+   * left a genuinely-paid customer stuck PENDING indefinitely, since
+   * nothing else could ever independently confirm the charge.
+   */
+  async verifyTransactionByReference(
+    saffRef: string,
+    expectedMinor: bigint,
+    expectedCurrency: string,
+  ): Promise<VerifyTransactionResult> {
+    let resp: Response;
+    try {
+      resp = await fetch(`${FLW_BASE_URL}/transactions/verify_by_reference?tx_ref=${encodeURIComponent(saffRef)}`, {
+        headers: { 'Authorization': `Bearer ${this.secretKey}` },
+      });
+    } catch (err) {
+      return { verified: false, reason: `Network error verifying with Flutterwave: ${String(err)}` };
+    }
+
+    if (!resp.ok) {
+      // A 404 here genuinely means "Flutterwave has no record of this
+      // reference yet" — a normal, expected outcome while a customer is
+      // still mid-checkout, not a hard error. Distinguished explicitly so
+      // the caller (commercial-payment-status) can treat it as "still
+      // pending" rather than a verification failure worth alarming on.
+      if (resp.status === 404) {
+        return { verified: false, reason: 'NOT_FOUND_YET' };
+      }
+      return { verified: false, reason: `Flutterwave verify_by_reference API returned ${resp.status}` };
+    }
+
+    let json: Record<string, unknown>;
+    try { json = await resp.json(); } catch {
+      return { verified: false, reason: 'Flutterwave verify_by_reference returned non-JSON' };
+    }
+
+    const data = (json.data ?? {}) as Record<string, unknown>;
+    return this.validateVerifiedTransactionData(data, expectedMinor, expectedCurrency, saffRef);
   }
 }
 
