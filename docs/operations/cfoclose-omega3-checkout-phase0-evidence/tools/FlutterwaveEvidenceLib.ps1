@@ -367,6 +367,47 @@ function Get-RetainedRawBytes {
     }
 }
 
+function Format-CreateCheckoutFailureMessage {
+    <#
+    CORRECTED (Codex FINAL BOUNDED POWERSHELL STRICT-MODE audit): builds the
+    exact CreateCheckout failure message the CLI wrapper (Invoke-
+    FlutterwaveEvidenceCapture.ps1) prints to the operator. Extracted here,
+    rather than left inline in the CLI wrapper's switch statement, so the
+    SAME implementation is what both the real CLI failure branch and the
+    test suite exercise -- never a parallel reimplementation that could
+    silently drift from what actually runs.
+
+    A real Windows execution proved the CLI wrapper's prior inline logic
+    unsafe: it dot-accessed $result.Detail directly. Detail is an OPTIONAL
+    key on an Invoke-CreateCheckoutOrchestration failure result -- it is
+    present ONLY for the BROWSER_LAUNCH_FAILED reason; every other failure
+    reason (NO_RESPONSE_RECEIVED, RAW_RESPONSE_BYTES_UNAVAILABLE,
+    RAW_ALREADY_EXISTS, MALFORMED_JSON, NON_2XX, MISSING_LINK,
+    MALFORMED_LINK, NOT_HTTPS, UNAPPROVED_HOST, STAGE_ALREADY_EXISTS, ...)
+    returns a hashtable with NO Detail key at all -- not Detail = $null, but
+    the key genuinely absent. Under Set-StrictMode -Version Latest (active
+    in both the CLI wrapper and this library), dot-accessing an ABSENT
+    hashtable key throws PropertyNotFoundStrict, which masked the real
+    Reason and prevented safe diagnosis of every failure except the one
+    reason that happens to carry Detail. Fixed by using ContainsKey/indexed
+    access exclusively -- never dot notation -- for the optional Detail key.
+    Reason itself is NOT treated as optional here: every single return path
+    of Invoke-CreateCheckoutOrchestration includes a Reason key, so dot-
+    accessing it is provably safe and is not defensively guarded.
+    #>
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Result
+    )
+    $reason = if ($Result.ContainsKey('Reason')) { [string]$Result['Reason'] } else { 'UNKNOWN' }
+    $detail = ''
+    if ($Result.ContainsKey('Detail') -and -not [string]::IsNullOrWhiteSpace([string]$Result['Detail'])) {
+        $detail = " ($([string]$Result['Detail']))"
+    }
+    return "CreateCheckout failed: $reason$detail. No stage file written."
+}
+
 function Test-IsTestModeKey {
     <#
     Fail-closed validation of Flutterwave's documented TEST secret-key

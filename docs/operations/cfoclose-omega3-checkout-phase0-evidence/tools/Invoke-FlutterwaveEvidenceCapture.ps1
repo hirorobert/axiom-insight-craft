@@ -386,8 +386,19 @@ try {
                 -CollectorScriptGitSha $collectorGitSha -CollectorScriptContentSha256 $collectorContentSha
 
             if (-not $result.Success) {
-                $detail = if ($result.Detail) { " ($($result.Detail))" } else { '' }
-                Write-Error "CreateCheckout failed: $($result.Reason)$detail. No stage file written."
+                # CORRECTED (Codex FINAL BOUNDED POWERSHELL STRICT-MODE
+                # audit): the prior inline logic here dot-accessed the
+                # optional Detail entry of the result hashtable directly --
+                # that key is present only for BROWSER_LAUNCH_FAILED, and
+                # under Set-StrictMode -Version Latest, dot-accessing a
+                # genuinely ABSENT hashtable key throws
+                # PropertyNotFoundStrict, which masked the real Reason for
+                # every other failure and prevented safe diagnosis.
+                # Format-CreateCheckoutFailureMessage (FlutterwaveEvidenceLib.ps1)
+                # uses ContainsKey/indexed access instead, and is the SAME
+                # function the test suite calls directly -- never a
+                # duplicated/parallel formatter.
+                Write-Error (Format-CreateCheckoutFailureMessage -Result $result)
                 exit 1
             }
 

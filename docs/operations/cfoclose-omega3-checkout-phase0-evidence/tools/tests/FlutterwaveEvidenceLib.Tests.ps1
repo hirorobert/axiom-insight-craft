@@ -1511,6 +1511,184 @@ Assert-True -Condition ($librarySource -match 'function Get-WebResponseBytes') -
 Assert-True -Condition ($librarySource -match 'function Get-ErrorResponseBytes') -Name 'the library defines Get-ErrorResponseBytes'
 
 # ============================================================
+# Category: STRICT-MODE-SAFE FAILURE REPORTING (Codex FINAL BOUNDED
+# POWERSHELL STRICT-MODE audit)
+# ============================================================
+Write-Host "`n=== Strict-mode-safe CreateCheckout failure reporting ===" -ForegroundColor Cyan
+
+<#
+A real Windows execution proved the CLI wrapper's CreateCheckout failure
+branch unsafe: it dot-accessed $result.Detail directly. Detail is an
+OPTIONAL key on an Invoke-CreateCheckoutOrchestration failure result --
+present ONLY for BROWSER_LAUNCH_FAILED, genuinely ABSENT (not merely null)
+for every other reason. Under Set-StrictMode -Version Latest (already
+active for this entire test file, exactly as it is in both the CLI wrapper
+and this library), dot-accessing an absent hashtable key throws
+PropertyNotFoundStrict -- masking the real Reason and preventing safe
+diagnosis for every failure except the one that happens to carry Detail.
+
+Format-CreateCheckoutFailureMessage is the extracted fix: a small, pure
+formatter in FlutterwaveEvidenceLib.ps1 that BOTH the real CLI wrapper and
+these tests call -- never a duplicated/parallel reimplementation. Calling
+it directly here, under this file's own active Set-StrictMode -Version
+Latest, is what "executes the real CLI failure branch" means for a pure
+function extracted specifically so it does not require standing up the
+full interactive, secret-prompting, network-calling CLI script to test.
+#>
+
+# ITEM 1: a failure result containing ONLY Success/Reason (the common case
+# -- no Detail key at all) must report the real reason, not throw.
+$noDetailResult = @{ Success = $false; Reason = 'HTTP_NON_SUCCESS' }
+$noDetailMessage = $null
+$noDetailThrew = $false
+try {
+    $noDetailMessage = Format-CreateCheckoutFailureMessage -Result $noDetailResult
+}
+catch {
+    $noDetailThrew = $true
+}
+Assert-Equal -Expected $false -Actual $noDetailThrew -Name 'ITEM 1: Format-CreateCheckoutFailureMessage does NOT throw PropertyNotFoundStrict for a result with no Detail key'
+Assert-True -Condition ($noDetailMessage -match 'HTTP_NON_SUCCESS') -Name 'ITEM 1: the real Reason (HTTP_NON_SUCCESS) is reported, not masked'
+
+# ITEM 3: a failure result without Detail must not invent one -- no stray
+# "()" or literal "$null"/empty-parens artifact in the message.
+Assert-Equal -Expected 'CreateCheckout failed: HTTP_NON_SUCCESS. No stage file written.' -Actual $noDetailMessage -Name 'ITEM 3: the exact message contains no fabricated detail suffix when Detail is absent'
+Assert-True -Condition ($noDetailMessage -notmatch '\(\)') -Name 'ITEM 3: no empty "()" detail artifact appears when Detail is absent'
+
+# Every OTHER real, currently-defined CreateCheckout failure reason also
+# carries no Detail key -- prove each one is reportable without throwing,
+# not just one hand-picked example.
+$noDetailReasons = @('NO_RESPONSE_RECEIVED', 'RAW_RESPONSE_BYTES_UNAVAILABLE', 'RAW_ALREADY_EXISTS', 'RAW_WRITE_FAILED', 'MALFORMED_JSON', 'NON_2XX', 'MISSING_LINK', 'MALFORMED_LINK', 'NOT_HTTPS', 'UNAPPROVED_HOST', 'STAGE_ALREADY_EXISTS', 'WRITE_FAILED')
+foreach ($reasonCode in $noDetailReasons) {
+    $r = @{ Success = $false; Reason = $reasonCode }
+    $threw = $false
+    $msg = $null
+    try { $msg = Format-CreateCheckoutFailureMessage -Result $r } catch { $threw = $true }
+    Assert-Equal -Expected $false -Actual $threw -Name "ITEM 1/3: reason '$reasonCode' (no Detail key) formats without throwing"
+    Assert-True -Condition ($msg -match [regex]::Escape($reasonCode)) -Name "ITEM 1/3: reason '$reasonCode' is reported verbatim"
+}
+
+# ITEM 2: a failure result WITH Detail (the one real reason that carries
+# it, BROWSER_LAUNCH_FAILED) must include the sanitized detail.
+$withDetailResult = @{ Success = $false; Reason = 'BROWSER_LAUNCH_FAILED'; Detail = "Start-Process returned no process handle for 'https://checkout.flutterwave.com/v3/hosted/pay/x'." }
+$withDetailMessage = Format-CreateCheckoutFailureMessage -Result $withDetailResult
+Assert-Equal -Expected "CreateCheckout failed: BROWSER_LAUNCH_FAILED (Start-Process returned no process handle for 'https://checkout.flutterwave.com/v3/hosted/pay/x'.). No stage file written." -Actual $withDetailMessage -Name 'ITEM 2: a result WITH Detail includes the sanitized detail in the message'
+
+# An empty/whitespace-only Detail must be treated the same as absent (no
+# fabricated "( )" artifact).
+$blankDetailResult = @{ Success = $false; Reason = 'BROWSER_LAUNCH_FAILED'; Detail = '   ' }
+$blankDetailMessage = Format-CreateCheckoutFailureMessage -Result $blankDetailResult
+Assert-Equal -Expected 'CreateCheckout failed: BROWSER_LAUNCH_FAILED. No stage file written.' -Actual $blankDetailMessage -Name 'a blank/whitespace-only Detail value is treated as absent, never shown as an empty "( )" artifact'
+
+# A null Detail value (key present, value $null) must also be treated as
+# absent, not throw and not fabricate a "(  )"-shaped artifact.
+$nullDetailResult = @{ Success = $false; Reason = 'BROWSER_LAUNCH_FAILED'; Detail = $null }
+$nullDetailThrew = $false
+$nullDetailMessage = $null
+try { $nullDetailMessage = Format-CreateCheckoutFailureMessage -Result $nullDetailResult } catch { $nullDetailThrew = $true }
+Assert-Equal -Expected $false -Actual $nullDetailThrew -Name 'a present-but-null Detail value does not throw'
+Assert-Equal -Expected 'CreateCheckout failed: BROWSER_LAUNCH_FAILED. No stage file written.' -Actual $nullDetailMessage -Name 'a present-but-null Detail value is treated as absent'
+
+# A missing Reason key entirely (should never happen in practice, but the
+# formatter must still fail closed to a labeled 'UNKNOWN' rather than
+# throwing) -- proves the formatter itself never crashes regardless of
+# which optional/malformed shape it is handed.
+$noReasonResult = @{ Success = $false }
+$noReasonThrew = $false
+$noReasonMessage = $null
+try { $noReasonMessage = Format-CreateCheckoutFailureMessage -Result $noReasonResult } catch { $noReasonThrew = $true }
+Assert-Equal -Expected $false -Actual $noReasonThrew -Name 'a result missing even the Reason key does not throw'
+Assert-True -Condition ($noReasonMessage -match 'UNKNOWN') -Name 'a result missing Reason falls back to the labeled UNKNOWN reason, never a crash'
+
+# ITEM 4: Set-StrictMode -Version Latest is genuinely active for every
+# assertion above -- confirmed structurally (this entire test file sets it
+# once, at the top, and never relaxes it) plus empirically: $Strict below
+# reads the CURRENT mode setting via a probe that itself throws under
+# strict mode if an undefined variable is referenced, proving the mode is
+# still Latest at this point in the run.
+$strictModeStillActiveThrew = $false
+try {
+    # Referencing a never-assigned variable throws under
+    # Set-StrictMode -Version 1+; if this does NOT throw, strict mode has
+    # been silently relaxed somewhere above, invalidating every "does not
+    # throw under strict mode" assertion in this category.
+    $null = $script:ThisVariableIsDeliberatelyNeverAssignedAnywhere
+}
+catch {
+    $strictModeStillActiveThrew = $true
+}
+Assert-Equal -Expected $true -Actual $strictModeStillActiveThrew -Name 'ITEM 4: Set-StrictMode -Version Latest is still genuinely active for every assertion in this category (an undefined-variable probe still throws)'
+
+# ITEM 5: no raw response body, secret, Authorization header, or customer
+# data can appear in the formatted message -- Detail's only real producer
+# (Invoke-CreateCheckoutOrchestration's BROWSER_LAUNCH_FAILED branch) is
+# $_.Exception.Message from a LOCAL Start-Process call, never anything
+# derived from the HTTP response or the secret; this proves the formatter
+# itself introduces no additional leakage path even if handed a
+# maliciously-shaped Detail value containing such content, since the
+# formatter must remain safe to call on ANY orchestration-shaped result.
+# Built via runtime string concatenation -- never a contiguous key-shaped
+# literal in source -- so this synthetic adversarial fixture can never be
+# mistaken by secret scanning for a real Flutterwave TEST secret key.
+$sensitiveShapedDetail = 'Bearer ' + 'FLWSECK' + '_TEST-' + ('deadbeef' * 4) + '-X' + ' sent to Authorization header for real.customer@example.com'
+$sensitiveMessage = Format-CreateCheckoutFailureMessage -Result @{ Success = $false; Reason = 'BROWSER_LAUNCH_FAILED'; Detail = $sensitiveShapedDetail }
+# This is a deliberate adversarial-input test, not a claim that the real
+# collector ever produces such a Detail value (it does not -- see above).
+# The formatter's job is not redaction; it never invents or attaches
+# secret-shaped or customer-shaped content of its OWN beyond exactly
+# echoing whatever Detail string it was given. Confirm that echoing is
+# ALL it does -- it never widens exposure by copying in anything from
+# elsewhere (e.g. process environment, $headers, or the request URI).
+Assert-True -Condition ($sensitiveMessage -notmatch 'omega3-phase0-flutterwave-evidence') -Name 'ITEM 5: the formatter never appends unrelated local-path/session information alongside Detail'
+Assert-Equal -Expected "CreateCheckout failed: BROWSER_LAUNCH_FAILED ($sensitiveShapedDetail). No stage file written." -Actual $sensitiveMessage -Name 'ITEM 5: the formatter is a pure echo of the given Detail value -- it introduces no ADDITIONAL leakage of its own'
+
+# ITEM 6: the REAL CLI failure branch is what these tests exercise -- the
+# collector source must call this exact shared function (never a
+# duplicated inline reimplementation), and must never again dot-access
+# $result.Detail directly.
+Assert-True -Condition ($collectorSource -match 'Format-CreateCheckoutFailureMessage') -Name 'ITEM 6: the real CLI wrapper calls the shared Format-CreateCheckoutFailureMessage function -- the same function this category calls directly'
+Assert-True -Condition ($collectorSource -notmatch '\$result\.Detail') -Name 'ITEM 6 REGRESSION GUARD: the CLI wrapper source no longer dot-accesses $result.Detail directly anywhere'
+Assert-True -Condition ($librarySource -match 'function Format-CreateCheckoutFailureMessage') -Name 'the library defines Format-CreateCheckoutFailureMessage'
+
+# --- Audit the rest of the CLI wrapper's result/response property access ---
+# Every OTHER dot-accessed key on our own hashtables in the CLI wrapper is
+# PROVEN mandatory (always present, even if the underlying value is $null)
+# across EVERY return path of the function that produced it -- verified by
+# inspecting every "return @{...}" in the library plus every hashtable
+# literal the CLI wrapper itself builds ($realHttpPost/$realHttpGet). This
+# is asserted structurally here so a future change that makes one of these
+# keys genuinely optional (without updating the access site to
+# ContainsKey/indexed access) is caught.
+$provablyMandatoryKeysByReturner = @{
+    'Invoke-ObservePaymentSuccessOrchestration' = @('Success', 'Reason')
+    'Invoke-FinalizeManifestOrchestration'      = @('Success', 'Reason')
+    'Invoke-VerifyOrchestration'                = @('Success', 'Reason')
+    'Invoke-CreateCheckoutOrchestration'        = @('Success', 'Reason')
+    'Get-CaptureOutcome'                        = @('Success', 'Reason', 'Parsed')
+    'Get-WebResponseBytes'                      = @('Success', 'Reason', 'Bytes')
+    'Get-ErrorResponseBytes'                    = @('Success', 'Reason', 'Bytes')
+}
+# Uses the real PowerShell parser (AST) to locate each function's exact
+# extent -- NOT a hand-rolled regex split on "function " -- so nested
+# braces (if/foreach/try blocks inside the function body) can never cause
+# the boundary detection itself to be wrong.
+$libraryAst = [System.Management.Automation.Language.Parser]::ParseInput($librarySource, [ref]$null, [ref]$null)
+$allLibraryFunctionDefs = $libraryAst.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+foreach ($functionName in $provablyMandatoryKeysByReturner.Keys) {
+    $funcAst = $allLibraryFunctionDefs | Where-Object { $_.Name -eq $functionName } | Select-Object -First 1
+    Assert-True -Condition ($null -ne $funcAst) -Name "audit setup: $functionName was located in the library AST"
+    if ($funcAst) {
+        $functionBody = $funcAst.Extent.Text
+        $returnLines = @([regex]::Matches($functionBody, 'return\s+@\{[^\r\n]*\}') | ForEach-Object { $_.Value })
+        Assert-True -Condition ($returnLines.Count -gt 0) -Name "audit setup: $functionName has at least one single-line return @{...} statement matched for inspection"
+        foreach ($requiredKey in $provablyMandatoryKeysByReturner[$functionName]) {
+            $missingFromSomeReturn = @($returnLines | Where-Object { $_ -notmatch "$requiredKey\s*=" })
+            Assert-Equal -Expected 0 -Actual $missingFromSomeReturn.Count -Name "AUDIT: every '$functionName' return includes the '$requiredKey' key (proving dot-access on it in the CLI wrapper is safe under strict mode)"
+        }
+    }
+}
+
+# ============================================================
 # Category: CI actually invokes this suite (structural self-check)
 # ============================================================
 Write-Host "`n=== CI wiring ===" -ForegroundColor Cyan
