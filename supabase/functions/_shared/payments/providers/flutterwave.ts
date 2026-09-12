@@ -261,11 +261,29 @@ export class FlutterwaveAdapter implements ProviderAdapter {
       };
     }
 
+    // Ω∞ A+ closure BLOCKER-4 fix: the provider transaction id is
+    // mandatory evidence, not optional metadata. `data.id` absent, null,
+    // an empty/whitespace string, or a non-string/non-number type (an
+    // object or array slipping through a malformed provider response)
+    // must never fall through to producing verified:true with a blank or
+    // synthetic id — that would let a genuinely-unverified transaction
+    // masquerade as identified evidence, and a blank id would corrupt the
+    // (provider, provider_transaction_id, checkout_intent_id) idempotency
+    // identity two entirely different transactions could then collide on.
+    const rawId = data.id;
+    const candidateId =
+      typeof rawId === 'string' || typeof rawId === 'number'
+        ? String(rawId).trim()
+        : (fallbackTransactionId ?? '').trim();
+    if (!candidateId) {
+      return { verified: false, reason: `PROVIDER_TRANSACTION_ID_MISSING: Flutterwave verify response had no usable id (expected ${saffRef})` };
+    }
+
     const payloadHash = await sha256Hex(JSON.stringify(data));
 
     const transaction: NormalizedTransaction = {
       provider: 'FLUTTERWAVE',
-      providerTransactionId: String(data.id ?? fallbackTransactionId),
+      providerTransactionId: candidateId,
       providerStatus: rawStatus,
       normalizedStatus,
       amountMinor: verifiedMinor,
