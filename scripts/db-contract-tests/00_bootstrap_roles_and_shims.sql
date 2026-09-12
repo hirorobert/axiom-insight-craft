@@ -34,10 +34,21 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 CREATE SCHEMA IF NOT EXISTS auth;
 
+-- Columns beyond id/email mirror the subset of real GoTrue-managed
+-- auth.users columns this repository's own triggers (e.g. handle_new_user())
+-- actually read via NEW.* — added defensively wherever cheap, not because
+-- every one is currently referenced.
 CREATE TABLE IF NOT EXISTS auth.users (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email      TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email                TEXT,
+  encrypted_password   TEXT,
+  phone                TEXT,
+  role                 TEXT,
+  raw_app_meta_data    JSONB NOT NULL DEFAULT '{}'::jsonb,
+  raw_user_meta_data   JSONB NOT NULL DEFAULT '{}'::jsonb,
+  email_confirmed_at   TIMESTAMPTZ,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Mirrors real Supabase's own auth.uid()/auth.role() semantics: derived
