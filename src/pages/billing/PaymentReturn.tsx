@@ -16,7 +16,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { pollCheckoutStatus, type CheckoutStatusResponse } from "@/lib/commercial/commercialRpc";
+import { pollCheckoutStatus, requestPaymentVerificationRecovery, type CheckoutStatusResponse } from "@/lib/commercial/commercialRpc";
 import { AlertCircle, CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -24,6 +24,13 @@ type PollPhase = "POLLING" | "CONFIRMED" | "FAILED" | "CANCELLED" | "TIMEOUT" | 
 
 const POLL_INTERVAL_MS = 3_000;
 const MAX_POLLS = 40; // 2 minutes
+// Ω∞ A+ closure HIGH-1: GET (pollCheckoutStatus) is read-only and safe at
+// any frequency. The recovery POST is what may trigger a real provider
+// call server-side, so it is fired far less often — the server's own
+// claim_verification_attempt cooldown (15s) is the actual, durable
+// authority on how often a provider call can happen; this cadence just
+// avoids spamming a request that will be THROTTLED almost every time.
+const RECOVERY_EVERY_N_POLLS = 5; // ~15s at POLL_INTERVAL_MS=3000
 
 export default function PaymentReturn() {
   const [searchParams] = useSearchParams();
@@ -39,14 +46,8 @@ export default function PaymentReturn() {
   useEffect(() => {
     if (!saffRef) return;
 
-    const poll = async () => {
-      pollCountRef.current += 1;
-      setPollCount(pollCountRef.current);
-      const { data, error } = await pollCheckoutStatus(saffRef);
-      if (error || !data) return; // keep polling
-
+    const applyStatus = (data: CheckoutStatusResponse) => {
       setStatus(data);
-
       if (data.status === "SUCCEEDED") {
         clearInterval(timerRef.current!);
         setPhase("CONFIRMED");
@@ -57,6 +58,31 @@ export default function PaymentReturn() {
         clearInterval(timerRef.current!);
         setPhase("CANCELLED");
       }
+    };
+
+    const poll = async () => {
+      pollCountRef.current += 1;
+      const count = pollCountRef.current;
+      setPollCount(count);
+
+      // Every Nth tick, ask the server for one bounded recovery-
+      // verification attempt (may independently re-verify with the
+      // provider and commit if a webhook never arrived). The server's own
+      // durable throttle governs whether a provider call actually
+      // happens — a throttled response is not an error, just "no new
+      // information yet."
+      if (count % RECOVERY_EVERY_N_POLLS === 0) {
+        const recovery = await requestPaymentVerificationRecovery(saffRef);
+        if (recovery.data) {
+          applyStatus(recovery.data);
+          return;
+        }
+        if (recovery.error) return; // keep polling via GET below
+      }
+
+      const { data, error } = await pollCheckoutStatus(saffRef);
+      if (error || !data) return; // keep polling
+      applyStatus(data);
     };
 
     poll(); // immediate first poll

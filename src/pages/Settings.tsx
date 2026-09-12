@@ -93,15 +93,28 @@ export default function Settings() {
   }, [billing?.planCode, billing?.billingInterval]);
 
   function handleRenewalOfferResolved(data: ResolvedOfferData | null) {
-    if (data?.resolution !== "AVAILABLE" || data.amount_minor == null || !data.currency_code) {
+    if (
+      data?.resolution !== "AVAILABLE" ||
+      data.amount_minor == null || !data.currency_code ||
+      data.currency_exponent == null || !data.billing_interval || data.billing_interval_count == null ||
+      data.market_code == null
+    ) {
       setRenewalPricingParityOk(null);
       return;
     }
     const expectedAmountMinor = Math.round(
       (billing?.billingInterval === "ANNUAL" ? PRICING.ANNUAL_USD : PRICING.MONTHLY_USD) * 100,
     );
+    // Ω∞ A+ closure HIGH-3 fix: same full-field comparison as Pricing.tsx —
+    // exponent, interval, interval count and market too, not amount/
+    // currency alone.
     setRenewalPricingParityOk(
-      data.amount_minor === expectedAmountMinor && data.currency_code === PRICING.CURRENCY_CODE,
+      data.amount_minor === expectedAmountMinor &&
+      data.currency_code === PRICING.CURRENCY_CODE &&
+      data.currency_exponent === 2 &&
+      data.billing_interval === billing?.billingInterval &&
+      data.billing_interval_count === 1 &&
+      data.market_code === "GLOBAL",
     );
   }
 
@@ -374,17 +387,28 @@ export default function Settings() {
                           licence's effective_end automatically. */}
                       {billing.planCode === "PAID" && billing.billingInterval && (
                         <div className="max-w-xs mb-2">
-                          {renewalPricingParityOk === false ? (
-                            <p className="text-xs text-muted-foreground text-center py-2 border border-border">
-                              Pricing verification issue — please contact support to renew.
-                            </p>
-                          ) : (
+                          {/* Ω∞ A+ closure HIGH-3: identical discipline to
+                              Pricing.tsx — CheckoutUpgradeButton stays
+                              mounted (it performs the resolution), but is
+                              non-interactive via the native `hidden`
+                              attribute until parity is explicitly true. */}
+                          <div hidden={renewalPricingParityOk !== true}>
                             <CheckoutUpgradeButton
                               billingStatus={null}
                               planCode={billing.planCode}
                               billingInterval={billing.billingInterval}
                               onOfferResolved={handleRenewalOfferResolved}
                             />
+                          </div>
+                          {renewalPricingParityOk === null && (
+                            <p className="text-xs text-muted-foreground text-center py-2 border border-border">
+                              Verifying pricing…
+                            </p>
+                          )}
+                          {renewalPricingParityOk === false && (
+                            <p className="text-xs text-muted-foreground text-center py-2 border border-border">
+                              Pricing verification issue — please contact support to renew.
+                            </p>
                           )}
                         </div>
                       )}

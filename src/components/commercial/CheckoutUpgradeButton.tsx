@@ -100,6 +100,8 @@ export interface ResolvedOfferData {
   currency_exponent?: number;
   billing_interval?: string;
   billing_interval_count?: number;
+  /** Ω∞ A+ closure HIGH-3: exposed so a caller's pricing-parity check can also confirm the resolved market matches the checkout market it expects (e.g. server-owned GLOBAL), not just amount/currency/interval. */
+  market_code?: string;
 }
 
 export function intervalLabelFor(interval: string | undefined, count: number | undefined): string {

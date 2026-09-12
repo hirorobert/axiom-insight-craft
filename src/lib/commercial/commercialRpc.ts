@@ -193,12 +193,14 @@ export async function createCheckoutIntent(
 }
 
 /**
- * Poll the commercial-payment-status Edge Function.
+ * Poll the commercial-payment-status Edge Function via GET.
  * Owner-scoped — only the user who created the intent can read it.
- * Safe: never exposes raw provider payload. Maps the RPC's snake_case
- * response onto the camelCase contract PaymentReturn.tsx expects — this is
- * the SOLE translation boundary, so get_checkout_status() itself can stay
- * in natural Postgres snake_case.
+ * Ω∞ A+ closure HIGH-1: GET is now READ-ONLY on the server — it never
+ * triggers provider verification or a commit. Safe to call at any
+ * frequency. Maps the RPC's snake_case response onto the camelCase
+ * contract PaymentReturn.tsx expects — this is the SOLE translation
+ * boundary, so get_checkout_status() itself can stay in natural Postgres
+ * snake_case.
  */
 export async function pollCheckoutStatus(
   saffReference: string,
@@ -213,21 +215,63 @@ export async function pollCheckoutStatus(
   url.searchParams.set("ref", saffReference);
 
   const res = await fetch(url.toString(), {
+    method: "GET",
     headers: { "Authorization": `Bearer ${session.access_token}` },
   });
   const json = (await res.json()) as RawCheckoutStatusResponse;
   if (!res.ok) return { data: null, error: (json as unknown as { error?: string })?.error ?? "Status check failed" };
 
-  return {
-    data: {
-      found: json.found,
-      status: json.status ?? null,
-      planCode: json.plan_code ?? null,
-      licenceStatus: json.licence_status ?? null,
-      effectiveStart: json.effective_start ?? null,
-      effectiveEnd: json.effective_end ?? null,
-      correlationId: json.correlationId,
+  return { data: mapRawCheckoutStatusResponse(json), error: null };
+}
+
+/**
+ * Request one bounded recovery-verification attempt via POST to the same
+ * Edge Function. Ω∞ A+ closure HIGH-1: the server durably throttles this
+ * per-intent (claim_verification_attempt) — calling it does not guarantee
+ * a provider call happens, and calling it frequently is safe by design.
+ * Returns the same shape as pollCheckoutStatus on a full/claimed response;
+ * returns `{ throttled: true, retryAfterSeconds }` when the server refused
+ * the claim (already in flight or attempted too recently) — callers should
+ * treat that identically to "no new information yet," never as an error.
+ */
+export async function requestPaymentVerificationRecovery(
+  saffReference: string,
+): Promise<{ data: CheckoutStatusResponse | null; throttled: boolean; retryAfterSeconds: number | null; error: string | null }> {
+  const { supabase } = await import("@/integrations/supabase/client");
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return { data: null, throttled: false, retryAfterSeconds: null, error: "Not authenticated" };
+
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/commercial-payment-status`,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ saffReference }),
     },
-    error: null,
+  );
+
+  if (res.status === 202) {
+    const json = await res.json().catch(() => ({}));
+    return { data: null, throttled: true, retryAfterSeconds: (json as { retryAfterSeconds?: number }).retryAfterSeconds ?? null, error: null };
+  }
+
+  const json = (await res.json()) as RawCheckoutStatusResponse;
+  if (!res.ok) return { data: null, throttled: false, retryAfterSeconds: null, error: (json as unknown as { error?: string })?.error ?? "Recovery request failed" };
+
+  return { data: mapRawCheckoutStatusResponse(json), throttled: false, retryAfterSeconds: null, error: null };
+}
+
+function mapRawCheckoutStatusResponse(json: RawCheckoutStatusResponse): CheckoutStatusResponse {
+  return {
+    found: json.found,
+    status: json.status ?? null,
+    planCode: json.plan_code ?? null,
+    licenceStatus: json.licence_status ?? null,
+    effectiveStart: json.effective_start ?? null,
+    effectiveEnd: json.effective_end ?? null,
+    correlationId: json.correlationId,
   };
 }

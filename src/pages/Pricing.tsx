@@ -50,14 +50,16 @@ const PAID_FEATURES = [
 
 export default function Pricing() {
   const [interval, setInterval] = useState<BillingInterval>("annual");
-  // Ω3-CHECKOUT audit HIGH fix (pricing parity): this page's own PRICING
-  // constants are marketing copy, not authority — resolve_commercial_offer
-  // (via CheckoutUpgradeButton's onOfferResolved) is the sole source of
-  // truth for what checkout will actually charge. `null` means "not yet
-  // proven either way" (still loading, or the offer is genuinely
-  // UNAVAILABLE/AMBIGUOUS/UNKNOWN for a reason CheckoutUpgradeButton
-  // already surfaces on its own) — never treated as a silent pass. Only an
-  // explicit `false` disables checkout here.
+  // Ω∞ A+ closure HIGH-3 fix: this page's own PRICING constants are
+  // marketing copy, not authority — resolve_commercial_offer (via
+  // CheckoutUpgradeButton's onOfferResolved) is the sole source of truth
+  // for what checkout will actually charge. `null` means "not yet proven
+  // either way" (still loading, or the offer is genuinely UNAVAILABLE/
+  // AMBIGUOUS/UNKNOWN for a reason CheckoutUpgradeButton already surfaces
+  // on its own) and now MUST NOT render the checkout action — only an
+  // explicit `true` does. This closes the prior gap where `null` fell
+  // through to the same branch as `true` and correctness depended on
+  // React's own batching order between this state and the child's.
   const [pricingParityOk, setPricingParityOk] = useState<boolean | null>(null);
 
   const monthlyDisplay = `${PRICING.CURRENCY_CODE} ${PRICING.MONTHLY_USD}/month`;
@@ -65,6 +67,7 @@ export default function Pricing() {
   const annualSavingDisplay = `Save ${PRICING.CURRENCY_CODE} ${PRICING.ANNUAL_SAVING_USD}`;
   const annualFullDisplay   = `${PRICING.CURRENCY_CODE} ${PRICING.ANNUAL_FULL_USD}/year`;
 
+  const expectedBillingInterval = interval === "annual" ? "ANNUAL" : "MONTHLY";
   const expectedAmountMinor = Math.round(
     (interval === "annual" ? PRICING.ANNUAL_USD : PRICING.MONTHLY_USD) * 100,
   );
@@ -78,12 +81,26 @@ export default function Pricing() {
   }
 
   function handleOfferResolved(data: ResolvedOfferData | null) {
-    if (data?.resolution !== "AVAILABLE" || data.amount_minor == null || !data.currency_code) {
+    if (
+      data?.resolution !== "AVAILABLE" ||
+      data.amount_minor == null || !data.currency_code ||
+      data.currency_exponent == null || !data.billing_interval || data.billing_interval_count == null ||
+      data.market_code == null
+    ) {
       setPricingParityOk(null);
       return;
     }
+    // Ω∞ A+ closure HIGH-3 fix: compare EVERY economics-adjacent field the
+    // server resolved, not amount/currency alone — exponent, interval,
+    // interval count, and market must all agree with what this page is
+    // about to display/request too.
     setPricingParityOk(
-      data.amount_minor === expectedAmountMinor && data.currency_code === PRICING.CURRENCY_CODE,
+      data.amount_minor === expectedAmountMinor &&
+      data.currency_code === PRICING.CURRENCY_CODE &&
+      data.currency_exponent === 2 &&
+      data.billing_interval === expectedBillingInterval &&
+      data.billing_interval_count === 1 &&
+      data.market_code === "GLOBAL",
     );
   }
 
@@ -223,17 +240,35 @@ export default function Pricing() {
                   that copy, checkout is disabled here rather than letting a
                   customer pay an amount that doesn't match what they were
                   shown. */}
-              {pricingParityOk === false ? (
-                <p className="text-xs text-muted-foreground text-center py-2 border border-border">
-                  Pricing verification issue — please contact support to upgrade.
-                </p>
-              ) : (
+              {/* Ω∞ A+ closure HIGH-3: the checkout action is reachable
+                  ONLY once parity is explicitly proven true. CheckoutUpgradeButton
+                  must stay MOUNTED regardless (it is the thing that
+                  performs the server resolution and fires onOfferResolved
+                  in the first place — unmounting it until parity is known
+                  would make parity unknowable), but the native `hidden`
+                  attribute removes it from layout, pointer-event targeting,
+                  AND the tab order while parity is not `true` — there is no
+                  intermediate render in which the button is clickable or
+                  focusable before parity is confirmed. `null` (loading, or
+                  the offer hasn't resolved yet) and `false` (explicit
+                  mismatch) are both non-actionable. */}
+              <div hidden={pricingParityOk !== true}>
                 <CheckoutUpgradeButton
                   billingStatus={null}
                   planCode="PAID"
-                  billingInterval={interval === "annual" ? "ANNUAL" : "MONTHLY"}
+                  billingInterval={expectedBillingInterval}
                   onOfferResolved={handleOfferResolved}
                 />
+              </div>
+              {pricingParityOk === null && (
+                <p className="text-xs text-muted-foreground text-center py-2 border border-border">
+                  Verifying pricing…
+                </p>
+              )}
+              {pricingParityOk === false && (
+                <p className="text-xs text-muted-foreground text-center py-2 border border-border">
+                  Pricing verification issue — please contact support to upgrade.
+                </p>
               )}
               <p className="text-[10px] text-muted-foreground/60 text-center mt-2">
                 Start with a free workspace to explore the platform first.{" "}
