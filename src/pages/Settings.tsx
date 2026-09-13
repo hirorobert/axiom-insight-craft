@@ -22,8 +22,15 @@ import {
   displayLicenceStatus,
   licenceBadgeVariant,
   EFFECTIVE_END_LABEL,
+  formatLicenceDate,
 } from "@/lib/commercial/billingDisplay";
-import { CheckoutUpgradeButton, intervalLabelFor, type ResolvedOfferData } from "@/components/commercial/CheckoutUpgradeButton";
+import {
+  CheckoutUpgradeButton,
+  derivePricingVerificationState,
+  intervalLabelFor,
+  type PricingVerificationState,
+  type ResolvedOfferData,
+} from "@/components/commercial/CheckoutUpgradeButton";
 
 // ─────────────────────────────────────────────────────────────
 // Settings — CFOClose Ω3-BRAND
@@ -80,7 +87,7 @@ export default function Settings() {
   // Pricing.tsx — the static "$X/year or $Y/month" reference text above
   // the renewal button is marketing copy, never checkout authority. `null`
   // means "not yet proven either way" (never a silent pass).
-  const [renewalPricingParityOk, setRenewalPricingParityOk] = useState<boolean | null>(null);
+  const [renewalPricingVerification, setRenewalPricingVerification] = useState<PricingVerificationState>("VERIFYING");
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/auth");
@@ -89,33 +96,25 @@ export default function Settings() {
   useEffect(() => {
     // A parity verdict from a previous render (or a previous billing
     // interval) must never be displayed against the current one.
-    setRenewalPricingParityOk(null);
+    setRenewalPricingVerification("VERIFYING");
   }, [billing?.planCode, billing?.billingInterval]);
 
   function handleRenewalOfferResolved(data: ResolvedOfferData | null) {
-    if (
-      data?.resolution !== "AVAILABLE" ||
-      data.amount_minor == null || !data.currency_code ||
-      data.currency_exponent == null || !data.billing_interval || data.billing_interval_count == null ||
-      data.market_code == null
-    ) {
-      setRenewalPricingParityOk(null);
-      return;
-    }
     const expectedAmountMinor = Math.round(
       (billing?.billingInterval === "ANNUAL" ? PRICING.ANNUAL_USD : PRICING.MONTHLY_USD) * 100,
     );
-    // Ω∞ A+ closure HIGH-3 fix: same full-field comparison as Pricing.tsx —
-    // exponent, interval, interval count and market too, not amount/
-    // currency alone.
-    setRenewalPricingParityOk(
-      data.amount_minor === expectedAmountMinor &&
-      data.currency_code === PRICING.CURRENCY_CODE &&
-      data.currency_exponent === 2 &&
-      data.billing_interval === billing?.billingInterval &&
-      data.billing_interval_count === 1 &&
-      data.market_code === "GLOBAL",
-    );
+    if (!billing?.billingInterval) {
+      setRenewalPricingVerification("UNAVAILABLE");
+      return;
+    }
+    setRenewalPricingVerification(derivePricingVerificationState(data, {
+      amountMinor: expectedAmountMinor,
+      currencyCode: PRICING.CURRENCY_CODE,
+      currencyExponent: 2,
+      billingInterval: billing.billingInterval,
+      billingIntervalCount: 1,
+      marketCode: "GLOBAL",
+    }));
   }
 
   useEffect(() => {
@@ -333,7 +332,7 @@ export default function Settings() {
                       </div>
                       <p className="text-xs text-muted-foreground leading-relaxed mb-4">
                         You are on the free plan. Start with one company and one active reporting period.
-                        Upgrade to {PRICING.PAID_NAME} for unlimited companies, periods, and the full IFRS suite.
+                        Upgrade to {PRICING.PAID_NAME} for multi-company reporting and the full IFRS suite.
                       </p>
                       <Button variant="outline" size="sm" asChild className="gap-2">
                         <Link to="/pricing">
@@ -357,13 +356,25 @@ export default function Settings() {
                         </Badge>
                         {billing.effectiveEnd && (
                           <span className="text-xs text-muted-foreground">
-                            {EFFECTIVE_END_LABEL} {new Date(billing.effectiveEnd).toLocaleDateString()}
+                            {EFFECTIVE_END_LABEL} {formatLicenceDate(billing.effectiveEnd)}
                             {billing.billingInterval && (
                               <> ({intervalLabelFor(billing.billingInterval, billing.billingIntervalCount ?? 1).replace(/^\//, "").trim()} billing)</>
                             )}
                           </span>
                         )}
                       </div>
+
+                      {billing.nextEffectiveStart && billing.nextEffectiveEnd && (
+                        <div className="border border-border bg-muted/30 px-4 py-3 mb-4">
+                          <p className="text-xs font-medium text-foreground">Prepaid extension scheduled</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {formatLicenceDate(billing.nextEffectiveStart)}–{formatLicenceDate(billing.nextEffectiveEnd)}
+                            {billing.nextBillingInterval && (
+                              <> ({intervalLabelFor(billing.nextBillingInterval, billing.nextBillingIntervalCount ?? 1).replace(/^\//, "").trim()})</>
+                            )}
+                          </p>
+                        </div>
+                      )}
 
                       {/* Pricing reference */}
                       {billing.planCode === "PAID" && (
@@ -392,7 +403,7 @@ export default function Settings() {
                               mounted (it performs the resolution), but is
                               non-interactive via the native `hidden`
                               attribute until parity is explicitly true. */}
-                          <div hidden={renewalPricingParityOk !== true}>
+                          <div hidden={renewalPricingVerification !== "VERIFIED"}>
                             <CheckoutUpgradeButton
                               billingStatus={null}
                               planCode={billing.planCode}
@@ -400,12 +411,17 @@ export default function Settings() {
                               onOfferResolved={handleRenewalOfferResolved}
                             />
                           </div>
-                          {renewalPricingParityOk === null && (
+                          {renewalPricingVerification === "VERIFYING" && (
                             <p className="text-xs text-muted-foreground text-center py-2 border border-border">
                               Verifying pricing…
                             </p>
                           )}
-                          {renewalPricingParityOk === false && (
+                          {renewalPricingVerification === "UNAVAILABLE" && (
+                            <p className="text-xs text-muted-foreground text-center py-2 border border-border">
+                              {billing.billingInterval === "ANNUAL" ? "Annual" : "Monthly"} renewal is currently unavailable. View plans or contact support.
+                            </p>
+                          )}
+                          {renewalPricingVerification === "MISMATCH" && (
                             <p className="text-xs text-muted-foreground text-center py-2 border border-border">
                               Pricing verification issue — please contact support to renew.
                             </p>

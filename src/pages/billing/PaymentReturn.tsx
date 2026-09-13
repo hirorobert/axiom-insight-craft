@@ -19,7 +19,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { pollCheckoutStatus, requestPaymentVerificationRecovery, type CheckoutStatusResponse } from "@/lib/commercial/commercialRpc";
 import { AlertCircle, CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { displayPlanName } from "@/lib/commercial/billingDisplay";
+import { displayPlanName, formatLicenceDate } from "@/lib/commercial/billingDisplay";
 
 type PollPhase = "POLLING" | "CONFIRMED" | "FAILED" | "CANCELLED" | "TIMEOUT" | "NO_REF";
 
@@ -43,6 +43,12 @@ export default function PaymentReturn() {
   const [pollCount, setPollCount] = useState(0);
   const pollCountRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const purchasedStartsInFuture = Boolean(
+    status?.purchasedEffectiveStart &&
+    new Date(status.purchasedEffectiveStart).getTime() > Date.now(),
+  );
+  const confirmedEffectiveEnd = status?.purchasedEffectiveEnd ?? status?.effectiveEnd ?? null;
 
   useEffect(() => {
     if (!saffRef) return;
@@ -143,10 +149,20 @@ export default function PaymentReturn() {
             <h1 className="text-xl font-semibold">Payment confirmed</h1>
             {status?.planCode && (
               <p className="text-muted-foreground text-sm">
-                Your <strong>{displayPlanName(status.planCode)}</strong> plan is now active.
-                {status.effectiveEnd && (
-                  <> Licensed through{" "}
-                    <strong>{new Date(status.effectiveEnd).toLocaleDateString()}</strong>.
+                {purchasedStartsInFuture && status.purchasedEffectiveStart ? (
+                  <>
+                    Your <strong>{displayPlanName(status.planCode)}</strong> prepaid term has been added.
+                    It is scheduled from <strong>{formatLicenceDate(status.purchasedEffectiveStart)}</strong>{" "}
+                    {confirmedEffectiveEnd && (
+                      <>through <strong>{formatLicenceDate(confirmedEffectiveEnd)}</strong></>
+                    )}. Your existing access remains active.
+                  </>
+                ) : (
+                  <>
+                    Your <strong>{displayPlanName(status.planCode)}</strong> plan is active.
+                    {confirmedEffectiveEnd && (
+                      <> Access through <strong>{formatLicenceDate(confirmedEffectiveEnd)}</strong>.</>
+                    )}
                   </>
                 )}
               </p>

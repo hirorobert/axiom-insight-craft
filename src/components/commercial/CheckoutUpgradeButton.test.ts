@@ -36,7 +36,9 @@ vi.mock("@/integrations/supabase/client", () => ({
 import {
   shouldShowUpgradeAction,
   deriveOfferDisplayState,
+  derivePricingVerificationState,
   intervalLabelFor,
+  OFFER_RESOLUTION_TIMEOUT_MS,
 } from "./CheckoutUpgradeButton";
 import type { LicenceStatus } from "@/lib/commercial/entitlementContract";
 
@@ -149,6 +151,55 @@ describe("intervalLabelFor — presentation only, never a pricing decision", () 
     expect(intervalLabelFor("ONE_TIME", 1)).toBe("one-time");
     expect(intervalLabelFor("ANNUAL", 1)).toBe("/ year");
     expect(intervalLabelFor(undefined, undefined)).toBe("/ year");
+  });
+});
+
+describe("pricing verification — terminal states never masquerade as loading", () => {
+  const expected = {
+    amountMinor: 49900,
+    currencyCode: "USD",
+    currencyExponent: 2,
+    billingInterval: "ANNUAL" as const,
+    billingIntervalCount: 1,
+    marketCode: "GLOBAL",
+  };
+
+  it("returns VERIFIED only when every economic field matches", () => {
+    expect(derivePricingVerificationState({
+      resolution: "AVAILABLE",
+      amount_minor: 49900,
+      currency_code: "USD",
+      currency_exponent: 2,
+      billing_interval: "ANNUAL",
+      billing_interval_count: 1,
+      market_code: "GLOBAL",
+    }, expected)).toBe("VERIFIED");
+  });
+
+  it.each([null, undefined, { resolution: "NOT_AVAILABLE" }, { resolution: "AMBIGUOUS" }, { resolution: "UNKNOWN" }])(
+    "maps missing/non-available resolver output to terminal UNAVAILABLE",
+    (data) => {
+      expect(derivePricingVerificationState(data, expected)).toBe("UNAVAILABLE");
+    },
+  );
+
+  it("maps incomplete or economically different AVAILABLE data to MISMATCH", () => {
+    expect(derivePricingVerificationState({ resolution: "AVAILABLE" }, expected)).toBe("MISMATCH");
+    expect(derivePricingVerificationState({
+      resolution: "AVAILABLE",
+      amount_minor: 4900,
+      currency_code: "USD",
+      currency_exponent: 2,
+      billing_interval: "MONTHLY",
+      billing_interval_count: 1,
+      market_code: "GLOBAL",
+    }, expected)).toBe("MISMATCH");
+  });
+
+  it("uses one bounded eight-second resolver timeout", () => {
+    expect(OFFER_RESOLUTION_TIMEOUT_MS).toBe(8_000);
+    expect(SRC).toMatch(/setTimeout\(\(\) => finish\(null\), OFFER_RESOLUTION_TIMEOUT_MS\)/);
+    expect(SRC).toMatch(/clearTimeout\(timeoutId\)/);
   });
 });
 

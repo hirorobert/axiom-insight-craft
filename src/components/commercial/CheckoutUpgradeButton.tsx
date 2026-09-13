@@ -104,6 +104,46 @@ export interface ResolvedOfferData {
   market_code?: string;
 }
 
+export interface ExpectedOfferData {
+  amountMinor: number;
+  currencyCode: string;
+  currencyExponent: number;
+  billingInterval: "MONTHLY" | "ANNUAL";
+  billingIntervalCount: number;
+  marketCode: string;
+}
+
+export type PricingVerificationState =
+  | "VERIFYING"
+  | "VERIFIED"
+  | "UNAVAILABLE"
+  | "MISMATCH";
+
+/**
+ * Converts the resolver's terminal response into an explicit UI state.
+ * Loading is owned by the caller; once a response arrives, null and every
+ * non-AVAILABLE resolution are terminal UNAVAILABLE states, never "still
+ * loading". An AVAILABLE response must match every displayed economic field.
+ */
+export function derivePricingVerificationState(
+  data: ResolvedOfferData | null | undefined,
+  expected: ExpectedOfferData,
+): Exclude<PricingVerificationState, "VERIFYING"> {
+  if (!data || data.resolution !== "AVAILABLE") return "UNAVAILABLE";
+
+  const matches =
+    data.amount_minor === expected.amountMinor &&
+    data.currency_code === expected.currencyCode &&
+    data.currency_exponent === expected.currencyExponent &&
+    data.billing_interval === expected.billingInterval &&
+    data.billing_interval_count === expected.billingIntervalCount &&
+    data.market_code === expected.marketCode;
+
+  return matches ? "VERIFIED" : "MISMATCH";
+}
+
+export const OFFER_RESOLUTION_TIMEOUT_MS = 8_000;
+
 export function intervalLabelFor(interval: string | undefined, count: number | undefined): string {
   const n = count ?? 1;
   switch (interval) {
@@ -168,6 +208,20 @@ export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, p
 
   useEffect(() => {
     let cancelled = false;
+    let settled = false;
+
+    const finish = (data: ResolvedOfferData | null) => {
+      if (cancelled || settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      setOffer(deriveOfferDisplayState(data));
+      onOfferResolved?.(data);
+    };
+
+    // A lost RPC response must not leave a checkout surface in an eternal
+    // loading state. Timeout fails closed: no checkout action is exposed.
+    const timeoutId = setTimeout(() => finish(null), OFFER_RESOLUTION_TIMEOUT_MS);
+
     (async () => {
       // Same `marketCode`/`billingInterval` values used for display
       // resolution here are reused, unmodified, in handleUpgrade()'s
@@ -175,16 +229,21 @@ export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, p
       // DISPLAY_MARKET == CHECKOUT_MARKET and DISPLAY_INTERVAL ==
       // CHECKOUT_INTERVAL. Do not let these calls diverge onto separately-
       // derived values.
-      const { data } = await callCommercialRpc("resolve_commercial_offer", {
-        p_plan_code: planCode,
-        p_billing_interval: billingInterval,
-        p_market_code: marketCode,
-      });
-      if (cancelled) return;
-      setOffer(deriveOfferDisplayState(data));
-      onOfferResolved?.(data ?? null);
+      try {
+        const { data } = await callCommercialRpc("resolve_commercial_offer", {
+          p_plan_code: planCode,
+          p_billing_interval: billingInterval,
+          p_market_code: marketCode,
+        });
+        finish(data ?? null);
+      } catch {
+        finish(null);
+      }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
     // onOfferResolved intentionally excluded: callers may pass a fresh
     // closure each render, and this effect's identity must stay tied to
     // the actual resolution inputs (plan/interval/market), not the

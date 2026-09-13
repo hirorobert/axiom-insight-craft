@@ -13,6 +13,11 @@ export interface BillingSummary {
   /** Ω3-CHECKOUT: the current licence's originating checkout interval, when one exists (null for FREE/admin-granted licences). */
   billingInterval: "MONTHLY" | "ANNUAL" | null;
   billingIntervalCount: number | null;
+  scheduledEffectiveEnd: string | null;
+  nextEffectiveStart: string | null;
+  nextEffectiveEnd: string | null;
+  nextBillingInterval: "MONTHLY" | "ANNUAL" | null;
+  nextBillingIntervalCount: number | null;
 }
 
 interface UseBillingSummaryResult {
@@ -63,6 +68,11 @@ export function useBillingSummary(): UseBillingSummaryResult {
               entitlements: data.entitlements ?? [],
               billingInterval: data.billing_interval ?? null,
               billingIntervalCount: data.billing_interval_count ?? null,
+              scheduledEffectiveEnd: data.scheduled_effective_end ?? null,
+              nextEffectiveStart: data.next_effective_start ?? null,
+              nextEffectiveEnd: data.next_effective_end ?? null,
+              nextBillingInterval: data.next_billing_interval ?? null,
+              nextBillingIntervalCount: data.next_billing_interval_count ?? null,
             }
           : null,
       );

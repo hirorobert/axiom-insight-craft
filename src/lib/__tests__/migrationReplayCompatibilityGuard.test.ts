@@ -125,7 +125,7 @@ function readMigration(fileName: string): string {
 }
 
 describe("migration directory integrity", () => {
-  it("contains exactly 116 migration files", () => {
+  it("contains exactly 118 migration files", () => {
     // Bumped from 113 -> 114: 20260912100000_omega3_checkout_cfoclose_
     // offers_and_interval_authority.sql (Ω3-CHECKOUT), forward-only,
     // sorts after every prior file. Bumped from 114 -> 115:
@@ -133,8 +133,10 @@ describe("migration directory integrity", () => {
     // closure), forward-only. Bumped from 115 -> 116:
     // 20260914000000_omega3_checkout_provider_boundary_repair.sql,
     // forward-only and sorted after the acquisition migration it repairs.
+    // The Lovable-managed prerequisite record added 117; the forward-only
+    // Ω5 billing projection migration added 118.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(116);
+    expect(files.length).toBe(118);
   });
 });
 
