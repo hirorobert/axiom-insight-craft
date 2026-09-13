@@ -246,6 +246,7 @@ DECLARE
   v_acquire JSONB;
   v_intent_id UUID;
   v_token UUID;
+  v_begin JSONB;
   v_persist JSONB;
   v_commit JSONB;
   v_licence_count INTEGER;
@@ -282,6 +283,13 @@ BEGIN
   END IF;
   v_intent_id := (v_acquire->>'intent_id')::uuid;
   v_token := (v_acquire->>'creation_token')::uuid;
+
+  -- Cross the durable provider side-effect boundary before persisting the
+  -- hosted-checkout result, exactly as commercial-create-checkout does.
+  v_begin := public.begin_provider_checkout_request(v_intent_id, v_token);
+  IF (v_begin->>'transitioned')::boolean IS NOT TRUE THEN
+    RAISE EXCEPTION 'FAIL: expected provider boundary transition, got %', v_begin;
+  END IF;
 
   v_persist := public.persist_checkout_provider_result(v_intent_id, v_token, 'flw-happy-path-ref', 'https://checkout.example.test/happy-path');
   IF (v_persist->>'persisted')::boolean IS NOT TRUE THEN
