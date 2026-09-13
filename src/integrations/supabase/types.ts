@@ -1058,6 +1058,27 @@ export type Database = {
         }
         Relationships: []
       }
+      commercial_currencies: {
+        Row: {
+          code: string
+          created_at: string
+          exponent: number
+          is_supported: boolean
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          exponent: number
+          is_supported?: boolean
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          exponent?: number
+          is_supported?: boolean
+        }
+        Relationships: []
+      }
       commercial_licences: {
         Row: {
           billing_customer_id: string
@@ -1121,6 +1142,8 @@ export type Database = {
           currency_code: string
           currency_exponent: number
           effective_end: string | null
+          effective_history_protected: boolean
+          effective_range: unknown
           effective_start: string
           id: string
           is_active: boolean
@@ -1129,6 +1152,7 @@ export type Database = {
           offer_code: string
           plan_id: string
           provider_restriction: string | null
+          request_fingerprint: string | null
           updated_at: string
         }
         Insert: {
@@ -1139,6 +1163,8 @@ export type Database = {
           currency_code: string
           currency_exponent: number
           effective_end?: string | null
+          effective_history_protected?: boolean
+          effective_range?: unknown
           effective_start?: string
           id?: string
           is_active?: boolean
@@ -1147,6 +1173,7 @@ export type Database = {
           offer_code: string
           plan_id: string
           provider_restriction?: string | null
+          request_fingerprint?: string | null
           updated_at?: string
         }
         Update: {
@@ -1157,6 +1184,8 @@ export type Database = {
           currency_code?: string
           currency_exponent?: number
           effective_end?: string | null
+          effective_history_protected?: boolean
+          effective_range?: unknown
           effective_start?: string
           id?: string
           is_active?: boolean
@@ -1165,6 +1194,7 @@ export type Database = {
           offer_code?: string
           plan_id?: string
           provider_restriction?: string | null
+          request_fingerprint?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -1214,6 +1244,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      commercial_platform_state: {
+        Row: {
+          id: boolean
+          reason: string | null
+          state: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          id?: boolean
+          reason?: string | null
+          state?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          id?: boolean
+          reason?: string | null
+          state?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       commercial_products: {
         Row: {
@@ -4906,8 +4960,28 @@ export type Database = {
         Args: { p_override_id: string; p_reason: string }
         Returns: Json
       }
+      admin_supersede_commercial_offer: {
+        Args: {
+          p_amount_minor: number
+          p_billing_interval: string
+          p_billing_interval_count: number
+          p_currency_code: string
+          p_currency_exponent: number
+          p_effective_start: string
+          p_market_code: string
+          p_new_offer_code: string
+          p_old_offer_code: string
+          p_plan_code: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       admin_transition_licence_status: {
         Args: { p_licence_id: string; p_new_status: string; p_reason: string }
+        Returns: Json
+      }
+      admin_transition_platform_state: {
+        Args: { p_new_state: string; p_reason: string }
         Returns: Json
       }
       admin_upsert_commercial_offer: {
