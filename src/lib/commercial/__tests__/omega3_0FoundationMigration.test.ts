@@ -42,10 +42,30 @@ describe("Ω3.0 migration file — presence, naming, and ordering", () => {
     expect(fs.existsSync(MIGRATION_PATH)).toBe(true);
   });
 
-  it("sorts after every currently-live migration file (including the newest, unrelated variance_budgets RLS migration)", () => {
+  it("sorts after every migration file that existed at the time it was authored (including the unrelated variance_budgets RLS migration) — a later, forward-only Ω3-CHECKOUT migration is expected and permitted to sort after THIS one in turn", () => {
+    // CORRECTED: this test originally asserted MIGRATION_FILE was the
+    // absolute newest file in the directory — true only until the next
+    // forward-only migration was added (by design; that is what
+    // "forward-only" means). The invariant that actually matters and
+    // still holds: this file must never sort BEFORE any migration that
+    // predates it, and any migration that legitimately sorts after it
+    // must be a genuinely later timestamp, never an edit to this file
+    // itself (see the "never edits a live Ω1/RLS1/Ω2 migration file"
+    // test below, and migrationCollisionGuard.test.ts more broadly).
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
     const sorted = [...files].sort();
-    expect(sorted[sorted.length - 1]).toBe(MIGRATION_FILE);
+    const ownIndex = sorted.indexOf(MIGRATION_FILE);
+    expect(ownIndex).toBeGreaterThanOrEqual(0);
+    // Every OTHER migration whose timestamp prefix is <= this one's own
+    // must sort at or before it — i.e. nothing that predates it (by
+    // timestamp) was inserted after it in sort order.
+    const ownTimestamp = MIGRATION_FILE.split("_")[0];
+    for (let i = 0; i < sorted.length; i++) {
+      const otherTimestamp = sorted[i].split("_")[0];
+      if (otherTimestamp <= ownTimestamp && sorted[i] !== MIGRATION_FILE) {
+        expect(i).toBeLessThan(ownIndex);
+      }
+    }
   });
 
   it("declares itself non-data-destructive with exactly 2 DDL replacement operations", () => {

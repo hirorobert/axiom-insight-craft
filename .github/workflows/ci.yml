@@ -128,3 +128,47 @@ jobs:
             exit 0
           fi
           bun run test:rls
+
+  db-contract-tests:
+    name: Disposable-DB Contract Tests (Ω∞ A+ closure)
+    runs-on: ubuntu-latest
+    # Never touches Supabase staging/production. Applies the FULL real
+    # migration chain to a throwaway postgres:16 service container that
+    # exists only for this job's lifetime, then exercises the Ω3-CHECKOUT
+    # acquisition/CAS/platform-matrix contract with real concurrent
+    # sessions — see scripts/db-contract-tests/ for the full harness.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: contract_test_main
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: contract_test_main
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Ensure postgresql-client is available
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y postgresql-client
+          fi
+          psql --version
+
+      - name: Run disposable-DB contract test harness
+        run: bash scripts/db-contract-tests/run.sh

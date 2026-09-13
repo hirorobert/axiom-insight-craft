@@ -37,7 +37,11 @@ export interface CreateCheckoutParams {
 
 export type CreateCheckoutResult =
   | { success: true; checkoutUrl: string; providerRef: string }
-  | { success: false; error: string };
+  | {
+      success: false;
+      outcome: 'DEFINITIVE_FAILURE' | 'UNCERTAIN';
+      error: string;
+    };
 
 export type VerifyTransactionResult =
   | { verified: true; transaction: NormalizedTransaction }
@@ -61,6 +65,19 @@ export interface ProviderAdapter {
   provider: PaymentProvider;
   createCheckout(params: CreateCheckoutParams): Promise<CreateCheckoutResult>;
   verifyTransaction(txId: string, expectedMinor: bigint, expectedCurrency: string, saffRef: string): Promise<VerifyTransactionResult>;
+  /**
+   * Ω3-CHECKOUT (BLOCKER fix — webhook/status convergence): independently
+   * verifies a transaction by SAFF's own reference, without needing to
+   * already know the provider's internal transaction id. This is the
+   * fallback path commercial-payment-status uses when a customer polls
+   * for a still-PENDING intent and the webhook has not (yet, or ever)
+   * arrived — the ONLY other way to discover whether Flutterwave actually
+   * completed the charge. Applies the SAME Gate-B corroboration
+   * discipline as verifyTransaction (tx_ref/amount/currency must all
+   * independently match) — this is not a weaker check, only a different
+   * lookup key.
+   */
+  verifyTransactionByReference(saffRef: string, expectedMinor: bigint, expectedCurrency: string): Promise<VerifyTransactionResult>;
   verifyWebhookAuthenticity(rawBody: string, headers: Record<string, string>): WebhookAuthResult;
   normalizeWebhook(rawBody: string): NormalizedWebhookEvent;
 }

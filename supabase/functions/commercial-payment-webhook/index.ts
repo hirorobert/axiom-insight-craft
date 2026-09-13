@@ -39,6 +39,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getFlutterwaveAdapter } from '../_shared/payments/providers/flutterwave.ts';
 import { authoriseCommit, sha256Hex } from '../_shared/payments/authority.ts';
 import { generateCorrelationId } from '../_shared/correlationId.ts';
+import { getCapabilitiesForProvider } from '../_shared/payments/routing.ts';
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -223,9 +224,32 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── Atomic commercial commit ──────────────────────────────────────────────
+  // Ω∞ A+ closure BLOCKER-4 fix: canonical idempotency identity is exactly
+  // (provider, provider_transaction_id, checkout_intent_id) — no literal
+  // 'WEBHOOK:'/'STATUS_POLL:' prefix divergence. This webhook and
+  // commercial-payment-status's own recovery path now compute the
+  // IDENTICAL key text for the identical underlying transaction, so a
+  // race between the two genuinely converges on ALREADY_COMMITTED rather
+  // than relying on the intent-status check alone to catch the second
+  // arrival.
   const idempotencyKey = await sha256Hex(
-    `WEBHOOK:${tx.provider}:${tx.providerTransactionId}:${intent.id}`
+    `${tx.provider}:${tx.providerTransactionId}:${intent.id}`
   );
+
+  // Ω∞ A+ closure BLOCKER-3 fix: the environment of the ACTUAL provider
+  // this webhook is for (never an arbitrary configured entry, never a
+  // silent default). getCapabilitiesForProvider fails closed (null) if
+  // that provider's environment is missing/invalid — this webhook must
+  // then refuse to commit rather than guess.
+  const capabilities = getCapabilitiesForProvider(tx.provider);
+  if (!capabilities) {
+    console.error('No valid environment configured for provider — refusing to commit', { correlationId, provider: tx.provider });
+    await recordProcessingEvent({
+      signatureValid: true, processingResult: 'ERROR',
+      providerTransactionId: tx.providerTransactionId, saffReference: tx.saffReference,
+    });
+    return new Response(JSON.stringify({ status: 'PROVIDER_ENVIRONMENT_UNRESOLVED', correlationId }), { status: 500 });
+  }
 
   const { data: commitData, error: commitErr } = await supabase.rpc(
     'commit_verified_commercial_payment',
@@ -242,6 +266,7 @@ Deno.serve(async (req: Request) => {
       p_verification_method:      tx.verificationMethod,
       p_idempotency_key:          idempotencyKey,
       p_saff_reference:           tx.saffReference,
+      p_provider_environment:     capabilities.environment,
     }
   );
 
