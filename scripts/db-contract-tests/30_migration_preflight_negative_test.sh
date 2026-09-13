@@ -30,7 +30,7 @@ PSQL_NEG_T=(psql -v ON_ERROR_STOP=1 -qtA -d "$NEG_DB")
 echo "Applying every migration EXCEPT $LAST_MIGRATION..."
 for f in $(ls "$MIGRATIONS_DIR"/*.sql | sort); do
   base="$(basename "$f")"
-  [ "$base" = "$LAST_MIGRATION" ] && continue
+  [ "$base" = "$LAST_MIGRATION" ] && break
   if [ "$base" = "$PG_CRON_FILE" ]; then
     sed '/CREATE EXTENSION IF NOT EXISTS pg_cron;/,$d' "$f" | "${PSQL_NEG[@]}"
   else

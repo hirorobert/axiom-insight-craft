@@ -50,7 +50,7 @@ fi
 echo "PASS: two simultaneous identical acquisitions converge to exactly one NEW_ATTEMPT"
 
 # Clean up test 1's winner so test 2 starts from a clean slate.
-sql "UPDATE public.payment_checkout_intents SET status = 'CANCELLED' WHERE billing_customer_id = '$BILLING_CUSTOMER_ID' AND status IN ('CREATING','PENDING');" >/dev/null
+sql "UPDATE public.payment_checkout_intents SET status = 'CANCELLED' WHERE billing_customer_id = '$BILLING_CUSTOMER_ID' AND status IN ('CREATING','PROVIDER_CREATING','PENDING');" >/dev/null
 
 # ── Test 2: MONTHLY + ANNUAL simultaneously -> exactly one NEW_ATTEMPT,
 #    the other an explicit CONFLICT_DIFFERENT_INTERVAL (never a second
@@ -68,7 +68,7 @@ if [ "$NEW_COUNT" != "1" ] || [ "$CONFLICT_COUNT" != "1" ]; then
 fi
 echo "PASS: simultaneous MONTHLY + ANNUAL never both become payable — one wins, the other gets an explicit conflict"
 
-sql "UPDATE public.payment_checkout_intents SET status = 'CANCELLED' WHERE billing_customer_id = '$BILLING_CUSTOMER_ID' AND status IN ('CREATING','PENDING');" >/dev/null
+sql "UPDATE public.payment_checkout_intents SET status = 'CANCELLED' WHERE billing_customer_id = '$BILLING_CUSTOMER_ID' AND status IN ('CREATING','PROVIDER_CREATING','PENDING');" >/dev/null
 
 # ── Test 3: two browser tabs (identical offer) -> one payable URL. Winner
 #    proceeds through persist_checkout_provider_result; loser never
@@ -79,6 +79,11 @@ RESULT_B=$(acquire "$MONTHLY_OFFER_ID" "CI-T3-B") # sequential here; concurrency
 if echo "$RESULT_A" | grep -q NEW_ATTEMPT; then WINNER="$RESULT_A"; else WINNER="$RESULT_B"; fi
 INTENT_ID=$(echo "$WINNER" | sed -n 's/.*"intent_id": "\([a-f0-9-]*\)".*/\1/p')
 TOKEN=$(echo "$WINNER" | sed -n 's/.*"creation_token": "\([a-f0-9-]*\)".*/\1/p')
+BEGIN_RESULT=$(sql "SELECT begin_provider_checkout_request('$INTENT_ID'::uuid, '$TOKEN'::uuid)::text;")
+if ! echo "$BEGIN_RESULT" | grep -q '"transitioned": true'; then
+  echo "FAIL: expected the winning attempt to cross PROVIDER_CREATING. Got: $BEGIN_RESULT"
+  exit 1
+fi
 PERSIST_RESULT=$(sql "SELECT persist_checkout_provider_result('$INTENT_ID'::uuid, '$TOKEN'::uuid, 'flw-ref-t3', 'https://checkout.example.test/t3')::text;")
 if ! echo "$PERSIST_RESULT" | grep -q '"persisted": true'; then
   echo "FAIL: expected the winning attempt to persist successfully. Got: $PERSIST_RESULT"
@@ -100,7 +105,7 @@ if ! echo "$STALE_RESULT" | grep -q '"persisted": false'; then
 fi
 echo "PASS: a stale/wrong creation_token is rejected by the compare-and-swap"
 
-sql "UPDATE public.payment_checkout_intents SET status = 'CANCELLED' WHERE billing_customer_id = '$BILLING_CUSTOMER_ID' AND status IN ('CREATING','PENDING');" >/dev/null
+sql "UPDATE public.payment_checkout_intents SET status = 'CANCELLED' WHERE billing_customer_id = '$BILLING_CUSTOMER_ID' AND status IN ('CREATING','PROVIDER_CREATING','PENDING');" >/dev/null
 
 # ── Test 5: MANUAL_REVIEW is never automatically superseded; admin
 #    resolution is the only deterministic exit.
@@ -108,6 +113,7 @@ echo "-- Test 5: MANUAL_REVIEW blocks new attempts until explicitly resolved --"
 UNCERTAIN_SOURCE=$(acquire "$MONTHLY_OFFER_ID" "CI-T5-UNCERTAIN")
 INTENT_ID_5=$(echo "$UNCERTAIN_SOURCE" | sed -n 's/.*"intent_id": "\([a-f0-9-]*\)".*/\1/p')
 TOKEN_5=$(echo "$UNCERTAIN_SOURCE" | sed -n 's/.*"creation_token": "\([a-f0-9-]*\)".*/\1/p')
+sql "SELECT begin_provider_checkout_request('$INTENT_ID_5'::uuid, '$TOKEN_5'::uuid);" >/dev/null
 sql "SELECT mark_checkout_attempt_uncertain('$INTENT_ID_5'::uuid, '$TOKEN_5'::uuid, 'CI harness simulated network timeout');" >/dev/null
 BLOCKED_RESULT=$(acquire "$MONTHLY_OFFER_ID" "CI-T5-BLOCKED")
 if ! echo "$BLOCKED_RESULT" | grep -q 'MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT'; then
@@ -133,7 +139,7 @@ if ! echo "$RECOVERED_RESULT" | grep -q 'NEW_ATTEMPT'; then
 fi
 echo "PASS: MANUAL_REVIEW is never automatically superseded; deterministic recovery only via explicit admin resolution"
 
-sql "UPDATE public.payment_checkout_intents SET status = 'CANCELLED' WHERE billing_customer_id = '$BILLING_CUSTOMER_ID' AND status IN ('CREATING','PENDING');" >/dev/null
+sql "UPDATE public.payment_checkout_intents SET status = 'CANCELLED' WHERE billing_customer_id = '$BILLING_CUSTOMER_ID' AND status IN ('CREATING','PROVIDER_CREATING','PENDING');" >/dev/null
 
 # ── Test 6: different customers never serialize against each other. ────────
 echo "-- Test 6: different customers acquire independently --"

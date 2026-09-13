@@ -30,7 +30,7 @@ export function authoriseCommit(
   transaction: NormalizedTransaction,
 ): AuthorityCheckResult {
   // Intent must be open
-  if (!['CREATED', 'PENDING'].includes(intent.status)) {
+  if (!['PENDING', 'MANUAL_REVIEW'].includes(intent.status)) {
     return { authorised: false, reason: `INTENT_ALREADY_RESOLVED:${intent.status}` };
   }
 

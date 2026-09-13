@@ -63,9 +63,12 @@ describe("Ω3-CHECKOUT migration — presence and ordering", () => {
     const sorted = [...files].sort();
     const thisIndex = sorted.indexOf("20260912100000_omega3_checkout_cfoclose_offers_and_interval_authority.sql");
     expect(thisIndex).toBeGreaterThan(-1);
-    expect(thisIndex).toBe(sorted.length - 2);
-    expect(sorted[sorted.length - 1]).toBe(
+    expect(thisIndex).toBe(sorted.length - 3);
+    expect(sorted[sorted.length - 2]).toBe(
       "20260913000000_omega4_checkout_acquisition_hardening.sql",
+    );
+    expect(sorted[sorted.length - 1]).toBe(
+      "20260914000000_omega3_checkout_provider_boundary_repair.sql",
     );
   });
 
@@ -325,7 +328,8 @@ describe("Atomic checkout-intent acquisition — delegated to Ω∞ A+ RPCs, nev
   });
 
   it("a thrown provider error (network/timeout — genuinely unknown outcome) routes to mark_checkout_attempt_uncertain, never mark_checkout_attempt_failed or a silent retry", () => {
-    const catchBlock = checkoutCode.match(/\} catch \(err\) \{([\s\S]*?)\n {2}\}/)?.[0] ?? "";
+    const providerTry = checkoutCode.slice(checkoutCode.indexOf("checkoutResult = await adapter.createCheckout("));
+    const catchBlock = providerTry.match(/\} catch(?: \(err\))? \{([\s\S]*?)\n {2}\}/)?.[0] ?? "";
     expect(catchBlock).toMatch(/mark_checkout_attempt_uncertain/);
   });
 

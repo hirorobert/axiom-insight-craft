@@ -31,6 +31,7 @@ import type {
 } from '../contracts.ts';
 
 const FLW_BASE_URL = 'https://api.flutterwave.com/v3';
+const FLW_TIMEOUT_MS = 25_000;
 
 // ── Status normalisation ────────────────────────────────────────────────────
 
@@ -174,24 +175,29 @@ export class FlutterwaveAdapter implements ProviderAdapter {
           'Authorization': `Bearer ${this.secretKey}`,
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(FLW_TIMEOUT_MS),
       });
-    } catch (err) {
-      return { success: false, error: `Network error contacting Flutterwave: ${String(err)}` };
+    } catch {
+      return { success: false, outcome: 'UNCERTAIN', error: 'FLUTTERWAVE_CREATE_TRANSPORT_UNCERTAIN' };
     }
 
     if (!resp.ok) {
-      const text = await resp.text().catch(() => 'no body');
-      return { success: false, error: `Flutterwave API error ${resp.status}: ${text.slice(0, 200)}` };
+      const uncertain = [408, 409, 425, 429].includes(resp.status) || resp.status >= 500;
+      return {
+        success: false,
+        outcome: uncertain ? 'UNCERTAIN' : 'DEFINITIVE_FAILURE',
+        error: uncertain ? `FLUTTERWAVE_CREATE_HTTP_${resp.status}_UNCERTAIN` : `FLUTTERWAVE_CREATE_REJECTED_${resp.status}`,
+      };
     }
 
     let json: Record<string, unknown>;
     try { json = await resp.json(); } catch {
-      return { success: false, error: 'Flutterwave returned non-JSON response' };
+      return { success: false, outcome: 'UNCERTAIN', error: 'FLUTTERWAVE_CREATE_RESPONSE_MALFORMED' };
     }
 
     const link = (json.data as Record<string, unknown>)?.link;
     if (!link || typeof link !== 'string') {
-      return { success: false, error: 'Flutterwave did not return payment link' };
+      return { success: false, outcome: 'UNCERTAIN', error: 'FLUTTERWAVE_CREATE_LINK_MISSING' };
     }
 
     return { success: true, checkoutUrl: link, providerRef: params.saffReference };
@@ -309,6 +315,7 @@ export class FlutterwaveAdapter implements ProviderAdapter {
     try {
       resp = await fetch(`${FLW_BASE_URL}/transactions/${encodeURIComponent(txId)}/verify`, {
         headers: { 'Authorization': `Bearer ${this.secretKey}` },
+        signal: AbortSignal.timeout(FLW_TIMEOUT_MS),
       });
     } catch (err) {
       return { verified: false, reason: `Network error verifying with Flutterwave: ${String(err)}` };
@@ -346,6 +353,7 @@ export class FlutterwaveAdapter implements ProviderAdapter {
     try {
       resp = await fetch(`${FLW_BASE_URL}/transactions/verify_by_reference?tx_ref=${encodeURIComponent(saffRef)}`, {
         headers: { 'Authorization': `Bearer ${this.secretKey}` },
+        signal: AbortSignal.timeout(FLW_TIMEOUT_MS),
       });
     } catch (err) {
       return { verified: false, reason: `Network error verifying with Flutterwave: ${String(err)}` };

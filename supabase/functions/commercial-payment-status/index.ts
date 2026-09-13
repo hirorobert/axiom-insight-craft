@@ -155,7 +155,7 @@ Deno.serve(async (req: Request) => {
     // THROTTLED — a verification attempt for this exact intent is already
     // in flight or was attempted too recently. Never an unbounded retry
     // loop: the browser is told exactly how long to wait.
-    const retryAfter = claim.retry_after_seconds ?? 15;
+    const retryAfter = claim.retry_after_seconds ?? 60;
     return jsonResponse(
       { status: 'VERIFICATION_IN_PROGRESS', retryAfterSeconds: retryAfter, correlationId },
       202,

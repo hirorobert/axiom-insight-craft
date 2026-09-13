@@ -26,8 +26,11 @@
  *      Also enforces the platform-state x provider-environment x
  *      acceptance-identity matrix (assert_platform_state_permits) — a
  *      disallowed combination raises and no attempt row is ever created.
- *   2. persist_checkout_provider_result() — a compare-and-swap keyed on
- *      (intent id, creation_token, status='CREATING'). Zero affected rows
+ *   2. begin_provider_checkout_request() — durable point-of-no-return
+ *      transition from CREATING to PROVIDER_CREATING before any provider
+ *      network request is attempted.
+ *   3. persist_checkout_provider_result() — a compare-and-swap keyed on
+ *      (intent id, creation_token, status='PROVIDER_CREATING'). Zero affected rows
  *      is a real, checked failure: this function is structurally unable to
  *      return a checkout URL that was not durably persisted under the
  *      exact token it was issued.
@@ -270,7 +273,23 @@ Deno.serve(async (req: Request) => {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  // 10. Call the routed provider — create hosted payment page.
+  // 10. Cross the durable provider side-effect boundary BEFORE making the
+  //     network request. Once PROVIDER_CREATING is committed, a timeout or
+  //     worker crash can never be interpreted as "safe to retry".
+  const { data: beginData, error: beginErr } = await supabase.rpc('begin_provider_checkout_request', {
+    p_checkout_intent_id: intentId,
+    p_creation_token: creationToken,
+  });
+  const beganProviderRequest = !beginErr &&
+    (beginData as { transitioned?: boolean } | null)?.transitioned === true;
+  if (!beganProviderRequest) {
+    console.error('begin_provider_checkout_request failed', {
+      correlationId, intentId, error: beginErr?.message,
+    });
+    return jsonResponse({ error: 'CHECKOUT_ALREADY_IN_PROGRESS', correlationId }, 409);
+  }
+
+  // 11. Call the routed provider — create hosted payment page.
   const adapter = adapterFor(provider);
   let checkoutResult;
   try {
@@ -284,35 +303,41 @@ Deno.serve(async (req: Request) => {
       customerName:     profile?.display_name ?? null,
       redirectUrl:      `${REDIRECT_URL}?ref=${saffReference}`,
     });
-  } catch (err) {
+  } catch {
     // Ω∞ A+ closure BLOCKER-1 fix: an exception here means it is GENUINELY
     // UNKNOWN whether Flutterwave created a real charge (e.g. the request
     // reached Flutterwave but the response never arrived) — never
     // auto-retried, never silently marked FAILED. Routed to MANUAL_REVIEW
     // for human reconciliation.
-    console.error('Provider checkout threw', { correlationId, provider, error: String(err) });
-    await supabase.rpc('mark_checkout_attempt_uncertain', {
+    console.error('Provider checkout threw', { correlationId, provider });
+    const { data: uncertainData, error: uncertainErr } = await supabase.rpc('mark_checkout_attempt_uncertain', {
       p_checkout_intent_id: intentId, p_creation_token: creationToken,
-      p_reason: `createCheckout threw: ${String(err)}`,
+      p_reason: 'PROVIDER_CREATE_THROWN_UNCERTAIN',
     });
+    if (uncertainErr || !(uncertainData as { updated?: boolean } | null)?.updated) {
+      console.error('Could not persist uncertain provider outcome', { correlationId, intentId, error: uncertainErr?.message });
+    }
     return jsonResponse({ error: 'CHECKOUT_OUTCOME_UNCERTAIN: please contact support before retrying.', correlationId }, 502);
   }
 
   if (!checkoutResult.success) {
-    // The provider adapter itself distinguishes a clean, definitive
-    // failure (e.g. a 4xx validation error — the request never resulted in
-    // a charge) from a network/parse error, which createCheckout surfaces
-    // as a thrown exception (handled above) rather than a { success:
-    // false } result. This branch is therefore always safe to retry.
-    console.error('Provider checkout failed', { correlationId, provider, error: checkoutResult.error });
-    await supabase.rpc('mark_checkout_attempt_failed', {
+    const transitionRpc = checkoutResult.outcome === 'DEFINITIVE_FAILURE'
+      ? 'mark_checkout_attempt_failed'
+      : 'mark_checkout_attempt_uncertain';
+    console.error('Provider checkout did not succeed', { correlationId, provider, outcome: checkoutResult.outcome });
+    const { data: transitionData, error: transitionErr } = await supabase.rpc(transitionRpc, {
       p_checkout_intent_id: intentId, p_creation_token: creationToken,
       p_reason: checkoutResult.error,
     });
-    return jsonResponse({ error: 'Payment service temporarily unavailable. Please try again.', correlationId }, 502);
+    if (transitionErr || !(transitionData as { updated?: boolean } | null)?.updated) {
+      console.error('Could not persist provider failure outcome', { correlationId, intentId, error: transitionErr?.message });
+    }
+    return checkoutResult.outcome === 'DEFINITIVE_FAILURE'
+      ? jsonResponse({ error: 'Payment service rejected the checkout request. Please contact support.', correlationId }, 422)
+      : jsonResponse({ error: 'CHECKOUT_OUTCOME_UNCERTAIN: please contact support before retrying.', correlationId }, 502);
   }
 
-  // 11. Ω∞ A+ closure BLOCKER-1 fix: compare-and-swap persistence. A
+  // 12. Ω∞ A+ closure BLOCKER-1 fix: compare-and-swap persistence. A
   //     checkout URL is returned to the browser ONLY if this call reports
   //     persisted:true — there is no code path from here that can return
   //     checkoutResult.checkoutUrl without it having been durably written
@@ -338,16 +363,19 @@ Deno.serve(async (req: Request) => {
     console.error('persist_checkout_provider_result did not persist — routing to manual review', {
       correlationId, intentId, error: persistErr?.message,
     });
-    await supabase.rpc('mark_checkout_attempt_uncertain', {
+    const { data: uncertainData, error: uncertainErr } = await supabase.rpc('mark_checkout_attempt_uncertain', {
       p_checkout_intent_id: intentId, p_creation_token: creationToken,
-      p_reason: `persist_checkout_provider_result failed: ${persistErr?.message ?? 'zero rows affected'}`,
+      p_reason: 'PROVIDER_RESULT_PERSISTENCE_UNCERTAIN',
     });
+    if (uncertainErr || !(uncertainData as { updated?: boolean } | null)?.updated) {
+      console.error('Could not persist provider-result uncertainty', { correlationId, intentId, error: uncertainErr?.message });
+    }
     return jsonResponse({ error: 'CHECKOUT_OUTCOME_UNCERTAIN: please contact support before retrying.', correlationId }, 502);
   }
 
   const persistedIntent = persistData as { intent_id: string; saff_reference: string; expires_at: string };
 
-  // 12. Return SAFE response — no secrets, no raw provider data. Only
+  // 13. Return SAFE response — no secrets, no raw provider data. Only
   //     reachable once persistence has been proven.
   return jsonResponse({
     saffReference: persistedIntent.saff_reference,

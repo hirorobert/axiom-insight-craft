@@ -37,7 +37,11 @@ export interface CreateCheckoutParams {
 
 export type CreateCheckoutResult =
   | { success: true; checkoutUrl: string; providerRef: string }
-  | { success: false; error: string };
+  | {
+      success: false;
+      outcome: 'DEFINITIVE_FAILURE' | 'UNCERTAIN';
+      error: string;
+    };
 
 export type VerifyTransactionResult =
   | { verified: true; transaction: NormalizedTransaction }

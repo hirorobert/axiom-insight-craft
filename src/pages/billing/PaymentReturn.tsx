@@ -19,6 +19,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { pollCheckoutStatus, requestPaymentVerificationRecovery, type CheckoutStatusResponse } from "@/lib/commercial/commercialRpc";
 import { AlertCircle, CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { displayPlanName } from "@/lib/commercial/billingDisplay";
 
 type PollPhase = "POLLING" | "CONFIRMED" | "FAILED" | "CANCELLED" | "TIMEOUT" | "NO_REF";
 
@@ -27,10 +28,10 @@ const MAX_POLLS = 40; // 2 minutes
 // Ω∞ A+ closure HIGH-1: GET (pollCheckoutStatus) is read-only and safe at
 // any frequency. The recovery POST is what may trigger a real provider
 // call server-side, so it is fired far less often — the server's own
-// claim_verification_attempt cooldown (15s) is the actual, durable
+// claim_verification_attempt cooldown (60s) is the actual, durable
 // authority on how often a provider call can happen; this cadence just
 // avoids spamming a request that will be THROTTLED almost every time.
-const RECOVERY_EVERY_N_POLLS = 5; // ~15s at POLL_INTERVAL_MS=3000
+const RECOVERY_EVERY_N_POLLS = 20; // ~60s at POLL_INTERVAL_MS=3000
 
 export default function PaymentReturn() {
   const [searchParams] = useSearchParams();
@@ -71,7 +72,7 @@ export default function PaymentReturn() {
       // durable throttle governs whether a provider call actually
       // happens — a throttled response is not an error, just "no new
       // information yet."
-      if (count % RECOVERY_EVERY_N_POLLS === 0) {
+      if (count === 1 || count % RECOVERY_EVERY_N_POLLS === 0) {
         const recovery = await requestPaymentVerificationRecovery(saffRef);
         if (recovery.data) {
           applyStatus(recovery.data);
@@ -96,7 +97,6 @@ export default function PaymentReturn() {
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(timerRef.current!);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saffRef]);
 
   return (
@@ -143,7 +143,7 @@ export default function PaymentReturn() {
             <h1 className="text-xl font-semibold">Payment confirmed</h1>
             {status?.planCode && (
               <p className="text-muted-foreground text-sm">
-                Your <strong>{status.planCode}</strong> plan is now active.
+                Your <strong>{displayPlanName(status.planCode)}</strong> plan is now active.
                 {status.effectiveEnd && (
                   <> Licensed through{" "}
                     <strong>{new Date(status.effectiveEnd).toLocaleDateString()}</strong>.

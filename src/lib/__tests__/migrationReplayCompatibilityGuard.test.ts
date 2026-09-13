@@ -125,14 +125,16 @@ function readMigration(fileName: string): string {
 }
 
 describe("migration directory integrity", () => {
-  it("contains exactly 115 migration files", () => {
+  it("contains exactly 116 migration files", () => {
     // Bumped from 113 -> 114: 20260912100000_omega3_checkout_cfoclose_
     // offers_and_interval_authority.sql (Ω3-CHECKOUT), forward-only,
     // sorts after every prior file. Bumped from 114 -> 115:
     // 20260913000000_omega4_checkout_acquisition_hardening.sql (Ω∞ A+
-    // closure), forward-only, sorts after every prior file including it.
+    // closure), forward-only. Bumped from 115 -> 116:
+    // 20260914000000_omega3_checkout_provider_boundary_repair.sql,
+    // forward-only and sorted after the acquisition migration it repairs.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(115);
+    expect(files.length).toBe(116);
   });
 });
 
