@@ -63,12 +63,18 @@ describe("Ω3-CHECKOUT migration — presence and ordering", () => {
     const sorted = [...files].sort();
     const thisIndex = sorted.indexOf("20260912100000_omega3_checkout_cfoclose_offers_and_interval_authority.sql");
     expect(thisIndex).toBeGreaterThan(-1);
-    expect(thisIndex).toBe(sorted.length - 3);
-    expect(sorted[sorted.length - 2]).toBe(
+    expect(thisIndex).toBe(sorted.length - 5);
+    expect(sorted[sorted.length - 4]).toBe(
       "20260913000000_omega4_checkout_acquisition_hardening.sql",
     );
-    expect(sorted[sorted.length - 1]).toBe(
+    expect(sorted[sorted.length - 3]).toBe(
+      "20260913054040_56b232d3-6503-4586-8166-151c46a08f0e.sql",
+    );
+    expect(sorted[sorted.length - 2]).toBe(
       "20260914000000_omega3_checkout_provider_boundary_repair.sql",
+    );
+    expect(sorted[sorted.length - 1]).toBe(
+      "20260914120000_omega5_billing_projection_truth.sql",
     );
   });
 

@@ -5,7 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { PRICING, BRAND } from "@/constants/copy";
-import { CheckoutUpgradeButton, type ResolvedOfferData } from "@/components/commercial/CheckoutUpgradeButton";
+import {
+  CheckoutUpgradeButton,
+  derivePricingVerificationState,
+  type PricingVerificationState,
+  type ResolvedOfferData,
+} from "@/components/commercial/CheckoutUpgradeButton";
 
 // ─────────────────────────────────────────────────────────────
 // /pricing — CFOClose Pricing Page
@@ -38,7 +43,7 @@ const FREE_FEATURES = [
 ];
 
 const PAID_FEATURES = [
-  "Unlimited companies and reporting periods",
+  "Multi-company and multi-period workflow",
   "Full IFRS statement suite — IAS 1, IAS 7, disclosure notes",
   "Jurisdiction pack (Tanzania compliance included)",
   "Bank reconciliation with evidence verification",
@@ -47,7 +52,7 @@ const PAID_FEATURES = [
   "Cash flow forecast and board-pack PDF",
   "XBRL instance document generation",
   "Filing readiness checklist and submission package",
-  "Unlimited firm members with role-based access control",
+  "Firm members with role-based access control",
   "Implementation support included",
 ];
 
@@ -63,7 +68,7 @@ export default function Pricing() {
   // explicit `true` does. This closes the prior gap where `null` fell
   // through to the same branch as `true` and correctness depended on
   // React's own batching order between this state and the child's.
-  const [pricingParityOk, setPricingParityOk] = useState<boolean | null>(null);
+  const [pricingVerification, setPricingVerification] = useState<PricingVerificationState>("VERIFYING");
 
   const monthlyDisplay = `${PRICING.CURRENCY_CODE} ${PRICING.MONTHLY_USD}/month`;
   const annualDisplay  = `${PRICING.CURRENCY_CODE} ${PRICING.ANNUAL_USD}/year`;
@@ -79,32 +84,19 @@ export default function Pricing() {
     // A parity verdict for the PREVIOUS interval must never be displayed
     // against the NEW one — reset to "not yet proven" until the resolver
     // responds again for this interval.
-    setPricingParityOk(null);
+    setPricingVerification("VERIFYING");
     setInterval(next);
   }
 
   function handleOfferResolved(data: ResolvedOfferData | null) {
-    if (
-      data?.resolution !== "AVAILABLE" ||
-      data.amount_minor == null || !data.currency_code ||
-      data.currency_exponent == null || !data.billing_interval || data.billing_interval_count == null ||
-      data.market_code == null
-    ) {
-      setPricingParityOk(null);
-      return;
-    }
-    // Ω∞ A+ closure HIGH-3 fix: compare EVERY economics-adjacent field the
-    // server resolved, not amount/currency alone — exponent, interval,
-    // interval count, and market must all agree with what this page is
-    // about to display/request too.
-    setPricingParityOk(
-      data.amount_minor === expectedAmountMinor &&
-      data.currency_code === PRICING.CURRENCY_CODE &&
-      data.currency_exponent === 2 &&
-      data.billing_interval === expectedBillingInterval &&
-      data.billing_interval_count === 1 &&
-      data.market_code === "GLOBAL",
-    );
+    setPricingVerification(derivePricingVerificationState(data, {
+      amountMinor: expectedAmountMinor,
+      currencyCode: PRICING.CURRENCY_CODE,
+      currencyExponent: 2,
+      billingInterval: expectedBillingInterval,
+      billingIntervalCount: 1,
+      marketCode: "GLOBAL",
+    }));
   }
 
   return (
@@ -123,8 +115,8 @@ export default function Pricing() {
               Simple, transparent pricing.
             </h1>
             <p className="text-sm text-muted-foreground max-w-lg mx-auto leading-relaxed">
-              One professional licence covers your entire firm. No per-module fees.
-              No per-company limits.
+              One professional licence supports your firm-wide reporting workflow.
+              No per-module fees.
             </p>
           </div>
 
@@ -259,7 +251,7 @@ export default function Pricing() {
                   focusable before parity is confirmed. `null` (loading, or
                   the offer hasn't resolved yet) and `false` (explicit
                   mismatch) are both non-actionable. */}
-              <div hidden={pricingParityOk !== true}>
+              <div hidden={pricingVerification !== "VERIFIED"}>
                 <CheckoutUpgradeButton
                   billingStatus={null}
                   planCode="PAID"
@@ -267,12 +259,19 @@ export default function Pricing() {
                   onOfferResolved={handleOfferResolved}
                 />
               </div>
-              {pricingParityOk === null && (
+              {pricingVerification === "VERIFYING" && (
                 <p className="text-xs text-background/60 text-center py-2 border border-background/20">
                   Verifying pricing…
                 </p>
               )}
-              {pricingParityOk === false && (
+              {pricingVerification === "UNAVAILABLE" && (
+                <p className="text-xs text-background/60 text-center py-2 border border-background/20">
+                  {interval === "annual"
+                    ? "Annual checkout is temporarily unavailable. Select Monthly or contact support."
+                    : "Monthly checkout is temporarily unavailable. Select Annual or contact support."}
+                </p>
+              )}
+              {pricingVerification === "MISMATCH" && (
                 <p className="text-xs text-background/60 text-center py-2 border border-background/20">
                   Pricing verification issue — please contact support to upgrade.
                 </p>
@@ -298,8 +297,8 @@ export default function Pricing() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {[
                 {
-                  label: "Unlimited scope",
-                  detail: "No limits on companies, reporting periods, or firm members.",
+                  label: "Firm-wide workflow",
+                  detail: "Manage multiple companies, reporting periods, and firm members in one governed workspace.",
                 },
                 {
                   label: "Jurisdiction pack",

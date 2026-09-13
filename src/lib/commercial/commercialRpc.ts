@@ -42,6 +42,11 @@ export interface CommercialRpcSignature {
       /** Ω3-CHECKOUT: the current licence's originating checkout interval, when one exists (NULL for FREE/admin-granted licences). */
       billing_interval: "MONTHLY" | "ANNUAL" | null;
       billing_interval_count: number | null;
+      scheduled_effective_end: string | null;
+      next_effective_start: string | null;
+      next_effective_end: string | null;
+      next_billing_interval: "MONTHLY" | "ANNUAL" | null;
+      next_billing_interval_count: number | null;
     };
   };
   get_effective_entitlement: {
@@ -140,6 +145,12 @@ export interface CheckoutStatusResponse {
   licenceStatus: string | null;
   effectiveStart: string | null;
   effectiveEnd: string | null;
+  billingInterval: "MONTHLY" | "ANNUAL" | null;
+  billingIntervalCount: number | null;
+  purchasedLicenceId: string | null;
+  purchasedLicenceStatus: string | null;
+  purchasedEffectiveStart: string | null;
+  purchasedEffectiveEnd: string | null;
   correlationId: string;
 }
 
@@ -151,6 +162,12 @@ interface RawCheckoutStatusResponse {
   licence_status?: string | null;
   effective_start?: string | null;
   effective_end?: string | null;
+  billing_interval?: "MONTHLY" | "ANNUAL" | null;
+  billing_interval_count?: number | null;
+  purchased_licence_id?: string | null;
+  purchased_licence_status?: string | null;
+  purchased_effective_start?: string | null;
+  purchased_effective_end?: string | null;
   correlationId: string;
 }
 
@@ -272,6 +289,12 @@ function mapRawCheckoutStatusResponse(json: RawCheckoutStatusResponse): Checkout
     licenceStatus: json.licence_status ?? null,
     effectiveStart: json.effective_start ?? null,
     effectiveEnd: json.effective_end ?? null,
+    billingInterval: json.billing_interval ?? null,
+    billingIntervalCount: json.billing_interval_count ?? null,
+    purchasedLicenceId: json.purchased_licence_id ?? null,
+    purchasedLicenceStatus: json.purchased_licence_status ?? null,
+    purchasedEffectiveStart: json.purchased_effective_start ?? null,
+    purchasedEffectiveEnd: json.purchased_effective_end ?? null,
     correlationId: json.correlationId,
   };
 }

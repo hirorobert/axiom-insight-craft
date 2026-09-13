@@ -177,7 +177,7 @@ describe("Ω3-BRAND · pricing and checkout guards", () => {
     // Ω3-CHECKOUT audit HIGH fix (pricing parity) also imports the
     // ResolvedOfferData type alongside the component — still the SAME
     // single source module, never a second/duplicated import path.
-    expect(src).toMatch(/import \{ CheckoutUpgradeButton,[^}]*\} from "@\/components\/commercial\/CheckoutUpgradeButton";/);
+    expect(src).toMatch(/import \{[\s\S]*?CheckoutUpgradeButton,[\s\S]*?\} from "@\/components\/commercial\/CheckoutUpgradeButton";/);
   });
 
   it("33 · Ω3-CHECKOUT — Settings.tsx (real source) invokes checkout/renewal ONLY through the shared CheckoutUpgradeButton component, never a direct/duplicated call of its own", () => {

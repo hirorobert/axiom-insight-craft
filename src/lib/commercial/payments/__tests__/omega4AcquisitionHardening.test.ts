@@ -30,6 +30,7 @@ const FLUTTERWAVE_PATH = path.join(REPO_ROOT, "supabase/functions/_shared/paymen
 const ROUTING_PATH = path.join(REPO_ROOT, "supabase/functions/_shared/payments/routing.ts");
 const PRICING_PATH = path.join(REPO_ROOT, "src/pages/Pricing.tsx");
 const SETTINGS_PATH = path.join(REPO_ROOT, "src/pages/Settings.tsx");
+const CHECKOUT_BUTTON_PATH = path.join(REPO_ROOT, "src/components/commercial/CheckoutUpgradeButton.tsx");
 
 function stripSqlComments(sql: string): string {
   return sql.replace(/--.*$/gm, "");
@@ -47,6 +48,7 @@ const flutterwaveCode = stripTsComments(fs.readFileSync(FLUTTERWAVE_PATH, "utf-8
 const routingCode = stripTsComments(fs.readFileSync(ROUTING_PATH, "utf-8"));
 const pricingCode = stripTsComments(fs.readFileSync(PRICING_PATH, "utf-8"));
 const settingsCode = stripTsComments(fs.readFileSync(SETTINGS_PATH, "utf-8"));
+const checkoutButtonCode = stripTsComments(fs.readFileSync(CHECKOUT_BUTTON_PATH, "utf-8"));
 
 // ============================================================
 // BLOCKER-2 — atomic customer + PRODUCT acquisition boundary
@@ -381,17 +383,27 @@ describe("HIGH-2 — offer-seed binding re-asserted in full", () => {
 describe("HIGH-3 — pricing parity fails closed (Pricing.tsx and Settings.tsx)", () => {
   for (const [name, code] of [["Pricing.tsx", pricingCode], ["Settings.tsx", settingsCode]] as const) {
     it(`${name}: CheckoutUpgradeButton is wrapped in a native hidden={...} guard, not a conditional-render fallback that could race with the resolution effect`, () => {
-      expect(code).toMatch(/<div hidden=\{(pricingParityOk|renewalPricingParityOk) !== true\}>/);
+      expect(code).toMatch(/<div hidden=\{(pricingVerification|renewalPricingVerification) !== "VERIFIED"\}>/);
     });
 
-    it(`${name}: the parity comparison checks amount, currency, exponent, interval, interval count, AND market — not amount/currency alone`, () => {
-      expect(code).toMatch(/currency_exponent === 2/);
-      expect(code).toMatch(/billing_interval_count === 1/);
-      expect(code).toMatch(/market_code === "GLOBAL"/);
-    });
-
-    it(`${name}: an incomplete resolved offer (missing exponent/interval/interval_count/market) resets parity to null, never treated as a pass`, () => {
-      expect(code).toMatch(/data\.currency_exponent == null \|\| !data\.billing_interval \|\| data\.billing_interval_count == null \|\|\s*\n\s*data\.market_code == null/);
+    it(`${name}: delegates the full-field verdict to the shared fail-closed verification function`, () => {
+      expect(code).toMatch(/derivePricingVerificationState\(data,/);
+      expect(code).toMatch(/currencyExponent: 2/);
+      expect(code).toMatch(/billingIntervalCount: 1/);
+      expect(code).toMatch(/marketCode: "GLOBAL"/);
     });
   }
+
+  it("the shared parity function compares amount, currency, exponent, interval, interval count, and market", () => {
+    for (const field of [
+      "amount_minor === expected.amountMinor",
+      "currency_code === expected.currencyCode",
+      "currency_exponent === expected.currencyExponent",
+      "billing_interval === expected.billingInterval",
+      "billing_interval_count === expected.billingIntervalCount",
+      "market_code === expected.marketCode",
+    ]) {
+      expect(checkoutButtonCode).toContain(field);
+    }
+  });
 });
