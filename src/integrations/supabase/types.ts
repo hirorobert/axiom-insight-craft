@@ -1133,6 +1133,30 @@ export type Database = {
           },
         ]
       }
+      commercial_live_acceptance_allowlist: {
+        Row: {
+          active: boolean
+          added_by: string | null
+          created_at: string
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          added_by?: string | null
+          created_at?: string
+          reason: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          added_by?: string | null
+          created_at?: string
+          reason?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       commercial_offers: {
         Row: {
           amount_minor: number
@@ -2812,19 +2836,26 @@ export type Database = {
           completed_at: string | null
           created_at: string
           created_by_user_id: string
+          creation_lease_expires_at: string | null
+          creation_token: string | null
           currency_code: string
           currency_exponent: number
           expected_amount_minor: number
           expires_at: string
           id: string
+          last_verification_attempt_at: string | null
           market_code: string
           metadata: Json
           plan_id: string
+          product_id: string
           provider: string
           provider_checkout_ref: string | null
           provider_checkout_url: string | null
+          provider_environment: string | null
+          provider_request_started_at: string | null
           saff_reference: string
           status: string
+          verification_claimed_until: string | null
         }
         Insert: {
           billing_customer_id: string
@@ -2834,19 +2865,26 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by_user_id: string
+          creation_lease_expires_at?: string | null
+          creation_token?: string | null
           currency_code: string
           currency_exponent: number
           expected_amount_minor: number
           expires_at?: string
           id?: string
+          last_verification_attempt_at?: string | null
           market_code: string
           metadata?: Json
           plan_id: string
+          product_id: string
           provider: string
           provider_checkout_ref?: string | null
           provider_checkout_url?: string | null
+          provider_environment?: string | null
+          provider_request_started_at?: string | null
           saff_reference: string
           status?: string
+          verification_claimed_until?: string | null
         }
         Update: {
           billing_customer_id?: string
@@ -2856,19 +2894,26 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by_user_id?: string
+          creation_lease_expires_at?: string | null
+          creation_token?: string | null
           currency_code?: string
           currency_exponent?: number
           expected_amount_minor?: number
           expires_at?: string
           id?: string
+          last_verification_attempt_at?: string | null
           market_code?: string
           metadata?: Json
           plan_id?: string
+          product_id?: string
           provider?: string
           provider_checkout_ref?: string | null
           provider_checkout_url?: string | null
+          provider_environment?: string | null
+          provider_request_started_at?: string | null
           saff_reference?: string
           status?: string
+          verification_claimed_until?: string | null
         }
         Relationships: [
           {
@@ -2890,6 +2935,13 @@ export type Database = {
             columns: ["plan_id"]
             isOneToOne: false
             referencedRelation: "commercial_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_pci_product"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_products"
             referencedColumns: ["id"]
           },
         ]
@@ -4928,6 +4980,25 @@ export type Database = {
         Args: { p_feature_code: string; p_owner_user_id: string }
         Returns: Json
       }
+      acquire_checkout_attempt: {
+        Args: {
+          p_amount_minor: number
+          p_billing_customer_id: string
+          p_billing_interval: string
+          p_billing_interval_count: number
+          p_commercial_offer_id: string
+          p_created_by_user_id: string
+          p_currency_code: string
+          p_currency_exponent: number
+          p_market_code: string
+          p_plan_id: string
+          p_product_id: string
+          p_provider: string
+          p_provider_environment: string
+          p_saff_reference: string
+        }
+        Returns: Json
+      }
       admin_billing_lookup: { Args: { p_company_id: string }; Returns: Json }
       admin_get_billing_detail: {
         Args: { p_owner_user_id: string }
@@ -4954,6 +5025,14 @@ export type Database = {
       }
       admin_list_commercial_offers: {
         Args: { p_plan_code?: string }
+        Returns: Json
+      }
+      admin_resolve_manual_review_intent: {
+        Args: {
+          p_checkout_intent_id: string
+          p_reason: string
+          p_resolution: string
+        }
         Returns: Json
       }
       admin_revoke_entitlement_override: {
@@ -4996,6 +5075,7 @@ export type Database = {
           p_market_code: string
           p_offer_code: string
           p_plan_code: string
+          p_product_code?: string
           p_reason: string
         }
         Returns: Json
@@ -5003,6 +5083,18 @@ export type Database = {
       assert_engagement_write_authority: {
         Args: { p_engagement_id: string }
         Returns: string
+      }
+      assert_platform_state_permits: {
+        Args: { p_acting_user_id: string; p_provider_environment: string }
+        Returns: undefined
+      }
+      begin_provider_checkout_request: {
+        Args: { p_checkout_intent_id: string; p_creation_token: string }
+        Returns: Json
+      }
+      cancel_checkout_attempt: {
+        Args: { p_billing_customer_id: string; p_checkout_intent_id: string }
+        Returns: Json
       }
       carry_forward_wdv: {
         Args: { p_company_id: string; p_from_year: number; p_to_year: number }
@@ -5013,6 +5105,14 @@ export type Database = {
           wdv_closing_prior: number
           wdv_opening_new: number
         }[]
+      }
+      claim_verification_attempt: {
+        Args: {
+          p_checkout_intent_id: string
+          p_cooldown_seconds?: number
+          p_requesting_user_id: string
+        }
+        Returns: Json
       }
       commit_tb_certification: {
         Args: {
@@ -5040,6 +5140,7 @@ export type Database = {
           p_normalized_status: string
           p_payload_hash: string
           p_provider: string
+          p_provider_environment: string
           p_provider_status: string
           p_provider_transaction_id: string
           p_saff_reference: string
@@ -5193,9 +5294,34 @@ export type Database = {
         }
         Returns: string
       }
+      mark_checkout_attempt_failed: {
+        Args: {
+          p_checkout_intent_id: string
+          p_creation_token: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      mark_checkout_attempt_uncertain: {
+        Args: {
+          p_checkout_intent_id: string
+          p_creation_token: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       next_engagement_sequence: {
         Args: { p_engagement_id: string }
         Returns: number
+      }
+      persist_checkout_provider_result: {
+        Args: {
+          p_checkout_intent_id: string
+          p_creation_token: string
+          p_provider_checkout_ref: string
+          p_provider_checkout_url: string
+        }
+        Returns: Json
       }
       record_payment_reversal: {
         Args: {
@@ -5220,7 +5346,11 @@ export type Database = {
         Returns: Json
       }
       resolve_commercial_offer: {
-        Args: { p_market_code?: string; p_plan_code: string }
+        Args: {
+          p_billing_interval: string
+          p_market_code?: string
+          p_plan_code: string
+        }
         Returns: Json
       }
       revoke_engagement_authority: {
