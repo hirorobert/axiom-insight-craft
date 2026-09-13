@@ -1,10 +1,18 @@
 /**
  * WorkspaceOverview — the authenticated first screen. One decision, nothing else.
  *
- * Three zones only:
+ * Two zones only:
  *   A. Engagement identity  — company · fiscal year, quiet. TIN only when it blocks.
  *   B. Current decision     — the ONE dominant CTA on this screen.
- *   C. Engagement path      — the canonical 7 stages as quiet orientation.
+ *
+ * The former Zone C ("Engagement path" — a dot/check/lock chip strip
+ * repeating the same 7 stages) was removed: WorkspaceLayout's own persistent
+ * top tab bar already shows every stage's status on this exact page, in a
+ * plainer underline-tab convention. Rendering the identical information
+ * twice, in two different visual metaphors, directly beneath the one
+ * dominant CTA this screen exists to present, was pure duplication — and
+ * the dot/check/lock chip path was, of the two, the one that read as a
+ * game's level-progress tracker rather than professional software chrome.
  *
  * Presentation only. Every count, status, lock reason and next action is read
  * from workspaceState / upload.processing_result. No accounting state is derived
@@ -17,7 +25,7 @@ import { Link } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, AlertTriangle, RefreshCw, Upload, Check, Lock } from "lucide-react";
+import { ArrowRight, AlertTriangle, RefreshCw, Upload } from "lucide-react";
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -26,6 +34,7 @@ import EngagementScopeDialog from "@/components/workspace/EngagementScopeDialog"
 import PreviousEngagementWork from "@/components/workspace/PreviousEngagementWork";
 import { useEngagement } from "@/contexts/EngagementContext";
 import { buildPrepareReviewRoute } from "@/lib/workspace/resolveActiveUpload";
+import { capabilityTitle } from "@/lib/workspace/mandate";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -396,79 +405,13 @@ export default function WorkspaceOverview() {
         </SurfaceCard>
       </section>
 
-      {/* ── ZONE C · Engagement path — quiet orientation, zero CTA weight ── */}
-      <nav aria-label="Engagement path" data-testid="engagement-path">
-        <ol className="flex flex-wrap items-center gap-x-1 gap-y-2 -mx-1">
-          {pathStages.map((slug, i) => {
-            const mission = missions[slug];
-            const isLocked = mission.status === "locked" || mission.status === "not_applicable";
-            const isComplete = mission.status === "passed" || mission.status === "signed";
-            const isCurrent = i === activeIndex;
-            const label = STAGE_CONFIGS[slug].label;
-
-            const inner = (
-              <span
-                className={[
-                  "inline-flex items-center gap-1.5 px-2 py-1 text-[12px] whitespace-nowrap",
-                  isCurrent
-                    ? "text-foreground font-medium"
-                    : isComplete
-                      ? "text-muted-foreground"
-                      : isLocked
-                        ? "text-muted-foreground/45"
-                        : "text-muted-foreground/70",
-                ].join(" ")}
-              >
-                {isComplete && <Check className="w-3 h-3 text-success shrink-0" />}
-                {isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
-                {isLocked && <Lock className="w-3 h-3 shrink-0 text-muted-foreground/40" />}
-                {label}
-              </span>
-            );
-
-            return (
-              <li key={slug} className="flex items-center">
-                {isLocked ? (
-                  <span
-                    title={
-                      mission.blocker
-                        ? `Locked — ${mission.blocker}`
-                        : "Locked — an earlier stage must pass first"
-                    }
-                    aria-label={
-                      mission.blocker
-                        ? `${label}. Locked — ${mission.blocker}`
-                        : `${label}. Locked.`
-                    }
-                    className="cursor-default"
-                  >
-                    {inner}
-                  </span>
-                ) : (
-                  <Link
-                    to={mission.href}
-                    title={STAGE_CONFIGS[slug].description}
-                    className="hover:text-foreground transition-colors"
-                  >
-                    {inner}
-                  </Link>
-                )}
-                {i < pathStages.length - 1 && (
-                  <span aria-hidden className="text-muted-foreground/25 text-[11px] px-0.5">
-                    /
-                  </span>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-      </nav>
-
-      {/* Mandate footnote — one quiet line, and the only amend affordance. */}
+      {/* Mandate footnote — one quiet line, and the only amend affordance.
+          Names the actual outcomes (not just a bare count) so the destination
+          this engagement is heading toward is visible from the home screen,
+          not only inside the scope-declaration dialog where it was chosen. */}
       {engagement && mandate && mandate.granted.length > 0 && (
         <p className="mt-4 text-[12px] text-muted-foreground/80">
-          This engagement covers {mandate.granted.length}{" "}
-          {mandate.granted.length === 1 ? "outcome" : "outcomes"}.
+          This engagement covers {mandate.granted.map((cap) => capabilityTitle(cap)).join(", ")}.
           {canAmend && (
             <>
               {" "}

@@ -11,7 +11,7 @@
  *   - Resolved exceptions are displayed as read-only audit evidence.
  *
  * Design:
- *   - Uses existing card/badge primitives from the SAFF ERP UI library
+ *   - Uses existing card/badge primitives from the CFOClose UI library
  *   - Colors: #0E1D30 (dark), #0E6B55 (green), #55657A (muted)
  *   - No new color tokens introduced
  */

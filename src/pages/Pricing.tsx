@@ -25,6 +25,9 @@ import { CheckoutUpgradeButton, type ResolvedOfferData } from "@/components/comm
 
 type BillingInterval = "monthly" | "annual";
 
+const FREE_TAGLINE = "For trying the workflow before you commit to it.";
+const PAID_TAGLINE = "For firms who need it done right, not just done.";
+
 const FREE_FEATURES = [
   "One company, one active reporting period",
   "Full IFRS-oriented classification workflow",
@@ -174,6 +177,7 @@ export default function Pricing() {
                 <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60 mb-3">
                   {PRICING.FREE_NAME}
                 </p>
+                <p className="text-sm text-foreground mb-4">{FREE_TAGLINE}</p>
                 <p className="text-3xl font-bold text-foreground mb-1">
                   {PRICING.CURRENCY_CODE} 0
                 </p>
@@ -197,34 +201,37 @@ export default function Pricing() {
               </Button>
             </div>
 
-            {/* Professional */}
-            <div className="border-2 border-primary p-8 flex flex-col relative">
+            {/* Professional — spotlight treatment: this is the plan almost
+                every visitor should land on, so it needs to visually win
+                the comparison at a glance, not just carry a thin outline. */}
+            <div className="bg-foreground text-background p-8 flex flex-col relative">
               <div className="absolute top-0 right-0 bg-primary px-3 py-1">
                 <span className="text-[10px] font-mono uppercase tracking-widest text-primary-foreground">
-                  Professional
+                  Recommended
                 </span>
               </div>
 
               <div className="mb-6">
-                <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60 mb-3">
+                <p className="text-[10px] font-mono uppercase tracking-widest text-background/60 mb-3">
                   {PRICING.PAID_NAME}
                 </p>
-                <p className="text-3xl font-bold text-foreground mb-1" aria-live="polite">
+                <p className="text-sm text-background mb-4">{PAID_TAGLINE}</p>
+                <p className="text-3xl font-bold text-background mb-1" aria-live="polite">
                   {interval === "annual" ? annualDisplay : monthlyDisplay}
                 </p>
                 {interval === "annual" && (
                   <p className="text-xs text-success font-medium">{annualSavingDisplay} vs monthly</p>
                 )}
                 {interval === "monthly" && (
-                  <p className="text-xs text-muted-foreground">or {annualDisplay} — {annualSavingDisplay}</p>
+                  <p className="text-xs text-background/60">or {annualDisplay} — {annualSavingDisplay}</p>
                 )}
               </div>
 
               <ul className="space-y-3 mb-8 flex-1">
                 {PAID_FEATURES.map((f) => (
                   <li key={f} className="flex items-start gap-3">
-                    <Check size={14} className="text-primary mt-0.5 shrink-0" />
-                    <span className="text-xs text-muted-foreground leading-relaxed">{f}</span>
+                    <Check size={14} className="text-background mt-0.5 shrink-0" />
+                    <span className="text-xs text-background/70 leading-relaxed">{f}</span>
                   </li>
                 ))}
               </ul>
@@ -261,18 +268,18 @@ export default function Pricing() {
                 />
               </div>
               {pricingParityOk === null && (
-                <p className="text-xs text-muted-foreground text-center py-2 border border-border">
+                <p className="text-xs text-background/60 text-center py-2 border border-background/20">
                   Verifying pricing…
                 </p>
               )}
               {pricingParityOk === false && (
-                <p className="text-xs text-muted-foreground text-center py-2 border border-border">
+                <p className="text-xs text-background/60 text-center py-2 border border-background/20">
                   Pricing verification issue — please contact support to upgrade.
                 </p>
               )}
-              <p className="text-[10px] text-muted-foreground/60 text-center mt-2">
+              <p className="text-[10px] text-background/50 text-center mt-2">
                 Start with a free workspace to explore the platform first.{" "}
-                <Link to="/auth" className="underline hover:text-foreground">Start free</Link>
+                <Link to="/auth" className="underline hover:text-background">Start free</Link>
               </p>
             </div>
 

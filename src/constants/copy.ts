@@ -15,7 +15,12 @@
 export const BRAND = {
   name:    "CFOClose",
   domain:  "cfoclose.com",
-  tagline: "Financial statement workflow for professional firms.",
+  // Persona-neutral: this platform serves an individual accountant or
+  // finance professional closing their own books just as directly as an
+  // audit/bookkeeping firm running an engagement for a client — the
+  // workflow underneath is identical either way, so the copy must never
+  // assume "you work on someone else's accounts."
+  tagline: "Financial statement workflow for accountants, finance teams, and firms.",
 } as const;
 
 export const CTA = {
@@ -26,7 +31,7 @@ export const CTA = {
 
 export const HERO = {
   eyebrow:  "CFOClose",
-  headline: "Your client's accounts. Review-ready. Every stage traceable.",
+  headline: "Trial balance to financial statements. Review-ready. Every stage traceable.",
   subhead:
     "Move from trial balance to IFRS-oriented financial statements through a controlled workflow with review evidence, audit history and jurisdiction-aware compliance.",
 } as const;

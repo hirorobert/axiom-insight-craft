@@ -170,7 +170,7 @@ export function ClientSummaryPanel({ companyId, uploadId, periodYear, companyNam
       topFindings: (highFinds ?? []).map(f => f.title),
       upcomingDeadlines: deadlines,
       cpaName: profile?.[0]?.display_name ?? "Your CPA",
-      cpaFirm: firmProf?.[0]?.company_name ?? "SAFF ERP",
+      cpaFirm: firmProf?.[0]?.company_name ?? "Your Firm",
       generatedAt: new Date().toISOString(),
     });
 
@@ -345,11 +345,11 @@ export function ClientSummaryPanel({ companyId, uploadId, periodYear, companyNam
                 {/* ── Disclaimer ───────────────────────────────────────── */}
                 <div className="border-t border-border/40 pt-4">
                   <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
-                    This summary was prepared by {data.cpaName} ({data.cpaFirm}) using SAFF ERP / Kinga Engine on {fmtDate(data.generatedAt)}.
+                    This summary was prepared by {data.cpaName} ({data.cpaFirm}) using CFOClose / Kinga Engine on {fmtDate(data.generatedAt)}.
                     It is intended for the use of {companyName ?? "the company"} only and should not be shared with third parties
                     without the written consent of your CPA. Figures are based on the trial balance provided and are subject to
                     review by the Tanzania Revenue Authority. This document does not constitute a final tax assessment.
-                    © SAFF ERP | Powered by Kinga | ITA Chapter 332, R.E. 2023 compliant.
+                    © CFOClose | Powered by Kinga | ITA Chapter 332, R.E. 2023 compliant.
                   </p>
                 </div>
               </div>

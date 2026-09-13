@@ -2,7 +2,7 @@
  * ConfidenceScoreBar.tsx · SAFISHA Stage 6
  *
  * Small bar component showing a Safisha confidence score (0–100).
- * Colors use only the locked SAFF ERP palette:
+ * Colors use only the locked CFOClose palette:
  *   #0E6B55 = green (high confidence)
  *   #55657A = muted (medium)
  *   Destructive red (low)

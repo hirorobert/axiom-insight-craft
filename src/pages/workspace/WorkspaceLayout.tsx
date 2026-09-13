@@ -23,7 +23,7 @@ import { EngagementContext } from "@/contexts/EngagementContext";
 import { useWorkspaceData } from "@/hooks/useWorkspaceData";
 import { useEngagementMandate } from "@/hooks/useEngagementMandate";
 import { projectMandate } from "@/lib/workspace/mandate";
-import { SaffLogo } from "@/components/SaffLogo";
+import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -195,11 +195,11 @@ export default function WorkspaceLayout() {
             <div className="flex items-center gap-3 min-w-0">
               <Link
                 to="/dashboard"
-                title="SAFF ERP — back to your workspaces"
-                aria-label="SAFF ERP home"
+                title="CFOClose — back to your workspaces"
+                aria-label="CFOClose home"
                 className="shrink-0 -ml-1 rounded px-1 py-1 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <SaffLogo variant="header" className="h-6 w-auto" />
+                <CFOCloseWordmark className="text-base" />
               </Link>
               <div className="h-4 w-px bg-border shrink-0" />
               {loading ? (

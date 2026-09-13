@@ -3,7 +3,7 @@
  * Sprint 6 Item 1 — Iron Dome Nuclear Design
  *
  * Multi-year view of period_closing_balances for a company.
- * This is the ENGINE ROOM of SAFF ERP multi-year continuity:
+ * This is the ENGINE ROOM of CFOClose multi-year continuity:
  *   - W&T Written-Down Values by ITA Class (carry-forward for next year's capital allowances)
  *   - Deferred Tax position (DTL / DTA / net) — IAS 12 / IFRS for SMEs s.29
  *   - Cumulative unrelieved loss pool — ITA s.19(2), max 7-year relief

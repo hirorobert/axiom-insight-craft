@@ -17,7 +17,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import FirstRunEngagement from "@/components/workspace/FirstRunEngagement";
-import { SaffLogo } from "@/components/SaffLogo";
+import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface Company {
@@ -137,7 +137,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border h-14 flex items-center px-6">
-        <SaffLogo variant="header" className="h-7 w-auto" />
+        <CFOCloseWordmark className="text-lg" />
       </header>
 
       <main className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-5 py-10">

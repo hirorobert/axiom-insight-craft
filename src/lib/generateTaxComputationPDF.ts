@@ -170,7 +170,7 @@ export function generateTaxComputationPDF(opts: GeneratePDFOptions): void {
       doc.setTextColor(130);
       doc.setFont("helvetica", "normal");
       doc.text(
-        `SAFF ERP  |  kinga-tax-engine ${result.engine_version}  |  ITA Cap.332 R.E.2023  |  Confidential`,
+        `CFOClose  |  kinga-tax-engine ${result.engine_version}  |  ITA Cap.332 R.E.2023  |  Confidential`,
         margin, pageH - 8,
       );
       doc.text(`Page ${i} of ${n}`, pageW - margin, pageH - 8, { align: "right" });
@@ -229,7 +229,7 @@ export function generateTaxComputationPDF(opts: GeneratePDFOptions): void {
   doc.setFontSize(10);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
-  doc.text("SAFF ERP", margin, 14);
+  doc.text("CFOClose", margin, 14);
 
   doc.setFontSize(7.5);
   doc.setFont("helvetica", "normal");

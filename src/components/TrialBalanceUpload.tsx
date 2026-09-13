@@ -451,7 +451,7 @@ export const TrialBalanceUpload = ({
               Upload Multiple Trial Balances
             </h2>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-              Upload CSV or Excel. SAFF ERP validates, classifies every account, and produces statutory-grade output.
+              Upload CSV or Excel. CFOClose validates, classifies every account, and produces statutory-grade output.
             </p>
           </div>
         )}
@@ -612,7 +612,7 @@ export const TrialBalanceUpload = ({
               <div>
                 <p className="font-medium text-foreground mb-1">What happens next</p>
                 <p className="text-muted-foreground">
-                  SAFF ERP will validate every account, check that Debits = Credits,
+                  CFOClose will validate every account, check that Debits = Credits,
                   classify each account automatically, and block export until all checks pass.
                 </p>
               </div>

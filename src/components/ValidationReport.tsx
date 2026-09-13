@@ -113,7 +113,7 @@ export function ValidationReport({
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <FileSpreadsheet className="w-5 h-5 text-primary" />
-              SAFF ERP -- Document Detection
+              CFOClose -- Document Detection
             </CardTitle>
             <Badge className="bg-muted text-muted-foreground border-border text-xs">
               REVIEW REQUIRED
@@ -233,7 +233,7 @@ export function ValidationReport({
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
             <FileCheck className="w-5 h-5 text-primary" />
-            SAFF ERP -- Validation Report
+            CFOClose -- Validation Report
           </CardTitle>
           <Badge className={statusColor}>{statusLabel}</Badge>
         </div>

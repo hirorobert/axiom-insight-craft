@@ -12,9 +12,9 @@ export default function Terms() {
 
         <section className="space-y-8 text-sm leading-relaxed text-muted-foreground">
           <div>
-            <h2 className="text-lg font-semibold text-foreground mb-2">1. What SAFF ERP is today</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-2">1. What CFOClose is today</h2>
             <p>
-              SAFF ERP is accounting-workflow software for Tanzania-focused audit and
+              CFOClose is accounting-workflow software for Tanzania-focused audit and
               tax engagements: trial balance preparation, bank reconciliation,
               financial statement drafting, tax computation support, compliance
               review, filing pack preparation, and monitoring. It is a tool that
