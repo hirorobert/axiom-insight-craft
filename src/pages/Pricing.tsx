@@ -265,11 +265,13 @@ export default function Pricing() {
                 </p>
               )}
               {pricingVerification === "UNAVAILABLE" && (
-                <p className="text-xs text-background/60 text-center py-2 border border-background/20">
-                  {interval === "annual"
-                    ? "Annual checkout is temporarily unavailable. Select Monthly or contact support."
-                    : "Monthly checkout is temporarily unavailable. Select Annual or contact support."}
-                </p>
+                <div className="text-xs text-background/60 text-center py-2 px-3 border border-background/20 space-y-1.5">
+                  <p>Online checkout is temporarily unavailable for this plan.</p>
+                  <p>
+                    <Link to="/auth" className="underline hover:text-background">Start free</Link>
+                    {" "}while you wait, or contact support about firm licensing.
+                  </p>
+                </div>
               )}
               {pricingVerification === "MISMATCH" && (
                 <p className="text-xs text-background/60 text-center py-2 border border-background/20">
