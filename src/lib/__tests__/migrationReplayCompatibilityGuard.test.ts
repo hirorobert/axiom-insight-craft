@@ -125,7 +125,7 @@ function readMigration(fileName: string): string {
 }
 
 describe("migration directory integrity", () => {
-  it("contains exactly 118 migration files", () => {
+  it("contains exactly 119 migration files", () => {
     // Bumped from 113 -> 114: 20260912100000_omega3_checkout_cfoclose_
     // offers_and_interval_authority.sql (Ω3-CHECKOUT), forward-only,
     // sorts after every prior file. Bumped from 114 -> 115:
@@ -134,9 +134,16 @@ describe("migration directory integrity", () => {
     // 20260914000000_omega3_checkout_provider_boundary_repair.sql,
     // forward-only and sorted after the acquisition migration it repairs.
     // The Lovable-managed prerequisite record added 117; the forward-only
-    // Ω5 billing projection migration added 118.
+    // Ω5 billing projection migration added 118. Bumped from 118 -> 119:
+    // 20260913165425_b9a0a379-313f-48ec-8878-e6f0aefff5a7.sql — a second
+    // Lovable-managed migration-ledger alias, sorting between the Ω4
+    // acquisition-hardening migration and the Ω3 provider-boundary-repair
+    // migration. It is semantically identical (see
+    // lovableMigrationLedgerAlias.test.ts's Ω5 alias-divergence guard) to
+    // 20260914120000_omega5_billing_projection_truth.sql, aside from
+    // trailing whitespace/newline differences.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(118);
+    expect(files.length).toBe(119);
   });
 });
 
