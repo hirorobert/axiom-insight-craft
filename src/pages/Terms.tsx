@@ -14,13 +14,16 @@ export default function Terms() {
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">1. What CFOClose is today</h2>
             <p>
-              CFOClose is accounting-workflow software for Tanzania-focused audit and
-              tax engagements: trial balance preparation, bank reconciliation,
+              CFOClose is accounting-workflow software for audit and finance
+              teams: trial balance preparation, bank reconciliation,
               financial statement drafting, tax computation support, compliance
-              review, filing pack preparation, and monitoring. It is a tool that
-              assists a firm's own professionals — it does not replace professional
-              judgment, and it is not itself a licensed audit, tax, or accounting
-              firm.
+              review, filing pack preparation, and analytical monitoring. It is a
+              tool that assists a firm's own professionals — it does not replace
+              professional judgment, and it is not itself a licensed audit, tax, or
+              accounting firm. Jurisdiction-specific compliance capabilities
+              (including statutory tax computation and regulatory filing packs) are
+              available as configuration packs and apply only when explicitly
+              enabled for an engagement.
             </p>
           </div>
 
@@ -57,13 +60,12 @@ export default function Terms() {
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">5. No warranty of statutory accuracy</h2>
             <p>
-              Tanzania tax and accounting rules referenced by the service (ITA
-              Cap.332, Finance Act updates, IPSAS/IFRS for SMEs, TRA requirements)
-              are applied on a best-effort basis and kept current as practically
-              possible. The service does not warrant that every computation is free
-              of error or that it reflects the very latest regulatory change at all
-              times. A qualified professional must review outputs before they are
-              relied upon or filed.
+              Accounting and tax rules applied by the service are updated on a
+              best-effort basis. The service does not warrant that every
+              computation is free of error or that it reflects the most recent
+              regulatory change at all times. A qualified professional must review
+              outputs before they are relied upon, filed, or submitted to any
+              authority.
             </p>
           </div>
 
