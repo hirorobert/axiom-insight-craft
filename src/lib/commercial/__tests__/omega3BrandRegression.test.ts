@@ -488,3 +488,110 @@ describe("Ω3-BRAND · public favicon identity (real source)", () => {
     expect(html).not.toContain("SAFF ERP");
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// PART 6 — Phase B controlled correction (H-1 tablet nav collision,
+// M-1 missing mobile sign-in, H-2 unenforced commercial limits)
+// ─────────────────────────────────────────────────────────────
+
+describe("Ω3-BRAND · Header responsive navigation — H-1 tablet collision fix (real source)", () => {
+  const headerSrc = readSource("src/components/Header.tsx");
+  // Everything from the "Mobile Menu" render block to end of file — isolates
+  // the signed-out mobile controls from the unrelated desktop right-actions
+  // block, which also contains a `to="/auth"` Sign-in link.
+  const mobileMenuSrc = headerSrc.slice(headerSrc.indexOf("{/* Mobile Menu */}"));
+
+  it("63 · desktop navigation and right-actions reveal at the lg breakpoint, not md — no `hidden md:flex` visibility toggle remains", () => {
+    expect(headerSrc).not.toMatch(/hidden md:flex/);
+    expect(headerSrc).toMatch(/<nav className="hidden lg:flex/);
+    expect(headerSrc).toMatch(/<div className="hidden lg:flex/);
+  });
+
+  it("64 · the mobile menu toggle button and mobile menu container collapse at lg, not md — the mobile presentation stays active for every width below 1024px", () => {
+    expect(headerSrc).not.toMatch(/className="md:hidden/);
+    expect(headerSrc).toMatch(/className="lg:hidden p-2 text-foreground"/);
+    expect(headerSrc).toMatch(/<div className="lg:hidden bg-card/);
+  });
+
+  it("65 · Header.tsx introduces no second/duplicated navigation implementation — exactly one <nav> element and one mobile-menu toggle handler", () => {
+    expect((headerSrc.match(/<nav\b/g) ?? []).length).toBe(1);
+    expect((headerSrc.match(/setMobileOpen\(!mobileOpen\)/g) ?? []).length).toBe(1);
+  });
+
+  it("66 · M-1 — the signed-out mobile menu contains both a Sign in action and a Choose outcome action, Sign in listed first", () => {
+    const signInIndex = mobileMenuSrc.indexOf(
+      '<Link to="/auth" onClick={() => setMobileOpen(false)}>Sign in</Link>',
+    );
+    const chooseOutcomeIndex = mobileMenuSrc.indexOf("Choose outcome");
+    expect(signInIndex, "expected the mobile Sign in link in the signed-out menu").toBeGreaterThan(-1);
+    expect(chooseOutcomeIndex, "expected the mobile Choose outcome action").toBeGreaterThan(-1);
+    expect(signInIndex, "Sign in must be listed before Choose outcome").toBeLessThan(chooseOutcomeIndex);
+  });
+
+  it("67 · M-1 — both signed-out mobile actions close the mobile menu when activated", () => {
+    const signedOutBranch = mobileMenuSrc.slice(mobileMenuSrc.indexOf("Sign in") - 400);
+    // Exactly two `setMobileOpen(false)` close-handlers in the signed-out
+    // branch: one on Sign in, one on Choose outcome.
+    const closeHandlers = signedOutBranch
+      .slice(0, signedOutBranch.indexOf("Choose outcome") + 200)
+      .match(/onClick=\{\(\) => setMobileOpen\(false\)\}/g) ?? [];
+    expect(closeHandlers.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("68 · M-1 — both signed-out mobile actions use the `lg` button size (48px) for a practical touch target of at least 44px, and neither duplicates the page's single primary CTA", () => {
+    const signInButtonMatch = mobileMenuSrc.match(
+      /<Button variant="outline" size="lg"[^>]*>\s*<Link to="\/auth"/,
+    );
+    const chooseOutcomeButtonMatch = mobileMenuSrc.match(
+      /<Button variant="hero" size="lg"[^>]*>\s*<a\b/,
+    );
+    expect(signInButtonMatch, "Sign in must render as an outline/restrained lg-sized button").toBeTruthy();
+    expect(chooseOutcomeButtonMatch, "Choose outcome must remain the sole hero/primary-styled action").toBeTruthy();
+    // Only one hero-variant (primary) button exists in the signed-out mobile menu.
+    expect((mobileMenuSrc.match(/variant="hero"/g) ?? []).length).toBe(1);
+  });
+});
+
+describe("Ω3-BRAND · Pricing/Settings — H-2 unenforced commercial limits removed (real source)", () => {
+  const pricingSrc = readSource("src/pages/Pricing.tsx");
+  const settingsSrc = readSource("src/pages/Settings.tsx");
+
+  it("69 · Pricing.tsx asserts no company-count or period-count entitlement boundary, and no unlimited promise", () => {
+    for (const src of [pricingSrc]) {
+      expect(src).not.toMatch(/one company/i);
+      expect(src).not.toMatch(/multi-company/i);
+      expect(src).not.toMatch(/multi-period/i);
+      expect(src).not.toMatch(/unlimited/i);
+    }
+  });
+
+  it("70 · Settings.tsx asserts no company-count or period-count entitlement boundary, and no unlimited promise", () => {
+    expect(settingsSrc).not.toMatch(/one company/i);
+    expect(settingsSrc).not.toMatch(/multi-company/i);
+    expect(settingsSrc).not.toMatch(/multi-period/i);
+    expect(settingsSrc).not.toMatch(/unlimited/i);
+  });
+
+  it("71 · Pricing.tsx no longer claims 'Audit trail for all actions' — hardened to a scope-neutral, truthful description", () => {
+    expect(pricingSrc).not.toMatch(/Audit trail for all actions/i);
+    expect(pricingSrc).toContain("Recorded workspace activity and review decisions");
+  });
+
+  it("72 · Pricing.tsx uses the approved scope-neutral Free and Professional taglines", () => {
+    expect(pricingSrc).toContain("Create a workspace and evaluate the core reporting workflow");
+    expect(pricingSrc).toContain("Complete professional reporting and review workflow");
+  });
+
+  it("73 · Settings.tsx Plan & Billing free-state copy uses the approved scope-neutral replacement", () => {
+    expect(settingsSrc).toContain(
+      "You are currently using the free plan. Review available plans and released",
+    );
+    expect(settingsSrc).toMatch(/Professional capabilities\.?/);
+  });
+
+  it("74 · neither Pricing.tsx nor Settings.tsx were touched in a way that changes commercial entitlement logic — both still route upgrade/checkout intent through the shared CheckoutUpgradeButton, never a direct call of their own", () => {
+    for (const src of [pricingSrc, settingsSrc]) {
+      expect(src).not.toMatch(/supabase\.functions\.invoke\(\s*["']commercial-create-checkout["']/);
+    }
+  });
+});
