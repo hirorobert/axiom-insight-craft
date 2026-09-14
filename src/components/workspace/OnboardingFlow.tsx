@@ -785,14 +785,14 @@ export default function OnboardingFlow({
       title: "Upload the trial balance",
       detail: uploadPending
         ? "Uploaded — validation is running. Status updates on its own."
-        : "Excel or CSV. Balance-checked, duplicate-screened, and classification-verified before anything else runs.",
+        : "Excel or CSV. Validated against the Tanzania chart of accounts before anything else runs.",
       icon: <Upload className="w-4 h-4" />,
       action: { label: uploadPending ? "Open Prepare Data" : "Upload trial balance", href: `${basePath}/prepare` },
     },
     {
       id: "company",
       title: "Set the TIN and company details",
-      detail: "The tax registration number is required before any jurisdiction filing pack can be produced.",
+      detail: "The 9-digit TRA TIN is required before any filing pack or export can be produced.",
       icon: <Building2 className="w-4 h-4" />,
       action: { label: "Set TIN", onClick: onSetTin },
     },
