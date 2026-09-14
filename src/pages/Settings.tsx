@@ -331,8 +331,8 @@ export default function Settings() {
                         <Badge variant="default">Active</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground leading-relaxed mb-4">
-                        You are on the free plan. Start with one company and one active reporting period.
-                        Upgrade to {PRICING.PAID_NAME} for multi-company reporting and the full IFRS suite.
+                        You are currently using the free plan. Review available plans and released
+                        Professional capabilities.
                       </p>
                       <Button variant="outline" size="sm" asChild className="gap-2">
                         <Link to="/pricing">

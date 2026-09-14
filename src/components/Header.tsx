@@ -44,7 +44,7 @@ export function Header() {
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden md:flex items-center gap-8">
+        <nav className="hidden lg:flex items-center gap-8">
           {isLanding && NAV.map((item) => (
             item.href.startsWith("/") ? (
               <Link
@@ -73,7 +73,7 @@ export function Header() {
         </nav>
 
         {/* Right actions */}
-        <div className="hidden md:flex items-center gap-3">
+        <div className="hidden lg:flex items-center gap-3">
           {user ? (
             <>
               <NotificationBell userId={user?.id} />
@@ -118,7 +118,7 @@ export function Header() {
                 <Link to="/auth">Sign in</Link>
               </Button>
               <Button variant="hero" size="sm" asChild>
-                <Link to="/auth">Start free</Link>
+                <a href={isLanding ? "#outcomes" : "/#outcomes"}>Choose outcome</a>
               </Button>
             </div>
           )}
@@ -126,7 +126,7 @@ export function Header() {
 
         {/* Mobile Toggle */}
         <button
-          className="md:hidden p-2 text-foreground"
+          className="lg:hidden p-2 text-foreground"
           onClick={() => setMobileOpen(!mobileOpen)}
         >
           {mobileOpen ? <X size={24} /> : <Menu size={24} />}
@@ -135,7 +135,7 @@ export function Header() {
 
       {/* Mobile Menu */}
       {mobileOpen && (
-        <div className="md:hidden bg-card border-t border-border px-6 py-4 space-y-4">
+        <div className="lg:hidden bg-card border-t border-border px-6 py-4 space-y-4">
           {isLanding && NAV.map((item) => (
             <a
               key={item.href}
@@ -164,9 +164,19 @@ export function Header() {
                 </Button>
               </>
             ) : (
-              <Button variant="hero" size="sm" asChild>
-                <Link to="/auth">Start free</Link>
-              </Button>
+              <>
+                <Button variant="outline" size="lg" className="w-full" asChild>
+                  <Link to="/auth" onClick={() => setMobileOpen(false)}>Sign in</Link>
+                </Button>
+                <Button variant="hero" size="lg" className="w-full" asChild>
+                  <a
+                    href={isLanding ? "#outcomes" : "/#outcomes"}
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    Choose outcome
+                  </a>
+                </Button>
+              </>
             )}
           </div>
         </div>

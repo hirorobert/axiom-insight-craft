@@ -12,6 +12,7 @@ import { z } from "zod";
 import { useLoginRateLimit } from "@/hooks/useLoginRateLimit";
 import { lovable } from "@/integrations/lovable/index";
 import { translateAuthError } from "@/lib/auth/translateAuthError";
+import { getOutcome, rememberOutcome } from "@/lib/product/outcomes";
 
 const emailSchema = z.string().email("Please enter a valid email address");
 const passwordSchema = z.string().min(6, "Password must be at least 6 characters");
@@ -21,6 +22,7 @@ type AuthMode = "login" | "signup" | "forgot-password" | "reset-password" | "ver
 export default function Auth() {
   const [searchParams] = useSearchParams();
   const initialMode = searchParams.get("mode") as AuthMode || "login";
+  const selectedOutcome = getOutcome(searchParams.get("intent"));
 
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState("");
@@ -43,6 +45,10 @@ export default function Auth() {
     formatRemainingTime,
     attempts
   } = useLoginRateLimit();
+
+  useEffect(() => {
+    if (selectedOutcome) rememberOutcome(selectedOutcome.id);
+  }, [selectedOutcome]);
 
   useEffect(() => {
     if (user && mode !== "reset-password" && mode !== "verify-email") {
@@ -215,7 +221,9 @@ export default function Auth() {
   const getSubtitle = () => {
     switch (mode) {
       case "login": return "Sign in to your CFOClose account";
-      case "signup": return "Start transforming trial balances into insights";
+      case "signup": return selectedOutcome
+        ? `Create a workspace for ${selectedOutcome.shortTitle.toLowerCase()}`
+        : "Start with the financial outcome you need";
       case "forgot-password": return "Enter your email and we'll send you a reset link";
       case "reset-password": return "Enter your new password below";
       case "verify-email": return "We've sent a verification link to your email";
@@ -240,6 +248,14 @@ export default function Auth() {
           </Link>
           <h1 className="text-2xl font-bold text-foreground">{getTitle()}</h1>
           <p className="text-muted-foreground mt-2">{getSubtitle()}</p>
+          {selectedOutcome && (
+            <div className="mt-5 border-y border-border py-3 text-left">
+              <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">
+                Selected outcome
+              </p>
+              <p className="mt-1 text-sm font-semibold text-foreground">{selectedOutcome.title}</p>
+            </div>
+          )}
         </div>
 
         {/* Email Verification Success */}

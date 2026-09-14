@@ -36,6 +36,7 @@ import { useEngagement } from "@/contexts/EngagementContext";
 import { buildPrepareReviewRoute } from "@/lib/workspace/resolveActiveUpload";
 import { capabilityTitle } from "@/lib/workspace/mandate";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
+import { readRememberedOutcome } from "@/lib/product/outcomes";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -149,6 +150,7 @@ export default function WorkspaceOverview() {
 
   const { nextAction, missions } = workspaceState;
   const basePath = `/workspace/${companyId}/${periodYear}`;
+  const selectedOutcome = readRememberedOutcome();
 
   const effectiveTin = tinOverride ?? company?.tin ?? null;
   const tinMissing =
@@ -214,9 +216,12 @@ export default function WorkspaceOverview() {
     // defensible next accounting action, so this is the one decision.
     decision = {
       eyebrow: "Engagement",
-      headline: "What are you preparing for this client?",
-      detail:
-        "Record the outcomes you were engaged to deliver for this period. SAFF then shows only the stages that mandate requires.",
+      headline: selectedOutcome
+        ? `Confirm: ${selectedOutcome.title.toLowerCase()}`
+        : "What are you preparing for this client?",
+      detail: selectedOutcome
+        ? "Confirm or refine this outcome before work begins. CFOClose will show only the stages the engagement requires."
+        : "Record the required deliverables for this period. CFOClose then shows only the stages that mandate requires.",
       button: {
         label: canAmend ? "Declare engagement scope" : "Ask a partner to open the engagement",
         onClick: canAmend ? () => setScopeDialogOpen(true) : undefined,

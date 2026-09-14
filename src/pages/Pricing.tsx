@@ -30,28 +30,25 @@ import {
 
 type BillingInterval = "monthly" | "annual";
 
-const FREE_TAGLINE = "For trying the workflow before you commit to it.";
-const PAID_TAGLINE = "For firms who need it done right, not just done.";
+const FREE_TAGLINE = "Create a workspace and evaluate the core reporting workflow";
+const PAID_TAGLINE = "Complete professional reporting and review workflow";
 
 const FREE_FEATURES = [
-  "One company, one active reporting period",
   "Full IFRS-oriented classification workflow",
   "Statement of Financial Position and Comprehensive Income",
   "Confidence-graded account mapping",
-  "Audit trail for all actions",
+  "Recorded workspace activity and review decisions",
   "Review the full workflow before upgrading",
 ];
 
 const PAID_FEATURES = [
-  "Multi-company and multi-period workflow",
   "Full IFRS statement suite — IAS 1, IAS 7, disclosure notes",
-  "Jurisdiction pack (Tanzania compliance included)",
+  "Configured Tanzania tax and compliance workflow",
   "Bank reconciliation with evidence verification",
   "Comparative financial statements — current vs prior period",
   "Variance analysis with configurable materiality thresholds",
-  "Cash flow forecast and board-pack PDF",
-  "XBRL instance document generation",
-  "Filing readiness checklist and submission package",
+  "Cash outlook when a completed analysis run is available",
+  "Filing-readiness checklist and prepared output package",
   "Firm members with role-based access control",
   "Implementation support included",
 ];

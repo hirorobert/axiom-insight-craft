@@ -30,10 +30,10 @@ export const CTA = {
 } as const;
 
 export const HERO = {
-  eyebrow:  "CFOClose",
-  headline: "Trial balance to financial statements. Review-ready. Every stage traceable.",
+  eyebrow:  "CFOClose · Financial close workspace",
+  headline: "From trial balance to decisions you can defend.",
   subhead:
-    "Move from trial balance to IFRS-oriented financial statements through a controlled workflow with review evidence, audit history and jurisdiction-aware compliance.",
+    "Clean the trial balance, prepare statements, assess tax or analyse risk—inside one controlled workspace that reveals only the work your engagement requires.",
 } as const;
 
 // Above-the-fold proof ledger — what goes in, what is enforced, what comes out.
@@ -45,19 +45,51 @@ export const HERO_LEDGER = [
   },
   {
     key:    "Enforcement",
-    value:  "Seven gated stages",
-    detail: "Each stage requires evidence before advancing. Nothing moves on unverified data.",
+    value:  "Scoped workflow",
+    detail: "The engagement opens only the stages required for the selected outcome.",
   },
   {
     key:    "Output",
-    value:  "Statements and filings",
-    detail: "IFRS-oriented financial statements and jurisdiction-specific compliance output.",
+    value:  "Reviewable deliverables",
+    detail: "Prepared statements, workpapers, findings and close evidence as applicable.",
   },
 ] as const;
 
 // Global footing — no jurisdiction-specific statutory citations.
 export const HERO_FOOTING =
-  "IFRS-oriented reporting workflow available globally. Jurisdiction-specific compliance packs are applied per engagement configuration.";
+  "Framework-aware financial preparation. Jurisdiction-specific tax and compliance capabilities are shown only where configured and validated.";
+
+export const METHOD = [
+  {
+    number: "01",
+    title: "Declare the outcome",
+    detail: "Choose the deliverable required by the engagement. Unrelated stages remain outside the active path.",
+  },
+  {
+    number: "02",
+    title: "Establish the source",
+    detail: "Import the trial balance and supporting evidence. Exceptions remain visible until reviewed.",
+  },
+  {
+    number: "03",
+    title: "Make controlled decisions",
+    detail: "Resolve classifications, review computations and record the professional judgement behind each conclusion.",
+  },
+  {
+    number: "04",
+    title: "Issue the deliverable",
+    detail: "Produce the applicable statements, workpapers or review outputs with their provenance intact.",
+  },
+] as const;
+
+export const DELIVERABLES = [
+  ["Reviewed trial balance", "Account decisions and unresolved exceptions retained"],
+  ["Financial statements", "Framework-aware presentation and validation record"],
+  ["Tax workpapers", "Structured computation and supporting evidence"],
+  ["Compliance review", "Findings, readiness checks and client summary"],
+  ["Performance review", "Comparative movement, variance, cash and risk signals"],
+  ["Close file", "A traceable record of source, decisions and produced outputs"],
+] as const;
 
 // Marketing pipeline — 5 steps for public tour, not the 7-stage workspace sequence.
 // Do not reference stageMetadata.ts — this is presentation copy only.
@@ -103,22 +135,22 @@ export const PLATFORM_TABLE = [
     name:   "Jurisdiction Pack",
     functions: [
       "Wear & tear at jurisdiction-specific asset class rates",
-      "Thin capitalisation limit computation",
-      "Minimum tax gate with loss carry-forward",
-      "Tax workpapers with line-by-line statute tracing",
+      "Structured corporate income-tax workpapers",
+      "Wear-and-tear schedules where configured",
+      "Evidence-linked findings for professional review",
     ],
     basis: "Jurisdiction pack — Tanzania available; others in validation",
   },
   {
     module: "Filing Package",
-    name:   "Submission Ready",
+    name:   "Prepared Output",
     functions: [
       "Filing readiness checklist per jurisdiction requirements",
       "Tax computation PDF",
-      "XBRL instance document generation",
+      "Financial statement and disclosure-note export",
       "Multi-company filing calendar and deadline tracker",
     ],
-    basis: "Jurisdiction-specific submission requirements",
+    basis: "Preparation and readiness support; external submission remains outside the platform",
   },
   {
     module: "Analytics",
@@ -126,8 +158,8 @@ export const PLATFORM_TABLE = [
     functions: [
       "Comparative financial statements — current vs prior period",
       "Variance analysis with configurable materiality thresholds",
-      "Cash flow forecast — AR/AP aging plus statutory calendar",
-      "Board-pack PDF with management narrative",
+      "Cash outlook where a completed analysis run is available",
+      "Evidence-linked portfolio monitoring",
     ],
     basis: "IAS 1.38 — comparative information requirements",
   },
@@ -138,12 +170,12 @@ export const PLATFORM_TABLE = [
 // ─────────────────────────────────────────────────────────────
 
 export const TRUST_GUARANTEES = [
-  "No silent state changes — every transition is recorded with the identity of the actor who made it",
+  "Controlled workflow transitions carry actor attribution wherever the server command boundary applies",
   "Reviewer identity is always read from the authenticated server session — never trusted from the request",
-  "Audit and computation records are append-only — no row can be deleted or silently altered",
+  "Commercial and computation transitions use explicit server-side operations rather than browser-supplied authority",
   "Budget rows are immutable after approval — enforced at the database trigger level, not application code",
   "AI-generated insights carry numeric citations — no unsourced claim is stored",
-  "Materiality thresholds are configurable per company — no hardcoded numbers",
+  "Unavailable or unresolved inputs remain visible — the interface does not invent certainty",
   "Management decision engine outputs require explicit human confirmation before any action executes",
 ] as const;
 
@@ -154,10 +186,10 @@ export const TRUST_GUARANTEES = [
 // The single most important sentence on the marketing site.
 // Used as the section H2.
 export const SECURITY_HEADLINE =
-  "Controls that cannot be bypassed by changing the interface.";
+  "Control belongs at the system boundary, not behind a button.";
 
 export const SECURITY_SUBHEAD =
-  "Critical identity, tenant-isolation, append-only and privileged-operation rules are enforced at the database and server boundary — not merely hidden behind buttons.";
+  "CFOClose treats identity, tenant isolation, evidence and workflow authority as server and database responsibilities. A capability is presented as controlled only after its boundary tests pass.";
 
 export const SECURITY_TABLE = [
   {
@@ -166,7 +198,7 @@ export const SECURITY_TABLE = [
   },
   {
     constraint: "Firm Isolation",
-    spec: "Data access is enforced at the database row level for every table. Firm isolation is structural — it cannot be bypassed by application code.",
+    spec: "Workspace access is bound to authenticated membership. Sensitive engine paths remain subject to continuing database-policy verification before production claims are expanded.",
   },
   {
     constraint: "Append-only Records",
@@ -174,7 +206,7 @@ export const SECURITY_TABLE = [
   },
   {
     constraint: "Period Sign-off",
-    spec: "Period sign-off requires dual-role enforcement. Locked periods block all upload and recomputation paths.",
+    spec: "Sign-off is recorded as an explicit workflow event. Final role-separation enforcement is treated as a production activation gate, not a marketing assumption.",
   },
   {
     constraint: "Privileged Operations",
@@ -197,12 +229,12 @@ export const JURISDICTION_SECTION = {
     {
       label: "IFRS-oriented reporting",
       detail:
-        "The financial statement workflow — upload, classification, mapping, statements, and comparative analytics — is available globally for firms working under IFRS or IPSAS frameworks.",
+        "Framework-aware presentation contexts are supported. The exact IFRS or IPSAS workflow shown to a firm depends on its configured and verified reporting path.",
     },
     {
       label: "Tanzania compliance pack",
       detail:
-        "Full statutory compliance for Tanzania engagements: corporate income tax, wear and tear at ITA rates, thin capitalisation, minimum tax gate, EFDMS reconciliation, TRA filing package and XBRL output.",
+        "Structured corporate income-tax workpapers, wear-and-tear schedules, EFDMS reconciliation, findings review and filing-readiness support are available within configured Tanzania engagements. Professional review remains required.",
     },
     {
       label: "Additional jurisdictions",
@@ -242,9 +274,9 @@ const _pricingArithmeticCheck = (() => {
 void _pricingArithmeticCheck;
 
 export const PRICING_TABLE = [
-  { term: "Licence",   value: "Firm licence — unlimited companies, unlimited periods." },
-  { term: "Modules",   value: "All capabilities included. No per-module pricing." },
-  { term: "Users",     value: "Unlimited firm members. Role-based access control included." },
+  { term: "Licence",   value: "Firm-level access under the active commercial terms shown before purchase." },
+  { term: "Modules",   value: "All currently released Professional capabilities. No per-module pricing." },
+  { term: "Users",     value: "Role-based team access under the active plan terms." },
   { term: "Storage",   value: "Encrypted at rest. Hosted on enterprise-grade infrastructure." },
   { term: "Updates",   value: "Jurisdiction pack updates deployed promptly after regulatory enactment." },
   { term: "Support",   value: "Implementation support included." },
@@ -254,7 +286,7 @@ export const PRICING_TABLE = [
 export const PRICING_SECTION = {
   headline: "Simple, transparent pricing.",
   subhead:
-    "One professional licence covers your entire firm. No per-module fees. No per-company limits. Monthly or annual billing.",
+    "One professional plan, with monthly and annual terms. Current availability and the exact amount are verified before checkout.",
   cta:     "See plans",
   ctaHref: "/pricing",
 } as const;
@@ -264,8 +296,9 @@ export const PRICING_SECTION = {
 // ─────────────────────────────────────────────────────────────
 
 export const NAV = [
-  { label: "Product",   href: "#features"  },
-  { label: "Security",  href: "#security"  },
+  { label: "Outcomes",  href: "#outcomes"  },
+  { label: "Method",    href: "#method"  },
+  { label: "Controls",  href: "#security"  },
   { label: "Pricing",   href: "/pricing"   },
 ] as const;
 
