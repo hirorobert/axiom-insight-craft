@@ -21,7 +21,7 @@
 
 import { useState, useEffect } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -76,6 +76,10 @@ export default function WorkspaceOverview() {
     companyId,
     refreshUpload,
   } = useWorkspace();
+
+  const [searchParams] = useSearchParams();
+  // Phase 3C: suppress DataStart if user explicitly chose "Start with empty workspace"
+  const skipDataStart = searchParams.get("skipDataStart") === "1";
 
   const [retrying, setRetrying] = useState(false);
   const [tinDialogOpen, setTinDialogOpen] = useState(false);
@@ -368,7 +372,7 @@ export default function WorkspaceOverview() {
       {/* ── ZONE B · Current decision — the one centre of gravity ────────── */}
       <section className="mb-10 sm:mb-14" data-testid="current-decision">
 
-        {!hasUpload ? (
+        {!hasUpload && !skipDataStart ? (
           /* ── DataStart surface: no data yet ──────────────────────────── */
           <SurfaceCard className="px-5 py-8 sm:px-8 sm:py-10">
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] mb-5 text-muted-foreground">
@@ -400,48 +404,12 @@ export default function WorkspaceOverview() {
                 <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary shrink-0 mt-0.5 transition-colors" />
               </Link>
 
-              {/* Option B — Connect a data source (not yet available) */}
-              <div
-                aria-disabled="true"
-                className="flex items-start justify-between gap-4 p-4 border border-border opacity-50 cursor-not-allowed select-none"
-              >
-                <div>
-                  <p className="text-[13px] font-semibold text-foreground mb-0.5">
-                    Connect a data source
-                  </p>
-                  <p className="text-[12px] text-muted-foreground leading-relaxed">
-                    Pull a trial balance directly from an accounting system.
-                  </p>
-                  <span className="inline-block mt-2 text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground">
-                    Coming soon
-                  </span>
-                </div>
-              </div>
-
-              {/* Option C — Sample data (not yet available) */}
-              <div
-                aria-disabled="true"
-                className="flex items-start justify-between gap-4 p-4 border border-border opacity-50 cursor-not-allowed select-none"
-              >
-                <div>
-                  <p className="text-[13px] font-semibold text-foreground mb-0.5">
-                    Explore with sample data
-                  </p>
-                  <p className="text-[12px] text-muted-foreground leading-relaxed">
-                    Load a pre-built example engagement. Sample data is clearly
-                    marked and kept isolated from real client workspaces.
-                  </p>
-                  <span className="inline-block mt-2 text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground">
-                    Coming soon
-                  </span>
-                </div>
-              </div>
             </div>
 
             {/* Secondary — start empty */}
             <p className="mt-6 text-[12px] text-muted-foreground">
               <Link
-                to={`${basePath}/prepare`}
+                to={`${basePath}?skipDataStart=1`}
                 className="underline underline-offset-4 hover:text-foreground transition-colors"
               >
                 Start with an empty workspace
