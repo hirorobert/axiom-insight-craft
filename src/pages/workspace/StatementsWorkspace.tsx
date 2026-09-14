@@ -15,9 +15,10 @@ import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
 import { MappingSourcePreview } from "@/components/workspace/MappingSourcePreview";
 import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
 import { computePreflight } from "@/lib/workspace/computePreflight";
+import { ExportStatements, type ProcessingResult } from "@/components/ExportStatements";
 
 export default function StatementsWorkspace() {
-  const { upload, workspaceState, companyId, periodYear } = useWorkspace();
+  const { upload, workspaceState, companyId, periodYear, company } = useWorkspace();
 
   const mission = workspaceState.missions.statements;
   const preflight = computePreflight(
@@ -72,6 +73,27 @@ export default function StatementsWorkspace() {
             processingResult={upload.processing_result}
             fileName={upload.file_name}
           />
+          <div className="border border-border p-4 sm:flex sm:items-center sm:justify-between sm:gap-6">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Financial statement output</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                Produce the current statement set from this workspace's reviewed mapping and framework context.
+              </p>
+            </div>
+            <div className="mt-4 shrink-0 sm:mt-0">
+              <ExportStatements
+                fileName={upload.file_name}
+                processingResult={upload.processing_result as ProcessingResult | null}
+                uploadId={upload.id}
+                reportingFramework={company?.reporting_framework ?? null}
+                companyName={upload.company_name ?? ""}
+                companyTin={company?.tin ?? ""}
+                periodYearEnd={company?.fiscal_year_end ?? ""}
+                companyCurrency={company?.currency ?? "TZS"}
+                taxResult={null}
+              />
+            </div>
+          </div>
           <HesabuAssurancePanel uploadId={upload.id} companyId={upload.company_id} />
           <PeriodClosingBalancesPanel
             companyId={upload.company_id}

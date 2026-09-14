@@ -45,13 +45,12 @@ const FREE_FEATURES = [
 const PAID_FEATURES = [
   "Multi-company and multi-period workflow",
   "Full IFRS statement suite — IAS 1, IAS 7, disclosure notes",
-  "Jurisdiction pack (Tanzania compliance included)",
+  "Configured Tanzania tax and compliance workflow",
   "Bank reconciliation with evidence verification",
   "Comparative financial statements — current vs prior period",
   "Variance analysis with configurable materiality thresholds",
-  "Cash flow forecast and board-pack PDF",
-  "XBRL instance document generation",
-  "Filing readiness checklist and submission package",
+  "Cash outlook when a completed analysis run is available",
+  "Filing-readiness checklist and prepared output package",
   "Firm members with role-based access control",
   "Implementation support included",
 ];

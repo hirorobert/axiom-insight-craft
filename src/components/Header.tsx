@@ -118,7 +118,7 @@ export function Header() {
                 <Link to="/auth">Sign in</Link>
               </Button>
               <Button variant="hero" size="sm" asChild>
-                <Link to="/auth">Start free</Link>
+                <a href={isLanding ? "#outcomes" : "/#outcomes"}>Choose outcome</a>
               </Button>
             </div>
           )}
@@ -165,7 +165,7 @@ export function Header() {
               </>
             ) : (
               <Button variant="hero" size="sm" asChild>
-                <Link to="/auth">Start free</Link>
+                <a href={isLanding ? "#outcomes" : "/#outcomes"}>Choose outcome</a>
               </Button>
             )}
           </div>

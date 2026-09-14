@@ -86,7 +86,7 @@ export function deriveWorkspaceState(
         statements: locked("Prepare Statements", "statements", companyId, periodYear, "Import trial balance first"),
         tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
         compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
-        filing:     locked("Prepare Filing",     "filing",     companyId, periodYear, "Complete Compute Tax first"),
+        filing:     locked("Prepare Outputs",    "filing",     companyId, periodYear, "Complete Compute Tax first"),
         monitor:    na("Monitor",            "monitor",    companyId, periodYear),
       },
       nextAction: {
@@ -119,7 +119,7 @@ export function deriveWorkspaceState(
         statements: locked("Prepare Statements", "statements", companyId, periodYear, "Awaiting Prepare Data"),
         tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Awaiting Prepare Data"),
         compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
-        filing:     locked("Prepare Filing",     "filing",     companyId, periodYear, "Awaiting Compute Tax"),
+        filing:     locked("Prepare Outputs",    "filing",     companyId, periodYear, "Awaiting Compute Tax"),
         monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
@@ -145,7 +145,7 @@ export function deriveWorkspaceState(
         statements: locked("Prepare Statements", "statements", companyId, periodYear, "Resolve Prepare Data review items first"),
         tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
         compliance: na("Compliance Review",      "compliance", companyId, periodYear, "Available after tax computation"),
-        filing:     locked("Prepare Filing",     "filing",     companyId, periodYear, "Complete Compute Tax first"),
+        filing:     locked("Prepare Outputs",    "filing",     companyId, periodYear, "Complete Compute Tax first"),
         monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
@@ -170,7 +170,7 @@ export function deriveWorkspaceState(
         statements: locked("Prepare Statements", "statements", companyId, periodYear, "Resolve Prepare Data error first"),
         tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
         compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
-        filing:     locked("Prepare Filing",     "filing",     companyId, periodYear, "Complete Compute Tax first"),
+        filing:     locked("Prepare Outputs",    "filing",     companyId, periodYear, "Complete Compute Tax first"),
         monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
@@ -195,7 +195,7 @@ export function deriveWorkspaceState(
         statements: locked("Prepare Statements", "statements", companyId, periodYear, "Clear validation errors first"),
         tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
         compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
-        filing:     locked("Prepare Filing",     "filing",     companyId, periodYear, "Complete Compute Tax first"),
+        filing:     locked("Prepare Outputs",    "filing",     companyId, periodYear, "Complete Compute Tax first"),
         monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
@@ -230,7 +230,7 @@ export function deriveWorkspaceState(
         statements: statementsInPrepareBlock,
         tax:        locked("Compute Tax",    "tax",    companyId, periodYear, "Prepare Data reconciliation must clear before tax computation (constitutional gate)"),
         compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
-        filing:     locked("Prepare Filing", "filing", companyId, periodYear, "Complete Compute Tax first"),
+        filing:     locked("Prepare Outputs", "filing", companyId, periodYear, "Complete Compute Tax first"),
         monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
@@ -261,7 +261,7 @@ export function deriveWorkspaceState(
         statements: { status: "ready",  label: "Prepare Statements", summary: "Ready to validate statements", href: `${b}/statements` },
         tax:        locked("Compute Tax",    "tax",    companyId, periodYear, "Complete Prepare Statements validation first"),
         compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
-        filing:     locked("Prepare Filing", "filing", companyId, periodYear, "Complete Compute Tax first"),
+        filing:     locked("Prepare Outputs", "filing", companyId, periodYear, "Complete Compute Tax first"),
         monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
@@ -292,7 +292,7 @@ export function deriveWorkspaceState(
           ? locked("Compute Tax", "tax", companyId, periodYear, "Prepare Data reconciliation must clear first (constitutional gate)")
           : { status: "ready", label: "Compute Tax", summary: "Ready to compute corporate tax", href: `${b}/tax` },
         compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
-        filing:     locked("Prepare Filing", "filing", companyId, periodYear, "Complete Compute Tax first"),
+        filing:     locked("Prepare Outputs", "filing", companyId, periodYear, "Complete Compute Tax first"),
         monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
@@ -321,13 +321,13 @@ export function deriveWorkspaceState(
         statements: { status: "passed", label: "Prepare Statements", summary: "Statements validated",       href: `${b}/statements` },
         tax:        { status: "signed", label: "Compute Tax",        summary: "Tax computed and signed",    href: `${b}/tax` },
         compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
-        filing:     { status: "ready",  label: "Prepare Filing",     summary: "Ready to prepare filing package", href: `${b}/filing` },
+        filing:     { status: "ready",  label: "Prepare Outputs",    summary: "Ready to assemble disclosure and filing-readiness outputs", href: `${b}/filing` },
         monitor:    na("Monitor", "monitor", companyId, periodYear),
       },
       nextAction: {
         id: "prepare-filing-package",
-        label: "Prepare Filing Package",
-        description: "Tax computation is signed — prepare the TRA filing package and record submission",
+        label: "Prepare Engagement Outputs",
+        description: "Tax computation is signed — assemble disclosure notes, management material and filing-readiness outputs",
         href: `${b}/filing`,
         blocked: false,
         mission: "filing",
@@ -346,7 +346,7 @@ export function deriveWorkspaceState(
       statements: { status: "signed", label: "Prepare Statements", summary: "Statements validated and signed", href: `${b}/statements` },
       tax:        { status: "signed", label: "Compute Tax",        summary: "Tax computed and signed",        href: `${b}/tax` },
       compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
-      filing:     { status: "signed", label: "Prepare Filing",     summary: "Filed with TRA",                 href: `${b}/filing` },
+      filing:     { status: "signed", label: "Prepare Outputs",    summary: "Output and submission status recorded", href: `${b}/filing` },
       monitor:    na("Monitor", "monitor", companyId, periodYear),
     },
     nextAction: {

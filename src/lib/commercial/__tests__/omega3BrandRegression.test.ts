@@ -48,6 +48,7 @@ import {
   UNKNOWN_ENTITLEMENT_LABEL,
   EFFECTIVE_END_LABEL,
 } from "../billingDisplay";
+import { PRODUCT_OUTCOMES } from "../../product/outcomes";
 
 const REPO_ROOT = path.join(__dirname, "../../../../");
 
@@ -124,7 +125,7 @@ describe("Ω3-BRAND · public brand", () => {
   });
 
   it("15 · Security headline is the iron-dome moat sentence", () => {
-    expect(SECURITY_HEADLINE).toContain("cannot be bypassed");
+    expect(SECURITY_HEADLINE).toContain("system boundary");
   });
 
   it("16 · Security copy does not claim SOC 2, uptime stats, or fabricated social proof", () => {
@@ -400,23 +401,28 @@ describe("Ω3-BRAND · index.html metadata (real source)", () => {
   });
 });
 
-describe("Ω3-BRAND · ProductTour public-tour order (real source, charter item 4)", () => {
+describe("Ω3-BRAND · ProductTour outcome architecture (real source)", () => {
   const tourSrc = readSource("src/components/ProductTour.tsx");
 
-  it("52 · STAGES array declares ids in exactly Upload → Review → Reconcile → Report → File order", () => {
-    const idOrder = [...tourSrc.matchAll(/\{\s*id:\s*"(\w+)"/g)].map((m) => m[1]);
-    expect(idOrder).toEqual(["upload", "review", "reconcile", "report", "file"]);
+  it("52 · public outcomes follow the canonical customer-job order", () => {
+    expect(PRODUCT_OUTCOMES.map((outcome) => outcome.id)).toEqual([
+      "clean-trial-balance",
+      "prepare-statements",
+      "tax-compliance",
+      "performance-risk",
+      "full-close",
+    ]);
   });
 
-  it("53 · Stage ordinal labels match the corrected order (03 · Reconcile before 04 · Report)", () => {
-    expect(tourSrc).toMatch(/label:\s*"03 · Reconcile"/);
-    expect(tourSrc).toMatch(/label:\s*"04 · Report"/);
-    expect(tourSrc.indexOf('"03 · Reconcile"')).toBeLessThan(tourSrc.indexOf('"04 · Report"'));
+  it("53 · the public selector renders from the canonical outcome registry", () => {
+    expect(tourSrc).toMatch(/PRODUCT_OUTCOMES\.map/);
+    expect(tourSrc).toMatch(/outcomeAuthHref\(outcome\.id\)/);
+    expect(tourSrc).toMatch(/rememberOutcome\(outcome\.id\)/);
   });
 
-  it("54 · exactly 5 stages are declared, matching the 5-step charter sequence", () => {
-    const idOrder = [...tourSrc.matchAll(/\{\s*id:\s*"(\w+)"/g)].map((m) => m[1]);
-    expect(idOrder).toHaveLength(5);
+  it("54 · selector is deterministic: no autoplay, timer, synthetic frame or skip state", () => {
+    expect(PRODUCT_OUTCOMES).toHaveLength(5);
+    expect(tourSrc).not.toMatch(/setInterval|setTimeout|playing|elapsed|ProductTour.*Frame/);
   });
 });
 

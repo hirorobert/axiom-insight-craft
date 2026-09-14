@@ -23,13 +23,13 @@ export function Footer() {
               <h4 className="text-sm font-semibold text-foreground mb-3">Product</h4>
               <ul className="space-y-2">
                 <li>
-                  <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    Features
+                  <a href="/#outcomes" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    Outcomes
                   </a>
                 </li>
                 <li>
                   <a href="#security" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    Security
+                    Controls
                   </a>
                 </li>
                 <li>
@@ -48,8 +48,8 @@ export function Footer() {
                   </a>
                 </li>
                 <li>
-                  <a href="/auth" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    Start free
+                  <a href="/#outcomes" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    Choose outcome
                   </a>
                 </li>
               </ul>

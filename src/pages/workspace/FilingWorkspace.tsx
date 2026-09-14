@@ -1,20 +1,18 @@
 /**
- * FilingWorkspace — Regulatory Filing Package.
+ * FilingWorkspace — Engagement Outputs.
  *
  * Re-homes from Dashboard:
- *   NoteSynth, MgmtLetterPanel, ExportStatements, TRAFilingChecklist
+ *   NoteSynth, MgmtLetterPanel, TRAFilingChecklist
  *
  * TRAAuditReadinessPanel and ClientSummaryPanel moved to ComplianceWorkspace
  * (Phase C) — audit readiness and client-facing summaries are stage-5
  * compliance review artefacts, not stage-6 filing-pack artefacts.
  */
 
-import { useState } from "react";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
 import { NoteSynth } from "@/components/NoteSynth";
 import { MgmtLetterPanel } from "@/components/MgmtLetterPanel";
-import { ExportStatements, type ProcessingResult, type TaxResultForExport } from "@/components/ExportStatements";
 import { TRAFilingChecklist } from "@/components/TRAFilingChecklist";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
@@ -40,14 +38,12 @@ function deriveFiscalPeriod(upload: WorkspaceUpload, fiscalYearEnd: string | nul
 
 export default function FilingWorkspace() {
   const { upload, company, workspaceState, refreshUpload } = useWorkspace();
-  const [taxResult] = useState<TaxResultForExport | null>(null);
-
   const mission = workspaceState.missions.filing;
 
   if (mission.status === "locked") {
     return (
       <WorkspaceGate
-        mission="Prepare Filing"
+        mission="Prepare Outputs"
         blocker={mission.blocker ?? "Complete prerequisites first"}
         prerequisiteHref={workspaceState.missions.tax.href}
         prerequisiteLabel="Go to Compute Tax"
@@ -58,7 +54,7 @@ export default function FilingWorkspace() {
   if (!upload || !upload.company_id || upload.status !== "complete" || upload.is_valid !== true) {
     return (
       <WorkspaceGate
-        mission="Prepare Filing"
+        mission="Prepare Outputs"
         blocker="Valid processed trial balance required"
         prerequisiteHref={workspaceState.missions.prepare.href}
         prerequisiteLabel="Go to Prepare Data"
@@ -73,38 +69,8 @@ export default function FilingWorkspace() {
 
   const mapping = upload.processing_result?.mapping;
   const result = upload.processing_result;
-  const status = upload.status as string;
-  const isValid = upload.is_valid as boolean | null;
-  const isBlocked =
-    status === "blocked" ||
-    status === "error" ||
-    isValid === false;
-
   return (
     <div className="space-y-6 max-w-5xl">
-      {/* Export Statements */}
-      {!isBlocked ? (
-        <div className="border border-border p-4 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-foreground">Export 6-Page Financial Statements</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              SFP · SCI · SOCIE · SCF · Disclosure Notes · Tax Computation
-            </p>
-          </div>
-          <ExportStatements
-            fileName={upload.file_name}
-            processingResult={upload.processing_result as ProcessingResult | null}
-            uploadId={upload.id}
-            reportingFramework={company?.reporting_framework ?? null}
-            companyName={upload.company_name ?? ""}
-            companyTin={company?.tin ?? ""}
-            periodYearEnd={company?.fiscal_year_end ?? ""}
-            companyCurrency={company?.currency ?? "TZS"}
-            taxResult={taxResult}
-          />
-        </div>
-      ) : null}
-
       {/* Disclosure Notes */}
       {mapping && (
         <NoteSynth

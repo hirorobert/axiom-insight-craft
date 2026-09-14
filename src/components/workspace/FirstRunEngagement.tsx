@@ -23,6 +23,7 @@ import {
 import { toast } from "sonner";
 import { ArrowRight } from "lucide-react";
 import { validateTin } from "@/components/workspace/CompanyTinDialog";
+import { readRememberedOutcome } from "@/lib/product/outcomes";
 
 const FYE_OPTIONS = [
   { value: "12-31", label: "31 December" },
@@ -43,6 +44,7 @@ export default function FirstRunEngagement({
 }) {
   const { user } = useAuth();
   const defaultYear = new Date().getFullYear() - 1;
+  const selectedOutcome = readRememberedOutcome();
 
   const [name, setName] = useState("");
   const [tin, setTin] = useState("");
@@ -96,13 +98,15 @@ export default function FirstRunEngagement({
     <form onSubmit={submit} className="w-full max-w-md space-y-6">
       <div className="space-y-1.5">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-          Step 1 of 2 · Set up engagement
+          New controlled engagement
         </p>
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          Who are you preparing for?
+          Set the client and reporting period.
         </h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          One client, one financial year. You upload the trial balance next.
+          {selectedOutcome
+            ? `Selected outcome: ${selectedOutcome.title}. The workspace will ask you to confirm its exact scope before any accounting stage begins.`
+            : "One client, one financial year. You will declare the required outcome before any accounting stage begins."}
         </p>
       </div>
 
