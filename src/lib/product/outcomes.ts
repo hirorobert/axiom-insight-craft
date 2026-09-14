@@ -19,7 +19,7 @@ export interface ProductOutcome {
   input: string;
   deliverable: string;
   scope: string;
-  availability: "Workflow available" | "Tanzania workflow" | "Data dependent";
+  availability: "Workflow available" | "Data dependent";
 }
 
 export const PRODUCT_OUTCOMES: readonly ProductOutcome[] = [
@@ -54,7 +54,7 @@ export const PRODUCT_OUTCOMES: readonly ProductOutcome[] = [
     input: "Reviewed trial balance and jurisdiction context",
     deliverable: "Tax workpapers, findings and readiness checklist",
     scope: "Prepare · Tax · Compliance",
-    availability: "Tanzania workflow",
+    availability: "Workflow available",
   },
   {
     id: "performance-risk",

@@ -61,10 +61,14 @@ describe("FirstRunEngagement.tsx — no silent reporting_framework default", () 
     expect(FIRST_RUN_ENGAGEMENT).not.toMatch(/useState\(\s*"ifrs_for_smes"\s*\)/);
   });
 
-  it("initializes the framework selection state as null", () => {
-    expect(FIRST_RUN_ENGAGEMENT).toMatch(
-      /useState<string \| null>\(null\)/,
-    );
+  it("initializes the framework selection state without a hardcoded standard", () => {
+    // Must not initialize to a specific standard. Null or a neutral UI
+    // sentinel ("decide_later") are both acceptable initial values —
+    // neither is a silent assumption about which standard the entity follows.
+    expect(FIRST_RUN_ENGAGEMENT).not.toMatch(/useState\(\s*"ifrs_for_smes"\s*\)/);
+    expect(FIRST_RUN_ENGAGEMENT).not.toMatch(/useState\(\s*"full_ifrs"\s*\)/);
+    expect(FIRST_RUN_ENGAGEMENT).not.toMatch(/useState\(\s*"ipsas_accrual"\s*\)/);
+    expect(FIRST_RUN_ENGAGEMENT).not.toMatch(/useState\(\s*"ipsas_cash"\s*\)/);
   });
 
   it("does not require a framework selection to enable submission (creation must tolerate genuine unknown)", () => {
@@ -73,10 +77,17 @@ describe("FirstRunEngagement.tsx — no silent reporting_framework default", () 
     expect(canSubmitMatch![1]).not.toMatch(/framework/);
   });
 
-  it("the insert payload passes the framework state through unmodified (no ?? fallback)", () => {
+  it("maps local_gaap/other/decide_later to null in the DB; never silently coalesces to a named standard", () => {
+    // Must not silently coalesce the UI value to a named standard.
+    // (The directive requires Local GAAP and Other/custom to store as null.)
     expect(FIRST_RUN_ENGAGEMENT).not.toMatch(
-      /reporting_framework:\s*framework\s*\?\?/,
+      /reporting_framework:\s*framework\s*\?\?\s*"ifrs_for_smes"/,
     );
-    expect(FIRST_RUN_ENGAGEMENT).toMatch(/reporting_framework:\s*framework,/);
+    expect(FIRST_RUN_ENGAGEMENT).not.toMatch(
+      /reporting_framework:\s*framework\s*\?\?\s*"full_ifrs"/,
+    );
+    // Must use the DB-value mapping that preserves null for non-standard choices.
+    expect(FIRST_RUN_ENGAGEMENT).toMatch(/dbValue\s*\?\?\s*null/);
+    expect(FIRST_RUN_ENGAGEMENT).toMatch(/reporting_framework:\s*dbFramework/);
   });
 });
