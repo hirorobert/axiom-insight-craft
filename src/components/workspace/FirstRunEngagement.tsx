@@ -6,33 +6,35 @@
  * Screen 1 of 2. Collects the minimum required to create a workspace:
  *   - Organization name (required)
  *   - Reporting period year + year-end date (required)
- *   - Functional currency (defaults to USD, editable)
+ *   - Functional currency (required — no default; must be explicitly selected)
  *   - Reporting framework (optional — can be set later in workspace settings)
  *
  * INVARIANTS
  * - No TIN, TRA, tax-registration, or jurisdiction-specific terminology.
  * - No pre-filled or seeded organization name.
- * - Currency defaults to USD (global neutral), not a jurisdiction assumption.
+ * - Currency has no default. The user must explicitly select it. No locale
+ *   inference, no IP-based guessing (CODEX Phase 3A).
  * - Framework defaults to null — never manufacture certainty about
  *   standards the user has not declared (SAFF V5 PART IX).
+ * - Framework options are limited to values the DB CHECK constraint
+ *   can preserve after reload: decide_later → null, full_ifrs, ifrs_for_smes,
+ *   ipsas_accrual, ipsas_cash. "Local GAAP" and "Other/custom" are
+ *   intentionally omitted because they would both store as null, collapsing
+ *   three distinct user choices into the same DB value with no way to
+ *   distinguish them on next load (CODEX Phase 3B).
+ * - No "I was invited" path — Auth.tsx has no invitation token handler and
+ *   no mechanism to route an invited user to their workspace. Removed to
+ *   avoid routing users into a dead end (CODEX Phase 3D).
  * - Idempotency: deduplication check prevents duplicate workspaces on
- *   double-click or retry.
+ *   double-click or retry. DB-level constraint absent (see Phase 3E report).
  * - Error handler maps known Supabase error classes to actionable messages.
  *   Form values are preserved on any recoverable failure.
  *
  * DB constraint: reporting_framework IN
  *   (null, 'ifrs_for_smes', 'full_ifrs', 'ipsas_accrual', 'ipsas_cash')
- * "Local GAAP" and "Other/custom" are presented as UI-level choices but
- * stored as null — the user configures the specific standard in workspace
- * settings after the workspace is created. No migration required.
- *
- * fiscal_year_end canonical format: 'MM-DD' (e.g. '12-31', '06-30').
- * The reporting period year is tracked separately and used only for routing.
- * It is NOT concatenated into fiscal_year_end.
  */
 
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -50,15 +52,7 @@ import { classifyError } from "./workspaceCreateError";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const FYE_OPTIONS = [
-  { value: "12-31", label: "31 December" },
-  { value: "06-30", label: "30 June" },
-  { value: "03-31", label: "31 March" },
-  { value: "09-30", label: "30 September" },
-  { value: "06-30", label: "30 June" },
-] as const;
-
-// De-duplicate (June appears once above)
+// De-duplicated (June was duplicated in a prior draft)
 const UNIQUE_FYE_OPTIONS = [
   { value: "12-31", label: "31 December" },
   { value: "06-30", label: "30 June" },
@@ -82,18 +76,17 @@ const CURRENCY_OPTIONS = [
  * Reporting framework options.
  *
  * DB column allows: null | 'ifrs_for_smes' | 'full_ifrs' | 'ipsas_accrual' | 'ipsas_cash'
- * "local_gaap" and "other" are not in the DB CHECK constraint, so they
- * are stored as null. The workspace settings page lets users document the
- * specific standard they are following.
+ *
+ * Only options whose identity can be preserved after a reload are exposed here.
+ * "Local GAAP" and "Other/custom" were removed because both would store as null —
+ * indistinguishable from "Decide later" on next load (CODEX Phase 3B).
  */
-const FRAMEWORK_OPTIONS: { value: string | null; label: string; dbValue: string | null }[] = [
-  { value: "decide_later", label: "Decide later", dbValue: null },
-  { value: "full_ifrs",    label: "Full IFRS",                            dbValue: "full_ifrs" },
-  { value: "ifrs_for_smes",label: "IFRS for SMEs",                       dbValue: "ifrs_for_smes" },
-  { value: "ipsas_accrual",label: "IPSAS — public sector (accrual)",      dbValue: "ipsas_accrual" },
-  { value: "ipsas_cash",   label: "IPSAS — public sector (cash basis)",   dbValue: "ipsas_cash" },
-  { value: "local_gaap",   label: "Local GAAP / national standard",       dbValue: null },
-  { value: "other",        label: "Other / custom framework",             dbValue: null },
+const FRAMEWORK_OPTIONS: { value: string; label: string; dbValue: string | null }[] = [
+  { value: "decide_later",  label: "Decide later",                        dbValue: null },
+  { value: "full_ifrs",     label: "Full IFRS",                           dbValue: "full_ifrs" },
+  { value: "ifrs_for_smes", label: "IFRS for SMEs",                      dbValue: "ifrs_for_smes" },
+  { value: "ipsas_accrual", label: "IPSAS — public sector (accrual)",    dbValue: "ipsas_accrual" },
+  { value: "ipsas_cash",    label: "IPSAS — public sector (cash basis)", dbValue: "ipsas_cash" },
 ];
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -112,7 +105,8 @@ export default function FirstRunEngagement({
   const [orgName, setOrgName]         = useState("");
   const [fye, setFye]                 = useState("12-31");
   const [periodYear, setPeriodYear]   = useState(String(defaultYear));
-  const [currency, setCurrency]       = useState("USD");
+  // Phase 3A: No default currency. User must make an explicit selection.
+  const [currency, setCurrency]       = useState("");
   const [framework, setFramework]     = useState("decide_later");
 
   // Submit state machine
@@ -120,7 +114,9 @@ export default function FirstRunEngagement({
   const [errorMsg, setErrorMsg]       = useState<string | null>(null);
   const [canRetry, setCanRetry]       = useState(false);
 
-  const canSubmit = orgName.trim().length > 0 && submitState !== "submitting";
+  // Phase 3A: currency is required — canSubmit blocks until it is set. (Single-line for test regex.)
+  const canSubmit = orgName.trim().length > 0 && currency.length > 0 && submitState !== "submitting";
+
   const yearOptions = Array.from({ length: 6 }, (_, i) => defaultYear + 1 - i);
 
   const submit = async (e: React.FormEvent) => {
@@ -136,7 +132,10 @@ export default function FirstRunEngagement({
 
       // ── Idempotency guard ───────────────────────────────────────────────
       // Check for a workspace with the same name + fiscal year end before
-      // inserting. fye is the canonical MM-DD value (e.g. "12-31").
+      // inserting, so double-clicks and retries cannot create duplicates.
+      // Note: this is a client-side pre-check only. The companies table has
+      // no DB-level UNIQUE constraint on (user_id, name, fiscal_year_end).
+      // See Phase 3E: WORKSPACE_CREATION_CONCURRENCY_SAFE = NO.
       const { data: existing } = await supabase
         .from("companies")
         .select("id, fiscal_year_end")
@@ -145,7 +144,7 @@ export default function FirstRunEngagement({
         .eq("is_active", true)
         .limit(5);
 
-      // Compare against canonical MM-DD format (matches DB storage format).
+      // fiscal_year_end canonical format: 'MM-DD' (e.g. '12-31') — fye is used directly.
       const duplicate = existing?.find((c) => c.fiscal_year_end === fye);
 
       if (duplicate) {
@@ -159,13 +158,11 @@ export default function FirstRunEngagement({
       const dbFramework = chosen?.dbValue ?? null;
 
       // ── Create workspace ────────────────────────────────────────────────
-      // fiscal_year_end stored as canonical 'MM-DD' (e.g. '12-31').
-      // The period year is routed separately — NOT embedded here.
       const { data, error } = await supabase
         .from("companies")
         .insert({
           name:               name,
-          fiscal_year_end:    fye,   // canonical MM-DD — e.g. "12-31", "06-30"
+          fiscal_year_end:    fye,   // canonical MM-DD — e.g. '12-31'
           currency:           currency,
           // null is intentional and correct — reporting_framework has no
           // NOT NULL DEFAULT after migration 20260903100000. Null means
@@ -256,12 +253,19 @@ export default function FirstRunEngagement({
           </div>
         </div>
 
-        {/* Functional currency */}
+        {/* Functional currency — required, no default */}
         <div className="space-y-2">
-          <Label htmlFor="fr-currency">Functional currency</Label>
+          <Label htmlFor="fr-currency">
+            Functional currency
+            <span className="font-normal text-muted-foreground"> — required</span>
+          </Label>
           <Select value={currency} onValueChange={setCurrency}>
-            <SelectTrigger id="fr-currency" aria-label="Functional currency">
-              <SelectValue />
+            <SelectTrigger
+              id="fr-currency"
+              aria-label="Functional currency"
+              aria-required="true"
+            >
+              <SelectValue placeholder="Select your functional currency" />
             </SelectTrigger>
             <SelectContent>
               {CURRENCY_OPTIONS.map((c) => (
@@ -283,18 +287,12 @@ export default function FirstRunEngagement({
             </SelectTrigger>
             <SelectContent>
               {FRAMEWORK_OPTIONS.map((f) => (
-                <SelectItem key={f.value ?? "null"} value={f.value ?? "decide_later"}>
+                <SelectItem key={f.value} value={f.value}>
                   {f.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          {(framework === "local_gaap" || framework === "other") && (
-            <p className="text-[12px] text-muted-foreground">
-              Configure the specific standard you are following in workspace settings
-              after the workspace is created.
-            </p>
-          )}
           {framework === "decide_later" && (
             <p className="text-[12px] text-muted-foreground">
               You can set this later. Statement presentation and validation rules
@@ -343,16 +341,6 @@ export default function FirstRunEngagement({
           <ArrowRight className="h-4 w-4" aria-hidden="true" />
         )}
       </Button>
-
-      {/* Secondary: invited user path */}
-      <p className="text-center text-sm text-muted-foreground">
-        <Link
-          to="/auth"
-          className="underline underline-offset-4 hover:text-foreground transition-colors"
-        >
-          I was invited to an existing workspace
-        </Link>
-      </p>
     </form>
   );
 }
