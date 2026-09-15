@@ -3,9 +3,21 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { Hero } from "@/components/Hero";
-import { Features } from "@/components/Features";
+import { PainPoints } from "@/components/PainPoints";
 import { ProductTour } from "@/components/ProductTour";
+import { Features } from "@/components/Features";
+import { ClosingCTA } from "@/components/ClosingCTA";
 import { Footer } from "@/components/Footer";
+
+// ─── Page composition ────────────────────────────────────────────────────────
+// Section order follows conversion architecture:
+//  1. Hero        — what it is, trust metrics, immediate CTAs
+//  2. PainPoints  — before/after contrast that earns attention
+//  3. ProductTour — outcome selector: what specifically does it produce?
+//  4. Features    — method, deliverables, security, jurisdiction, pricing
+//  5. ClosingCTA  — one last conversion moment before the footer
+//  6. Footer
+// ─────────────────────────────────────────────────────────────────────────────
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -26,8 +38,10 @@ const Index = () => {
       <Header />
       <main>
         <Hero />
+        <PainPoints />
         <ProductTour />
         <Features />
+        <ClosingCTA />
       </main>
       <Footer />
     </div>
