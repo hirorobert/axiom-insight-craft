@@ -21,7 +21,7 @@
 
 import { useState, useEffect } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -76,6 +76,10 @@ export default function WorkspaceOverview() {
     companyId,
     refreshUpload,
   } = useWorkspace();
+
+  const [searchParams] = useSearchParams();
+  // Phase 3C: suppress DataStart if user explicitly chose "Start with empty workspace"
+  const skipDataStart = searchParams.get("skipDataStart") === "1";
 
   const [retrying, setRetrying] = useState(false);
   const [tinDialogOpen, setTinDialogOpen] = useState(false);
@@ -231,13 +235,14 @@ export default function WorkspaceOverview() {
       tone: canAmend ? "primary" : "muted",
     };
   } else if (!hasUpload) {
+    // DataStart state — rendered as a dedicated surface in Zone B (see below).
+    // The decision object here is a safe fallback if the conditional is missed.
     decision = {
       eyebrow: STAGE_CONFIGS.prepare.label,
-      headline: "Upload the trial balance to open this engagement.",
-      detail:
-        "SAFF parses the workbook, checks that it balances, and classifies every account it can defend before anything downstream runs.",
+      headline: "How would you like to begin?",
+      detail: "Import a trial balance to start the financial review workflow.",
       button: {
-        label: "Upload trial balance",
+        label: "Import trial balance",
         href: `${basePath}/prepare`,
         icon: <Upload className="w-4 h-4" />,
       },
@@ -366,48 +371,97 @@ export default function WorkspaceOverview() {
 
       {/* ── ZONE B · Current decision — the one centre of gravity ────────── */}
       <section className="mb-10 sm:mb-14" data-testid="current-decision">
-        <SurfaceCard className="px-5 py-8 sm:px-8 sm:py-10">
-          <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-5 ${eyebrowTone}`}>
-            {decision.eyebrow}
-          </p>
-          <h2 className="text-2xl sm:text-[2rem] font-semibold tracking-tight text-foreground leading-[1.2] max-w-xl">
-            {decision.headline}
-          </h2>
-          {decision.detail && (
-            <p className="mt-4 text-[14px] text-muted-foreground leading-relaxed max-w-xl">
-              {decision.detail}
-            </p>
-          )}
 
-          <div className="mt-8">
-            {decision.button.href && !decision.button.disabled ? (
-              <Button
-                asChild
-                size="lg"
+        {!hasUpload && !skipDataStart ? (
+          /* ── DataStart surface: no data yet ──────────────────────────── */
+          <SurfaceCard className="px-5 py-8 sm:px-8 sm:py-10">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] mb-5 text-muted-foreground">
+              Step 2 of 2
+            </p>
+            <h2 className="text-2xl sm:text-[2rem] font-semibold tracking-tight text-foreground leading-[1.2] max-w-xl mb-6">
+              How would you like to begin?
+            </h2>
+
+            <div className="space-y-3 max-w-lg">
+              {/* Option A — Import trial balance (recommended, working destination) */}
+              <Link
+                to={`${basePath}/prepare`}
                 data-testid="primary-cta"
-                variant={decision.tone === "muted" ? "outline" : "default"}
-                className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
+                className="flex items-start justify-between gap-4 p-4 border border-border hover:border-primary/60 hover:bg-primary/5 transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
-                <Link to={decision.button.href}>
+                <div>
+                  <p className="text-[13px] font-semibold text-foreground mb-0.5 group-hover:text-primary transition-colors">
+                    Import a trial balance
+                  </p>
+                  <p className="text-[12px] text-muted-foreground leading-relaxed">
+                    Upload CSV or XLSX. The system checks it balances, classifies
+                    every account, and flags exceptions for review.
+                  </p>
+                  <span className="inline-block mt-2 text-[10px] font-mono uppercase tracking-[0.16em] text-primary">
+                    Recommended
+                  </span>
+                </div>
+                <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary shrink-0 mt-0.5 transition-colors" />
+              </Link>
+
+            </div>
+
+            {/* Secondary — start empty */}
+            <p className="mt-6 text-[12px] text-muted-foreground">
+              <Link
+                to={`${basePath}?skipDataStart=1`}
+                className="underline underline-offset-4 hover:text-foreground transition-colors"
+              >
+                Start with an empty workspace
+              </Link>
+              {" "}— you can add data at any time.
+            </p>
+          </SurfaceCard>
+        ) : (
+          /* ── Standard decision surface ───────────────────────────────── */
+          <SurfaceCard className="px-5 py-8 sm:px-8 sm:py-10">
+            <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-5 ${eyebrowTone}`}>
+              {decision.eyebrow}
+            </p>
+            <h2 className="text-2xl sm:text-[2rem] font-semibold tracking-tight text-foreground leading-[1.2] max-w-xl">
+              {decision.headline}
+            </h2>
+            {decision.detail && (
+              <p className="mt-4 text-[14px] text-muted-foreground leading-relaxed max-w-xl">
+                {decision.detail}
+              </p>
+            )}
+
+            <div className="mt-8">
+              {decision.button.href && !decision.button.disabled ? (
+                <Button
+                  asChild
+                  size="lg"
+                  data-testid="primary-cta"
+                  variant={decision.tone === "muted" ? "outline" : "default"}
+                  className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
+                >
+                  <Link to={decision.button.href}>
+                    {decision.button.icon}
+                    <span className="mx-2">{decision.button.label}</span>
+                  </Link>
+                </Button>
+              ) : (
+                <Button
+                  onClick={decision.button.onClick}
+                  disabled={decision.button.disabled}
+                  size="lg"
+                  data-testid="primary-cta"
+                  variant={decision.tone === "warn" ? "destructive" : "default"}
+                  className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
+                >
                   {decision.button.icon}
                   <span className="mx-2">{decision.button.label}</span>
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                onClick={decision.button.onClick}
-                disabled={decision.button.disabled}
-                size="lg"
-                data-testid="primary-cta"
-                variant={decision.tone === "warn" ? "destructive" : "default"}
-                className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
-              >
-                {decision.button.icon}
-                <span className="mx-2">{decision.button.label}</span>
-              </Button>
-            )}
-          </div>
-        </SurfaceCard>
+                </Button>
+              )}
+            </div>
+          </SurfaceCard>
+        )}
       </section>
 
       {/* Mandate footnote — one quiet line, and the only amend affordance.

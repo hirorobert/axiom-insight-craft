@@ -14,11 +14,15 @@ const paymentReturn = fs.readFileSync(path.join(ROOT, "src/pages/billing/Payment
 const rpc = fs.readFileSync(path.join(ROOT, "src/lib/commercial/commercialRpc.ts"), "utf8");
 
 describe("Ω5 billing projection truth — forward-only migration", () => {
-  it("sorts after every existing migration", () => {
+  it("exists and sorts before the subsequent trigger-repair migration", () => {
     const files = fs.readdirSync(path.join(ROOT, "supabase/migrations"))
       .filter((name) => name.endsWith(".sql"))
       .sort();
-    expect(files.at(-1)).toBe("20260914120000_omega5_billing_projection_truth.sql");
+    const thisFile  = "20260914120000_omega5_billing_projection_truth.sql";
+    const nextFile  = "20260915045958_96cc735e-defd-4747-870d-2784030b6da6.sql";
+    expect(files).toContain(thisFile);
+    expect(files).toContain(nextFile);
+    expect(files.indexOf(thisFile)).toBeLessThan(files.indexOf(nextFile));
   });
 
   it("changes projection functions only and never mutates commercial rows", () => {
