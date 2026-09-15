@@ -24,6 +24,7 @@ import WorkspaceOverview from "./pages/workspace/WorkspaceOverview";
 import PrepareWorkspace from "./pages/workspace/PrepareWorkspace";
 import ReconcileWorkspace from "./pages/workspace/ReconcileWorkspace";
 import StatementsWorkspace from "./pages/workspace/StatementsWorkspace";
+import StatementReviewWorkspace from "./pages/workspace/StatementReviewWorkspace";
 import TaxWorkspace from "./pages/workspace/TaxWorkspace";
 import ComplianceWorkspace from "./pages/workspace/ComplianceWorkspace";
 import FilingWorkspace from "./pages/workspace/FilingWorkspace";
@@ -82,6 +83,7 @@ const App = () => (
                   <Route path="prepare"    element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />
                   <Route path="reconcile"  element={<StageScopeGate stage="reconcile"><ReconcileWorkspace /></StageScopeGate>} />
                   <Route path="statements" element={<StageScopeGate stage="statements"><StatementsWorkspace /></StageScopeGate>} />
+                  <Route path="statements/review" element={<StageScopeGate stage="statements"><StatementReviewWorkspace /></StageScopeGate>} />
                   <Route path="tax"        element={<StageScopeGate stage="tax"><TaxWorkspace /></StageScopeGate>} />
                   <Route path="compliance" element={<StageScopeGate stage="compliance"><ComplianceWorkspace /></StageScopeGate>} />
                   <Route path="filing"     element={<StageScopeGate stage="filing"><FilingWorkspace /></StageScopeGate>} />

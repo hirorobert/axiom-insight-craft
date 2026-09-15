@@ -37,6 +37,7 @@ import { buildPrepareReviewRoute } from "@/lib/workspace/resolveActiveUpload";
 import { capabilityTitle } from "@/lib/workspace/mandate";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 import { readRememberedOutcome } from "@/lib/product/outcomes";
+import { resolveNextActionDestination } from "@/lib/workspace/resolveNextActionDestination";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -303,16 +304,24 @@ export default function WorkspaceOverview() {
     };
   } else {
     const activeSlug = activeIndex >= 0 ? pathStages[activeIndex] : null;
+    const destination = resolveNextActionDestination({
+      activeSlug,
+      basePath,
+      nextActionHref: nextAction.href,
+      nextActionLabel: nextAction.label,
+      routeIntent: selectedOutcome?.routeIntent,
+    });
+    const button = {
+      label: destination.label,
+      href: destination.href,
+      disabled: nextAction.blocked,
+      icon: <ArrowRight className="w-4 h-4" />,
+    };
     decision = {
       eyebrow: activeSlug ? STAGE_CONFIGS[activeSlug].label : "Engagement complete",
       headline: nextAction.description,
       detail: nextAction.blocker ?? undefined,
-      button: {
-        label: nextAction.label,
-        href: nextAction.href,
-        disabled: nextAction.blocked,
-        icon: <ArrowRight className="w-4 h-4" />,
-      },
+      button,
       tone: nextAction.blocked ? "muted" : "primary",
     };
   }

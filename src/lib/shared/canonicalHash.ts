@@ -87,3 +87,19 @@ export async function sha256Hex(input: string): Promise<string> {
 export async function canonicalHash(value: CanonicalValue): Promise<string> {
   return sha256Hex(canonicalJson(value));
 }
+
+/**
+ * SHA-256 of raw bytes, lowercase hex — for content that is NOT UTF-8 text
+ * (e.g. a PDF/DOCX/XLSX file). Mirrors
+ * supabase/functions/_shared/hash.ts's sha256HexBytes exactly — keep both in
+ * sync. Used client-side only as a fast local dedup/display hint before
+ * upload; the server always recomputes and is the authoritative hash (the
+ * browser never supplies an authoritative file hash).
+ */
+export async function sha256HexBytes(bytes: ArrayBuffer | Uint8Array): Promise<string> {
+  const view = new Uint8Array(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", view);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}

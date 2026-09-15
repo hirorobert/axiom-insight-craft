@@ -408,6 +408,7 @@ describe("Ω3-BRAND · ProductTour outcome architecture (real source)", () => {
     expect(PRODUCT_OUTCOMES.map((outcome) => outcome.id)).toEqual([
       "clean-trial-balance",
       "prepare-statements",
+      "review-statements",
       "tax-compliance",
       "performance-risk",
       "full-close",
@@ -421,8 +422,33 @@ describe("Ω3-BRAND · ProductTour outcome architecture (real source)", () => {
   });
 
   it("54 · selector is deterministic: no autoplay, timer, synthetic frame or skip state", () => {
-    expect(PRODUCT_OUTCOMES).toHaveLength(5);
+    expect(PRODUCT_OUTCOMES).toHaveLength(6);
     expect(tourSrc).not.toMatch(/setInterval|setTimeout|playing|elapsed|ProductTour.*Frame/);
+  });
+
+  it("75 · the selector renders each outcome's explicit ctaLabel, never a generic 'Select' CTA or repeated availability/status text", () => {
+    expect(tourSrc).not.toMatch(/>\s*Select\s*</);
+    expect(tourSrc).not.toMatch(/Workflow available/);
+    expect(tourSrc).not.toMatch(/outcome\.availability/);
+    expect(tourSrc).not.toMatch(/outcome\.scope/);
+    expect(tourSrc).toMatch(/outcome\.ctaLabel/);
+  });
+
+  it("76 · every selector row exposes a unique accessible action name (no duplicate 'Select' across rows) and no nested interactive controls", () => {
+    expect(tourSrc).toMatch(/aria-label=\{`\$\{outcome\.ctaLabel\}: \$\{outcome\.title\}`\}/);
+    // Exactly one <Link> (interactive control) per outcome row — the row
+    // itself (<li>) is not also wrapped in an anchor/button.
+    const linkCount = (tourSrc.match(/<Link\b/g) ?? []).length;
+    expect(linkCount).toBe(1); // one Link element in source, rendered once per PRODUCT_OUTCOMES.map iteration
+  });
+
+  it("77 · document review is listed immediately after statement preparation, and never reuses the trial-balance input language", () => {
+    const review = PRODUCT_OUTCOMES.find((o) => o.id === "review-statements")!;
+    const prepare = PRODUCT_OUTCOMES.find((o) => o.id === "prepare-statements")!;
+    expect(PRODUCT_OUTCOMES.indexOf(review)).toBe(PRODUCT_OUTCOMES.indexOf(prepare) + 1);
+    expect(review.inputKind).toBe("financial_statements");
+    expect(review.input).not.toMatch(/CSV/i);
+    expect(review.ctaLabel.toLowerCase()).not.toBe("assess this");
   });
 });
 
