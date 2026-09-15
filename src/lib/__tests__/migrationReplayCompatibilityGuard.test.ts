@@ -125,7 +125,7 @@ function readMigration(fileName: string): string {
 }
 
 describe("migration directory integrity", () => {
-  it("contains exactly 119 migration files", () => {
+  it("contains exactly 120 migration files", () => {
     // Bumped from 113 -> 114: 20260912100000_omega3_checkout_cfoclose_
     // offers_and_interval_authority.sql (Ω3-CHECKOUT), forward-only,
     // sorts after every prior file. Bumped from 114 -> 115:
@@ -141,9 +141,13 @@ describe("migration directory integrity", () => {
     // migration. It is semantically identical (see
     // lovableMigrationLedgerAlias.test.ts's Ω5 alias-divergence guard) to
     // 20260914120000_omega5_billing_projection_truth.sql, aside from
-    // trailing whitespace/newline differences.
+    // trailing whitespace/newline differences. Bumped from 119 -> 120:
+    // 20260915090000_fix_company_billing_trigger_product_code.sql — targeted
+    // repair of provision_billing_customer_for_company(), replacing the stale
+    // SAFF_ERP product code lookup with CFOCLOSE. Forward-only, sorts after
+    // every prior migration.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(119);
+    expect(files.length).toBe(120);
   });
 });
 
