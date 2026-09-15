@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { NotificationBell } from "@/components/NotificationBell";
-import { NAV } from "@/constants/copy";
+import { NAV, CTA } from "@/constants/copy";
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -35,22 +35,22 @@ export function Header() {
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
-      <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+    <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/60 bg-background/90 backdrop-blur-xl">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3.5 lg:px-10">
 
-        {/* Logo */}
-        <Link to="/" className="inline-flex items-center" aria-label="CFOClose home">
+        {/* ── Wordmark ──────────────────────────────────────────────── */}
+        <Link to="/" aria-label="CFOClose home" className="inline-flex items-center">
           <CFOCloseWordmark className="text-xl md:text-2xl" />
         </Link>
 
-        {/* Desktop Nav */}
+        {/* ── Desktop nav ───────────────────────────────────────────── */}
         <nav className="hidden lg:flex items-center gap-8">
-          {isLanding && NAV.map((item) => (
+          {isLanding && NAV.map((item) =>
             item.href.startsWith("/") ? (
               <Link
                 key={item.href}
                 to={item.href}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
               >
                 {item.label}
               </Link>
@@ -58,21 +58,24 @@ export function Header() {
               <a
                 key={item.href}
                 href={item.href}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
               >
                 {item.label}
               </a>
             )
-          ))}
+          )}
           {user && (
-            <Link to="/dashboard" className="text-sm font-medium text-primary hover:text-primary/80 transition-colors flex items-center gap-1.5">
-              <LayoutDashboard className="w-4 h-4" />
+            <Link
+              to="/dashboard"
+              className="flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+            >
+              <LayoutDashboard className="h-4 w-4" />
               Dashboard
             </Link>
           )}
         </nav>
 
-        {/* Right actions */}
+        {/* ── Desktop right actions ─────────────────────────────────── */}
         <div className="hidden lg:flex items-center gap-3">
           {user ? (
             <>
@@ -80,8 +83,8 @@ export function Header() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-9 w-9 rounded-full p-0">
-                    <Avatar className="h-9 w-9 border-2 border-primary/20 hover:border-primary/50 transition-colors">
-                      <AvatarFallback className="bg-gradient-to-br from-primary to-accent text-primary-foreground font-semibold text-xs">
+                    <Avatar className="h-9 w-9 border-2 border-primary/20 transition-colors hover:border-primary/50">
+                      <AvatarFallback className="bg-primary text-primary-foreground text-xs font-semibold">
                         {getUserInitials()}
                       </AvatarFallback>
                     </Avatar>
@@ -89,7 +92,7 @@ export function Header() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-56" align="end" forceMount>
                   <div className="px-2 py-2">
-                    <p className="text-sm font-medium truncate">{user.email}</p>
+                    <p className="truncate text-sm font-medium">{user.email}</p>
                   </div>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
@@ -105,7 +108,10 @@ export function Header() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-destructive focus:text-destructive">
+                  <DropdownMenuItem
+                    onClick={handleSignOut}
+                    className="cursor-pointer text-destructive focus:text-destructive"
+                  >
                     <LogOut className="mr-2 h-4 w-4" />
                     Sign Out
                   </DropdownMenuItem>
@@ -117,50 +123,64 @@ export function Header() {
               <Button variant="ghost" size="sm" asChild>
                 <Link to="/auth">Sign in</Link>
               </Button>
-              <Button variant="hero" size="sm" asChild>
-                <a href={isLanding ? "#outcomes" : "/#outcomes"}>Choose outcome</a>
+              <Button variant="hero" size="sm" asChild className="px-5">
+                <Link to={CTA.primaryHref}>{CTA.primary}</Link>
               </Button>
             </div>
           )}
         </div>
 
-        {/* Mobile Toggle */}
+        {/* ── Mobile toggle ─────────────────────────────────────────── */}
         <button
           className="lg:hidden p-2 text-foreground"
           onClick={() => setMobileOpen(!mobileOpen)}
+          aria-label={mobileOpen ? "Close menu" : "Open menu"}
         >
-          {mobileOpen ? <X size={24} /> : <Menu size={24} />}
+          {mobileOpen ? <X size={22} /> : <Menu size={22} />}
         </button>
       </div>
 
       {/* Mobile Menu */}
       {mobileOpen && (
-        <div className="lg:hidden bg-card border-t border-border px-6 py-4 space-y-4">
-          {isLanding && NAV.map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              onClick={() => setMobileOpen(false)}
-              className="block text-sm text-muted-foreground hover:text-foreground"
-            >
-              {item.label}
-            </a>
-          ))}
-          {user && (
-            <Link to="/dashboard" className="flex items-center gap-2 text-sm font-medium text-primary">
-              <LayoutDashboard className="w-4 h-4" />
-              Dashboard
-            </Link>
-          )}
-          <div className="flex flex-col gap-2 pt-4 border-t border-border">
+        <div className="lg:hidden bg-card border-t border-border px-6 py-4">
+          <div className="space-y-1">
+            {isLanding && NAV.map((item) => (
+              <a
+                key={item.href}
+                href={item.href}
+                onClick={() => setMobileOpen(false)}
+                className="block py-2.5 text-sm text-muted-foreground hover:text-foreground"
+              >
+                {item.label}
+              </a>
+            ))}
+            {user && (
+              <Link
+                to="/dashboard"
+                onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-2 py-2.5 text-sm font-medium text-primary"
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                Dashboard
+              </Link>
+            )}
+          </div>
+          <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4">
             {user ? (
               <>
-                <p className="text-sm text-muted-foreground truncate px-1">{user.email}</p>
+                <p className="truncate px-1 text-sm text-muted-foreground">{user.email}</p>
                 <Button variant="ghost" size="sm" className="justify-start gap-2" asChild>
-                  <Link to="/settings"><Settings className="w-4 h-4" />Settings</Link>
+                  <Link to="/settings" onClick={() => setMobileOpen(false)}>
+                    <Settings className="h-4 w-4" />Settings
+                  </Link>
                 </Button>
-                <Button variant="ghost" size="sm" onClick={handleSignOut} className="justify-start gap-2 text-destructive hover:text-destructive">
-                  <LogOut className="w-4 h-4" />Sign Out
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSignOut}
+                  className="justify-start gap-2 text-destructive hover:text-destructive"
+                >
+                  <LogOut className="h-4 w-4" />Sign Out
                 </Button>
               </>
             ) : (
@@ -169,10 +189,7 @@ export function Header() {
                   <Link to="/auth" onClick={() => setMobileOpen(false)}>Sign in</Link>
                 </Button>
                 <Button variant="hero" size="lg" className="w-full" asChild>
-                  <a
-                    href={isLanding ? "#outcomes" : "/#outcomes"}
-                    onClick={() => setMobileOpen(false)}
-                  >
+                  <a href="/#outcomes" onClick={() => setMobileOpen(false)}>
                     Choose outcome
                   </a>
                 </Button>

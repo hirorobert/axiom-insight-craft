@@ -1,4 +1,4 @@
-import { ArrowRight, LockKeyhole, ScanSearch, ShieldCheck } from "lucide-react";
+import { ArrowRight, LockKeyhole, ScanSearch, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,111 +9,101 @@ import {
   PRICING_SECTION,
   SECURITY_HEADLINE,
   SECURITY_SUBHEAD,
+  TRUST_GUARANTEES,
 } from "@/constants/copy";
 
-function SectionHeader({
-  label,
-  title,
-  detail,
-}: {
-  label: string;
-  title: string;
-  detail: string;
-}) {
+function SectionLabel({ text }: { text: string }) {
   return (
-    <div className="grid grid-cols-1 gap-6 border-b border-border pb-10 lg:grid-cols-12 lg:gap-12">
-      <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted-foreground lg:col-span-4">
-        {label}
-      </p>
-      <div className="lg:col-span-8">
-        <h2 className="max-w-3xl text-3xl font-semibold tracking-[-0.03em] text-foreground sm:text-4xl">
-          {title}
-        </h2>
-        <p className="mt-5 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-          {detail}
-        </p>
-      </div>
-    </div>
+    <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted-foreground">
+      {text}
+    </p>
   );
 }
 
 export function Features() {
   return (
     <div className="bg-background">
-      <section id="method" className="border-b border-border">
-        <div className="mx-auto max-w-7xl px-6 py-20 lg:px-10 lg:py-28">
-          <SectionHeader
-            label="Operating method"
-            title="A shorter path to a defensible result."
-            detail="CFOClose separates source evidence, professional decisions and issued outputs. The interface advances one consequential action at a time."
-          />
 
-          <ol className="grid grid-cols-1 border-b border-border md:grid-cols-2 xl:grid-cols-4">
-            {METHOD.map((step, index) => (
-              <li
-                key={step.number}
-                className={[
-                  "py-8 md:px-7 xl:min-h-64",
-                  index > 0 ? "border-t border-border md:border-l md:border-t-0" : "",
-                  index === 2 ? "md:border-l-0 md:border-t xl:border-l xl:border-t-0" : "",
-                ].join(" ")}
-              >
-                <p className="text-[10px] font-mono text-muted-foreground/55">{step.number}</p>
-                <h3 className="mt-8 text-base font-semibold text-foreground">{step.title}</h3>
-                <p className="mt-3 text-xs leading-5 text-muted-foreground">{step.detail}</p>
+      {/* ── Method: 4-step operating process ──────────────────────────── */}
+      <section id="method" className="border-b border-border">
+        <div className="mx-auto max-w-7xl px-6 py-12 lg:px-10 lg:py-16">
+
+          <div className="mb-8 flex flex-col gap-3 border-b border-border pb-8 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <SectionLabel text="Operating method" />
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-foreground sm:text-3xl">
+                A shorter path to a defensible result.
+              </h2>
+            </div>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              CFOClose separates source evidence, professional decisions and issued outputs.
+              The interface advances one consequential action at a time.
+            </p>
+          </div>
+
+          <ol className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-2 xl:grid-cols-4">
+            {METHOD.map((step) => (
+              <li key={step.number} className="bg-background p-6">
+                <p className="text-[10px] font-mono text-muted-foreground/45">{step.number}</p>
+                <h3 className="mt-5 text-sm font-semibold text-foreground">{step.title}</h3>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">{step.detail}</p>
               </li>
             ))}
           </ol>
         </div>
       </section>
 
-      <section id="deliverables" className="border-b border-border bg-muted/20">
-        <div className="mx-auto max-w-7xl px-6 py-20 lg:px-10 lg:py-28">
-          <SectionHeader
-            label="Deliverables"
-            title="The work remains visible after the engine finishes."
-            detail="Every output is presented as a professional work product with the decisions, exceptions and source context required to review it."
-          />
+      {/* ── Deliverables ───────────────────────────────────────────────── */}
+      <section id="deliverables" className="border-b border-border bg-muted/15">
+        <div className="mx-auto max-w-7xl px-6 py-12 lg:px-10 lg:py-16">
 
-          <dl className="grid grid-cols-1 border-b border-border sm:grid-cols-2 lg:grid-cols-3">
-            {DELIVERABLES.map(([term, detail], index) => (
-              <div
-                key={term}
-                className={[
-                  "border-t border-border py-7 sm:px-6",
-                  index % 2 === 1 ? "sm:border-l" : "",
-                  index % 3 !== 0 ? "lg:border-l" : "lg:border-l-0",
-                ].join(" ")}
-              >
+          <div className="mb-8 flex flex-col gap-3 border-b border-border pb-8 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <SectionLabel text="Deliverables" />
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-foreground sm:text-3xl">
+                The work remains visible after the engine finishes.
+              </h2>
+            </div>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Every output carries the decisions, exceptions and source context required to review it.
+            </p>
+          </div>
+
+          <dl className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
+            {DELIVERABLES.map(([term, detail]) => (
+              <div key={term} className="bg-background p-5">
                 <dt className="text-sm font-semibold text-foreground">{term}</dt>
-                <dd className="mt-2 text-xs leading-5 text-muted-foreground">{detail}</dd>
+                <dd className="mt-1.5 text-xs leading-5 text-muted-foreground">{detail}</dd>
               </div>
             ))}
           </dl>
         </div>
       </section>
 
+      {/* ── Security / Control boundary ────────────────────────────────── */}
       <section id="security" className="border-b border-border bg-primary text-primary-foreground">
-        <div className="mx-auto max-w-7xl px-6 py-20 lg:px-10 lg:py-28">
-          <div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
+        <div className="mx-auto max-w-7xl px-6 py-12 lg:px-10 lg:py-16">
+
+          {/* Top row */}
+          <div className="grid grid-cols-1 gap-8 border-b border-primary-foreground/15 pb-10 lg:grid-cols-12">
             <div className="lg:col-span-5">
-              <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-primary-foreground/45">
+              <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-primary-foreground/40">
                 Control boundary
               </p>
-              <h2 className="mt-6 max-w-xl text-3xl font-semibold tracking-[-0.03em] sm:text-4xl">
+              <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em] sm:text-3xl">
                 {SECURITY_HEADLINE}
               </h2>
-              <p className="mt-5 max-w-xl text-sm leading-6 text-primary-foreground/60">
+              <p className="mt-4 text-sm leading-6 text-primary-foreground/60">
                 {SECURITY_SUBHEAD}
               </p>
             </div>
 
-            <div className="grid grid-cols-1 border-t border-primary-foreground/20 sm:grid-cols-3 lg:col-span-7">
+            <div className="grid grid-cols-1 gap-px border border-primary-foreground/10 bg-primary-foreground/10 sm:grid-cols-3 lg:col-span-7">
               {[
                 {
                   icon: LockKeyhole,
                   title: "Identity",
-                  detail: "Writes are tied to the authenticated session—not a name supplied by the browser.",
+                  detail: "Writes are tied to the authenticated server session—not a name supplied by the browser.",
                 },
                 {
                   icon: ScanSearch,
@@ -125,68 +115,105 @@ export function Features() {
                   title: "Authority",
                   detail: "Sensitive transitions occur through controlled server boundaries and remain independently testable.",
                 },
-              ].map((item, index) => {
-                const Icon = item.icon;
-                return (
-                  <article
-                    key={item.title}
-                    className={`border-b border-primary-foreground/20 py-8 sm:px-6 ${index > 0 ? "sm:border-l" : ""}`}
-                  >
-                    <Icon className="h-5 w-5 text-primary-foreground/65" strokeWidth={1.5} />
-                    <h3 className="mt-8 text-sm font-semibold">{item.title}</h3>
-                    <p className="mt-3 text-xs leading-5 text-primary-foreground/55">{item.detail}</p>
-                  </article>
-                );
-              })}
+              ].map(({ icon: Icon, title, detail }) => (
+                <article key={title} className="bg-primary p-6">
+                  <Icon className="h-5 w-5 text-primary-foreground/55" strokeWidth={1.5} />
+                  <h3 className="mt-5 text-sm font-semibold">{title}</h3>
+                  <p className="mt-2 text-xs leading-5 text-primary-foreground/50">{detail}</p>
+                </article>
+              ))}
             </div>
+          </div>
+
+          {/* Financial integrity guarantees */}
+          <div className="pt-10">
+            <p className="mb-6 text-[10px] font-mono uppercase tracking-[0.22em] text-primary-foreground/40">
+              Financial integrity guarantees
+            </p>
+            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {TRUST_GUARANTEES.map((g) => (
+                <li key={g} className="flex items-start gap-3 text-xs leading-5 text-primary-foreground/65">
+                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" strokeWidth={2} />
+                  {g}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </section>
 
+      {/* ── Jurisdiction coverage ──────────────────────────────────────── */}
       <section id="coverage" className="border-b border-border">
-        <div className="mx-auto max-w-7xl px-6 py-20 lg:px-10 lg:py-28">
-          <SectionHeader
-            label="Framework and jurisdiction"
-            title="Capability is declared. Never implied."
-            detail="The selected reporting framework and jurisdiction determine which preparation and compliance capabilities appear inside an engagement."
-          />
-          <div className="grid grid-cols-1 divide-y divide-border border-b border-border lg:grid-cols-3 lg:divide-x lg:divide-y-0">
-            {JURISDICTION_SECTION.items.map((item, index) => (
-              <article key={item.label} className="py-8 lg:px-8">
-                <p className="text-[10px] font-mono text-muted-foreground/55">0{index + 1}</p>
-                <h3 className="mt-6 text-sm font-semibold text-foreground">{item.label}</h3>
-                <p className="mt-3 text-xs leading-5 text-muted-foreground">{item.detail}</p>
+        <div className="mx-auto max-w-7xl px-6 py-12 lg:px-10 lg:py-16">
+
+          <div className="mb-8 flex flex-col gap-3 border-b border-border pb-8 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <SectionLabel text="Framework and jurisdiction" />
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-foreground sm:text-3xl">
+                Capability is declared. Never implied.
+              </h2>
+            </div>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              The selected framework and jurisdiction determine which capabilities appear inside an engagement.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-px border border-border bg-border lg:grid-cols-3">
+            {JURISDICTION_SECTION.items.map(({ label, detail }, i) => (
+              <article key={label} className="bg-background p-6">
+                <p className="text-[10px] font-mono text-muted-foreground/45">0{i + 1}</p>
+                <h3 className="mt-4 text-sm font-semibold text-foreground">{label}</h3>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">{detail}</p>
               </article>
             ))}
           </div>
         </div>
       </section>
 
-      <section id="pricing" className="border-b border-border bg-muted/20">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 lg:grid-cols-12">
-          <div className="px-6 py-16 lg:col-span-8 lg:px-10 lg:py-20">
-            <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted-foreground">Professional plan</p>
-            <h2 className="mt-5 text-3xl font-semibold tracking-[-0.03em] text-foreground">
-              {PRICING_SECTION.headline}
-            </h2>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">{PRICING_SECTION.subhead}</p>
-          </div>
-          <div className="border-t border-border bg-background px-6 py-10 lg:col-span-4 lg:border-l lg:border-t-0 lg:px-10 lg:py-16">
-            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">From</p>
-            <p className="mt-3 text-3xl font-semibold tracking-tight text-foreground">
-              {PRICING.CURRENCY_CODE} {PRICING.ANNUAL_USD}
-              <span className="text-sm font-normal text-muted-foreground"> / year</span>
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground">Monthly option: USD {PRICING.MONTHLY_USD}. Exact availability is verified before checkout.</p>
-            <Button variant="hero" className="mt-7 w-full" asChild>
-              <Link to={PRICING_SECTION.ctaHref}>
-                Review plan
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
+      {/* ── Pricing CTA ───────────────────────────────────────────────── */}
+      <section id="pricing" className="border-b border-border bg-muted/15">
+        <div className="mx-auto max-w-7xl px-6 lg:px-10">
+          <div className="grid grid-cols-1 lg:grid-cols-12">
+
+            {/* Left */}
+            <div className="py-10 lg:col-span-7 lg:py-14 lg:pr-10">
+              <SectionLabel text="Professional plan" />
+              <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-foreground sm:text-3xl">
+                {PRICING_SECTION.headline}
+              </h2>
+              <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">
+                {PRICING_SECTION.subhead}
+              </p>
+            </div>
+
+            {/* Right — price card */}
+            <div className="flex flex-col justify-center border-t border-border bg-background px-0 py-8 lg:col-span-5 lg:border-l lg:border-t-0 lg:px-10">
+              <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">
+                From
+              </p>
+              <div className="mt-2 flex items-baseline gap-1.5">
+                <p className="text-4xl font-semibold tracking-tight text-foreground">
+                  {PRICING.CURRENCY_CODE} {PRICING.ANNUAL_USD}
+                </p>
+                <span className="text-sm text-muted-foreground">/ year</span>
+                <span className="ml-1 border border-success/30 bg-success/8 px-2 py-0.5 text-[10px] font-semibold text-success">
+                  SAVE USD {PRICING.ANNUAL_SAVING_USD}
+                </span>
+              </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Monthly option: {PRICING.CURRENCY_CODE} {PRICING.MONTHLY_USD}. Exact availability verified before checkout.
+              </p>
+              <Button variant="hero" className="mt-6 w-full sm:w-auto" asChild>
+                <Link to={PRICING_SECTION.ctaHref}>
+                  Review plan
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
           </div>
         </div>
       </section>
+
     </div>
   );
 }
