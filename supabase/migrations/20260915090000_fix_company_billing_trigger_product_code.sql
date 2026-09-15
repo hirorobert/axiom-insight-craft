@@ -60,14 +60,16 @@ BEGIN
       v_saff_erp_count;
   END IF;
 
-  -- P3: exactly one active FREE plan belonging to the CFOCLOSE product
+  -- P3: exactly one ACTIVE FREE plan belonging to the CFOCLOSE product
   SELECT COUNT(*) INTO v_free_plan_count
     FROM public.commercial_plans cp
     JOIN public.commercial_products prod ON prod.id = cp.product_id
-   WHERE cp.code = 'FREE' AND prod.code = 'CFOCLOSE';
+   WHERE cp.code = 'FREE'
+     AND cp.is_active = true
+     AND prod.code = 'CFOCLOSE';
   IF v_free_plan_count <> 1 THEN
     RAISE EXCEPTION
-      'PREFLIGHT_FAILED P3: expected exactly 1 FREE plan for CFOCLOSE product, found %',
+      'PREFLIGHT_FAILED P3: expected exactly 1 ACTIVE FREE plan for CFOCLOSE product, found %',
       v_free_plan_count;
   END IF;
 
@@ -176,12 +178,14 @@ BEGIN
      )
   THEN
     -- Resolve active FREE plan for this customer's product.
-    -- Explicit failure: avoids silent no-op if the plan was accidentally removed.
+    -- cp.is_active = true is required: an inactive plan must not be provisioned.
+    -- Explicit failure: avoids silent no-op if no active FREE plan is configured.
     SELECT cp.id INTO v_free_plan_id
       FROM public.commercial_plans cp
       JOIN public.billing_customers bc ON bc.product_id = cp.product_id
      WHERE bc.id = v_billing_customer_id
        AND cp.code = 'FREE'
+       AND cp.is_active = true
      LIMIT 1;
 
     IF v_free_plan_id IS NULL THEN
@@ -277,14 +281,16 @@ BEGIN
       v_cfoclose_count;
   END IF;
 
-  -- D5: CFOCLOSE active FREE plan still exists
+  -- D5: CFOCLOSE ACTIVE FREE plan still exists
   SELECT COUNT(*) INTO v_free_plan_count
     FROM public.commercial_plans cp
     JOIN public.commercial_products prod ON prod.id = cp.product_id
-   WHERE cp.code = 'FREE' AND prod.code = 'CFOCLOSE';
+   WHERE cp.code = 'FREE'
+     AND cp.is_active = true
+     AND prod.code = 'CFOCLOSE';
   IF v_free_plan_count <> 1 THEN
     RAISE EXCEPTION
-      'POSTCONDITION_FAILED D5: expected 1 FREE plan for CFOCLOSE after repair, found %',
+      'POSTCONDITION_FAILED D5: expected 1 ACTIVE FREE plan for CFOCLOSE after repair, found %',
       v_free_plan_count;
   END IF;
 

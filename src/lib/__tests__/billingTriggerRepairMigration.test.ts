@@ -194,6 +194,34 @@ describe("E — Static migration-contract: 20260915090000_fix_company_billing_tr
     const drops = sql.match(/DROP\s+TRIGGER/gi) ?? [];
     expect(drops).toHaveLength(0);
   });
+
+  it("E21. P3 preflight requires cp.is_active = true", () => {
+    // The P3 block must gate on an ACTIVE plan; an inactive FREE plan must not pass
+    const p3Block = sql.match(/P3[\s\S]*?END IF;/)?.[0] ?? "";
+    expect(p3Block).toMatch(/cp\.is_active\s*=\s*true/);
+  });
+
+  it("E22. Runtime FREE-plan resolution requires cp.is_active = true", () => {
+    // Inside the CREATE OR REPLACE FUNCTION body, the FREE plan SELECT must
+    // include cp.is_active = true — an inactive plan must not be provisioned.
+    const fnMatch = sql.match(/CREATE OR REPLACE FUNCTION[\s\S]*?\$\$;/i)?.[0] ?? "";
+    expect(fnMatch).toMatch(/cp\.is_active\s*=\s*true/);
+    // Confirm it appears alongside the FREE code check in the same WHERE block
+    expect(fnMatch).toMatch(/cp\.code\s*=\s*'FREE'[\s\S]{0,200}cp\.is_active\s*=\s*true/);
+  });
+
+  it("E23. D5 postcondition requires cp.is_active = true", () => {
+    // D5 must verify the active FREE plan exists after repair — not just any FREE plan
+    const d5Block = sql.match(/D5[\s\S]*?END IF;/)?.[0] ?? "";
+    expect(d5Block).toMatch(/cp\.is_active\s*=\s*true/);
+  });
+
+  it("E24. No COALESCE or nullable fallback weakens the active-plan guard", () => {
+    const fnMatch = sql.match(/CREATE OR REPLACE FUNCTION[\s\S]*?\$\$;/i)?.[0] ?? "";
+    // COALESCE(cp.is_active, ...) would allow a NULL is_active to be treated as true
+    const coalesces = fnMatch.match(/COALESCE\s*\(\s*cp\.is_active/gi) ?? [];
+    expect(coalesces).toHaveLength(0);
+  });
 });
 
 /**
