@@ -72,6 +72,40 @@ jobs:
       - name: Type check
         run: bunx tsc --noEmit -p tsconfig.app.json
 
+      - name: Validate Phase-0 PowerShell tooling
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $toolsDir = 'docs/operations/cfoclose-omega3-checkout-phase0-evidence/tools'
+          $filesToParse = @(
+            (Join-Path $toolsDir 'FlutterwaveEvidenceLib.ps1'),
+            (Join-Path $toolsDir 'Invoke-FlutterwaveEvidenceCapture.ps1'),
+            (Join-Path $toolsDir 'tests/FlutterwaveEvidenceLib.Tests.ps1')
+          )
+          $parseFailed = $false
+          foreach ($file in $filesToParse) {
+            $parseErrors = $null
+            $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              Write-Host "::error::Parse errors in $file"
+              $parseErrors | ForEach-Object { Write-Host "::error::$($_.Message) at line $($_.Extent.StartLineNumber)" }
+              $parseFailed = $true
+            } else {
+              Write-Host "OK (parsed): $file"
+            }
+          }
+          if ($parseFailed) {
+            Write-Host "::error::One or more Phase-0 PowerShell files failed to parse."
+            exit 1
+          }
+
+          & (Join-Path $toolsDir 'tests/FlutterwaveEvidenceLib.Tests.ps1')
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Phase-0 PowerShell focused test suite failed (exit code $LASTEXITCODE)."
+            exit 1
+          }
+
   golden-tests:
     name: Golden Fixture Tests (vitest)
     runs-on: ubuntu-latest
