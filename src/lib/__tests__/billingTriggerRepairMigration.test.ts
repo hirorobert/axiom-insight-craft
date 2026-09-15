@@ -2,11 +2,11 @@
  * billingTriggerRepairMigration.test.ts
  *
  * Static migration-contract tests for:
- *   supabase/migrations/20260915090000_fix_company_billing_trigger_product_code.sql
+ *   supabase/migrations/20260915045958_96cc735e-defd-4747-870d-2784030b6da6.sql
  *
  * These tests are STATIC — they read the migration file directly and assert
  * structural properties without executing SQL. They prove the migration:
- *   E1.  Has a forward-only filename (20260915090000 > last existing migration)
+ *   E1.  Has a forward-only filename (20260915045958 is the latest migration)
  *   E2.  Contains no INSERT into commercial_products
  *   E3.  Contains no INSERT into commercial_plans
  *   E4.  Contains no INSERT into commercial_licences (backfill)
@@ -37,10 +37,10 @@ import path from "node:path";
 
 const REPO_ROOT    = path.join(__dirname, "../../../");
 const MIGRATIONS   = path.join(REPO_ROOT, "supabase/migrations");
-const MIGRATION_ID = "20260915090000";
+const MIGRATION_ID = "20260915045958";
 const MIGRATION_FILE = path.join(
   MIGRATIONS,
-  `${MIGRATION_ID}_fix_company_billing_trigger_product_code.sql`
+  `${MIGRATION_ID}_96cc735e-defd-4747-870d-2784030b6da6.sql`
 );
 
 // Canonical LF normalisation (matches migrationReplayCompatibilityGuard pattern)
@@ -56,7 +56,7 @@ function allMigrationTimestamps(): number[] {
     .map((f) => parseInt(f.slice(0, 14), 10));
 }
 
-describe("E — Static migration-contract: 20260915090000_fix_company_billing_trigger_product_code", () => {
+describe("E — Static migration-contract: 20260915045958_96cc735e-defd-4747-870d-2784030b6da6", () => {
   let sql: string;
   try {
     sql = readMigration();

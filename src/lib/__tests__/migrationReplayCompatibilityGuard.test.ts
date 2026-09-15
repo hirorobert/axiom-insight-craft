@@ -142,10 +142,9 @@ describe("migration directory integrity", () => {
     // lovableMigrationLedgerAlias.test.ts's Ω5 alias-divergence guard) to
     // 20260914120000_omega5_billing_projection_truth.sql, aside from
     // trailing whitespace/newline differences. Bumped from 119 -> 120:
-    // 20260915090000_fix_company_billing_trigger_product_code.sql — targeted
-    // repair of provision_billing_customer_for_company(), replacing the stale
-    // SAFF_ERP product code lookup with CFOCLOSE. Forward-only, sorts after
-    // every prior migration.
+    // 20260915045958_96cc735e-defd-4747-870d-2784030b6da6.sql — Lovable-managed
+    // execution record for the CFOCLOSE billing-trigger repair. Forward-only,
+    // sorts after every prior migration (executed by Lovable on 2026-09-15).
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
     expect(files.length).toBe(120);
   });

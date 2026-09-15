@@ -19,7 +19,7 @@ describe("Ω5 billing projection truth — forward-only migration", () => {
       .filter((name) => name.endsWith(".sql"))
       .sort();
     const thisFile  = "20260914120000_omega5_billing_projection_truth.sql";
-    const nextFile  = "20260915090000_fix_company_billing_trigger_product_code.sql";
+    const nextFile  = "20260915045958_96cc735e-defd-4747-870d-2784030b6da6.sql";
     expect(files).toContain(thisFile);
     expect(files).toContain(nextFile);
     expect(files.indexOf(thisFile)).toBeLessThan(files.indexOf(nextFile));

@@ -67,7 +67,7 @@ describe("Ω3-CHECKOUT migration — presence and ordering", () => {
     // Lovable-managed ledger-alias migration (20260913165425), which sorts
     // between the Ω4 acquisition-hardening migration and the Ω3 provider-
     // boundary-repair migration it precedes.
-    // The trigger-repair migration (20260915090000) is now the newest entry.
+    // The Lovable-managed trigger-repair migration (20260915045958) is the newest entry.
     expect(thisIndex).toBe(sorted.length - 7);
     expect(sorted[sorted.length - 6]).toBe(
       "20260913000000_omega4_checkout_acquisition_hardening.sql",
@@ -85,7 +85,7 @@ describe("Ω3-CHECKOUT migration — presence and ordering", () => {
       "20260914120000_omega5_billing_projection_truth.sql",
     );
     expect(sorted[sorted.length - 1]).toBe(
-      "20260915090000_fix_company_billing_trigger_product_code.sql",
+      "20260915045958_96cc735e-defd-4747-870d-2784030b6da6.sql",
     );
   });
 
