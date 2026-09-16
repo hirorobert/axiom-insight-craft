@@ -415,8 +415,8 @@ describe("Ω3-BRAND · ProductTour outcome architecture (real source)", () => {
     ]);
   });
 
-  it("53 · the public selector renders from the canonical outcome registry", () => {
-    expect(tourSrc).toMatch(/PRODUCT_OUTCOMES\.map/);
+  it("53 · the public selector renders from the honest-capability-filtered outcome registry (PUBLIC_PRODUCT_OUTCOMES, not PRODUCT_OUTCOMES directly)", () => {
+    expect(tourSrc).toMatch(/PUBLIC_PRODUCT_OUTCOMES\.map/);
     expect(tourSrc).toMatch(/outcomeAuthHref\(outcome\.id\)/);
     expect(tourSrc).toMatch(/rememberOutcome\(outcome\.id\)/);
   });
@@ -426,20 +426,26 @@ describe("Ω3-BRAND · ProductTour outcome architecture (real source)", () => {
     expect(tourSrc).not.toMatch(/setInterval|setTimeout|playing|elapsed|ProductTour.*Frame/);
   });
 
-  it("75 · the selector renders each outcome's explicit ctaLabel, never a generic 'Select' CTA or repeated availability/status text", () => {
+  it("75 · the selector renders each outcome's explicit ctaLabel, never a generic 'Select' CTA", () => {
+    // Availability ("Workflow available"/"Data dependent") is a deliberate,
+    // retained design element of the recovered landing redesign (PR #20) —
+    // only the generic "Select" CTA text is banned, not the availability
+    // badge itself.
     expect(tourSrc).not.toMatch(/>\s*Select\s*</);
-    expect(tourSrc).not.toMatch(/Workflow available/);
-    expect(tourSrc).not.toMatch(/outcome\.availability/);
-    expect(tourSrc).not.toMatch(/outcome\.scope/);
     expect(tourSrc).toMatch(/outcome\.ctaLabel/);
+    expect(tourSrc).toMatch(/fullClose\.ctaLabel/);
   });
 
   it("76 · every selector row exposes a unique accessible action name (no duplicate 'Select' across rows) and no nested interactive controls", () => {
     expect(tourSrc).toMatch(/aria-label=\{`\$\{outcome\.ctaLabel\}: \$\{outcome\.title\}`\}/);
-    // Exactly one <Link> (interactive control) per outcome row — the row
-    // itself (<li>) is not also wrapped in an anchor/button.
+    expect(tourSrc).toMatch(/aria-label=\{`\$\{fullClose\.ctaLabel\}: \$\{fullClose\.title\}`\}/);
+    // Two <Link> elements in source is correct here: one per standard-card
+    // iteration (PUBLIC_PRODUCT_OUTCOMES.map) and one for the single,
+    // separately-rendered full-close hero card — never a <Link> nested
+    // inside another interactive control.
     const linkCount = (tourSrc.match(/<Link\b/g) ?? []).length;
-    expect(linkCount).toBe(1); // one Link element in source, rendered once per PRODUCT_OUTCOMES.map iteration
+    expect(linkCount).toBe(2);
+    expect(tourSrc).not.toMatch(/<Link\b[^>]*>[\s\S]{0,400}<Link\b/);
   });
 
   it("77 · document review is listed immediately after statement preparation, and never reuses the trial-balance input language", () => {

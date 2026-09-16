@@ -9,12 +9,19 @@
  * upload path and never writes to trial balance, account mappings, or any
  * prepared-statement table.
  *
- * Honest-capability discipline (North-Star Phase 11): this screen performs
- * real, working intake (file validation, classification, upload) against
- * the financial-statement-intake Edge Function. Automated extraction/
- * review is a separate, not-yet-connected pipeline — the UI says so
- * explicitly and never fabricates a finding or claims a document was
- * assessed before the server says so.
+ * Honest-capability discipline (North-Star Phase 11, hardened by the
+ * document-review-acceptance-repair pass Phase 2): extraction and
+ * validation do not exist yet. While DOCUMENT_REVIEW_ENABLED is false, this
+ * screen never presents a working "Start review" CTA — direct/shared-link
+ * access to this route shows only an honest "not available yet" notice.
+ * Once real intake is enabled, the screen still never fabricates a finding
+ * or claims a document was assessed before the server says so.
+ *
+ * Supporting-trial-balance upload was removed in the acceptance-repair pass
+ * (Phase 3): the prior slice accepted a second file, read it server-side,
+ * and then silently discarded it — never validated, stored, linked, or
+ * processed. Silently discarding an uploaded financial file is prohibited.
+ * The feature will return only once it is fully wired end to end.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -31,6 +38,7 @@ import {
   CheckCircle2,
   Loader2,
   ArrowRight,
+  Clock,
 } from "lucide-react";
 import {
   classifyArtifact,
@@ -39,6 +47,7 @@ import {
   type ArtifactInput,
   type ClassificationResult,
 } from "@/lib/documentReview/classifyArtifact";
+import { DOCUMENT_REVIEW_ENABLED } from "@/lib/product/outcomes";
 
 type ReviewStatus =
   | "SELECTED"
@@ -72,13 +81,32 @@ interface SelectedFile {
   classification: ClassificationResult;
 }
 
+/** Rendered for every visitor while DOCUMENT_REVIEW_ENABLED is false — no file picker, no CTA. */
+function NotYetAvailable() {
+  return (
+    <div className="max-w-2xl">
+      <div className="border border-border p-6">
+        <div className="flex items-start gap-3">
+          <Clock className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-foreground">Statement review is not available yet</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Document-based statement review is still being built. No file intake, extraction,
+              or review is available on this screen today — nothing here has been assessed, and
+              nothing can be uploaded yet.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function StatementReviewWorkspace() {
   const { companyId, periodYear } = useWorkspace();
   const primaryInputRef = useRef<HTMLInputElement>(null);
-  const supportingInputRef = useRef<HTMLInputElement>(null);
 
   const [primary, setPrimary] = useState<SelectedFile | null>(null);
-  const [supporting, setSupporting] = useState<SelectedFile | null>(null);
   const [pickerError, setPickerError] = useState<string | null>(null);
   // User's own answer when classifyArtifact could not determine the
   // workbook type ("ambiguous"). Never inferred — only ever set by an
@@ -98,7 +126,7 @@ export default function StatementReviewWorkspace() {
   useEffect(() => {
     let cancelled = false;
     async function resume() {
-      if (!companyId || !periodYear) {
+      if (!DOCUMENT_REVIEW_ENABLED || !companyId || !periodYear) {
         setResuming(false);
         return;
       }
@@ -171,15 +199,6 @@ export default function StatementReviewWorkspace() {
     [classifySelection],
   );
 
-  const handleSupportingSelect = useCallback((fileList: FileList | null) => {
-    const f = fileList?.[0];
-    if (!f) return;
-    setSupporting({
-      file: f,
-      classification: classifyArtifact({ fileName: f.name, mimeType: f.type, byteSize: f.size }, "trial-balance-intake"),
-    });
-  }, []);
-
   const removePrimary = () => {
     setPrimary(null);
     setPickerError(null);
@@ -191,18 +210,13 @@ export default function StatementReviewWorkspace() {
   // Effective classification after an explicit user confirmation on an
   // ambiguous workbook. The original (unconfirmed) classification is never
   // discarded — it is still sent to the server as the client hint, which
-  // the server independently re-verifies.
+  // the server independently re-verifies and never treats as authoritative.
   const effectiveSuggestion =
     primary && primary.classification.artifactClass === "ambiguous" && confirmedAmbiguousAs
       ? undefined
       : primary?.classification.suggestion;
   const isAwaitingAmbiguousConfirmation =
     primary?.classification.artifactClass === "ambiguous" && !confirmedAmbiguousAs;
-
-  const removeSupporting = () => {
-    setSupporting(null);
-    if (supportingInputRef.current) supportingInputRef.current.value = "";
-  };
 
   const startReview = async () => {
     // Synchronous double-submit guard — disabled={} alone does not prevent a
@@ -220,10 +234,8 @@ export default function StatementReviewWorkspace() {
       const form = new FormData();
       form.append("companyId", companyId);
       form.append("periodYear", String(periodYear));
-      form.append("clientRequestId", crypto.randomUUID());
       form.append("artifactClassHint", confirmedAmbiguousAs ?? primary.classification.artifactClass);
       form.append("file", primary.file);
-      if (supporting) form.append("supportingFile", supporting.file);
 
       const { data, error } = await supabase.functions.invoke("financial-statement-intake", {
         body: form,
@@ -245,6 +257,10 @@ export default function StatementReviewWorkspace() {
   };
 
   const Icon = primary ? iconFor(primary.file.name) : Upload;
+
+  if (!DOCUMENT_REVIEW_ENABLED) {
+    return <NotYetAvailable />;
+  }
 
   if (resuming) {
     return (
@@ -376,44 +392,6 @@ export default function StatementReviewWorkspace() {
                 <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
                 Recognized as {(confirmedAmbiguousAs ?? primary.classification.artifactClass).replace(/_/g, " ")}
               </div>
-            )}
-          </div>
-
-          {/* Optional secondary input */}
-          <div className="border border-border p-5">
-            <p className="text-sm font-medium text-foreground">Add supporting trial balance</p>
-            <p className="mt-1 text-xs text-muted-foreground">Optional — helps reconcile figures during review.</p>
-            {supporting ? (
-              <div className="mt-3 flex items-center justify-between gap-3 border border-border p-3">
-                <span className="text-xs text-foreground truncate">{supporting.file.name}</span>
-                <button
-                  type="button"
-                  onClick={removeSupporting}
-                  aria-label="Remove supporting trial balance"
-                  className="shrink-0 p-1 text-muted-foreground hover:text-foreground min-h-[44px] min-w-[44px] flex items-center justify-center"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <>
-                <input
-                  ref={supportingInputRef}
-                  type="file"
-                  accept=".csv,.xlsx"
-                  className="sr-only"
-                  onChange={(e) => handleSupportingSelect(e.target.files)}
-                  id="statement-review-supporting-input"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3"
-                  onClick={() => supportingInputRef.current?.click()}
-                >
-                  Add file
-                </Button>
-              </>
             )}
           </div>
 

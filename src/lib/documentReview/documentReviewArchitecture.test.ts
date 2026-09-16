@@ -2,12 +2,17 @@
  * documentReviewArchitecture.test.ts
  *
  * Static, source-text regression coverage for the statement-review
- * document-intake boundary (North-Star Phases 4, 7, 8, 10, 12). Follows
- * this repository's established convention for asserting invariants in SQL
- * a live database connection cannot execute here, and in Edge Function code
- * no Deno runtime can execute here (see
- * src/lib/__tests__/migrationReplayCompatibilityGuard.test.ts and
- * supabase/functions/_shared/actor.ts's own header comment for precedent).
+ * document-intake boundary (North-Star Phases 4, 7, 8, 10, 12, hardened by
+ * the document-review-acceptance-repair pass). Follows this repository's
+ * established convention for asserting invariants in SQL a live database
+ * connection cannot execute here (see
+ * src/lib/__tests__/migrationReplayCompatibilityGuard.test.ts for
+ * precedent). The Edge Function's own executable logic (logic.ts,
+ * scanForMalware.ts, handleIntake.ts) has REAL, EXECUTED `deno test`
+ * coverage instead — see supabase/functions/financial-statement-intake/
+ * *.test.ts and the session's final report for that output; this file only
+ * re-verifies the parts vitest can check (source-text invariants across
+ * the TS/SQL boundary, and the React UI).
  */
 
 import { describe, it, expect } from "vitest";
@@ -21,10 +26,13 @@ function readSource(relativePath: string): string {
 }
 
 const MIGRATION_PATH = "supabase/migrations/20260915100000_financial_statement_documents.sql";
-const EDGE_FN_PATH = "supabase/functions/financial-statement-intake/index.ts";
+const EDGE_FN_INDEX_PATH = "supabase/functions/financial-statement-intake/index.ts";
+const EDGE_FN_HANDLE_PATH = "supabase/functions/financial-statement-intake/handleIntake.ts";
+const EDGE_FN_LOGIC_PATH = "supabase/functions/financial-statement-intake/logic.ts";
+const EDGE_FN_SCAN_PATH = "supabase/functions/financial-statement-intake/scanForMalware.ts";
 
 // ─────────────────────────────────────────────────────────────
-// Phase 4 — routing contract
+// Phase 4 (routing) — unchanged by the acceptance-repair pass
 // ─────────────────────────────────────────────────────────────
 
 describe("routing contract — statement review is a distinct route, never merged into an existing workflow", () => {
@@ -67,7 +75,103 @@ describe("routing contract — the remembered outcome never silently replaces th
 });
 
 // ─────────────────────────────────────────────────────────────
-// Phase 7 — migration invariants (static SQL text, unapplied)
+// Acceptance-repair Phase 2 — honest capability / public visibility gate
+// ─────────────────────────────────────────────────────────────
+
+describe("honest capability — review-statements is withheld from the public selector until DOCUMENT_REVIEW_ENABLED", () => {
+  const outcomesSrc = readSource("src/lib/product/outcomes.ts");
+  const tourSrc = readSource("src/components/ProductTour.tsx");
+  const workspaceSrc = readSource("src/pages/workspace/StatementReviewWorkspace.tsx");
+
+  it("DOCUMENT_REVIEW_ENABLED defaults to false, and is a plain source constant — never import.meta.env.VITE_*", () => {
+    expect(outcomesSrc).toMatch(/export const DOCUMENT_REVIEW_ENABLED = false;/);
+    const constBlock = outcomesSrc.slice(
+      outcomesSrc.indexOf("DOCUMENT_REVIEW_ENABLED"),
+      outcomesSrc.indexOf("DOCUMENT_REVIEW_ENABLED") + 800,
+    );
+    expect(constBlock).not.toMatch(/import\.meta\.env\.VITE_/);
+    expect(outcomesSrc).toMatch(/NOT a browser-controlled VITE_ env var/);
+  });
+
+  it("PUBLIC_PRODUCT_OUTCOMES excludes review-statements while the flag is false, and PRODUCT_OUTCOMES itself is untouched", () => {
+    expect(outcomesSrc).toMatch(/export const PUBLIC_PRODUCT_OUTCOMES[\s\S]*?DOCUMENT_REVIEW_ENABLED\s*\n\s*\? PRODUCT_OUTCOMES\s*\n\s*: PRODUCT_OUTCOMES\.filter\(\(outcome\) => outcome\.id !== "review-statements"\)/);
+  });
+
+  it("ProductTour renders from PUBLIC_PRODUCT_OUTCOMES, not PRODUCT_OUTCOMES directly", () => {
+    expect(tourSrc).toMatch(/import \{\s*\n\s*PUBLIC_PRODUCT_OUTCOMES,/);
+    // No BARE "PRODUCT_OUTCOMES.map" (i.e. not immediately preceded by
+    // "PUBLIC_") should appear — a plain substring check would also match
+    // inside "PUBLIC_PRODUCT_OUTCOMES.map", so this uses a negative
+    // lookbehind to rule that legitimate occurrence out specifically.
+    expect(tourSrc).not.toMatch(/(?<!PUBLIC_)PRODUCT_OUTCOMES\.map/);
+    expect(tourSrc).toMatch(/PUBLIC_PRODUCT_OUTCOMES\.map/);
+  });
+
+  it("direct route access to StatementReviewWorkspace shows an honest not-yet-available boundary, never a working Start review CTA, while the flag is false", () => {
+    expect(workspaceSrc).toMatch(/if \(!DOCUMENT_REVIEW_ENABLED\) \{\s*\n\s*return <NotYetAvailable \/>;/);
+    expect(workspaceSrc).toMatch(/Statement review is not available yet/);
+    // NotYetAvailable itself must render no CTA, no file input.
+    const notYetAvailableBlock = workspaceSrc.slice(
+      workspaceSrc.indexOf("function NotYetAvailable"),
+      workspaceSrc.indexOf("export default function StatementReviewWorkspace"),
+    );
+    expect(notYetAvailableBlock).not.toMatch(/<input/);
+    expect(notYetAvailableBlock).not.toMatch(/Start review/);
+    expect(notYetAvailableBlock).not.toMatch(/Choose statements/);
+  });
+
+  it("no fake assessment/findings/reconciliation/framework-review/audit-readiness claim exists anywhere in the workspace source", () => {
+    const bannedClaims = [/reconciliation (is )?complete/i, /findings? (were|have been) generated/i, /framework review (is )?complete/i, /audit[- ]ready\b/i];
+    for (const pattern of bannedClaims) {
+      expect(workspaceSrc).not.toMatch(pattern);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Acceptance-repair Phase 3 — supporting file removed, never silently dropped
+// ─────────────────────────────────────────────────────────────
+
+describe("acceptance-repair Phase 3 — the discarded supporting-trial-balance feature is fully removed, not silently dropped", () => {
+  const workspaceSrc = readSource("src/pages/workspace/StatementReviewWorkspace.tsx");
+  const handleSrc = readSource(EDGE_FN_HANDLE_PATH);
+  const indexSrc = readSource(EDGE_FN_INDEX_PATH);
+
+  it("the client UI has no supporting-trial-balance input, state, or copy left at all", () => {
+    expect(workspaceSrc).not.toMatch(/Add supporting trial balance/);
+    expect(workspaceSrc).not.toMatch(/helps reconcile figures/i);
+    expect(workspaceSrc).not.toMatch(/supportingInputRef/);
+    expect(workspaceSrc).not.toMatch(/handleSupportingSelect/);
+    expect(workspaceSrc).not.toMatch(/removeSupporting/);
+  });
+
+  it("the client never sends a supportingFile field to the Edge Function", () => {
+    expect(workspaceSrc).not.toMatch(/supportingFile/);
+  });
+
+  it("the Edge Function no longer reads or logs a supportingFile field at all", () => {
+    expect(handleSrc).not.toMatch(/supportingFile/i);
+    expect(indexSrc).not.toMatch(/supportingFile/i);
+    expect(handleSrc).not.toMatch(/hasSupportingFile/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Acceptance-repair Phase 6 — clientRequestId used meaningfully or removed (removed)
+// ─────────────────────────────────────────────────────────────
+
+describe("acceptance-repair Phase 6 — clientRequestId (decorative) removed; content-addressed sha256 is the real idempotency key", () => {
+  const workspaceSrc = readSource("src/pages/workspace/StatementReviewWorkspace.tsx");
+  const handleSrc = readSource(EDGE_FN_HANDLE_PATH);
+
+  it("no clientRequestId anywhere in the client UI or the Edge Function", () => {
+    expect(workspaceSrc).not.toMatch(/clientRequestId/);
+    expect(handleSrc).not.toMatch(/clientRequestId/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Phase 7 — migration invariants (static SQL text, unapplied), corrected
 // ─────────────────────────────────────────────────────────────
 
 describe("financial_statement_documents migration — required invariants (unapplied, static source only)", () => {
@@ -81,6 +185,12 @@ describe("financial_statement_documents migration — required invariants (unapp
     expect(sql).toMatch(/uploaded_by_firm_member_id\s+UUID\s+NOT NULL/);
     expect(sql).toMatch(/REFERENCES public\.firm_members\(id\)/);
     expect(sql).not.toMatch(/uploaded_by_firm_member_id[\s\S]{0,40}REFERENCES auth\.users/);
+  });
+
+  it("acceptance-repair Phase 7: the company FK is ON DELETE RESTRICT, not CASCADE", () => {
+    const fkBlock = sql.slice(sql.indexOf("CONSTRAINT fk_fsd_company"), sql.indexOf("CONSTRAINT fk_fsd_company") + 300);
+    expect(fkBlock).toMatch(/REFERENCES public\.companies\(id\) ON DELETE RESTRICT/);
+    expect(fkBlock).not.toMatch(/ON DELETE CASCADE/);
   });
 
   it("has the exact unique(company_id, period_year, sha256) constraint, scoped to non-superseded rows", () => {
@@ -99,8 +209,22 @@ describe("financial_statement_documents migration — required invariants (unapp
     expect(fnBody).toMatch(/NOT EXISTS[\s\S]*?firm_members[\s\S]*?RAISE EXCEPTION 'FORBIDDEN/);
   });
 
+  it("acceptance-repair Phase 7: both mutation RPCs explicitly GRANT EXECUTE to service_role, in addition to REVOKE from PUBLIC/anon/authenticated", () => {
+    for (const fnSig of [
+      "public.intake_financial_statement_document(UUID, INTEGER, UUID, TEXT, TEXT, BIGINT, TEXT, TEXT, TEXT)",
+      "public.advance_financial_statement_document_status(UUID, TEXT)",
+    ]) {
+      expect(sql).toContain(`GRANT EXECUTE ON FUNCTION ${fnSig} TO service_role;`);
+      expect(sql).toContain(`REVOKE ALL ON FUNCTION ${fnSig} FROM PUBLIC, anon, authenticated;`);
+    }
+  });
+
   it("storage_path is never accepted as a raw client value with no server generation contract documented", () => {
     expect(sql).toMatch(/server-generated only, never client-chosen/i);
+  });
+
+  it("acceptance-repair Phase 6: the documented storage path convention is content-addressed (company/period/sha256.extension), not a random UUID", () => {
+    expect(sql).toMatch(/\{company_id\}\/\{period_year\}\/\{sha256\}\.\{canonical_extension\}/);
   });
 
   it("RLS is enabled and no INSERT/UPDATE/DELETE policy exists for authenticated or anon — every write goes through the SECURITY DEFINER function", () => {
@@ -141,85 +265,134 @@ describe("financial_statement_documents migration — required invariants (unapp
     expect(sql).toMatch(/INSERT INTO storage\.buckets \(id, name, public\)\s*\nVALUES \('financial-statement-documents', 'financial-statement-documents', false\)/);
   });
 
-  it("all seven artifact classes and the full status vocabulary are present in their CHECK constraints", () => {
+  it("all seven artifact classes are present in the CHECK constraint", () => {
+    const classBlock = sql.slice(sql.indexOf("CONSTRAINT chk_fsd_artifact_class"), sql.indexOf("CONSTRAINT chk_fsd_artifact_class") + 300);
     for (const cls of ["trial_balance", "financial_statements", "mixed_workbook", "scanned_document", "structured_xbrl", "unsupported", "ambiguous"]) {
-      expect(sql).toContain(`'${cls}'`);
+      expect(classBlock).toContain(`'${cls}'`);
     }
-    for (const status of ["SELECTED", "UPLOADING", "STORED", "CLASSIFYING", "EXTRACTING", "READY_FOR_REVIEW", "UPLOAD_FAILED", "CLASSIFICATION_FAILED", "EXTRACTION_FAILED", "QUARANTINED"]) {
-      expect(sql).toContain(`'${status}'`);
+  });
+
+  it("acceptance-repair Phase 7: SELECTED/UPLOADING/UPLOAD_FAILED are removed from the persisted status CHECK constraint — no real server transition can produce them", () => {
+    const statusBlock = sql.slice(sql.indexOf("CONSTRAINT chk_fsd_status"), sql.indexOf("CONSTRAINT chk_fsd_status") + 300);
+    for (const removedStatus of ["SELECTED", "UPLOADING", "UPLOAD_FAILED"]) {
+      expect(statusBlock).not.toContain(`'${removedStatus}'`);
+    }
+    for (const keptStatus of ["STORED", "CLASSIFYING", "EXTRACTING", "READY_FOR_REVIEW", "CLASSIFICATION_FAILED", "EXTRACTION_FAILED", "QUARANTINED"]) {
+      expect(statusBlock).toContain(`'${keptStatus}'`);
     }
   });
 });
 
 // ─────────────────────────────────────────────────────────────
-// Phase 8 — security boundary (static source only, not deployed)
+// Phase 8 — security boundary, hardened (static source only, not deployed;
+// the executable logic in these same files also has real `deno test`
+// coverage — see the .test.ts files alongside them).
 // ─────────────────────────────────────────────────────────────
 
 describe("financial-statement-intake Edge Function — security boundary (static source only, not deployed)", () => {
-  const fnSrc = readSource(EDGE_FN_PATH);
+  const indexSrc = readSource(EDGE_FN_INDEX_PATH);
+  const handleSrc = readSource(EDGE_FN_HANDLE_PATH);
+  const logicSrc = readSource(EDGE_FN_LOGIC_PATH);
+  const scanSrc = readSource(EDGE_FN_SCAN_PATH);
 
   it("requires an authenticated session via the shared validateAuth helper — never a hand-rolled check", () => {
-    expect(fnSrc).toMatch(/import \{ validateAuth, corsHeaders, handleCors \} from "\.\.\/_shared\/auth\.ts"/);
-    expect(fnSrc).toMatch(/validateAuth\(req\.headers\.get\("Authorization"\), corsHeaders\)/);
+    expect(indexSrc).toMatch(/import \{ validateAuth, corsHeaders, handleCors \} from "\.\.\/_shared\/auth\.ts"/);
+    expect(indexSrc).toMatch(/validateAuth\(req\.headers\.get\("Authorization"\), corsHeaders\)/);
   });
 
   it("resolves firmMemberId server-side via the canonical resolveFirmMemberActor helper — never accepts a client-supplied firmMemberId field", () => {
-    expect(fnSrc).toMatch(/import \{ resolveFirmMemberActor \} from "\.\.\/_shared\/actor\.ts"/);
-    expect(fnSrc).toMatch(/resolveFirmMemberActor\(admin, auth!\.userId, companyId, corsHeaders\)/);
-    expect(fnSrc).not.toMatch(/form\.get\("firmMemberId"\)/);
+    expect(indexSrc).toMatch(/import \{ resolveFirmMemberActor \} from "\.\.\/_shared\/actor\.ts"/);
+    expect(handleSrc).toMatch(/deps\.resolveFirmMemberActor\(deps\.admin, userId, companyId, corsHeaders\)/);
+    expect(indexSrc).not.toMatch(/form\.get\("firmMemberId"\)/);
   });
 
-  it("validates MIME signature (magic bytes), not filename/declared-mimetype alone", () => {
-    expect(fnSrc).toMatch(/function verifySignature/);
-    expect(fnSrc).toMatch(/PDF_MAGIC/);
-    expect(fnSrc).toMatch(/ZIP_MAGIC/);
-    expect(fnSrc).toMatch(/bytesStartWith\(head, PDF_MAGIC\)/);
+  it("validates MIME signature (magic bytes) AND declared Content-Type, not filename alone", () => {
+    expect(logicSrc).toMatch(/export function verifySignature/);
+    expect(logicSrc).toMatch(/export function verifyDeclaredMimeType/);
+    expect(logicSrc).toMatch(/PDF_MAGIC/);
+    expect(logicSrc).toMatch(/ZIP_MAGIC/);
+    expect(logicSrc).toMatch(/bytesStartWith\(head, PDF_MAGIC\)/);
+    expect(handleSrc).toMatch(/verifySignature\(ext, file\.bytes\.subarray\(0, 8\)\)/);
+    expect(handleSrc).toMatch(/verifyDeclaredMimeType\(ext, file\.type\)/);
   });
 
-  it("enforces a hard file-size ceiling before reading the full file into memory only once, matching the migration's own ceiling", () => {
-    expect(fnSrc).toMatch(/const MAX_BYTES = 50 \* 1024 \* 1024/);
-    expect(fnSrc).toMatch(/file\.size > MAX_BYTES/);
+  it("enforces a hard file-size ceiling, matching the migration's own ceiling", () => {
+    expect(handleSrc).toMatch(/const MAX_BYTES = 50 \* 1024 \* 1024/);
+    expect(handleSrc).toMatch(/file\.size > MAX_BYTES/);
   });
 
-  it("documents the archive-bomb mitigation for this stage explicitly (no decompression happens at intake)", () => {
-    expect(fnSrc).toMatch(/Archive-bomb note/i);
+  it("acceptance-repair Phase 4: the malware scan is fail-CLOSED — every non-clean outcome refuses the request with 503, never proceeds to storage", () => {
+    expect(handleSrc).toMatch(/scan\.outcome === "unavailable"/);
+    expect(handleSrc).toMatch(/IntakeUnavailable/);
+    expect(handleSrc).toMatch(/\}, 503\)/);
+    // The upload call must appear strictly after the scan-outcome checks in
+    // source order — no code path reaches storage before scanning resolves.
+    const scanCheckIndex = handleSrc.indexOf('scan.outcome === "unavailable"');
+    const uploadIndex = handleSrc.indexOf(".upload(storagePath");
+    expect(scanCheckIndex).toBeGreaterThan(-1);
+    expect(uploadIndex).toBeGreaterThan(scanCheckIndex);
   });
 
-  it("has a named malware/quarantine extension point and is honest that it is a no-op until configured", () => {
-    expect(fnSrc).toMatch(/MALWARE_SCAN_WEBHOOK_URL/);
-    expect(fnSrc).toMatch(/explicitly a no-op today/);
+  it("acceptance-repair Phase 4: scanForMalware itself fails closed on every non-2xx/timeout/malformed/unconfigured branch — never silently 'proceed'", () => {
+    expect(scanSrc).toMatch(/if \(!webhookUrl\) \{\s*\n\s*return \{ outcome: "unavailable", reason: "not_configured" \};/);
+    expect(scanSrc).toMatch(/AbortController/);
+    expect(scanSrc).toMatch(/reason: "timeout"/);
+    expect(scanSrc).toMatch(/reason: "http_error"/);
+    expect(scanSrc).toMatch(/reason: "malformed_response"/);
+    expect(scanSrc).toMatch(/clean === true \? \{ outcome: "clean" \} : \{ outcome: "dirty" \}/);
   });
 
   it("computes the authoritative SHA-256 server-side via the shared hash helper — never trusts a client-supplied hash", () => {
-    expect(fnSrc).toMatch(/import \{ sha256HexBytes \} from "\.\.\/_shared\/hash\.ts"/);
-    expect(fnSrc).toMatch(/const sha256 = await sha256HexBytes\(bytes\)/);
-    expect(fnSrc).not.toMatch(/form\.get\("sha256"\)/);
-  });
-
-  it("accepts a clientRequestId for idempotency-safety-net purposes, logged but never itself the dedup boundary (content hash is)", () => {
-    expect(fnSrc).toMatch(/clientRequestId/);
+    expect(indexSrc).toMatch(/import \{ sha256HexBytes \} from "\.\.\/_shared\/hash\.ts"/);
+    expect(handleSrc).toMatch(/const sha256 = await deps\.sha256HexBytes\(file\.bytes\)/);
+    expect(indexSrc).not.toMatch(/form\.get\("sha256"\)/);
   });
 
   it("writes a structured audit event and never logs file content — only name/size/hash-class metadata", () => {
-    expect(fnSrc).toMatch(/console\.log\(JSON\.stringify\(\{\s*\n\s*event: "financial_statement_intake_stored"/);
-    expect(fnSrc).not.toMatch(/console\.log\([^)]*bytes\)/);
-    expect(fnSrc).not.toMatch(/console\.log\([^)]*await file\.text\(\)/);
+    expect(handleSrc).toMatch(/console\.log\(JSON\.stringify\(\{\s*\n\s*event: "financial_statement_intake_stored"/);
+    expect(handleSrc).not.toMatch(/console\.log\([^)]*bytes\)/);
+    expect(handleSrc).not.toMatch(/console\.log\([^)]*await file\.text\(\)/);
   });
 
   it("never reads or writes SUPABASE_SERVICE_ROLE_KEY from a VITE_-prefixed variable — it is a server-only Deno.env value", () => {
-    expect(fnSrc).toMatch(/Deno\.env\.get\("SUPABASE_SERVICE_ROLE_KEY"\)/);
-    expect(fnSrc).not.toMatch(/VITE_/);
+    expect(indexSrc).toMatch(/Deno\.env\.get\("SUPABASE_SERVICE_ROLE_KEY"\)/);
+    expect(indexSrc).not.toMatch(/VITE_/);
+    expect(handleSrc).not.toMatch(/VITE_/);
   });
 
-  it("stores to a private, non-public bucket path with no client-suppliable storage path", () => {
-    expect(fnSrc).toMatch(/const BUCKET = "financial-statement-documents"/);
-    expect(fnSrc).toMatch(/const storagePath = `\$\{companyId\}\/\$\{periodYear\}\/\$\{crypto\.randomUUID\(\)\}/);
-    expect(fnSrc).not.toMatch(/form\.get\("storagePath"\)/);
+  it("acceptance-repair Phase 6: storage path is content-addressed (company/period/sha256.ext) — never a random UUID, never a client-suppliable value", () => {
+    expect(logicSrc).toMatch(/export function resolveContentAddressedStoragePath/);
+    expect(logicSrc).toMatch(/`\$\{companyId\}\/\$\{periodYear\}\/\$\{sha256\}\.\$\{ext\}`/);
+    expect(logicSrc).not.toMatch(/crypto\.randomUUID/);
+    expect(indexSrc).not.toMatch(/form\.get\("storagePath"\)/);
   });
 
-  it("never accepts a client-supplied artifact class as final truth for a rejection-critical rule — re-enforces CSV-never-becomes-statements server-side independently of the client hint", () => {
-    expect(fnSrc).toMatch(/function rejectCsvAsStatements/);
-    expect(fnSrc).toMatch(/rejectCsvAsStatements\(file\.name, file\.type, artifactClassHint\)/);
+  it("acceptance-repair Phase 5: classification is server-authoritative — CSV is always rejected, and the client's artifactClassHint is never trusted except for the one legitimate ambiguous-XLSX confirmation case", () => {
+    expect(logicSrc).toMatch(/export function deriveServerArtifactClass/);
+    expect(logicSrc).toMatch(/isCsv\(fileName, mimeType\)/);
+    expect(logicSrc).toMatch(/return \{ ok: false, reason: "csv_rejected" \}/);
+    expect(logicSrc).toMatch(/clientHint === "trial_balance" \|\| clientHint === "financial_statements"/);
+    expect(handleSrc).toMatch(/isArtifactClass\(classification\.artifactClass\)/); // defensive enum re-check before the RPC
+  });
+
+  it("acceptance-repair Phase 5: HTML/XHTML markup inspection for XBRL markers is bounded, and uploaded HTML is never rendered anywhere in this codebase", () => {
+    expect(handleSrc).toMatch(/CONTENT_SAMPLE_BYTES = 512 \* 1024/);
+    expect(handleSrc).toMatch(/file\.bytes\.subarray\(0, CONTENT_SAMPLE_BYTES\)/);
+    expect(handleSrc).not.toMatch(/dangerouslySetInnerHTML/);
+  });
+
+  it("acceptance-repair Phase 6: clientRequestId is fully removed — content-addressing (sha256) is the real, meaningful idempotency key", () => {
+    expect(indexSrc).not.toMatch(/clientRequestId/);
+    expect(handleSrc).not.toMatch(/clientRequestId/);
+  });
+
+  it("acceptance-repair Phase 6: upload is attempted with upsert:false, and an 'already exists' rejection is treated as a legitimate replay, not an error", () => {
+    expect(handleSrc).toMatch(/upsert: false/);
+    expect(handleSrc).toMatch(/already exists/i);
+  });
+
+  it("acceptance-repair Phase 6: on a database failure, cleanup removes the object ONLY when this request itself created it", () => {
+    expect(handleSrc).toMatch(/if \(!objectAlreadyExisted\.current\) \{\s*\n\s*await deps\.admin\.storage\.from\(BUCKET\)\.remove\(\[storagePath\]\);/);
   });
 
   it("no financial conclusion is accepted automatically — this function only performs file-type intake routing, never touches accounting tables", () => {
@@ -227,8 +400,19 @@ describe("financial-statement-intake Edge Function — security boundary (static
       "trial_balance_uploads", "account_mappings", "tax_computations",
       "period_closing_balances", "statement_sign_offs",
     ]) {
-      expect(fnSrc).not.toMatch(new RegExp(`from\\(["']${forbiddenTable}["']\\)`));
+      expect(handleSrc).not.toMatch(new RegExp(`from\\(["']${forbiddenTable}["']\\)`));
     }
+  });
+
+  it("handleIntake.ts is import-side-effect-free — it never invokes serve()/Deno.serve, so it can be unit-tested without binding a network listener", () => {
+    // Checks actual invocation syntax (a call), not the bare word — this
+    // file's own header comment legitimately explains it has "no
+    // Deno.serve" in prose, which a bare-word check would misfire on.
+    expect(handleSrc).not.toMatch(/Deno\.serve\(/);
+    expect(handleSrc).not.toMatch(/^serve\(/m);
+    expect(handleSrc).not.toMatch(/from "https:\/\/deno\.land\/std[^"]*\/http\/server\.ts"/);
+    // index.ts, by contrast, IS where the listener binds.
+    expect(indexSrc).toMatch(/^serve\(async \(req: Request\) => \{/m);
   });
 });
 
@@ -275,11 +459,6 @@ describe("StatementReviewWorkspace.tsx — required intake UI contract", () => {
     expect(src).toMatch(/Start review/);
   });
 
-  it("offers an optional secondary 'Add supporting trial balance' input, never required", () => {
-    expect(src).toMatch(/Add supporting trial balance/);
-    expect(src).toMatch(/Optional — helps reconcile figures during review\./);
-  });
-
   it("only accepts the five specified extensions at the picker level", () => {
     expect(src).toMatch(/accept=\{ACCEPT_ATTRIBUTE\}/);
   });
@@ -320,8 +499,8 @@ describe("StatementReviewWorkspace.tsx — required intake UI contract", () => {
     expect(src).toMatch(/disabled=\{[\s\S]*?isAwaitingAmbiguousConfirmation/);
   });
 
-  it("both the remove-file and remove-supporting-file controls meet a 44px touch target", () => {
+  it("the remove-file control meets a 44px touch target", () => {
     const matches = src.match(/min-h-\[44px\] min-w-\[44px\]/g) ?? [];
-    expect(matches.length).toBeGreaterThanOrEqual(2);
+    expect(matches.length).toBeGreaterThanOrEqual(1);
   });
 });

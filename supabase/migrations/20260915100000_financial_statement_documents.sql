@@ -19,18 +19,23 @@
 -- authorization.
 --
 -- Design notes on the status state machine (see CHECK constraint below):
--- the full literal state list named by the directive is
--- SELECTED -> UPLOADING -> STORED -> CLASSIFYING -> EXTRACTING ->
--- READY_FOR_REVIEW, with failure states UPLOAD_FAILED, CLASSIFICATION_FAILED,
--- EXTRACTION_FAILED, QUARANTINED. SELECTED/UPLOADING/UPLOAD_FAILED describe
--- states that exist only in the browser before any server call succeeds —
+-- the directive's full literal state list is SELECTED -> UPLOADING ->
+-- STORED -> CLASSIFYING -> EXTRACTING -> READY_FOR_REVIEW, with failure
+-- states UPLOAD_FAILED, CLASSIFICATION_FAILED, EXTRACTION_FAILED,
+-- QUARANTINED. SELECTED/UPLOADING/UPLOAD_FAILED describe states that exist
+-- only in the browser before any server call succeeds —
 -- financial-statement-intake (the Edge Function that is this table's sole
 -- write path) receives the complete file in one request and only creates a
 -- row once the bytes are durably stored, so a persisted row's status always
--- starts at STORED. All seven literal values remain in the CHECK constraint
--- for schema completeness and to allow a future asynchronous/multi-part
--- upload flow without a migration — but no current code path ever persists
--- SELECTED, UPLOADING, or UPLOAD_FAILED.
+-- starts at STORED. Acceptance-repair correction: these three were
+-- previously kept in the CHECK constraint "for schema completeness" —
+-- removed. No real server transition can legally produce them, and a
+-- persisted-but-unreachable enum value is exactly the kind of speculative
+-- schema surface this migration otherwise avoids. They can be reintroduced
+-- in a future migration alongside the async/multi-part upload flow that
+-- would actually use them. (TEXT + CHECK, not a native Postgres ENUM type —
+-- matches this repository's established convention for status columns, see
+-- tb_certifications/hesabu_validations.)
 
 CREATE TABLE public.financial_statement_documents (
   id                          UUID        NOT NULL DEFAULT gen_random_uuid(),
@@ -51,7 +56,15 @@ CREATE TABLE public.financial_statement_documents (
   CONSTRAINT fsd_pk PRIMARY KEY (id),
 
   CONSTRAINT fk_fsd_company
-    FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE CASCADE,
+    FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT,
+    -- RESTRICT, not CASCADE: acceptance-repair correction. An immutable
+    -- evidence record must never be silently removed as a side effect of
+    -- deleting its company — that is exactly the kind of implicit
+    -- destruction this table's append-only design exists to prevent. A
+    -- company with financial_statement_documents rows cannot be deleted
+    -- until those rows are handled by a deliberate, separate process (which
+    -- does not exist yet — this table has no delete path of its own at all,
+    -- see trg_fsd_guard below).
 
   CONSTRAINT fk_fsd_uploaded_by
     FOREIGN KEY (uploaded_by_firm_member_id) REFERENCES public.firm_members(id) ON DELETE RESTRICT,
@@ -78,8 +91,8 @@ CREATE TABLE public.financial_statement_documents (
 
   CONSTRAINT chk_fsd_status
     CHECK (status IN (
-      'SELECTED', 'UPLOADING', 'STORED', 'CLASSIFYING', 'EXTRACTING', 'READY_FOR_REVIEW',
-      'UPLOAD_FAILED', 'CLASSIFICATION_FAILED', 'EXTRACTION_FAILED', 'QUARANTINED'
+      'STORED', 'CLASSIFYING', 'EXTRACTING', 'READY_FOR_REVIEW',
+      'CLASSIFICATION_FAILED', 'EXTRACTION_FAILED', 'QUARANTINED'
     )),
 
   CONSTRAINT chk_fsd_source_version
@@ -306,8 +319,17 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.intake_financial_statement_document(UUID, INTEGER, UUID, TEXT, TEXT, BIGINT, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
--- Deliberately no GRANT to authenticated — only the service-role key (held
--- solely by the Edge Function's server-side environment) may execute this.
+GRANT EXECUTE ON FUNCTION public.intake_financial_statement_document(UUID, INTEGER, UUID, TEXT, TEXT, BIGINT, TEXT, TEXT, TEXT) TO service_role;
+-- Explicit GRANT to service_role, explicit REVOKE from everyone else — the
+-- browser (anon/authenticated) can never call this under any circumstance;
+-- only the Edge Function's service-role key (held solely in its server-side
+-- environment, never shipped to the client) may execute it.
+
+-- A read-only hash-replay lookup is deliberately NOT added as a separate
+-- function: intake_financial_statement_document() above already performs
+-- the identical SELECT-before-INSERT atomically, inside the same
+-- transaction/advisory scope as the insert itself. A separate lookup
+-- function would only reintroduce the check-then-act race this one avoids.
 
 -- ── Advance status (CLASSIFYING/EXTRACTING/READY_FOR_REVIEW/failure) ────
 -- Thin wrapper so the state machine's legal-transition enforcement (the
@@ -341,10 +363,13 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.advance_financial_statement_document_status(UUID, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.advance_financial_statement_document_status(UUID, TEXT) TO service_role;
 
 -- ── Private storage bucket ────────────────────────────────────────────────
--- Path convention (server-generated only, never client-chosen):
---   {company_id}/{period_year}/{uuid}-{sanitized_original_file_name}
+-- Path convention (server-generated only, never client-chosen; acceptance-
+-- repair correction — content-addressed, not a random UUID, so a retried
+-- upload of identical bytes always resolves to the identical object):
+--   {company_id}/{period_year}/{sha256}.{canonical_extension}
 -- No INSERT/UPDATE/DELETE storage policy exists for authenticated/anon —
 -- only the Edge Function's service-role client writes bytes, after its own
 -- MIME-signature/size/membership checks. SELECT is company-membership-
