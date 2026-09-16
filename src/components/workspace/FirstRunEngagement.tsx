@@ -165,7 +165,7 @@ export default function FirstRunEngagement({
         .from("companies")
         .insert({
           name:               name,
-          fiscal_year_end:    fye,   // canonical MM-DD — e.g. '12-31'
+          fiscal_year_end:    fiscalYearEnd,   // full ISO date — e.g. '2022-12-31'
           currency:           currency,
           // null is intentional and correct — reporting_framework has no
           // NOT NULL DEFAULT after migration 20260903100000. Null means
