@@ -156,17 +156,21 @@ export function deriveServerArtifactClass(
 }
 
 /**
- * Content-addressed, server-generated storage path (Phase 6). Identical
- * bytes for the same company/period always resolve to the identical path —
- * this is what makes storage upload idempotent by construction, not by
- * convention. `sha256` must already be lowercase hex (chk_fsd_sha256's own
- * shape); `ext` must already be one of ACCEPTED_EXTENSIONS.
+ * Content-addressed, server-generated storage path (Phase 6, corrected by
+ * the final surgical repair pass). Object identity depends ONLY on
+ * company_id + period_year + sha256 — never on the user-supplied filename
+ * or extension. Two files with byte-identical content but different
+ * extensions (e.g. the same OOXML bytes submitted as .docx and .xlsx) MUST
+ * resolve to the exact same storage path and therefore the exact same
+ * object — the extension is presentation/routing metadata (stored on the
+ * database row as original_file_name/mime_type/artifact_class), never part
+ * of what makes the bytes "the same object." `sha256` must already be
+ * lowercase hex (chk_fsd_sha256's own shape).
  */
 export function resolveContentAddressedStoragePath(
   companyId: string,
   periodYear: number,
   sha256: string,
-  ext: string,
 ): string {
-  return `${companyId}/${periodYear}/${sha256}.${ext}`;
+  return `${companyId}/${periodYear}/${sha256}`;
 }

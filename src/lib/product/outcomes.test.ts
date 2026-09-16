@@ -34,6 +34,14 @@ describe("customer outcome architecture", () => {
     expect(new Set(PRODUCT_OUTCOMES.map((o) => o.ctaLabel)).size).toBe(PRODUCT_OUTCOMES.length);
   });
 
+  it("review-statements states only the formats actually accepted and persisted — no false claim of a supporting-trial-balance capability that does not exist", () => {
+    const review = PRODUCT_OUTCOMES.find((o) => o.id === "review-statements")!;
+    expect(review.input).toBe("PDF, DOCX, XLSX or iXBRL financial statements");
+    expect(review.input).not.toMatch(/supporting/i);
+    expect(review.input).not.toMatch(/optional/i);
+    expect(review.input).not.toMatch(/trial balance/i);
+  });
+
   it("keeps internal engine identities outside customer-facing copy", () => {
     const copy = JSON.stringify(PRODUCT_OUTCOMES);
     expect(copy).not.toMatch(/SAFISHA|HESABU|KINGA|MAONO|MUSE/i);

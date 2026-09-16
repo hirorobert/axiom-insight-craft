@@ -104,9 +104,9 @@ Deno.test("handleIntake: malware scan dirty rejects and uploads nothing", async 
   assertEquals(calls.rpcs.length, 0);
 });
 
-// ── deterministic path ──────────────────────────────────────────────────
+// ── deterministic path — identity depends ONLY on company/period/hash ───
 
-Deno.test("handleIntake: the storage path used is content-addressed — company/period/hash/ext, not a random id", async () => {
+Deno.test("handleIntake: the storage path used is content-addressed — company/period/hash only, never a filename/extension or a random id", async () => {
   const { admin, calls } = fakeAdmin();
   const deps: IntakeDeps = {
     resolveFirmMemberActor: (_a, _u, companyId) => Promise.resolve(actorFor(companyId)),
@@ -116,7 +116,30 @@ Deno.test("handleIntake: the storage path used is content-addressed — company/
     malwareScanWebhookUrl: "https://scanner.example/scan",
   };
   await handleIntake(deps, baseRequest({ companyId: "company-9", periodYear: 2027 }));
-  assertEquals(calls.uploads, [`company-9/2027/${"f".repeat(64)}.pdf`]);
+  assertEquals(calls.uploads, [`company-9/2027/${"f".repeat(64)}`]);
+});
+
+Deno.test("handleIntake: identical OOXML bytes submitted under .docx and .xlsx resolve to the exact same storage path", async () => {
+  const OOXML_BYTES = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4]); // shared ZIP/OOXML magic + body
+  const { admin, calls } = fakeAdmin();
+  const deps: IntakeDeps = {
+    resolveFirmMemberActor: (_a, _u, companyId) => Promise.resolve(actorFor(companyId)),
+    scanForMalware: CLEAN_SCAN,
+    sha256HexBytes: () => Promise.resolve("d".repeat(64)), // identical bytes -> identical hash, by construction
+    admin,
+    malwareScanWebhookUrl: "https://scanner.example/scan",
+  };
+  await handleIntake(deps, baseRequest({
+    companyId: "company-7", periodYear: 2025,
+    file: { name: "report.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", size: OOXML_BYTES.length, bytes: OOXML_BYTES },
+  }));
+  await handleIntake(deps, baseRequest({
+    companyId: "company-7", periodYear: 2025,
+    file: { name: "report.xlsx", type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: OOXML_BYTES.length, bytes: OOXML_BYTES },
+  }));
+  assertEquals(calls.uploads.length, 2);
+  assertEquals(calls.uploads[0], calls.uploads[1]); // same path regardless of extension
+  assertEquals(calls.uploads[0], `company-7/2025/${"d".repeat(64)}`);
 });
 
 // ── exact replay ────────────────────────────────────────────────────────
@@ -140,9 +163,15 @@ Deno.test("handleIntake: exact replay (storage reports 'already exists') returns
   assertEquals(calls.removes.length, 0); // never removed — this request did not create the object
 });
 
-// ── storage success + database failure cleanup (this request DID create the object) ──
+// ── storage success + database failure: NEVER delete (recoverable orphan) ─
+//
+// Corrected by the final surgical repair: deleting an object this request
+// itself created is no longer safe to do on a DB failure, because under
+// concurrency this request cannot prove a sibling request isn't relying on
+// the same (content-addressed) path. The object is left in place; a retry
+// reuses it.
 
-Deno.test("handleIntake: a fresh upload followed by an unrelated DB failure removes exactly the object this request created", async () => {
+Deno.test("handleIntake: a fresh upload followed by an unrelated DB failure does NOT remove the object — recoverable orphan, not cleanup", async () => {
   const { admin, calls } = fakeAdmin({
     uploadResult: { error: null }, // this request created the object
     rpcResult: { data: null, error: { message: "connection reset" } },
@@ -156,7 +185,101 @@ Deno.test("handleIntake: a fresh upload followed by an unrelated DB failure remo
   };
   const res = await handleIntake(deps, baseRequest({ companyId: "company-5", periodYear: 2025 }));
   assertEquals(res.status, 502);
-  assertEquals(calls.removes, [[`company-5/2025/${"c".repeat(64)}.pdf`]]);
+  assertEquals(calls.removes.length, 0); // never removed, regardless of who created the object
+});
+
+Deno.test("handleIntake: exact replay (object pre-existing) followed by an unrelated DB failure also does NOT remove the object", async () => {
+  const { admin, calls } = fakeAdmin({
+    uploadResult: { error: { message: "The resource already exists", statusCode: "409" } },
+    rpcResult: { data: null, error: { message: "connection reset" } },
+  });
+  const deps: IntakeDeps = {
+    resolveFirmMemberActor: (_a, _u, companyId) => Promise.resolve(actorFor(companyId)),
+    scanForMalware: CLEAN_SCAN,
+    sha256HexBytes: ALWAYS_HASH,
+    admin,
+    malwareScanWebhookUrl: "https://scanner.example/scan",
+  };
+  const res = await handleIntake(deps, baseRequest());
+  assertEquals(res.status, 502);
+  assertEquals(calls.removes.length, 0);
+});
+
+// ── adversarial concurrent-failure interleaving (Phase 4 of the final
+// surgical repair) ────────────────────────────────────────────────────────
+//
+// Exact required interleaving:
+//   A uploads object successfully.
+//   B receives object-already-exists.
+//   A's database RPC fails.
+//   B's database RPC succeeds.
+// Required: the object is not removed; B returns success; B's row
+// references the existing object; only one storage path exists overall.
+
+Deno.test("adversarial interleaving: A uploads + A's RPC fails, B replays + B's RPC succeeds — object survives, B succeeds, exactly one object", async () => {
+  const stored = new Set<string>();
+  const calls = { uploads: [] as string[], removes: [] as string[][], rpcs: [] as { label: string }[] };
+
+  // Two independent admin fakes (A and B are different requests, possibly
+  // different server instances) sharing the SAME underlying storage state
+  // (`stored`) — exactly what a real shared bucket provides — but each
+  // with ITS OWN scripted RPC outcome, to reproduce the exact interleaving
+  // named by the directive regardless of call order or timing.
+  function adminFor(label: "A" | "B", rpcOutcome: { data: unknown; error: { message?: string } | null }): AdminClientLike {
+    return {
+      storage: {
+        from: () => ({
+          upload: (path: string) => {
+            calls.uploads.push(path);
+            if (stored.has(path)) {
+              return Promise.resolve({ error: { message: "The resource already exists", statusCode: "409" } });
+            }
+            stored.add(path);
+            return Promise.resolve({ error: null });
+          },
+          remove: (paths: string[]) => {
+            calls.removes.push(paths);
+            stored.delete(paths[0]);
+            return Promise.resolve({ error: null });
+          },
+        }),
+      },
+      rpc: (_fn: string, args: Record<string, unknown>) => {
+        calls.rpcs.push({ label });
+        return Promise.resolve(rpcOutcome);
+      },
+    };
+  }
+
+  const HASH = "b".repeat(64);
+  const depsFor = (admin: AdminClientLike): IntakeDeps => ({
+    resolveFirmMemberActor: (_a, _u, companyId) => Promise.resolve(actorFor(companyId)),
+    scanForMalware: CLEAN_SCAN,
+    sha256HexBytes: () => Promise.resolve(HASH),
+    admin,
+    malwareScanWebhookUrl: "https://scanner.example/scan",
+  });
+  const req = baseRequest({ companyId: "company-4", periodYear: 2025 });
+
+  // A: uploads successfully (first to the path), then its own RPC fails.
+  const resA = await handleIntake(
+    depsFor(adminFor("A", { data: null, error: { message: "connection reset" } })),
+    req,
+  );
+  // B: replays after A's upload already exists, then B's own RPC succeeds.
+  const resB = await handleIntake(
+    depsFor(adminFor("B", { data: { id: "doc-b-wins", status: "STORED" }, error: null })),
+    req,
+  );
+
+  assertEquals(resA.status, 502); // A's DB failure is reported honestly
+  assertEquals(resB.status, 200); // B succeeds
+  const bodyB = await resB.json();
+  assertEquals(bodyB.documentId, "doc-b-wins"); // B's row references the (existing) object
+
+  assertEquals(calls.removes.length, 0); // the object is never removed, including after A's failure
+  assertEquals(stored.size, 1); // only one storage path/object exists for this hash, ever
+  assertEquals([...stored][0], `company-4/2025/${HASH}`);
 });
 
 Deno.test("handleIntake: a genuine storage upload error (not 'already exists') fails closed with 502 and never calls the RPC", async () => {

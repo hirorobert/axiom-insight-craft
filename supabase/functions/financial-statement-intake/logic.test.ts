@@ -179,19 +179,25 @@ Deno.test("isArtifactClass / ARTIFACT_CLASS_ENUM: exactly the seven database-enu
   assertEquals(isArtifactClass("not_a_real_class"), false);
 });
 
-// ── deterministic (content-addressed) storage path ──────────────────────
+// ── deterministic (content-addressed) storage path — identity depends ONLY
+// on company_id + period_year + sha256, never filename/extension ─────────
 
 Deno.test("resolveContentAddressedStoragePath: identical inputs always produce the identical path", () => {
-  const a = resolveContentAddressedStoragePath("company-1", 2025, "a".repeat(64), "pdf");
-  const b = resolveContentAddressedStoragePath("company-1", 2025, "a".repeat(64), "pdf");
+  const a = resolveContentAddressedStoragePath("company-1", 2025, "a".repeat(64));
+  const b = resolveContentAddressedStoragePath("company-1", 2025, "a".repeat(64));
   assertEquals(a, b);
-  assertEquals(a, `company-1/2025/${"a".repeat(64)}.pdf`);
+  assertEquals(a, `company-1/2025/${"a".repeat(64)}`);
 });
 
-Deno.test("resolveContentAddressedStoragePath: different hash, company, period, or extension all produce different paths", () => {
-  const base = resolveContentAddressedStoragePath("company-1", 2025, "a".repeat(64), "pdf");
-  assertNotEquals(base, resolveContentAddressedStoragePath("company-2", 2025, "a".repeat(64), "pdf"));
-  assertNotEquals(base, resolveContentAddressedStoragePath("company-1", 2026, "a".repeat(64), "pdf"));
-  assertNotEquals(base, resolveContentAddressedStoragePath("company-1", 2025, "b".repeat(64), "pdf"));
-  assertNotEquals(base, resolveContentAddressedStoragePath("company-1", 2025, "a".repeat(64), "docx"));
+Deno.test("resolveContentAddressedStoragePath: different hash, company, or period all produce different paths", () => {
+  const base = resolveContentAddressedStoragePath("company-1", 2025, "a".repeat(64));
+  assertNotEquals(base, resolveContentAddressedStoragePath("company-2", 2025, "a".repeat(64)));
+  assertNotEquals(base, resolveContentAddressedStoragePath("company-1", 2026, "a".repeat(64)));
+  assertNotEquals(base, resolveContentAddressedStoragePath("company-1", 2025, "b".repeat(64)));
+});
+
+Deno.test("resolveContentAddressedStoragePath: the extension is not a parameter at all — it cannot influence identity", () => {
+  const path = resolveContentAddressedStoragePath("company-1", 2025, "c".repeat(64));
+  assertEquals(path, `company-1/2025/${"c".repeat(64)}`);
+  assertEquals(path.includes("."), false);
 });

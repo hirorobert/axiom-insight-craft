@@ -79,7 +79,7 @@ export const PRODUCT_OUTCOMES: readonly ProductOutcome[] = [
     title: "Review existing financial statements",
     shortTitle: "Statement review",
     promise: "Upload draft or issued financial statements to check internal consistency, framework coverage, presentation quality and audit readiness.",
-    input: "PDF, DOCX, XLSX or iXBRL statements; supporting trial balance optional",
+    input: "PDF, DOCX, XLSX or iXBRL financial statements",
     deliverable: "Reconciliation findings, disclosure gaps and annotated review report",
     scope: "Statements",
     availability: "Workflow available",

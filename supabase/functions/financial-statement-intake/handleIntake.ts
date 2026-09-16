@@ -11,7 +11,9 @@
 //   7. Resolve deterministic (content-addressed) storage path.
 //   8. Upload idempotently.
 //   9. Insert-or-return the document row.
-//  10. On database failure, remove only an object created by this request.
+//  10. On database failure, the object is NEVER removed — see the
+//      "recoverable orphan" comment at that step for why deleting it would
+//      be unsafe under concurrent requests for the same content.
 //  11. On duplicate replay, return the existing document and object.
 //  12. Never leave a second object for the same company/period/hash.
 //
@@ -160,7 +162,7 @@ export async function handleIntake(deps: IntakeDeps, req: IntakeRequest): Promis
   const sha256 = await deps.sha256HexBytes(file.bytes);
 
   // Step 7: resolve the deterministic, content-addressed storage path.
-  const storagePath = resolveContentAddressedStoragePath(companyId, periodYear, sha256, ext);
+  const storagePath = resolveContentAddressedStoragePath(companyId, periodYear, sha256);
 
   // Step 8: upload idempotently. `upsert: false` — if the object already
   // exists, the storage provider rejects the write; that rejection is not
@@ -195,12 +197,35 @@ export async function handleIntake(deps: IntakeDeps, req: IntakeRequest): Promis
   });
 
   if (intakeError || !row) {
-    // Step 10: on database failure, remove ONLY an object this request
-    // itself created. A pre-existing object (exact replay) is left alone —
-    // it is still legitimately referenced by whatever request created it.
-    if (!objectAlreadyExisted.current) {
-      await deps.admin.storage.from(BUCKET).remove([storagePath]);
-    }
+    // Step 10, corrected by the final surgical repair: the object is NEVER
+    // removed on a database failure, regardless of whether this request
+    // created it. Under concurrent requests for the same content, this
+    // request cannot safely prove that a different in-flight request does
+    // not still need the exact same object — deleting it here could yank
+    // storage out from under a sibling request that is about to (or just
+    // did) commit its own database row pointing at the same path.
+    //
+    // This is deliberate, documented RECOVERABLE ORPHAN behavior: the
+    // object remains in the private bucket, untouched. A retry (by this
+    // caller or anyone else with access) reuses the identical
+    // content-addressed path — the storage upload will report "already
+    // exists" and the RPC will then complete the database row normally, so
+    // no data is lost and no manual cleanup is required for the system to
+    // reach a consistent state.
+    //
+    // An orphaned object (one no financial_statement_documents row ever
+    // ends up referencing) is not cleaned up by this function. Future
+    // garbage collection may delete such an object only after separately
+    // proving: (a) no row references its path, (b) no intake request for
+    // that hash remains in flight, and (c) a defined retention/grace
+    // period has elapsed. No such garbage collection is implemented here —
+    // implementing it speculatively, without those proofs, would risk
+    // exactly the concurrent-deletion hazard this correction removes.
+    console.log(JSON.stringify({
+      event: "financial_statement_intake_db_failure_recoverable_orphan",
+      companyId, periodYear, storagePath, firmMemberId: actor.firmMemberId,
+      objectAlreadyExisted: objectAlreadyExisted.current,
+    }));
     return jsonResponse({ error: "DatabaseError", message: "Could not record the upload. Try again." }, 502);
   }
 
@@ -216,6 +241,7 @@ export async function handleIntake(deps: IntakeDeps, req: IntakeRequest): Promis
   // Step 11: exact replay returns the existing document (and its existing
   // object — nothing new was written to storage). Step 12 (never a second
   // object for the same company/period/hash) holds by construction: the
-  // storage path is a pure function of (companyId, periodYear, sha256, ext).
+  // storage path is a pure function of (companyId, periodYear, sha256) only —
+  // never the filename or extension.
   return jsonResponse({ documentId: documentRow.id, status: documentRow.status }, 200);
 }

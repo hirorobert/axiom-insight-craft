@@ -369,7 +369,16 @@ GRANT EXECUTE ON FUNCTION public.advance_financial_statement_document_status(UUI
 -- Path convention (server-generated only, never client-chosen; acceptance-
 -- repair correction — content-addressed, not a random UUID, so a retried
 -- upload of identical bytes always resolves to the identical object):
---   {company_id}/{period_year}/{sha256}.{canonical_extension}
+--   {company_id}/{period_year}/{sha256}
+-- Final surgical repair: object identity depends ONLY on company_id +
+-- period_year + sha256 — never the user-supplied filename or extension.
+-- Identical bytes submitted under two different extensions (e.g. the same
+-- OOXML content as .docx and .xlsx) resolve to the SAME object. The
+-- original filename, MIME type, and classification remain database
+-- metadata (original_file_name/mime_type/artifact_class columns) and never
+-- influence the storage path itself. Content-Type is still recorded as the
+-- object's own storage metadata at upload time (not encoded in the path),
+-- so a later read still knows how to serve it.
 -- No INSERT/UPDATE/DELETE storage policy exists for authenticated/anon —
 -- only the Edge Function's service-role client writes bytes, after its own
 -- MIME-signature/size/membership checks. SELECT is company-membership-

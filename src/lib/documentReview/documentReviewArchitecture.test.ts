@@ -223,8 +223,9 @@ describe("financial_statement_documents migration — required invariants (unapp
     expect(sql).toMatch(/server-generated only, never client-chosen/i);
   });
 
-  it("acceptance-repair Phase 6: the documented storage path convention is content-addressed (company/period/sha256.extension), not a random UUID", () => {
-    expect(sql).toMatch(/\{company_id\}\/\{period_year\}\/\{sha256\}\.\{canonical_extension\}/);
+  it("final surgical repair: the documented storage path convention is content-addressed on company/period/sha256 ONLY — no extension in the path", () => {
+    expect(sql).toMatch(/\{company_id\}\/\{period_year\}\/\{sha256\}(?!\.\{)/);
+    expect(sql).toMatch(/never the user-supplied filename or extension/);
   });
 
   it("RLS is enabled and no INSERT/UPDATE/DELETE policy exists for authenticated or anon — every write goes through the SECURITY DEFINER function", () => {
@@ -360,11 +361,17 @@ describe("financial-statement-intake Edge Function — security boundary (static
     expect(handleSrc).not.toMatch(/VITE_/);
   });
 
-  it("acceptance-repair Phase 6: storage path is content-addressed (company/period/sha256.ext) — never a random UUID, never a client-suppliable value", () => {
+  it("final surgical repair: storage path identity depends ONLY on company/period/sha256 — never an extension, filename, or client-suppliable value, never a random UUID", () => {
     expect(logicSrc).toMatch(/export function resolveContentAddressedStoragePath/);
-    expect(logicSrc).toMatch(/`\$\{companyId\}\/\$\{periodYear\}\/\$\{sha256\}\.\$\{ext\}`/);
+    expect(logicSrc).toMatch(/`\$\{companyId\}\/\$\{periodYear\}\/\$\{sha256\}`/);
+    // The function signature itself must not accept an extension parameter.
+    expect(logicSrc).toMatch(/export function resolveContentAddressedStoragePath\(\s*\n\s*companyId: string,\s*\n\s*periodYear: number,\s*\n\s*sha256: string,\s*\n\)/);
     expect(logicSrc).not.toMatch(/crypto\.randomUUID/);
     expect(indexSrc).not.toMatch(/form\.get\("storagePath"\)/);
+  });
+
+  it("final surgical repair: identical bytes under two different extensions resolve to the same object — extension is never part of storage identity", () => {
+    expect(logicSrc).toMatch(/never on the user-supplied filename[\s\S]{0,20}or extension/);
   });
 
   it("acceptance-repair Phase 5: classification is server-authoritative — CSV is always rejected, and the client's artifactClassHint is never trusted except for the one legitimate ambiguous-XLSX confirmation case", () => {
@@ -391,8 +398,25 @@ describe("financial-statement-intake Edge Function — security boundary (static
     expect(handleSrc).toMatch(/already exists/i);
   });
 
-  it("acceptance-repair Phase 6: on a database failure, cleanup removes the object ONLY when this request itself created it", () => {
-    expect(handleSrc).toMatch(/if \(!objectAlreadyExisted\.current\) \{\s*\n\s*await deps\.admin\.storage\.from\(BUCKET\)\.remove\(\[storagePath\]\);/);
+  it("final surgical repair: on a database failure, the object is NEVER removed — recoverable orphan, not cleanup (concurrent requests cannot safely prove the object is unneeded)", () => {
+    const failureBranch = handleSrc.slice(
+      handleSrc.indexOf("if (intakeError || !row) {"),
+      handleSrc.indexOf("if (intakeError || !row) {") + 2000,
+    );
+    expect(failureBranch).not.toMatch(/\.remove\(\[storagePath\]\)/);
+    expect(failureBranch).toMatch(/RECOVERABLE ORPHAN/);
+    expect(failureBranch).toMatch(/NEVER[\s\S]{0,40}removed/);
+  });
+
+  it("final surgical repair: documents the future garbage-collection precondition (no row references the path, no in-flight request for the hash, a grace period elapsed) without implementing it here", () => {
+    const failureBranch = handleSrc.slice(
+      handleSrc.indexOf("if (intakeError || !row) {"),
+      handleSrc.indexOf("if (intakeError || !row) {") + 2000,
+    );
+    expect(failureBranch).toMatch(/no row references its path/);
+    expect(failureBranch).toMatch(/no intake request for\s*\n?\s*\/\/ that hash remains in flight/);
+    expect(failureBranch).toMatch(/retention\/grace/);
+    expect(failureBranch).toMatch(/No such garbage collection is implemented here/);
   });
 
   it("no financial conclusion is accepted automatically — this function only performs file-type intake routing, never touches accounting tables", () => {
