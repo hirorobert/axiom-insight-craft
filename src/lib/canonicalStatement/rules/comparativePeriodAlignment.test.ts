@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { comparativePeriodAlignmentRule } from "./comparativePeriodAlignment";
-import { buildRuleContext } from "./ruleEngine";
-import { testReport } from "./testReport";
+import { buildUncheckedRuleContext, testReport } from "./testReport";
 import { fact, line, CURRENT, COMPARATIVE_1 } from "../fixtures/builders";
 import { ZERO_TOLERANCE } from "../money";
 import type { ReportingPeriodRef, Statement } from "../types";
@@ -20,7 +19,7 @@ describe("Current-period/comparative-period alignment", () => {
   it("PASSes when every comparative fact consistently references the one declared comparative period", () => {
     const { statement, facts } = statementWithComparatives([COMPARATIVE_1, COMPARATIVE_1]);
     const report = testReport({ statements: [statement], facts, comparativePeriods: [DECLARED_COMPARATIVE] });
-    const [result] = comparativePeriodAlignmentRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = comparativePeriodAlignmentRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("PASS");
   });
 
@@ -31,14 +30,14 @@ describe("Current-period/comparative-period alignment", () => {
       facts,
       comparativePeriods: [DECLARED_COMPARATIVE, { periodId: "COMPARATIVE_ROGUE", startDate: "2024-01-01", endDate: "2024-12-31", periodYear: 2024, isRestated: false }],
     });
-    const [result] = comparativePeriodAlignmentRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = comparativePeriodAlignmentRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("FAIL");
   });
 
   it("FAILs when a comparative fact references an undeclared period", () => {
     const { statement, facts } = statementWithComparatives([{ periodId: "COMPARATIVE_UNDECLARED", isComparative: true }]);
     const report = testReport({ statements: [statement], facts, comparativePeriods: [DECLARED_COMPARATIVE] });
-    const [result] = comparativePeriodAlignmentRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = comparativePeriodAlignmentRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("FAIL");
   });
 
@@ -46,7 +45,7 @@ describe("Current-period/comparative-period alignment", () => {
     const line1 = line("l-1", "Line", "concept_1", "DETAIL", fact("cur", "100.00", "TZS", 2, CURRENT).factId);
     const statement: Statement = { statementId: "s", type: "STATEMENT_OF_FINANCIAL_POSITION", title: "S", sections: [{ sectionId: "sec", label: "sec", lines: [line1] }] };
     const report = testReport({ statements: [statement], comparativePeriods: [DECLARED_COMPARATIVE] });
-    const [result] = comparativePeriodAlignmentRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = comparativePeriodAlignmentRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("NOT_APPLICABLE");
   });
 });

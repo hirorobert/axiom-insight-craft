@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildRuleContext, runRule, runRulePack, type RuleContext, type RuleDefinition } from "./ruleEngine";
 import { withoutCreatedAt } from "../serialization";
 import { ZERO_TOLERANCE } from "../money";
+import { CanonicalValidationError } from "../validation";
 import { IFRS_FULL_FIXTURE } from "../fixtures/ifrsFullFixture";
 
 const RULE_PACK = { rulePackId: "test-pack", rulePackVersion: "1.0.0" };
@@ -44,12 +45,31 @@ const alwaysFailRule: RuleDefinition = {
   ],
 };
 
-describe("buildRuleContext", () => {
-  it("indexes facts and carries the report and tolerance through", () => {
+describe("buildRuleContext — the ONLY public rule-engine entry point, and it enforces validation", () => {
+  it("indexes facts and carries the (re-validated) report and tolerance through", () => {
     const ctx = buildRuleContext(IFRS_FULL_FIXTURE, ZERO_TOLERANCE);
-    expect(ctx.report).toBe(IFRS_FULL_FIXTURE);
+    // validateCanonicalReport's zod parse returns a new object, not the same
+    // reference — structural equality is the correct assertion here, object
+    // identity is not a guarantee this function ever made or needs to make.
+    expect(ctx.report).toEqual(IFRS_FULL_FIXTURE);
     expect(ctx.tolerance).toEqual(ZERO_TOLERANCE);
     expect(ctx.latestFacts.size).toBeGreaterThan(0);
+  });
+
+  it("rejects a structurally invalid aggregate — no rule ever evaluates against unvalidated input", () => {
+    const invalid = { ...IFRS_FULL_FIXTURE, schemaVersion: "bogus" };
+    expect(() => buildRuleContext(invalid, ZERO_TOLERANCE)).toThrow(CanonicalValidationError);
+  });
+
+  it("rejects an aggregate with a dangling fact reference", () => {
+    const [sfp, ...rest] = IFRS_FULL_FIXTURE.statements;
+    const badLine = { ...sfp.sections[0].lines[0], factBindings: [{ periodId: "CURRENT", factId: "does-not-exist" }] };
+    const invalid = { ...IFRS_FULL_FIXTURE, statements: [{ ...sfp, sections: [{ ...sfp.sections[0], lines: [badLine, ...sfp.sections[0].lines.slice(1)] }, ...sfp.sections.slice(1)] }, ...rest] };
+    expect(() => buildRuleContext(invalid, ZERO_TOLERANCE)).toThrow(CanonicalValidationError);
+  });
+
+  it("accepts a genuinely valid aggregate without throwing", () => {
+    expect(() => buildRuleContext(IFRS_FULL_FIXTURE, ZERO_TOLERANCE)).not.toThrow();
   });
 });
 

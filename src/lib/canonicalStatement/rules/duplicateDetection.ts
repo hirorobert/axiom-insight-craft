@@ -25,8 +25,11 @@ function detectDuplicateConceptLines(ctx: RuleContext): RuleEvaluationResult[] {
       const key = `${line.concept}::${line.role}`;
       groups.set(key, [...(groups.get(key) ?? []), line.lineId]);
     }
-    for (const [key, lineIds] of groups) {
-      if (lineIds.length <= 1) continue;
+    for (const [key, unsortedLineIds] of groups) {
+      if (unsortedLineIds.length <= 1) continue;
+      // Sorted, never in traversal order — the report must be identical
+      // regardless of how the statement's lines/sections were declared.
+      const lineIds = [...unsortedLineIds].sort();
       results.push({
         outcome: "FAIL",
         failureSeverity: "HIGH",
@@ -57,7 +60,9 @@ function detectDuplicateFactFingerprints(ctx: RuleContext): RuleEvaluationResult
     groups.set(fingerprint, [...(groups.get(fingerprint) ?? []), fact.factId]);
   }
   for (const [fingerprint, factIds] of groups) {
-    const distinctFactIds = [...new Set(factIds)];
+    // Sorted, never in Map/traversal order — the report must be identical
+    // regardless of how report.facts happened to be ordered.
+    const distinctFactIds = [...new Set(factIds)].sort();
     if (distinctFactIds.length <= 1) continue;
     results.push({
       outcome: "FAIL",

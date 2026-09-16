@@ -6,10 +6,15 @@
 // that is the correct outcome) exactly as expected; and every OTHER rule
 // keeps its baseline outcome COUNT for FAIL/INSUFFICIENT_EVIDENCE at zero
 // (i.e. no unrelated rule is pushed into a wrong or new non-PASS state).
-// Two mutations have one unavoidable, precisely documented secondary
-// effect on a sibling rule's RESULT COUNT (never on its correctness) — see
-// isolatedMutations.ts's own comments on Rules 9 and 10, and the two
+// Three mutations have one unavoidable, precisely documented secondary
+// effect on a sibling rule's RESULT (never a wrong/silent one) — see
+// isolatedMutations.ts's own comments on Rules 8, 9 and 10, and the three
 // dedicated tests below that assert exactly that delta and nothing more.
+// Rule 8's is itself the direct, intended consequence of this same closure
+// patch: a duplicated total_assets concept is now honestly ambiguous to
+// Rule 1 too (see rules/financialPositionEquation.ts) — no rule may pick a
+// match by array order, so an anchor two lines both claim is unevaluable
+// everywhere it is used, not just where Rule 8 itself looks.
 //
 // This is deliberately separate from fixtures/defectiveFixture.ts, which
 // remains a useful combined-defect INTEGRATION stress fixture but — as a
@@ -73,7 +78,6 @@ const CLEANLY_ISOLATED_RULES = [
   "currency-scale-consistency",
   "cashflow-closing-cash-reconciliation",
   "movement-reconciliation",
-  "duplicate-detection",
 ] as const;
 
 describe.each(CLEANLY_ISOLATED_RULES)("isolated mutation for rule: %s", (targetRuleId) => {
@@ -95,6 +99,31 @@ describe.each(CLEANLY_ISOLATED_RULES)("isolated mutation for rule: %s", (targetR
     for (const ruleId of BASELINE_COUNTS.keys()) {
       if (ruleId === targetRuleId) continue;
       expect(nonPassCount(mutatedCounts.get(ruleId))).toBe(0);
+    }
+  });
+});
+
+describe("isolated mutation for rule: duplicate-detection", () => {
+  const mutatedReport = ISOLATED_MUTATIONS["duplicate-detection"]();
+  const mutatedRecords = run(mutatedReport);
+  const mutatedCounts = countsByRule(mutatedRecords);
+
+  it("still passes runtime structural validation", () => {
+    expect(() => validateCanonicalReport(mutatedReport)).not.toThrow();
+  });
+
+  it("Rule 8 now reports exactly two FAILs (the duplicate concept, and the duplicate fact fingerprint)", () => {
+    expect(mutatedCounts.get("duplicate-detection")).toEqual({ FAIL: 2 });
+  });
+
+  it("documented secondary effect: Rule 1 (sfp-equation) also reports the SAME ambiguity, honestly, as INSUFFICIENT_EVIDENCE — never a silently-picked FAIL or PASS — because the duplicated concept (total_assets) is exactly the anchor Rule 1 needs; every other rule stays FAIL/INSUFFICIENT_EVIDENCE-free (some legitimately gain extra PASS results from the mutation's own added structure — e.g. the duplicate line's own valid casting and comparative presence — never a wrong or new non-PASS outcome)", () => {
+    // Both periods' PASS results collapse into a single structural
+    // ambiguity finding — Rule 1 cannot evaluate the equation at all
+    // while it does not know which line is "the" total_assets.
+    expect(mutatedCounts.get("sfp-equation")).toEqual({ INSUFFICIENT_EVIDENCE: 1 });
+    for (const ruleId of BASELINE_COUNTS.keys()) {
+      if (ruleId === "duplicate-detection" || ruleId === "sfp-equation") continue;
+      expect(nonPassCount(mutatedCounts.get(ruleId))).toBe(0); // no OTHER rule anywhere reports a new FAIL/INSUFFICIENT_EVIDENCE
     }
   });
 });
@@ -152,11 +181,20 @@ describe("isolated mutation for rule: orphaned-note-reference-detection", () => 
 });
 
 describe("no isolated mutation ever satisfies its target rule via an unrelated cascade", () => {
-  it("every mutation's target rule is the ONLY rule whose non-PASS count is nonzero (rules 9 and 10 aside, whose one documented sibling delta is itself asserted above to never include a FAIL)", () => {
+  // Rules 9's and 10's one documented sibling effect is a PASS/NOT_APPLICABLE
+  // delta only (asserted exactly above) — never a new non-PASS outcome, so
+  // they need no exception here. Rule 8's duplicate-concept mutation is the
+  // one genuine exception: it necessarily also makes Rule 1's total_assets
+  // anchor ambiguous (see the dedicated describe block above) — documented
+  // and asserted there precisely as INSUFFICIENT_EVIDENCE, never a FAIL.
+  const KNOWN_SIBLING_NON_PASS_EFFECTS: Readonly<Record<string, string>> = { "duplicate-detection": "sfp-equation" };
+
+  it("every mutation's target rule is the ONLY rule whose non-PASS count is nonzero (except the one documented Rule 8 -> Rule 1 ambiguity relationship)", () => {
     for (const [targetRuleId, mutate] of Object.entries(ISOLATED_MUTATIONS)) {
       const counts = countsByRule(run(mutate()));
+      const allowedSibling = KNOWN_SIBLING_NON_PASS_EFFECTS[targetRuleId];
       for (const [ruleId, c] of counts) {
-        if (ruleId === targetRuleId) continue;
+        if (ruleId === targetRuleId || ruleId === allowedSibling) continue;
         expect(nonPassCount(c), `mutation for "${targetRuleId}" unexpectedly caused a FAIL/INSUFFICIENT_EVIDENCE in "${ruleId}"`).toBe(0);
       }
     }

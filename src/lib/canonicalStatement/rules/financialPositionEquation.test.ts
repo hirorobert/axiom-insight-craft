@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { financialPositionEquationRule } from "./financialPositionEquation";
-import { buildRuleContext } from "./ruleEngine";
-import { testReport } from "./testReport";
+import { buildUncheckedRuleContext, testReport } from "./testReport";
 import { CANONICAL_CONCEPTS } from "../concepts";
 import { fact, line, CURRENT } from "../fixtures/builders";
 import { ZERO_TOLERANCE } from "../money";
@@ -35,14 +34,14 @@ describe("Statement of financial position equation", () => {
   it("PASSes when assets = liabilities + equity exactly", () => {
     const { statement, facts } = sfpStatement("1000.00", "400.00", "600.00");
     const report = testReport({ statements: [statement], facts });
-    const [result] = financialPositionEquationRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = financialPositionEquationRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("PASS");
   });
 
   it("FAILs when the equation does not balance", () => {
     const { statement, facts } = sfpStatement("1000.00", "400.00", "550.00");
     const report = testReport({ statements: [statement], facts });
-    const [result] = financialPositionEquationRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = financialPositionEquationRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("FAIL");
   });
 
@@ -67,22 +66,22 @@ describe("Statement of financial position equation", () => {
       ],
     };
     const report = testReport({ statements: [statement], facts: [assets, liabilities, equity] });
-    const [result] = financialPositionEquationRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = financialPositionEquationRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("INSUFFICIENT_EVIDENCE");
   });
 
   it("is NOT_APPLICABLE when no statement of financial position exists at all", () => {
     const report = testReport({ statements: [] });
-    const [result] = financialPositionEquationRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = financialPositionEquationRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("NOT_APPLICABLE");
   });
 
   it("respects tolerance for a small rounding drift, but not beyond it", () => {
     const { statement, facts } = sfpStatement("1000.01", "400.00", "600.00");
     const report = testReport({ statements: [statement], facts });
-    const passing = financialPositionEquationRule.evaluate(buildRuleContext(report, { absoluteMinorUnits: 1n }))[0];
+    const passing = financialPositionEquationRule.evaluate(buildUncheckedRuleContext(report, { absoluteMinorUnits: 1n }))[0];
     expect(passing.outcome).toBe("PASS");
-    const failing = financialPositionEquationRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE))[0];
+    const failing = financialPositionEquationRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE))[0];
     expect(failing.outcome).toBe("FAIL");
   });
 });

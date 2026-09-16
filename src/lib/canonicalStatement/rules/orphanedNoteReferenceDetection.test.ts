@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { orphanedNoteReferenceDetectionRule } from "./orphanedNoteReferenceDetection";
-import { buildRuleContext } from "./ruleEngine";
-import { testReport } from "./testReport";
+import { buildUncheckedRuleContext, testReport } from "./testReport";
 import { fact, line, CURRENT } from "../fixtures/builders";
 import { ZERO_TOLERANCE } from "../money";
 import type { Statement } from "../types";
@@ -16,7 +15,7 @@ function reportWithLineAndNote() {
 describe("Broken or orphaned note-reference detection", () => {
   it("is NOT_APPLICABLE when the report declares no note references at all", () => {
     const report = testReport({ noteReferences: [] });
-    const [result] = orphanedNoteReferenceDetectionRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = orphanedNoteReferenceDetectionRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("NOT_APPLICABLE");
   });
 
@@ -28,7 +27,7 @@ describe("Broken or orphaned note-reference detection", () => {
       noteReferences: [{ noteReferenceId: "nr-1", fromLineId: l.lineId, toNoteId: "note-1" }],
       facts,
     });
-    const [result] = orphanedNoteReferenceDetectionRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = orphanedNoteReferenceDetectionRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("PASS");
   });
 
@@ -40,7 +39,7 @@ describe("Broken or orphaned note-reference detection", () => {
       noteReferences: [{ noteReferenceId: "nr-1", fromLineId: l.lineId, toNoteId: "note-does-not-exist" }],
       facts,
     });
-    const [result] = orphanedNoteReferenceDetectionRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = orphanedNoteReferenceDetectionRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("FAIL");
     expect(result.deterministicCalculation).toMatch(/broken reference/);
   });
@@ -51,7 +50,7 @@ describe("Broken or orphaned note-reference detection", () => {
       notes: [{ noteId: "note-1", noteNumber: "1", title: "N", monetaryFactIds: [] }],
       noteReferences: [{ noteReferenceId: "nr-1", fromLineId: "line-does-not-exist", toNoteId: "note-1" }],
     });
-    const [result] = orphanedNoteReferenceDetectionRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = orphanedNoteReferenceDetectionRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("FAIL");
     expect(result.deterministicCalculation).toMatch(/orphaned reference/);
   });
@@ -67,7 +66,7 @@ describe("Broken or orphaned note-reference detection", () => {
       noteReferences: [{ noteReferenceId: "nr-1", fromLineId: l.lineId, toNoteId: "note-1" }],
       facts,
     });
-    const results = orphanedNoteReferenceDetectionRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const results = orphanedNoteReferenceDetectionRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(results.every((r) => r.outcome !== "FAIL")).toBe(true);
   });
 });

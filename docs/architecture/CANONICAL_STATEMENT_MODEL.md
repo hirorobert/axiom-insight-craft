@@ -55,6 +55,7 @@ src/lib/canonicalStatement/
     ipsasAccrualFixture.ts     Golden: IPSAS accrual, government entity
     ipsasCashFixture.ts        Golden: IPSAS cash, no SFP at all
     multiComparativeFixture.ts Golden: one current period + TWO comparative periods
+    multipleSfpFixture.ts      Two SFP statements, in opposite declaration order — Rule 6 ambiguity determinism proof
     defectiveFixture.ts        Adversarial: trips every one of the ten rules together, still schema-valid — an INTEGRATION stress fixture, not proof of per-rule independence
     isolatedBaseline.ts        A second, smaller clean baseline purpose-built for isolated mutation
     isolatedMutations.ts       One mutation function per rule, each an isolated defect against isolatedBaseline.ts
@@ -348,6 +349,82 @@ entity) — this is an honest absence, never a failure. It resolves
 `INSUFFICIENT_EVIDENCE` when the precondition exists but a specific fact
 needed to complete the check is missing or ambiguous (a denomination
 mismatch, a null fact, an undeclared casting basis).
+
+### No first-match accounting authority
+
+**Array order is never accounting authority anywhere in this rule pack.**
+Every place a rule once needed "the" line with a given canonical concept,
+or "the" statement of a given type, is resolved through an explicit
+cardinality result — `rules/shared.ts`'s `resolveLineByConcept` and
+`resolveUniqueStatementOfType` — never a bare `.find()` or `const [x] =
+array`. Each returns one of exactly three states:
+
+- **`NONE`** — no match. Rule 1 reports this as `INSUFFICIENT_EVIDENCE`
+  naming the missing concept(s) (a statement declaring itself an SFP but
+  missing `total_assets`, say); Rule 6 reports `NOT_APPLICABLE` only where
+  that is honestly true (no SFP at all, in a report whose framework
+  permits that — e.g. IPSAS cash), otherwise `INSUFFICIENT_EVIDENCE`.
+- **`UNIQUE`** — exactly one match. The rule evaluates it normally.
+- **`AMBIGUOUS`** — more than one match. The rule reports
+  `INSUFFICIENT_EVIDENCE`, naming every conflicting `lineId` (or
+  `statementId`, for Rule 6's SFP-statement resolution) explicitly, with
+  remediation directing a reviewer to resolve the ambiguity. **No rule ever
+  silently picks one.** The one prior exception — `financialPositionEquation.ts`
+  and `cashFlowClosingReconciliation.ts` calling a bare `findLineByConcept`
+  that returned the first match — has been removed from the codebase
+  entirely (there is no `findLineByConcept` left to call).
+
+**A duplicated canonical concept remains a reviewable Rule 8 finding, and
+only Rule 8's.** Rule 8 (`duplicate-detection`) is the one rule whose job
+is to *detect* two lines sharing a `(concept, role)` pair and report it —
+it never has to "pick a winner" because it is not evaluating anything
+*using* the concept, only reporting that the pair collides. Every other
+rule that would need to resolve that same concept to a single line (Rule 1
+for `total_assets`/`total_liabilities`/`total_equity`/
+`total_liabilities_and_equity`; Rule 6 for the closing-cash and SFP-cash
+concepts) now correctly reports its own, independent `INSUFFICIENT_EVIDENCE`
+for the same underlying ambiguity — this is an intended, tested
+consequence, not a bug: `fixtures/isolatedRuleFixtures.test.ts`'s
+`duplicate-detection` mutation asserts Rule 8 reports two `FAIL`s *and*
+Rule 1 reports the matching `INSUFFICIENT_EVIDENCE`, together, as the one
+documented cross-rule relationship this closure necessarily creates (see
+that file's own comments, and `fixtures/defectiveFixture.ts`'s updated
+defect-1 note).
+
+**Ambiguity reports are themselves order-independent, not just the
+ambiguity determination.** An early version of this closure sorted matches
+correctly to DETECT ambiguity, but still embedded the conflicting ids in
+*whatever order the input array produced them* inside the finding's
+`deterministicCalculation`/`observedValues`/`evidenceReferences` — which
+silently changed `evaluationId` (and the byte-identical-output guarantee)
+under permutation even though the *outcome* stayed correct.
+`ambiguousConceptResult`/`ambiguousSfpResult` (Rules 1 and 6) and Rule 8's
+own duplicate-group/fingerprint-group reporting all now sort conflicting
+ids before building any of those fields.
+`fixtures/ambiguityDeterminism.test.ts` is the adversarial proof: it takes
+Rule 8's isolated duplicate-concept mutation, reverses the duplicate-
+bearing lines, shuffles their statement's sections, and reverses the whole
+statements array, then asserts the entire rule-pack output — outcomes,
+`findingKey`s, `evaluationId`s, and their order — is byte-identical
+(`createdAt` stripped) to the unpermuted run; a second fixture
+(`multipleSfpFixture.ts`) declares two SFP statements in opposite order and
+proves Rule 6 reports the identical ambiguity result either way; and a
+third check confirms no two findings within one rule-pack run ever share a
+`findingKey` or an `evaluationId`.
+
+**`buildRuleContext` is the only public rule-engine entry point, and it now
+enforces the validation boundary itself** (`rules/ruleEngine.ts`) — it
+calls `validateCanonicalReport` and builds the `RuleContext` exclusively
+from the validated result, throwing `CanonicalValidationError` on a corrupt
+aggregate before any rule ever sees it. There is no lower-level constructor
+that skips this. Per-rule unit tests that deliberately exercise a single
+rule's branch logic against a minimal, intentionally non-conformant
+hand-built report (e.g. "no SFP statement at all") use
+`rules/testReport.ts`'s `buildUncheckedRuleContext` instead — a test-only
+helper, never imported by production code, that documents exactly why it
+bypasses validation: those tests are about one rule's own logic, not about
+the validation boundary, which `validation.test.ts` and every full-fixture
+test already cover exhaustively against real, validated aggregates.
 
 ## Adapters (interfaces only — nothing implemented in this branch)
 

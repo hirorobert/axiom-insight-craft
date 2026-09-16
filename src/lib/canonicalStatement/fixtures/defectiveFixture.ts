@@ -6,7 +6,12 @@
 // fixture is built to satisfy.
 //
 // Deliberate defects, each isolated to its own fact/line where practical:
-//   1. SFP equation:            total_assets fact is wrong (2,850,000 vs the true 2,800,000).
+//   1. SFP equation:            total_assets fact is wrong (2,850,000 vs the true 2,800,000) — but since
+//                               defect 8a also makes the total_assets CONCEPT itself ambiguous (two lines
+//                               declare it), Rule 1 correctly reports INSUFFICIENT_EVIDENCE (an honestly
+//                               unevaluable anchor) rather than silently picking the wrong-value line and
+//                               reporting FAIL. This is the intended, correct interaction now that no rule
+//                               may ever select a match by array order — see CANONICAL_STATEMENT_MODEL.md.
 //   2. Subtotal casting:        total_assets's declared children sum to 2,800,000, not the reported 2,850,000.
 //   3. Note-to-face:            the PPE note's reported closing balance (2,100,000) != the face PPE line (2,000,000).
 //   4. Comparative alignment:   the cash line's comparative fact uses an undeclared period id.

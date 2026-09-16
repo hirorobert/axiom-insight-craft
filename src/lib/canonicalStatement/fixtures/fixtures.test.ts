@@ -188,8 +188,10 @@ describe("defective fixture — every one of the ten rules fires a real, non-PAS
     expect(grouped.size).toBe(10);
   });
 
-  it("SFP equation FAILs (defects 1 & 2 cascade here)", () => {
-    expect((grouped.get("sfp-equation") ?? []).some((f) => f.outcome === "FAIL")).toBe(true);
+  it("SFP equation is INSUFFICIENT_EVIDENCE — the duplicate total_assets concept (defect 8a) makes the anchor itself ambiguous, so the equation is honestly unevaluable rather than silently evaluated against the first match", () => {
+    const sfpFindings = grouped.get("sfp-equation") ?? [];
+    expect(sfpFindings.some((f) => f.outcome === "INSUFFICIENT_EVIDENCE" && f.deterministicCalculation.includes("total_assets"))).toBe(true);
+    expect(sfpFindings.every((f) => f.outcome !== "FAIL")).toBe(true); // never silently picks a match to produce a FAIL either
   });
 
   it("subtotal casting FAILs for the total_assets line", () => {

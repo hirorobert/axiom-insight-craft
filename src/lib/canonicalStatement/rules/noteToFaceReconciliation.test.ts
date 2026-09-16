@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { noteToFaceReconciliationRule } from "./noteToFaceReconciliation";
-import { buildRuleContext } from "./ruleEngine";
-import { testReport } from "./testReport";
+import { buildUncheckedRuleContext, testReport } from "./testReport";
 import { fact, line, CURRENT } from "../fixtures/builders";
 import { ZERO_TOLERANCE } from "../money";
 import type { Statement } from "../types";
@@ -28,19 +27,19 @@ function reportWithFaceAndNote(faceAmount: string, noteTotalAmount: string | und
 describe("Note-to-face reconciliation", () => {
   it("PASSes when the face value equals the note's declared total", () => {
     const report = reportWithFaceAndNote("2000000.00", "2000000.00");
-    const [result] = noteToFaceReconciliationRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = noteToFaceReconciliationRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("PASS");
   });
 
   it("FAILs when the face value and the note's total disagree", () => {
     const report = reportWithFaceAndNote("2000000.00", "2100000.00");
-    const [result] = noteToFaceReconciliationRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = noteToFaceReconciliationRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("FAIL");
   });
 
   it("is NOT_APPLICABLE for a narrative-only note with no total to reconcile", () => {
     const report = reportWithFaceAndNote("2000000.00", undefined);
-    const [result] = noteToFaceReconciliationRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = noteToFaceReconciliationRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("NOT_APPLICABLE");
   });
 
@@ -63,7 +62,7 @@ describe("Note-to-face reconciliation", () => {
       noteReferences: [{ noteReferenceId: "nr-1", fromLineId: faceLine.lineId, toNoteId: "note-1" }],
       facts: [faceFact, closingFact],
     });
-    const [result] = noteToFaceReconciliationRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = noteToFaceReconciliationRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("PASS");
   });
 
@@ -73,7 +72,7 @@ describe("Note-to-face reconciliation", () => {
       notes: [],
       noteReferences: [{ noteReferenceId: "nr-1", fromLineId: "no-such-line", toNoteId: "no-such-note" }],
     });
-    const [result] = noteToFaceReconciliationRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = noteToFaceReconciliationRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("NOT_APPLICABLE");
   });
 });

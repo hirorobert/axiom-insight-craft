@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { missingComparativeDetectionRule } from "./missingComparativeDetection";
-import { buildRuleContext } from "./ruleEngine";
-import { testReport } from "./testReport";
+import { buildUncheckedRuleContext, testReport } from "./testReport";
 import { fact, line, CURRENT, COMPARATIVE_1 } from "../fixtures/builders";
 import { ZERO_TOLERANCE } from "../money";
 import type { Statement } from "../types";
@@ -11,7 +10,7 @@ const DECLARED_COMPARATIVE = { periodId: "COMPARATIVE_1", startDate: "2025-01-01
 describe("Missing comparative detection", () => {
   it("is NOT_APPLICABLE entirely when the report declares no comparative period", () => {
     const report = testReport({ comparativePeriods: [] });
-    const [result] = missingComparativeDetectionRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = missingComparativeDetectionRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("NOT_APPLICABLE");
   });
 
@@ -21,7 +20,7 @@ describe("Missing comparative detection", () => {
     const totalLine = line("l-total", "Total", "total_x", "TOTAL", cur.factId, { comparativeFactId: cmp.factId });
     const statement: Statement = { statementId: "s", type: "STATEMENT_OF_FINANCIAL_POSITION", title: "S", sections: [{ sectionId: "sec", label: "sec", lines: [totalLine] }] };
     const report = testReport({ statements: [statement], facts: [cur, cmp], comparativePeriods: [DECLARED_COMPARATIVE] });
-    const [result] = missingComparativeDetectionRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = missingComparativeDetectionRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("PASS");
   });
 
@@ -30,7 +29,7 @@ describe("Missing comparative detection", () => {
     const totalLine = line("l-total", "Total", "total_x", "TOTAL", cur.factId); // no comparativeFactId
     const statement: Statement = { statementId: "s", type: "STATEMENT_OF_FINANCIAL_POSITION", title: "S", sections: [{ sectionId: "sec", label: "sec", lines: [totalLine] }] };
     const report = testReport({ statements: [statement], facts: [cur], comparativePeriods: [DECLARED_COMPARATIVE] });
-    const [result] = missingComparativeDetectionRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = missingComparativeDetectionRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("FAIL");
   });
 
@@ -40,7 +39,7 @@ describe("Missing comparative detection", () => {
     const totalLine = line("l-total", "Total", "total_x", "TOTAL", cur.factId, { comparativeFactId: cmp.factId });
     const statement: Statement = { statementId: "s", type: "STATEMENT_OF_FINANCIAL_POSITION", title: "S", sections: [{ sectionId: "sec", label: "sec", lines: [totalLine] }] };
     const report = testReport({ statements: [statement], facts: [cur, cmp], comparativePeriods: [DECLARED_COMPARATIVE] });
-    const [result] = missingComparativeDetectionRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const [result] = missingComparativeDetectionRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(result.outcome).toBe("FAIL");
   });
 
@@ -49,7 +48,7 @@ describe("Missing comparative detection", () => {
     const detailLine = line("l-detail", "Detail", "detail_x", "DETAIL", cur.factId); // no comparative, but DETAIL role
     const statement: Statement = { statementId: "s", type: "STATEMENT_OF_FINANCIAL_POSITION", title: "S", sections: [{ sectionId: "sec", label: "sec", lines: [detailLine] }] };
     const report = testReport({ statements: [statement], facts: [cur], comparativePeriods: [DECLARED_COMPARATIVE] });
-    const results = missingComparativeDetectionRule.evaluate(buildRuleContext(report, ZERO_TOLERANCE));
+    const results = missingComparativeDetectionRule.evaluate(buildUncheckedRuleContext(report, ZERO_TOLERANCE));
     expect(results).toHaveLength(0);
   });
 });

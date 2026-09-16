@@ -42,12 +42,48 @@ export function allLines(statement: Statement): readonly StatementLine[] {
   return statement.sections.flatMap((section) => section.lines);
 }
 
-export function findLineByConcept(statement: Statement, concept: string): StatementLine | undefined {
-  return allLines(statement).find((line) => line.concept === concept);
-}
-
 export function findLinesByConcept(statement: Statement, concept: string): readonly StatementLine[] {
   return allLines(statement).filter((line) => line.concept === concept);
+}
+
+/**
+ * Cardinality-explicit resolution for "the line with this canonical
+ * concept." There is deliberately no "first match wins" lookup anywhere in
+ * this module tree — array order is never accounting authority. A rule
+ * that needs a canonical anchor (e.g. total_assets) must handle all three
+ * cases: no line at all, exactly one (safe to evaluate), or more than one
+ * (an authoring ambiguity no rule may silently resolve by picking one —
+ * see Rule 8, which is the only rule allowed to have an opinion about
+ * duplicate concepts, and only to flag them).
+ */
+export type ConceptResolution =
+  | { readonly status: "NONE" }
+  | { readonly status: "UNIQUE"; readonly line: StatementLine }
+  | { readonly status: "AMBIGUOUS"; readonly lines: readonly StatementLine[] };
+
+export function resolveLineByConcept(statement: Statement, concept: string): ConceptResolution {
+  const matches = findLinesByConcept(statement, concept);
+  if (matches.length === 0) return { status: "NONE" };
+  if (matches.length === 1) return { status: "UNIQUE", line: matches[0] };
+  return { status: "AMBIGUOUS", lines: matches };
+}
+
+/**
+ * Cardinality-explicit resolution for "the statement of this type" —
+ * mirrors `resolveLineByConcept`'s discipline for the statement level.
+ * `const [x] = statementsOfType(...)` silently prefers array order; this
+ * makes every caller handle zero/one/many explicitly instead.
+ */
+export type StatementResolution =
+  | { readonly status: "NONE" }
+  | { readonly status: "UNIQUE"; readonly statement: Statement }
+  | { readonly status: "AMBIGUOUS"; readonly statements: readonly Statement[] };
+
+export function resolveUniqueStatementOfType(report: CanonicalFinancialStatementReport, type: StatementType): StatementResolution {
+  const matches = statementsOfType(report, type);
+  if (matches.length === 0) return { status: "NONE" };
+  if (matches.length === 1) return { status: "UNIQUE", statement: matches[0] };
+  return { status: "AMBIGUOUS", statements: matches };
 }
 
 export function findLineById(report: CanonicalFinancialStatementReport, lineId: string): StatementLine | undefined {
