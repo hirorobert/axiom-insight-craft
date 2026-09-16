@@ -8,10 +8,38 @@ import {
 } from "./outcomes";
 
 describe("customer outcome architecture", () => {
-  it("defines five unique, stable outcome identifiers", () => {
-    expect(PRODUCT_OUTCOMES).toHaveLength(5);
-    expect(new Set(PRODUCT_OUTCOMES.map((outcome) => outcome.id)).size).toBe(5);
+  it("defines six unique, stable outcome identifiers", () => {
+    expect(PRODUCT_OUTCOMES).toHaveLength(6);
+    expect(new Set(PRODUCT_OUTCOMES.map((outcome) => outcome.id)).size).toBe(6);
     expect(PRODUCT_OUTCOMES.map((outcome) => outcome.id)).toEqual(OUTCOME_IDS);
+  });
+
+  it("separates document-driven statement review from data-driven statement preparation", () => {
+    const prepare = PRODUCT_OUTCOMES.find((o) => o.id === "prepare-statements");
+    const review = PRODUCT_OUTCOMES.find((o) => o.id === "review-statements");
+    expect(prepare?.inputKind).toBe("trial_balance");
+    expect(review?.inputKind).toBe("financial_statements");
+    expect(review?.routeIntent).toBe("review-existing-statements");
+    // Ordering: review-statements immediately follows prepare-statements.
+    const ids = PRODUCT_OUTCOMES.map((o) => o.id);
+    expect(ids.indexOf("review-statements")).toBe(ids.indexOf("prepare-statements") + 1);
+  });
+
+  it("gives every outcome an explicit, non-generic CTA label — never the word 'Assess this'", () => {
+    for (const outcome of PRODUCT_OUTCOMES) {
+      expect(outcome.ctaLabel.length).toBeGreaterThan(3);
+      expect(outcome.ctaLabel.toLowerCase()).not.toBe("select");
+      expect(outcome.ctaLabel.toLowerCase()).not.toContain("assess this");
+    }
+    expect(new Set(PRODUCT_OUTCOMES.map((o) => o.ctaLabel)).size).toBe(PRODUCT_OUTCOMES.length);
+  });
+
+  it("review-statements states only the formats actually accepted and persisted — no false claim of a supporting-trial-balance capability that does not exist", () => {
+    const review = PRODUCT_OUTCOMES.find((o) => o.id === "review-statements")!;
+    expect(review.input).toBe("PDF, DOCX, XLSX or iXBRL financial statements");
+    expect(review.input).not.toMatch(/supporting/i);
+    expect(review.input).not.toMatch(/optional/i);
+    expect(review.input).not.toMatch(/trial balance/i);
   });
 
   it("keeps internal engine identities outside customer-facing copy", () => {

@@ -125,7 +125,7 @@ function readMigration(fileName: string): string {
 }
 
 describe("migration directory integrity", () => {
-  it("contains exactly 120 migration files", () => {
+  it("contains exactly 121 migration files", () => {
     // Bumped from 113 -> 114: 20260912100000_omega3_checkout_cfoclose_
     // offers_and_interval_authority.sql (Ω3-CHECKOUT), forward-only,
     // sorts after every prior file. Bumped from 114 -> 115:
@@ -145,8 +145,12 @@ describe("migration directory integrity", () => {
     // 20260915045958_96cc735e-defd-4747-870d-2784030b6da6.sql — Lovable-managed
     // execution record for the CFOCLOSE billing-trigger repair. Forward-only,
     // sorts after every prior migration (executed by Lovable on 2026-09-15).
+    // Bumped from 120 -> 121: 20260915100000_financial_statement_documents.sql
+    // — the North-Star document-review canonical table (UNAPPLIED — committed
+    // for review only, per its own header comment; sorts after every prior
+    // migration).
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(120);
+    expect(files.length).toBe(121);
   });
 });
 

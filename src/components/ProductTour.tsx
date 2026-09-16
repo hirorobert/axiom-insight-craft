@@ -1,7 +1,7 @@
 import { ArrowRight, CheckCircle2, Clock, Zap } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
-  PRODUCT_OUTCOMES,
+  PUBLIC_PRODUCT_OUTCOMES,
   outcomeAuthHref,
   rememberOutcome,
 } from "@/lib/product/outcomes";
@@ -20,9 +20,18 @@ const AVAIL_COLOUR = {
  * ProductTour — Ω∞ nuclear redesign.
  * Dense 2-col card grid. No wasted vertical space. Full-close card full-width at bottom.
  * Engine names never surface here.
+ *
+ * Renders from PUBLIC_PRODUCT_OUTCOMES, not PRODUCT_OUTCOMES directly —
+ * review-statements is withheld here while DOCUMENT_REVIEW_ENABLED is false
+ * (see src/lib/product/outcomes.ts), so this component needs no capability-
+ * honesty branch of its own: it simply never receives that outcome to render.
+ *
+ * Each card's CTA is the outcome's own explicit ctaLabel — never a generic
+ * "Select" — with a unique accessible name (ctaLabel + title) and a 44px
+ * touch target.
  */
 export function ProductTour() {
-  const fullClose = PRODUCT_OUTCOMES.find((o) => o.id === "full-close")!;
+  const fullClose = PUBLIC_PRODUCT_OUTCOMES.find((o) => o.id === "full-close")!;
 
   return (
     <section id="outcomes" aria-labelledby="outcomes-title" className="border-b border-border bg-background">
@@ -45,7 +54,7 @@ export function ProductTour() {
 
         {/* ── Standard outcome cards — 2-col grid ──────────────────────── */}
         <div className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-2">
-          {PRODUCT_OUTCOMES.map((outcome) => outcome.id === "full-close" ? null : (
+          {PUBLIC_PRODUCT_OUTCOMES.map((outcome) => outcome.id === "full-close" ? null : (
             <article
               key={outcome.id}
               className="group relative flex flex-col bg-background p-6 transition-colors hover:bg-muted/30"
@@ -80,17 +89,18 @@ export function ProductTour() {
               </div>
 
               {/* Stages scope */}
-              <div className="mt-3 flex items-center justify-between">
+              <div className="mt-3 flex items-center justify-between gap-3">
                 <p className="text-[9px] font-mono uppercase tracking-[0.14em] text-muted-foreground/45">
                   {outcome.scope}
                 </p>
                 <Link
                   to={outcomeAuthHref(outcome.id)}
                   onClick={() => rememberOutcome(outcome.id)}
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-foreground hover:text-primary transition-colors border-b border-foreground/20 pb-0.5 hover:border-primary"
+                  aria-label={`${outcome.ctaLabel}: ${outcome.title}`}
+                  className="inline-flex min-h-[44px] items-center gap-1 text-xs font-semibold text-foreground hover:text-primary transition-colors border-b border-foreground/20 pb-0.5 hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
                 >
-                  Select
-                  <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
+                  {outcome.ctaLabel}
+                  <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                 </Link>
               </div>
             </article>
@@ -134,10 +144,11 @@ export function ProductTour() {
                 <Link
                   to={outcomeAuthHref(fullClose.id)}
                   onClick={() => rememberOutcome(fullClose.id)}
-                  className="mt-5 inline-flex items-center gap-2 border border-primary-foreground/30 bg-primary-foreground/10 px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-foreground/20 transition-colors"
+                  aria-label={`${fullClose.ctaLabel}: ${fullClose.title}`}
+                  className="mt-5 inline-flex min-h-[44px] items-center gap-2 border border-primary-foreground/30 bg-primary-foreground/10 px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-foreground/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/60 focus-visible:ring-offset-2"
                 >
-                  Start complete close
-                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                  {fullClose.ctaLabel}
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                 </Link>
               </div>
             </div>

@@ -68,8 +68,15 @@ describe("E — Static migration-contract: 20260915045958_96cc735e-defd-4747-870
     expect(fs.existsSync(MIGRATION_FILE)).toBe(true);
   });
 
-  it("E1. Forward-only filename: timestamp is the latest migration", () => {
-    const timestamps = allMigrationTimestamps();
+  it("E1. Forward-only filename: was the latest migration when authored, and precedes every later addition", () => {
+    // 20260915100000_financial_statement_documents.sql (North-Star
+    // document-review canonical table, UNAPPLIED) is a legitimate later
+    // addition — this migration's own forward-only discipline is proven by
+    // it sorting before that successor, not by remaining the all-time max.
+    const KNOWN_LATER_MIGRATIONS = ["20260915100000"];
+    const timestamps = allMigrationTimestamps().filter(
+      (t) => !KNOWN_LATER_MIGRATIONS.includes(String(t)),
+    );
     const max = Math.max(...timestamps);
     expect(max).toBe(parseInt(MIGRATION_ID, 10));
   });

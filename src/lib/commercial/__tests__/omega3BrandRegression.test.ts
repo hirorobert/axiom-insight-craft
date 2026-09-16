@@ -408,21 +408,53 @@ describe("Ω3-BRAND · ProductTour outcome architecture (real source)", () => {
     expect(PRODUCT_OUTCOMES.map((outcome) => outcome.id)).toEqual([
       "clean-trial-balance",
       "prepare-statements",
+      "review-statements",
       "tax-compliance",
       "performance-risk",
       "full-close",
     ]);
   });
 
-  it("53 · the public selector renders from the canonical outcome registry", () => {
-    expect(tourSrc).toMatch(/PRODUCT_OUTCOMES\.map/);
+  it("53 · the public selector renders from the honest-capability-filtered outcome registry (PUBLIC_PRODUCT_OUTCOMES, not PRODUCT_OUTCOMES directly)", () => {
+    expect(tourSrc).toMatch(/PUBLIC_PRODUCT_OUTCOMES\.map/);
     expect(tourSrc).toMatch(/outcomeAuthHref\(outcome\.id\)/);
     expect(tourSrc).toMatch(/rememberOutcome\(outcome\.id\)/);
   });
 
   it("54 · selector is deterministic: no autoplay, timer, synthetic frame or skip state", () => {
-    expect(PRODUCT_OUTCOMES).toHaveLength(5);
+    expect(PRODUCT_OUTCOMES).toHaveLength(6);
     expect(tourSrc).not.toMatch(/setInterval|setTimeout|playing|elapsed|ProductTour.*Frame/);
+  });
+
+  it("75 · the selector renders each outcome's explicit ctaLabel, never a generic 'Select' CTA", () => {
+    // Availability ("Workflow available"/"Data dependent") is a deliberate,
+    // retained design element of the recovered landing redesign (PR #20) —
+    // only the generic "Select" CTA text is banned, not the availability
+    // badge itself.
+    expect(tourSrc).not.toMatch(/>\s*Select\s*</);
+    expect(tourSrc).toMatch(/outcome\.ctaLabel/);
+    expect(tourSrc).toMatch(/fullClose\.ctaLabel/);
+  });
+
+  it("76 · every selector row exposes a unique accessible action name (no duplicate 'Select' across rows) and no nested interactive controls", () => {
+    expect(tourSrc).toMatch(/aria-label=\{`\$\{outcome\.ctaLabel\}: \$\{outcome\.title\}`\}/);
+    expect(tourSrc).toMatch(/aria-label=\{`\$\{fullClose\.ctaLabel\}: \$\{fullClose\.title\}`\}/);
+    // Two <Link> elements in source is correct here: one per standard-card
+    // iteration (PUBLIC_PRODUCT_OUTCOMES.map) and one for the single,
+    // separately-rendered full-close hero card — never a <Link> nested
+    // inside another interactive control.
+    const linkCount = (tourSrc.match(/<Link\b/g) ?? []).length;
+    expect(linkCount).toBe(2);
+    expect(tourSrc).not.toMatch(/<Link\b[^>]*>[\s\S]{0,400}<Link\b/);
+  });
+
+  it("77 · document review is listed immediately after statement preparation, and never reuses the trial-balance input language", () => {
+    const review = PRODUCT_OUTCOMES.find((o) => o.id === "review-statements")!;
+    const prepare = PRODUCT_OUTCOMES.find((o) => o.id === "prepare-statements")!;
+    expect(PRODUCT_OUTCOMES.indexOf(review)).toBe(PRODUCT_OUTCOMES.indexOf(prepare) + 1);
+    expect(review.inputKind).toBe("financial_statements");
+    expect(review.input).not.toMatch(/CSV/i);
+    expect(review.ctaLabel.toLowerCase()).not.toBe("assess this");
   });
 });
 
