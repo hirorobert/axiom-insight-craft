@@ -22,7 +22,7 @@ export const currencyScaleConsistencyRule: RuleDefinition = {
       const matches = fact.value.currency === expectedCurrency && fact.value.scale === expectedScale;
       results.push({
         outcome: matches ? "PASS" : "FAIL",
-        severity: "CRITICAL",
+        failureSeverity: "CRITICAL",
         observedValues: {
           factCurrency: { kind: "TEXT", value: fact.value.currency },
           factScale: { kind: "COUNT", value: fact.value.scale },
@@ -44,7 +44,7 @@ export const currencyScaleConsistencyRule: RuleDefinition = {
       return [
         {
           outcome: "NOT_APPLICABLE",
-          severity: "INFORMATIONAL",
+          failureSeverity: "INFORMATIONAL",
           observedValues: {},
           expectedRelationship: `fact.currency = "${expectedCurrency}" and fact.scale = ${expectedScale}`,
           deterministicCalculation: "no non-null facts exist to check",

@@ -29,7 +29,7 @@ function detectDuplicateConceptLines(ctx: RuleContext): RuleEvaluationResult[] {
       if (lineIds.length <= 1) continue;
       results.push({
         outcome: "FAIL",
-        severity: "HIGH",
+        failureSeverity: "HIGH",
         observedValues: { duplicateLineIds: { kind: "TEXT", value: lineIds.join(", ") } },
         expectedRelationship: "each (concept, role) pair appears at most once per statement",
         deterministicCalculation: `${lineIds.length} lines share concept/role "${key}" in statement "${statement.statementId}"`,
@@ -61,7 +61,7 @@ function detectDuplicateFactFingerprints(ctx: RuleContext): RuleEvaluationResult
     if (distinctFactIds.length <= 1) continue;
     results.push({
       outcome: "FAIL",
-      severity: "MEDIUM",
+      failureSeverity: "MEDIUM",
       observedValues: { duplicateFactIds: { kind: "TEXT", value: distinctFactIds.join(", ") } },
       expectedRelationship: "no two distinct facts share the same value, period and source locator",
       deterministicCalculation: `${distinctFactIds.length} distinct factIds resolve to the identical extraction fingerprint`,
@@ -89,7 +89,7 @@ export const duplicateDetectionRule: RuleDefinition = {
       return [
         {
           outcome: "PASS",
-          severity: "INFORMATIONAL",
+          failureSeverity: "INFORMATIONAL",
           observedValues: {},
           expectedRelationship: "no duplicate (concept, role) lines and no duplicate fact fingerprints",
           deterministicCalculation: "no duplicates found",

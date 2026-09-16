@@ -1,10 +1,13 @@
-// Rule 3 — note-to-face reconciliation: a face line's value must equal the
-// total disclosed in each note it references. A note with no declared
-// `totalFactId` and no `movementSchedule` is narrative-only and NOT_APPLICABLE
-// to this rule — reconciliation is never guessed from prose.
+// Rule 3 — note-to-face reconciliation: a face line's CURRENT-period value
+// must equal the total disclosed in each note it references (a note's
+// movement schedule/total reflects the current period's roll-forward, so
+// this rule is deliberately scoped to the current period only — comparative
+// note disclosures are not modeled). A note with no declared `totalFactId`
+// and no `movementSchedule` is narrative-only and NOT_APPLICABLE to this
+// rule — reconciliation is never guessed from prose.
 
 import { equalsWithinTolerance, formatMoney } from "../money";
-import { resolveFact, statementContainingLine } from "./shared";
+import { factIdForPeriod, resolveFact, statementContainingLine } from "./shared";
 import type { RuleContext, RuleDefinition, RuleEvaluationResult } from "./ruleEngine";
 
 export const RULE_ID = "note-to-face-reconciliation";
@@ -16,6 +19,7 @@ export const noteToFaceReconciliationRule: RuleDefinition = {
   title: "Note-to-face reconciliation",
   evaluate(ctx: RuleContext): readonly RuleEvaluationResult[] {
     const results: RuleEvaluationResult[] = [];
+    const currentPeriodId = ctx.report.period.periodId;
     for (const noteRef of ctx.report.noteReferences) {
       const note = ctx.report.notes.find((n) => n.noteId === noteRef.toNoteId);
       const line = ctx.report.statements.flatMap((s) => s.sections.flatMap((sec) => sec.lines)).find((l) => l.lineId === noteRef.fromLineId);
@@ -29,7 +33,7 @@ export const noteToFaceReconciliationRule: RuleDefinition = {
         // than duplicating that finding.
         results.push({
           outcome: "NOT_APPLICABLE",
-          severity: "INFORMATIONAL",
+          failureSeverity: "INFORMATIONAL",
           observedValues: {},
           expectedRelationship: "face line value = note total",
           deterministicCalculation: "the referenced line or note does not resolve — see broken-note-reference rule",
@@ -37,6 +41,7 @@ export const noteToFaceReconciliationRule: RuleDefinition = {
           affected,
           remediationGuidance: "No action required from this rule.",
           discriminator,
+          periodId: currentPeriodId,
         });
         continue;
       }
@@ -45,7 +50,7 @@ export const noteToFaceReconciliationRule: RuleDefinition = {
       if (!noteTotalFactId) {
         results.push({
           outcome: "NOT_APPLICABLE",
-          severity: "INFORMATIONAL",
+          failureSeverity: "INFORMATIONAL",
           observedValues: {},
           expectedRelationship: "face line value = note total",
           deterministicCalculation: `note "${note.noteId}" is narrative-only — no total declared to reconcile`,
@@ -53,17 +58,19 @@ export const noteToFaceReconciliationRule: RuleDefinition = {
           affected,
           remediationGuidance: "No action required.",
           discriminator,
+          periodId: currentPeriodId,
         });
         continue;
       }
 
-      const face = resolveFact(ctx, line.currentFactId);
+      const faceFactId = factIdForPeriod(line, currentPeriodId);
+      const face = resolveFact(ctx, faceFactId);
       const noteTotal = resolveFact(ctx, noteTotalFactId);
 
       if (face.status !== "PRESENT" || noteTotal.status !== "PRESENT") {
         results.push({
           outcome: "INSUFFICIENT_EVIDENCE",
-          severity: "MEDIUM",
+          failureSeverity: "MEDIUM",
           observedValues: {
             faceValue: { kind: "MONEY", value: face.status === "PRESENT" ? face.money : null },
             noteTotal: { kind: "MONEY", value: noteTotal.status === "PRESENT" ? noteTotal.money : null },
@@ -74,6 +81,7 @@ export const noteToFaceReconciliationRule: RuleDefinition = {
           affected,
           remediationGuidance: "Ensure both the face line and the note total are extracted before this rule can run.",
           discriminator,
+          periodId: currentPeriodId,
         });
         continue;
       }
@@ -83,7 +91,7 @@ export const noteToFaceReconciliationRule: RuleDefinition = {
 
       results.push({
         outcome: denominationMatches ? (pass ? "PASS" : "FAIL") : "INSUFFICIENT_EVIDENCE",
-        severity: "HIGH",
+        failureSeverity: "HIGH",
         observedValues: {
           faceValue: { kind: "MONEY", value: face.money },
           noteTotal: { kind: "MONEY", value: noteTotal.money },
@@ -93,12 +101,13 @@ export const noteToFaceReconciliationRule: RuleDefinition = {
           ? `${formatMoney(face.money)} vs ${formatMoney(noteTotal.money)}`
           : "the face value and note total are denominated differently — cannot compare",
         evidenceReferences: [
-          { evidenceReferenceId: `${discriminator}:face`, factId: line.currentFactId, lineId: line.lineId },
+          { evidenceReferenceId: `${discriminator}:face`, factId: faceFactId, lineId: line.lineId },
           { evidenceReferenceId: `${discriminator}:note`, factId: noteTotalFactId, noteId: note.noteId },
         ],
         affected,
         remediationGuidance: pass ? "No action required." : `Reconcile note "${note.noteId}" against face line "${line.lineId}" — they disagree.`,
         discriminator,
+        periodId: currentPeriodId,
       });
     }
     return results;

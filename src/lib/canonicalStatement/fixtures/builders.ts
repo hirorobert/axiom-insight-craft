@@ -6,6 +6,7 @@ import { moneyFromDecimalString, type CurrencyCode } from "../money";
 import type {
   ExtractionConfidence,
   ExtractionMethod,
+  FactBinding,
   MonetaryFact,
   NormalBalance,
   ProvenanceRecord,
@@ -30,6 +31,7 @@ export function provenance(originalText: string, locator: SourceLocator = { kind
 
 export const CURRENT: ReportingPeriodRef = { periodId: "CURRENT", isComparative: false };
 export const COMPARATIVE_1: ReportingPeriodRef = { periodId: "COMPARATIVE_1", isComparative: true };
+export const COMPARATIVE_2: ReportingPeriodRef = { periodId: "COMPARATIVE_2", isComparative: true };
 
 let factCounter = 0;
 /** Deterministic, human-legible factIds — resets per fixture module via resetFactCounter(). */
@@ -70,6 +72,13 @@ export function fact(
   };
 }
 
+/**
+ * Builds a StatementLine's `factBindings` from the ergonomic options most
+ * fixtures need (a current binding, and optionally one "the" comparative
+ * binding at periodId "COMPARATIVE_1"). For a line that needs bindings
+ * across more than one comparative period, pass `extraBindings` directly —
+ * see multiComparativeFixture.ts for a genuine three-period example.
+ */
 export function line(
   lineId: string,
   label: string,
@@ -78,12 +87,20 @@ export function line(
   currentFactId: string,
   options: {
     comparativeFactId?: string | null;
+    extraBindings?: readonly FactBinding[];
     normalBalance?: NormalBalance;
     isContra?: boolean;
     noteReferenceIds?: readonly string[];
     castingChildLineIds?: readonly string[];
   } = {},
 ): StatementLine {
+  const factBindings: FactBinding[] = [{ periodId: CURRENT.periodId, factId: currentFactId }];
+  if (options.comparativeFactId) {
+    factBindings.push({ periodId: COMPARATIVE_1.periodId, factId: options.comparativeFactId });
+  }
+  if (options.extraBindings) {
+    factBindings.push(...options.extraBindings);
+  }
   return {
     lineId,
     label,
@@ -91,8 +108,7 @@ export function line(
     role,
     normalBalance: options.normalBalance ?? "DEBIT_NORMAL",
     isContra: options.isContra ?? false,
-    currentFactId,
-    comparativeFactId: options.comparativeFactId ?? null,
+    factBindings,
     noteReferenceIds: options.noteReferenceIds ?? [],
     castingChildLineIds: options.castingChildLineIds ?? [],
   };

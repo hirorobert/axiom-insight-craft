@@ -13,9 +13,17 @@
 //
 // Every extracted fact (MonetaryFact) is immutable and versioned: a
 // correction never overwrites a fact, it appends a new version with an
-// explicit reviewer decision (see reviewerDecisions.ts). Nothing in this
-// file mutates in place — every helper elsewhere in this module tree
-// returns new values.
+// explicit reviewer decision — atomically, via reviewState.ts's
+// `recordFactCorrection` (the only public way to do this; see that file).
+// Nothing in this file mutates in place — every helper elsewhere in this
+// module tree returns new values.
+//
+// TypeScript types describe shape at compile time only — they do not
+// validate a value that arrives as `unknown` (parsed JSON, an Edge Function
+// payload, a future Arelle-derived aggregate). validateCanonicalReport /
+// safeValidateCanonicalReport in validation.ts are the runtime boundary
+// that actually enforces these invariants against untrusted input; treat
+// the interfaces below as the *target* shape, not a guarantee.
 
 import type { CurrencyCode, Money, RoundingPolicy } from "./money";
 
@@ -40,15 +48,18 @@ export interface EntityIdentity {
 
 // ─── Periods ─────────────────────────────────────────────────────────────
 
+/** Reserved periodId for the report's own current period — never reusable by a ComparativePeriod. */
+export const CURRENT_PERIOD_ID = "CURRENT";
+
 export interface ReportingPeriod {
-  readonly periodId: string; // conventionally "CURRENT"
-  readonly startDate: string; // ISO 8601 date, "YYYY-MM-DD"
+  readonly periodId: string; // conventionally "CURRENT" — see CURRENT_PERIOD_ID
+  readonly startDate: string; // ISO 8601 calendar date, "YYYY-MM-DD"
   readonly endDate: string;
   readonly periodYear: number;
 }
 
 export interface ComparativePeriod {
-  readonly periodId: string; // must differ from "CURRENT" and from every other declared period
+  readonly periodId: string; // must differ from CURRENT_PERIOD_ID and from every other declared period
   readonly startDate: string;
   readonly endDate: string;
   readonly periodYear: number;
@@ -143,8 +154,10 @@ export type SignConvention = "DEBIT_POSITIVE" | "CREDIT_POSITIVE" | "NATURAL";
  *
  * A correction never mutates an existing MonetaryFact — it produces a new
  * one with `version = supersedesVersion + 1` and `supersedesVersion` set,
- * alongside an explicit CorrectFactDecision (see reviewerDecisions.ts). The
- * fact ledger (`CanonicalFinancialStatementReport.facts`) is append-only.
+ * atomically alongside an explicit CorrectFactDecision (see
+ * reviewState.ts's `recordFactCorrection` — the only public way to append
+ * a correction). The fact ledger (`CanonicalFinancialStatementReport.facts`)
+ * is append-only.
  */
 export interface MonetaryFact {
   readonly factId: string;
@@ -169,6 +182,20 @@ export type StatementType =
 export type LineRole = "DETAIL" | "SUBTOTAL" | "TOTAL";
 export type NormalBalance = "DEBIT_NORMAL" | "CREDIT_NORMAL";
 
+/**
+ * Binds a line to exactly one fact for exactly one period. A line may carry
+ * any number of bindings — one for the current period, and zero or more for
+ * declared comparative periods — never more than one binding per periodId
+ * (enforced by validation.ts, not by this type). This replaced a pair of
+ * singular `currentFactId`/`comparativeFactId` fields, which could not
+ * represent more than one comparative period without silently reusing the
+ * same fact for every comparative column.
+ */
+export interface FactBinding {
+  readonly periodId: string;
+  readonly factId: string;
+}
+
 export interface StatementLine {
   readonly lineId: string;
   readonly label: string;
@@ -182,10 +209,9 @@ export interface StatementLine {
   readonly role: LineRole;
   readonly normalBalance: NormalBalance;
   readonly isContra: boolean;
-  readonly currentFactId: string;
-  readonly comparativeFactId: string | null;
+  readonly factBindings: readonly FactBinding[];
   readonly noteReferenceIds: readonly string[];
-  /** For SUBTOTAL/TOTAL lines only: the sibling lineIds this total is declared to sum. Never inferred. */
+  /** For SUBTOTAL/TOTAL lines only: the sibling lineIds (within the same statement) this total is declared to sum. Never inferred. */
   readonly castingChildLineIds: readonly string[];
 }
 
@@ -231,6 +257,19 @@ export interface Note {
   readonly movementSchedule?: MovementSchedule;
 }
 
+/**
+ * A cross-reference from a face line to a note. Its OWN identity
+ * (noteReferenceId, and the fromLineId/toNoteId strings it carries) is what
+ * validation.ts checks for well-formedness and uniqueness. Whether
+ * `toNoteId`/`fromLineId` actually resolve to a real note/line is
+ * deliberately NOT a validation-time rejection — Rule 10
+ * (orphaned-note-reference-detection) exists specifically to detect and
+ * report a dangling reference as a reviewable finding on an otherwise valid
+ * aggregate, mirroring a real document where a cross-reference to a
+ * renumbered or removed note is a genuine, correctable authoring defect,
+ * not structural corruption. See validation.ts's module comment for the
+ * full validation/rule-pack boundary this follows throughout.
+ */
 export interface NoteReference {
   readonly noteReferenceId: string;
   readonly fromLineId: string;
@@ -275,11 +314,26 @@ export interface CanonicalFinancialStatementReport {
   readonly provenanceOrigin: ProvenanceOrigin;
 }
 
-// ─── Findings ────────────────────────────────────────────────────────────
+// ─── Rule evaluation / findings ──────────────────────────────────────────
 
 export type RuleOutcome = "PASS" | "FAIL" | "NOT_APPLICABLE" | "INSUFFICIENT_EVIDENCE";
+
+/**
+ * Describes the severity of the underlying issue IF this rule's outcome is
+ * FAIL or INSUFFICIENT_EVIDENCE — never the "severity of a pass." A PASS or
+ * NOT_APPLICABLE record still carries this field (every rule declares one
+ * fixed failure-risk classification for the check it performs), but
+ * `actionable` and `status` are what determine whether it means anything
+ * operationally; a dashboard must never render a PASS record's
+ * failureSeverity as an "open critical finding."
+ */
 export type FindingSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFORMATIONAL";
-export type FindingStatus = "OPEN" | "ACCEPTED" | "REJECTED" | "DEFERRED" | "AWAITING_EVIDENCE";
+
+export type FindingStatus = "NOT_ACTIONABLE" | "OPEN" | "ACCEPTED" | "REJECTED" | "DEFERRED" | "AWAITING_EVIDENCE";
+
+export function isActionableOutcome(outcome: RuleOutcome): boolean {
+  return outcome === "FAIL" || outcome === "INSUFFICIENT_EVIDENCE";
+}
 
 export type ObservedValue =
   | { readonly kind: "MONEY"; readonly value: Money | null; readonly factId?: string }
@@ -312,20 +366,46 @@ export interface RuleExecution {
 }
 
 /**
- * `createdAt` is informational only — it is deliberately excluded from
- * `findingId` and from every deterministic-replay/serialization comparison
- * in this module tree (see serialization.ts). Two reruns of the same rule
- * pack against the same report must produce identical `findingId`s and
- * identical serialized bodies regardless of *when* either run happened.
+ * One rule's evaluation of one target, in one run.
+ *
+ * Two identities, deliberately separate (see serialization.ts for the
+ * algorithm):
+ *
+ * - `findingKey` — durable identity of *what is being checked*: the same
+ *   rule, against the same target, in the same report lineage. It does NOT
+ *   change when the outcome changes, when the report is corrected to a new
+ *   `reportVersion`, or when observed values change. A reviewer decision
+ *   that should "follow" an issue across correction cycles (e.g. "I've
+ *   reviewed this line before, keep deferring it") targets a `findingKey`.
+ *
+ * - `evaluationId` — immutable identity of *this exact evaluated result*:
+ *   it changes whenever the outcome, the observed values, the evidence, or
+ *   the reportVersion changes. A reviewer decision that should apply only
+ *   to one specific run's result (e.g. "I accept THIS specific FAIL,
+ *   computed from THIS specific data") targets an `evaluationId`.
+ *
+ * `createdAt` is informational only — excluded from both hashes and from
+ * every deterministic-replay/serialization comparison in this module tree.
+ * Two reruns of the same rule pack against the same report therefore
+ * produce identical `findingKey`s AND identical `evaluationId`s regardless
+ * of when either run happened.
+ *
+ * `actionable` is derived from `outcome` (`isActionableOutcome`) and is
+ * never true for PASS/NOT_APPLICABLE. `status` is forced to
+ * "NOT_ACTIONABLE" for a non-actionable record — a PASS or NOT_APPLICABLE
+ * result is never rendered as an "open" finding, regardless of
+ * `failureSeverity`.
  */
-export interface ValidationFinding {
-  readonly findingId: string;
+export interface RuleEvaluationRecord {
+  readonly findingKey: string;
+  readonly evaluationId: string;
   readonly ruleId: string;
   readonly ruleVersion: string;
   readonly rulePack: RulePackIdentity;
   readonly engineVersion: string;
   readonly outcome: RuleOutcome;
-  readonly severity: FindingSeverity;
+  readonly actionable: boolean;
+  readonly failureSeverity: FindingSeverity;
   readonly status: FindingStatus;
   readonly observedValues: Readonly<Record<string, ObservedValue>>;
   readonly expectedRelationship: string;
@@ -350,6 +430,16 @@ export type ReviewerDecisionType =
   | "REQUEST_EVIDENCE"
   | "DEFER";
 
+/**
+ * A finding-directed decision must declare which identity it targets — see
+ * RuleEvaluationRecord's doc comment for the semantic difference. There is
+ * no default: every decision that references a finding is explicit about
+ * whether it follows the durable issue or pins one immutable evaluation.
+ */
+export type FindingTarget =
+  | { readonly kind: "FINDING_KEY"; readonly findingKey: string }
+  | { readonly kind: "EVALUATION_ID"; readonly evaluationId: string };
+
 interface ReviewerDecisionBase {
   readonly decisionId: string;
   readonly decisionType: ReviewerDecisionType;
@@ -361,12 +451,12 @@ interface ReviewerDecisionBase {
 
 export interface AcceptFindingDecision extends ReviewerDecisionBase {
   readonly decisionType: "ACCEPT_FINDING";
-  readonly findingId: string;
+  readonly target: FindingTarget;
 }
 
 export interface RejectFindingDecision extends ReviewerDecisionBase {
   readonly decisionType: "REJECT_FINDING";
-  readonly findingId: string;
+  readonly target: FindingTarget;
   readonly rationale: string;
 }
 
@@ -387,14 +477,14 @@ export interface CorrectFactDecision extends ReviewerDecisionBase {
 
 export interface RequestEvidenceDecision extends ReviewerDecisionBase {
   readonly decisionType: "REQUEST_EVIDENCE";
-  readonly findingId?: string;
+  readonly target?: FindingTarget;
   readonly factId?: string;
   readonly requestedEvidence: string;
 }
 
 export interface DeferDecision extends ReviewerDecisionBase {
   readonly decisionType: "DEFER";
-  readonly findingId?: string;
+  readonly target?: FindingTarget;
   readonly factId?: string;
   readonly deferUntil?: string;
 }

@@ -7,7 +7,7 @@ const accept: AcceptFindingDecision = {
   decisionType: "ACCEPT_FINDING",
   reviewerId: "fm-1",
   decidedAt: "2026-01-01T00:00:00.000Z",
-  findingId: "finding-1",
+  target: { kind: "FINDING_KEY", findingKey: "finding-key-1" },
 };
 
 const reject: RejectFindingDecision = {
@@ -15,7 +15,7 @@ const reject: RejectFindingDecision = {
   decisionType: "REJECT_FINDING",
   reviewerId: "fm-2",
   decidedAt: "2026-01-02T00:00:00.000Z",
-  findingId: "finding-2",
+  target: { kind: "FINDING_KEY", findingKey: "finding-key-2" },
   rationale: "Not a genuine defect — reviewed against source.",
 };
 
@@ -43,11 +43,24 @@ describe("appendDecision — append-only", () => {
 });
 
 describe("decisionsForFinding / decisionsForFact", () => {
-  it("filters to only the decisions referencing the given finding", () => {
+  it("filters to only the decisions targeting the given findingKey", () => {
     const log = appendDecision(appendDecision([], accept), reject);
-    expect(decisionsForFinding(log, "finding-1")).toEqual([accept]);
-    expect(decisionsForFinding(log, "finding-2")).toEqual([reject]);
-    expect(decisionsForFinding(log, "finding-does-not-exist")).toEqual([]);
+    expect(decisionsForFinding(log, { findingKey: "finding-key-1" })).toEqual([accept]);
+    expect(decisionsForFinding(log, { findingKey: "finding-key-2" })).toEqual([reject]);
+    expect(decisionsForFinding(log, { findingKey: "finding-key-does-not-exist" })).toEqual([]);
+  });
+
+  it("filters by evaluationId independently of findingKey", () => {
+    const evaluationTargeted: AcceptFindingDecision = {
+      decisionId: "d-eval",
+      decisionType: "ACCEPT_FINDING",
+      reviewerId: "fm-1",
+      decidedAt: "2026-01-01T00:00:00.000Z",
+      target: { kind: "EVALUATION_ID", evaluationId: "eval-1" },
+    };
+    const log = appendDecision([], evaluationTargeted);
+    expect(decisionsForFinding(log, { evaluationId: "eval-1" })).toEqual([evaluationTargeted]);
+    expect(decisionsForFinding(log, { findingKey: "eval-1" })).toEqual([]); // a findingKey lookup never matches an evaluationId-targeted decision
   });
 
   it("filters to only the decisions referencing the given fact", () => {
@@ -62,22 +75,25 @@ describe("decisionsForFinding / decisionsForFact", () => {
       correctedValue: null,
       rationale: "Was extracted from the wrong cell.",
     };
-    const log = appendDecision([], correct);
+    // decisionsForFact reads the log directly — appendDecision's type
+    // deliberately excludes CORRECT_FACT (see reviewState.ts), so this
+    // fixture builds the log array by hand rather than through appendDecision.
+    const log: ReviewerDecisionLog = [correct];
     expect(decisionsForFact(log, "fact-1")).toEqual([correct]);
   });
 });
 
 describe("deriveFindingStatus", () => {
   it("returns OPEN when no decision references the finding", () => {
-    expect(deriveFindingStatus([], "finding-1")).toBe("OPEN");
+    expect(deriveFindingStatus([], { findingKey: "finding-key-1" })).toBe("OPEN");
   });
   it("returns ACCEPTED/REJECTED per the most recent decision", () => {
-    expect(deriveFindingStatus(appendDecision([], accept), "finding-1")).toBe("ACCEPTED");
-    expect(deriveFindingStatus(appendDecision([], reject), "finding-2")).toBe("REJECTED");
+    expect(deriveFindingStatus(appendDecision([], accept), { findingKey: "finding-key-1" })).toBe("ACCEPTED");
+    expect(deriveFindingStatus(appendDecision([], reject), { findingKey: "finding-key-2" })).toBe("REJECTED");
   });
   it("the most recent decision wins when a finding has more than one", () => {
-    const later: RejectFindingDecision = { ...reject, decisionId: "d-4", findingId: "finding-1", decidedAt: "2026-02-01T00:00:00.000Z" };
+    const later: RejectFindingDecision = { ...reject, decisionId: "d-4", target: { kind: "FINDING_KEY", findingKey: "finding-key-1" }, decidedAt: "2026-02-01T00:00:00.000Z" };
     const log = appendDecision(appendDecision([], accept), later);
-    expect(deriveFindingStatus(log, "finding-1")).toBe("REJECTED");
+    expect(deriveFindingStatus(log, { findingKey: "finding-key-1" })).toBe("REJECTED");
   });
 });

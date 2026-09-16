@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalStringify, hashDeterministic, withoutCreatedAt } from "./serialization";
+import { canonicalStringify, sha256Hex, withoutCreatedAt } from "./serialization";
 
 describe("canonicalStringify", () => {
   it("produces identical output regardless of key insertion order", () => {
@@ -21,24 +21,54 @@ describe("canonicalStringify", () => {
   it("distinguishes structurally different values", () => {
     expect(canonicalStringify({ a: 1 })).not.toBe(canonicalStringify({ a: 2 }));
   });
+
+  it("reordering array elements is NOT canonicalized — array order is preserved as meaningful", () => {
+    expect(canonicalStringify([1, 2])).not.toBe(canonicalStringify([2, 1]));
+  });
 });
 
-describe("hashDeterministic", () => {
-  it("is a pure function of its input — same input, same output, every time", () => {
+describe("sha256Hex — verified against the standard FIPS 180-4 / NIST test vectors", () => {
+  it('sha256("") matches the known empty-string digest', () => {
+    expect(sha256Hex("")).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  });
+
+  it('sha256("abc") matches the canonical NIST test vector', () => {
+    expect(sha256Hex("abc")).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  });
+
+  it('sha256("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") matches the two-block NIST test vector', () => {
+    expect(sha256Hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")).toBe(
+      "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+    );
+  });
+
+  it("handles multi-byte UTF-8 input deterministically (not byte length == character length)", () => {
+    const emoji = sha256Hex("héllo 🌍");
+    expect(emoji).toMatch(/^[0-9a-f]{64}$/);
+    expect(sha256Hex("héllo 🌍")).toBe(emoji);
+  });
+
+  it("is a pure function: identical input always produces identical output", () => {
     const input = canonicalStringify({ rulePackId: "x", ruleId: "y", discriminator: "z" });
-    const first = hashDeterministic(input);
+    const first = sha256Hex(input);
     for (let i = 0; i < 20; i++) {
-      expect(hashDeterministic(input)).toBe(first);
+      expect(sha256Hex(input)).toBe(first);
     }
   });
 
   it("produces different hashes for different inputs (no trivial collisions in these cases)", () => {
-    const hashes = new Set(["a", "b", "aa", "ab", "ba", ""].map(hashDeterministic));
+    const hashes = new Set(["a", "b", "aa", "ab", "ba", ""].map(sha256Hex));
     expect(hashes.size).toBe(6);
   });
 
-  it("returns a fixed-width lowercase hex string", () => {
-    expect(hashDeterministic("anything")).toMatch(/^[0-9a-f]{16}$/);
+  it("returns a fixed-width, lowercase, 256-bit hex digest", () => {
+    expect(sha256Hex("anything")).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("handles input crossing multiple 512-bit blocks", () => {
+    const long = "x".repeat(1000);
+    expect(sha256Hex(long)).toMatch(/^[0-9a-f]{64}$/);
+    expect(sha256Hex(long)).toBe(sha256Hex(long));
   });
 });
 

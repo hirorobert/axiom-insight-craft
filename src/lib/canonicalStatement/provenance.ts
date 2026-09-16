@@ -1,12 +1,12 @@
-// canonicalStatement/provenance.ts — append-only fact versioning.
+// canonicalStatement/provenance.ts — read-only fact-lineage helpers.
 //
-// A MonetaryFact is never mutated. A correction produces a brand-new
-// MonetaryFact object (version = supersedesVersion + 1) and is only ever
-// added to a report's fact ledger alongside the CorrectFactDecision that
-// justified it. `applyFactCorrection` returns a new report; it never
-// mutates the one it was given.
+// Appending a corrected fact version is NOT exposed here — the only public
+// way to do that is `reviewState.ts`'s `recordFactCorrection`, which
+// appends the corrected MonetaryFact and its CorrectFactDecision together,
+// atomically. A lower-level "append a fact version without its decision"
+// primitive is deliberately not exported from this module tree.
 
-import type { CanonicalFinancialStatementReport, CorrectFactDecision, MonetaryFact, ProvenanceRecord } from "./types";
+import type { MonetaryFact } from "./types";
 
 export class FactVersionConflictError extends Error {
   constructor(factId: string, expectedSupersedesVersion: number, actualLatestVersion: number) {
@@ -36,35 +36,4 @@ export function indexLatestFacts(facts: readonly MonetaryFact[]): ReadonlyMap<st
     if (!current || fact.version > current.version) index.set(fact.factId, fact);
   }
   return index;
-}
-
-/**
- * Appends a new, corrected MonetaryFact version to the report's fact
- * ledger. Never overwrites or removes the prior version — it remains in
- * `report.facts` for audit history. Throws FactVersionConflictError if the
- * decision's `supersedesVersion` is stale (someone else corrected the fact
- * first) rather than silently accepting an out-of-order correction.
- */
-export function applyFactCorrection(
-  report: CanonicalFinancialStatementReport,
-  decision: CorrectFactDecision,
-  provenance: ProvenanceRecord,
-): CanonicalFinancialStatementReport {
-  const latest = resolveLatestFact(report.facts, decision.factId);
-  if (!latest) {
-    throw new FactVersionConflictError(decision.factId, decision.supersedesVersion, -1);
-  }
-  if (latest.version !== decision.supersedesVersion || decision.newVersion !== decision.supersedesVersion + 1) {
-    throw new FactVersionConflictError(decision.factId, decision.supersedesVersion, latest.version);
-  }
-  const correctedFact: MonetaryFact = {
-    factId: decision.factId,
-    version: decision.newVersion,
-    value: decision.correctedValue,
-    reportingPeriod: latest.reportingPeriod,
-    signConvention: latest.signConvention,
-    provenance,
-    supersedesVersion: decision.supersedesVersion,
-  };
-  return { ...report, facts: [...report.facts, correctedFact] };
 }

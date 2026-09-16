@@ -26,7 +26,7 @@ function evaluateSchedule(ctx: RuleContext, noteId: string, schedule: MovementSc
   if (anyMissing) {
     return {
       outcome: "INSUFFICIENT_EVIDENCE",
-      severity: "MEDIUM",
+      failureSeverity: "MEDIUM",
       observedValues: {
         openingBalance: { kind: "MONEY", value: opening.status === "PRESENT" ? opening.money : null },
         closingBalance: { kind: "MONEY", value: closing.status === "PRESENT" ? closing.money : null },
@@ -56,7 +56,7 @@ function evaluateSchedule(ctx: RuleContext, noteId: string, schedule: MovementSc
     const pass = equalsWithinTolerance(running, closingMoney, ctx.tolerance);
     return {
       outcome: pass ? "PASS" : "FAIL",
-      severity: "HIGH",
+      failureSeverity: "HIGH",
       observedValues: {
         openingBalance: { kind: "MONEY", value: openingMoney },
         computedClosing: { kind: "MONEY", value: running },
@@ -75,7 +75,7 @@ function evaluateSchedule(ctx: RuleContext, noteId: string, schedule: MovementSc
   } catch {
     return {
       outcome: "INSUFFICIENT_EVIDENCE",
-      severity: "MEDIUM",
+      failureSeverity: "MEDIUM",
       observedValues: {},
       expectedRelationship: "opening + additions - disposals +/- other movements = closing",
       deterministicCalculation: "movement schedule facts are not all the same currency/scale — cannot sum",
@@ -101,7 +101,7 @@ export const movementReconciliationRule: RuleDefinition = {
       return [
         {
           outcome: "NOT_APPLICABLE",
-          severity: "INFORMATIONAL",
+          failureSeverity: "INFORMATIONAL",
           observedValues: {},
           expectedRelationship: "opening + additions - disposals +/- other movements = closing",
           deterministicCalculation: "no note declares a movement schedule",

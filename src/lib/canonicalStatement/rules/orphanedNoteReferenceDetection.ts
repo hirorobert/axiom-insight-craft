@@ -21,7 +21,7 @@ export const orphanedNoteReferenceDetectionRule: RuleDefinition = {
       return [
         {
           outcome: "NOT_APPLICABLE",
-          severity: "INFORMATIONAL",
+          failureSeverity: "INFORMATIONAL",
           observedValues: {},
           expectedRelationship: "every note reference resolves to an existing line and an existing note",
           deterministicCalculation: "this report declares no note references",
@@ -45,7 +45,7 @@ export const orphanedNoteReferenceDetectionRule: RuleDefinition = {
       if (noteExists && lineExists) {
         return {
           outcome: "PASS" as const,
-          severity: "LOW" as const,
+          failureSeverity: "LOW" as const,
           observedValues: {},
           expectedRelationship: "every note reference resolves to an existing line and an existing note",
           deterministicCalculation: `"${ref.fromLineId}" -> "${ref.toNoteId}" both resolve`,
@@ -62,7 +62,7 @@ export const orphanedNoteReferenceDetectionRule: RuleDefinition = {
 
       return {
         outcome: "FAIL" as const,
-        severity: "HIGH" as const,
+        failureSeverity: "HIGH" as const,
         observedValues: {},
         expectedRelationship: "every note reference resolves to an existing line and an existing note",
         deterministicCalculation: reasons.join("; "),

@@ -2,23 +2,33 @@ import { describe, expect, it } from "vitest";
 import { buildRuleContext } from "../rules/ruleEngine";
 import { runCanonicalRulePackV1 } from "../rules/rulePack";
 import { ZERO_TOLERANCE } from "../money";
+import { validateCanonicalReport } from "../validation";
 import { IFRS_FULL_FIXTURE } from "./ifrsFullFixture";
 import { IFRS_FOR_SMES_FIXTURE } from "./ifrsForSmesFixture";
 import { IPSAS_ACCRUAL_FIXTURE } from "./ipsasAccrualFixture";
 import { IPSAS_CASH_FIXTURE } from "./ipsasCashFixture";
 import { DEFECTIVE_FIXTURE } from "./defectiveFixture";
-import type { ValidationFinding } from "../types";
+import type { RuleEvaluationRecord } from "../types";
 
-function byRule(findings: readonly ValidationFinding[]): Map<string, ValidationFinding[]> {
-  const map = new Map<string, ValidationFinding[]>();
+function byRule(findings: readonly RuleEvaluationRecord[]): Map<string, RuleEvaluationRecord[]> {
+  const map = new Map<string, RuleEvaluationRecord[]>();
   for (const f of findings) {
     map.set(f.ruleId, [...(map.get(f.ruleId) ?? []), f]);
   }
   return map;
 }
 
-function outcomes(findings: readonly ValidationFinding[]): string[] {
+function outcomes(findings: readonly RuleEvaluationRecord[]): string[] {
   return findings.map((f) => f.outcome);
+}
+
+function outcomeCountsByRule(findings: readonly RuleEvaluationRecord[]): Record<string, Record<string, number>> {
+  const result: Record<string, Record<string, number>> = {};
+  for (const f of findings) {
+    result[f.ruleId] ??= {};
+    result[f.ruleId][f.outcome] = (result[f.ruleId][f.outcome] ?? 0) + 1;
+  }
+  return result;
 }
 
 describe.each([
@@ -27,6 +37,10 @@ describe.each([
   ["IPSAS accrual", IPSAS_ACCRUAL_FIXTURE],
   ["IPSAS cash", IPSAS_CASH_FIXTURE],
 ])("golden fixture: %s", (_name, fixture) => {
+  it("passes runtime validation — every fact/reference binding resolves and every structural invariant holds", () => {
+    expect(() => validateCanonicalReport(fixture)).not.toThrow();
+  });
+
   it("produces zero FAIL findings across the whole rule pack", () => {
     const ctx = buildRuleContext(fixture, ZERO_TOLERANCE);
     const findings = runCanonicalRulePackV1(ctx);
@@ -34,23 +48,45 @@ describe.each([
     expect(failures).toEqual([]);
   });
 
+  it("produces no unexpected INSUFFICIENT_EVIDENCE — every occurrence is an intentional, documented structural absence", () => {
+    const ctx = buildRuleContext(fixture, ZERO_TOLERANCE);
+    const findings = runCanonicalRulePackV1(ctx);
+    // The golden fixtures are built so every rule either PASSes or is
+    // legitimately NOT_APPLICABLE (e.g. IPSAS cash has no SFP) — none of
+    // them should ever need to fall back to INSUFFICIENT_EVIDENCE.
+    expect(findings.filter((f) => f.outcome === "INSUFFICIENT_EVIDENCE")).toEqual([]);
+  });
+
   it("every finding carries a complete, well-formed finding contract", () => {
     const ctx = buildRuleContext(fixture, ZERO_TOLERANCE);
     const findings = runCanonicalRulePackV1(ctx);
     expect(findings.length).toBeGreaterThan(0);
     for (const f of findings) {
-      expect(f.findingId).toMatch(/^[0-9a-f]{16}$/);
+      expect(f.findingKey).toMatch(/^[0-9a-f]{64}$/);
+      expect(f.evaluationId).toMatch(/^[0-9a-f]{64}$/);
       expect(f.ruleId).toBeTruthy();
       expect(f.ruleVersion).toBeTruthy();
       expect(f.rulePack.rulePackId).toBe("canonical-statement-rules");
       expect(f.engineVersion).toBeTruthy();
       expect(["PASS", "FAIL", "NOT_APPLICABLE", "INSUFFICIENT_EVIDENCE"]).toContain(f.outcome);
-      expect(f.severity).toBeTruthy();
-      expect(f.status).toBe("OPEN");
+      expect(f.failureSeverity).toBeTruthy();
+      expect(f.actionable).toBe(f.outcome === "FAIL" || f.outcome === "INSUFFICIENT_EVIDENCE");
+      expect(f.status).toBe(f.actionable ? "OPEN" : "NOT_ACTIONABLE");
       expect(f.expectedRelationship).toBeTruthy();
       expect(f.deterministicCalculation).toBeTruthy();
       expect(f.remediationGuidance).toBeTruthy();
       expect(f.createdAt).toBeTruthy();
+    }
+  });
+
+  it("no PASS or NOT_APPLICABLE result is ever rendered as an open finding", () => {
+    const ctx = buildRuleContext(fixture, ZERO_TOLERANCE);
+    const findings = runCanonicalRulePackV1(ctx);
+    const nonActionable = findings.filter((f) => f.outcome === "PASS" || f.outcome === "NOT_APPLICABLE");
+    expect(nonActionable.length).toBeGreaterThan(0);
+    for (const f of nonActionable) {
+      expect(f.actionable).toBe(false);
+      expect(f.status).toBe("NOT_ACTIONABLE");
     }
   });
 });
@@ -59,6 +95,21 @@ describe("IFRS full fixture — specific structural assertions", () => {
   const ctx = buildRuleContext(IFRS_FULL_FIXTURE, ZERO_TOLERANCE);
   const findings = runCanonicalRulePackV1(ctx);
   const grouped = byRule(findings);
+
+  it("explicit expected-outcome snapshot per rule (verified against the actual engine output — not a hand guess)", () => {
+    expect(outcomeCountsByRule(findings)).toEqual({
+      "sfp-equation": { PASS: 2 },
+      "subtotal-casting": { PASS: 10 },
+      "note-to-face-reconciliation": { NOT_APPLICABLE: 2, PASS: 1 },
+      "comparative-period-alignment": { PASS: 3 },
+      "currency-scale-consistency": { PASS: 30 },
+      "cashflow-closing-cash-reconciliation": { PASS: 2 },
+      "movement-reconciliation": { PASS: 1 },
+      "duplicate-detection": { PASS: 1 },
+      "missing-comparative-detection": { PASS: 5 },
+      "orphaned-note-reference-detection": { PASS: 3 },
+    });
+  });
 
   it("SFP equation PASSes for both current and comparative periods", () => {
     expect(outcomes(grouped.get("sfp-equation") ?? [])).toEqual(["PASS", "PASS"]);
@@ -128,6 +179,10 @@ describe("defective fixture — every one of the ten rules fires a real, non-PAS
   const ctx = buildRuleContext(DEFECTIVE_FIXTURE, ZERO_TOLERANCE);
   const findings = runCanonicalRulePackV1(ctx);
   const grouped = byRule(findings);
+
+  it("is still a valid aggregate — every one of its defects is a business-rule violation, not a structural one", () => {
+    expect(() => validateCanonicalReport(DEFECTIVE_FIXTURE)).not.toThrow();
+  });
 
   it("runs all ten rules", () => {
     expect(grouped.size).toBe(10);

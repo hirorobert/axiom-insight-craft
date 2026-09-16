@@ -20,6 +20,20 @@ export function resolveFact(ctx: RuleContext, factId: string | null | undefined)
   return { status: "PRESENT", money: fact.value, fact };
 }
 
+/** The factId a line is bound to for a given periodId, or undefined if the line carries no binding for that period. A line may be bound to any number of periods — never assume exactly one comparative. */
+export function factIdForPeriod(line: StatementLine, periodId: string): string | undefined {
+  return line.factBindings.find((binding) => binding.periodId === periodId)?.factId;
+}
+
+export function resolveFactForPeriod(ctx: RuleContext, line: StatementLine, periodId: string): ResolvedFact {
+  return resolveFact(ctx, factIdForPeriod(line, periodId));
+}
+
+/** Every distinct periodId this report expects rule evaluation to consider: the current period plus every declared comparative — never just "current + one comparative." */
+export function allPeriodIds(report: CanonicalFinancialStatementReport): readonly string[] {
+  return [report.period.periodId, ...report.comparativePeriods.map((p) => p.periodId)];
+}
+
 export function statementsOfType(report: CanonicalFinancialStatementReport, type: StatementType): readonly Statement[] {
   return report.statements.filter((statement) => statement.type === type);
 }
