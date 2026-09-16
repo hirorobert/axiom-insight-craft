@@ -30,7 +30,6 @@ const totalEquityCmp = fact("ips-total-equity-cmp", "5450000", CCY, SCALE, COMPA
 
 const infraLine = line("ips-sfp-infra", "Infrastructure assets", "infrastructure_assets", "DETAIL", infraCur.factId, {
   comparativeFactId: infraCmp.factId,
-  noteReferenceIds: ["ips-nr-infra"],
 });
 const cashLine = line("ips-sfp-cash", "Cash and cash equivalents", CANONICAL_CONCEPTS.CASH_AND_CASH_EQUIVALENTS_SFP, "DETAIL", cashCur.factId, {
   comparativeFactId: cashCmp.factId,

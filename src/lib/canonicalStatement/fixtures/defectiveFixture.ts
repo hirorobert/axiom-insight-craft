@@ -62,7 +62,6 @@ const duplicateFactB = { ...fact("defect-dup-b", "777000.00", CCY, SCALE, CURREN
 
 const ppeLine = line("defect-sfp-ppe", "Property, plant and equipment", "ppe_net", "DETAIL", ppeNetCur.factId, {
   comparativeFactId: ppeNetCmp.factId,
-  noteReferenceIds: ["nr-ppe-valid", "nr-broken"],
 });
 const cashLine = line("defect-sfp-cash", "Cash and cash equivalents", CANONICAL_CONCEPTS.CASH_AND_CASH_EQUIVALENTS_SFP, "DETAIL", cashCur.factId, {
   comparativeFactId: cashCmp.factId,

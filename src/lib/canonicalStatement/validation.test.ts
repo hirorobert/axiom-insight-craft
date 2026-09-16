@@ -352,3 +352,99 @@ describe("issues are path-addressable", () => {
     expect(issues.some((i) => i.path.join(".") === "schemaVersion")).toBe(true);
   });
 });
+
+// ─── Final closure patch, section 2: complete internal reference integrity ──
+
+describe("2A. every Note.monetaryFactIds entry must resolve to an existing factId", () => {
+  it("rejects a monetaryFactIds entry that does not exist", () => {
+    const [ppeNote, ...rest] = IFRS_FULL_FIXTURE.notes;
+    const badNote = { ...ppeNote, monetaryFactIds: [...ppeNote.monetaryFactIds, "does-not-exist"] };
+    expect(isInvalid({ ...IFRS_FULL_FIXTURE, notes: [badNote, ...rest] })).toBe(true);
+  });
+});
+
+describe("2B. Note.monetaryFactIds must contain no duplicate factId", () => {
+  it("rejects a duplicated entry within one note's monetaryFactIds", () => {
+    const [ppeNote, ...rest] = IFRS_FULL_FIXTURE.notes;
+    const badNote = { ...ppeNote, monetaryFactIds: [...ppeNote.monetaryFactIds, ppeNote.monetaryFactIds[0]] };
+    expect(isInvalid({ ...IFRS_FULL_FIXTURE, notes: [badNote, ...rest] })).toBe(true);
+  });
+});
+
+describe("2C. every TextualDisclosure.relatedNoteId must resolve to an existing Note", () => {
+  it("rejects a relatedNoteId that does not exist", () => {
+    const badDisclosure = {
+      disclosureId: "disclosure-1",
+      relatedNoteId: "no-such-note",
+      text: "Some disclosure text.",
+      provenance: IFRS_FULL_FIXTURE.accountingPolicies[0].provenance,
+    };
+    expect(isInvalid({ ...IFRS_FULL_FIXTURE, textualDisclosures: [badDisclosure] })).toBe(true);
+  });
+  it("accepts a relatedNoteId that does resolve", () => {
+    const goodDisclosure = {
+      disclosureId: "disclosure-1",
+      relatedNoteId: IFRS_FULL_FIXTURE.notes[0].noteId,
+      text: "Some disclosure text.",
+      provenance: IFRS_FULL_FIXTURE.accountingPolicies[0].provenance,
+    };
+    expect(isInvalid({ ...IFRS_FULL_FIXTURE, textualDisclosures: [goodDisclosure] })).toBe(false);
+  });
+  it("accepts a disclosure with no relatedNoteId at all (report-wide, unassociated disclosure)", () => {
+    const goodDisclosure = { disclosureId: "disclosure-1", text: "Some disclosure text.", provenance: IFRS_FULL_FIXTURE.accountingPolicies[0].provenance };
+    expect(isInvalid({ ...IFRS_FULL_FIXTURE, textualDisclosures: [goodDisclosure] })).toBe(false);
+  });
+});
+
+describe("2D. sectionId must be unique within the report", () => {
+  it("rejects two sections sharing a sectionId", () => {
+    const [sfp, ...rest] = IFRS_FULL_FIXTURE.statements;
+    const duplicatedSection = { ...sfp.sections[0] };
+    const mutated = { ...IFRS_FULL_FIXTURE, statements: [{ ...sfp, sections: [...sfp.sections, duplicatedSection] }, ...rest] };
+    expect(isInvalid(mutated)).toBe(true);
+  });
+});
+
+describe("2E. movement scheduleId must be unique within the report", () => {
+  it("rejects two movement schedules sharing a scheduleId", () => {
+    const [ppeNote, ...rest] = IFRS_FULL_FIXTURE.notes;
+    const duplicatedScheduleNote = { ...ppeNote, noteId: "note-ppe-duplicate-schedule" };
+    expect(isInvalid({ ...IFRS_FULL_FIXTURE, notes: [ppeNote, duplicatedScheduleNote, ...rest] })).toBe(true);
+  });
+});
+
+describe("2F. a fact binding's periodId must be either the current period or a declared comparative period", () => {
+  it("rejects a binding whose periodId is undeclared", () => {
+    const [sfp, ...rest] = IFRS_FULL_FIXTURE.statements;
+    const line = sfp.sections[0].lines[0];
+    const badLine = { ...line, factBindings: [...line.factBindings, { periodId: "COMPARATIVE_UNDECLARED", factId: line.factBindings[0].factId }] };
+    const mutated = { ...IFRS_FULL_FIXTURE, statements: [{ ...sfp, sections: [{ ...sfp.sections[0], lines: [badLine, ...sfp.sections[0].lines.slice(1)] }, ...sfp.sections.slice(1)] }, ...rest] };
+    expect(isInvalid(mutated)).toBe(true);
+  });
+  it("accepts a binding whose periodId is the current period or any declared comparative period", () => {
+    expect(isInvalid(IFRS_FULL_FIXTURE)).toBe(false); // every binding in the golden fixture is either CURRENT or COMPARATIVE_1 (declared)
+  });
+});
+
+describe("2G. a fact's reportingPeriod.isComparative must agree with whether its periodId is the current or a declared comparative period", () => {
+  it("rejects a fact declaring periodId=CURRENT but isComparative=true", () => {
+    const badFact = { ...IFRS_FULL_FIXTURE.facts[0], reportingPeriod: { periodId: "CURRENT", isComparative: true } };
+    expect(isInvalid({ ...IFRS_FULL_FIXTURE, facts: [badFact, ...IFRS_FULL_FIXTURE.facts.slice(1)] })).toBe(true);
+  });
+  it("rejects a fact declaring a declared comparative periodId but isComparative=false", () => {
+    const comparativeFact = IFRS_FULL_FIXTURE.facts.find((f) => f.reportingPeriod.periodId === "COMPARATIVE_1")!;
+    const badFact = { ...comparativeFact, reportingPeriod: { periodId: "COMPARATIVE_1", isComparative: false } };
+    const mutated = { ...IFRS_FULL_FIXTURE, facts: IFRS_FULL_FIXTURE.facts.map((f) => (f.factId === comparativeFact.factId && f.version === comparativeFact.version ? badFact : f)) };
+    expect(isInvalid(mutated)).toBe(true);
+  });
+  it("does NOT reject a fact whose periodId is undeclared/rogue — that self-consistency check simply does not apply, and the periodId itself remains Rule 4's concern (see the defective fixture)", () => {
+    expect(isInvalid(DEFECTIVE_FIXTURE)).toBe(false);
+  });
+});
+
+describe("StatementLine no longer carries its own noteReferenceIds — report.noteReferences is the sole source of truth", () => {
+  it("a line's type shape has no noteReferenceIds field at all", () => {
+    const line = IFRS_FULL_FIXTURE.statements[0].sections[0].lines[0];
+    expect("noteReferenceIds" in line).toBe(false);
+  });
+});

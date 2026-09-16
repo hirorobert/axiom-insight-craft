@@ -210,7 +210,6 @@ export interface StatementLine {
   readonly normalBalance: NormalBalance;
   readonly isContra: boolean;
   readonly factBindings: readonly FactBinding[];
-  readonly noteReferenceIds: readonly string[];
   /** For SUBTOTAL/TOTAL lines only: the sibling lineIds (within the same statement) this total is declared to sum. Never inferred. */
   readonly castingChildLineIds: readonly string[];
 }
@@ -258,11 +257,20 @@ export interface Note {
 }
 
 /**
- * A cross-reference from a face line to a note. Its OWN identity
- * (noteReferenceId, and the fromLineId/toNoteId strings it carries) is what
- * validation.ts checks for well-formedness and uniqueness. Whether
- * `toNoteId`/`fromLineId` actually resolve to a real note/line is
- * deliberately NOT a validation-time rejection — Rule 10
+ * A cross-reference from a face line to a note. `report.noteReferences` is
+ * the SOLE representation of this edge — a `StatementLine` does not also
+ * carry a `noteReferenceIds` list. That duplicated representation existed
+ * earlier and was removed: nothing enforced it stayed in sync with this
+ * array, so a line could carry a noteReferenceId this array had no matching
+ * entry for, and neither validation nor any rule would ever notice (silent
+ * corruption). `rules/shared.ts`'s `noteReferencesForLine(report, lineId)`
+ * derives "this line's note references" by filtering on `fromLineId` —
+ * that is the only correct way to ask the question now.
+ *
+ * Its OWN identity (`noteReferenceId`, and the `fromLineId`/`toNoteId`
+ * strings it carries) is what validation.ts checks for well-formedness and
+ * uniqueness. Whether `toNoteId`/`fromLineId` actually resolve to a real
+ * note/line is deliberately NOT a validation-time rejection — Rule 10
  * (orphaned-note-reference-detection) exists specifically to detect and
  * report a dangling reference as a reviewable finding on an otherwise valid
  * aggregate, mirroring a real document where a cross-reference to a
@@ -473,6 +481,15 @@ export interface CorrectFactDecision extends ReviewerDecisionBase {
   readonly newVersion: number;
   readonly correctedValue: Money | null;
   readonly rationale: string;
+  /**
+   * Optimistic-concurrency guard: the `reportIdentity.reportVersion` this
+   * decision was formed against. `reviewState.ts`'s `recordFactCorrection`
+   * rejects the command outright if the state's current reportVersion has
+   * since moved past this value — this is a pure in-memory domain command,
+   * not a database transaction; a real persistence layer must still enforce
+   * its own compare-and-swap on `reportVersion` at the storage boundary.
+   */
+  readonly expectedReportVersion: number;
 }
 
 export interface RequestEvidenceDecision extends ReviewerDecisionBase {

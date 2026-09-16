@@ -2,7 +2,7 @@
 // in the first rule pack. Centralized so each rule file stays focused on
 // its own accounting relationship instead of re-deriving fact/line lookup.
 
-import type { CanonicalFinancialStatementReport, MonetaryFact, Statement, StatementLine, StatementType } from "../types";
+import type { CanonicalFinancialStatementReport, MonetaryFact, NoteReference, Statement, StatementLine, StatementType } from "../types";
 import type { Money } from "../money";
 import type { RuleContext } from "./ruleEngine";
 
@@ -63,4 +63,14 @@ export function statementContainingLine(
   lineId: string,
 ): Statement | undefined {
   return report.statements.find((statement) => allLines(statement).some((line) => line.lineId === lineId));
+}
+
+/**
+ * The sole correct way to ask "which note references does this line carry?"
+ * — `report.noteReferences` is the single source of truth for this edge;
+ * `StatementLine` does not (and must not again) carry its own
+ * `noteReferenceIds` list. See NoteReference's doc comment in types.ts.
+ */
+export function noteReferencesForLine(report: CanonicalFinancialStatementReport, lineId: string): readonly NoteReference[] {
+  return report.noteReferences.filter((ref) => ref.fromLineId === lineId);
 }

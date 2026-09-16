@@ -36,7 +36,7 @@ src/lib/canonicalStatement/
   adapters.ts               Adapter interfaces (NOT implemented here)
   rules/
     ruleEngine.ts            The validation kernel: RuleContext, RuleDefinition, findingKey/evaluationId hashing, deterministic output ordering
-    shared.ts                 Fact/line/period-binding lookup helpers shared by every rule
+    shared.ts                 Fact/line/period-binding/note-reference lookup helpers shared by every rule
     financialPositionEquation.ts   Rule 1
     subtotalCasting.ts             Rule 2
     noteToFaceReconciliation.ts    Rule 3
@@ -55,7 +55,9 @@ src/lib/canonicalStatement/
     ipsasAccrualFixture.ts     Golden: IPSAS accrual, government entity
     ipsasCashFixture.ts        Golden: IPSAS cash, no SFP at all
     multiComparativeFixture.ts Golden: one current period + TWO comparative periods
-    defectiveFixture.ts        Adversarial: trips every one of the ten rules, still schema-valid
+    defectiveFixture.ts        Adversarial: trips every one of the ten rules together, still schema-valid — an INTEGRATION stress fixture, not proof of per-rule independence
+    isolatedBaseline.ts        A second, smaller clean baseline purpose-built for isolated mutation
+    isolatedMutations.ts       One mutation function per rule, each an isolated defect against isolatedBaseline.ts
 ```
 
 ## The model
@@ -89,6 +91,17 @@ regardless of how many comparative periods a report declares — see
 `fixtures/multiComparativeFixture.ts` (one current + two comparative
 periods, each with genuinely distinct figures) and its test, which proves
 Rules 1, 2, 4 and 9 each evaluate every period's own fact exactly once.
+
+**Note-reference authority.** `report.noteReferences` is the SOLE
+representation of the face-line-to-note edge. `StatementLine` does not
+carry its own `noteReferenceIds` list — that duplicated edge representation
+existed earlier and was removed, not reconciled: nothing enforced it stayed
+in sync with `noteReferences`, so a line could carry an id this array had
+no matching entry for, and neither validation nor any rule would ever
+notice. `rules/shared.ts`'s `noteReferencesForLine(report, lineId)` derives
+"this line's note references" by filtering `noteReferences` on
+`fromLineId` — that is the only correct way to ask the question now, and
+the only one that exists.
 
 ### Numeric authority
 
@@ -127,12 +140,26 @@ integrity — is the aggregate a well-formed, internally navigable graph?
 Every ID a binding or reference depends on to be interpretable at all must
 resolve: fact bindings, casting children (which must also stay within the
 same statement and never self-reference), movement-schedule fact ids, a
-note's own `totalFactId`. It also enforces field-level shape (dates,
-hashes, confidence ranges, version-chain integrity, ID uniqueness) and two
-framework-level structural contradictions (an `IPSAS_CASH` report cannot
-contain a `STATEMENT_OF_FINANCIAL_POSITION`, and must contain a
-`STATEMENT_OF_CASH_RECEIPTS_AND_PAYMENTS`; every other framework is the
-mirror image).
+note's own `totalFactId` and `monetaryFactIds` (which must also contain no
+duplicate factId), and a `TextualDisclosure`'s `relatedNoteId`. It also
+enforces field-level shape (dates, hashes, confidence ranges, version-chain
+integrity), ID uniqueness (including `sectionId` and a movement schedule's
+`scheduleId`, report-wide), two framework-level structural contradictions
+(an `IPSAS_CASH` report cannot contain a `STATEMENT_OF_FINANCIAL_POSITION`,
+and must contain a `STATEMENT_OF_CASH_RECEIPTS_AND_PAYMENTS`; every other
+framework is the mirror image), and two fact-binding/period checks:
+
+- every `StatementLine.factBindings[].periodId` must be either the current
+  period or a period declared in `comparativePeriods` — an undeclared
+  period id in a *binding* is a structural defect (there is nothing to
+  bind it to), not a business-rule finding;
+- a fact's own `reportingPeriod.isComparative` must be self-consistent with
+  its `periodId` when that `periodId` names the current period or a
+  *declared* comparative period (declaring `periodId: "CURRENT"` with
+  `isComparative: true` is simply self-contradictory). A fact naming an
+  *undeclared* periodId in its own `reportingPeriod` is not rejected by
+  this check — see the next paragraph for why that specific case stays a
+  rule-pack concern.
 
 It deliberately does **not** enforce semantic/business correctness — that
 is the rule pack's job, evaluated against an aggregate that already passed
@@ -143,8 +170,17 @@ validation:
   extracted fact can legitimately arrive in the wrong currency, and that is
   precisely the defect this rule pack exists to surface to a reviewer, not
   hide by refusing the upload outright;
-- a fact bound under periodId `P` actually belonging to period `P` is Rule
-  4's job;
+- a fact *bound* under periodId `P` actually being the fact that period `P`
+  produced — i.e. the bound fact's own `reportingPeriod.periodId` agreeing
+  with the *binding's* periodId — is Rule 4's job. Validation confirms the
+  binding's periodId is declared and, separately, that a fact naming a
+  declared period is self-consistent about being comparative or not; it
+  does NOT cross-check a binding against the specific fact it points to,
+  because a binding silently pointing at a fact from the wrong period is
+  precisely the authoring defect Rule 4 exists to catch on an otherwise
+  valid aggregate (see `fixtures/isolatedMutations.ts`'s Rule 4 mutation,
+  and `fixtures/defectiveFixture.ts`'s rogue-period defect — both validate
+  cleanly and are Rule 4's job to FAIL);
 - a `NoteReference`'s `toNoteId`/`fromLineId` actually resolving is Rule
   10's job — by definition, that rule exists to detect exactly the case
   validation would otherwise reject, so it cannot itself be a hard
@@ -178,23 +214,49 @@ method, extraction confidence, the verbatim original text, currency,
 scale, sign convention, reporting period, and version.
 
 **Facts are immutable and append-only, and a correction is atomic with its
-decision.** `reviewState.ts`'s `CanonicalReviewState` pairs a report with
-its `ReviewerDecisionLog` as one aggregate. `recordFactCorrection(state,
-decision, provenance)` is the *only* public way to correct a fact: it
-validates decision/reviewer identity, verifies the fact exists and
-`supersedesVersion` is genuinely the latest (rejecting a stale concurrent
-correction), requires `newVersion = supersedesVersion + 1`, requires the
-corrected value's denomination to match the prior value's (when the prior
-value was not itself MISSING), then appends the corrected `MonetaryFact`
-version and the `CorrectFactDecision` together and re-validates the
-resulting report — throwing `FactCorrectionRejectedError` (or
-`CanonicalValidationError`) and changing nothing at all if any step fails.
-There is no lower-level primitive that appends one without the other:
-`provenance.ts` exports only read-only lineage helpers
-(`resolveLatestFact`, `indexLatestFacts`), and `reviewerDecisions.ts`'s
-general-purpose `appendDecision` accepts `StandaloneReviewerDecision` — a
-type that structurally excludes `CorrectFactDecision`, so passing one is a
-compile-time error, not just a documented convention.
+decision AND the report's own version.** `reviewState.ts`'s
+`CanonicalReviewState` pairs a report with its `ReviewerDecisionLog` as one
+aggregate. `recordFactCorrection(state, decision, provenance)` is the
+*only* public way to correct a fact. On success it:
+
+1. requires the *input* report to already pass `validateCanonicalReport`
+   (a correction is never the first line of defense against a corrupt
+   input);
+2. validates decision/reviewer identity and rejects a duplicate
+   `decisionId`;
+3. checks `decision.expectedReportVersion` against
+   `state.report.reportIdentity.reportVersion` — an optimistic-concurrency
+   guard. This is a pure in-memory domain command: it guarantees the guard
+   is checked correctly, but it does **not** claim database-level
+   concurrency safety — a future persistence layer must still enforce its
+   own compare-and-swap on `reportVersion` at the storage boundary;
+4. verifies the fact exists and `supersedesVersion` is genuinely the
+   latest (rejecting a stale concurrent correction), and requires
+   `newVersion = supersedesVersion + 1`;
+5. requires the corrected value's denomination to match the prior value's
+   (when the prior value was not itself MISSING);
+6. appends the corrected `MonetaryFact` version, appends the
+   `CorrectFactDecision`, and advances
+   `reportIdentity.reportVersion` by **exactly 1** — all three together;
+7. re-validates the resulting report before returning it.
+
+Any failure throws `FactCorrectionRejectedError` (or
+`CanonicalValidationError`) and changes nothing at all — no partial state
+(some but not all of {fact, decision, version bump} applied) is ever
+observable, and `state` itself is never mutated. Two materially different
+report states can therefore never share one `reportVersion`: this is what
+makes `evaluationId` (below) meaningful across correction cycles — an
+evaluated result computed against version *N* is never confusable with one
+computed against version *N+1*, even if every other input happened to
+match.
+
+There is no lower-level primitive that performs any subset of {fact
+append, decision append, version bump}: `provenance.ts` exports only
+read-only lineage helpers (`resolveLatestFact`, `indexLatestFacts`), and
+`reviewerDecisions.ts`'s general-purpose `appendDecision` accepts
+`StandaloneReviewerDecision` — a type that structurally excludes
+`CorrectFactDecision`, so passing one is a compile-time error, not just a
+documented convention.
 
 ### Reviewer decisions and finding targets
 
@@ -227,8 +289,10 @@ synchronous evaluate/runRule path):
 - **`evaluationId`** — immutable identity of *this exact evaluated result*:
   a hash of `findingKey` plus rule-pack/engine version, `reportVersion`,
   `outcome`, `observedValues`, and `evidenceReferences`. It changes
-  whenever any of those changes. A decision that should apply only to one
-  specific run's result targets an `evaluationId`.
+  whenever any of those changes — including a `reportVersion` bump from a
+  correction that didn't even touch this rule's own facts, since the
+  report as a whole is a new version regardless. A decision that should
+  apply only to one specific run's result targets an `evaluationId`.
 
 `createdAt` is excluded from both hashes. Two reruns of the same rule pack
 against the same report produce identical `findingKey`s and
@@ -239,6 +303,10 @@ output order or any identity (`permutation.test.ts`): `runRulePack` sorts
 its results by rule-pack registration order, then `ruleId`, then the full
 discriminator, then `periodId`, then affected identity, then
 `evaluationId`, independent of any input array's own order.
+`reviewState.test.ts` proves the reportVersion-vs-evaluationId relationship
+directly: correcting a fact a given rule's target never reads still changes
+that rule's `evaluationId` (because `reportVersion` moved) while leaving
+its `findingKey` and its outcome/observed values untouched.
 
 Every rule returns exactly one of `PASS`, `FAIL`, `NOT_APPLICABLE`, or
 `INSUFFICIENT_EVIDENCE` — decided entirely by rule code, never guessed by
@@ -265,7 +333,7 @@ workflow around a PASS.
 | 1 | `sfp-equation` | `total_assets = total_liabilities + total_equity`, once per period (current + every declared comparative) |
 | 2 | `subtotal-casting` | every `TOTAL`/`SUBTOTAL` line equals the sum of its declared casting children, per period |
 | 3 | `note-to-face-reconciliation` | a face line's current-period value equals the note it references |
-| 4 | `comparative-period-alignment` | every comparative-period binding is declared, and its fact genuinely belongs to that period — any number of comparative periods, never conflated |
+| 4 | `comparative-period-alignment` | every comparative-period binding points at a fact that genuinely belongs to that period (a binding's periodId itself being declared is validation's job — see above) — any number of comparative periods, never conflated |
 | 5 | `currency-scale-consistency` | every non-null fact matches the report's presentation currency/scale |
 | 6 | `cashflow-closing-cash-reconciliation` | cash flow closing cash equals SFP cash and cash equivalents, per period |
 | 7 | `movement-reconciliation` | opening + additions − disposals ± other movements = closing |
@@ -298,10 +366,32 @@ multi-comparative) are each internally consistent and pass
 `validateCanonicalReport` — the whole rule pack produces zero `FAIL` and
 zero unexpected `INSUFFICIENT_EVIDENCE` against any of them
 (`fixtures.test.ts`, with an exact expected-outcome-count snapshot per rule
-for the IFRS full fixture). One adversarial fixture
-(`defectiveFixture.ts`) — itself schema-valid, per the boundary above —
-deliberately trips all ten rules into a real `FAIL`, exercising the failure
-path end-to-end in one place.
+for the IFRS full fixture).
+
+`defectiveFixture.ts` deliberately trips all ten rules into a real `FAIL`
+*together*, in one aggregate — useful as an integration stress fixture
+exercising the whole failure path at once, but a single fixture with
+several interacting defects cannot, by itself, prove any one rule is
+independent of the others (a bug that made two rules FAIL for the same
+reason could hide behind it indefinitely).
+
+**Isolated rule fixtures** (`isolatedBaseline.ts`, `isolatedMutations.ts`,
+`isolatedRuleFixtures.test.ts`) close that gap: `isolatedBaseline.ts` is a
+second, smaller, fully clean and valid aggregate; `isolatedMutations.ts`
+provides one function per rule, each changing only the fact(s) that rule's
+own defect requires. `isolatedRuleFixtures.test.ts` proves, per mutation,
+that the aggregate still validates, the target rule reports a real `FAIL`
+(or `INSUFFICIENT_EVIDENCE`), and every other rule's FAIL/
+INSUFFICIENT_EVIDENCE count stays at zero. Two mutations (Rules 9 and 10)
+have one unavoidable, precisely documented, PASS-only or NOT_APPLICABLE-only
+secondary effect on a sibling rule's result *count* (never on its
+correctness) — removing a line's comparative binding to trigger Rule 9
+necessarily removes that period's Rule 2 casting check for the same line
+(an absent result, not a wrong one), and a dangling `NoteReference` visible
+to Rule 10 is, by Rule 3's own already-documented design, also visible to
+Rule 3 as a `NOT_APPLICABLE` (never a FAIL) — both deltas are asserted
+exactly, and a final cross-check confirms no mutation's target rule is ever
+"satisfied" by an unrelated cascade into a different rule.
 
 ## What is explicitly out of scope here
 

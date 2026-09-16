@@ -17,15 +17,29 @@
 // This validator enforces STRUCTURAL integrity: is the aggregate a
 // well-formed, internally-navigable graph? Every ID a binding or reference
 // depends on to be *interpretable at all* must resolve (fact bindings,
-// casting children, movement-schedule fact ids) — a dangling pointer here
-// means the aggregate is not just wrong, it is not evaluable.
+// casting children, movement-schedule fact ids, Note.monetaryFactIds,
+// TextualDisclosure.relatedNoteId) — a dangling pointer here means the
+// aggregate is not just wrong, it is not evaluable. It also enforces that
+// every fact binding's periodId is at least a DECLARED period (either the
+// current period or one of `comparativePeriods`), and that a fact's own
+// `reportingPeriod.isComparative` flag is self-consistent with a periodId
+// that resolves to the current or a declared comparative period.
 //
 // It deliberately does NOT enforce semantic/business correctness — that is
 // the rule pack's job, on a validation-passing aggregate:
 //   - a fact's own currency/scale matching the report's presentation
 //     currency/scale is Rule 5 (currency-scale-consistency)'s job;
-//   - a fact bound to periodId P actually belonging to period P is Rule 4
-//     (comparative-period-alignment)'s job;
+//   - a fact BOUND under periodId P actually being sourced from period P —
+//     i.e. the bound fact's own `reportingPeriod.periodId` agreeing with
+//     the binding's periodId — is Rule 4 (comparative-period-alignment)'s
+//     job. Validation only confirms the binding's periodId is declared and
+//     that a fact naming a declared period is self-consistent about being
+//     comparative or not; it does NOT cross-check a binding against the
+//     fact it points to, because that cross-check — a binding silently
+//     pointing at a fact from the wrong period — is precisely the
+//     authoring defect Rule 4 exists to catch on an otherwise valid
+//     aggregate (see fixtures/defectiveFixture.ts's rogue-period defect,
+//     which validates cleanly and is Rule 4's job to FAIL);
 //   - a NoteReference's `toNoteId`/`fromLineId` actually resolving is Rule
 //     10 (orphaned-note-reference-detection)'s job — by definition, that
 //     rule exists to detect exactly the case validation would otherwise
@@ -174,7 +188,6 @@ const statementLineSchema = z.object({
   normalBalance: z.enum(["DEBIT_NORMAL", "CREDIT_NORMAL"]),
   isContra: z.boolean(),
   factBindings: z.array(factBindingSchema),
-  noteReferenceIds: z.array(z.string()),
   castingChildLineIds: z.array(z.string()),
 }).superRefine((line, ctx) => {
   const seenPeriods = new Set<string>();
@@ -298,10 +311,16 @@ export const canonicalFinancialStatementReportSchema = canonicalFinancialStateme
   addDuplicates(ctx, report.statements.map((s) => s.statementId), ["statements"], "statementId");
   const allLineIds = report.statements.flatMap((s) => s.sections.flatMap((sec) => sec.lines.map((l) => l.lineId)));
   addDuplicates(ctx, allLineIds, ["statements"], "lineId");
+  // D. sectionId unique within the report (report-wide, matching lineId's own report-wide scope).
+  const allSectionIds = report.statements.flatMap((s) => s.sections.map((sec) => sec.sectionId));
+  addDuplicates(ctx, allSectionIds, ["statements"], "sectionId");
   addDuplicates(ctx, report.notes.map((n) => n.noteId), ["notes"], "noteId");
   addDuplicates(ctx, report.noteReferences.map((r) => r.noteReferenceId), ["noteReferences"], "noteReferenceId");
   addDuplicates(ctx, report.accountingPolicies.map((p) => p.policyId), ["accountingPolicies"], "policyId");
   addDuplicates(ctx, report.textualDisclosures.map((d) => d.disclosureId), ["textualDisclosures"], "disclosureId");
+  // E. movement scheduleId unique within the report.
+  const allScheduleIds = report.notes.flatMap((n) => (n.movementSchedule ? [n.movementSchedule.scheduleId] : []));
+  addDuplicates(ctx, allScheduleIds, ["notes"], "movementSchedule.scheduleId");
 
   // 7 & 8. current/comparative periodId uniqueness; comparative may never reuse the current periodId.
   if (report.period.periodId !== CURRENT_PERIOD_ID) {
@@ -348,12 +367,22 @@ export const canonicalFinancialStatementReportSchema = canonicalFinancialStateme
     }
   }
 
+  // F. every fact binding's periodId must be either the current period or a declared comparative period.
+  const declaredPeriodIds = new Set<string>([CURRENT_PERIOD_ID, ...report.comparativePeriods.map((p) => p.periodId)]);
+
   report.statements.forEach((statement, si) => {
     const lineIdsInStatement = new Set(statement.sections.flatMap((sec) => sec.lines.map((l) => l.lineId)));
     statement.sections.forEach((section, seci) => {
       section.lines.forEach((line, li) => {
         line.factBindings.forEach((binding, bi) => {
           checkFactRef(binding.factId, ["statements", si, "sections", seci, "lines", li, "factBindings", bi, "factId"]);
+          if (!declaredPeriodIds.has(binding.periodId)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `factBinding periodId "${binding.periodId}" is neither "${CURRENT_PERIOD_ID}" nor a declared comparative period`,
+              path: ["statements", si, "sections", seci, "lines", li, "factBindings", bi, "periodId"],
+            });
+          }
         });
         line.castingChildLineIds.forEach((childId, ci) => {
           if (!lineIdsInStatement.has(childId)) {
@@ -364,7 +393,21 @@ export const canonicalFinancialStatementReportSchema = canonicalFinancialStateme
     });
   });
 
+  // G. a fact's own reportingPeriod.isComparative must agree with whether its periodId is the current period or a declared comparative period (self-consistency only — an undeclared/rogue periodId is Rule 4's concern, not a validation rejection; see the module boundary comment).
+  const declaredComparativePeriodIds = new Set(report.comparativePeriods.map((p) => p.periodId));
+  report.facts.forEach((f, fi) => {
+    const { periodId, isComparative } = f.reportingPeriod;
+    if (periodId === CURRENT_PERIOD_ID && isComparative) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `fact "${f.factId}" declares reportingPeriod.periodId="${CURRENT_PERIOD_ID}" but isComparative=true`, path: ["facts", fi, "reportingPeriod", "isComparative"] });
+    } else if (declaredComparativePeriodIds.has(periodId) && !isComparative) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `fact "${f.factId}" declares reportingPeriod.periodId="${periodId}" (a declared comparative period) but isComparative=false`, path: ["facts", fi, "reportingPeriod", "isComparative"] });
+    }
+  });
+
+  // A & B. Note.monetaryFactIds must resolve to real facts and contain no duplicates.
   report.notes.forEach((note, ni) => {
+    addDuplicates(ctx, note.monetaryFactIds, ["notes", ni, "monetaryFactIds"], "factId");
+    note.monetaryFactIds.forEach((id, i) => checkFactRef(id, ["notes", ni, "monetaryFactIds", i]));
     if (note.totalFactId) checkFactRef(note.totalFactId, ["notes", ni, "totalFactId"]);
     if (note.movementSchedule) {
       const ms = note.movementSchedule;
@@ -373,6 +416,14 @@ export const canonicalFinancialStatementReportSchema = canonicalFinancialStateme
       ms.additionFactIds.forEach((id, i) => checkFactRef(id, ["notes", ni, "movementSchedule", "additionFactIds", i]));
       ms.disposalFactIds.forEach((id, i) => checkFactRef(id, ["notes", ni, "movementSchedule", "disposalFactIds", i]));
       ms.otherMovements.forEach((ref, i) => checkFactRef(ref.factId, ["notes", ni, "movementSchedule", "otherMovements", i, "factId"]));
+    }
+  });
+
+  // C. every TextualDisclosure.relatedNoteId must resolve to an existing Note.
+  const knownNoteIds = new Set(report.notes.map((n) => n.noteId));
+  report.textualDisclosures.forEach((disclosure, di) => {
+    if (disclosure.relatedNoteId && !knownNoteIds.has(disclosure.relatedNoteId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `relatedNoteId "${disclosure.relatedNoteId}" does not resolve to any note`, path: ["textualDisclosures", di, "relatedNoteId"] });
     }
   });
 

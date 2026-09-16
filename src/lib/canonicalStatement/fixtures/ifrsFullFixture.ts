@@ -55,14 +55,12 @@ const closingCashCmp = cashCmp;
 
 const ppeLine = line("sfp-ppe", "Property, plant and equipment", "ppe_net", "DETAIL", ppeNetCur.factId, {
   comparativeFactId: ppeNetCmp.factId,
-  noteReferenceIds: ["nr-ppe"],
 });
 const cashLine = line("sfp-cash", "Cash and cash equivalents", CANONICAL_CONCEPTS.CASH_AND_CASH_EQUIVALENTS_SFP, "DETAIL", cashCur.factId, {
   comparativeFactId: cashCmp.factId,
 });
 const receivablesLine = line("sfp-receivables", "Trade receivables", "trade_receivables", "DETAIL", receivablesCur.factId, {
   comparativeFactId: receivablesCmp.factId,
-  noteReferenceIds: ["nr-ageing", "nr-related-party"],
 });
 const contingentLiabilitiesLine = line("sfp-contingent", "Contingent liabilities", "contingent_liabilities", "DETAIL", contingentLiabilitiesCur.factId);
 const totalAssetsLine = line("sfp-total-assets", "Total", CANONICAL_CONCEPTS.TOTAL_ASSETS, "TOTAL", totalAssetsCur.factId, {

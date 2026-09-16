@@ -8,7 +8,7 @@ import type { Statement } from "../types";
 
 function reportWithFaceAndNote(faceAmount: string, noteTotalAmount: string | undefined) {
   const faceFact = fact("face", faceAmount, "TZS", 2, CURRENT);
-  const faceLine = line("l-face", "PPE", "ppe_net", "DETAIL", faceFact.factId, { noteReferenceIds: ["nr-1"] });
+  const faceLine = line("l-face", "PPE", "ppe_net", "DETAIL", faceFact.factId);
   const statement: Statement = { statementId: "s", type: "STATEMENT_OF_FINANCIAL_POSITION", title: "S", sections: [{ sectionId: "sec", label: "sec", lines: [faceLine] }] };
   const facts = [faceFact];
   let totalFactId: string | undefined;
@@ -47,7 +47,7 @@ describe("Note-to-face reconciliation", () => {
   it("falls back to the movement schedule's closing balance when no totalFactId is declared", () => {
     const faceFact = fact("face", "500.00", "TZS", 2, CURRENT);
     const closingFact = fact("closing", "500.00", "TZS", 2, CURRENT);
-    const faceLine = line("l-face", "PPE", "ppe_net", "DETAIL", faceFact.factId, { noteReferenceIds: ["nr-1"] });
+    const faceLine = line("l-face", "PPE", "ppe_net", "DETAIL", faceFact.factId);
     const statement: Statement = { statementId: "s", type: "STATEMENT_OF_FINANCIAL_POSITION", title: "S", sections: [{ sectionId: "sec", label: "sec", lines: [faceLine] }] };
     const report = testReport({
       statements: [statement],

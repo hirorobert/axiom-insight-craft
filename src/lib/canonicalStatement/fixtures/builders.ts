@@ -90,7 +90,6 @@ export function line(
     extraBindings?: readonly FactBinding[];
     normalBalance?: NormalBalance;
     isContra?: boolean;
-    noteReferenceIds?: readonly string[];
     castingChildLineIds?: readonly string[];
   } = {},
 ): StatementLine {
@@ -109,7 +108,6 @@ export function line(
     normalBalance: options.normalBalance ?? "DEBIT_NORMAL",
     isContra: options.isContra ?? false,
     factBindings,
-    noteReferenceIds: options.noteReferenceIds ?? [],
     castingChildLineIds: options.castingChildLineIds ?? [],
   };
 }
