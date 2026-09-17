@@ -155,7 +155,7 @@ export const CompanyManager = () => {
             tin: formData.tin.trim() || null,
             description: formData.description || null,
             industry: formData.industry || null,
-            fiscal_year_end: formData.fiscal_year_end,
+            fiscal_year_end: resolvedFiscalYearEnd,
             currency: formData.currency,
             // Cast: generated types (src/integrations/supabase/types.ts) still
             // reflect the live NOT NULL DEFAULT schema — the migration
