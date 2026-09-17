@@ -8,7 +8,18 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { selectPaymentProvider, FLUTTERWAVE_CAPABILITIES, type PaymentProviderCapabilities } from "../routing";
+import { selectPaymentProvider, CONFIGURED_PROVIDERS, type PaymentProviderCapabilities } from "../routing";
+
+// Flutterwave decommission: no provider is configured in this deployment, so
+// the selection logic is exercised against a synthetic capability record.
+// The logic under test is provider-neutral by design.
+const FLUTTERWAVE_CAPABILITIES: PaymentProviderCapabilities = {
+  provider: "FLUTTERWAVE",
+  supportedCurrencies: ["TZS", "USD", "KES", "UGX"],
+  supportedMarkets: ["GLOBAL", "TZ", "MU"],
+  supportedMethods: ["card"],
+  environment: "sandbox",
+};
 
 const STRIPE_MOCK_CAPABILITIES: PaymentProviderCapabilities = {
   provider: "STRIPE",
@@ -91,5 +102,17 @@ describe("Stripe-readiness — a second adapter's capabilities compose without t
   it("a mock Stripe adapter satisfies the same PaymentProviderCapabilities shape Flutterwave uses — no new fields required", () => {
     const keys = Object.keys(STRIPE_MOCK_CAPABILITIES).sort();
     expect(keys).toEqual(Object.keys(FLUTTERWAVE_CAPABILITIES).sort());
+  });
+});
+
+describe("Flutterwave decommission — no provider is configured", () => {
+  it("CONFIGURED_PROVIDERS is empty, so every offer fails closed to PAYMENT_PROVIDER_UNAVAILABLE", () => {
+    expect(CONFIGURED_PROVIDERS).toEqual([]);
+    const result = selectPaymentProvider(
+      { currencyCode: "USD", marketCode: "GLOBAL", providerRestriction: null },
+      CONFIGURED_PROVIDERS,
+    );
+    expect(result.selected).toBe(false);
+    if (!result.selected) expect(result.reason).toBe("PAYMENT_PROVIDER_UNAVAILABLE");
   });
 });

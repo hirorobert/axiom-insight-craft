@@ -44,7 +44,7 @@ export function authoriseCommit(
   // customer whose webhook or status-poll verification arrives even
   // slightly late (network delay, provider retry backoff, a slow customer
   // completing checkout near the 1-hour boundary) would have been charged
-  // by Flutterwave — Gate A and Gate B both already passed by the time
+  // by the provider — Gate A and Gate B both already passed by the time
   // this function runs — and then PERMANENTLY denied the licence they
   // paid for, with no automatic recovery path. expires_at is checked ONLY
   // where it belongs: gating whether commercial-create-checkout may still

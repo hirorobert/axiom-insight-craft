@@ -40,7 +40,7 @@
  * one of three token-fenced terminal actions: persist (success),
  * mark_checkout_attempt_failed (provider definitively reported no charge —
  * safe to retry), or mark_checkout_attempt_uncertain (network/parse error —
- * genuinely unknown whether Flutterwave created a charge; lands in
+ * genuinely unknown whether the provider created a charge; lands in
  * MANUAL_REVIEW, never automatically retried or superseded).
  *
  * Iron Dome:
@@ -55,7 +55,6 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateAuth } from '../_shared/auth.ts';
-import { getFlutterwaveAdapter } from '../_shared/payments/providers/flutterwave.ts';
 import { generateCorrelationId } from '../_shared/correlationId.ts';
 import { selectPaymentProvider, getConfiguredProviders } from '../_shared/payments/routing.ts';
 
@@ -75,8 +74,12 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
-function adapterFor(provider: string) {
-  if (provider === 'FLUTTERWAVE') return getFlutterwaveAdapter();
+// Flutterwave decommission: no provider adapter is implemented in this
+// deployment. getConfiguredProviders() is empty, so selectPaymentProvider()
+// returns PAYMENT_PROVIDER_UNAVAILABLE long before this point is reached —
+// this exists only so a future provider has one obvious wiring site, and it
+// never fabricates a checkout.
+function adapterFor(provider: string): never {
   throw new Error(`No adapter implemented for provider: ${provider}`);
 }
 
@@ -305,8 +308,8 @@ Deno.serve(async (req: Request) => {
     });
   } catch {
     // Ω∞ A+ closure BLOCKER-1 fix: an exception here means it is GENUINELY
-    // UNKNOWN whether Flutterwave created a real charge (e.g. the request
-    // reached Flutterwave but the response never arrived) — never
+    // UNKNOWN whether the provider created a real charge (e.g. the request
+    // reached the provider but the response never arrived) — never
     // auto-retried, never silently marked FAILED. Routed to MANUAL_REVIEW
     // for human reconciliation.
     console.error('Provider checkout threw', { correlationId, provider });
@@ -356,7 +359,7 @@ Deno.serve(async (req: Request) => {
     // RPC error. Either way: a real, provider-created checkout now exists
     // that this response can never safely hand to the browser, because it
     // was not proven durably recorded. Route to MANUAL_REVIEW rather than
-    // silently losing track of it — Flutterwave may or may not eventually
+    // silently losing track of it — the provider may or may not eventually
     // deliver a webhook for a reference this system can no longer resolve
     // to a PENDING intent, which is exactly why this is an operator
     // reconciliation case, not a customer-safe retry.

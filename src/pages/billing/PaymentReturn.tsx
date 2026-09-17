@@ -6,7 +6,7 @@
  *   - NEVER: URL params → trusted as payment proof
  *   - Server-side state is polled via owner-scoped Edge Function.
  *   - UI reflects authoritative server state ONLY.
- *   - Redirect from Flutterwave carries saffReference — no amount, no status.
+ *   - A provider redirect carries saffReference only — no amount, no status.
  *
  * Flow:
  *   1. Read ?ref= from URL (our own saff_reference — NOT provider tx id)

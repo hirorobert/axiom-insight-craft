@@ -263,10 +263,10 @@ export default function Pricing() {
               )}
               {pricingVerification === "UNAVAILABLE" && (
                 <div className="text-xs text-background/60 text-center py-2 px-3 border border-background/20 space-y-1.5">
-                  <p>Online checkout is temporarily unavailable for this plan.</p>
+                  <p>Online checkout is temporarily unavailable. Contact support for billing assistance.</p>
                   <p>
                     <Link to="/auth" className="underline hover:text-background">Start free</Link>
-                    {" "}while you wait, or contact support about firm licensing.
+                    {" "}while you wait.
                   </p>
                 </div>
               )}

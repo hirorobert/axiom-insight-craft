@@ -70,7 +70,7 @@ describe("Gate B — Independent server-side amount verification (bigint)", () =
       verifyTransaction: vi.fn(async () => ({
         success: true,
         providerStatus: "SUCCEEDED",
-        providerTransactionId: "FLW-TX-001",
+        providerTransactionId: "PSP-TX-001",
         amountMinor: 450_000n,
         currencyCode: "TZS",
         providerCreatedAt: new Date().toISOString(),
@@ -79,7 +79,7 @@ describe("Gate B — Independent server-side amount verification (bigint)", () =
     };
 
     const result = await adapter.verifyTransaction({
-      providerTransactionId: "FLW-TX-001",
+      providerTransactionId: "PSP-TX-001",
       expectedAmountMinor: 450_000n,
       expectedCurrencyCode: "TZS",
     });
@@ -144,14 +144,14 @@ describe("Webhook normalisation — provider status mapping", () => {
 
   it("normalizeWebhook returns a typed NormalizedWebhookEvent", () => {
     const event: NormalizedWebhookEvent = {
-      provider: "FLUTTERWAVE",
+      provider: "STRIPE",
       eventType: "charge.completed",
-      providerTransactionId: "FLW-TX-001",
+      providerTransactionId: "PSP-TX-001",
       saffReference: "SAFF-TEST-001",
       status: "SUCCEEDED",
       rawPayload: { data: { status: "successful" } },
     };
     expect(event.status).toBe("SUCCEEDED");
-    expect(event.provider).toBe("FLUTTERWAVE");
+    expect(event.provider).toBe("STRIPE");
   });
 });

@@ -30,7 +30,7 @@ export const COMMERCIAL_AUTHORITY_INVARIANTS: Array<{
   {
     code: "NEVER_UNVERIFIED_WEBHOOK",
     description: "Webhook payload is NEVER trusted without two-gate independent verification.",
-    enforced_by: "Gate A (verif-hash constant-time comparison) + Gate B (Flutterwave GET /transactions/{id}/verify)",
+    enforced_by: "Gate A (webhook signature constant-time comparison) + Gate B (independent provider transaction verification)",
   },
   {
     code: "NEVER_PAYMENT_ROW_ACCOUNTING_AUTHORITY",

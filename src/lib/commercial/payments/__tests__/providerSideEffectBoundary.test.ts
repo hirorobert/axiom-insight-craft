@@ -7,8 +7,6 @@ const migration = fs.readFileSync(path.join(ROOT,
   "supabase/migrations/20260914000000_omega3_checkout_provider_boundary_repair.sql"), "utf8");
 const checkout = fs.readFileSync(path.join(ROOT,
   "supabase/functions/commercial-create-checkout/index.ts"), "utf8");
-const flutterwave = fs.readFileSync(path.join(ROOT,
-  "supabase/functions/_shared/payments/providers/flutterwave.ts"), "utf8");
 const contracts = fs.readFileSync(path.join(ROOT,
   "supabase/functions/_shared/payments/contracts.ts"), "utf8");
 const paymentReturn = fs.readFileSync(path.join(ROOT,
@@ -53,17 +51,9 @@ describe("provider side-effect boundary", () => {
     }
   });
 
-  it("classifies ambiguous provider responses as UNCERTAIN", () => {
+  it("keeps the provider-neutral UNCERTAIN outcome contract (no provider adapter is configured)", () => {
     expect(contracts).toMatch(/outcome: 'DEFINITIVE_FAILURE' \| 'UNCERTAIN'/);
-    expect(flutterwave).toMatch(/\[408, 409, 425, 429\]\.includes\(resp\.status\) \|\| resp\.status >= 500/);
-    expect(flutterwave).toMatch(/FLUTTERWAVE_CREATE_RESPONSE_MALFORMED/);
-    expect(flutterwave).toMatch(/FLUTTERWAVE_CREATE_LINK_MISSING/);
     expect(checkout).toMatch(/checkoutResult\.outcome === 'DEFINITIVE_FAILURE'/);
-  });
-
-  it("bounds all Flutterwave HTTP operations", () => {
-    expect(flutterwave).toMatch(/const FLW_TIMEOUT_MS = 25_000/);
-    expect((flutterwave.match(/signal: AbortSignal\.timeout\(FLW_TIMEOUT_MS\)/g) ?? []).length).toBe(3);
   });
 
   it("uses one immediate recovery request then a sixty-second cadence", () => {

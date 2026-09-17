@@ -293,7 +293,7 @@ export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, p
   if (offer.phase === "UNAVAILABLE") {
     return (
       <p className="text-xs text-muted-foreground">
-        Upgrade is not yet available. Please contact us for firm licensing.
+        Online checkout is temporarily unavailable. Contact support for billing assistance.
       </p>
     );
   }
