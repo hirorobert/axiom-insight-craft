@@ -135,6 +135,16 @@ export const CompanyManager = () => {
       return;
     }
 
+    // The form's dropdown only carries MM-DD. If the stored value was a full
+    // ISO date ('YYYY-MM-DD'), re-apply its year prefix so saving an
+    // unrelated edit never silently drops the reporting year.
+    const storedFye = editingCompany?.fiscal_year_end ?? "";
+    const yearPrefix = /^\d{4}-\d{2}-\d{2}$/.test(storedFye) ? storedFye.slice(0, 5) : "";
+    const resolvedFiscalYearEnd =
+      yearPrefix && /^\d{2}-\d{2}$/.test(formData.fiscal_year_end)
+        ? `${yearPrefix}${formData.fiscal_year_end}`
+        : formData.fiscal_year_end;
+
     try {
       if (editingCompany) {
         const { error } = await supabase
@@ -145,7 +155,7 @@ export const CompanyManager = () => {
             tin: formData.tin.trim() || null,
             description: formData.description || null,
             industry: formData.industry || null,
-            fiscal_year_end: formData.fiscal_year_end,
+            fiscal_year_end: resolvedFiscalYearEnd,
             currency: formData.currency,
             // Cast: generated types (src/integrations/supabase/types.ts) still
             // reflect the live NOT NULL DEFAULT schema — the migration
@@ -175,7 +185,7 @@ export const CompanyManager = () => {
             tin: formData.tin.trim() || null,
             description: formData.description || null,
             industry: formData.industry || null,
-            fiscal_year_end: formData.fiscal_year_end,
+            fiscal_year_end: resolvedFiscalYearEnd,
             currency: formData.currency,
             // See the cast comment in the update branch above.
             reporting_framework: formData.reporting_framework,
@@ -213,7 +223,14 @@ export const CompanyManager = () => {
       tin: company.tin || "",
       description: company.description || "",
       industry: company.industry || "",
-      fiscal_year_end: company.fiscal_year_end,
+      // Stored value may be a full ISO date 'YYYY-MM-DD' (workspaces created
+      // via first-run setup) or legacy 'MM-DD'. The dropdown only understands
+      // MM-DD, so seed it with the month-day portion; the year prefix is
+      // re-applied on save (see handleSubmit) so the reporting year is never
+      // silently dropped.
+      fiscal_year_end: /^\d{4}-\d{2}-\d{2}$/.test(company.fiscal_year_end)
+        ? company.fiscal_year_end.slice(5)
+        : company.fiscal_year_end,
       currency: company.currency,
       // Phase 1: pass the real value through, including null. Coalescing to
       // "ifrs_for_smes" here would silently overwrite a genuinely-unset
