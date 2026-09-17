@@ -135,6 +135,16 @@ export const CompanyManager = () => {
       return;
     }
 
+    // The form's dropdown only carries MM-DD. If the stored value was a full
+    // ISO date ('YYYY-MM-DD'), re-apply its year prefix so saving an
+    // unrelated edit never silently drops the reporting year.
+    const storedFye = editingCompany?.fiscal_year_end ?? "";
+    const yearPrefix = /^\d{4}-\d{2}-\d{2}$/.test(storedFye) ? storedFye.slice(0, 5) : "";
+    const resolvedFiscalYearEnd =
+      yearPrefix && /^\d{2}-\d{2}$/.test(formData.fiscal_year_end)
+        ? `${yearPrefix}${formData.fiscal_year_end}`
+        : formData.fiscal_year_end;
+
     try {
       if (editingCompany) {
         const { error } = await supabase
