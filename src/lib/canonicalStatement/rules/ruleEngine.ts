@@ -1,0 +1,255 @@
+// canonicalStatement/rules/ruleEngine.ts — the deterministic validation
+// kernel. A RuleDefinition never returns an outcome the engine invents on
+// its behalf: PASS/FAIL/NOT_APPLICABLE/INSUFFICIENT_EVIDENCE all come from
+// rule code, never from an LLM and never guessed by the engine.
+//
+// Two separate, SHA-256-derived identities are computed per evaluation
+// result (see RuleEvaluationRecord's doc comment in types.ts for the full
+// semantic distinction):
+//
+//   findingKey   = sha256(rulePackId, rulePackVersion, ruleId, ruleVersion,
+//                         reportId, discriminator)
+//                  — durable identity of the CHECK. Never includes outcome,
+//                  reportVersion, or any timestamp.
+//
+//   evaluationId = sha256(findingKey, rulePackVersion, ruleVersion,
+//                         engineVersion, reportVersion, outcome,
+//                         observedValues, evidenceReferences)
+//                  — immutable identity of this evaluated RESULT. Changes
+//                  whenever the outcome, the observed data, or the report
+//                  version changes.
+//
+// `createdAt` never enters either hash. Output order is normalized
+// (rule-pack registration order, ruleId, discriminator, periodId, affected
+// identity, evaluationId) independently of any input array's order —
+// see runRulePack.
+
+import type {
+  CanonicalFinancialStatementReport,
+  EvidenceReference,
+  FindingSeverity,
+  MonetaryFact,
+  ObservedValue,
+  RuleEvaluationRecord,
+  RuleOutcome,
+  RulePackIdentity,
+} from "../types";
+import { isActionableOutcome } from "../types";
+import type { Tolerance } from "../money";
+import { indexLatestFacts } from "../provenance";
+import { canonicalStringify, sha256Hex } from "../serialization";
+import { validateCanonicalReport } from "../validation";
+
+export interface RuleContext {
+  readonly report: CanonicalFinancialStatementReport;
+  readonly tolerance: Tolerance;
+  readonly latestFacts: ReadonlyMap<string, MonetaryFact>;
+}
+
+/**
+ * The ONLY way to build a RuleContext. A `CanonicalFinancialStatementReport`
+ * type annotation is a compile-time claim, not a runtime guarantee — the
+ * value could be hand-built, JSON-parsed, or otherwise never have passed
+ * through `validateCanonicalReport`. This function re-validates every time
+ * (throwing `CanonicalValidationError` on a corrupt aggregate) and builds
+ * the context exclusively from the validated result, so no rule ever
+ * evaluates against an aggregate that skipped the boundary in validation.ts.
+ * There is no lower-level constructor that skips this check.
+ */
+export function buildRuleContext(report: CanonicalFinancialStatementReport, tolerance: Tolerance): RuleContext {
+  const validatedReport = validateCanonicalReport(report);
+  return { report: validatedReport, tolerance, latestFacts: indexLatestFacts(validatedReport.facts) };
+}
+
+export interface RuleEvaluationResult {
+  readonly outcome: RuleOutcome;
+  readonly failureSeverity: FindingSeverity;
+  readonly observedValues: Readonly<Record<string, ObservedValue>>;
+  readonly expectedRelationship: string;
+  readonly deterministicCalculation: string;
+  readonly evidenceReferences: readonly EvidenceReference[];
+  readonly affected: { readonly statementId?: string; readonly noteId?: string; readonly lineId?: string };
+  readonly remediationGuidance: string;
+  /** Distinguishes multiple results from one rule run (e.g. per-line, per-period) inside findingKey/evaluationId hashing. Must be unique per logical target within one rule. */
+  readonly discriminator: string;
+  /** Purely for deterministic output ordering — never part of either identity hash. */
+  readonly periodId?: string;
+}
+
+export interface RuleDefinition {
+  readonly ruleId: string;
+  readonly ruleVersion: string;
+  readonly title: string;
+  evaluate(ctx: RuleContext): readonly RuleEvaluationResult[];
+}
+
+export type Clock = () => string;
+
+export const systemClock: Clock = () => new Date().toISOString();
+
+function buildFindingKey(
+  rulePack: RulePackIdentity,
+  rule: RuleDefinition,
+  reportId: string,
+  discriminator: string,
+): string {
+  return sha256Hex(
+    canonicalStringify({
+      rulePackId: rulePack.rulePackId,
+      rulePackVersion: rulePack.rulePackVersion,
+      ruleId: rule.ruleId,
+      ruleVersion: rule.ruleVersion,
+      reportId,
+      discriminator,
+    }),
+  );
+}
+
+function buildEvaluationId(
+  findingKey: string,
+  rulePack: RulePackIdentity,
+  rule: RuleDefinition,
+  engineVersion: string,
+  reportVersion: number,
+  result: RuleEvaluationResult,
+): string {
+  return sha256Hex(
+    canonicalStringify({
+      findingKey,
+      rulePackVersion: rulePack.rulePackVersion,
+      ruleVersion: rule.ruleVersion,
+      engineVersion,
+      reportVersion,
+      outcome: result.outcome,
+      observedValues: result.observedValues,
+      evidenceReferences: result.evidenceReferences,
+    }),
+  );
+}
+
+interface SortableRecord {
+  readonly ruleIndex: number;
+  readonly ruleId: string;
+  readonly discriminator: string;
+  readonly periodId: string;
+  readonly affectedKey: string;
+  readonly record: RuleEvaluationRecord;
+}
+
+function affectedKey(affected: { statementId?: string; noteId?: string; lineId?: string }): string {
+  return canonicalStringify(affected);
+}
+
+function sortKey(entry: SortableRecord): string {
+  return [
+    entry.ruleIndex.toString().padStart(10, "0"),
+    entry.ruleId,
+    entry.discriminator,
+    entry.periodId,
+    entry.affectedKey,
+    entry.record.evaluationId,
+  ].join("\u0000");
+}
+
+export function runRule(
+  rule: RuleDefinition,
+  ctx: RuleContext,
+  rulePack: RulePackIdentity,
+  engineVersion: string,
+  clock: Clock = systemClock,
+): readonly RuleEvaluationRecord[] {
+  const results = rule.evaluate(ctx);
+  const createdAt = clock();
+  const reportId = ctx.report.reportIdentity.reportId;
+  const reportVersion = ctx.report.reportIdentity.reportVersion;
+
+  return results.map((result) => {
+    const findingKey = buildFindingKey(rulePack, rule, reportId, result.discriminator);
+    const evaluationId = buildEvaluationId(findingKey, rulePack, rule, engineVersion, reportVersion, result);
+    const actionable = isActionableOutcome(result.outcome);
+    return {
+      findingKey,
+      evaluationId,
+      ruleId: rule.ruleId,
+      ruleVersion: rule.ruleVersion,
+      rulePack,
+      engineVersion,
+      outcome: result.outcome,
+      actionable,
+      failureSeverity: result.failureSeverity,
+      status: actionable ? "OPEN" : "NOT_ACTIONABLE",
+      observedValues: result.observedValues,
+      expectedRelationship: result.expectedRelationship,
+      deterministicCalculation: result.deterministicCalculation,
+      evidenceReferences: result.evidenceReferences,
+      affected: result.affected,
+      remediationGuidance: result.remediationGuidance,
+      createdAt,
+    };
+  });
+}
+
+/**
+ * Runs every rule in `rules` (in the order given — this is "rule-pack
+ * order," the primary sort key) and returns a single, deterministically
+ * ordered list of records. The returned order depends only on the rule
+ * pack's own registration order and each result's own discriminator/
+ * period/affected identity — never on `report.facts`/`statements`/etc.
+ * array order, so permuting those input arrays never changes this output's
+ * order (see determinism.test.ts's permutation tests).
+ */
+export function runRulePack(
+  rulePack: RulePackIdentity,
+  rules: readonly RuleDefinition[],
+  ctx: RuleContext,
+  engineVersion: string,
+  clock: Clock = systemClock,
+): readonly RuleEvaluationRecord[] {
+  const sortable: SortableRecord[] = [];
+  rules.forEach((rule, ruleIndex) => {
+    const rawResults = rule.evaluate(ctx);
+    const createdAt = clock();
+    const reportId = ctx.report.reportIdentity.reportId;
+    const reportVersion = ctx.report.reportIdentity.reportVersion;
+
+    for (const result of rawResults) {
+      const findingKey = buildFindingKey(rulePack, rule, reportId, result.discriminator);
+      const evaluationId = buildEvaluationId(findingKey, rulePack, rule, engineVersion, reportVersion, result);
+      const actionable = isActionableOutcome(result.outcome);
+      const record: RuleEvaluationRecord = {
+        findingKey,
+        evaluationId,
+        ruleId: rule.ruleId,
+        ruleVersion: rule.ruleVersion,
+        rulePack,
+        engineVersion,
+        outcome: result.outcome,
+        actionable,
+        failureSeverity: result.failureSeverity,
+        status: actionable ? "OPEN" : "NOT_ACTIONABLE",
+        observedValues: result.observedValues,
+        expectedRelationship: result.expectedRelationship,
+        deterministicCalculation: result.deterministicCalculation,
+        evidenceReferences: result.evidenceReferences,
+        affected: result.affected,
+        remediationGuidance: result.remediationGuidance,
+        createdAt,
+      };
+      sortable.push({
+        ruleIndex,
+        ruleId: rule.ruleId,
+        discriminator: result.discriminator,
+        periodId: result.periodId ?? "",
+        affectedKey: affectedKey(result.affected),
+        record,
+      });
+    }
+  });
+
+  sortable.sort((a, b) => (sortKey(a) < sortKey(b) ? -1 : sortKey(a) > sortKey(b) ? 1 : 0));
+  return sortable.map((entry) => entry.record);
+}
+
+export function actionableOnly(records: readonly RuleEvaluationRecord[]): readonly RuleEvaluationRecord[] {
+  return records.filter((r) => r.actionable);
+}
