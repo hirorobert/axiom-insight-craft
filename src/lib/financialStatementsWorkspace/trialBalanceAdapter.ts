@@ -88,9 +88,10 @@ export interface ReviewedTrialBalanceAccountLine {
   readonly scale: number;
   readonly periodId: string;
   readonly isComparative: boolean;
-  readonly isCashAccount: boolean;
-  readonly isRetainedEarnings: boolean;
-  readonly isPayrollAccount: boolean;
+  /** account_mappings' tri-state professional-review flags (DEFECT-ACCOUNT-REVIEW-AUTHORITATIVE-FLAGS-001 repair): null = no professional decision exists, never coalesced to false. Currently informational only — no rule in this adapter version branches on these. */
+  readonly isCashAccount: boolean | null;
+  readonly isRetainedEarnings: boolean | null;
+  readonly isPayrollAccount: boolean | null;
   readonly sourceUploadId: string;
   /** sha256 of the reviewed dataset this line was drawn from — content identity, mirroring the intake function's own discipline. */
   readonly sourceHash: string;
@@ -108,9 +109,9 @@ const reviewedLineSchema = z.object({
   scale: z.number().int().nonnegative(),
   periodId: z.string().min(1),
   isComparative: z.boolean(),
-  isCashAccount: z.boolean(),
-  isRetainedEarnings: z.boolean(),
-  isPayrollAccount: z.boolean(),
+  isCashAccount: z.boolean().nullable(),
+  isRetainedEarnings: z.boolean().nullable(),
+  isPayrollAccount: z.boolean().nullable(),
   sourceUploadId: z.string().min(1),
   sourceHash: z.string().regex(/^[0-9a-fA-F]{64}$/),
 });
