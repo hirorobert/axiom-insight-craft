@@ -185,7 +185,7 @@ export const CompanyManager = () => {
             tin: formData.tin.trim() || null,
             description: formData.description || null,
             industry: formData.industry || null,
-            fiscal_year_end: formData.fiscal_year_end,
+            fiscal_year_end: resolvedFiscalYearEnd,
             currency: formData.currency,
             // See the cast comment in the update branch above.
             reporting_framework: formData.reporting_framework,
