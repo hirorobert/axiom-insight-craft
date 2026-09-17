@@ -213,7 +213,14 @@ export const CompanyManager = () => {
       tin: company.tin || "",
       description: company.description || "",
       industry: company.industry || "",
-      fiscal_year_end: company.fiscal_year_end,
+      // Stored value may be a full ISO date 'YYYY-MM-DD' (workspaces created
+      // via first-run setup) or legacy 'MM-DD'. The dropdown only understands
+      // MM-DD, so seed it with the month-day portion; the year prefix is
+      // re-applied on save (see handleSubmit) so the reporting year is never
+      // silently dropped.
+      fiscal_year_end: /^\d{4}-\d{2}-\d{2}$/.test(company.fiscal_year_end)
+        ? company.fiscal_year_end.slice(5)
+        : company.fiscal_year_end,
       currency: company.currency,
       // Phase 1: pass the real value through, including null. Coalescing to
       // "ifrs_for_smes" here would silently overwrite a genuinely-unset
