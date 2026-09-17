@@ -23,7 +23,7 @@
  * The prior revision ran independent provider verification and a
  * commit attempt INSIDE the GET handler itself, gated only by an
  * in-process status check with no durable throttle — an unbounded number
- * of browser GETs could each trigger a fresh Flutterwave API call. That
+ * of browser GETs could each trigger a fresh provider API call. That
  * is now impossible: GET never calls the provider at all.
  *
  * Iron Dome:
@@ -39,7 +39,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateAuth } from '../_shared/auth.ts';
 import { generateCorrelationId } from '../_shared/correlationId.ts';
-import { getFlutterwaveAdapter } from '../_shared/payments/providers/flutterwave.ts';
 import { authoriseCommit, sha256Hex } from '../_shared/payments/authority.ts';
 import { getCapabilitiesForProvider } from '../_shared/payments/routing.ts';
 
@@ -47,8 +46,11 @@ const SUPABASE_URL      = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SERVICE_KEY       = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-function adapterFor(provider: string) {
-  if (provider === 'FLUTTERWAVE') return getFlutterwaveAdapter();
+// Flutterwave decommission: no provider adapter exists in this deployment,
+// so recovery verification is structurally impossible and this always returns
+// null. Callers already treat null as "no new information" and fall back to
+// reporting the durable database status only — never a guessed outcome.
+function adapterFor(_provider: string): null {
   return null;
 }
 

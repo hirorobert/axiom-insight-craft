@@ -26,7 +26,6 @@ const MIGRATION_PATH = path.join(REPO_ROOT, "supabase/migrations/20260913000000_
 const CREATE_CHECKOUT_PATH = path.join(REPO_ROOT, "supabase/functions/commercial-create-checkout/index.ts");
 const PAYMENT_STATUS_PATH = path.join(REPO_ROOT, "supabase/functions/commercial-payment-status/index.ts");
 const WEBHOOK_PATH = path.join(REPO_ROOT, "supabase/functions/commercial-payment-webhook/index.ts");
-const FLUTTERWAVE_PATH = path.join(REPO_ROOT, "supabase/functions/_shared/payments/providers/flutterwave.ts");
 const ROUTING_PATH = path.join(REPO_ROOT, "supabase/functions/_shared/payments/routing.ts");
 const PRICING_PATH = path.join(REPO_ROOT, "src/pages/Pricing.tsx");
 const SETTINGS_PATH = path.join(REPO_ROOT, "src/pages/Settings.tsx");
@@ -44,7 +43,6 @@ const migrationCode = stripSqlComments(migrationRaw);
 const checkoutCode = stripTsComments(fs.readFileSync(CREATE_CHECKOUT_PATH, "utf-8"));
 const paymentStatusCode = stripTsComments(fs.readFileSync(PAYMENT_STATUS_PATH, "utf-8"));
 const webhookCode = stripTsComments(fs.readFileSync(WEBHOOK_PATH, "utf-8"));
-const flutterwaveCode = stripTsComments(fs.readFileSync(FLUTTERWAVE_PATH, "utf-8"));
 const routingCode = stripTsComments(fs.readFileSync(ROUTING_PATH, "utf-8"));
 const pricingCode = stripTsComments(fs.readFileSync(PRICING_PATH, "utf-8"));
 const settingsCode = stripTsComments(fs.readFileSync(SETTINGS_PATH, "utf-8"));
@@ -217,31 +215,30 @@ describe("BLOCKER-3 — platform-state x provider-environment x acceptance-ident
     expect(assertIndex).toBeLessThan(lockIndex);
   });
 
-  it("routing.ts resolves FLUTTERWAVE_ENVIRONMENT with no implicit default — missing/invalid returns null, never 'sandbox'", () => {
-    expect(routingCode).toMatch(/function resolveFlutterwaveEnvironment\(\): 'sandbox' \| 'production' \| null/);
-    expect(routingCode).not.toMatch(/=== 'production' \? 'production' : 'sandbox'/);
-    const fnBody = routingCode.match(/function resolveFlutterwaveEnvironment\(\)[\s\S]*?\n\}/)?.[0] ?? "";
-    expect(fnBody).toMatch(/return null;/);
-  });
-
-  it("getConfiguredProviders excludes Flutterwave entirely when its environment cannot be resolved — never falls back to a guessed environment", () => {
+  it("getConfiguredProviders declares no provider at all after the Flutterwave decommission — it can never return a guessed environment", () => {
     const fnBody = routingCode.match(/export function getConfiguredProviders\(\)[\s\S]*?\n\}/)?.[0] ?? "";
-    expect(fnBody).toMatch(/if \(flutterwave &&/);
+    expect(fnBody).toMatch(/return \[\];/);
+    expect(routingCode).not.toMatch(/FLUTTERWAVE_SECRET_KEY|FLUTTERWAVE_ENVIRONMENT|FLUTTERWAVE_WEBHOOK_SECRET/);
   });
 
   it("getCapabilitiesForProvider resolves the environment of the ACTUAL provider a caller already knows about — never an arbitrary configured entry", () => {
     expect(routingCode).toMatch(/export function getCapabilitiesForProvider\(provider: PaymentProvider\)/);
   });
 
-  it("the webhook and the payment-status recovery path both resolve environment via getCapabilitiesForProvider — neither imports a static FLUTTERWAVE_CAPABILITIES constant anymore", () => {
-    expect(webhookCode).toMatch(/import \{ getCapabilitiesForProvider \} from '\.\.\/_shared\/payments\/routing\.ts';/);
-    expect(webhookCode).not.toMatch(/FLUTTERWAVE_CAPABILITIES/);
+  it("the payment-status recovery path resolves environment via getCapabilitiesForProvider — no static provider capability constant", () => {
     expect(paymentStatusCode).toMatch(/import \{ getCapabilitiesForProvider \} from '\.\.\/_shared\/payments\/routing\.ts';/);
     expect(paymentStatusCode).not.toMatch(/FLUTTERWAVE_CAPABILITIES/);
   });
 
+  it("the webhook endpoint is decommissioned — it holds no provider adapter and cannot mutate billing state", () => {
+    expect(webhookCode).not.toMatch(/getFlutterwaveAdapter|providers\/flutterwave/);
+    expect(webhookCode).not.toMatch(/commit_verified_commercial_payment/);
+    expect(webhookCode).not.toMatch(/\.insert\(|\.update\(|\.rpc\(/);
+    expect(webhookCode).toMatch(/status: 410/);
+  });
+
   it("both the webhook and the payment-status recovery path fail closed (never commit) when getCapabilitiesForProvider returns null", () => {
-    for (const code of [webhookCode, paymentStatusCode]) {
+    for (const code of [paymentStatusCode]) {
       expect(code).toMatch(/const capabilities = getCapabilitiesForProvider\(/);
       expect(code).toMatch(/if \(!capabilities\)/);
     }
@@ -253,18 +250,6 @@ describe("BLOCKER-3 — platform-state x provider-environment x acceptance-ident
 // ============================================================
 
 describe("BLOCKER-4 — provider transaction ID is mandatory; webhook and status recovery converge on one idempotency identity", () => {
-  it("validateVerifiedTransactionData requires a non-empty string/number provider id — never falls through to an empty synthetic id", () => {
-    expect(flutterwaveCode).toMatch(/const rawId = data\.id;/);
-    expect(flutterwaveCode).toMatch(/typeof rawId === 'string' \|\| typeof rawId === 'number'/);
-    expect(flutterwaveCode).toMatch(/if \(!candidateId\) \{\s*\n\s*return \{ verified: false, reason: `PROVIDER_TRANSACTION_ID_MISSING/);
-  });
-
-  it("verifyTransactionByReference passes NO fallback transaction id — a missing data.id there is unconditionally a verification failure, not a guess", () => {
-    const fnBody = flutterwaveCode.match(/async verifyTransactionByReference\([\s\S]*?\n {2}\}/)?.[0] ?? "";
-    expect(fnBody).toMatch(/this\.validateVerifiedTransactionData\(data, expectedMinor, expectedCurrency, saffRef\);/);
-    expect(fnBody).not.toMatch(/validateVerifiedTransactionData\([^)]*txId/);
-  });
-
   it("commit_verified_commercial_payment rejects a blank/whitespace provider_transaction_id before any other check", () => {
     const fnBody = migrationCode.match(/CREATE OR REPLACE FUNCTION public\.commit_verified_commercial_payment\([\s\S]*?\n\$\$;/)?.[0] ?? "";
     const blankCheckIndex = fnBody.indexOf("p_provider_transaction_id IS NULL OR trim(p_provider_transaction_id) = ''");
@@ -284,11 +269,6 @@ describe("BLOCKER-4 — provider transaction ID is mandatory; webhook and status
   it("commit_verified_commercial_payment now accepts PENDING or MANUAL_REVIEW as commit-eligible intent statuses", () => {
     const fnBody = migrationCode.match(/CREATE OR REPLACE FUNCTION public\.commit_verified_commercial_payment\([\s\S]*?\n\$\$;/)?.[0] ?? "";
     expect(fnBody).toMatch(/IF v_intent\.status NOT IN \('PENDING','MANUAL_REVIEW'\) THEN/);
-  });
-
-  it("the webhook computes the idempotency key as exactly `${provider}:${providerTransactionId}:${intentId}` — no 'WEBHOOK:' literal prefix", () => {
-    expect(webhookCode).toMatch(/const idempotencyKey = await sha256Hex\(\s*`\$\{tx\.provider\}:\$\{tx\.providerTransactionId\}:\$\{intent\.id\}`\s*\);/);
-    expect(webhookCode).not.toMatch(/WEBHOOK:\$\{tx\.provider\}/);
   });
 
   it("commercial-payment-status's recovery path computes the IDENTICAL idempotency key text for the same underlying transaction — no 'STATUS_POLL:' literal prefix", () => {

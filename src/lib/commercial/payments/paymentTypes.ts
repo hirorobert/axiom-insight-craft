@@ -2,7 +2,7 @@
  * Ω2 — Provider-neutral payment domain types.
  *
  * These discriminated unions represent SAFF's commercial state machine,
- * not any provider's state. Flutterwave, Pesapal, Selcom, etc. all map
+ * not any provider's state. Every provider, active or retired, maps
  * their statuses into these canonical enums before any business logic runs.
  *
  * Iron Dome: never collapse these into booleans.
@@ -68,7 +68,7 @@ export interface CheckoutCreatedResult {
   readonly provider: PaymentProvider;
 }
 
-// ── Normalised provider transaction (after Flutterwave API verify call) ──────
+// ── Normalised provider transaction (after a provider verify call) ───────────
 
 export interface NormalizedTransaction {
   readonly provider: PaymentProvider;

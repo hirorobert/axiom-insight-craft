@@ -32,7 +32,6 @@ const MIGRATION_PATH = path.join(
   "supabase/migrations/20260912100000_omega3_checkout_cfoclose_offers_and_interval_authority.sql",
 );
 const CHECKOUT_FN_PATH = path.join(REPO_ROOT, "supabase/functions/commercial-create-checkout/index.ts");
-const FLUTTERWAVE_ADAPTER_PATH = path.join(REPO_ROOT, "supabase/functions/_shared/payments/providers/flutterwave.ts");
 
 function stripSqlComments(sql: string): string {
   return sql.replace(/--.*$/gm, "");
@@ -45,8 +44,6 @@ const migrationRaw = fs.readFileSync(MIGRATION_PATH, "utf-8");
 const migrationCode = stripSqlComments(migrationRaw);
 const checkoutSrc = fs.readFileSync(CHECKOUT_FN_PATH, "utf-8");
 const checkoutCode = stripTsComments(checkoutSrc);
-const flutterwaveSrc = fs.readFileSync(FLUTTERWAVE_ADAPTER_PATH, "utf-8");
-const flutterwaveCode = stripTsComments(flutterwaveSrc);
 
 // ============================================================
 // Migration presence, ordering, forward-only discipline
@@ -394,33 +391,3 @@ describe("commercial-create-checkout — billingInterval is mandatory and valida
   });
 });
 
-// ============================================================
-// CFOClose branding — Flutterwave hosted-checkout payload
-// ============================================================
-
-describe("Flutterwave adapter — CFOClose branding on the hosted-checkout payload (charter item: no stale SAFF checkout branding)", () => {
-  it("the checkout page title is CFOClose, never SAFF ERP", () => {
-    expect(flutterwaveCode).toMatch(/title:\s*'CFOClose'/);
-    expect(flutterwaveCode).not.toMatch(/SAFF ERP/);
-  });
-
-  it("sends no logo field at all — never a dead/placeholder favicon.ico URL on a real payment page", () => {
-    expect(flutterwaveCode).not.toMatch(/logo:/);
-    expect(flutterwaveCode).not.toMatch(/favicon\.ico/);
-  });
-
-  it("meta.source is CFOClose-branded, not the retired SAFF_ERP_OMEGA2 identifier", () => {
-    expect(flutterwaveCode).toMatch(/source:\s*'CFOCLOSE_OMEGA3'/);
-    expect(flutterwaveCode).not.toMatch(/SAFF_ERP_OMEGA2/);
-  });
-
-  it("saff_reference / tx_ref internal identifiers are UNCHANGED — historical evidence identifiers, not customer-visible branding", () => {
-    expect(flutterwaveCode).toMatch(/saff_reference:\s*params\.saffReference/);
-    expect(flutterwaveCode).toMatch(/tx_ref:\s*params\.saffReference/);
-  });
-
-  it("still never logs or exposes the secret key or webhook secret", () => {
-    expect(flutterwaveCode).not.toMatch(/console\.\w+\([^)]*secretKey/i);
-    expect(flutterwaveCode).not.toMatch(/console\.\w+\([^)]*webhookSecret/i);
-  });
-});

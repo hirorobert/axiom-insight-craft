@@ -11,17 +11,17 @@ import type { PaymentProviderAdapter, CreateCheckoutParams, CreateCheckoutResult
 
 function makeAdapter(overrides: Partial<PaymentProviderAdapter> = {}): PaymentProviderAdapter {
   return {
-    provider: "FLUTTERWAVE",
+    provider: "STRIPE",
     createCheckout: vi.fn(async (_p: CreateCheckoutParams): Promise<CreateCheckoutResult> => ({
       success: true,
-      checkoutUrl: "https://checkout.flutterwave.com/test-link",
-      providerReference: "FLW-TEST-REF-001",
+      checkoutUrl: "https://checkout.example-provider.test/test-link",
+      providerReference: "PSP-TEST-REF-001",
       expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
     })),
     verifyTransaction: vi.fn(async () => ({
       success: true,
       providerStatus: "SUCCEEDED",
-      providerTransactionId: "FLW-TX-001",
+      providerTransactionId: "PSP-TX-001",
       amountMinor: 450_000n,
       currencyCode: "TZS",
       providerCreatedAt: new Date().toISOString(),
@@ -29,9 +29,9 @@ function makeAdapter(overrides: Partial<PaymentProviderAdapter> = {}): PaymentPr
     })),
     verifyWebhookAuthenticity: vi.fn(() => ({ authentic: true, reason: "hash_match" })),
     normalizeWebhook: vi.fn(() => ({
-      provider: "FLUTTERWAVE" as const,
+      provider: "STRIPE" as const,
       eventType: "charge.completed",
-      providerTransactionId: "FLW-TX-001",
+      providerTransactionId: "PSP-TX-001",
       saffReference: "SAFF-TEST-001",
       status: "SUCCEEDED" as const,
       rawPayload: {},
@@ -58,7 +58,7 @@ describe("Checkout intent — browser sends planId only", () => {
     };
     const result = await adapter.createCheckout(params);
     expect(result.success).toBe(true);
-    expect(result.checkoutUrl).toContain("flutterwave.com");
+    expect(result.checkoutUrl).toContain("example-provider.test");
     expect(adapter.createCheckout).toHaveBeenCalledOnce();
   });
 
@@ -100,7 +100,7 @@ describe("Checkout intent — browser sends planId only", () => {
 });
 
 describe("Provider-neutral adapter interface", () => {
-  it("Flutterwave adapter implements PaymentProviderAdapter", () => {
+  it("a provider adapter implements PaymentProviderAdapter", () => {
     const adapter = makeAdapter();
     const methods: Array<keyof PaymentProviderAdapter> = [
       "createCheckout",

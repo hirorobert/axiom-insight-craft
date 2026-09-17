@@ -142,7 +142,7 @@ describe.each([
 });
 
 describe("commercial-create-checkout — provider never reached on auth failure", () => {
-  it("the auth check (validateAuth call) appears before offer resolution, provider routing, and the Flutterwave adapter call", () => {
+  it("the auth check (validateAuth call) appears before offer resolution, provider routing, and any provider adapter call", () => {
     const authCallIndex = createCheckoutCode.indexOf("validateAuth(authHeader, CORS_HEADERS)");
     const resolveOfferIndex = createCheckoutCode.indexOf("resolve_commercial_offer");
     const providerRoutingIndex = createCheckoutCode.indexOf("selectPaymentProvider(");

@@ -9,7 +9,7 @@
  * like money.ts has a frontend copy and an Edge Function copy.
  *
  * Provider routing is downstream of commercial offer resolution. It never
- * encodes a fixed rule like "TZS => Flutterwave" as permanent business
+ * encodes a fixed rule like "TZS => provider X" as permanent business
  * truth — each configured provider declares its own capabilities, and
  * selectPaymentProvider() picks the first eligible one for a given offer.
  */
@@ -65,10 +65,11 @@ export function selectPaymentProvider(
   return { selected: true, provider: eligible[0].provider };
 }
 
-export const FLUTTERWAVE_CAPABILITIES: PaymentProviderCapabilities = {
-  provider: "FLUTTERWAVE",
-  supportedCurrencies: ["TZS", "USD", "KES", "UGX"],
-  supportedMarkets: ["GLOBAL", "TZ", "MU"],
-  supportedMethods: ["card", "mobilemoneytzania"],
-  environment: "sandbox",
-};
+/**
+ * Flutterwave decommission: no provider capabilities are declared in this
+ * deployment, so CONFIGURED_PROVIDERS is empty and every selection attempt
+ * resolves to PAYMENT_PROVIDER_UNAVAILABLE. 'FLUTTERWAVE' survives in the
+ * PaymentProvider union ONLY so historical payment rows recorded under that
+ * provider remain readable and type-checkable.
+ */
+export const CONFIGURED_PROVIDERS: readonly PaymentProviderCapabilities[] = [];
