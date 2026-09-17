@@ -147,8 +147,12 @@ export default function FirstRunEngagement({
       // fiscal_year_end is a full ISO date 'YYYY-MM-DD' so the chosen reporting
       // year is persisted and recoverable on a later visit. Two workspaces with
       // the same name but different reporting years are NOT duplicates.
+      // Legacy rows stored as bare 'MM-DD' also match, so an old workspace
+      // isn't duplicated just because it predates the ISO format.
       const fiscalYearEnd = `${year}-${fye}`;
-      const duplicate = existing?.find((c) => c.fiscal_year_end === fiscalYearEnd);
+      const duplicate = existing?.find(
+        (c) => c.fiscal_year_end === fiscalYearEnd || c.fiscal_year_end === fye,
+      );
 
       if (duplicate) {
         // Already exists — treat as success and route in
