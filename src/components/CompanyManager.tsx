@@ -245,6 +245,12 @@ export const CompanyManager = () => {
       fiscal_year_end: /^\d{4}-\d{2}-\d{2}$/.test(company.fiscal_year_end)
         ? company.fiscal_year_end.slice(5)
         : company.fiscal_year_end,
+      // Editing never uses this field (the stored row's own year prefix is
+      // preserved on save), but seed it from the stored ISO year anyway so
+      // the value is never fabricated if the row predates the ISO format.
+      reporting_year: /^\d{4}-\d{2}-\d{2}$/.test(company.fiscal_year_end)
+        ? company.fiscal_year_end.slice(0, 4)
+        : String(new Date().getFullYear() - 1),
       currency: company.currency,
       // Phase 1: pass the real value through, including null. Coalescing to
       // "ifrs_for_smes" here would silently overwrite a genuinely-unset
