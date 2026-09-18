@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import fs from "node:fs";
+import { execSync } from "node:child_process";
 import path from "node:path";
 
 const REPO_ROOT = path.join(__dirname, "../../../");
@@ -75,21 +76,6 @@ describe("financial_statement_reports migration contract", () => {
     }
   });
 
-  it("carries all three service-role-only SECURITY DEFINER write RPCs", () => {
-    for (const fn of ["save_financial_statement_report", "save_financial_statement_evaluation", "append_financial_statement_reviewer_decision"]) {
-      expect(sql).toMatch(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${fn}\\(`));
-      // Each function body must be SECURITY DEFINER and re-verify firm membership or report existence — never trust the caller.
-      const fnMatch = sql.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${fn}\\([\\s\\S]*?\\$\\$;`));
-      expect(fnMatch).toBeTruthy();
-      expect(fnMatch![0]).toMatch(/SECURITY DEFINER/);
-    }
-    // Every write RPC is revoked from anon/authenticated and granted only to service_role.
-    const grants = sql.match(/GRANT EXECUTE ON FUNCTION public\.\w+\([^)]*\) TO service_role;/g) ?? [];
-    expect(grants).toHaveLength(3);
-    const revokes = sql.match(/REVOKE ALL ON FUNCTION public\.\w+\([^)]*\) FROM PUBLIC, anon, authenticated;/g) ?? [];
-    expect(revokes).toHaveLength(3);
-  });
-
   it("stores monetary report content only as JSONB, never as a floating-point numeric column", () => {
     expect(sql).toMatch(/report_document\s+JSONB\s+NOT NULL/);
     expect(sql).not.toMatch(/\bfindings\s+FLOAT\b/i);
@@ -134,29 +120,6 @@ describe("financial_statement_reports migration — proofs required by the works
     expect(code()).not.toMatch(/\bDELETE\s+FROM\s+public\.financial_statement_/i);
   });
 
-  it("report-version concurrency: per-report advisory lock, exact latest+1 check, conflicting replay refused", () => {
-    const fn = sql.match(/CREATE OR REPLACE FUNCTION public\.save_financial_statement_report\([\s\S]*?\$\$;/)![0];
-    expect(fn).toMatch(/pg_advisory_xact_lock\(hashtext\('financial_statement_reports:' \|\| p_report_id\)\)/);
-    expect(fn).toMatch(/p_report_version <> COALESCE\(v_latest, 0\) \+ 1/);
-    expect(fn).toMatch(/STALE_REPORT_VERSION/);
-    expect(fn).toMatch(/v_row\.content_hash = p_content_hash/);
-    // lock must be taken before the first read of the lineage
-    expect(fn.indexOf("pg_advisory_xact_lock")).toBeLessThan(fn.indexOf("SELECT * INTO v_row"));
-    // a report lineage can never move to a different company
-    expect(fn).toMatch(/report % belongs to a different company/);
-  });
-
-  it("firm/company authorization: every write RPC verifies membership or lineage ownership itself", () => {
-    const fns = ["save_financial_statement_report", "save_financial_statement_evaluation", "append_financial_statement_reviewer_decision"];
-    for (const name of fns) {
-      const fn = sql.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\([\\s\\S]*?\\$\\$;`))![0];
-      expect(fn).toMatch(/firm_members fm|financial_statement_reports fsr/);
-      expect(fn).toMatch(/SET search_path = pg_catalog, public/);
-    }
-    // members are always "accepted", never merely invited
-    expect(sql.match(/accepted_at IS NOT NULL/g)!.length).toBeGreaterThanOrEqual(5);
-  });
-
   it("no float monetary authority: no numeric/float/real/money column anywhere", () => {
     expect(code()).not.toMatch(/\b(NUMERIC|DECIMAL|FLOAT|REAL|DOUBLE PRECISION|MONEY)\b/i);
   });
@@ -192,5 +155,160 @@ describe("financial_statement_reports migration — proofs required by the works
   it("persistence stays disabled in source until the migration is applied", () => {
     const gate = fs.readFileSync(path.join(REPO_ROOT, "src/lib/financialStatementsWorkspace/persistenceGate.ts"), "utf8");
     expect(gate).toMatch(/FINANCIAL_STATEMENT_PERSISTENCE_ENABLED = false;/);
+  });
+});
+
+// ─── SECURITY DEFINER / RPC proof ────────────────────────────────────────────
+// Static, non-executing: every function is parsed out of the real SQL text, so a
+// function added later cannot slip past these invariants.
+
+interface ParsedFn {
+  name: string;
+  signature: string;
+  body: string;
+  full: string;
+  definer: boolean;
+}
+
+function parseFunctions(sqlText: string): ParsedFn[] {
+  const out: ParsedFn[] = [];
+  const re = /CREATE OR REPLACE FUNCTION public\.(\w+)\(([\s\S]*?)\)\s+RETURNS[\s\S]*?\$\$;/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sqlText))) {
+    const full = m[0];
+    out.push({ name: m[1], signature: m[2], body: full.slice(full.indexOf("$$")), full, definer: /SECURITY DEFINER/.test(full) });
+  }
+  return out;
+}
+
+const RPCS = ["save_financial_statement_report", "save_financial_statement_evaluation", "append_financial_statement_reviewer_decision"] as const;
+
+describe("financial_statement_reports migration — SECURITY DEFINER / RPC security proof", () => {
+  const code = () => sql.replace(/--.*$/gm, "");
+  const fns = () => parseFunctions(code());
+  const definers = () => fns().filter((f) => f.definer);
+
+  it("the complete set of SECURITY DEFINER functions is exactly the helper plus the three RPCs (no others can be added silently)", () => {
+    expect(definers().map((f) => f.name).sort()).toEqual([...RPCS, "fsr_actor_member_id"].sort());
+  });
+
+  it("every SECURITY DEFINER function pins search_path = pg_catalog, public", () => {
+    for (const f of definers()) expect(f.full, f.name).toMatch(/SET search_path = pg_catalog, public/);
+  });
+
+  it("the trigger guard functions also pin search_path (and are not SECURITY DEFINER)", () => {
+    for (const f of fns().filter((x) => !x.definer)) {
+      expect(f.full, f.name).toMatch(/SET search_path = pg_catalog, public/);
+    }
+  });
+
+  it("no function accepts actor authority as an argument (no member/actor/reviewer/user/uid parameter)", () => {
+    for (const f of fns()) expect(f.signature, f.name).not.toMatch(/firm_member|member_id|actor|reviewer|created_by|user_id|\buid\b/i);
+  });
+
+  it("the actor is derived server-side: the helper reads auth.uid(), refuses null, and requires accepted membership of the company", () => {
+    const helper = fns().find((f) => f.name === "fsr_actor_member_id")!;
+    expect(helper.body).toMatch(/auth\.uid\(\)/);
+    expect(helper.body).toMatch(/v_uid IS NULL[\s\S]{0,120}?RAISE EXCEPTION[\s\S]{0,80}?42501/);
+    expect(helper.body).toMatch(/fm\.user_id = v_uid/);
+    expect(helper.body).toMatch(/fm\.company_id = p_company_id/);
+    expect(helper.body).toMatch(/fm\.accepted_at IS NOT NULL/);
+    expect(helper.body).toMatch(/v_member IS NULL[\s\S]{0,120}?RAISE EXCEPTION[\s\S]{0,120}?42501/);
+  });
+
+  it("every RPC resolves the actor through the helper first, before touching any table", () => {
+    for (const name of RPCS) {
+      const f = fns().find((x) => x.name === name)!;
+      const helperAt = f.body.indexOf("public.fsr_actor_member_id(p_company_id)");
+      expect(helperAt, name).toBeGreaterThan(-1);
+      const firstTable = f.body.search(/(FROM|INTO|UPDATE|DELETE FROM)\s+public\.financial_statement_/);
+      expect(helperAt, name).toBeLessThan(firstTable);
+    }
+  });
+
+  it("no function trusts a session identity other than auth.uid() (no auth.users, current_user, session_user, service_role, or JWT-claim reads)", () => {
+    for (const f of definers()) {
+      expect(f.body, f.name).not.toMatch(/auth\.users|current_user|session_user|service_role|request\.jwt|current_setting/i);
+    }
+  });
+
+  it("the stored decision never carries a client-supplied actor: reviewerId is stripped and the reviewer column is the derived member", () => {
+    const f = fns().find((x) => x.name === "append_financial_statement_reviewer_decision")!;
+    expect(f.body).toMatch(/v_clean JSONB := p_decision - 'reviewerId'/);
+    expect(f.body).toMatch(/VALUES \(\s*p_decision_id, p_report_id, p_company_id, v_clean, v_actor\s*\)/);
+  });
+
+  it("cross-company access is rejected in every RPC (membership, lineage ownership, and report-belongs-to-company)", () => {
+    const save = fns().find((x) => x.name === "save_financial_statement_report")!;
+    expect(save.body.match(/is not accessible to this company/g)!.length).toBeGreaterThanOrEqual(2);
+    expect(save.body).toMatch(/v_latest\.company_id <> p_company_id/);
+    expect(save.body).toMatch(/v_row\.company_id <> p_company_id/);
+    const ev = fns().find((x) => x.name === "save_financial_statement_evaluation")!;
+    expect(ev.body).toMatch(/fsr\.company_id = p_company_id/);
+    const dec = fns().find((x) => x.name === "append_financial_statement_reviewer_decision")!;
+    expect(dec.body).toMatch(/fsr\.company_id = p_company_id/);
+  });
+
+  it("report versions: transaction advisory lock BEFORE any read, exact latest+1, exact replay, conflicting replay refused (PT409)", () => {
+    const f = fns().find((x) => x.name === "save_financial_statement_report")!;
+    expect(f.body).toMatch(/pg_advisory_xact_lock\(hashtext\('financial_statement_reports:' \|\| p_report_id\)\)/);
+    expect(f.body.indexOf("pg_advisory_xact_lock")).toBeLessThan(f.body.search(/SELECT \* INTO v_row/));
+    expect(f.body).toMatch(/p_report_version <> COALESCE\(v_latest\.report_version, 0\) \+ 1/);
+    expect(f.body).toMatch(/v_row\.company_id = p_company_id AND v_row\.content_hash = p_content_hash[\s\S]{0,40}?RETURN v_row/);
+    expect(f.body).toMatch(/STALE_REPORT_VERSION[\s\S]{0,160}?PT409/);
+    expect(f.body).toMatch(/cannot change its period or provenance origin/);
+  });
+
+  it("evaluations and decisions: serialised by advisory lock, exact replay returns the stored row, any other replay is REPLAY_CONFLICT (PT409)", () => {
+    for (const name of ["save_financial_statement_evaluation", "append_financial_statement_reviewer_decision"]) {
+      const f = fns().find((x) => x.name === name)!;
+      expect(f.body, name).toMatch(/pg_advisory_xact_lock\(hashtext\(/);
+      expect(f.body.indexOf("pg_advisory_xact_lock"), name).toBeLessThan(f.body.search(/SELECT \* INTO v_row/));
+      expect(f.body, name).toMatch(/REPLAY_CONFLICT[\s\S]{0,160}?PT409/);
+    }
+    const ev = fns().find((x) => x.name === "save_financial_statement_evaluation")!;
+    expect(ev.body).toMatch(/v_row\.input_hash = p_input_hash[\s\S]{0,60}?v_row\.findings = p_findings/);
+    const dec = fns().find((x) => x.name === "append_financial_statement_reviewer_decision")!;
+    expect(dec.body).toMatch(/v_row\.decision = v_clean/);
+  });
+
+  it("no RPC swallows a unique violation to fake success (serialisation replaces the old retry-and-return handler)", () => {
+    expect(code()).not.toMatch(/EXCEPTION\s+WHEN\s+unique_violation/i);
+  });
+
+  it("grants: every RPC is revoked from PUBLIC, anon and authenticated, then granted to authenticated ONLY; the helper has no grant at all", () => {
+    for (const name of RPCS) {
+      expect(code(), name).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${name}\\([^)]*\\) FROM PUBLIC, anon, authenticated;`));
+      expect(code(), name).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${name}\\([^)]*\\) TO authenticated;`));
+    }
+    expect(code()).toMatch(/REVOKE ALL ON FUNCTION public\.fsr_actor_member_id\(UUID\) FROM PUBLIC, anon, authenticated;/);
+    expect(code()).not.toMatch(/GRANT EXECUTE ON FUNCTION public\.fsr_actor_member_id/);
+    // The complete list of GRANT targets anywhere in the file:
+    const targets = [...code().matchAll(/GRANT\s+[\w, ]+\s+ON\s+[\s\S]*?\s+TO\s+(\w+)\s*;/gi)].map((m) => m[1].toLowerCase());
+    expect(new Set(targets)).toEqual(new Set(["authenticated"]));
+    expect(code()).not.toMatch(/\bTO\s+(PUBLIC|anon|service_role)\b/i);
+  });
+
+  it("the client contract matches: no write request carries an actor and the Edge Function is documented to use the caller's JWT", () => {
+    expect(sql).toMatch(/CALLER's JWT \(never a service-role/);
+    const contract = fs.readFileSync(path.join(REPO_ROOT, "src/lib/financialStatementsWorkspace/persistenceContract.ts"), "utf8");
+    expect(contract).toMatch(/caller's own JWT/);
+  });
+
+  const gitOut = (args: string): string | null => {
+    try {
+      return execSync(`git ${args}`, { cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    } catch {
+      return null;
+    }
+  };
+  const baseRef = gitOut("rev-parse --verify --quiet origin/main") === null ? null : "origin/main";
+
+  it.skipIf(baseRef === null)("no historical migration is edited, renamed or deleted: the only change under supabase/migrations is this one added file", () => {
+    const status = (gitOut(`diff --name-status ${baseRef}...HEAD -- supabase/migrations supabase/migrations_historical`) ?? "").trim();
+    const lines = status === "" ? [] : status.split(/\r?\n/);
+    for (const line of lines) expect(line, "only additions are allowed").toMatch(/^A\t/);
+    const added = lines.map((l) => l.split("\t")[1]);
+    for (const f of added) expect(f).toBe("supabase/migrations/20260917000000_financial_statement_reports.sql");
   });
 });

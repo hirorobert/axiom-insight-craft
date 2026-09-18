@@ -94,6 +94,21 @@ describe("persistence error states", () => {
   });
 });
 
+describe("persistence refuses what it cannot store faithfully", () => {
+  it("refuses a multi-version correction chain instead of dropping intermediate versions or sending a stale jump", async () => {
+    const repo = new InMemoryFinancialStatementReportRepository();
+    const { snapshot } = await prepareTrialBalanceReport(params, repo);
+    const cmd = buildDecisionCommand({ outcome: "CORRECTED", finding: { ...(await evaluateReport(snapshot, repo)).findings[0], evidenceReferences: [] }, correctableFactIds: ["fact:detail:sfp:2:CURRENT"], rationale: "r", report: snapshot.report, decisionId: "d", decidedAt: "t", reviewerId: "x", correction: { factId: "fact:detail:sfp:2:CURRENT", correctedAmount: "50.00" } });
+    if (cmd.kind !== "CORRECTION") throw new Error("expected correction");
+    const chain = await correctFactAndRecast({ reportId: snapshot.report.reportIdentity.reportId, decision: cmd.decision, provenance: cmd.provenance, reviewedAccountLines: unbalanced(), repo });
+    expect(chain.report.reportIdentity.reportVersion).toBeGreaterThan(2);
+    const invoke = vi.fn(async () => undefined);
+    const remote = new RemoteFinancialStatementReportRepository({ select: async () => [], invoke }, true);
+    await expect(remote.saveReport(chain)).rejects.toThrow(/several report versions/);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
 describe("reviewer decisions", () => {
   async function setup() {
     const repo = new InMemoryFinancialStatementReportRepository();

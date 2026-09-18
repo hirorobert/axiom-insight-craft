@@ -3,12 +3,15 @@
 //
 //  - READS go straight to the three tables through the caller's own
 //    authenticated session (RLS: accepted firm members of the company only).
-//  - WRITES never touch a table or a service-role RPC from the browser (the
-//    RPCs are REVOKEd from anon/authenticated). They go through one Edge
-//    Function, `financial-statement-workspace`, which derives the actor
-//    (firm_members.id) from the JWT, re-verifies company membership, and calls
-//    the RPCs. The client therefore NEVER sends an actor id: the request
-//    types below contain none, and toWriteRequest strips any reviewerId.
+//  - WRITES never touch a table from the browser (no table grant or write
+//    policy exists). They go through one Edge Function,
+//    `financial-statement-workspace`, which must call the three SECURITY DEFINER
+//    RPCs with the caller's own JWT (never a service-role key: under it
+//    auth.uid() is NULL and every RPC refuses). Each RPC derives the acting
+//    firm_members.id itself from auth.uid() and re-checks company membership.
+//    The client therefore NEVER sends an actor id: the request types below
+//    contain none, and toAppendDecisionRequest strips any reviewerId (the RPC
+//    discards it too).
 //  - Money is serialized with canonicalStringify (bigint minor units as
 //    {"__bigint__": "..."}), never as a JSON number.
 //
@@ -162,6 +165,16 @@ export class RemoteFinancialStatementReportRepository implements FinancialStatem
   }
 
   async saveReport(snapshot: StoredReportSnapshot): Promise<void> {
+    this.assertEnabled();
+    // The write RPC enforces exact latest+1. A correction that re-derives dependent totals spans
+    // several reportVersions in ONE snapshot; sending only the last would be rejected as stale, and
+    // silently dropping the intermediate versions would corrupt the audit trail. Refuse explicitly.
+    const stored = await this.getByReportId(snapshot.report.reportIdentity.reportId);
+    const expected = (stored?.report.reportIdentity.reportVersion ?? 0) + 1;
+    const actual = snapshot.report.reportIdentity.reportVersion;
+    if (actual > expected) {
+      throw new PersistenceUnavailableError("This correction spans several report versions, and saving a multi-version correction chain is not supported yet. Nothing was saved.");
+    }
     await this.write(toSaveReportRequest(snapshot));
   }
 

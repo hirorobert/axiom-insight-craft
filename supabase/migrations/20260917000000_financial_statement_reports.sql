@@ -27,14 +27,17 @@
 -- directive). Do not run `supabase db push` (or paste this into a live
 -- SQL editor) without separate, explicit authorization.
 --
--- Write authority: exactly like financial_statement_documents, no
--- INSERT/UPDATE/DELETE RLS policy exists for `authenticated`/`anon` on any
--- of these three tables. Every write goes through one of the three
--- SECURITY DEFINER RPCs below, called only by a future Edge Function's
--- service-role client — never directly from a React component or hook
--- (Iron Dome 4.2). Each RPC independently re-verifies firm membership
--- from its own firmMemberId + companyId arguments (defense in depth,
--- matching resolve_account_review_batch / intake_financial_statement_document).
+-- Write authority: no INSERT/UPDATE/DELETE RLS policy or table grant exists
+-- for `authenticated`/`anon` on any of these three tables. Every write goes
+-- through one of three SECURITY DEFINER RPCs (section 4). Each derives the
+-- acting firm member INSIDE the function from auth.uid() — no argument carries
+-- actor authority and any actor embedded in a payload is discarded — and
+-- re-checks accepted company membership itself (RLS is bypassed inside a
+-- definer function, so the checks are explicit). EXECUTE is granted to
+-- `authenticated` only, never PUBLIC/anon, matching resolve_account_review_batch.
+-- The browser reaches them only through the future `financial-statement-workspace`
+-- Edge Function, which must call them with the CALLER's JWT (never a service-role
+-- key, under which auth.uid() is NULL and every call is refused).
 --
 -- Statutory sign-off role enforcement (Iron Dome 4.6,
 -- hesabu_gate_before_signoff on statement_sign_offs) is a SEPARATE, later
@@ -298,19 +301,64 @@ REVOKE ALL ON public.financial_statement_reviewer_decisions FROM PUBLIC, anon, a
 GRANT SELECT ON public.financial_statement_reviewer_decisions TO authenticated;
 
 -- ════════════════════════════════════════════════════════════════════════
--- 4. Sole write paths — idempotent insert-or-return, SECURITY DEFINER,
---    service_role only (mirrors intake_financial_statement_document)
+-- 4. Sole write paths — SECURITY DEFINER RPCs. The actor is ALWAYS derived
+--    inside the function from auth.uid(); no argument carries actor
+--    authority, and nothing in a submitted payload is trusted for identity.
+--    Same pattern as resolve_account_review_batch: EXECUTE is granted to
+--    `authenticated` only (never PUBLIC/anon), the caller's own JWT is what
+--    auth.uid() reads, and every function re-checks accepted company
+--    membership itself. RLS is bypassed inside a definer function, which is
+--    exactly why the checks below are explicit and not optional.
 -- ════════════════════════════════════════════════════════════════════════
 
+-- Internal helper: resolves the caller's firm_members.id for a company, or
+-- refuses. Not callable by any client role (REVOKEd below) — only by the
+-- definer functions that follow, which run as the function owner.
+CREATE OR REPLACE FUNCTION public.fsr_actor_member_id(p_company_id UUID)
+  RETURNS UUID
+  LANGUAGE plpgsql
+  STABLE
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_uid    UUID := auth.uid();
+  v_member UUID;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: an authenticated session is required'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT fm.id INTO v_member
+    FROM public.firm_members fm
+   WHERE fm.user_id = v_uid
+     AND fm.company_id = p_company_id
+     AND fm.accepted_at IS NOT NULL
+   ORDER BY fm.id
+   LIMIT 1;
+
+  IF v_member IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: the caller is not an accepted member of company %', p_company_id
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN v_member;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.fsr_actor_member_id(UUID) FROM PUBLIC, anon, authenticated;
+
+-- ── save_financial_statement_report ─────────────────────────────────────
+
 CREATE OR REPLACE FUNCTION public.save_financial_statement_report(
-  p_report_id                 TEXT,
-  p_report_version             INTEGER,
-  p_company_id                 UUID,
-  p_period_year                INTEGER,
-  p_provenance_origin          TEXT,
-  p_report_document            JSONB,
-  p_content_hash                TEXT,
-  p_created_by_firm_member_id  UUID
+  p_report_id          TEXT,
+  p_report_version     INTEGER,
+  p_company_id         UUID,
+  p_period_year        INTEGER,
+  p_provenance_origin  TEXT,
+  p_report_document    JSONB,
+  p_content_hash       TEXT
 )
   RETURNS public.financial_statement_reports
   LANGUAGE plpgsql
@@ -318,55 +366,58 @@ CREATE OR REPLACE FUNCTION public.save_financial_statement_report(
   SET search_path = pg_catalog, public
 AS $$
 DECLARE
-  v_row public.financial_statement_reports;
-  v_latest INTEGER;
-  v_lineage_company UUID;
+  v_actor  UUID;
+  v_row    public.financial_statement_reports;
+  v_latest public.financial_statement_reports;
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM public.firm_members fm
-    WHERE fm.id = p_created_by_firm_member_id
-      AND fm.company_id = p_company_id
-      AND fm.accepted_at IS NOT NULL
-  ) THEN
-    RAISE EXCEPTION 'FORBIDDEN: firm member % is not an accepted member of company %', p_created_by_firm_member_id, p_company_id
-      USING ERRCODE = '42501';
-  END IF;
+  -- Actor and membership come from auth.uid(); this raises for anon,
+  -- a non-member, or a member of some other company.
+  v_actor := public.fsr_actor_member_id(p_company_id);
 
-  -- Serialise every writer of one report lineage. The lock is transaction-
-  -- scoped (released at COMMIT/ROLLBACK), so two concurrent "next version"
-  -- saves cannot both pass the version check below.
+  -- Serialise every writer of one report lineage. Transaction-scoped: released
+  -- at COMMIT/ROLLBACK, so two concurrent "next version" saves cannot both
+  -- pass the version check below.
   PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reports:' || p_report_id));
 
   SELECT * INTO v_row
     FROM public.financial_statement_reports
-   WHERE report_id = p_report_id AND report_version = p_report_version
-   LIMIT 1;
+   WHERE report_id = p_report_id AND report_version = p_report_version;
 
   IF FOUND THEN
-    -- Idempotent replay of the identical version is a no-op; the same
-    -- version with different content is a conflict, never an overwrite.
-    IF v_row.content_hash = p_content_hash AND v_row.company_id = p_company_id THEN
+    -- Exact replay is a no-op; the same version with different content, or a
+    -- version that belongs to another company, is refused — never overwritten.
+    IF v_row.company_id = p_company_id AND v_row.content_hash = p_content_hash THEN
       RETURN v_row;
+    END IF;
+    IF v_row.company_id <> p_company_id THEN
+      RAISE EXCEPTION 'FORBIDDEN: report lineage % is not accessible to this company', p_report_id
+        USING ERRCODE = '42501';
     END IF;
     RAISE EXCEPTION 'STALE_REPORT_VERSION: report % version % already exists with different content', p_report_id, p_report_version
       USING ERRCODE = 'PT409';
   END IF;
 
-  -- Optimistic-concurrency guard: the next version must be exactly
-  -- latest + 1 (or 1 for a brand-new lineage). A writer holding an older
-  -- copy of the report is refused instead of forking the version chain.
-  SELECT max(report_version), max(company_id::text)::uuid
-    INTO v_latest, v_lineage_company
+  SELECT * INTO v_latest
     FROM public.financial_statement_reports
-   WHERE report_id = p_report_id;
+   WHERE report_id = p_report_id
+   ORDER BY report_version DESC
+   LIMIT 1;
 
-  IF v_lineage_company IS NOT NULL AND v_lineage_company <> p_company_id THEN
-    RAISE EXCEPTION 'FORBIDDEN: report % belongs to a different company', p_report_id
-      USING ERRCODE = '42501';
+  IF FOUND THEN
+    -- A lineage is bound to one company, one period and one provenance origin.
+    IF v_latest.company_id <> p_company_id THEN
+      RAISE EXCEPTION 'FORBIDDEN: report lineage % is not accessible to this company', p_report_id
+        USING ERRCODE = '42501';
+    END IF;
+    IF v_latest.period_year <> p_period_year OR v_latest.provenance_origin <> p_provenance_origin THEN
+      RAISE EXCEPTION 'STALE_REPORT_VERSION: report % cannot change its period or provenance origin', p_report_id
+        USING ERRCODE = 'PT409';
+    END IF;
   END IF;
 
-  IF p_report_version <> COALESCE(v_latest, 0) + 1 THEN
-    RAISE EXCEPTION 'STALE_REPORT_VERSION: expected version % for report % but received %', COALESCE(v_latest, 0) + 1, p_report_id, p_report_version
+  -- Optimistic-concurrency guard: exactly latest + 1 (or 1 for a new lineage).
+  IF p_report_version <> COALESCE(v_latest.report_version, 0) + 1 THEN
+    RAISE EXCEPTION 'STALE_REPORT_VERSION: expected version % for report % but received %', COALESCE(v_latest.report_version, 0) + 1, p_report_id, p_report_version
       USING ERRCODE = 'PT409';
   END IF;
 
@@ -375,41 +426,29 @@ BEGIN
     report_document, content_hash, created_by_firm_member_id
   ) VALUES (
     p_report_id, p_report_version, p_company_id, p_period_year, p_provenance_origin,
-    p_report_document, p_content_hash, p_created_by_firm_member_id
+    p_report_document, p_content_hash, v_actor
   )
   RETURNING * INTO v_row;
 
   RETURN v_row;
-EXCEPTION
-  WHEN unique_violation THEN
-    -- Unreachable under the advisory lock; kept as defence in depth. Only an
-    -- identical row may be returned as an idempotent replay.
-    SELECT * INTO v_row
-      FROM public.financial_statement_reports
-     WHERE report_id = p_report_id AND report_version = p_report_version
-     LIMIT 1;
-    IF v_row.content_hash = p_content_hash THEN
-      RETURN v_row;
-    END IF;
-    RAISE EXCEPTION 'STALE_REPORT_VERSION: concurrent write to report %', p_report_id
-      USING ERRCODE = 'PT409';
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.save_financial_statement_report(TEXT, INTEGER, UUID, INTEGER, TEXT, JSONB, TEXT, UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.save_financial_statement_report(TEXT, INTEGER, UUID, INTEGER, TEXT, JSONB, TEXT, UUID) TO service_role;
+REVOKE ALL ON FUNCTION public.save_financial_statement_report(TEXT, INTEGER, UUID, INTEGER, TEXT, JSONB, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.save_financial_statement_report(TEXT, INTEGER, UUID, INTEGER, TEXT, JSONB, TEXT) TO authenticated;
 
+-- ── save_financial_statement_evaluation ─────────────────────────────────
 
 CREATE OR REPLACE FUNCTION public.save_financial_statement_evaluation(
-  p_evaluation_run_id   TEXT,
-  p_report_id            TEXT,
-  p_report_version       INTEGER,
-  p_company_id           UUID,
-  p_rule_pack_id         TEXT,
-  p_rule_pack_version    TEXT,
-  p_engine_version       TEXT,
-  p_input_hash           TEXT,
-  p_findings             JSONB
+  p_evaluation_run_id  TEXT,
+  p_report_id          TEXT,
+  p_report_version     INTEGER,
+  p_company_id         UUID,
+  p_rule_pack_id       TEXT,
+  p_rule_pack_version  TEXT,
+  p_engine_version     TEXT,
+  p_input_hash         TEXT,
+  p_findings           JSONB
 )
   RETURNS public.financial_statement_evaluations
   LANGUAGE plpgsql
@@ -417,23 +456,40 @@ CREATE OR REPLACE FUNCTION public.save_financial_statement_evaluation(
   SET search_path = pg_catalog, public
 AS $$
 DECLARE
-  v_row public.financial_statement_evaluations;
+  v_actor UUID;
+  v_row   public.financial_statement_evaluations;
 BEGIN
+  v_actor := public.fsr_actor_member_id(p_company_id);
+
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_evaluations:' || p_evaluation_run_id));
+
+  -- The evaluated report version must exist AND belong to the caller's company.
   IF NOT EXISTS (
     SELECT 1 FROM public.financial_statement_reports fsr
-    WHERE fsr.report_id = p_report_id AND fsr.report_version = p_report_version AND fsr.company_id = p_company_id
+     WHERE fsr.report_id = p_report_id
+       AND fsr.report_version = p_report_version
+       AND fsr.company_id = p_company_id
   ) THEN
-    RAISE EXCEPTION 'NOT_FOUND: no financial_statement_reports row (report_id=%, report_version=%) for company %', p_report_id, p_report_version, p_company_id
+    RAISE EXCEPTION 'NOT_FOUND: no report % version % for company %', p_report_id, p_report_version, p_company_id
       USING ERRCODE = 'P0002';
   END IF;
 
   SELECT * INTO v_row
     FROM public.financial_statement_evaluations
-   WHERE evaluation_run_id = p_evaluation_run_id
-   LIMIT 1;
+   WHERE evaluation_run_id = p_evaluation_run_id;
 
   IF FOUND THEN
-    RETURN v_row;
+    -- Exact replay returns the stored run. Anything else under the same
+    -- deterministic id is a conflict, never a silent overwrite.
+    IF v_row.report_id = p_report_id
+       AND v_row.report_version = p_report_version
+       AND v_row.company_id = p_company_id
+       AND v_row.input_hash = p_input_hash
+       AND v_row.findings = p_findings THEN
+      RETURN v_row;
+    END IF;
+    RAISE EXCEPTION 'REPLAY_CONFLICT: evaluation % already exists with different content', p_evaluation_run_id
+      USING ERRCODE = 'PT409';
   END IF;
 
   INSERT INTO public.financial_statement_evaluations (
@@ -446,26 +502,19 @@ BEGIN
   RETURNING * INTO v_row;
 
   RETURN v_row;
-EXCEPTION
-  WHEN unique_violation THEN
-    SELECT * INTO v_row
-      FROM public.financial_statement_evaluations
-     WHERE evaluation_run_id = p_evaluation_run_id
-     LIMIT 1;
-    RETURN v_row;
 END;
 $$;
 
 REVOKE ALL ON FUNCTION public.save_financial_statement_evaluation(TEXT, TEXT, INTEGER, UUID, TEXT, TEXT, TEXT, TEXT, JSONB) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.save_financial_statement_evaluation(TEXT, TEXT, INTEGER, UUID, TEXT, TEXT, TEXT, TEXT, JSONB) TO service_role;
+GRANT EXECUTE ON FUNCTION public.save_financial_statement_evaluation(TEXT, TEXT, INTEGER, UUID, TEXT, TEXT, TEXT, TEXT, JSONB) TO authenticated;
 
+-- ── append_financial_statement_reviewer_decision ────────────────────────
 
 CREATE OR REPLACE FUNCTION public.append_financial_statement_reviewer_decision(
-  p_decision_id                TEXT,
-  p_report_id                   TEXT,
-  p_company_id                  UUID,
-  p_decision                    JSONB,
-  p_reviewer_firm_member_id     UUID
+  p_decision_id  TEXT,
+  p_report_id    TEXT,
+  p_company_id   UUID,
+  p_decision     JSONB
 )
   RETURNS public.financial_statement_reviewer_decisions
   LANGUAGE plpgsql
@@ -473,52 +522,51 @@ CREATE OR REPLACE FUNCTION public.append_financial_statement_reviewer_decision(
   SET search_path = pg_catalog, public
 AS $$
 DECLARE
-  v_row public.financial_statement_reviewer_decisions;
+  v_actor UUID;
+  v_row   public.financial_statement_reviewer_decisions;
+  -- Whatever actor a client embedded in the payload is discarded: the reviewer
+  -- is the caller's own membership, stored in its own column.
+  v_clean JSONB := p_decision - 'reviewerId';
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM public.firm_members fm
-    WHERE fm.id = p_reviewer_firm_member_id
-      AND fm.company_id = p_company_id
-      AND fm.accepted_at IS NOT NULL
-  ) THEN
-    RAISE EXCEPTION 'FORBIDDEN: firm member % is not an accepted member of company %', p_reviewer_firm_member_id, p_company_id
-      USING ERRCODE = '42501';
+  v_actor := public.fsr_actor_member_id(p_company_id);
+
+  IF v_clean->>'decisionId' IS DISTINCT FROM p_decision_id THEN
+    RAISE EXCEPTION 'INVALID: the decision payload id does not match the decision id argument'
+      USING ERRCODE = '22023';
   END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reviewer_decisions:' || p_report_id || ':' || p_decision_id));
 
   IF NOT EXISTS (
     SELECT 1 FROM public.financial_statement_reports fsr
-    WHERE fsr.report_id = p_report_id AND fsr.company_id = p_company_id
+     WHERE fsr.report_id = p_report_id AND fsr.company_id = p_company_id
   ) THEN
-    RAISE EXCEPTION 'NOT_FOUND: no financial_statement_reports lineage % for company %', p_report_id, p_company_id
+    RAISE EXCEPTION 'NOT_FOUND: no report lineage % for company %', p_report_id, p_company_id
       USING ERRCODE = 'P0002';
   END IF;
 
   SELECT * INTO v_row
     FROM public.financial_statement_reviewer_decisions
-   WHERE report_id = p_report_id AND decision_id = p_decision_id
-   LIMIT 1;
+   WHERE report_id = p_report_id AND decision_id = p_decision_id;
 
   IF FOUND THEN
-    RETURN v_row;
+    IF v_row.company_id = p_company_id AND v_row.decision = v_clean THEN
+      RETURN v_row;
+    END IF;
+    RAISE EXCEPTION 'REPLAY_CONFLICT: decision % already exists with different content', p_decision_id
+      USING ERRCODE = 'PT409';
   END IF;
 
   INSERT INTO public.financial_statement_reviewer_decisions (
     decision_id, report_id, company_id, decision, reviewer_firm_member_id
   ) VALUES (
-    p_decision_id, p_report_id, p_company_id, p_decision, p_reviewer_firm_member_id
+    p_decision_id, p_report_id, p_company_id, v_clean, v_actor
   )
   RETURNING * INTO v_row;
 
   RETURN v_row;
-EXCEPTION
-  WHEN unique_violation THEN
-    SELECT * INTO v_row
-      FROM public.financial_statement_reviewer_decisions
-     WHERE report_id = p_report_id AND decision_id = p_decision_id
-     LIMIT 1;
-    RETURN v_row;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.append_financial_statement_reviewer_decision(TEXT, TEXT, UUID, JSONB, UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.append_financial_statement_reviewer_decision(TEXT, TEXT, UUID, JSONB, UUID) TO service_role;
+REVOKE ALL ON FUNCTION public.append_financial_statement_reviewer_decision(TEXT, TEXT, UUID, JSONB) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.append_financial_statement_reviewer_decision(TEXT, TEXT, UUID, JSONB) TO authenticated;
