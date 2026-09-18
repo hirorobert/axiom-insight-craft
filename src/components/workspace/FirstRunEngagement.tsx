@@ -147,11 +147,14 @@ export default function FirstRunEngagement({
       // fiscal_year_end is a full ISO date 'YYYY-MM-DD' so the chosen reporting
       // year is persisted and recoverable on a later visit. Two workspaces with
       // the same name but different reporting years are NOT duplicates.
-      // Legacy rows stored as bare 'MM-DD' also match, so an old workspace
-      // isn't duplicated just because it predates the ISO format.
+      // Legacy rows stored as bare 'MM-DD' carry no reporting year, so they can
+      // never be confirmed as the same year the user just chose — they must NOT
+      // be treated as duplicates, or a new workspace for a different year would
+      // be silently skipped (the user would be dropped into the old workspace
+      // with no new one created and no warning).
       const fiscalYearEnd = `${year}-${fye}`;
       const duplicate = existing?.find(
-        (c) => c.fiscal_year_end === fiscalYearEnd || c.fiscal_year_end === fye,
+        (c) => c.fiscal_year_end === fiscalYearEnd,
       );
 
       if (duplicate) {
