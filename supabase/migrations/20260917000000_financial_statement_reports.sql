@@ -319,6 +319,8 @@ CREATE OR REPLACE FUNCTION public.save_financial_statement_report(
 AS $$
 DECLARE
   v_row public.financial_statement_reports;
+  v_latest INTEGER;
+  v_lineage_company UUID;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.firm_members fm
@@ -330,13 +332,42 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  -- Serialise every writer of one report lineage. The lock is transaction-
+  -- scoped (released at COMMIT/ROLLBACK), so two concurrent "next version"
+  -- saves cannot both pass the version check below.
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reports:' || p_report_id));
+
   SELECT * INTO v_row
     FROM public.financial_statement_reports
    WHERE report_id = p_report_id AND report_version = p_report_version
    LIMIT 1;
 
   IF FOUND THEN
-    RETURN v_row;
+    -- Idempotent replay of the identical version is a no-op; the same
+    -- version with different content is a conflict, never an overwrite.
+    IF v_row.content_hash = p_content_hash AND v_row.company_id = p_company_id THEN
+      RETURN v_row;
+    END IF;
+    RAISE EXCEPTION 'STALE_REPORT_VERSION: report % version % already exists with different content', p_report_id, p_report_version
+      USING ERRCODE = 'PT409';
+  END IF;
+
+  -- Optimistic-concurrency guard: the next version must be exactly
+  -- latest + 1 (or 1 for a brand-new lineage). A writer holding an older
+  -- copy of the report is refused instead of forking the version chain.
+  SELECT max(report_version), max(company_id::text)::uuid
+    INTO v_latest, v_lineage_company
+    FROM public.financial_statement_reports
+   WHERE report_id = p_report_id;
+
+  IF v_lineage_company IS NOT NULL AND v_lineage_company <> p_company_id THEN
+    RAISE EXCEPTION 'FORBIDDEN: report % belongs to a different company', p_report_id
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_report_version <> COALESCE(v_latest, 0) + 1 THEN
+    RAISE EXCEPTION 'STALE_REPORT_VERSION: expected version % for report % but received %', COALESCE(v_latest, 0) + 1, p_report_id, p_report_version
+      USING ERRCODE = 'PT409';
   END IF;
 
   INSERT INTO public.financial_statement_reports (
@@ -351,11 +382,17 @@ BEGIN
   RETURN v_row;
 EXCEPTION
   WHEN unique_violation THEN
+    -- Unreachable under the advisory lock; kept as defence in depth. Only an
+    -- identical row may be returned as an idempotent replay.
     SELECT * INTO v_row
       FROM public.financial_statement_reports
      WHERE report_id = p_report_id AND report_version = p_report_version
      LIMIT 1;
-    RETURN v_row;
+    IF v_row.content_hash = p_content_hash THEN
+      RETURN v_row;
+    END IF;
+    RAISE EXCEPTION 'STALE_REPORT_VERSION: concurrent write to report %', p_report_id
+      USING ERRCODE = 'PT409';
 END;
 $$;
 
@@ -446,6 +483,14 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'FORBIDDEN: firm member % is not an accepted member of company %', p_reviewer_firm_member_id, p_company_id
       USING ERRCODE = '42501';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.financial_statement_reports fsr
+    WHERE fsr.report_id = p_report_id AND fsr.company_id = p_company_id
+  ) THEN
+    RAISE EXCEPTION 'NOT_FOUND: no financial_statement_reports lineage % for company %', p_report_id, p_company_id
+      USING ERRCODE = 'P0002';
   END IF;
 
   SELECT * INTO v_row

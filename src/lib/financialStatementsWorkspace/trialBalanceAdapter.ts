@@ -18,17 +18,14 @@
 //   - Statement of Changes in Equity: a genuine SOCIE roll-forward needs
 //     opening equity + dividends/transfers, which a single period's
 //     reviewed trial balance does not carry. Not fabricated.
-//   - Net profit / total comprehensive income on the P&L: the canonical
-//     rule pack's subtotal-casting rule (Rule 2) sums a total's declared
-//     children with plain, unsigned addition. A trial balance's natural-
-//     balance-direction figures cannot be summed that way into a
-//     mathematically correct net result without a distinct signed
-//     contribution-to-profit representation this adapter version does not
-//     yet implement — inventing one here risked a subtly wrong number
-//     reaching a reviewer's screen, which is worse than an honest
-//     omission. The P&L statement is emitted as section subtotals only
-//     (Revenue, Cost of Sales, Operating Expenses, Other Income,
-//     Taxation), with a WARNING diagnostic noting the omission.
+//   - Net surplus/deficit on the P&L: presented only for a period in which
+//     every P&L section is fully available AND at least one income and one
+//     expense section exist. The canonical subtotal-casting rule (Rule 2)
+//     sums unsigned, so a signed result cannot be a cast TOTAL; it is a
+//     DETAIL line (concept `net_result`) computed here with exact Money
+//     arithmetic, its formula recorded in provenance.originalText. Where
+//     it cannot be computed for a period, no binding is emitted for that
+//     period (never a zero) and a WARNING says why.
 //   - IPSAS_CASH: this adapter builds STATEMENT_OF_FINANCIAL_POSITION /
 //     STATEMENT_OF_PROFIT_OR_LOSS only — it never produces a
 //     STATEMENT_OF_CASH_RECEIPTS_AND_PAYMENTS. `TrialBalanceNormalizationInput`
@@ -40,7 +37,7 @@
 //     validation.ts's framework-specific structural checks).
 
 import { z } from "zod";
-import { sumMoney, type CurrencyCode, type Money } from "@/lib/canonicalStatement/money";
+import { subtractMoney, sumMoney, type CurrencyCode, type Money } from "@/lib/canonicalStatement/money";
 import type {
   AccountingPolicy,
   MonetaryFact,
@@ -56,7 +53,10 @@ import type { AdapterExtractionResult, TrialBalanceAdapter, TrialBalanceNormaliz
 import { AdapterRejectedError, type AdapterDiagnostic, type AdapterIdentity } from "./adapterContract";
 import { numberToMoneyExact, UnsafeMagnitudeError, UnsupportedPrecisionError } from "./moneyConversion";
 
-export const TRIAL_BALANCE_ADAPTER_VERSION = "1.0.0";
+export const TRIAL_BALANCE_ADAPTER_VERSION = "1.1.0";
+
+/** Concept key of the P&L net surplus/deficit line — workspace-level, not one of the reserved canonical anchors. */
+export const NET_RESULT_CONCEPT = "net_result";
 
 export const TRIAL_BALANCE_ADAPTER_IDENTITY: AdapterIdentity = {
   adapterKind: "TRIAL_BALANCE",
@@ -154,7 +154,7 @@ const CODE = {
   DUPLICATE_ACCOUNT_IN_PERIOD: "TB_DUPLICATE_ACCOUNT_IN_PERIOD",
   UNCONVERTIBLE_AMOUNT: "TB_UNCONVERTIBLE_AMOUNT",
   CASH_FLOW_CLASSIFICATION_SKIPPED: "TB_CASH_FLOW_CLASSIFICATION_SKIPPED",
-  NET_RESULT_NOT_COMPUTED: "TB_NET_RESULT_NOT_COMPUTED",
+  NET_RESULT_UNAVAILABLE: "TB_NET_RESULT_UNAVAILABLE",
 } as const;
 
 function blocking(code: string, message: string, extra: Partial<AdapterDiagnostic> = {}): AdapterDiagnostic {
@@ -326,6 +326,46 @@ function buildStatement(
     outputSections.push({ sectionId: `section:${statementKind}:${section.classification}`, label: section.label, lines: [...detailLines, subtotalLine] });
   }
 
+  if (statementKind === "pl" && outputSections.length > 0) {
+    const INCOME = ["revenue", "other_income"];
+    const EXPENSE = ["cost_of_goods_sold", "operating_expenses", "taxes"];
+    const present = (cls: string) => sectionSubtotalLineIdByClassification.get(cls);
+    const netBindings = periodIds.flatMap((periodId) => {
+      const incomeLines = INCOME.map(present).filter((v): v is string => !!v);
+      const expenseLines = EXPENSE.map(present).filter((v): v is string => !!v);
+      if (incomeLines.length === 0 || expenseLines.length === 0) return [];
+      const incomeValues = incomeLines.map((id) => valueOfLineForPeriod(id, periodId));
+      const expenseValues = expenseLines.map((id) => valueOfLineForPeriod(id, periodId));
+      const income = sumIfAllPresent(incomeValues);
+      const expense = sumIfAllPresent(expenseValues);
+      if (income === null || expense === null) return [];
+      const net = subtractMoney(income, expense);
+      const included = [...INCOME, ...EXPENSE].filter((c) => present(c));
+      const factId = `fact:result:${statementKind}:${NET_RESULT_CONCEPT}:${periodId}`;
+      facts.push(
+        buildFact(factId, net, reportingPeriodRef(periodId, periodIsComparative.get(periodId) ?? false), NET_RESULT_CONCEPT, lines[0].sourceUploadId, lines[0].sourceHash, `Net result = (${INCOME.filter((c) => present(c)).join(" + ")}) - (${EXPENSE.filter((c) => present(c)).join(" + ")}); components: ${included.join(", ")}`),
+      );
+      recordValue(`line:result:${statementKind}:${NET_RESULT_CONCEPT}`, periodId, net);
+      return [{ periodId, factId }];
+    });
+    outputSections.push({
+      sectionId: `section:${statementKind}:result`,
+      label: "Result",
+      lines: [
+        {
+          lineId: `line:result:${statementKind}:${NET_RESULT_CONCEPT}`,
+          label: "Net result for the period",
+          concept: NET_RESULT_CONCEPT,
+          role: "DETAIL",
+          normalBalance: "CREDIT_NORMAL",
+          isContra: false,
+          factBindings: netBindings,
+          castingChildLineIds: [],
+        },
+      ],
+    });
+  }
+
   if (buildAnchors && outputSections.length > 0) {
     const assetChildIds = ASSET_CLASSIFICATIONS.map((c) => sectionSubtotalLineIdByClassification.get(c)).filter((v): v is string => !!v);
     const liabilityChildIds = LIABILITY_CLASSIFICATIONS.map((c) => sectionSubtotalLineIdByClassification.get(c)).filter((v): v is string => !!v);
@@ -464,7 +504,12 @@ async function normalizeTrialBalance(input: TrialBalanceNormalizationInput): Pro
     const built = buildStatement("pl", "statement:pl", "STATEMENT_OF_PROFIT_OR_LOSS", "Statement of Profit or Loss", PL_SECTIONS, plRows, periodIds, periodIsComparative, false);
     statements.push(built.statement);
     allFacts.push(...built.facts);
-    warnings.push(warning(CODE.NET_RESULT_NOT_COMPUTED, "Net profit/(loss) for the period is not computed by this adapter version — section subtotals only (Revenue, Cost of Sales, Operating Expenses, Other Income, Taxation)"));
+    const resultLine = built.statement.sections.flatMap((sec) => sec.lines).find((l) => l.concept === NET_RESULT_CONCEPT);
+    for (const periodId of periodIds) {
+      if (!resultLine?.factBindings.some((b) => b.periodId === periodId)) {
+        warnings.push(warning(CODE.NET_RESULT_UNAVAILABLE, `Net result for period "${periodId}" is not presented: it needs at least one complete income section and one complete expense section for that period`));
+      }
+    }
   }
 
   const accountingPolicies: AccountingPolicy[] = [];

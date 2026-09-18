@@ -95,11 +95,24 @@ describe("trialBalanceAdapter — happy path", () => {
     expect(extraction.warnings.some((w) => w.includes("TB_CASH_FLOW_CLASSIFICATION_SKIPPED"))).toBe(true);
   });
 
-  it("does not fabricate a net-profit line on the P&L", async () => {
+  it("presents the net result as signed income minus expenses, exactly", async () => {
     const report = await buildValidatedReport(balancedCurrentPeriodLines());
     const pl = report.statements.find((s) => s.type === "STATEMENT_OF_PROFIT_OR_LOSS")!;
-    const allConcepts = pl.sections.flatMap((s) => s.lines.map((l) => l.concept));
-    expect(allConcepts.some((c) => c.includes("net"))).toBe(false);
+    const line = pl.sections.flatMap((s) => s.lines).find((l) => l.concept === "net_result")!;
+    const fact = report.facts.find((f) => f.factId === line.factBindings[0].factId)!;
+    // revenue 12,000,000 - cost of sales 6,000,000 - operating expenses 3,000,000 = 3,000,000.00
+    expect(fact.value).toEqual({ currency: "TZS", scale: 2, minorUnits: 300_000_000n });
+    expect(fact.provenance.originalText).toContain("Net result =");
+  });
+
+  it("emits no net result (never a zero) when there is no expense section, and says why", async () => {
+    const adapter = createTrialBalanceAdapter();
+    const lines = balancedCurrentPeriodLines().filter((l) => l.classification !== "cost_of_goods_sold" && l.classification !== "operating_expenses");
+    const extraction = await adapter.normalize({ companyId: "company-1", periodYear: 2025, reviewedAccountLines: lines });
+    const pl = extraction.statements.find((s) => s.type === "STATEMENT_OF_PROFIT_OR_LOSS")!;
+    const line = pl.sections.flatMap((s) => s.lines).find((l) => l.concept === "net_result")!;
+    expect(line.factBindings).toHaveLength(0);
+    expect(extraction.warnings.some((w) => w.includes("TB_NET_RESULT_UNAVAILABLE"))).toBe(true);
   });
 
   it("carries a comparative period through to a comparative-period-aware fact binding", async () => {

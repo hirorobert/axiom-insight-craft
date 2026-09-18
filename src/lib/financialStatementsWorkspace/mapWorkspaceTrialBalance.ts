@@ -55,9 +55,20 @@ export interface UnmappedAccount {
   readonly accountName: string;
 }
 
+export interface AmbiguousAccount {
+  readonly accountCode: string;
+  readonly accountName: string;
+  /** Distinct placements found for this account code — never resolved by picking one. */
+  readonly placements: readonly string[];
+}
+
 export interface MapReviewedTrialBalanceResult {
   readonly lines: readonly ReviewedTrialBalanceAccountLine[];
   readonly unmappedAccounts: readonly UnmappedAccount[];
+  /** Accounts with conflicting mapping rows: excluded, and reported for review. */
+  readonly ambiguousAccounts: readonly AmbiguousAccount[];
+  /** Number of distinct accounts present in the trial balance. */
+  readonly totalAccounts: number;
 }
 
 const KNOWN_CLASSIFICATIONS = new Set<string>([
@@ -96,19 +107,32 @@ export function mapWorkspaceTrialBalanceToReviewedLines(params: {
   readonly currency: string;
   readonly scale?: number;
   readonly sourceUploadId: string;
+  /** "CURRENT" (default) or the declared comparative periodId, e.g. "COMPARATIVE_1". */
+  readonly periodId?: string;
 }): MapReviewedTrialBalanceResult {
+  const periodId = params.periodId ?? "CURRENT";
   const scale = params.scale ?? 2;
-  const mappingByCode = new Map<string, AccountMappingRow>();
+  const rowsByCode = new Map<string, AccountMappingRow[]>();
   for (const m of params.accountMappings) {
-    if (m.account_code) mappingByCode.set(m.account_code, m);
+    if (!m.account_code) continue;
+    const bucket = rowsByCode.get(m.account_code) ?? [];
+    bucket.push(m);
+    rowsByCode.set(m.account_code, bucket);
   }
 
   const entries = collectAccountEntries(params.statements);
   const unmappedAccounts: UnmappedAccount[] = [];
+  const ambiguousAccounts: AmbiguousAccount[] = [];
   const lines: ReviewedTrialBalanceAccountLine[] = [];
 
   for (const entry of entries) {
-    const mapping = mappingByCode.get(entry.account_code);
+    const candidates = rowsByCode.get(entry.account_code) ?? [];
+    const placements = [...new Set(candidates.map((c) => `${c.statement}/${c.classification}/${c.normal_balance}`))].sort();
+    if (placements.length > 1) {
+      ambiguousAccounts.push({ accountCode: entry.account_code, accountName: entry.account_name, placements });
+      continue;
+    }
+    const mapping = candidates[0];
     if (!mapping || !KNOWN_CLASSIFICATIONS.has(mapping.classification)) {
       unmappedAccounts.push({ accountCode: entry.account_code, accountName: entry.account_name });
       continue;
@@ -133,8 +157,8 @@ export function mapWorkspaceTrialBalanceToReviewedLines(params: {
       balance: entry.balance,
       currency: params.currency,
       scale,
-      periodId: "CURRENT",
-      isComparative: false,
+      periodId,
+      isComparative: periodId !== "CURRENT",
       isCashAccount: mapping.is_cash_account,
       isRetainedEarnings: mapping.is_retained_earnings,
       isPayrollAccount: mapping.is_payroll_account,
@@ -147,5 +171,5 @@ export function mapWorkspaceTrialBalanceToReviewedLines(params: {
     });
   }
 
-  return { lines, unmappedAccounts };
+  return { lines, unmappedAccounts, ambiguousAccounts, totalAccounts: entries.length };
 }

@@ -117,3 +117,80 @@ describe("financial_statement_reports migration contract", () => {
     }
   });
 });
+
+describe("financial_statement_reports migration — proofs required by the workspace directive", () => {
+  const code = () => sql.replace(/--.*$/gm, "");
+  const migrationsDir = path.join(REPO_ROOT, "supabase/migrations");
+  const otherMigrations = () =>
+    fs
+      .readdirSync(migrationsDir)
+      .filter((f) => f.endsWith(".sql") && f !== "20260917000000_financial_statement_reports.sql")
+      .map((f) => ({ f, text: fs.readFileSync(path.join(migrationsDir, f), "utf8").replace(/--.*$/gm, "") }));
+
+  it("append-only evaluation history: no UPDATE/DELETE path exists and a trigger rejects both", () => {
+    expect(sql).toMatch(/financial_statement_evaluations_guard[\s\S]{0,300}?RAISE EXCEPTION/);
+    expect(sql).toMatch(/BEFORE UPDATE OR DELETE ON public\.financial_statement_evaluations/);
+    expect(code()).not.toMatch(/\bUPDATE\s+public\.financial_statement_\w+\s+SET/i);
+    expect(code()).not.toMatch(/\bDELETE\s+FROM\s+public\.financial_statement_/i);
+  });
+
+  it("report-version concurrency: per-report advisory lock, exact latest+1 check, conflicting replay refused", () => {
+    const fn = sql.match(/CREATE OR REPLACE FUNCTION public\.save_financial_statement_report\([\s\S]*?\$\$;/)![0];
+    expect(fn).toMatch(/pg_advisory_xact_lock\(hashtext\('financial_statement_reports:' \|\| p_report_id\)\)/);
+    expect(fn).toMatch(/p_report_version <> COALESCE\(v_latest, 0\) \+ 1/);
+    expect(fn).toMatch(/STALE_REPORT_VERSION/);
+    expect(fn).toMatch(/v_row\.content_hash = p_content_hash/);
+    // lock must be taken before the first read of the lineage
+    expect(fn.indexOf("pg_advisory_xact_lock")).toBeLessThan(fn.indexOf("SELECT * INTO v_row"));
+    // a report lineage can never move to a different company
+    expect(fn).toMatch(/report % belongs to a different company/);
+  });
+
+  it("firm/company authorization: every write RPC verifies membership or lineage ownership itself", () => {
+    const fns = ["save_financial_statement_report", "save_financial_statement_evaluation", "append_financial_statement_reviewer_decision"];
+    for (const name of fns) {
+      const fn = sql.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\([\\s\\S]*?\\$\\$;`))![0];
+      expect(fn).toMatch(/firm_members fm|financial_statement_reports fsr/);
+      expect(fn).toMatch(/SET search_path = pg_catalog, public/);
+    }
+    // members are always "accepted", never merely invited
+    expect(sql.match(/accepted_at IS NOT NULL/g)!.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("no float monetary authority: no numeric/float/real/money column anywhere", () => {
+    expect(code()).not.toMatch(/\b(NUMERIC|DECIMAL|FLOAT|REAL|DOUBLE PRECISION|MONEY)\b/i);
+  });
+
+  it("no destructive behaviour: no DROP/TRUNCATE/ALTER of existing objects, and every FK is RESTRICT", () => {
+    // The only ALTER TABLE permitted is enabling RLS on the tables this migration itself creates.
+    const withoutRls = code().replace(/ALTER TABLE public\.financial_statement_\w+ ENABLE ROW LEVEL SECURITY;/g, "");
+    expect(withoutRls).not.toMatch(/\b(DROP\s+(TABLE|COLUMN|FUNCTION|POLICY|TRIGGER|SCHEMA|TYPE)|TRUNCATE|ALTER\s+TABLE)\b/i);
+    expect(code()).not.toMatch(/ON DELETE (CASCADE|SET NULL|SET DEFAULT)/i);
+  });
+
+  it("compatibility with current main: is the newest migration, and creates nothing another migration already created", () => {
+    const names = fs.readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
+    expect(names[names.length - 1]).toBe("20260917000000_financial_statement_reports.sql");
+    const created = [...code().matchAll(/CREATE\s+(?:OR REPLACE\s+)?(?:TABLE|FUNCTION|TRIGGER|INDEX|UNIQUE INDEX)\s+(?:IF NOT EXISTS\s+)?(?:public\.)?(\w+)/gi)].map((m) => m[1].toLowerCase());
+    expect(created.length).toBeGreaterThan(10);
+    for (const { f, text } of otherMigrations()) {
+      for (const name of created) {
+        expect(text.toLowerCase(), `${name} also created in ${f}`).not.toMatch(new RegExp(`create\\s+(?:or replace\\s+)?(?:unique\\s+)?(?:table|function|trigger|index)\\s+(?:if not exists\\s+)?(?:public\\.)?${name}\\b`));
+      }
+    }
+  });
+
+  it("only depends on tables that earlier migrations create (companies, firm_members)", () => {
+    const referenced = new Set([...code().matchAll(/REFERENCES\s+public\.(\w+)/gi)].map((m) => m[1]));
+    for (const table of referenced) {
+      if (table.startsWith("financial_statement_reports")) continue;
+      const defined = otherMigrations().some(({ text }) => new RegExp(`create\\s+table\\s+(?:if not exists\\s+)?public\\.${table}\\b`, "i").test(text));
+      expect(defined, `${table} is not created by any other migration`).toBe(true);
+    }
+  });
+
+  it("persistence stays disabled in source until the migration is applied", () => {
+    const gate = fs.readFileSync(path.join(REPO_ROOT, "src/lib/financialStatementsWorkspace/persistenceGate.ts"), "utf8");
+    expect(gate).toMatch(/FINANCIAL_STATEMENT_PERSISTENCE_ENABLED = false;/);
+  });
+});

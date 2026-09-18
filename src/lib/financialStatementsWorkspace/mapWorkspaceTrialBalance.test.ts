@@ -68,4 +68,21 @@ describe("mapWorkspaceTrialBalanceToReviewedLines", () => {
     expect(a.lines[0].sourceHash).toBe(b.lines[0].sourceHash);
     expect(a.lines[0].sourceHash).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it("reports conflicting mapping rows for one account as ambiguous instead of picking one", () => {
+    const mappings: AccountMappingRow[] = [
+      mapping({ account_key: "1000", account_code: "1000", account_name: "Cash", statement: "balance_sheet", classification: "current_assets", normal_balance: "debit" }),
+      mapping({ account_key: "1000-b", account_code: "1000", account_name: "Cash", statement: "balance_sheet", classification: "non_current_assets", normal_balance: "debit" }),
+    ];
+    const result = mapWorkspaceTrialBalanceToReviewedLines({ statements: { balance_sheet: statements.balance_sheet }, accountMappings: mappings, currency: "TZS", sourceUploadId: "u" });
+    expect(result.lines.map((l) => l.accountCode)).not.toContain("1000");
+    expect(result.ambiguousAccounts).toEqual([{ accountCode: "1000", accountName: "Cash at Bank", placements: ["balance_sheet/current_assets/debit", "balance_sheet/non_current_assets/debit"] }]);
+  });
+
+  it("tags comparative lines with the declared comparative period", () => {
+    const mappings: AccountMappingRow[] = [mapping({ account_key: "1000", account_code: "1000", account_name: "Cash", statement: "balance_sheet", classification: "current_assets", normal_balance: "debit" })];
+    const result = mapWorkspaceTrialBalanceToReviewedLines({ statements: { balance_sheet: statements.balance_sheet }, accountMappings: mappings, currency: "TZS", sourceUploadId: "prior", periodId: "COMPARATIVE_1" });
+    expect(result.lines[0]).toMatchObject({ periodId: "COMPARATIVE_1", isComparative: true });
+    expect(result.totalAccounts).toBe(2);
+  });
 });

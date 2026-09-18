@@ -17,7 +17,8 @@ import { buildRuleContext, type Clock, systemClock } from "@/lib/canonicalStatem
 import { runCanonicalRulePackV1, CANONICAL_RULE_PACK_V1, ENGINE_VERSION } from "@/lib/canonicalStatement/rules/rulePack";
 import { recordFactCorrection, type CanonicalReviewState } from "@/lib/canonicalStatement/reviewState";
 import { appendDecision as appendStandaloneDecision, type StandaloneReviewerDecision } from "@/lib/canonicalStatement/reviewerDecisions";
-import { ZERO_TOLERANCE, isValidCurrencyCode, type Tolerance } from "@/lib/canonicalStatement/money";
+import { ZERO_TOLERANCE, formatMoney, isValidCurrencyCode, type Tolerance } from "@/lib/canonicalStatement/money";
+import { indexLatestFacts } from "@/lib/canonicalStatement/provenance";
 import type {
   CanonicalFinancialStatementReport,
   ComparativePeriod,
@@ -26,7 +27,7 @@ import type {
   ReportingPeriod,
 } from "@/lib/canonicalStatement/types";
 import { CANONICAL_SCHEMA_VERSION } from "@/lib/canonicalStatement/types";
-import { createTrialBalanceAdapter } from "./trialBalanceAdapter";
+import { createTrialBalanceAdapter, type ReviewedTrialBalanceAccountLine } from "./trialBalanceAdapter";
 import { resolveCanonicalFramework, UnresolvedCurrencyError } from "./adapterContract";
 import type { EvaluationRunRecord, FinancialStatementReportRepository, StoredReportSnapshot } from "./reportRepository";
 
@@ -190,4 +191,79 @@ export async function recordReviewerDecision(reportId: string, decision: Standal
   if (!existing) throw new Error(`No stored report for reportId "${reportId}"`);
   appendStandaloneDecision(existing.decisions, decision); // validates append-only invariant; repo.appendDecision performs the actual persisted append
   await repo.appendDecision(reportId, decision);
+}
+
+/**
+ * Corrects a source figure AND re-derives every dependent subtotal/total/net
+ * result, atomically. In a TRIAL_BALANCE_DERIVED report the totals are
+ * derived facts; correcting only the leaf would leave every dependent total
+ * mis-cast. The dependents are recomputed by re-running the deterministic
+ * trial-balance adapter on the corrected input (no arithmetic is duplicated
+ * here) and each changed fact is recorded as its own canonical CORRECT_FACT
+ * decision, linked to the reviewer's decision by id and rationale. The whole
+ * chain is built in memory through recordFactCorrection and persisted with a
+ * single saveReport, so either every step lands or none does.
+ */
+export async function correctFactAndRecast(params: {
+  readonly reportId: string;
+  readonly decision: CorrectFactDecision;
+  readonly provenance: ProvenanceRecord;
+  readonly reviewedAccountLines: readonly ReviewedTrialBalanceAccountLine[];
+  readonly repo: FinancialStatementReportRepository;
+}): Promise<StoredReportSnapshot> {
+  const { reportId, decision, provenance, reviewedAccountLines, repo } = params;
+  const existing = await repo.getByReportId(reportId);
+  if (!existing) throw new Error(`No stored report for reportId "${reportId}"`);
+  if (decision.correctedValue === null) throw new Error("A recast correction needs a concrete corrected amount.");
+
+  const adapter = createTrialBalanceAdapter();
+  const companyId = existing.report.reportIdentity.companyId;
+  const periodYear = existing.report.period.periodYear;
+  const before = await adapter.normalize({ companyId, periodYear, reviewedAccountLines });
+  const target = before.facts.find((f) => f.factId === decision.factId);
+  if (!target || target.provenance.locator.kind !== "TRIAL_BALANCE_ROW" || !target.factId.startsWith("fact:detail:")) {
+    throw new Error(`Fact "${decision.factId}" is a derived figure, not a source figure — correct the underlying account instead.`);
+  }
+  const locator = target.provenance.locator;
+  const periodId = target.reportingPeriod.periodId;
+  const matches = reviewedAccountLines.filter((l) => (l.accountCode ?? l.accountKey) === locator.accountCode && l.periodId === periodId);
+  if (matches.length !== 1) throw new Error(`Cannot identify the source account for fact "${decision.factId}" unambiguously.`);
+
+  const corrected = Number(formatMoney(decision.correctedValue));
+  const modified = reviewedAccountLines.map((l) => (l === matches[0] ? { ...l, balance: corrected } : l));
+  const after = await adapter.normalize({ companyId, periodYear, reviewedAccountLines: modified });
+
+  const latest = indexLatestFacts(existing.report.facts);
+  const changed = after.facts
+    .filter((f) => f.factId !== decision.factId)
+    .filter((f) => {
+      const cur = latest.get(f.factId);
+      return !!cur && !!cur.value && !!f.value && cur.value.minorUnits !== f.value.minorUnits;
+    })
+    .sort((a, b) => a.factId.localeCompare(b.factId));
+
+  let state: CanonicalReviewState = { report: existing.report, decisions: existing.decisions };
+  state = recordFactCorrection(state, decision, provenance);
+  let n = 0;
+  for (const fact of changed) {
+    n += 1;
+    const cur = indexLatestFacts(state.report.facts).get(fact.factId)!;
+    const step: CorrectFactDecision = {
+      decisionId: `${decision.decisionId}:recast:${n}`,
+      decisionType: "CORRECT_FACT",
+      reviewerId: decision.reviewerId,
+      decidedAt: decision.decidedAt,
+      factId: fact.factId,
+      supersedesVersion: cur.version,
+      newVersion: cur.version + 1,
+      correctedValue: fact.value,
+      rationale: `Re-derived from corrected figure ${decision.factId} (decision ${decision.decisionId}): ${decision.rationale}`,
+      expectedReportVersion: state.report.reportIdentity.reportVersion,
+    };
+    state = recordFactCorrection(state, step, { ...provenance, locator: { kind: "MANUAL", note: `Recast after correction ${decision.decisionId}` }, originalText: formatMoney(fact.value!) });
+  }
+
+  const snapshot: StoredReportSnapshot = { report: state.report, decisions: state.decisions };
+  await repo.saveReport(snapshot);
+  return snapshot;
 }

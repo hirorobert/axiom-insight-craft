@@ -11,10 +11,14 @@ export type FindingFilter = "ALL" | FindingBucket;
 
 export type EffectiveStatus = "OPEN" | "ACCEPTED" | "REJECTED" | "DEFERRED" | "AWAITING_EVIDENCE" | "NOT_ACTIONABLE";
 
+export type ReviewLabel = "Open" | "Accepted with documented judgement" | "Not applicable" | "Unresolved" | "Awaiting evidence" | "Corrected";
+
 export interface FindingView {
   readonly record: RuleEvaluationRecord;
   readonly effectiveStatus: EffectiveStatus;
   readonly bucket: FindingBucket;
+  /** What the reviewer has done about it. "Corrected" is shown only where a fact correction touched this finding's own evidence. */
+  readonly reviewLabel: ReviewLabel;
 }
 
 const BLOCKING_SEVERITIES: ReadonlySet<FindingSeverity> = new Set(["CRITICAL", "HIGH"]);
@@ -27,18 +31,22 @@ const BLOCKING_SEVERITIES: ReadonlySet<FindingSeverity> = new Set(["CRITICAL", "
  * that produces a new report version changes the outcome).
  */
 export function buildFindingViews(findings: readonly RuleEvaluationRecord[], decisions: ReviewerDecisionLog): readonly FindingView[] {
+  const correctedFactIds = new Set(decisions.flatMap((d) => (d.decisionType === "CORRECT_FACT" ? [d.factId] : [])));
   return findings.map((record) => {
+    const touchedByCorrection = record.evidenceReferences.some((e) => e.factId && correctedFactIds.has(e.factId));
     if (!record.actionable) {
-      return { record, effectiveStatus: "NOT_ACTIONABLE", bucket: "PASSED" };
+      return { record, effectiveStatus: "NOT_ACTIONABLE", bucket: "PASSED", reviewLabel: touchedByCorrection ? "Corrected" : "Open" };
     }
     const effectiveStatus = deriveFindingStatus(decisions, { findingKey: record.findingKey });
+    const label: ReviewLabel =
+      effectiveStatus === "ACCEPTED" ? "Accepted with documented judgement" : effectiveStatus === "REJECTED" ? "Not applicable" : effectiveStatus === "DEFERRED" ? "Unresolved" : effectiveStatus === "AWAITING_EVIDENCE" ? "Awaiting evidence" : "Open";
     if (effectiveStatus === "ACCEPTED" || effectiveStatus === "REJECTED") {
-      return { record, effectiveStatus, bucket: "RESOLVED" };
+      return { record, effectiveStatus, bucket: "RESOLVED", reviewLabel: label };
     }
     if (record.outcome === "INSUFFICIENT_EVIDENCE") {
-      return { record, effectiveStatus, bucket: "INSUFFICIENT_EVIDENCE" };
+      return { record, effectiveStatus, bucket: "INSUFFICIENT_EVIDENCE", reviewLabel: label };
     }
-    return { record, effectiveStatus, bucket: BLOCKING_SEVERITIES.has(record.failureSeverity) ? "BLOCKING" : "WARNING" };
+    return { record, effectiveStatus, bucket: BLOCKING_SEVERITIES.has(record.failureSeverity) ? "BLOCKING" : "WARNING", reviewLabel: label };
   });
 }
 
