@@ -11,7 +11,7 @@
  * rather than showing dead buttons.
  */
 import { useMemo } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, Printer, RefreshCw } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,17 @@ const FRAMEWORK_LABELS: Record<string, string> = {
   ipsas_cash: "IPSAS (cash)",
 };
 
+// Isolates this section when printing (browser print / save as PDF) and repeats table headers across pages.
+const PRINT_CSS = `@media print {
+  @page { size: A4 portrait; margin: 15mm; }
+  body * { visibility: hidden; }
+  #fs-print-root, #fs-print-root * { visibility: visible; }
+  #fs-print-root { position: absolute; left: 0; top: 0; width: 100%; }
+  #fs-print-root thead { display: table-header-group; }
+  #fs-print-root tr { break-inside: avoid; }
+  #fs-print-root table { width: 100%; }
+}`;
+
 function focusLine(lineId: string) {
   const el = document.getElementById(statementLineDomId(lineId));
   if (!el) return;
@@ -53,7 +64,8 @@ export function CanonicalStatementSection(props: CanonicalStatementSectionProps)
   const views = useMemo(() => (preview.evaluation && preview.snapshot ? buildFindingViews(preview.evaluation.findings, preview.snapshot.decisions) : []), [preview.evaluation, preview.snapshot]);
 
   return (
-    <section aria-labelledby="fs-canonical-heading" className="space-y-4 border border-border p-4 print:border-0">
+    <section id="fs-print-root" aria-labelledby="fs-canonical-heading" className="space-y-4 border border-border p-4 print:border-0">
+      <style>{PRINT_CSS}</style>
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id="fs-canonical-heading" className="text-sm font-semibold text-foreground">
@@ -65,12 +77,22 @@ export function CanonicalStatementSection(props: CanonicalStatementSectionProps)
         </div>
         <div className="flex items-center gap-2 print:hidden">
           <Badge variant="outline">Draft — not saved</Badge>
+          {preview.status === "ready" && (
+            <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
+              <Printer className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+              Print draft
+            </Button>
+          )}
           <Button type="button" variant="outline" size="sm" onClick={preview.rerun} disabled={preview.status === "loading"}>
             <RefreshCw className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
             Re-run validation
           </Button>
         </div>
       </header>
+
+      <p className="hidden print:block text-xs font-semibold uppercase tracking-wide">
+        Draft — not reviewed or approved{preview.status === "ready" && !isApprovalReady(views) ? " — unresolved findings remain" : ""}
+      </p>
 
       {preview.status === "loading" && (
         <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -124,7 +146,9 @@ export function CanonicalStatementSection(props: CanonicalStatementSectionProps)
           {preview.snapshot.report.statements.map((statement) => (
             <StatementRenderer key={statement.statementId} report={preview.snapshot!.report} statement={statement} />
           ))}
-          <FindingsPanel views={views} onFocusLine={focusLine} />
+          <div className="print:hidden">
+            <FindingsPanel views={views} onFocusLine={focusLine} />
+          </div>
         </>
       )}
     </section>
