@@ -58,14 +58,14 @@ export function FindingsPanel({ views, onFocusLine }: { views: readonly FindingV
         <p className="text-sm text-muted-foreground">No findings in this category.</p>
       ) : (
         <ul className="space-y-2">
-          {visible.map(({ record, effectiveStatus, bucket }) => {
+          {visible.map(({ record, reviewLabel, bucket }) => {
             const lineId = affectedLineId(record);
             return (
               <li key={record.evaluationId} className="border border-border p-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={bucket === "BLOCKING" ? "destructive" : "secondary"}>{record.outcome.replace("_", " ")}</Badge>
                   <Badge variant="outline">{record.failureSeverity}</Badge>
-                  <Badge variant="outline">{effectiveStatus.replace("_", " ")}</Badge>
+                  <Badge variant="outline" data-testid="review-label">{reviewLabel}</Badge>
                   <span className="font-mono text-xs text-muted-foreground">{record.ruleId}</span>
                 </div>
                 <p className="mt-2 text-foreground">{record.deterministicCalculation}</p>
