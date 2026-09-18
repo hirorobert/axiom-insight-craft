@@ -137,7 +137,7 @@ const presentationCurrencySchema = z.object({
 const sourceArtifactSchema = z.object({
   sourceDocumentId: nonEmptyId,
   sourceHash: z.string().regex(SOURCE_HASH_SHAPE, "must be exactly 64 hexadecimal characters"),
-  artifactKind: z.enum(["PDF", "DOCX", "XLSX", "IXBRL", "TRIAL_BALANCE"]),
+  artifactKind: z.enum(["PDF", "DOCX", "XLSX", "IXBRL", "TRIAL_BALANCE", "EVIDENCE_BATCH"]),
   originalFileName: z.string().optional(),
   mimeType: z.string().optional(),
 });
@@ -150,6 +150,7 @@ const sourceLocatorSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("XLSX_CELL"), sheetName: nonEmptyId, cellRef: nonEmptyId }),
   z.object({ kind: z.literal("IXBRL_ELEMENT"), elementId: nonEmptyId, xpath: z.string().optional() }),
   z.object({ kind: z.literal("TRIAL_BALANCE_ROW"), accountCode: nonEmptyId, uploadId: nonEmptyId }),
+  z.object({ kind: z.literal("EVIDENCE_ROW"), batchId: nonEmptyId, rowNumber: z.number().int().positive(), derivation: nonEmptyId.optional() }),
   z.object({ kind: z.literal("MANUAL"), note: z.string() }),
 ]);
 
@@ -161,7 +162,7 @@ const extractionConfidenceSchema = z.discriminatedUnion("kind", [
 const provenanceRecordSchema = z.object({
   source: sourceArtifactSchema,
   locator: sourceLocatorSchema,
-  extractionMethod: z.enum(["TRIAL_BALANCE_DERIVED", "IXBRL_TAGGED", "PDF_TEXT_LAYOUT", "PDF_OCR", "DOCX_STRUCTURED", "XLSX_CELL", "MANUAL_REVIEWER_ENTRY"]),
+  extractionMethod: z.enum(["TRIAL_BALANCE_DERIVED", "IXBRL_TAGGED", "PDF_TEXT_LAYOUT", "PDF_OCR", "DOCX_STRUCTURED", "XLSX_CELL", "EVIDENCE_BATCH_DERIVED", "MANUAL_REVIEWER_ENTRY"]),
   extractionConfidence: extractionConfidenceSchema,
   originalText: z.string(),
 });
