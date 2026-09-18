@@ -467,7 +467,25 @@ export const CompanyManager = () => {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className={`grid gap-4 ${editingCompany ? "grid-cols-2" : "grid-cols-3"}`}>
+              {!editingCompany && (
+                <div className="space-y-2">
+                  <Label htmlFor="reporting_year">Reporting Year</Label>
+                  <Select
+                    value={formData.reporting_year}
+                    onValueChange={(value) => setFormData({ ...formData, reporting_year: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map((y) => (
+                        <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="fiscal_year_end">Fiscal Year End</Label>
                 <Select
