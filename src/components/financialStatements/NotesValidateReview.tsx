@@ -305,4 +305,3 @@ export function ReviewStage({ model, onFocusLine }: { model: FinancialStatements
     </section>
   );
 }
-
