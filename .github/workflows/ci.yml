@@ -5,6 +5,8 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # Manual runs only: the write-capable staging RLS regression is reachable ONLY through this trigger.
+  workflow_dispatch:
 
 jobs:
   migration-audit:
@@ -97,15 +99,37 @@ jobs:
         # These are pure-function tests — no DB, no network, no mocks except supabase client.
 
   rls-regression:
-    name: RLS Regression Suite
+    name: Staging RLS Regression (manual, write-capable)
+    # WRITE-CAPABLE: this suite creates users, companies and rows in the Supabase project it
+    # targets. It must never run automatically, so it is reachable ONLY through a manual
+    # workflow_dispatch, never from pull_request or push.
+    #
+    # It also requires the protected `staging` GitHub environment. Configure that environment
+    # (repository settings) with: required reviewers, deployment branches limited to `main`, the
+    # secrets STAGING_SUPABASE_URL / STAGING_SUPABASE_ANON_KEY / STAGING_SUPABASE_SERVICE_ROLE_KEY,
+    # and the variable STAGING_SUPABASE_PROJECT_REF (the explicit expected staging project
+    # reference). Until that variable exists the guard below fails closed and nothing runs.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    # Requires live DB credentials — only runs when secrets are configured
-    if: ${{ github.event_name == 'pull_request' }}
-    needs: []
+    environment: staging
+    timeout-minutes: 15
+    concurrency:
+      group: rls-regression-staging
+      cancel-in-progress: false
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # Fail-closed guard. Runs BEFORE dependencies are installed and before any client exists.
+      # Secrets are scoped to the steps that need them (never job-level) and are never printed.
+      - name: Verify the target is the expected staging project (never production)
+        env:
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
+        run: node scripts/ci/stagingGuard.mjs
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -115,19 +139,14 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Run RLS regression suite
-        # Skips silently if secrets not configured. Otherwise exercises
-        # cross-tenant + cross-role isolation on every sensitive table.
+      - name: Run RLS regression suite against staging
+        # The suite re-runs the same guard itself before creating any client.
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-            echo "::warning::RLS regression skipped — Supabase secrets not configured on this runner."
-            exit 0
-          fi
-          bun run test:rls
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
+        run: bun run test:rls
 
   db-contract-tests:
     name: Disposable-DB Contract Tests (Ω∞ A+ closure)

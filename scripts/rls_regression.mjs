@@ -20,23 +20,41 @@
  *
  * Cleans up all created rows/users regardless of pass/fail.
  *
- * ENV:
- *   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+ * WRITE-CAPABLE: this suite creates users, companies and rows in the Supabase
+ * project it targets. It therefore refuses to run unless a STAGING project is
+ * explicitly configured and verified (scripts/ci/stagingGuard.mjs), and it
+ * never reads the generic SUPABASE_URL / SUPABASE_*_KEY variables, so a shell
+ * that happens to hold production credentials cannot point it at production.
+ *
+ * ENV (all required):
+ *   STAGING_SUPABASE_URL, STAGING_SUPABASE_ANON_KEY, STAGING_SUPABASE_SERVICE_ROLE_KEY,
+ *   STAGING_SUPABASE_PROJECT_REF   (the explicit expected staging project reference)
  *
  * Usage:
  *   node scripts/rls_regression.mjs
- *   → exit 0 on all-pass, 1 on any failure.
+ *   → exit 0 on all-pass, 1 on any failure (including a refused target).
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import { createClient } from '@supabase/supabase-js'
+import { StagingGuardError, assertStagingTargetFromEnv } from './ci/stagingGuard.mjs'
 
-const SUPABASE_URL      = process.env.SUPABASE_URL
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY
-const SERVICE_ROLE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
+// Fail-closed guard: runs before ANY client exists, so nothing can be written to an unverified project.
+try {
+  assertStagingTargetFromEnv()
+} catch (err) {
+  const code = err instanceof StagingGuardError ? err.code : 'GUARD_ERROR'
+  const message = err instanceof StagingGuardError ? err.message : 'The staging guard failed unexpectedly.'
+  console.error(`RLS regression refused to run [${code}]: ${message}`)
+  process.exit(1)
+}
+
+const SUPABASE_URL      = process.env.STAGING_SUPABASE_URL
+const SUPABASE_ANON_KEY = process.env.STAGING_SUPABASE_ANON_KEY
+const SERVICE_ROLE_KEY  = process.env.STAGING_SUPABASE_SERVICE_ROLE_KEY
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SERVICE_ROLE_KEY) {
-  console.error('Missing SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY')
+  console.error('Missing STAGING_SUPABASE_URL / STAGING_SUPABASE_ANON_KEY / STAGING_SUPABASE_SERVICE_ROLE_KEY')
   process.exit(1)
 }
 
