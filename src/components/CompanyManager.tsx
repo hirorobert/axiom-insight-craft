@@ -71,6 +71,13 @@ interface CompanyFormData {
   description: string;
   industry: string;
   fiscal_year_end: string;
+  /**
+   * Reporting year for NEW companies only. Combined with the MM-DD
+   * fiscal_year_end into a full ISO date ('YYYY-MM-DD') on create, so new
+   * rows never fall back to the legacy year-less format. Ignored when
+   * editing (the stored row's own year prefix is preserved instead).
+   */
+  reporting_year: string;
   currency: string;
   reporting_framework: string | null;
 }
@@ -82,6 +89,7 @@ const EMPTY_FORM_DATA: CompanyFormData = {
   description: "",
   industry: "",
   fiscal_year_end: "12-31",
+  reporting_year: String(new Date().getFullYear() - 1),
   currency: "TZS",
   reporting_framework: null,
 };
@@ -137,9 +145,15 @@ export const CompanyManager = () => {
 
     // The form's dropdown only carries MM-DD. If the stored value was a full
     // ISO date ('YYYY-MM-DD'), re-apply its year prefix so saving an
-    // unrelated edit never silently drops the reporting year.
+    // unrelated edit never silently drops the reporting year. For a NEW
+    // company, combine the MM-DD with the explicitly selected reporting year
+    // so new rows are always stored as full ISO dates — never the legacy
+    // year-less 'MM-DD' format, which cannot be year-matched later.
     const storedFye = editingCompany?.fiscal_year_end ?? "";
-    const yearPrefix = /^\d{4}-\d{2}-\d{2}$/.test(storedFye) ? storedFye.slice(0, 5) : "";
+    const storedYearPrefix = /^\d{4}-\d{2}-\d{2}$/.test(storedFye) ? storedFye.slice(0, 5) : "";
+    const yearPrefix = editingCompany
+      ? storedYearPrefix
+      : `${formData.reporting_year}-`;
     const resolvedFiscalYearEnd =
       yearPrefix && /^\d{2}-\d{2}$/.test(formData.fiscal_year_end)
         ? `${yearPrefix}${formData.fiscal_year_end}`
