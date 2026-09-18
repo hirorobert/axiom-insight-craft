@@ -201,8 +201,12 @@ export async function recordReviewerDecision(reportId: string, decision: Standal
  * trial-balance adapter on the corrected input (no arithmetic is duplicated
  * here) and each changed fact is recorded as its own canonical CORRECT_FACT
  * decision, linked to the reviewer's decision by id and rationale. The whole
- * chain is built in memory through recordFactCorrection and persisted with a
- * single saveReport, so either every step lands or none does.
+ * chain is built in memory through recordFactCorrection and handed to the
+ * repository in ONE saveReport call, so the in-memory state transition is
+ * all-or-nothing. That is NOT a claim of durable database atomicity: the chain
+ * spans several reportVersions, and a persisted repository must be able to
+ * store every version (the current remote contract cannot — see
+ * RemoteFinancialStatementReportRepository.saveReport).
  */
 export async function correctFactAndRecast(params: {
   readonly reportId: string;

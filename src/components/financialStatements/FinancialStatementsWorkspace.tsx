@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useFinancialStatementsWorkspace, type AccountMappingLoader, type WorkspaceUploadInput } from "@/hooks/useFinancialStatementsWorkspace";
 import { deriveNextAction, isWorkspaceStage, STAGE_LABELS, WORKSPACE_STAGES, type WorkspaceStage } from "@/lib/financialStatementsWorkspace/nextAction";
 import { statementLineDomId } from "@/lib/financialStatementsWorkspace/findingsView";
+import { FINANCIAL_STATEMENTS_WORKSPACE_ENABLED, isWorkspaceRenderable } from "@/lib/financialStatementsWorkspace/workspaceGate";
 import { SourcesStage, StatementsStage, StructureStage } from "./SourcesStructureStatements";
 import { NotesStage, PersistenceBanner, ReviewStage, ValidateStage } from "./NotesValidateReview";
 import { OutputsStage } from "./OutputsStage";
@@ -44,7 +45,16 @@ function focusLine(lineId: string) {
   return true;
 }
 
+/**
+ * Gate boundary. Returns null BEFORE any hook, fetch, adapter or evaluation runs unless the
+ * source-controlled gate is on or this is a dev build (the non-production harness).
+ */
 export function FinancialStatementsWorkspace(props: FinancialStatementsWorkspaceProps) {
+  if (!isWorkspaceRenderable(FINANCIAL_STATEMENTS_WORKSPACE_ENABLED, import.meta.env.DEV === true)) return null;
+  return <FinancialStatementsWorkspaceEnabled {...props} />;
+}
+
+function FinancialStatementsWorkspaceEnabled(props: FinancialStatementsWorkspaceProps) {
   const model = useFinancialStatementsWorkspace(props);
   const [params, setParams] = useSearchParams();
   const requested = params.get("fs");
@@ -77,7 +87,7 @@ export function FinancialStatementsWorkspace(props: FinancialStatementsWorkspace
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" data-testid="draft-badge">
-            Draft — not saved
+            Internal preview — unsaved draft
           </Badge>
           <Button type="button" variant="outline" size="sm" onClick={model.rerun} disabled={model.status === "loading"}>
             <RefreshCw className="mr-1 h-3.5 w-3.5" aria-hidden="true" />

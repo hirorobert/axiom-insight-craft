@@ -56,4 +56,19 @@ describe("dev-harness isolation", () => {
     expect(fs.readFileSync(path.join(ROOT, "src/lib/product/outcomes.ts"), "utf8")).toMatch(/DOCUMENT_REVIEW_ENABLED = false;/);
     expect(fs.readFileSync(path.join(ROOT, "src/lib/financialStatementsWorkspace/persistenceGate.ts"), "utf8")).toMatch(/FINANCIAL_STATEMENT_PERSISTENCE_ENABLED = false;/);
   });
+
+  it("production default-off: with the gate closed, no workspace UI, hook or copy is present in any built asset (tree-shaken, not merely hidden)", () => {
+    const dist = path.join(ROOT, "dist");
+    if (!fs.existsSync(dist)) return; // enforced whenever a production build exists; the release gate always builds first
+    const needles = ["Internal preview", "unsaved draft", "Session only", "Professional Review", "Print / save as PDF", "fs-print-document", "Correct a figure", "financial_statement_reports", "NON-PRODUCTION HARNESS", "Harness Trading", "dev-harness"];
+    const hits: string[] = [];
+    const allFiles = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? allFiles(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+    const files = allFiles(dist);
+    expect(files.some((f) => f.endsWith(".js"))).toBe(true); // the scan must actually be reading the JS bundles
+    for (const f of files) {
+      const text = fs.readFileSync(f, "utf8");
+      for (const n of needles) if (text.includes(n)) hits.push(`${path.relative(dist, f)} contains "${n}"`);
+    }
+    expect(hits).toEqual([]);
+  });
 });

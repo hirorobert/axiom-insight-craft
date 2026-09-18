@@ -17,6 +17,7 @@ import { correctableFacts } from "@/lib/financialStatementsWorkspace/correctable
 import { isApprovalReady, type FindingView } from "@/lib/financialStatementsWorkspace/findingsView";
 import { REVIEW_OUTCOME_LABELS, type ReviewOutcome } from "@/lib/financialStatementsWorkspace/reviewerDecisionCommands";
 import type { PersistenceState } from "@/lib/financialStatementsWorkspace/persistenceContract";
+import { FINANCIAL_STATEMENT_PERSISTENCE_ENABLED } from "@/lib/financialStatementsWorkspace/persistenceGate";
 
 function moneyText(report: CanonicalFinancialStatementReport, factId: string): string {
   const fact = resolveLatestFact(report.facts, factId);
@@ -155,17 +156,19 @@ export function ValidateStage({ model, onFocusLine }: { model: FinancialStatemen
 // ─── Professional Review ────────────────────────────────────────────────────
 
 const PERSISTENCE_COPY: Record<PersistenceState, { title: string; body: string }> = {
-  UNSAVED_DRAFT: { title: "Unsaved draft", body: "Decisions are held in this session only until they are saved." },
-  UNAVAILABLE: { title: "Saving is not available yet", body: "Decisions and corrections are recorded in this session's draft only. They are not stored, and will be lost when the page is refreshed." },
+  UNSAVED_DRAFT: { title: "Session only — unsaved draft", body: "Decisions and corrections exist only in this browser session until saving is enabled. Reloading or leaving this page discards them." },
+  UNAVAILABLE: { title: "Session only — saving is not available", body: "Corrections and decisions exist only in this browser session. Nothing is written to any database, and reloading or leaving this page discards them." },
   PERSISTED: { title: "Saved", body: "This evaluation and its decisions are stored." },
   STALE_VERSION: { title: "Report version is stale", body: "The report changed after this decision was prepared. Re-run validation and decide again." },
   PERMISSION_DENIED: { title: "Permission needed", body: "Your account is not permitted to record review decisions for this company." },
 };
 
 export function PersistenceBanner({ state }: { state: PersistenceState }) {
-  const copy = PERSISTENCE_COPY[state];
+  // "Saved" can never be shown while persistence is disabled in source, whatever state a caller passes.
+  const effective: PersistenceState = state === "PERSISTED" && !FINANCIAL_STATEMENT_PERSISTENCE_ENABLED ? "UNAVAILABLE" : state;
+  const copy = PERSISTENCE_COPY[effective];
   return (
-    <Alert variant={state === "PERMISSION_DENIED" || state === "STALE_VERSION" ? "destructive" : "default"} data-persistence-state={state} role="status">
+    <Alert variant={state === "PERMISSION_DENIED" || state === "STALE_VERSION" ? "destructive" : "default"} data-persistence-state={effective} role="status">
       <AlertTitle>{copy.title}</AlertTitle>
       <AlertDescription>{copy.body}</AlertDescription>
     </Alert>
@@ -238,8 +241,11 @@ function DecisionForm({ view, report, onDecide }: { view: FindingView; report: C
           {error}
         </p>
       )}
+      <p className="text-xs font-medium text-foreground" data-testid="session-only-notice">
+        Session only: this decision is held in this browser session and is lost if you reload or leave the page. It is not saved anywhere.
+      </p>
       <Button type="submit" size="sm" disabled={busy}>
-        {busy ? "Recording…" : "Record decision"}
+        {busy ? "Recording…" : "Record decision (session only)"}
       </Button>
     </form>
   );
@@ -260,7 +266,7 @@ export function ReviewStage({ model, onFocusLine }: { model: FinancialStatements
         </Alert>
       )}
       <p className="text-xs text-muted-foreground">
-        Accepting a finding or marking it not applicable records your judgement and does not change the accounting result — the finding stays visible with its original outcome. Only a correction to a source figure changes the evaluated statements, and it re-derives every dependent total.
+        Accepting a finding or marking it not applicable records your judgement and does not change the accounting result — the finding stays visible with its original outcome. Only a correction to a source figure changes the evaluated statements. A correction is an all-or-nothing change to this session's in-memory draft that re-derives every dependent total; it is not a database transaction and it is not saved.
       </p>
       {actionable.length === 0 ? (
         <p className="text-sm text-muted-foreground">There is nothing to decide: no finding needs review.</p>
@@ -287,9 +293,9 @@ export function ReviewStage({ model, onFocusLine }: { model: FinancialStatements
         </ul>
       )}
       <div>
-        <h4 className="text-sm font-semibold text-foreground">Correction history</h4>
+        <h4 className="text-sm font-semibold text-foreground">Correction history (session only)</h4>
         {corrections.length === 0 ? (
-          <p className="mt-1 text-xs text-muted-foreground">No figures have been corrected.</p>
+          <p className="mt-1 text-xs text-muted-foreground">No figures have been corrected in this session.</p>
         ) : (
           <ol className="mt-1 space-y-1 text-xs" data-testid="correction-history">
             {corrections.map((d) =>

@@ -8,6 +8,7 @@
  * Prepare gate does NOT block Statements draft validation.
  */
 
+import { lazy, Suspense } from "react";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { HesabuAssurancePanel } from "@/components/HesabuAssurancePanel";
 import { PeriodClosingBalancesPanel } from "@/components/PeriodClosingBalancesPanel";
@@ -16,7 +17,12 @@ import { MappingSourcePreview } from "@/components/workspace/MappingSourcePrevie
 import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
 import { computePreflight } from "@/lib/workspace/computePreflight";
 import { ExportStatements, type ProcessingResult } from "@/components/ExportStatements";
-import { FinancialStatementsWorkspace } from "@/components/financialStatements/FinancialStatementsWorkspace";
+import { FINANCIAL_STATEMENTS_WORKSPACE_ENABLED } from "@/lib/financialStatementsWorkspace/workspaceGate";
+
+// Internal-preview workspace: loaded (and therefore evaluated) only when the source-controlled gate is on.
+const FinancialStatementsWorkspace = FINANCIAL_STATEMENTS_WORKSPACE_ENABLED
+  ? lazy(() => import("@/components/financialStatements/FinancialStatementsWorkspace").then((m) => ({ default: m.FinancialStatementsWorkspace })))
+  : null;
 
 export default function StatementsWorkspace() {
   const { upload, uploads, workspaceState, companyId, periodYear, company } = useWorkspace();
@@ -74,17 +80,21 @@ export default function StatementsWorkspace() {
             processingResult={upload.processing_result}
             fileName={upload.file_name}
           />
-          <FinancialStatementsWorkspace
-            companyId={companyId}
-            periodYear={periodYear}
-            companyName={upload.company_name ?? company?.name ?? ""}
-            companyTin={company?.tin ?? null}
-            reportingFramework={company?.reporting_framework ?? null}
-            currency={company?.currency ?? null}
-            fiscalYearEnd={company?.fiscal_year_end ?? null}
-            currentUpload={upload}
-            uploads={uploads}
-          />
+          {FinancialStatementsWorkspace && (
+            <Suspense fallback={null}>
+              <FinancialStatementsWorkspace
+                companyId={companyId}
+                periodYear={periodYear}
+                companyName={upload.company_name ?? company?.name ?? ""}
+                companyTin={company?.tin ?? null}
+                reportingFramework={company?.reporting_framework ?? null}
+                currency={company?.currency ?? null}
+                fiscalYearEnd={company?.fiscal_year_end ?? null}
+                currentUpload={upload}
+                uploads={uploads}
+              />
+            </Suspense>
+          )}
           <div className="border border-border p-4 sm:flex sm:items-center sm:justify-between sm:gap-6">
             <div>
               <p className="text-sm font-semibold text-foreground">Financial statement output</p>
