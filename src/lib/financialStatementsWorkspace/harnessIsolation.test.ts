@@ -21,7 +21,7 @@ function walk(dir: string, out: string[] = []): string[] {
 describe("dev-harness isolation", () => {
   it("nothing under src/ imports or names the harness or its fixture data", () => {
     const offenders = walk(path.join(ROOT, "src"))
-      .filter((f) => !f.endsWith("harnessIsolation.test.ts"))
+      .filter((f) => !/(harnessIsolation|databaseInert)\.test\.ts$/.test(f))
       .filter((f) => /dev-harness|Harness Trading Company|buildFixture/.test(fs.readFileSync(f, "utf8")));
     expect(offenders).toEqual([]);
   });

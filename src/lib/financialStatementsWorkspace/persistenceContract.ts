@@ -1,5 +1,8 @@
 // financialStatementsWorkspace/persistenceContract.ts — the client side of the
-// persistence contract authored in 20260917000000_financial_statement_reports.sql.
+// persistence contract. The database side (tables, RPCs, RLS) is NOT part of this
+// branch: it is preserved separately on `codex/financial-statements-persistence-candidate`.
+// Nothing here is reachable in production: FINANCIAL_STATEMENT_PERSISTENCE_ENABLED is false and no
+// production module instantiates RemoteFinancialStatementReportRepository.
 //
 //  - READS go straight to the three tables through the caller's own
 //    authenticated session (RLS: accepted firm members of the company only).
@@ -150,6 +153,7 @@ export class RemoteFinancialStatementReportRepository implements FinancialStatem
   }
 
   async getLatestByCompanyPeriod(companyId: string, periodYear: number, provenanceOrigin: CanonicalFinancialStatementReport["provenanceOrigin"]): Promise<StoredReportSnapshot | null> {
+    this.assertEnabled();
     const rows = await this.transport.select("financial_statement_reports", { company_id: companyId, period_year: periodYear, provenance_origin: provenanceOrigin });
     if (rows.length === 0) return null;
     const latest = [...rows].sort((a, b) => Number(b.report_version) - Number(a.report_version))[0];
@@ -158,6 +162,7 @@ export class RemoteFinancialStatementReportRepository implements FinancialStatem
   }
 
   async getByReportId(reportId: string): Promise<StoredReportSnapshot | null> {
+    this.assertEnabled();
     const rows = await this.transport.select("financial_statement_reports", { report_id: reportId });
     if (rows.length === 0) return null;
     const latest = [...rows].sort((a, b) => Number(b.report_version) - Number(a.report_version))[0];
@@ -179,6 +184,7 @@ export class RemoteFinancialStatementReportRepository implements FinancialStatem
   }
 
   async getEvaluationRun(reportId: string, reportVersion: number, rulePack: RulePackIdentity): Promise<EvaluationRunRecord | null> {
+    this.assertEnabled();
     const rows = await this.transport.select("financial_statement_evaluations", { report_id: reportId, report_version: reportVersion, rule_pack_id: rulePack.rulePackId, rule_pack_version: rulePack.rulePackVersion });
     if (rows.length === 0) return null;
     const r = rows[0];

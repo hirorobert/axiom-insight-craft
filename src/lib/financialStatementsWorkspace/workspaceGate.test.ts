@@ -77,6 +77,7 @@ describe("feature gate — static", () => {
       .sort();
     expect(users).toEqual([
       "src/components/financialStatements/FinancialStatementsWorkspace.tsx",
+      "src/lib/financialStatementsWorkspace/databaseInert.test.ts",
       "src/lib/financialStatementsWorkspace/workspaceGate.test.ts",
       "src/lib/financialStatementsWorkspace/workspaceGate.ts",
       "src/pages/workspace/StatementsWorkspace.tsx",

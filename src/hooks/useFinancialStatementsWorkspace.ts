@@ -7,7 +7,7 @@
  * reviewer decisions live in an in-memory repository for this session, and
  * the persistence state says so (Iron Dome 4.2 — persisted writes are an Edge
  * Function concern and are gated off by FINANCIAL_STATEMENT_PERSISTENCE_ENABLED
- * until the migration is applied). `loadAccountMappings` is injectable so a
+ * in this branch, which contains no database schema or write path). `loadAccountMappings` is injectable so a
  * non-production harness can run the real component tree without a database.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

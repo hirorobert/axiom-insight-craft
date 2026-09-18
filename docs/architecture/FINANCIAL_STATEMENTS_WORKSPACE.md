@@ -17,8 +17,10 @@ Exactly one dominant next action is derived from the first unmet precondition (`
 ## Evidence gaps are a supported state
 SOCIE, Cash Flow, Budget-vs-Actual and the IPSAS cash primary statement are shown as explicit incomplete statements with the evidence required — never omitted, never estimated. IPSAS cash gets a precise unsupported boundary (no accrual model is ever shown in its place).
 
-## Persistence (not enabled)
-`supabase/migrations/20260917000000_financial_statement_reports.sql` is authored and UNAPPLIED: append-only tables, RLS by accepted firm membership, RPC-only service-role writes, per-report advisory lock with an exact latest+1 version guard (`PT409 STALE_REPORT_VERSION`), no float money. `FINANCIAL_STATEMENT_PERSISTENCE_ENABLED = false` until the migration is applied and an Edge Function (`financial-statement-workspace`: validateAuth + assertCompanyMembership, actor derived from the JWT) exists. The client never sends an actor id.
+## Persistence (not part of this change)
+This branch contains no database migration, no Edge Function and no write path. `FINANCIAL_STATEMENT_PERSISTENCE_ENABLED = false`, every reviewer decision and correction is session-only, and the UI says so.
+
+The complete SQL persistence candidate (append-only tables, RLS by accepted firm membership, SECURITY DEFINER RPCs that derive the actor from `auth.uid()`, advisory locks, exact latest+1 versioning, and its static security proofs) is preserved separately on the branch `codex/financial-statements-persistence-candidate`. It is **not** part of this PR and has never been applied. It must be independently reviewed and applied through the project's managed migration path, together with a server-side function that calls the RPCs with the caller's own JWT, before the persistence gate may be considered.
 
 ## Outputs
 Web preview and browser print (A4, repeating headers, page breaks, DRAFT watermark). DOCX and XBRL are labelled unavailable. Signature blocks only when explicitly configured.
