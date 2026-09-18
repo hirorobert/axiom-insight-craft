@@ -73,7 +73,9 @@ describe("E — Static migration-contract: 20260915045958_96cc735e-defd-4747-870
     // document-review canonical table, UNAPPLIED) is a legitimate later
     // addition — this migration's own forward-only discipline is proven by
     // it sorting before that successor, not by remaining the all-time max.
-    const KNOWN_LATER_MIGRATIONS = ["20260915100000"];
+    // 20260920000000 / 20260920100000 (financial-statements rollout control and
+    // persistence, UNAPPLIED) are later additions for the same reason.
+    const KNOWN_LATER_MIGRATIONS = ["20260915100000", "20260920000000", "20260920100000"];
     const timestamps = allMigrationTimestamps().filter(
       (t) => !KNOWN_LATER_MIGRATIONS.includes(String(t)),
     );
