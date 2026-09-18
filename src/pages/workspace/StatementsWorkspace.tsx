@@ -16,6 +16,7 @@ import { MappingSourcePreview } from "@/components/workspace/MappingSourcePrevie
 import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
 import { computePreflight } from "@/lib/workspace/computePreflight";
 import { ExportStatements, type ProcessingResult } from "@/components/ExportStatements";
+import { CanonicalStatementSection } from "@/components/financialStatements/CanonicalStatementSection";
 
 export default function StatementsWorkspace() {
   const { upload, workspaceState, companyId, periodYear, company } = useWorkspace();
@@ -72,6 +73,17 @@ export default function StatementsWorkspace() {
           <MappingSourcePreview
             processingResult={upload.processing_result}
             fileName={upload.file_name}
+          />
+          <CanonicalStatementSection
+            companyId={companyId}
+            periodYear={periodYear}
+            companyName={upload.company_name ?? company?.name ?? ""}
+            companyTin={company?.tin ?? null}
+            reportingFramework={company?.reporting_framework ?? null}
+            currency={company?.currency ?? null}
+            fiscalYearEnd={company?.fiscal_year_end ?? null}
+            uploadId={upload.id}
+            processingResult={upload.processing_result}
           />
           <div className="border border-border p-4 sm:flex sm:items-center sm:justify-between sm:gap-6">
             <div>
