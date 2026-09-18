@@ -15,6 +15,8 @@ import { movementReconciliationRule } from "./movementReconciliation";
 import { duplicateDetectionRule } from "./duplicateDetection";
 import { missingComparativeDetectionRule } from "./missingComparativeDetection";
 import { orphanedNoteReferenceDetectionRule } from "./orphanedNoteReferenceDetection";
+import { equityClosingTieRule, equityProfitTieRule } from "./equityTies";
+import { scheduleCastingRule } from "./scheduleCasting";
 
 export const ENGINE_VERSION = "1.0.0";
 
@@ -36,11 +38,31 @@ export const CANONICAL_RULE_PACK_V1_RULES: readonly RuleDefinition[] = [
   orphanedNoteReferenceDetectionRule,
 ];
 
+/**
+ * Rule pack v2 = every v1 rule (unchanged) plus the two equity tie rules and the schedule casting rule. A
+ * separate pack identity, so v1 evaluations remain reproducible byte-for-byte.
+ */
+export const CANONICAL_RULE_PACK_V2: RulePackIdentity = {
+  rulePackId: "canonical-statement-rules",
+  rulePackVersion: "2.0.0",
+};
+
+export const CANONICAL_RULE_PACK_V2_RULES: readonly RuleDefinition[] = [...CANONICAL_RULE_PACK_V1_RULES, equityClosingTieRule, equityProfitTieRule, scheduleCastingRule];
+
+export const ENGINE_VERSION_V2 = "2.0.0";
+
+export function runCanonicalRulePackV2(ctx: RuleContext, clock?: Clock) {
+  return runRulePack(CANONICAL_RULE_PACK_V2, CANONICAL_RULE_PACK_V2_RULES, ctx, ENGINE_VERSION_V2, clock);
+}
+
 export function runCanonicalRulePackV1(ctx: RuleContext, clock?: Clock) {
   return runRulePack(CANONICAL_RULE_PACK_V1, CANONICAL_RULE_PACK_V1_RULES, ctx, ENGINE_VERSION, clock);
 }
 
 export {
+  equityClosingTieRule,
+  equityProfitTieRule,
+  scheduleCastingRule,
   financialPositionEquationRule,
   subtotalCastingRule,
   noteToFaceReconciliationRule,

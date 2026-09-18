@@ -1,10 +1,10 @@
 /**
  * Database-inertness proof for the financial-statements workspace change.
  *
- * This change must not add or alter any database schema, Edge Function or
- * write path, and the workspace code must be unable to mutate a database even
- * if its gates were flipped. The SQL persistence candidate is preserved on a
- * separate branch and is deliberately absent here.
+ * This branch adds exactly two UNAPPLIED forward-only migrations (rollout
+ * control and persistence) and nothing else under supabase/: no Edge
+ * Function, no config change. The workspace code reaches a database only
+ * through the single gated transport module, and every gate defaults to off.
  *
  * Static and non-executing: it reads the real sources.
  */
@@ -46,20 +46,25 @@ const gitOut = (args: string): string | null => {
 const hasMain = gitOut("rev-parse --verify --quiet origin/main") !== null;
 
 describe("database inertness — schema and functions", () => {
-  it("adds no migration and defines no financial-statement persistence object anywhere under supabase/", () => {
-    const files = [...fs.readdirSync(path.join(ROOT, "supabase/migrations")), ...fs.readdirSync(path.join(ROOT, "supabase/functions"))];
-    expect(files.filter((f) => /financial_statement_(reports|evaluations|reviewer_decisions)|financial-statement-workspace/.test(f))).toEqual([]);
+  it("defines financial-statement persistence objects only in the two named unapplied migrations, and adds no Edge Function", () => {
+    const migrations = fs.readdirSync(path.join(ROOT, "supabase/migrations"));
+    const defining = migrations.filter((f) => /create table[^;(]*public\.(financial_statement_(reports|evaluations|reviewer_decisions|correction_groups|publications)|financial_evidence_batches|financial_statements_rollout_\w+)/i.test(fs.readFileSync(path.join(ROOT, "supabase/migrations", f), "utf8")));
+    expect(defining).toEqual(["20260920000000_financial_statements_rollout_control.sql", "20260920100000_financial_statements_persistence.sql"]);
+    expect(fs.readdirSync(path.join(ROOT, "supabase/functions")).filter((f) => /financial-statements?-workspace|financial-statements?-persistence/.test(f))).toEqual([]);
   });
 
-  it.skipIf(!hasMain)("changes nothing under supabase/ relative to origin/main (no migration, no Edge Function, no config change)", () => {
-    const changed = (gitOut("diff --name-status origin/main...HEAD -- supabase") ?? "").trim();
-    expect(changed).toBe("");
+  it.skipIf(!hasMain)("changes under supabase/ relative to origin/main are exactly the two added migrations (no Edge Function, no config change, nothing modified or deleted)", () => {
+    const changed = (gitOut("diff --name-status origin/main...HEAD -- supabase") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
+    expect(changed).toEqual([
+      "A\tsupabase/migrations/20260920000000_financial_statements_rollout_control.sql",
+      "A\tsupabase/migrations/20260920100000_financial_statements_persistence.sql",
+    ]);
   });
 
-  it.skipIf(!hasMain)("changes no automation-deploy surface other than the RLS-regression hardening in ci.yml", () => {
+  it.skipIf(!hasMain)("changes no automation-deploy surface other than the reviewed CI/RLS hardening and the disposable-database proof", () => {
     const changed = (gitOut("diff --name-only origin/main...HEAD -- .github package.json supabase/config.toml .lovable scripts") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
-    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs"]);
+    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 });
