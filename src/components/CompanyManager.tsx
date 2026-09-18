@@ -71,6 +71,13 @@ interface CompanyFormData {
   description: string;
   industry: string;
   fiscal_year_end: string;
+  /**
+   * Reporting year for NEW companies only. Combined with the MM-DD
+   * fiscal_year_end into a full ISO date ('YYYY-MM-DD') on create, so new
+   * rows never fall back to the legacy year-less format. Ignored when
+   * editing (the stored row's own year prefix is preserved instead).
+   */
+  reporting_year: string;
   currency: string;
   reporting_framework: string | null;
 }
@@ -82,6 +89,7 @@ const EMPTY_FORM_DATA: CompanyFormData = {
   description: "",
   industry: "",
   fiscal_year_end: "12-31",
+  reporting_year: String(new Date().getFullYear() - 1),
   currency: "TZS",
   reporting_framework: null,
 };
@@ -137,9 +145,15 @@ export const CompanyManager = () => {
 
     // The form's dropdown only carries MM-DD. If the stored value was a full
     // ISO date ('YYYY-MM-DD'), re-apply its year prefix so saving an
-    // unrelated edit never silently drops the reporting year.
+    // unrelated edit never silently drops the reporting year. For a NEW
+    // company, combine the MM-DD with the explicitly selected reporting year
+    // so new rows are always stored as full ISO dates — never the legacy
+    // year-less 'MM-DD' format, which cannot be year-matched later.
     const storedFye = editingCompany?.fiscal_year_end ?? "";
-    const yearPrefix = /^\d{4}-\d{2}-\d{2}$/.test(storedFye) ? storedFye.slice(0, 5) : "";
+    const storedYearPrefix = /^\d{4}-\d{2}-\d{2}$/.test(storedFye) ? storedFye.slice(0, 5) : "";
+    const yearPrefix = editingCompany
+      ? storedYearPrefix
+      : `${formData.reporting_year}-`;
     const resolvedFiscalYearEnd =
       yearPrefix && /^\d{2}-\d{2}$/.test(formData.fiscal_year_end)
         ? `${yearPrefix}${formData.fiscal_year_end}`
@@ -231,6 +245,12 @@ export const CompanyManager = () => {
       fiscal_year_end: /^\d{4}-\d{2}-\d{2}$/.test(company.fiscal_year_end)
         ? company.fiscal_year_end.slice(5)
         : company.fiscal_year_end,
+      // Editing never uses this field (the stored row's own year prefix is
+      // preserved on save), but seed it from the stored ISO year anyway so
+      // the value is never fabricated if the row predates the ISO format.
+      reporting_year: /^\d{4}-\d{2}-\d{2}$/.test(company.fiscal_year_end)
+        ? company.fiscal_year_end.slice(0, 4)
+        : String(new Date().getFullYear() - 1),
       currency: company.currency,
       // Phase 1: pass the real value through, including null. Coalescing to
       // "ifrs_for_smes" here would silently overwrite a genuinely-unset
@@ -447,7 +467,25 @@ export const CompanyManager = () => {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className={`grid gap-4 ${editingCompany ? "grid-cols-2" : "grid-cols-3"}`}>
+              {!editingCompany && (
+                <div className="space-y-2">
+                  <Label htmlFor="reporting_year">Reporting Year</Label>
+                  <Select
+                    value={formData.reporting_year}
+                    onValueChange={(value) => setFormData({ ...formData, reporting_year: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map((y) => (
+                        <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="fiscal_year_end">Fiscal Year End</Label>
                 <Select
