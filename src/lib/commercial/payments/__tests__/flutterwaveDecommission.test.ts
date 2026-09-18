@@ -54,8 +54,42 @@ function activeSourceFiles(): string[] {
 const ACTIVE_FILES = activeSourceFiles();
 const SCAN = /flutterwave|FLUTTERWAVE|api\.flutterwave\.com|checkout\.flutterwave\.com/;
 
-/** Historical provider VALUES stay legal; active integration references do not. */
-const HISTORICAL_VALUE_ONLY = /^(.*['"`])FLUTTERWAVE(['"`].*)$/;
+/**
+ * The ONLY code lines in active source that may contain the token. Each entry
+ * is path-specific AND exact-line-specific (trimmed, whole line). Anything
+ * else containing the token — an adapter, SDK import, API URL, secret,
+ * checkout creation, verification, webhook mutation, or provider routing — is
+ * an offender. Every entry must match exactly once (asserted below), so a
+ * stale or widened entry cannot hide a new reference.
+ *
+ *   - PaymentProvider unions and SUPPORTED_PROVIDERS/provider-value lists keep
+ *     'FLUTTERWAVE' as a legal VALUE so historical payment rows (whose
+ *     provider column has an immutable CHECK enum) remain readable. They are
+ *     type/value declarations only; routing is separately proven to return no
+ *     configured provider (see the "no active checkout can be created" suite).
+ */
+const HISTORICAL_LITERAL_ALLOWLIST: readonly { readonly path: string; readonly line: string; readonly reason: string }[] = [
+  { path: "src/lib/commercial/payments/paymentAuthority.ts", line: '"FLUTTERWAVE",', reason: "SUPPORTED_PROVIDERS historical value" },
+  { path: "src/lib/commercial/payments/paymentTypes.ts", line: "'FLUTTERWAVE',", reason: "provider value list, mirrors the immutable DB CHECK enum" },
+  { path: "src/lib/commercial/payments/routing.ts", line: 'export type PaymentProvider = "FLUTTERWAVE" | "PESAPAL" | "SELCOM" | "DPO" | "STRIPE";', reason: "PaymentProvider union" },
+  { path: "supabase/functions/_shared/payments/contracts.ts", line: "export type PaymentProvider = 'FLUTTERWAVE' | 'PESAPAL' | 'SELCOM' | 'DPO' | 'STRIPE';", reason: "PaymentProvider union" },
+];
+
+/** Splits on LF or CRLF. A checkout with CRLF endings (Windows autocrlf) must scan identically to an LF one. */
+function codeLines(source: string): string[] {
+  return stripComments(source).split(/\r?\n/);
+}
+
+/** Pure scanner: returns the offending lines of one file. `relPath` uses forward slashes. */
+function scanSource(relPath: string, source: string): string[] {
+  const offenders: string[] = [];
+  codeLines(source).forEach((line, i) => {
+    if (!SCAN.test(line)) return;
+    const allowed = HISTORICAL_LITERAL_ALLOWLIST.some((e) => e.path === relPath && e.line === line.trim());
+    if (!allowed) offenders.push(`${relPath}:${i + 1}: ${line.trim()}`);
+  });
+  return offenders;
+}
 
 function stripComments(source: string): string {
   return source
@@ -71,16 +105,10 @@ describe("Flutterwave decommission — static active-source scan", () => {
   it("no active source file references a Flutterwave adapter, package, API host or credential", () => {
     const offenders: string[] = [];
     for (const abs of ACTIVE_FILES) {
-      // Explanatory comments (including this decommission's own rationale)
-      // are excluded: they document why the integration is gone, and cannot
-      // execute. Only real code is scanned.
-      const text = stripComments(fs.readFileSync(abs, "utf-8"));
-      text.split("\n").forEach((line, i) => {
-        if (!SCAN.test(line)) return;
-        // A bare provider string literal (historical enum value) is allowed.
-        if (HISTORICAL_VALUE_ONLY.test(line) && !/flutterwave\.com|import|require|SECRET|WEBHOOK_SECRET|ENVIRONMENT|Adapter/i.test(line)) return;
-        offenders.push(`${path.relative(REPO_ROOT, abs)}:${i + 1}: ${line.trim()}`);
-      });
+      // Explanatory comments document why the integration is gone and cannot
+      // execute; only real code is scanned.
+      const rel = path.relative(REPO_ROOT, abs).split(path.sep).join("/");
+      offenders.push(...scanSource(rel, fs.readFileSync(abs, "utf-8")));
     }
     expect(offenders, offenders.join("\n")).toEqual([]);
   });
@@ -94,6 +122,51 @@ describe("Flutterwave decommission — static active-source scan", () => {
     expect(pkg).not.toMatch(/flutterwave|flw-|rave-/i);
     const lock = read("package-lock.json");
     expect(lock).not.toMatch(/flutterwave/i);
+  });
+});
+
+describe("Flutterwave decommission — the scanner itself", () => {
+  const P = "src/lib/commercial/payments/routing.ts";
+  const HIST = 'export type PaymentProvider = "FLUTTERWAVE" | "PESAPAL" | "SELCOM" | "DPO" | "STRIPE";';
+
+  it("permits exactly the historical literals, under LF and CRLF alike", () => {
+    expect(scanSource(P, HIST + "\n")).toEqual([]);
+    expect(scanSource(P, HIST + "\r\n")).toEqual([]);
+  });
+
+  it("every allowlist entry matches exactly one line in its real file (no stale or widened entry)", () => {
+    for (const e of HISTORICAL_LITERAL_ALLOWLIST) {
+      const hits = codeLines(read(e.path)).filter((l) => l.trim() === e.line);
+      expect(hits, `${e.path}: ${e.line}`).toHaveLength(1);
+    }
+  });
+
+  it("the allowlist is path-specific: the same literal in any other file is an offender", () => {
+    expect(scanSource("src/lib/other.ts", HIST)).toHaveLength(1);
+    expect(scanSource("supabase/functions/commercial-create-checkout/index.ts", '  "FLUTTERWAVE",')).toHaveLength(1);
+  });
+
+  it("still rejects every executable or credential form, including inside an allowlisted file", () => {
+    const bad = [
+      "import { createFlutterwaveAdapter } from './providers/flutterwave';",
+      "const url = 'https://api.flutterwave.com/v3/payments';",
+      "const host = 'checkout.flutterwave.com';",
+      "const key = Deno.env.get('FLUTTERWAVE_SECRET_KEY');",
+      "const hash = Deno.env.get('FLUTTERWAVE_WEBHOOK_SECRET');",
+      "  case 'FLUTTERWAVE': return adapter.createCheckout(params);",
+      "  if (provider === 'FLUTTERWAVE') await verifyTransaction(ref);",
+      "const flutterwaveAdapter = createAdapter();",
+      "import Flutterwave from 'flutterwave-node-v3';",
+      'export type PaymentProvider = "FLUTTERWAVE" | "PESAPAL" | "SELCOM" | "DPO" | "STRIPE"; // extra',
+    ];
+    for (const line of bad) {
+      expect(scanSource(P, line), line).toHaveLength(1);
+      expect(scanSource(P, line + "\r\n"), line).toHaveLength(1);
+    }
+  });
+
+  it("ignores the token inside comments only", () => {
+    expect(scanSource(P, "// FLUTTERWAVE was decommissioned\n/* flutterwave */\n")).toEqual([]);
   });
 });
 
