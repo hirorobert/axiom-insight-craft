@@ -34,8 +34,11 @@ function renderObserved(value: ObservedValue): string {
 }
 
 export function FindingsPanel({ views, onFocusLine }: { views: readonly FindingView[]; onFocusLine: (lineId: string) => void }) {
-  const [filter, setFilter] = useState<FindingFilter>("ALL");
   const counts = useMemo(() => countByBucket(views), [views]);
+  const [filter, setFilter] = useState<FindingFilter>(() => {
+    const c = countByBucket(views);
+    return c.BLOCKING > 0 ? "BLOCKING" : c.INSUFFICIENT_EVIDENCE > 0 ? "INSUFFICIENT_EVIDENCE" : c.WARNING > 0 ? "WARNING" : "ALL";
+  });
   const visible = useMemo(() => filterFindingViews(views, filter), [views, filter]);
 
   return (

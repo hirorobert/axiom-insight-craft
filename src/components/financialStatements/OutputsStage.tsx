@@ -26,6 +26,9 @@ export const PRINT_DOCUMENT_ID = "fs-print-document";
 export const PRINT_CSS = `@media print {
   @page { size: A4 portrait; margin: 15mm; }
   body * { visibility: hidden !important; }
+  /* Remove everything that is neither the document, inside it, nor one of its ancestors from layout, so no blank pages are produced. */
+  body *:not(:has(#${PRINT_DOCUMENT_ID})):not(#${PRINT_DOCUMENT_ID}):not(#${PRINT_DOCUMENT_ID} *) { display: none !important; }
+  html, body { height: auto !important; overflow: visible !important; }
   #${PRINT_DOCUMENT_ID}, #${PRINT_DOCUMENT_ID} * { visibility: visible !important; }
   #${PRINT_DOCUMENT_ID} { position: absolute; left: 0; top: 0; width: 100%; max-width: none; border: 0; padding: 0; }
   #${PRINT_DOCUMENT_ID} thead { display: table-header-group; }
@@ -58,7 +61,7 @@ export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">Everything below is a draft. It has not been reviewed or approved, and nothing is filed.</p>
         </div>
-        <Button type="button" onClick={() => window.print()} disabled={!report}>
+        <Button type="button" variant="outline" onClick={() => window.print()} disabled={!report}>
           <Printer className="mr-1 h-4 w-4" aria-hidden="true" />
           Print / save as PDF (draft)
         </Button>

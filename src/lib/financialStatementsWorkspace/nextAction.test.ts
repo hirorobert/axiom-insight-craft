@@ -30,6 +30,7 @@ describe("deriveNextAction", () => {
     expect(deriveNextAction({ structure: model([]), views: [view("BLOCKING"), view("INSUFFICIENT_EVIDENCE")], hasReport: true })).toMatchObject({ stage: "review", label: "Review 2 open findings" });
     expect(deriveNextAction({ structure: model([], ["SCF incomplete"]), views: [view("PASSED")], hasReport: true }).stage).toBe("statements");
     expect(deriveNextAction({ structure: model([]), views: [view("PASSED")], hasReport: true }).stage).toBe("outputs");
+    expect(deriveNextAction({ structure: model(["FRAMEWORK_UNSUPPORTED_FROM_TRIAL_BALANCE"]), views: [], hasReport: false })).toMatchObject({ stage: "structure", label: "Review framework limits" });
   });
 
   it("never proposes outputs while the statement set is incomplete", () => {

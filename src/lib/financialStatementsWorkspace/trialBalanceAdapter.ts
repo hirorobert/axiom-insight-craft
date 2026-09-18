@@ -228,6 +228,8 @@ function buildStatement(
   const facts: MonetaryFact[] = [];
   const outputSections: StatementSection[] = [];
   const sectionSubtotalLineIdByClassification = new Map<string, string>();
+  /** Equity is presented without a section subtotal (it would only duplicate the total_equity anchor); the anchor casts the equity accounts directly. */
+  let equityDetailLineIds: readonly string[] = [];
   /** lineId -> periodId -> its own resolved Money value, populated as each line is built so later TOTAL lines can sum by lineId without ever reconstructing a factId. */
   const valueByLineAndPeriod = new Map<string, Map<string, Money>>();
 
@@ -288,6 +290,12 @@ function buildStatement(
         factBindings: bindings,
         castingChildLineIds: [],
       });
+    }
+
+    if (statementKind === "sfp" && section.classification === "equity") {
+      equityDetailLineIds = detailLines.map((l) => l.lineId);
+      outputSections.push({ sectionId: `section:${statementKind}:${section.classification}`, label: section.label, lines: detailLines });
+      continue;
     }
 
     const subtotalLineId = `line:subtotal:${statementKind}:${section.classification}`;
@@ -369,7 +377,6 @@ function buildStatement(
   if (buildAnchors && outputSections.length > 0) {
     const assetChildIds = ASSET_CLASSIFICATIONS.map((c) => sectionSubtotalLineIdByClassification.get(c)).filter((v): v is string => !!v);
     const liabilityChildIds = LIABILITY_CLASSIFICATIONS.map((c) => sectionSubtotalLineIdByClassification.get(c)).filter((v): v is string => !!v);
-    const equityChildId = sectionSubtotalLineIdByClassification.get("equity");
 
     const anchorLines: StatementLine[] = [];
 
@@ -388,7 +395,7 @@ function buildStatement(
 
     const totalAssetsLine = buildAnchorLine("line:total:sfp:total_assets", "Total Assets", CANONICAL_CONCEPTS.TOTAL_ASSETS, "DEBIT_NORMAL", assetChildIds);
     const totalLiabilitiesLine = buildAnchorLine("line:total:sfp:total_liabilities", "Total Liabilities", CANONICAL_CONCEPTS.TOTAL_LIABILITIES, "CREDIT_NORMAL", liabilityChildIds);
-    const totalEquityLine = buildAnchorLine("line:total:sfp:total_equity", "Total Equity", CANONICAL_CONCEPTS.TOTAL_EQUITY, "CREDIT_NORMAL", equityChildId ? [equityChildId] : []);
+    const totalEquityLine = buildAnchorLine("line:total:sfp:total_equity", "Total Equity", CANONICAL_CONCEPTS.TOTAL_EQUITY, "CREDIT_NORMAL", equityDetailLineIds);
     const totalLiabilitiesAndEquityLine = buildAnchorLine(
       "line:total:sfp:total_liabilities_and_equity",
       "Total Liabilities and Equity",

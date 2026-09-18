@@ -54,6 +54,8 @@ export interface DecisionInput {
   readonly decidedAt: string;
   /** firm_members.id when known locally. The server replaces this with the JWT-derived actor when persisting. */
   readonly reviewerId: string;
+  /** Source figures the reviewer may correct for this finding (see correctableFacts). When omitted, only figures named directly in the finding's evidence are allowed. */
+  readonly correctableFactIds?: readonly string[];
   /** Required for CORRECTED. */
   readonly correction?: { readonly factId: string; readonly correctedAmount: string };
 }
@@ -80,7 +82,8 @@ export function buildDecisionCommand(input: DecisionInput): DecisionCommand {
     case "CORRECTED": {
       if (!input.correction) throw new DecisionCommandError("FACT_REQUIRED", "Choose the figure to correct and enter the corrected amount.");
       const { factId, correctedAmount } = input.correction;
-      if (!input.finding.evidenceReferences.some((e) => e.factId === factId)) {
+      const allowed = input.correctableFactIds ?? input.finding.evidenceReferences.flatMap((e) => (e.factId ? [e.factId] : []));
+      if (!allowed.includes(factId)) {
         throw new DecisionCommandError("FACT_NOT_IN_FINDING", "That figure is not part of this finding's evidence.");
       }
       const latest = resolveLatestFact(input.report.facts, factId);

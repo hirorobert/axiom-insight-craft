@@ -13,6 +13,7 @@ import { formatMoney } from "@/lib/canonicalStatement/money";
 import type { CanonicalFinancialStatementReport, MovementSchedule } from "@/lib/canonicalStatement/types";
 import { FindingsPanel } from "./FindingsPanel";
 import type { DecisionRequest, DecisionResult, FinancialStatementsWorkspaceModel } from "@/hooks/useFinancialStatementsWorkspace";
+import { correctableFacts } from "@/lib/financialStatementsWorkspace/correctableFacts";
 import { isApprovalReady, type FindingView } from "@/lib/financialStatementsWorkspace/findingsView";
 import { REVIEW_OUTCOME_LABELS, type ReviewOutcome } from "@/lib/financialStatementsWorkspace/reviewerDecisionCommands";
 import type { PersistenceState } from "@/lib/financialStatementsWorkspace/persistenceContract";
@@ -171,11 +172,11 @@ export function PersistenceBanner({ state }: { state: PersistenceState }) {
   );
 }
 
-function DecisionForm({ view, onDecide }: { view: FindingView; onDecide: (r: DecisionRequest) => Promise<DecisionResult> }) {
-  const factOptions = Array.from(new Set(view.record.evidenceReferences.flatMap((e) => (e.factId ? [e.factId] : []))));
+function DecisionForm({ view, report, onDecide }: { view: FindingView; report: CanonicalFinancialStatementReport | null; onDecide: (r: DecisionRequest) => Promise<DecisionResult> }) {
+  const factOptions = report ? correctableFacts(report, view.record) : [];
   const [outcome, setOutcome] = useState<ReviewOutcome>("ACCEPT_WITH_JUDGEMENT");
   const [rationale, setRationale] = useState("");
-  const [factId, setFactId] = useState(factOptions[0] ?? "");
+  const [factId, setFactId] = useState(factOptions[0]?.factId ?? "");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -215,8 +216,9 @@ function DecisionForm({ view, onDecide }: { view: FindingView; onDecide: (r: Dec
             <select className="mt-1 block w-full border border-border bg-background p-1.5 text-xs" value={factId} onChange={(e) => setFactId(e.target.value)}>
               {factOptions.length === 0 && <option value="">No correctable figure in this finding</option>}
               {factOptions.map((f) => (
-                <option key={f} value={f}>
-                  {f}
+                <option key={f.factId} value={f.factId}>
+                  {f.label}
+                  {f.currentAmount ? ` — currently ${f.currentAmount}` : ""}
                 </option>
               ))}
             </select>
@@ -279,7 +281,7 @@ export function ReviewStage({ model, onFocusLine }: { model: FinancialStatements
                   Show affected line
                 </Button>
               )}
-              <DecisionForm view={v} onDecide={model.decide} />
+              <DecisionForm view={v} report={model.snapshot?.report ?? null} onDecide={model.decide} />
             </li>
           ))}
         </ul>

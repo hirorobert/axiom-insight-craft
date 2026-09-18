@@ -27,6 +27,7 @@ import { buildSources, type SourceEntry } from "@/lib/financialStatementsWorkspa
 import { buildStructure, type StructureModel } from "@/lib/financialStatementsWorkspace/structureModel";
 import { deriveNoteNumbering, type NoteNumberingResult } from "@/lib/financialStatementsWorkspace/noteNumbering";
 import { buildFindingViews, type FindingView } from "@/lib/financialStatementsWorkspace/findingsView";
+import { correctableFacts } from "@/lib/financialStatementsWorkspace/correctableFacts";
 import { buildDecisionCommand, DecisionCommandError, isStaleVersionError, type ReviewOutcome } from "@/lib/financialStatementsWorkspace/reviewerDecisionCommands";
 import { FINANCIAL_STATEMENT_PERSISTENCE_ENABLED } from "@/lib/financialStatementsWorkspace/persistenceGate";
 import { classifyPersistenceError, initialPersistenceState, type PersistenceState } from "@/lib/financialStatementsWorkspace/persistenceContract";
@@ -244,6 +245,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
       try {
         const command = buildDecisionCommand({
           ...request,
+          correctableFactIds: correctableFacts(snapshot.report, request.finding).map((c) => c.factId),
           report: snapshot.report,
           decisionId: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `decision-${Date.now()}-${Math.random()}`,
           decidedAt: new Date().toISOString(),
@@ -281,7 +283,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
   const numbering = useMemo(() => (snapshot ? deriveNoteNumbering(snapshot.report) : null), [snapshot]);
 
   const composition = useMemo(
-    () => (profile ? composeStatements({ profile, report: snapshot?.report ?? null, comparativeAvailable: comparative.state === "AVAILABLE" && (snapshot?.report.comparativePeriods.length ?? 0) > 0, cashPerimeterReviewed: mappingInfo?.cashReviewed ?? false }) : null),
+    () => (profile ? composeStatements({ profile, report: snapshot?.report ?? null, comparativeAvailable: comparative.state === "AVAILABLE" && (!snapshot || snapshot.report.comparativePeriods.length > 0), cashPerimeterReviewed: mappingInfo?.cashReviewed ?? false }) : null),
     [profile, snapshot, comparative, mappingInfo],
   );
 
@@ -305,7 +307,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
         periodYear: inputs.periodYear,
         period,
         comparativePeriodYear: inputs.periodYear - 1,
-        comparativeAvailable: comparative.state === "AVAILABLE" && (snapshot?.report.comparativePeriods.length ?? 0) > 0,
+        comparativeAvailable: comparative.state === "AVAILABLE" && (!snapshot || snapshot.report.comparativePeriods.length > 0),
         composition,
         mapping: mappingInfo ? { totalAccounts: mappingInfo.total, unmapped: mappingInfo.unmapped, ambiguous: mappingInfo.ambiguous } : null,
       }),
