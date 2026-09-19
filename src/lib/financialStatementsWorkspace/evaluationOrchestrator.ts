@@ -271,3 +271,22 @@ export async function correctFactAndRecast(params: {
   await repo.saveReport(snapshot);
   return snapshot;
 }
+
+/**
+ * Evaluates a report with the current rule pack WITHOUT touching any repository —
+ * the same deterministic identity and findings as `evaluateReport`, for callers (the
+ * save flow) that store the result themselves at a version of their own choosing.
+ */
+export function evaluateReportPure(report: CanonicalFinancialStatementReport, tolerance: Tolerance = ZERO_TOLERANCE, clock: Clock = systemClock): EvaluationRunRecord {
+  const inputHash = sha256Hex(canonicalStringify(report));
+  return {
+    evaluationRunId: sha256Hex(canonicalStringify({ reportId: report.reportIdentity.reportId, reportVersion: report.reportIdentity.reportVersion, rulePack: CANONICAL_RULE_PACK_V2, engineVersion: ENGINE_VERSION_V2, inputHash })),
+    reportId: report.reportIdentity.reportId,
+    reportVersion: report.reportIdentity.reportVersion,
+    inputHash,
+    rulePack: CANONICAL_RULE_PACK_V2,
+    engineVersion: ENGINE_VERSION_V2,
+    findings: runCanonicalRulePackV2(buildRuleContext(report, tolerance), clock),
+    createdAt: clock(),
+  };
+}

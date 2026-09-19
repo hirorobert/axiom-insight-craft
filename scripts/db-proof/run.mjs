@@ -506,6 +506,7 @@ async function proveCorrectionGroups() {
     const g = (await admin.query("SELECT count(*)::int n FROM public.financial_statement_correction_groups WHERE group_id='g4'")).rows[0].n;
     return code === "22023" && m === 4 && d === 0 && g === 0;
   });
+  await expectError("a decision id that already exists on the report is a typed PT409 conflict inside a group, and nothing is written", "PT409", () => apply(user(U.partner), "g-dup", "idem-key-gdup-000", 4, [step(5, { n: 55 })], [dec("cd-1", 4)], null), "REPLAY_CONFLICT");
   await expectError("a non-CORRECT_FACT decision inside a group → 22023", "22023", () => apply(user(U.partner), "g5", "idem-key-g5-000", 4, [step(5)], [{ ...dec("cd-9", 4), decisionType: "DEFER" }], null));
   await expectError("decision count must equal step count → 22023", "22023", () => apply(user(U.partner), "g6", "idem-key-g6-000", 4, [step(5)], [], null));
   await expectError("viewer cannot apply a correction group", "42501", () => apply(user(U.viewer), "g7", "idem-key-g7-000", 4, [step(5)], [dec("cd-10", 4)], null));

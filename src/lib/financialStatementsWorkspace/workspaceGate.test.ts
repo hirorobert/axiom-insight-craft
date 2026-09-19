@@ -95,7 +95,7 @@ describe("feature gate — static", () => {
   });
 
   it("no production module outside the workspace's own directories imports workspace code", () => {
-    const own = ["src/components/financialStatements/", "src/lib/financialStatementsWorkspace/", "src/hooks/useFinancialStatementsWorkspace.ts", "src/pages/workspace/StatementsWorkspace.tsx"];
+    const own = ["src/components/financialStatements/", "src/lib/financialStatementsWorkspace/", "src/lib/financialEvidence/", "src/lib/financialGeneration/", "src/hooks/useFinancialStatementsWorkspace.ts", "src/pages/workspace/StatementsWorkspace.tsx"];
     const offenders = walk(path.join(ROOT, "src"))
       .map((f) => path.relative(ROOT, f).split(path.sep).join("/"))
       .filter((rel) => !own.some((o) => rel.startsWith(o)))

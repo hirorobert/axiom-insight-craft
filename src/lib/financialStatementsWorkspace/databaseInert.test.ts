@@ -27,8 +27,13 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/** The only modules that may name an RPC or a table read: the transport (over an injected backend) and its single Supabase adapter. */
+const TRANSPORT_FILES = new Set(["src/lib/financialStatementsWorkspace/rpcTransport.ts", "src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"]);
+
 const workspaceSources = [
   ...walk(path.join(ROOT, "src/lib/financialStatementsWorkspace")),
+  ...walk(path.join(ROOT, "src/lib/financialEvidence")),
+  ...walk(path.join(ROOT, "src/lib/financialGeneration")),
   ...walk(path.join(ROOT, "src/components/financialStatements")),
   ...walk(path.join(ROOT, "dev-harness")),
   path.join(ROOT, "src/hooks/useFinancialStatementsWorkspace.ts"),
@@ -64,7 +69,7 @@ describe("database inertness — schema and functions", () => {
   it.skipIf(!hasMain)("changes no automation-deploy surface other than the reviewed CI/RLS hardening and the disposable-database proof", () => {
     const changed = (gitOut("diff --name-only origin/main...HEAD -- .github package.json supabase/config.toml .lovable scripts") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
-    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs"]);
+    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serve.mjs"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 });
@@ -87,14 +92,32 @@ describe("database inertness — the workspace code cannot mutate a database", (
     ];
     const offenders: string[] = [];
     for (const f of workspaceSources) {
+      if (TRANSPORT_FILES.has(rel(f))) continue; // audited separately below
       const src = stripComments(fs.readFileSync(f, "utf8"));
       for (const [re, what] of forbidden) if (re.test(src)) offenders.push(`${rel(f)}: ${what}`);
     }
     expect(offenders).toEqual([]);
   });
 
-  it("the only Supabase access in workspace code is one read-only select of account_mappings, in the hook", () => {
-    const users = workspaceSources.filter((f) => /integrations\/supabase|supabase\.from|createClient/.test(stripComments(fs.readFileSync(f, "utf8")))).map(rel);
+  it("the transport modules hold no service-role reference, no actor argument and no deploy command; only the adapter imports the Supabase client", () => {
+    for (const f of TRANSPORT_FILES) {
+      const src = stripComments(fs.readFileSync(path.join(ROOT, f), "utf8"));
+      expect(src, f).not.toMatch(/service_role|SERVICE_ROLE|supabase\s+(db|functions|link|migration)|psql\b|db push|VITE_|localStorage|sessionStorage/i);
+      expect(src, f).not.toMatch(/p_(actor|reviewer|firm_member|user)\w*\s*:/i);
+    }
+    const importsClient = [...TRANSPORT_FILES].filter((f) => /integrations\/supabase/.test(stripComments(fs.readFileSync(path.join(ROOT, f), "utf8"))));
+    expect(importsClient).toEqual(["src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"]);
+  });
+
+  it("nothing except the gated factory constructs a transport, and the factory refuses when the gate is off", () => {
+    const constructors = workspaceSources.filter((f) => /new FsRpcTransport/.test(stripComments(fs.readFileSync(f, "utf8")))).map(rel);
+    expect(constructors).toEqual(["src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"]);
+    const adapter = stripComments(fs.readFileSync(path.join(ROOT, "src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"), "utf8"));
+    expect(adapter).toMatch(/return gate \? new FsRpcTransport\(supabaseFsBackend\) : null/);
+  });
+
+  it("the only other Supabase access in workspace code is one read-only select of account_mappings, in the hook", () => {
+    const users = workspaceSources.filter((f) => !TRANSPORT_FILES.has(rel(f))).filter((f) => /integrations\/supabase|supabase\.from|createClient/.test(stripComments(fs.readFileSync(f, "utf8")))).map(rel);
     expect(users).toEqual(["src/hooks/useFinancialStatementsWorkspace.ts"]);
     const hook = stripComments(fs.readFileSync(path.join(ROOT, "src/hooks/useFinancialStatementsWorkspace.ts"), "utf8"));
     const calls = [...hook.matchAll(/supabase\s*\.from\(([^)]*)\)([\s\S]{0,400}?)(?=;)/g)];

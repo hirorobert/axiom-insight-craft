@@ -645,6 +645,10 @@ BEGIN
 
     PERFORM public.fs_assert_report_document(v_step -> 'reportDocument', p_report_id, v_version, p_company_id);
 
+    IF EXISTS (SELECT 1 FROM public.financial_statement_reviewer_decisions d WHERE d.report_id = p_report_id AND d.decision_id = v_dec ->> 'decisionId') THEN
+      RAISE EXCEPTION 'REPLAY_CONFLICT: decision % already exists on this report', v_dec ->> 'decisionId' USING ERRCODE = 'PT409';
+    END IF;
+
     INSERT INTO public.financial_statement_reports (
       report_id, report_version, company_id, period_year, provenance_origin, report_document, content_hash, document_hash,
       evidence_batch_ids, created_by_firm_member_id
