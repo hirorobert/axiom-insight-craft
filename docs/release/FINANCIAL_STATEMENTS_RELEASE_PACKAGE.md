@@ -51,6 +51,26 @@ DB_PROOF_MODULES_DIR=<dir> node scripts/release/verify-release-sql.mjs
 
 `db-proof/run.mjs` also runs in CI (job `db-contract-tests`, fresh database on the throwaway container).
 
+### Recorded results (LF checkout of commit `2456f32`, real exit codes, no masking pipes)
+
+| Gate | Result |
+|---|---|
+| `npx vitest run` (full suite) | exit 0 — 125 files passed, 1 skipped (env-gated DB test); 2684 tests passed, 6 skipped, 12 todo |
+| `npx tsc --noEmit -p tsconfig.app.json` | exit 0 — 0 errors |
+| `npx eslint .` | exit 0 — 0 errors (128 pre-existing warnings) |
+| `npm run build` | exit 0 |
+| `git diff --check origin/main...HEAD` | exit 0 |
+| Conflict markers | 0 files |
+| `node scripts/audit_migrations.mjs --strict` | exit 0 — 123 files, `VERDICT: CLEAN` |
+| `scripts/db-proof/run.mjs` (fresh PostgreSQL 16, all 123 migrations replayed) | 154/154 assertions passed; 13 mutants of the migrations each killed by it |
+| `saveFlow.pg.test.ts` (real TypeScript client ↔ real SQL) | 6/6 passed, re-runnable on the same database |
+| `scripts/release/verify-release-sql.mjs` | all passed |
+| Production bundle scan (`dist/`) | no `service_role`, no rollout/kill-switch function names, no harness, no bridge, no "Internal preview" (the workspace is tree-shaken while its gate is off); the only production-project reference is the pre-existing committed `.env` Supabase URL |
+| Executable payment-provider scan | no change to any payment file (the 32 pre-existing `omega3_0` tests pass on an LF checkout; they fail only on a CRLF checkout) |
+| Unauthorized-file inventory | 39 added, 21 modified, all under the areas listed in §1; no `package.json`, no Edge Function, no other migration |
+
+Browser E2E (non-production harness, real UI → real transport → disposable PostgreSQL through the loopback bridge; **simulated identity, not GoTrue**): preparer adds a CSV ledger, generates the cash flow, saves (rows verified in the database, invisible to an outsider and to another company's owner); a fresh partner session with identical content is idempotent ("already saved"); a preparer's attempt to mark Reviewed is refused by the server; a partner's succeeds; a viewer's save is refused and shown read-only; an XLSX upload is refused, a formula-injection CSV is stored INVALID and never used; no horizontal overflow in any of the six stages at 375 px width. Screenshots were inspected in the session; they are not committed.
+
 ## 4. Canary plan
 
 See `FINANCIAL_STATEMENTS_ACTIVATION.md` §3. One internal company first; widen only after a clean watch cycle. Success criteria: zero unexpected error classes, every save produces contiguous versions, no `PT409` that a user could not resolve by reloading, exports reproducible.

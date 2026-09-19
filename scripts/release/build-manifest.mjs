@@ -64,12 +64,32 @@ const manifest = {
 
 const text = JSON.stringify(manifest, null, 2) + "\n";
 if (process.argv.includes("--check")) {
-  const existing = fs.existsSync(OUT) ? fs.readFileSync(OUT, "utf8") : "";
-  if (existing !== text) {
-    console.error("release-manifest.json is stale; run: node scripts/release/build-manifest.mjs");
+  // The manifest's own commit cannot be its sourceCommit, so --check verifies content, not the commit id:
+  // sourceCommit must be an ancestor of HEAD, and the migration and document hashes must match the files now on disk.
+  if (!fs.existsSync(OUT)) {
+    console.error("release-manifest.json is missing; run: node scripts/release/build-manifest.mjs");
     process.exit(1);
   }
-  console.log("release-manifest.json is current");
+  const existing = JSON.parse(fs.readFileSync(OUT, "utf8"));
+  let ancestor = true;
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", existing.sourceCommit, "HEAD"], { cwd: REPO });
+  } catch {
+    ancestor = false;
+  }
+  const problems = [];
+  if (!ancestor) problems.push(`sourceCommit ${existing.sourceCommit} is not an ancestor of HEAD`);
+  if (existing.baseCommit !== baseCommit) problems.push("baseCommit differs");
+  if (JSON.stringify(existing.migrations) !== JSON.stringify(migrationHashes)) problems.push("migration hashes differ");
+  const docsNow = Object.fromEntries(Object.entries(documents));
+  for (const [f, h] of Object.entries(existing.documents)) if (docsNow[f] !== h) problems.push(`document changed since the manifest: ${f}`);
+  const built = Object.keys(artifacts).length > 0;
+  if (built && JSON.stringify(existing.artifacts.files) !== JSON.stringify(artifacts)) problems.push("artifact hashes differ from the current dist/");
+  if (problems.length > 0) {
+    console.error(["release-manifest.json is stale:", ...problems.map((p) => ` - ${p}`)].join("\n"));
+    process.exit(1);
+  }
+  console.log(`release-manifest.json is current (source ${existing.sourceCommit.slice(0, 8)}, ${Object.keys(existing.migrations).length} migrations${built ? ", artifacts verified" : ", artifacts not re-checked: no dist/"})`);
 } else {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, text);
