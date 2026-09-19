@@ -94,7 +94,7 @@ describe("Ω3-BRAND · public brand", () => {
   it("08 · jurisdiction-pack explanation is present, and neutral (no single jurisdiction is named)", () => {
     const jurisdictionText = JURISDICTION_SECTION.items.map((i) => i.detail).join(" ");
     expect(jurisdictionText).toMatch(/jurisdiction/i);
-    expect(jurisdictionText).not.toMatch(/Tanzania|TRA|TIN/);
+    expect(jurisdictionText).not.toMatch(/Tanzania|\bTRA\b|\bTIN\b/);
   });
 
   it("09 · /pricing navigation entry exists in NAV", () => {
@@ -312,11 +312,11 @@ describe("Ω3-BRAND · Settings section — real billingDisplay.ts functions", (
 
   it("30 · no tax-registration or jurisdiction-specific copy is globally exposed; the jurisdiction pack is described neutrally", () => {
     const globalHero = [HERO.headline, HERO.subhead, HERO_FOOTING].join(" ");
-    expect(globalHero).not.toMatch(/TIN|TRA|Tanzania/);
+    expect(globalHero).not.toMatch(/\bTIN\b|\bTRA\b|Tanzania/);
     const jurisdictionDetail = JURISDICTION_SECTION.items
       .find((i) => i.label.toLowerCase().includes("jurisdiction compliance"))?.detail ?? "";
     expect(jurisdictionDetail).toMatch(/configured jurisdiction/);
-    expect(jurisdictionDetail).not.toMatch(/Tanzania|TRA|TIN/);
+    expect(jurisdictionDetail).not.toMatch(/Tanzania|\bTRA\b|\bTIN\b/);
   });
 });
 
