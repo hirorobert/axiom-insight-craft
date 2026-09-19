@@ -3,8 +3,8 @@
   "release": "financial-statements-production-readiness",
   "branch": "codex/financial-statements-production-readiness",
   "baseCommit": "f6248c05ace36969ad1bc160d54410798a015e30",
-  "sourceCommit": "ff1bd5cd3a0994a225749fcf89e717bd51e7c70c",
-  "commitCount": 26,
+  "sourceCommit": "a2af8b7f953d04856f7b8e6993a6c9b06ba289fe",
+  "commitCount": 28,
   "commits": [
     "050f72cc8696775466864a1aa687fe315fc91925",
     "2bd3ec67ae8ef0696b7de7d6fadaa6790bc339e2",
@@ -31,7 +31,9 @@
     "e90b82eeac7e288cfb968b3b11cdc908da539df0",
     "58bf75717501da535052aa706e752444a328a15d",
     "c6ee1e7afe3e4a7c9adf247053e5e72f881baf2c",
-    "ff1bd5cd3a0994a225749fcf89e717bd51e7c70c"
+    "ff1bd5cd3a0994a225749fcf89e717bd51e7c70c",
+    "618746cd589ecabc37517aeceb828f51c7ae5d95",
+    "a2af8b7f953d04856f7b8e6993a6c9b06ba289fe"
   ],
   "migrations": {
     "supabase/migrations/20260919100000_financial_statements_rollout_control.sql": "ea986906abe095db96ce022467a5bbb9ce7cd98f72c511276b1a96925364c466",
@@ -40,7 +42,7 @@
   "documents": {
     "docs/release/E2E_SEVEN_STAGE_PROOF.md": "699e379b6683b8c1d4065770051a75b4af21c1c11dfe09541cf0fe0d1b6c9ab1",
     "docs/release/FINANCIAL_STATEMENTS_ACTIVATION.md": "14d36c800df23faacedab95b4676f639639e844995a7bbc6a6f57d80a67ca7d3",
-    "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md": "dfbd7ed7c7d4f96828c98fc6552c58559f170900902f2ca99606209947ac9d4b",
+    "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md": "369a2fb48a15d55c3b7ebb021fa1ec5cced5498c1254681ad5117b4708200b7e",
     "docs/release/HOSTED_STAGING_ACCEPTANCE.md": "40af43b8ce3cf4813015d9a84f882d4068995a6d0dce5398b15b94735e070615",
     "docs/release/sql/01_preflight.sql": "df92a6a0d7de0b78137600f633e356ccfe90210b87f79180b0f19f5af4746bfd",
     "docs/release/sql/02_postcondition.sql": "f691eecaf9fed4bba75c52e778e04db3d98f3ac530d5cd174c846590b4498e04",
