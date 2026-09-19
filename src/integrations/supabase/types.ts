@@ -2040,6 +2040,546 @@ export type Database = {
           },
         ]
       }
+      financial_evidence_batches: {
+        Row: {
+          batch_document: Json
+          company_id: string
+          content_hash: string
+          created_at: string
+          currency: string | null
+          diagnostics: Json
+          document_hash: string
+          evidence_batch_id: string
+          evidence_type: string
+          id: string
+          period_role: string
+          replay_identity: string
+          reporting_period_id: string
+          scale: number | null
+          schema_version: string
+          seq: number
+          series_key: string
+          source_file_name: string | null
+          supersedes_batch_id: string | null
+          uploaded_by_firm_member_id: string
+          validation_status: string
+          version: number
+        }
+        Insert: {
+          batch_document: Json
+          company_id: string
+          content_hash: string
+          created_at?: string
+          currency?: string | null
+          diagnostics: Json
+          document_hash: string
+          evidence_batch_id: string
+          evidence_type: string
+          id?: string
+          period_role: string
+          replay_identity: string
+          reporting_period_id: string
+          scale?: number | null
+          schema_version: string
+          seq?: never
+          series_key?: string
+          source_file_name?: string | null
+          supersedes_batch_id?: string | null
+          uploaded_by_firm_member_id: string
+          validation_status: string
+          version: number
+        }
+        Update: {
+          batch_document?: Json
+          company_id?: string
+          content_hash?: string
+          created_at?: string
+          currency?: string | null
+          diagnostics?: Json
+          document_hash?: string
+          evidence_batch_id?: string
+          evidence_type?: string
+          id?: string
+          period_role?: string
+          replay_identity?: string
+          reporting_period_id?: string
+          scale?: number | null
+          schema_version?: string
+          seq?: never
+          series_key?: string
+          source_file_name?: string | null
+          supersedes_batch_id?: string | null
+          uploaded_by_firm_member_id?: string
+          validation_status?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_feb_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_feb_uploader"
+            columns: ["uploaded_by_firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_statement_audit_events: {
+        Row: {
+          action: string
+          actor_firm_member_id: string
+          company_id: string
+          created_at: string
+          detail: Json
+          id: string
+          report_id: string | null
+          seq: number
+        }
+        Insert: {
+          action: string
+          actor_firm_member_id: string
+          company_id: string
+          created_at?: string
+          detail: Json
+          id?: string
+          report_id?: string | null
+          seq?: never
+        }
+        Update: {
+          action?: string
+          actor_firm_member_id?: string
+          company_id?: string
+          created_at?: string
+          detail?: Json
+          id?: string
+          report_id?: string | null
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fsae_actor"
+            columns: ["actor_firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_fsae_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_statement_correction_groups: {
+        Row: {
+          applied_by_firm_member_id: string
+          company_id: string
+          created_at: string
+          expected_report_version: number
+          from_report_version: number
+          group_hash: string
+          group_id: string
+          id: string
+          idempotency_key: string
+          report_id: string
+          step_count: number
+          to_report_version: number
+        }
+        Insert: {
+          applied_by_firm_member_id: string
+          company_id: string
+          created_at?: string
+          expected_report_version: number
+          from_report_version: number
+          group_hash: string
+          group_id: string
+          id?: string
+          idempotency_key: string
+          report_id: string
+          step_count: number
+          to_report_version: number
+        }
+        Update: {
+          applied_by_firm_member_id?: string
+          company_id?: string
+          created_at?: string
+          expected_report_version?: number
+          from_report_version?: number
+          group_hash?: string
+          group_id?: string
+          id?: string
+          idempotency_key?: string
+          report_id?: string
+          step_count?: number
+          to_report_version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fscg_actor"
+            columns: ["applied_by_firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_fscg_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_statement_evaluations: {
+        Row: {
+          company_id: string
+          created_at: string
+          engine_version: string
+          evaluation_run_id: string
+          findings: Json
+          id: string
+          input_hash: string
+          report_id: string
+          report_version: number
+          rule_pack_id: string
+          rule_pack_version: string
+          seq: number
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          engine_version: string
+          evaluation_run_id: string
+          findings: Json
+          id?: string
+          input_hash: string
+          report_id: string
+          report_version: number
+          rule_pack_id: string
+          rule_pack_version: string
+          seq?: never
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          engine_version?: string
+          evaluation_run_id?: string
+          findings?: Json
+          id?: string
+          input_hash?: string
+          report_id?: string
+          report_version?: number
+          rule_pack_id?: string
+          rule_pack_version?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fse_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_fse_report"
+            columns: ["report_id", "report_version"]
+            isOneToOne: false
+            referencedRelation: "financial_statement_reports"
+            referencedColumns: ["report_id", "report_version"]
+          },
+        ]
+      }
+      financial_statement_framework_requirements: {
+        Row: {
+          comparatives_required: boolean
+          disclosure_area_ids: string[]
+          framework_kind: string
+          profile_version: string
+          required_evidence_types: string[]
+          required_statement_types: string[]
+          requires_mapping_review: boolean
+        }
+        Insert: {
+          comparatives_required: boolean
+          disclosure_area_ids: string[]
+          framework_kind: string
+          profile_version: string
+          required_evidence_types: string[]
+          required_statement_types: string[]
+          requires_mapping_review: boolean
+        }
+        Update: {
+          comparatives_required?: boolean
+          disclosure_area_ids?: string[]
+          framework_kind?: string
+          profile_version?: string
+          required_evidence_types?: string[]
+          required_statement_types?: string[]
+          requires_mapping_review?: boolean
+        }
+        Relationships: []
+      }
+      financial_statement_publications: {
+        Row: {
+          actor_firm_member_id: string
+          company_id: string
+          created_at: string
+          id: string
+          reason: string
+          report_id: string
+          report_version: number
+          seq: number
+          state: string
+        }
+        Insert: {
+          actor_firm_member_id: string
+          company_id: string
+          created_at?: string
+          id?: string
+          reason: string
+          report_id: string
+          report_version: number
+          seq?: never
+          state: string
+        }
+        Update: {
+          actor_firm_member_id?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          reason?: string
+          report_id?: string
+          report_version?: number
+          seq?: never
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fsp_actor"
+            columns: ["actor_firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_fsp_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_fsp_report"
+            columns: ["report_id", "report_version"]
+            isOneToOne: false
+            referencedRelation: "financial_statement_reports"
+            referencedColumns: ["report_id", "report_version"]
+          },
+        ]
+      }
+      financial_statement_reports: {
+        Row: {
+          company_id: string
+          content_hash: string
+          created_at: string
+          created_by_firm_member_id: string
+          document_hash: string
+          evidence_batch_ids: string[]
+          id: string
+          period_year: number
+          provenance_origin: string
+          report_document: Json
+          report_id: string
+          report_version: number
+          seq: number
+        }
+        Insert: {
+          company_id: string
+          content_hash: string
+          created_at?: string
+          created_by_firm_member_id: string
+          document_hash: string
+          evidence_batch_ids?: string[]
+          id?: string
+          period_year: number
+          provenance_origin: string
+          report_document: Json
+          report_id: string
+          report_version: number
+          seq?: never
+        }
+        Update: {
+          company_id?: string
+          content_hash?: string
+          created_at?: string
+          created_by_firm_member_id?: string
+          document_hash?: string
+          evidence_batch_ids?: string[]
+          id?: string
+          period_year?: number
+          provenance_origin?: string
+          report_document?: Json
+          report_id?: string
+          report_version?: number
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fsr_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_fsr_created_by"
+            columns: ["created_by_firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_statement_reviewer_decisions: {
+        Row: {
+          company_id: string
+          correction_group_id: string | null
+          decided_at: string
+          decision: Json
+          decision_id: string
+          id: string
+          report_id: string
+          reviewer_firm_member_id: string
+          seq: number
+        }
+        Insert: {
+          company_id: string
+          correction_group_id?: string | null
+          decided_at?: string
+          decision: Json
+          decision_id: string
+          id?: string
+          report_id: string
+          reviewer_firm_member_id: string
+          seq?: never
+        }
+        Update: {
+          company_id?: string
+          correction_group_id?: string | null
+          decided_at?: string
+          decision?: Json
+          decision_id?: string
+          id?: string
+          report_id?: string
+          reviewer_firm_member_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fsrd_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_fsrd_reviewer"
+            columns: ["reviewer_firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_statements_rollout_audit: {
+        Row: {
+          company_id: string | null
+          created_at: string
+          id: string
+          new_state: boolean
+          operator_label: string
+          previous_state: boolean | null
+          reason: string
+          scope: string
+          seq: number
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string
+          id?: string
+          new_state: boolean
+          operator_label: string
+          previous_state?: boolean | null
+          reason: string
+          scope: string
+          seq?: never
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string
+          id?: string
+          new_state?: boolean
+          operator_label?: string
+          previous_state?: boolean | null
+          reason?: string
+          scope?: string
+          seq?: never
+        }
+        Relationships: []
+      }
+      financial_statements_rollout_companies: {
+        Row: {
+          company_id: string
+          enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fs_rollout_company"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_statements_rollout_state: {
+        Row: {
+          kill_switch: boolean
+          singleton: boolean
+          updated_at: string
+        }
+        Insert: {
+          kill_switch?: boolean
+          singleton?: boolean
+          updated_at?: string
+        }
+        Update: {
+          kill_switch?: boolean
+          singleton?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       findings: {
         Row: {
           assigned_to_user_id: string | null
@@ -5149,6 +5689,10 @@ export type Database = {
         }
         Returns: Json
       }
+      financial_statements_workspace_access: {
+        Args: { p_company_id: string }
+        Returns: Json
+      }
       fold_engagement_authority: {
         Args: { p_engagement_id: string }
         Returns: {
@@ -5170,6 +5714,334 @@ export type Database = {
           occurred_at: string
           sequence_no: number
         }[]
+      }
+      fs_actor_member_id: { Args: { p_company_id: string }; Returns: string }
+      fs_append_decision: {
+        Args: {
+          p_company_id: string
+          p_decision: Json
+          p_decision_id: string
+          p_report_id: string
+        }
+        Returns: {
+          company_id: string
+          correction_group_id: string | null
+          decided_at: string
+          decision: Json
+          decision_id: string
+          id: string
+          report_id: string
+          reviewer_firm_member_id: string
+          seq: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "financial_statement_reviewer_decisions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      fs_apply_correction_group: {
+        Args: {
+          p_company_id: string
+          p_decisions: Json
+          p_evaluation: Json
+          p_expected_report_version: number
+          p_group_id: string
+          p_idempotency_key: string
+          p_report_id: string
+          p_steps: Json
+        }
+        Returns: {
+          applied_by_firm_member_id: string
+          company_id: string
+          created_at: string
+          expected_report_version: number
+          from_report_version: number
+          group_hash: string
+          group_id: string
+          id: string
+          idempotency_key: string
+          report_id: string
+          step_count: number
+          to_report_version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "financial_statement_correction_groups"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      fs_assert_report_document: {
+        Args: {
+          p_company_id: string
+          p_doc: Json
+          p_report_id: string
+          p_version: number
+        }
+        Returns: undefined
+      }
+      fs_audit_event: {
+        Args: {
+          p_action: string
+          p_actor: string
+          p_company_id: string
+          p_detail: Json
+          p_report_id: string
+        }
+        Returns: undefined
+      }
+      fs_commit_revision: {
+        Args: {
+          p_company_id: string
+          p_content_hash: string
+          p_evaluation: Json
+          p_evidence: Json
+          p_evidence_batch_ids: string[]
+          p_expected_report_version: number
+          p_idempotency_key: string
+          p_period_year: number
+          p_provenance_origin: string
+          p_report_document: Json
+          p_report_id: string
+        }
+        Returns: {
+          company_id: string
+          content_hash: string
+          created_at: string
+          created_by_firm_member_id: string
+          document_hash: string
+          evidence_batch_ids: string[]
+          id: string
+          period_year: number
+          provenance_origin: string
+          report_document: Json
+          report_id: string
+          report_version: number
+          seq: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "financial_statement_reports"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      fs_ingest_evidence_internal: {
+        Args: {
+          p_actor: string
+          p_batch_document: Json
+          p_company_id: string
+          p_content_hash: string
+          p_currency: string
+          p_diagnostics: Json
+          p_evidence_batch_id: string
+          p_evidence_type: string
+          p_expected_previous_batch_id: string
+          p_period_role: string
+          p_reporting_period_id: string
+          p_scale: number
+          p_schema_version: string
+          p_series_key: string
+          p_source_file_name: string
+          p_validation_status: string
+        }
+        Returns: {
+          batch_document: Json
+          company_id: string
+          content_hash: string
+          created_at: string
+          currency: string | null
+          diagnostics: Json
+          document_hash: string
+          evidence_batch_id: string
+          evidence_type: string
+          id: string
+          period_role: string
+          replay_identity: string
+          reporting_period_id: string
+          scale: number | null
+          schema_version: string
+          seq: number
+          series_key: string
+          source_file_name: string | null
+          supersedes_batch_id: string | null
+          uploaded_by_firm_member_id: string
+          validation_status: string
+          version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "financial_evidence_batches"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      fs_list_saved_versions: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      fs_publication_blockers: {
+        Args: { p_company_id: string; p_report_id: string; p_version: number }
+        Returns: string[]
+      }
+      fs_report_readiness: {
+        Args: {
+          p_company_id: string
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: Json
+      }
+      fs_rollout_allows: { Args: { p_company_id: string }; Returns: boolean }
+      fs_save_evaluation: {
+        Args: {
+          p_company_id: string
+          p_engine_version: string
+          p_evaluation_run_id: string
+          p_findings: Json
+          p_input_hash: string
+          p_report_id: string
+          p_report_version: number
+          p_rule_pack_id: string
+          p_rule_pack_version: string
+        }
+        Returns: {
+          company_id: string
+          created_at: string
+          engine_version: string
+          evaluation_run_id: string
+          findings: Json
+          id: string
+          input_hash: string
+          report_id: string
+          report_version: number
+          rule_pack_id: string
+          rule_pack_version: string
+          seq: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "financial_statement_evaluations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      fs_save_report_version: {
+        Args: {
+          p_company_id: string
+          p_content_hash: string
+          p_evidence_batch_ids: string[]
+          p_period_year: number
+          p_provenance_origin: string
+          p_report_document: Json
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: {
+          company_id: string
+          content_hash: string
+          created_at: string
+          created_by_firm_member_id: string
+          document_hash: string
+          evidence_batch_ids: string[]
+          id: string
+          period_year: number
+          provenance_origin: string
+          report_document: Json
+          report_id: string
+          report_version: number
+          seq: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "financial_statement_reports"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      fs_set_company_rollout: {
+        Args: {
+          p_company_id: string
+          p_enabled: boolean
+          p_operator_label: string
+          p_reason: string
+        }
+        Returns: undefined
+      }
+      fs_set_kill_switch: {
+        Args: { p_engaged: boolean; p_operator_label: string; p_reason: string }
+        Returns: undefined
+      }
+      fs_set_publication_state: {
+        Args: {
+          p_company_id: string
+          p_reason: string
+          p_report_id: string
+          p_report_version: number
+          p_state: string
+        }
+        Returns: {
+          actor_firm_member_id: string
+          company_id: string
+          created_at: string
+          id: string
+          reason: string
+          report_id: string
+          report_version: number
+          seq: number
+          state: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "financial_statement_publications"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      fs_sha256_hex: { Args: { p_text: string }; Returns: string }
+      fs_store_evaluation: {
+        Args: {
+          p_company_id: string
+          p_engine_version: string
+          p_evaluation_run_id: string
+          p_findings: Json
+          p_input_hash: string
+          p_report_id: string
+          p_report_version: number
+          p_rule_pack_id: string
+          p_rule_pack_version: string
+        }
+        Returns: {
+          company_id: string
+          created_at: string
+          engine_version: string
+          evaluation_run_id: string
+          findings: Json
+          id: string
+          input_hash: string
+          report_id: string
+          report_version: number
+          rule_pack_id: string
+          rule_pack_version: string
+          seq: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "financial_statement_evaluations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      fs_try_jsonb: { Args: { p_text: string }; Returns: Json }
+      fs_unmet_reconciliation_count: {
+        Args: { p_report_id: string; p_version: number }
+        Returns: number
+      }
+      fs_unresolved_blocking_count: {
+        Args: { p_report_id: string; p_version: number }
+        Returns: number
       }
       get_authoritative_certification: {
         Args: { p_company_id: string; p_period_year: number }

@@ -1,0 +1,1249 @@
+-- CFOClose financial-statements workspace — durable, append-only persistence.
+--
+-- Evidence batches, canonical report versions, evaluation runs, reviewer
+-- decisions, atomic multi-version correction groups and publication states.
+-- Designed from the preserved candidate branch and re-verified against current
+-- main; the proof is scripts/db-proof (real PostgreSQL 16, replayed from zero).
+--
+-- SECURITY MODEL
+--   * Nothing here is writable by a client role. Every write goes through a
+--     SECURITY DEFINER function that pins search_path, derives the acting firm
+--     member from auth.uid() (no argument carries actor authority; any actor in
+--     a payload is discarded), requires accepted membership of the company AND
+--     that the workspace is enabled for it (default denied, kill switch — see
+--     20260919100000), and is granted to `authenticated` only.
+--   * Every table is append-only (UPDATE/DELETE rejected by trigger) and
+--     foreign keys are RESTRICT: history cannot be cascaded or edited away.
+--   * Writers of one lineage are serialised by transaction-scoped advisory locks;
+--     report versions must be exactly latest+1; exact replays are idempotent;
+--     conflicting replays are refused (PT409). A correction group is ONE function
+--     call, therefore ONE transaction: it lands completely or not at all.
+--   * Money is never a JSON number: evidence documents may contain no JSON
+--     numbers at all, and report documents may not carry a numeric minorUnits.
+--   * The server computes its own document hash and never trusts a client hash
+--     for conflict detection.
+--
+-- READINESS AUTHORITY: only fs_set_publication_state can move a report to REVIEWED or
+-- FINAL, and it does so only when fs_publication_blockers() returns nothing: known
+-- framework, every required primary statement, current and comparative figures, valid
+-- and current evidence, an evaluation of THIS version, no blocking finding, no unmet
+-- mandatory reconciliation, the latest version, an owner/partner, and rollout permission.
+-- The client may preview this through fs_report_readiness(); it cannot bypass it.
+--
+-- Error codes: 42501 forbidden · PT403 feature disabled · PT409 stale/conflict ·
+--              P0002 not found · 22023 invalid argument.
+--
+-- THIS MIGRATION IS NOT APPLIED to any database by its author. Apply only through
+-- the project's reviewed, managed process after the release checklist passes.
+
+-- ════════════════════════════════════════════════════════════════════════
+-- 0. shared append-only guard
+-- ════════════════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION public.fs_append_only_guard()
+  RETURNS TRIGGER
+  LANGUAGE plpgsql
+  SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  RAISE EXCEPTION 'Iron Dome: % is append-only (% is not permitted)', TG_TABLE_NAME, TG_OP
+    USING ERRCODE = 'P0001';
+END;
+$$;
+
+-- ════════════════════════════════════════════════════════════════════════
+-- 1. tables
+-- ════════════════════════════════════════════════════════════════════════
+
+CREATE TABLE public.financial_evidence_batches (
+  id                          UUID        NOT NULL DEFAULT gen_random_uuid(),
+  seq                         BIGINT      GENERATED ALWAYS AS IDENTITY,
+  evidence_batch_id           TEXT        NOT NULL,
+  company_id                  UUID        NOT NULL,
+  reporting_period_id         TEXT        NOT NULL,
+  evidence_type               TEXT        NOT NULL,
+  period_role                 TEXT        NOT NULL,
+  series_key                  TEXT        NOT NULL DEFAULT 'default',
+  schema_version              TEXT        NOT NULL,
+  source_file_name            TEXT        NULL,
+  content_hash                TEXT        NOT NULL,
+  document_hash               TEXT        NOT NULL,
+  replay_identity             TEXT        NOT NULL,
+  currency                    TEXT        NULL,
+  scale                       INTEGER     NULL,
+  batch_document              JSONB       NOT NULL,
+  diagnostics                 JSONB       NOT NULL,
+  validation_status           TEXT        NOT NULL,
+  version                     INTEGER     NOT NULL,
+  supersedes_batch_id         TEXT        NULL,
+  uploaded_by_firm_member_id  UUID        NOT NULL,
+  created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT feb_pk PRIMARY KEY (id),
+  CONSTRAINT fk_feb_company FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_feb_uploader FOREIGN KEY (uploaded_by_firm_member_id) REFERENCES public.firm_members(id) ON DELETE RESTRICT,
+  CONSTRAINT chk_feb_type CHECK (evidence_type IN (
+    'TRIAL_BALANCE', 'TRANSACTION_LEDGER', 'EQUITY_MOVEMENTS', 'BUDGET', 'IPSAS_CASH_RECEIPTS_PAYMENTS',
+    'SUPPORTING_SCHEDULE', 'NOTES_AND_POLICIES', 'PRIOR_PERIOD_STATEMENTS', 'EXTRACTED_CANDIDATES', 'CASH_ACCOUNT_MAP')),
+  CONSTRAINT chk_feb_role CHECK (period_role IN ('CURRENT', 'COMPARATIVE')),
+  CONSTRAINT chk_feb_status CHECK (validation_status IN ('VALID', 'VALID_WITH_WARNINGS', 'REQUIRES_REVIEW', 'INVALID')),
+  CONSTRAINT chk_feb_content_hash CHECK (content_hash ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT chk_feb_document_hash CHECK (document_hash ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT chk_feb_replay CHECK (replay_identity ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT chk_feb_currency CHECK (currency IS NULL OR currency ~ '^[A-Z]{3}$'),
+  CONSTRAINT chk_feb_scale CHECK (scale IS NULL OR scale BETWEEN 0 AND 6),
+  CONSTRAINT chk_feb_version CHECK (version >= 1),
+  CONSTRAINT chk_feb_chain CHECK ((version = 1) = (supersedes_batch_id IS NULL)),
+  CONSTRAINT chk_feb_series CHECK (length(series_key) BETWEEN 1 AND 120),
+  CONSTRAINT uq_feb_batch_id UNIQUE (evidence_batch_id),
+  CONSTRAINT uq_feb_replay UNIQUE (company_id, replay_identity),
+  CONSTRAINT uq_feb_series_version UNIQUE (company_id, reporting_period_id, evidence_type, period_role, series_key, version)
+);
+
+CREATE INDEX idx_feb_company_period ON public.financial_evidence_batches (company_id, reporting_period_id, evidence_type);
+
+CREATE TABLE public.financial_statement_reports (
+  id                          UUID        NOT NULL DEFAULT gen_random_uuid(),
+  seq                         BIGINT      GENERATED ALWAYS AS IDENTITY,
+  report_id                   TEXT        NOT NULL,
+  report_version              INTEGER     NOT NULL,
+  company_id                  UUID        NOT NULL,
+  period_year                 INTEGER     NOT NULL,
+  provenance_origin           TEXT        NOT NULL,
+  report_document             JSONB       NOT NULL,
+  content_hash                TEXT        NOT NULL,
+  document_hash               TEXT        NOT NULL,
+  evidence_batch_ids          TEXT[]      NOT NULL DEFAULT '{}',
+  created_by_firm_member_id   UUID        NOT NULL,
+  created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT fsr_pk PRIMARY KEY (id),
+  CONSTRAINT fk_fsr_company FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_fsr_created_by FOREIGN KEY (created_by_firm_member_id) REFERENCES public.firm_members(id) ON DELETE RESTRICT,
+  CONSTRAINT chk_fsr_period_year CHECK (period_year BETWEEN 2000 AND 2100),
+  CONSTRAINT chk_fsr_version CHECK (report_version >= 1),
+  CONSTRAINT chk_fsr_origin CHECK (provenance_origin IN ('TRIAL_BALANCE_DERIVED', 'DOCUMENT_REVIEWED')),
+  CONSTRAINT chk_fsr_content_hash CHECK (content_hash ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT chk_fsr_document_hash CHECK (document_hash ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT uq_fsr_report_version UNIQUE (report_id, report_version)
+);
+
+CREATE INDEX idx_fsr_company_period ON public.financial_statement_reports (company_id, period_year, provenance_origin);
+
+CREATE TABLE public.financial_statement_evaluations (
+  id                  UUID        NOT NULL DEFAULT gen_random_uuid(),
+  seq                 BIGINT      GENERATED ALWAYS AS IDENTITY,
+  evaluation_run_id   TEXT        NOT NULL,
+  report_id           TEXT        NOT NULL,
+  report_version      INTEGER     NOT NULL,
+  company_id          UUID        NOT NULL,
+  rule_pack_id        TEXT        NOT NULL,
+  rule_pack_version   TEXT        NOT NULL,
+  engine_version      TEXT        NOT NULL,
+  input_hash          TEXT        NOT NULL,
+  findings            JSONB       NOT NULL,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT fse_pk PRIMARY KEY (id),
+  CONSTRAINT fk_fse_company FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_fse_report FOREIGN KEY (report_id, report_version) REFERENCES public.financial_statement_reports(report_id, report_version) ON DELETE RESTRICT,
+  CONSTRAINT chk_fse_input_hash CHECK (input_hash ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT chk_fse_findings CHECK (jsonb_typeof(findings) = 'array'),
+  CONSTRAINT uq_fse_run UNIQUE (evaluation_run_id)
+);
+
+CREATE INDEX idx_fse_report_version ON public.financial_statement_evaluations (report_id, report_version, seq DESC);
+
+CREATE TABLE public.financial_statement_reviewer_decisions (
+  id                        UUID        NOT NULL DEFAULT gen_random_uuid(),
+  seq                       BIGINT      GENERATED ALWAYS AS IDENTITY,
+  decision_id               TEXT        NOT NULL,
+  report_id                 TEXT        NOT NULL,
+  company_id                UUID        NOT NULL,
+  decision                  JSONB       NOT NULL,
+  correction_group_id       TEXT        NULL,
+  reviewer_firm_member_id   UUID        NOT NULL,
+  decided_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT fsrd_pk PRIMARY KEY (id),
+  CONSTRAINT fk_fsrd_company FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_fsrd_reviewer FOREIGN KEY (reviewer_firm_member_id) REFERENCES public.firm_members(id) ON DELETE RESTRICT,
+  CONSTRAINT uq_fsrd_decision UNIQUE (report_id, decision_id)
+);
+
+CREATE INDEX idx_fsrd_report ON public.financial_statement_reviewer_decisions (report_id, seq);
+
+CREATE TABLE public.financial_statement_correction_groups (
+  id                          UUID        NOT NULL DEFAULT gen_random_uuid(),
+  group_id                    TEXT        NOT NULL,
+  idempotency_key             TEXT        NOT NULL,
+  company_id                  UUID        NOT NULL,
+  report_id                   TEXT        NOT NULL,
+  expected_report_version     INTEGER     NOT NULL,
+  from_report_version         INTEGER     NOT NULL,
+  to_report_version           INTEGER     NOT NULL,
+  step_count                  INTEGER     NOT NULL,
+  group_hash                  TEXT        NOT NULL,
+  applied_by_firm_member_id   UUID        NOT NULL,
+  created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT fscg_pk PRIMARY KEY (id),
+  CONSTRAINT fk_fscg_company FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_fscg_actor FOREIGN KEY (applied_by_firm_member_id) REFERENCES public.firm_members(id) ON DELETE RESTRICT,
+  CONSTRAINT chk_fscg_steps CHECK (step_count BETWEEN 1 AND 64 AND to_report_version = expected_report_version + step_count AND from_report_version = expected_report_version + 1),
+  CONSTRAINT chk_fscg_hash CHECK (group_hash ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT chk_fscg_key CHECK (length(idempotency_key) BETWEEN 8 AND 200),
+  CONSTRAINT uq_fscg_group UNIQUE (report_id, group_id),
+  CONSTRAINT uq_fscg_idem UNIQUE (company_id, idempotency_key)
+);
+
+CREATE TABLE public.financial_statement_publications (
+  id                    UUID        NOT NULL DEFAULT gen_random_uuid(),
+  seq                   BIGINT      GENERATED ALWAYS AS IDENTITY,
+  report_id             TEXT        NOT NULL,
+  report_version        INTEGER     NOT NULL,
+  company_id            UUID        NOT NULL,
+  state                 TEXT        NOT NULL,
+  reason                TEXT        NOT NULL,
+  actor_firm_member_id  UUID        NOT NULL,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT fsp_pk PRIMARY KEY (id),
+  CONSTRAINT fk_fsp_company FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_fsp_report FOREIGN KEY (report_id, report_version) REFERENCES public.financial_statement_reports(report_id, report_version) ON DELETE RESTRICT,
+  CONSTRAINT fk_fsp_actor FOREIGN KEY (actor_firm_member_id) REFERENCES public.firm_members(id) ON DELETE RESTRICT,
+  CONSTRAINT chk_fsp_state CHECK (state IN ('DRAFT', 'REVIEWED', 'FINAL')),
+  CONSTRAINT chk_fsp_reason CHECK (length(btrim(reason)) >= 8)
+);
+
+CREATE INDEX idx_fsp_report_version ON public.financial_statement_publications (report_id, report_version, seq DESC);
+
+CREATE TABLE public.financial_statement_audit_events (
+  id                    UUID        NOT NULL DEFAULT gen_random_uuid(),
+  seq                   BIGINT      GENERATED ALWAYS AS IDENTITY,
+  company_id            UUID        NOT NULL,
+  report_id             TEXT        NULL,
+  action                TEXT        NOT NULL,
+  detail                JSONB       NOT NULL,
+  actor_firm_member_id  UUID        NOT NULL,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT fsae_pk PRIMARY KEY (id),
+  CONSTRAINT fk_fsae_company FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_fsae_actor FOREIGN KEY (actor_firm_member_id) REFERENCES public.firm_members(id) ON DELETE RESTRICT,
+  CONSTRAINT chk_fsae_action CHECK (action IN ('EVIDENCE_INGESTED', 'REPORT_VERSION_SAVED', 'DECISION_RECORDED', 'CORRECTION_GROUP_APPLIED', 'PUBLICATION_STATE_SET', 'REVISION_COMMITTED', 'EVALUATION_RECORDED'))
+);
+
+CREATE INDEX idx_fsae_company ON public.financial_statement_audit_events (company_id, seq DESC);
+
+-- Reference data: what each framework REQUIRES before a report may be reviewed. Immutable once
+-- applied (a change is a new migration), readable by any signed-in user (it holds no tenant data).
+CREATE TABLE public.financial_statement_framework_requirements (
+  framework_kind          TEXT     NOT NULL,
+  required_statement_types TEXT[]  NOT NULL,
+  comparatives_required   BOOLEAN  NOT NULL,
+  required_evidence_types TEXT[]   NOT NULL,
+  -- the disclosure areas of the framework profile: each must be present in the report's checklist and not MISSING
+  disclosure_area_ids     TEXT[]   NOT NULL,
+  -- whether the trial-balance account mapping must have been reviewed in full (false for a cash-basis statement built from evidence only)
+  requires_mapping_review BOOLEAN  NOT NULL,
+  profile_version         TEXT     NOT NULL,
+  CONSTRAINT fsfr_pk PRIMARY KEY (framework_kind)
+);
+
+-- The cash flow and changes in equity are GENERATED only from evidence (a transaction ledger, equity movements), so
+-- their authority is that evidence: a report that shows them without it cannot be reviewed.
+INSERT INTO public.financial_statement_framework_requirements (framework_kind, required_statement_types, comparatives_required, required_evidence_types, disclosure_area_ids, requires_mapping_review, profile_version) VALUES
+  ('IFRS',          ARRAY['STATEMENT_OF_FINANCIAL_POSITION', 'STATEMENT_OF_PROFIT_OR_LOSS', 'STATEMENT_OF_CHANGES_IN_EQUITY', 'STATEMENT_OF_CASH_FLOWS'], true, ARRAY['TRANSACTION_LEDGER', 'EQUITY_MOVEMENTS'], ARRAY['accounting-policies', 'basis-of-preparation', 'supporting-notes'], true, '1.2.0'),
+  ('IFRS_FOR_SMES', ARRAY['STATEMENT_OF_FINANCIAL_POSITION', 'STATEMENT_OF_PROFIT_OR_LOSS', 'STATEMENT_OF_CHANGES_IN_EQUITY', 'STATEMENT_OF_CASH_FLOWS'], true, ARRAY['TRANSACTION_LEDGER', 'EQUITY_MOVEMENTS'], ARRAY['accounting-policies', 'basis-of-preparation', 'supporting-notes'], true, '1.2.0'),
+  ('IPSAS_ACCRUAL', ARRAY['STATEMENT_OF_FINANCIAL_POSITION', 'STATEMENT_OF_PROFIT_OR_LOSS', 'STATEMENT_OF_CHANGES_IN_EQUITY', 'STATEMENT_OF_CASH_FLOWS'], true, ARRAY['TRANSACTION_LEDGER', 'EQUITY_MOVEMENTS'], ARRAY['accounting-policies', 'basis-of-preparation', 'supporting-notes'], true, '1.2.0'),
+  ('IPSAS_CASH',    ARRAY['STATEMENT_OF_CASH_RECEIPTS_AND_PAYMENTS'], true, ARRAY['IPSAS_CASH_RECEIPTS_PAYMENTS'], ARRAY['accounting-policies', 'basis-of-preparation', 'supporting-notes'], false, '1.2.0');
+
+CREATE TRIGGER trg_fsfr_immutable BEFORE UPDATE OR DELETE ON public.financial_statement_framework_requirements
+  FOR EACH ROW EXECUTE FUNCTION public.fs_append_only_guard();
+ALTER TABLE public.financial_statement_framework_requirements ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.financial_statement_framework_requirements FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.financial_statement_framework_requirements TO authenticated;
+CREATE POLICY "fsfr_select" ON public.financial_statement_framework_requirements FOR SELECT TO authenticated USING (true);
+
+-- ── append-only triggers, RLS, grants (reads only, by accepted company members) ──
+
+DO $$
+DECLARE
+  t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'financial_evidence_batches', 'financial_statement_reports', 'financial_statement_evaluations',
+    'financial_statement_reviewer_decisions', 'financial_statement_correction_groups', 'financial_statement_publications',
+    'financial_statement_audit_events'
+  ] LOOP
+    EXECUTE format('CREATE TRIGGER trg_%s_append_only BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.fs_append_only_guard()', t, t);
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+    EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC, anon, authenticated', t);
+    EXECUTE format('GRANT SELECT ON public.%I TO authenticated', t);
+    -- The membership lookup goes through the SECURITY DEFINER helper: `authenticated` has no
+    -- SELECT on firm_members, so a policy that read it directly would fail for every caller.
+    EXECUTE format($p$CREATE POLICY "%s_select" ON public.%I FOR SELECT USING (
+      company_id IN (SELECT public.get_member_company_ids()))$p$, t, t);
+  END LOOP;
+END $$;
+
+-- ════════════════════════════════════════════════════════════════════════
+-- 2. internal helpers (never callable by a client role)
+-- ════════════════════════════════════════════════════════════════════════
+
+-- Resolves the caller's firm member for a company from auth.uid(), and refuses
+-- unless the workspace is enabled for that company (default denied / kill switch).
+CREATE OR REPLACE FUNCTION public.fs_actor_member_id(p_company_id UUID)
+  RETURNS UUID
+  LANGUAGE plpgsql
+  STABLE
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_uid    UUID := auth.uid();
+  v_member UUID;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: an authenticated session is required' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT fm.id INTO v_member
+    FROM public.firm_members fm
+   WHERE fm.user_id = v_uid AND fm.company_id = p_company_id AND fm.accepted_at IS NOT NULL
+     AND fm.role <> 'viewer'
+   ORDER BY fm.id LIMIT 1;
+
+  IF v_member IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: the caller is not an accepted, non-viewer member of company %', p_company_id USING ERRCODE = '42501';
+  END IF;
+
+  IF NOT public.fs_rollout_allows(p_company_id) THEN
+    RAISE EXCEPTION 'FEATURE_DISABLED: the financial-statements workspace is not enabled for this company' USING ERRCODE = 'PT403';
+  END IF;
+
+  RETURN v_member;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fs_sha256_hex(p_text TEXT)
+  RETURNS TEXT
+  LANGUAGE sql
+  IMMUTABLE
+  SET search_path = pg_catalog, public
+AS $$
+  SELECT encode(sha256(convert_to(p_text, 'UTF8')), 'hex');
+$$;
+
+-- Reads text as JSON, or NULL when it is not JSON (a hand-made document must not crash the readiness check).
+CREATE OR REPLACE FUNCTION public.fs_try_jsonb(p_text TEXT)
+  RETURNS JSONB
+  LANGUAGE plpgsql
+  IMMUTABLE
+  SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  RETURN p_text::jsonb;
+EXCEPTION WHEN others THEN
+  RETURN NULL;
+END;
+$$;
+
+-- Report documents may never carry money as a JSON number, and must describe the lineage they are saved under.
+CREATE OR REPLACE FUNCTION public.fs_assert_report_document(p_doc JSONB, p_report_id TEXT, p_version INTEGER, p_company_id UUID)
+  RETURNS VOID
+  LANGUAGE plpgsql
+  IMMUTABLE
+  SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF jsonb_typeof(p_doc) IS DISTINCT FROM 'object' THEN
+    RAISE EXCEPTION 'INVALID: a report document must be a JSON object' USING ERRCODE = '22023';
+  END IF;
+  IF (p_doc #>> '{reportIdentity,reportId}') IS DISTINCT FROM p_report_id
+     OR (p_doc #>> '{reportIdentity,companyId}') IS DISTINCT FROM p_company_id::text
+     OR (p_doc #>> '{reportIdentity,reportVersion}') IS DISTINCT FROM p_version::text THEN
+    RAISE EXCEPTION 'INVALID: the report document does not match the lineage, company and version it is saved under' USING ERRCODE = '22023';
+  END IF;
+  IF jsonb_path_exists(p_doc, '$.**.minorUnits ? (@.type() != "object")')
+     OR jsonb_path_exists(p_doc, '$.**.presentationMultiplier ? (@.type() != "object")') THEN
+    RAISE EXCEPTION 'INVALID: monetary amounts must be exact integers carried as strings, never JSON numbers' USING ERRCODE = '22023';
+  END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fs_store_evaluation(
+  p_evaluation_run_id TEXT, p_report_id TEXT, p_report_version INTEGER, p_company_id UUID,
+  p_rule_pack_id TEXT, p_rule_pack_version TEXT, p_engine_version TEXT, p_input_hash TEXT, p_findings JSONB
+)
+  RETURNS public.financial_statement_evaluations
+  LANGUAGE plpgsql
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_row public.financial_statement_evaluations;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.financial_statement_reports r
+     WHERE r.report_id = p_report_id AND r.report_version = p_report_version AND r.company_id = p_company_id
+  ) THEN
+    RAISE EXCEPTION 'NOT_FOUND: no report % version % for this company', p_report_id, p_report_version USING ERRCODE = 'P0002';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_evaluations:' || p_evaluation_run_id));
+
+  SELECT * INTO v_row FROM public.financial_statement_evaluations WHERE evaluation_run_id = p_evaluation_run_id;
+  IF FOUND THEN
+    IF v_row.report_id = p_report_id AND v_row.report_version = p_report_version AND v_row.company_id = p_company_id
+       AND v_row.input_hash = p_input_hash AND v_row.findings = p_findings THEN
+      RETURN v_row;
+    END IF;
+    RAISE EXCEPTION 'REPLAY_CONFLICT: evaluation % already exists with different content', p_evaluation_run_id USING ERRCODE = 'PT409';
+  END IF;
+
+  INSERT INTO public.financial_statement_evaluations (
+    evaluation_run_id, report_id, report_version, company_id, rule_pack_id, rule_pack_version, engine_version, input_hash, findings
+  ) VALUES (
+    p_evaluation_run_id, p_report_id, p_report_version, p_company_id, p_rule_pack_id, p_rule_pack_version, p_engine_version, p_input_hash, p_findings
+  ) RETURNING * INTO v_row;
+  RETURN v_row;
+END;
+$$;
+
+-- Unresolved blocking findings for a report version: the latest evaluation's actionable
+-- CRITICAL/HIGH failures and every INSUFFICIENT_EVIDENCE, minus findings whose most recent
+-- decision is ACCEPT_FINDING or REJECT_FINDING. Mirrors findingsView.ts's read model.
+CREATE OR REPLACE FUNCTION public.fs_unresolved_blocking_count(p_report_id TEXT, p_version INTEGER)
+  RETURNS INTEGER
+  LANGUAGE sql
+  STABLE
+  SET search_path = pg_catalog, public
+AS $$
+  WITH ev AS (
+    SELECT e.findings FROM public.financial_statement_evaluations e
+     WHERE e.report_id = p_report_id AND e.report_version = p_version
+     ORDER BY e.seq DESC LIMIT 1
+  ), f AS (
+    SELECT jsonb_array_elements(ev.findings) AS j FROM ev
+  ), latest AS (
+    SELECT DISTINCT ON (d.decision #>> '{target,findingKey}')
+           d.decision #>> '{target,findingKey}' AS fk, d.decision ->> 'decisionType' AS dt
+      FROM public.financial_statement_reviewer_decisions d
+     WHERE d.report_id = p_report_id
+       AND d.decision #>> '{target,kind}' = 'FINDING_KEY'
+       AND d.decision ->> 'decisionType' IN ('ACCEPT_FINDING', 'REJECT_FINDING', 'DEFER', 'REQUEST_EVIDENCE')
+     ORDER BY d.decision #>> '{target,findingKey}', d.seq DESC
+  )
+  SELECT count(*)::INTEGER FROM f
+   WHERE f.j ->> 'actionable' = 'true'
+     AND (f.j ->> 'outcome' = 'INSUFFICIENT_EVIDENCE' OR f.j ->> 'failureSeverity' IN ('CRITICAL', 'HIGH'))
+     AND COALESCE((SELECT l.dt FROM latest l WHERE l.fk = f.j ->> 'findingKey'), '') NOT IN ('ACCEPT_FINDING', 'REJECT_FINDING');
+$$;
+
+-- Mandatory reconciliations cannot be waved through by a reviewer decision: any actionable finding of
+-- these rules blocks, whatever its severity and whatever was accepted.
+CREATE OR REPLACE FUNCTION public.fs_unmet_reconciliation_count(p_report_id TEXT, p_version INTEGER)
+  RETURNS INTEGER
+  LANGUAGE sql
+  STABLE
+  SET search_path = pg_catalog, public
+AS $$
+  WITH ev AS (
+    SELECT e.findings FROM public.financial_statement_evaluations e
+     WHERE e.report_id = p_report_id AND e.report_version = p_version
+     ORDER BY e.seq DESC LIMIT 1
+  ), f AS (
+    SELECT jsonb_array_elements(ev.findings) AS j FROM ev
+  )
+  SELECT count(*)::INTEGER FROM f
+   WHERE f.j ->> 'actionable' = 'true'
+     AND f.j ->> 'ruleId' IN ('note-to-face-reconciliation', 'movement-reconciliation', 'schedule-casting', 'equity-closing-tie',
+                              'equity-profit-tie', 'cashflow-closing-cash-reconciliation', 'cashflow-account-rollforward', 'subtotal-casting', 'sfp-equation');
+$$;
+
+CREATE OR REPLACE FUNCTION public.fs_audit_event(p_company_id UUID, p_report_id TEXT, p_action TEXT, p_detail JSONB, p_actor UUID)
+  RETURNS VOID
+  LANGUAGE sql
+  SET search_path = pg_catalog, public
+AS $$
+  INSERT INTO public.financial_statement_audit_events (company_id, report_id, action, detail, actor_firm_member_id)
+  VALUES (p_company_id, p_report_id, p_action, p_detail, p_actor);
+$$;
+
+-- The complete list of reasons a report version may NOT be marked REVIEWED or FINAL. Empty = ready.
+CREATE OR REPLACE FUNCTION public.fs_publication_blockers(p_company_id UUID, p_report_id TEXT, p_version INTEGER)
+  RETURNS TEXT[]
+  LANGUAGE plpgsql
+  STABLE
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_report   public.financial_statement_reports;
+  v_req      public.financial_statement_framework_requirements;
+  v_b        public.financial_evidence_batches;
+  v_out      TEXT[] := '{}';
+  v_doc      JSONB;
+  v_type     TEXT;
+  v_cid      TEXT;
+  v_id       TEXT;
+  v_latest   INTEGER;
+  v_n        INTEGER;
+  v_comp_any BOOLEAN;
+  v_txt      TEXT;
+  v_cov      TEXT;
+  v_rec      JSONB;
+  v_disc     JSONB;
+  v_has_budget BOOLEAN;
+BEGIN
+  SELECT * INTO v_report FROM public.financial_statement_reports r
+   WHERE r.report_id = p_report_id AND r.report_version = p_version AND r.company_id = p_company_id;
+  IF NOT FOUND THEN
+    RETURN ARRAY['REPORT_VERSION_NOT_FOUND'];
+  END IF;
+  v_doc := v_report.report_document;
+
+  SELECT max(r.report_version) INTO v_latest FROM public.financial_statement_reports r WHERE r.report_id = p_report_id;
+  IF v_latest <> p_version THEN v_out := array_append(v_out, 'NOT_LATEST_VERSION'); END IF;
+
+  SELECT * INTO v_req FROM public.financial_statement_framework_requirements f WHERE f.framework_kind = v_doc #>> '{framework,kind}';
+  IF NOT FOUND THEN
+    v_out := array_append(v_out, 'FRAMEWORK_UNKNOWN');
+  ELSE
+    v_comp_any := jsonb_array_length(coalesce(v_doc -> 'comparativePeriods', '[]'::jsonb)) > 0;
+    IF v_req.comparatives_required AND NOT v_comp_any THEN v_out := array_append(v_out, 'COMPARATIVE_PERIOD_MISSING'); END IF;
+
+    FOREACH v_type IN ARRAY v_req.required_statement_types LOOP
+      IF NOT jsonb_path_exists(v_doc, '$.statements[*] ? (@.type == $t)', jsonb_build_object('t', v_type)) THEN
+        v_out := v_out || ('MISSING_STATEMENT:' || v_type);
+      ELSIF v_req.comparatives_required AND v_comp_any THEN
+        FOR v_cid IN SELECT jsonb_array_elements(v_doc -> 'comparativePeriods') ->> 'periodId' LOOP
+          IF NOT jsonb_path_exists(v_doc, '$.statements[*] ? (@.type == $t).sections[*].lines[*].factBindings[*] ? (@.periodId == $c)',
+                                   jsonb_build_object('t', v_type, 'c', v_cid)) THEN
+            v_out := v_out || ('COMPARATIVE_FIGURES_MISSING:' || v_type || ':' || v_cid);
+          END IF;
+        END LOOP;
+      END IF;
+    END LOOP;
+
+    FOREACH v_type IN ARRAY v_req.required_evidence_types LOOP
+      IF NOT EXISTS (
+        SELECT 1 FROM public.financial_evidence_batches b
+         WHERE b.company_id = p_company_id AND b.evidence_batch_id = ANY (v_report.evidence_batch_ids) AND b.evidence_type = v_type
+      ) THEN
+        v_out := v_out || ('REQUIRED_EVIDENCE_MISSING:' || v_type);
+      END IF;
+    END LOOP;
+  END IF;
+
+  FOREACH v_id IN ARRAY v_report.evidence_batch_ids LOOP
+    SELECT * INTO v_b FROM public.financial_evidence_batches b WHERE b.evidence_batch_id = v_id AND b.company_id = p_company_id;
+    IF NOT FOUND THEN
+      v_out := v_out || ('EVIDENCE_MISSING:' || v_id);
+    ELSE
+      IF v_b.validation_status NOT IN ('VALID', 'VALID_WITH_WARNINGS') THEN v_out := v_out || ('EVIDENCE_NOT_VALID:' || v_id); END IF;
+      IF EXISTS (SELECT 1 FROM public.financial_evidence_batches n
+                  WHERE n.company_id = v_b.company_id AND n.reporting_period_id = v_b.reporting_period_id AND n.evidence_type = v_b.evidence_type
+                    AND n.period_role = v_b.period_role AND n.series_key = v_b.series_key AND n.version > v_b.version) THEN
+        v_out := v_out || ('EVIDENCE_SUPERSEDED:' || v_id);
+      END IF;
+    END IF;
+  END LOOP;
+
+  IF v_req.framework_kind IS NOT NULL THEN
+    -- Cash-flow authority: a ledger-derived closing figure AND proof that the ledger is complete account by account.
+    IF 'STATEMENT_OF_CASH_FLOWS' = ANY (v_req.required_statement_types) THEN
+      IF NOT jsonb_path_exists(v_doc, '$.statements[*] ? (@.type == "STATEMENT_OF_CASH_FLOWS").sections[*].lines[*] ? (@.lineId == "line:cf:closing")') THEN
+        v_out := array_append(v_out, 'CASHFLOW_CLOSING_CASH_MISSING');
+      END IF;
+      IF NOT jsonb_path_exists(v_doc, '$.notes[*] ? (@.noteId == "note:cash-ledger-authority")') THEN
+        v_out := array_append(v_out, 'CASHFLOW_LEDGER_AUTHORITY_MISSING');
+      ELSIF NOT jsonb_path_exists(v_doc, '$.notes[*] ? (@.noteId == "note:cash-ledger-authority").monetaryFactIds[*] ? (@ starts with "fact:cashroll:ledger:")') THEN
+        v_out := array_append(v_out, 'CASHFLOW_LEDGER_AUTHORITY_UNRESOLVED');
+      END IF;
+    END IF;
+
+    -- Reviewed mappings: the trial balance must have been prepared with every account reviewed and unambiguous.
+    IF v_req.requires_mapping_review THEN
+      SELECT d ->> 'text' INTO v_cov FROM jsonb_array_elements(coalesce(v_doc -> 'textualDisclosures', '[]'::jsonb)) d WHERE d ->> 'disclosureId' = 'mapping:coverage' LIMIT 1;
+      IF v_cov IS NULL THEN
+        v_out := array_append(v_out, 'MAPPING_REVIEW_UNRECORDED');
+      ELSIF v_cov !~ '^total=[1-9][0-9]*;unmapped=0;ambiguous=0$' THEN
+        v_out := v_out || ('MAPPING_UNREVIEWED:' || left(v_cov, 60));
+      END IF;
+    END IF;
+
+    -- Disclosure checklist: every framework disclosure area present and not MISSING.
+    FOREACH v_id IN ARRAY v_req.disclosure_area_ids LOOP
+      SELECT d ->> 'text' INTO v_txt FROM jsonb_array_elements(coalesce(v_doc -> 'textualDisclosures', '[]'::jsonb)) d WHERE d ->> 'disclosureId' = 'checklist:' || v_id LIMIT 1;
+      IF v_txt IS NULL THEN
+        v_out := v_out || ('DISCLOSURE_CHECKLIST_ABSENT:' || v_id);
+      ELSIF v_txt LIKE 'MISSING:%' THEN
+        v_out := v_out || ('DISCLOSURE_CHECKLIST_INCOMPLETE:' || v_id);
+      END IF;
+    END LOOP;
+
+    -- Budget completeness, wherever a budget is part of this report.
+    v_has_budget := EXISTS (SELECT 1 FROM public.financial_evidence_batches b WHERE b.company_id = p_company_id AND b.evidence_batch_id = ANY (v_report.evidence_batch_ids) AND b.evidence_type = 'BUDGET');
+    IF jsonb_path_exists(v_doc, '$.textualDisclosures[*] ? (@.disclosureId == "budget:gap")') THEN
+      v_out := array_append(v_out, 'BUDGET_COMPARISON_GAP');
+    ELSIF v_has_budget AND NOT jsonb_path_exists(v_doc, '$.textualDisclosures[*] ? (@.disclosureId starts with "budget:line:")') THEN
+      v_out := array_append(v_out, 'BUDGET_COMPARISON_MISSING');
+    END IF;
+    FOR v_disc IN SELECT d FROM jsonb_array_elements(coalesce(v_doc -> 'textualDisclosures', '[]'::jsonb)) d WHERE d ->> 'disclosureId' LIKE 'budget:line:%' ORDER BY d ->> 'disclosureId' LOOP
+      v_rec := public.fs_try_jsonb(v_disc ->> 'text');
+      IF v_rec IS NULL OR jsonb_typeof(v_rec) <> 'object' THEN
+        v_out := v_out || ('BUDGET_LINE_UNREADABLE:' || (v_disc ->> 'disclosureId'));
+      ELSE
+        IF coalesce(v_rec ->> 'matched', 'false') <> 'true' THEN v_out := v_out || ('BUDGET_LINE_UNMATCHED:' || coalesce(v_rec ->> 'lineKey', '?')); END IF;
+        IF v_rec ->> 'required' = 'true' AND coalesce(btrim(v_rec ->> 'explanation'), '') = '' THEN v_out := v_out || ('BUDGET_EXPLANATION_MISSING:' || coalesce(v_rec ->> 'lineKey', '?')); END IF;
+      END IF;
+    END LOOP;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.financial_statement_evaluations e WHERE e.report_id = p_report_id AND e.report_version = p_version) THEN
+    v_out := array_append(v_out, 'NOT_EVALUATED');
+  ELSE
+    v_n := public.fs_unresolved_blocking_count(p_report_id, p_version);
+    IF v_n > 0 THEN v_out := v_out || ('BLOCKING_FINDINGS:' || v_n); END IF;
+    v_n := public.fs_unmet_reconciliation_count(p_report_id, p_version);
+    IF v_n > 0 THEN v_out := v_out || ('RECONCILIATION_UNMET:' || v_n); END IF;
+  END IF;
+  RETURN v_out;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.fs_actor_member_id(UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_unmet_reconciliation_count(TEXT, INTEGER) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_audit_event(UUID, TEXT, TEXT, JSONB, UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_publication_blockers(UUID, TEXT, INTEGER) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_sha256_hex(TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_assert_report_document(JSONB, TEXT, INTEGER, UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_store_evaluation(TEXT, TEXT, INTEGER, UUID, TEXT, TEXT, TEXT, TEXT, JSONB) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_unresolved_blocking_count(TEXT, INTEGER) FROM PUBLIC, anon, authenticated;
+
+-- ════════════════════════════════════════════════════════════════════════
+-- 3. write RPCs (SECURITY DEFINER, authenticated only)
+-- ════════════════════════════════════════════════════════════════════════
+
+-- ── evidence ───────────────────────────────────────────────────────────
+
+-- Internal ingest, used ONLY by fs_commit_revision and fs_apply_correction_group (never client-callable):
+-- there is no standalone client path that accepts evidence, so evidence cannot exist without its report version.
+CREATE OR REPLACE FUNCTION public.fs_ingest_evidence_internal(
+  p_actor UUID,
+ p_evidence_batch_id TEXT, p_company_id UUID, p_reporting_period_id TEXT, p_evidence_type TEXT,
+  p_period_role TEXT, p_series_key TEXT, p_schema_version TEXT, p_source_file_name TEXT,
+  p_content_hash TEXT, p_currency TEXT, p_scale INTEGER, p_batch_document JSONB,
+  p_validation_status TEXT, p_diagnostics JSONB, p_expected_previous_batch_id TEXT
+)
+  RETURNS public.financial_evidence_batches
+  LANGUAGE plpgsql
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_replay TEXT;
+  v_doc_hash TEXT;
+  v_row    public.financial_evidence_batches;
+  v_latest public.financial_evidence_batches;
+BEGIN
+  IF jsonb_typeof(p_batch_document) IS DISTINCT FROM 'object' OR jsonb_typeof(p_diagnostics) IS DISTINCT FROM 'array' THEN
+    RAISE EXCEPTION 'INVALID: evidence document must be an object and diagnostics an array' USING ERRCODE = '22023';
+  END IF;
+  -- Money and quantities travel as decimal STRINGS. A JSON number anywhere in an evidence document is refused.
+  IF jsonb_path_exists(p_batch_document, '$.** ? (@.type() == "number")') THEN
+    RAISE EXCEPTION 'INVALID: evidence documents must not contain JSON numbers; carry decimals as strings' USING ERRCODE = '22023';
+  END IF;
+
+  v_doc_hash := public.fs_sha256_hex(p_batch_document::text);
+  v_replay := public.fs_sha256_hex(concat_ws('|', p_company_id::text, p_reporting_period_id, p_evidence_type, p_period_role, coalesce(p_series_key, 'default'), p_content_hash));
+
+  PERFORM pg_advisory_xact_lock(hashtext('financial_evidence:' || p_company_id::text || '|' || p_reporting_period_id || '|' || p_evidence_type || '|' || p_period_role || '|' || coalesce(p_series_key, 'default')));
+
+  -- Exact replay of the same source content is a no-op that returns the stored batch.
+  SELECT * INTO v_row FROM public.financial_evidence_batches WHERE company_id = p_company_id AND replay_identity = v_replay;
+  IF FOUND THEN
+    IF v_row.document_hash = v_doc_hash THEN
+      RETURN v_row;
+    END IF;
+    RAISE EXCEPTION 'REPLAY_CONFLICT: the same source content was already ingested with a different parsed document' USING ERRCODE = 'PT409';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM public.financial_evidence_batches WHERE evidence_batch_id = p_evidence_batch_id) THEN
+    RAISE EXCEPTION 'REPLAY_CONFLICT: evidence batch id % is already in use', p_evidence_batch_id USING ERRCODE = 'PT409';
+  END IF;
+
+  SELECT * INTO v_latest FROM public.financial_evidence_batches
+   WHERE company_id = p_company_id AND reporting_period_id = p_reporting_period_id AND evidence_type = p_evidence_type
+     AND period_role = p_period_role AND series_key = coalesce(p_series_key, 'default')
+   ORDER BY version DESC LIMIT 1;
+
+  IF p_expected_previous_batch_id IS DISTINCT FROM v_latest.evidence_batch_id THEN
+    RAISE EXCEPTION 'STALE_VERSION: the evidence series changed; expected predecessor does not match the latest batch' USING ERRCODE = 'PT409';
+  END IF;
+
+  INSERT INTO public.financial_evidence_batches (
+    evidence_batch_id, company_id, reporting_period_id, evidence_type, period_role, series_key, schema_version,
+    source_file_name, content_hash, document_hash, replay_identity, currency, scale, batch_document, diagnostics,
+    validation_status, version, supersedes_batch_id, uploaded_by_firm_member_id
+  ) VALUES (
+    p_evidence_batch_id, p_company_id, p_reporting_period_id, p_evidence_type, p_period_role, coalesce(p_series_key, 'default'), p_schema_version,
+    p_source_file_name, p_content_hash, v_doc_hash, v_replay, p_currency, p_scale, p_batch_document, p_diagnostics,
+    p_validation_status, coalesce(v_latest.version, 0) + 1, v_latest.evidence_batch_id, p_actor
+  ) RETURNING * INTO v_row;
+  PERFORM public.fs_audit_event(p_company_id, NULL, 'EVIDENCE_INGESTED',
+    jsonb_build_object('evidenceBatchId', v_row.evidence_batch_id, 'evidenceType', v_row.evidence_type, 'version', v_row.version::text,
+                       'contentHash', v_row.content_hash, 'validationStatus', v_row.validation_status), p_actor);
+  RETURN v_row;
+END;
+$$;
+
+
+-- ── atomic revision: evidence + report version + evaluation + audit, or nothing ──────────────────
+--
+-- THE ONLY CLIENT PATH THAT ACCEPTS EVIDENCE. (fs_apply_correction_group also stores corrected
+-- evidence, inside its own atomic group.) Nothing else can write an evidence batch, so an accepted
+-- evidence write can never exist without the immutable report version that references it, the
+-- evaluation of that version and an audit event. One call = one transaction:
+--   * unauthorised / non-member / viewer / disabled company  -> refused before any write;
+--   * a stale expected version                               -> refused before any write (PT409);
+--   * exact replay (same idempotency key + same content)     -> the stored version, no write;
+--   * same key, different content                            -> REPLAY_CONFLICT (PT409), no write;
+--   * an equivalent revision already landed (concurrent twin)-> converges on it, no second write;
+--   * a different revision on the same expected version      -> the loser is STALE (PT409);
+--   * unchanged content and unchanged evidence               -> reuses the latest version, no write;
+--   * any failure part-way (bad evidence, bad evaluation ...) -> everything rolls back together.
+CREATE OR REPLACE FUNCTION public.fs_commit_revision(
+  p_company_id UUID, p_report_id TEXT, p_expected_report_version INTEGER, p_idempotency_key TEXT,
+  p_period_year INTEGER, p_provenance_origin TEXT, p_report_document JSONB, p_content_hash TEXT,
+  p_evidence JSONB, p_evidence_batch_ids TEXT[], p_evaluation JSONB
+)
+  RETURNS public.financial_statement_reports
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_actor    UUID;
+  v_version  INTEGER;
+  v_doc_hash TEXT;
+  v_hash     TEXT;
+  v_group    public.financial_statement_correction_groups;
+  v_latest   public.financial_statement_reports;
+  v_row      public.financial_statement_reports;
+  v_eb       JSONB;
+  v_stored   public.financial_evidence_batches;
+  v_ids      TEXT[] := coalesce(p_evidence_batch_ids, '{}');
+BEGIN
+  v_actor := public.fs_actor_member_id(p_company_id);
+
+  IF p_expected_report_version IS NULL OR p_expected_report_version < 0
+     OR p_idempotency_key IS NULL OR length(p_idempotency_key) NOT BETWEEN 8 AND 200
+     OR p_content_hash !~ '^[0-9a-f]{64}$'
+     OR jsonb_typeof(p_evaluation) IS DISTINCT FROM 'object'
+     OR jsonb_typeof(coalesce(p_evidence, '[]'::jsonb)) IS DISTINCT FROM 'array'
+     OR jsonb_array_length(coalesce(p_evidence, '[]'::jsonb)) > 64 THEN
+    RAISE EXCEPTION 'INVALID: a revision needs a non-negative expected version, an idempotency key, a content hash, an evaluation and at most 64 evidence batches' USING ERRCODE = '22023';
+  END IF;
+  v_version := p_expected_report_version + 1;
+  PERFORM public.fs_assert_report_document(p_report_document, p_report_id, v_version, p_company_id);
+
+  -- Every evidence batch this call ingests must be referenced by the version it creates: no orphan evidence.
+  FOR v_eb IN SELECT * FROM jsonb_array_elements(coalesce(p_evidence, '[]'::jsonb)) LOOP
+    IF NOT ((v_eb ->> 'evidenceBatchId') = ANY (v_ids)) OR (v_eb ->> 'evidenceBatchId') IS NULL THEN
+      RAISE EXCEPTION 'INVALID: evidence batch % is ingested by this revision but not referenced by the report version it creates', v_eb ->> 'evidenceBatchId' USING ERRCODE = '22023';
+    END IF;
+  END LOOP;
+
+  v_doc_hash := public.fs_sha256_hex(p_report_document::text);
+  v_hash := public.fs_sha256_hex(concat_ws('|', p_expected_report_version::text, coalesce(p_evidence, '[]'::jsonb)::text, v_doc_hash, p_content_hash, array_to_string(v_ids, ','), p_evaluation::text, p_period_year::text, p_provenance_origin));
+
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reports:' || p_report_id));
+
+  SELECT * INTO v_group FROM public.financial_statement_correction_groups WHERE company_id = p_company_id AND idempotency_key = p_idempotency_key;
+  IF FOUND THEN
+    IF v_group.group_hash = v_hash AND v_group.report_id = p_report_id THEN
+      SELECT * INTO v_row FROM public.financial_statement_reports WHERE report_id = p_report_id AND report_version = v_group.to_report_version;
+      RETURN v_row;
+    END IF;
+    RAISE EXCEPTION 'REPLAY_CONFLICT: idempotency key already used with a different revision' USING ERRCODE = 'PT409';
+  END IF;
+
+  SELECT * INTO v_latest FROM public.financial_statement_reports WHERE report_id = p_report_id ORDER BY report_version DESC LIMIT 1;
+  IF FOUND THEN
+    IF v_latest.company_id <> p_company_id THEN
+      RAISE EXCEPTION 'FORBIDDEN: report lineage % is not accessible to this company', p_report_id USING ERRCODE = '42501';
+    END IF;
+    -- An equivalent revision (same content, same evidence) already landed at this very version: converge on it.
+    IF v_latest.report_version = v_version AND v_latest.document_hash = v_doc_hash AND v_latest.evidence_batch_ids = v_ids THEN
+      RETURN v_latest;
+    END IF;
+    -- Nothing changed relative to the current version (version number aside): reuse it, write nothing.
+    IF v_latest.report_version = p_expected_report_version
+       AND (v_latest.report_document #- '{reportIdentity,reportVersion}') = (p_report_document #- '{reportIdentity,reportVersion}')
+       AND v_latest.evidence_batch_ids = v_ids THEN
+      RETURN v_latest;
+    END IF;
+    IF v_latest.period_year <> p_period_year OR v_latest.provenance_origin <> p_provenance_origin THEN
+      RAISE EXCEPTION 'STALE_REPORT_VERSION: report % cannot change its period or provenance origin', p_report_id USING ERRCODE = 'PT409';
+    END IF;
+  END IF;
+  IF coalesce(v_latest.report_version, 0) <> p_expected_report_version THEN
+    RAISE EXCEPTION 'STALE_REPORT_VERSION: the report is at version % but the revision was formed against %', coalesce(v_latest.report_version, 0), p_expected_report_version USING ERRCODE = 'PT409';
+  END IF;
+
+  -- From here on every statement is one transaction: any error rolls all of it back.
+  FOR v_eb IN SELECT * FROM jsonb_array_elements(coalesce(p_evidence, '[]'::jsonb)) LOOP
+    v_stored := public.fs_ingest_evidence_internal(
+      v_actor, v_eb ->> 'evidenceBatchId', p_company_id, v_eb ->> 'reportingPeriodId', v_eb ->> 'evidenceType', v_eb ->> 'periodRole',
+      v_eb ->> 'seriesKey', v_eb ->> 'schemaVersion', v_eb ->> 'sourceFileName', v_eb ->> 'contentHash', v_eb ->> 'currency',
+      (v_eb ->> 'scale')::INTEGER, v_eb -> 'batchDocument', v_eb ->> 'validationStatus', v_eb -> 'diagnostics', v_eb ->> 'expectedPreviousBatchId');
+    -- An exact replay of already-stored source content returns the stored batch: the version references THAT batch.
+    IF v_stored.evidence_batch_id <> (v_eb ->> 'evidenceBatchId') THEN
+      v_ids := array_replace(v_ids, v_eb ->> 'evidenceBatchId', v_stored.evidence_batch_id);
+    END IF;
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM unnest(v_ids) AS e(id) WHERE NOT EXISTS (SELECT 1 FROM public.financial_evidence_batches b WHERE b.evidence_batch_id = e.id AND b.company_id = p_company_id)) THEN
+    RAISE EXCEPTION 'NOT_FOUND: a referenced evidence batch does not exist for this company' USING ERRCODE = 'P0002';
+  END IF;
+
+  INSERT INTO public.financial_statement_reports (
+    report_id, report_version, company_id, period_year, provenance_origin, report_document, content_hash, document_hash,
+    evidence_batch_ids, created_by_firm_member_id
+  ) VALUES (
+    p_report_id, v_version, p_company_id, p_period_year, p_provenance_origin, p_report_document, p_content_hash, v_doc_hash, v_ids, v_actor
+  ) RETURNING * INTO v_row;
+
+  PERFORM public.fs_store_evaluation(
+    p_evaluation ->> 'evaluationRunId', p_report_id, v_version, p_company_id,
+    p_evaluation ->> 'rulePackId', p_evaluation ->> 'rulePackVersion', p_evaluation ->> 'engineVersion',
+    p_evaluation ->> 'inputHash', p_evaluation -> 'findings');
+
+  INSERT INTO public.financial_statement_correction_groups (
+    group_id, idempotency_key, company_id, report_id, expected_report_version, from_report_version, to_report_version,
+    step_count, group_hash, applied_by_firm_member_id
+  ) VALUES (
+    'rev-' || left(v_hash, 32), p_idempotency_key, p_company_id, p_report_id, p_expected_report_version, v_version, v_version, 1, v_hash, v_actor
+  );
+
+  PERFORM public.fs_audit_event(p_company_id, p_report_id, 'REVISION_COMMITTED',
+    jsonb_build_object('reportVersion', v_version::text, 'contentHash', p_content_hash, 'evidenceBatchIds', to_jsonb(v_ids),
+                       'ingested', jsonb_array_length(coalesce(p_evidence, '[]'::jsonb))::text, 'evaluationRunId', p_evaluation ->> 'evaluationRunId', 'revisionHash', v_hash), v_actor);
+  RETURN v_row;
+END;
+$$;
+
+-- ── reports ────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.fs_save_report_version(
+  p_report_id TEXT, p_report_version INTEGER, p_company_id UUID, p_period_year INTEGER,
+  p_provenance_origin TEXT, p_report_document JSONB, p_content_hash TEXT, p_evidence_batch_ids TEXT[]
+)
+  RETURNS public.financial_statement_reports
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_actor  UUID;
+  v_doc_hash TEXT;
+  v_row    public.financial_statement_reports;
+  v_latest public.financial_statement_reports;
+BEGIN
+  v_actor := public.fs_actor_member_id(p_company_id);
+  PERFORM public.fs_assert_report_document(p_report_document, p_report_id, p_report_version, p_company_id);
+  v_doc_hash := public.fs_sha256_hex(p_report_document::text);
+
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reports:' || p_report_id));
+
+  SELECT * INTO v_row FROM public.financial_statement_reports WHERE report_id = p_report_id AND report_version = p_report_version;
+  IF FOUND THEN
+    IF v_row.company_id <> p_company_id THEN
+      RAISE EXCEPTION 'FORBIDDEN: report lineage % is not accessible to this company', p_report_id USING ERRCODE = '42501';
+    END IF;
+    IF v_row.document_hash = v_doc_hash AND v_row.content_hash = p_content_hash THEN
+      RETURN v_row;
+    END IF;
+    RAISE EXCEPTION 'STALE_REPORT_VERSION: report % version % already exists with different content', p_report_id, p_report_version USING ERRCODE = 'PT409';
+  END IF;
+
+  SELECT * INTO v_latest FROM public.financial_statement_reports WHERE report_id = p_report_id ORDER BY report_version DESC LIMIT 1;
+  IF FOUND THEN
+    IF v_latest.company_id <> p_company_id THEN
+      RAISE EXCEPTION 'FORBIDDEN: report lineage % is not accessible to this company', p_report_id USING ERRCODE = '42501';
+    END IF;
+    IF v_latest.period_year <> p_period_year OR v_latest.provenance_origin <> p_provenance_origin THEN
+      RAISE EXCEPTION 'STALE_REPORT_VERSION: report % cannot change its period or provenance origin', p_report_id USING ERRCODE = 'PT409';
+    END IF;
+  END IF;
+
+  IF p_report_version <> COALESCE(v_latest.report_version, 0) + 1 THEN
+    RAISE EXCEPTION 'STALE_REPORT_VERSION: expected version % for report % but received %', COALESCE(v_latest.report_version, 0) + 1, p_report_id, p_report_version USING ERRCODE = 'PT409';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM unnest(coalesce(p_evidence_batch_ids, '{}')) AS e(id)
+     WHERE NOT EXISTS (SELECT 1 FROM public.financial_evidence_batches b WHERE b.evidence_batch_id = e.id AND b.company_id = p_company_id)
+  ) THEN
+    RAISE EXCEPTION 'NOT_FOUND: a referenced evidence batch does not exist for this company' USING ERRCODE = 'P0002';
+  END IF;
+
+  INSERT INTO public.financial_statement_reports (
+    report_id, report_version, company_id, period_year, provenance_origin, report_document, content_hash, document_hash,
+    evidence_batch_ids, created_by_firm_member_id
+  ) VALUES (
+    p_report_id, p_report_version, p_company_id, p_period_year, p_provenance_origin, p_report_document, p_content_hash, v_doc_hash,
+    coalesce(p_evidence_batch_ids, '{}'), v_actor
+  ) RETURNING * INTO v_row;
+  PERFORM public.fs_audit_event(p_company_id, p_report_id, 'REPORT_VERSION_SAVED', jsonb_build_object('reportVersion', p_report_version::text, 'contentHash', p_content_hash), v_actor);
+  RETURN v_row;
+END;
+$$;
+
+-- ── evaluations ────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.fs_save_evaluation(
+  p_evaluation_run_id TEXT, p_report_id TEXT, p_report_version INTEGER, p_company_id UUID,
+  p_rule_pack_id TEXT, p_rule_pack_version TEXT, p_engine_version TEXT, p_input_hash TEXT, p_findings JSONB
+)
+  RETURNS public.financial_statement_evaluations
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_actor   UUID;
+  v_existed BOOLEAN;
+  v_row     public.financial_statement_evaluations;
+BEGIN
+  v_actor := public.fs_actor_member_id(p_company_id);
+  v_existed := EXISTS (SELECT 1 FROM public.financial_statement_evaluations e WHERE e.evaluation_run_id = p_evaluation_run_id);
+  v_row := public.fs_store_evaluation(p_evaluation_run_id, p_report_id, p_report_version, p_company_id, p_rule_pack_id, p_rule_pack_version, p_engine_version, p_input_hash, p_findings);
+  -- Every accepted write leaves an attributable, immutable event; an exact replay of an existing evaluation writes nothing new.
+  IF NOT v_existed THEN
+    PERFORM public.fs_audit_event(p_company_id, p_report_id, 'EVALUATION_RECORDED',
+      jsonb_build_object('reportVersion', p_report_version::text, 'evaluationRunId', p_evaluation_run_id, 'inputHash', p_input_hash), v_actor);
+  END IF;
+  RETURN v_row;
+END;
+$$;
+
+-- ── decisions ──────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.fs_append_decision(p_decision_id TEXT, p_report_id TEXT, p_company_id UUID, p_decision JSONB)
+  RETURNS public.financial_statement_reviewer_decisions
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_actor UUID;
+  v_row   public.financial_statement_reviewer_decisions;
+  v_clean JSONB := p_decision - 'reviewerId';
+BEGIN
+  v_actor := public.fs_actor_member_id(p_company_id);
+
+  IF v_clean ->> 'decisionId' IS DISTINCT FROM p_decision_id THEN
+    RAISE EXCEPTION 'INVALID: the decision payload id does not match the decision id argument' USING ERRCODE = '22023';
+  END IF;
+  IF v_clean ->> 'decisionType' IN ('CORRECT_FACT', 'CORRECT_EVIDENCE') THEN
+    RAISE EXCEPTION 'INVALID: a correction must be recorded through a correction group' USING ERRCODE = '22023';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reviewer_decisions:' || p_report_id || ':' || p_decision_id));
+
+  IF NOT EXISTS (SELECT 1 FROM public.financial_statement_reports r WHERE r.report_id = p_report_id AND r.company_id = p_company_id) THEN
+    RAISE EXCEPTION 'NOT_FOUND: no report lineage % for this company', p_report_id USING ERRCODE = 'P0002';
+  END IF;
+
+  SELECT * INTO v_row FROM public.financial_statement_reviewer_decisions WHERE report_id = p_report_id AND decision_id = p_decision_id;
+  IF FOUND THEN
+    IF v_row.company_id = p_company_id AND v_row.decision = v_clean THEN
+      RETURN v_row;
+    END IF;
+    RAISE EXCEPTION 'REPLAY_CONFLICT: decision % already exists with different content', p_decision_id USING ERRCODE = 'PT409';
+  END IF;
+
+  INSERT INTO public.financial_statement_reviewer_decisions (decision_id, report_id, company_id, decision, reviewer_firm_member_id)
+       VALUES (p_decision_id, p_report_id, p_company_id, v_clean, v_actor)
+    RETURNING * INTO v_row;
+  PERFORM public.fs_audit_event(p_company_id, p_report_id, 'DECISION_RECORDED', jsonb_build_object('decisionId', p_decision_id, 'decisionType', v_clean ->> 'decisionType'), v_actor);
+  RETURN v_row;
+END;
+$$;
+
+-- ── correction groups: ONE call = ONE transaction ──────────────────────
+
+CREATE OR REPLACE FUNCTION public.fs_apply_correction_group(
+  p_group_id TEXT, p_idempotency_key TEXT, p_company_id UUID, p_report_id TEXT,
+  p_expected_report_version INTEGER, p_steps JSONB, p_decisions JSONB, p_evaluation JSONB
+)
+  RETURNS public.financial_statement_correction_groups
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_actor    UUID;
+  v_hash     TEXT;
+  v_group    public.financial_statement_correction_groups;
+  v_latest   public.financial_statement_reports;
+  v_n        INTEGER;
+  v_i        INTEGER;
+  v_step     JSONB;
+  v_dec      JSONB;
+  v_version  INTEGER;
+  v_eb       JSONB;
+  v_ids      TEXT[];
+BEGIN
+  v_actor := public.fs_actor_member_id(p_company_id);
+
+  IF jsonb_typeof(p_steps) IS DISTINCT FROM 'array' OR jsonb_typeof(p_decisions) IS DISTINCT FROM 'array'
+     OR jsonb_array_length(p_steps) < 1 OR jsonb_array_length(p_steps) > 64
+     OR jsonb_array_length(p_steps) <> jsonb_array_length(p_decisions) THEN
+    RAISE EXCEPTION 'INVALID: a correction group needs 1-64 steps and exactly one decision per step' USING ERRCODE = '22023';
+  END IF;
+  v_n := jsonb_array_length(p_steps);
+  v_hash := public.fs_sha256_hex(p_steps::text || '|' || p_decisions::text || '|' || p_expected_report_version::text || '|' || coalesce(p_evaluation::text, ''));
+
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reports:' || p_report_id));
+
+  -- Exact replay (same idempotency key + same content) returns the stored group; any other use of the key conflicts.
+  SELECT * INTO v_group FROM public.financial_statement_correction_groups WHERE company_id = p_company_id AND idempotency_key = p_idempotency_key;
+  IF FOUND THEN
+    IF v_group.group_hash = v_hash AND v_group.report_id = p_report_id THEN
+      RETURN v_group;
+    END IF;
+    RAISE EXCEPTION 'REPLAY_CONFLICT: idempotency key already used with a different correction' USING ERRCODE = 'PT409';
+  END IF;
+
+  SELECT * INTO v_latest FROM public.financial_statement_reports WHERE report_id = p_report_id ORDER BY report_version DESC LIMIT 1;
+  IF NOT FOUND OR v_latest.company_id <> p_company_id THEN
+    RAISE EXCEPTION 'NOT_FOUND: no report lineage % for this company', p_report_id USING ERRCODE = 'P0002';
+  END IF;
+  IF v_latest.report_version <> p_expected_report_version THEN
+    RAISE EXCEPTION 'STALE_REPORT_VERSION: the report is at version % but the correction was formed against %', v_latest.report_version, p_expected_report_version USING ERRCODE = 'PT409';
+  END IF;
+
+  FOR v_i IN 0 .. v_n - 1 LOOP
+    v_step := p_steps -> v_i;
+    v_dec  := p_decisions -> v_i;
+    v_version := p_expected_report_version + v_i + 1;
+
+    IF (v_step ->> 'reportVersion')::INTEGER IS DISTINCT FROM v_version THEN
+      RAISE EXCEPTION 'STALE_REPORT_VERSION: step % must be version % (versions must be contiguous)', v_i + 1, v_version USING ERRCODE = 'PT409';
+    END IF;
+    IF v_dec ->> 'decisionType' NOT IN ('CORRECT_FACT', 'CORRECT_EVIDENCE')
+       OR (v_dec ->> 'expectedReportVersion')::INTEGER IS DISTINCT FROM v_version - 1 THEN
+      RAISE EXCEPTION 'INVALID: decision % is not a correction formed against version %', v_i + 1, v_version - 1 USING ERRCODE = '22023';
+    END IF;
+    -- A CORRECT_EVIDENCE step must carry the corrected evidence version; a CORRECT_FACT step must not.
+    IF (v_dec ->> 'decisionType' = 'CORRECT_EVIDENCE') IS DISTINCT FROM coalesce(jsonb_typeof(v_step -> 'evidenceBatch') = 'object', false) THEN
+      RAISE EXCEPTION 'INVALID: step % must carry an evidenceBatch exactly when its decision is CORRECT_EVIDENCE', v_i + 1 USING ERRCODE = '22023';
+    END IF;
+    IF v_dec ->> 'decisionType' = 'CORRECT_EVIDENCE' THEN
+      v_eb := v_step -> 'evidenceBatch';
+      -- The decision must describe exactly the evidence version this step stores, superseding exactly the batch it names.
+      IF v_dec ->> 'newBatchId' IS DISTINCT FROM v_eb ->> 'evidenceBatchId'
+         OR v_dec ->> 'supersedesBatchId' IS DISTINCT FROM v_eb ->> 'expectedPreviousBatchId'
+         OR v_dec ->> 'evidenceType' IS DISTINCT FROM v_eb ->> 'evidenceType' THEN
+        RAISE EXCEPTION 'INVALID: the CORRECT_EVIDENCE decision of step % does not match the evidence version the step stores', v_i + 1 USING ERRCODE = '22023';
+      END IF;
+      PERFORM public.fs_ingest_evidence_internal(
+        v_actor, v_eb ->> 'evidenceBatchId', p_company_id, v_eb ->> 'reportingPeriodId', v_eb ->> 'evidenceType', v_eb ->> 'periodRole',
+        v_eb ->> 'seriesKey', v_eb ->> 'schemaVersion', v_eb ->> 'sourceFileName', v_eb ->> 'contentHash', v_eb ->> 'currency',
+        (v_eb ->> 'scale')::INTEGER, v_eb -> 'batchDocument', v_eb ->> 'validationStatus', v_eb -> 'diagnostics', v_eb ->> 'expectedPreviousBatchId');
+    END IF;
+    v_ids := CASE WHEN jsonb_typeof(v_step -> 'evidenceBatchIds') = 'array'
+                  THEN ARRAY(SELECT jsonb_array_elements_text(v_step -> 'evidenceBatchIds')) ELSE v_latest.evidence_batch_ids END;
+    IF EXISTS (SELECT 1 FROM unnest(v_ids) AS e(id) WHERE NOT EXISTS (SELECT 1 FROM public.financial_evidence_batches b WHERE b.evidence_batch_id = e.id AND b.company_id = p_company_id)) THEN
+      RAISE EXCEPTION 'NOT_FOUND: a referenced evidence batch does not exist for this company' USING ERRCODE = 'P0002';
+    END IF;
+
+    PERFORM public.fs_assert_report_document(v_step -> 'reportDocument', p_report_id, v_version, p_company_id);
+
+    IF EXISTS (SELECT 1 FROM public.financial_statement_reviewer_decisions d WHERE d.report_id = p_report_id AND d.decision_id = v_dec ->> 'decisionId') THEN
+      RAISE EXCEPTION 'REPLAY_CONFLICT: decision % already exists on this report', v_dec ->> 'decisionId' USING ERRCODE = 'PT409';
+    END IF;
+
+    INSERT INTO public.financial_statement_reports (
+      report_id, report_version, company_id, period_year, provenance_origin, report_document, content_hash, document_hash,
+      evidence_batch_ids, created_by_firm_member_id
+    ) VALUES (
+      p_report_id, v_version, p_company_id, v_latest.period_year, v_latest.provenance_origin, v_step -> 'reportDocument',
+      v_step ->> 'contentHash', public.fs_sha256_hex((v_step -> 'reportDocument')::text), v_ids, v_actor
+    );
+
+    INSERT INTO public.financial_statement_reviewer_decisions (decision_id, report_id, company_id, decision, correction_group_id, reviewer_firm_member_id)
+         VALUES (v_dec ->> 'decisionId', p_report_id, p_company_id, v_dec - 'reviewerId', p_group_id, v_actor);
+  END LOOP;
+
+  IF p_evaluation IS NOT NULL THEN
+    PERFORM public.fs_store_evaluation(
+      p_evaluation ->> 'evaluationRunId', p_report_id, p_expected_report_version + v_n, p_company_id,
+      p_evaluation ->> 'rulePackId', p_evaluation ->> 'rulePackVersion', p_evaluation ->> 'engineVersion',
+      p_evaluation ->> 'inputHash', p_evaluation -> 'findings');
+  END IF;
+
+  INSERT INTO public.financial_statement_correction_groups (
+    group_id, idempotency_key, company_id, report_id, expected_report_version, from_report_version, to_report_version,
+    step_count, group_hash, applied_by_firm_member_id
+  ) VALUES (
+    p_group_id, p_idempotency_key, p_company_id, p_report_id, p_expected_report_version, p_expected_report_version + 1,
+    p_expected_report_version + v_n, v_n, v_hash, v_actor
+  ) RETURNING * INTO v_group;
+  PERFORM public.fs_audit_event(p_company_id, p_report_id, 'CORRECTION_GROUP_APPLIED',
+    jsonb_build_object('groupId', p_group_id, 'fromVersion', (p_expected_report_version + 1)::text, 'toVersion', (p_expected_report_version + v_n)::text, 'steps', v_n::text, 'groupHash', v_hash), v_actor);
+  RETURN v_group;
+END;
+$$;
+
+-- ── publication state ──────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.fs_set_publication_state(
+  p_report_id TEXT, p_report_version INTEGER, p_company_id UUID, p_state TEXT, p_reason TEXT
+)
+  RETURNS public.financial_statement_publications
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_actor   UUID;
+  v_role    TEXT;
+  v_current public.financial_statement_publications;
+  v_latest_version INTEGER;
+  v_row     public.financial_statement_publications;
+  v_blockers TEXT[];
+BEGIN
+  v_actor := public.fs_actor_member_id(p_company_id);
+  SELECT fm.role INTO v_role FROM public.firm_members fm WHERE fm.id = v_actor;
+
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_publications:' || p_report_id || ':' || p_report_version::text));
+
+  IF NOT EXISTS (SELECT 1 FROM public.financial_statement_reports r WHERE r.report_id = p_report_id AND r.report_version = p_report_version AND r.company_id = p_company_id) THEN
+    RAISE EXCEPTION 'NOT_FOUND: no report % version % for this company', p_report_id, p_report_version USING ERRCODE = 'P0002';
+  END IF;
+
+  SELECT * INTO v_current FROM public.financial_statement_publications
+   WHERE report_id = p_report_id AND report_version = p_report_version ORDER BY seq DESC LIMIT 1;
+
+  IF FOUND AND v_current.state = p_state THEN
+    RETURN v_current; -- exact replay
+  END IF;
+  IF FOUND AND v_current.state = 'FINAL' THEN
+    RAISE EXCEPTION 'CONFLICT: a FINAL report version is immutable; create a new version instead' USING ERRCODE = 'PT409';
+  END IF;
+
+  IF p_state IN ('REVIEWED', 'FINAL') AND v_role NOT IN ('owner', 'partner') THEN
+    RAISE EXCEPTION 'FORBIDDEN: only an owner or partner may mark a report REVIEWED or FINAL' USING ERRCODE = '42501';
+  END IF;
+
+  IF p_state IN ('REVIEWED', 'FINAL') THEN
+    IF NOT EXISTS (SELECT 1 FROM public.financial_statement_evaluations e WHERE e.report_id = p_report_id AND e.report_version = p_report_version) THEN
+      RAISE EXCEPTION 'NOT_EVALUATED: this report version has no evaluation; validate it before marking it %', p_state USING ERRCODE = 'PT409';
+    END IF;
+    IF p_state = 'FINAL' THEN
+      SELECT max(r.report_version) INTO v_latest_version FROM public.financial_statement_reports r WHERE r.report_id = p_report_id;
+      IF v_latest_version <> p_report_version THEN
+        RAISE EXCEPTION 'STALE_REPORT_VERSION: only the latest version can be FINAL' USING ERRCODE = 'PT409';
+      END IF;
+    END IF;
+    v_blockers := public.fs_publication_blockers(p_company_id, p_report_id, p_report_version);
+    IF coalesce(array_length(v_blockers, 1), 0) > 0 THEN
+      RAISE EXCEPTION 'BLOCKED: % requirement(s) unmet, the report cannot be marked %: %', array_length(v_blockers, 1), p_state, array_to_string(v_blockers, '; ') USING ERRCODE = 'PT409';
+    END IF;
+  END IF;
+
+  IF p_state = 'FINAL' THEN
+    IF v_current.id IS NULL OR v_current.state <> 'REVIEWED' THEN
+      RAISE EXCEPTION 'CONFLICT: a report must be REVIEWED before it can be FINAL' USING ERRCODE = 'PT409';
+    END IF;
+    SELECT max(r.report_version) INTO v_latest_version FROM public.financial_statement_reports r WHERE r.report_id = p_report_id;
+    IF v_latest_version <> p_report_version THEN
+      RAISE EXCEPTION 'STALE_REPORT_VERSION: only the latest version can be FINAL' USING ERRCODE = 'PT409';
+    END IF;
+  END IF;
+
+  INSERT INTO public.financial_statement_publications (report_id, report_version, company_id, state, reason, actor_firm_member_id)
+       VALUES (p_report_id, p_report_version, p_company_id, p_state, p_reason, v_actor)
+    RETURNING * INTO v_row;
+  PERFORM public.fs_audit_event(p_company_id, p_report_id, 'PUBLICATION_STATE_SET', jsonb_build_object('reportVersion', p_report_version::text, 'state', p_state, 'reason', p_reason), v_actor);
+  RETURN v_row;
+END;
+$$;
+
+-- ── reads: readiness preview and saved-version listing (members only; no rollout needed) ──
+
+CREATE OR REPLACE FUNCTION public.fs_report_readiness(p_company_id UUID, p_report_id TEXT, p_report_version INTEGER)
+  RETURNS JSONB
+  LANGUAGE plpgsql
+  STABLE
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_blockers TEXT[];
+BEGIN
+  IF auth.uid() IS NULL OR p_company_id NOT IN (SELECT public.get_member_company_ids()) THEN
+    RAISE EXCEPTION 'FORBIDDEN: an accepted member of the company is required' USING ERRCODE = '42501';
+  END IF;
+  v_blockers := public.fs_publication_blockers(p_company_id, p_report_id, p_report_version);
+  RETURN jsonb_build_object('ready', coalesce(array_length(v_blockers, 1), 0) = 0, 'blockers', to_jsonb(v_blockers));
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fs_list_saved_versions(p_company_id UUID, p_period_year INTEGER)
+  RETURNS JSONB
+  LANGUAGE plpgsql
+  STABLE
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF auth.uid() IS NULL OR p_company_id NOT IN (SELECT public.get_member_company_ids()) THEN
+    RAISE EXCEPTION 'FORBIDDEN: an accepted member of the company is required' USING ERRCODE = '42501';
+  END IF;
+  RETURN coalesce((
+    SELECT jsonb_agg(jsonb_build_object(
+             'reportId', r.report_id,
+             'reportVersion', r.report_version,
+             'createdAt', r.created_at,
+             'creatorRole', fm.role,
+             'creatorRef', left(public.fs_sha256_hex(r.created_by_firm_member_id::text), 8),
+             'contentHash', r.content_hash,
+             'evidenceBatchIds', to_jsonb(r.evidence_batch_ids),
+             'state', coalesce((SELECT p.state FROM public.financial_statement_publications p
+                                 WHERE p.report_id = r.report_id AND p.report_version = r.report_version ORDER BY p.seq DESC LIMIT 1), 'DRAFT'),
+             'isLatest', r.report_version = (SELECT max(x.report_version) FROM public.financial_statement_reports x WHERE x.report_id = r.report_id)
+           ) ORDER BY r.report_id, r.report_version)
+      FROM public.financial_statement_reports r
+      JOIN public.firm_members fm ON fm.id = r.created_by_firm_member_id
+     WHERE r.company_id = p_company_id AND r.period_year = p_period_year), '[]'::jsonb);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.fs_report_readiness(UUID, TEXT, INTEGER) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_list_saved_versions(UUID, INTEGER) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_ingest_evidence_internal(UUID, TEXT, UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, INTEGER, JSONB, TEXT, JSONB, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fs_report_readiness(UUID, TEXT, INTEGER) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fs_list_saved_versions(UUID, INTEGER) TO authenticated;
+
+-- ════════════════════════════════════════════════════════════════════════
+-- 4. grants: authenticated only, never PUBLIC/anon
+-- ════════════════════════════════════════════════════════════════════════
+
+REVOKE ALL ON FUNCTION public.fs_commit_revision(UUID, TEXT, INTEGER, TEXT, INTEGER, TEXT, JSONB, TEXT, JSONB, TEXT[], JSONB) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_try_jsonb(TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_save_report_version(TEXT, INTEGER, UUID, INTEGER, TEXT, JSONB, TEXT, TEXT[]) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_save_evaluation(TEXT, TEXT, INTEGER, UUID, TEXT, TEXT, TEXT, TEXT, JSONB) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_append_decision(TEXT, TEXT, UUID, JSONB) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_apply_correction_group(TEXT, TEXT, UUID, TEXT, INTEGER, JSONB, JSONB, JSONB) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fs_set_publication_state(TEXT, INTEGER, UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.fs_commit_revision(UUID, TEXT, INTEGER, TEXT, INTEGER, TEXT, JSONB, TEXT, JSONB, TEXT[], JSONB) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fs_save_report_version(TEXT, INTEGER, UUID, INTEGER, TEXT, JSONB, TEXT, TEXT[]) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fs_save_evaluation(TEXT, TEXT, INTEGER, UUID, TEXT, TEXT, TEXT, TEXT, JSONB) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fs_append_decision(TEXT, TEXT, UUID, JSONB) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fs_apply_correction_group(TEXT, TEXT, UUID, TEXT, INTEGER, JSONB, JSONB, JSONB) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fs_set_publication_state(TEXT, INTEGER, UUID, TEXT, TEXT) TO authenticated;
