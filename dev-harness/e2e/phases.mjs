@@ -183,11 +183,19 @@ export async function roleMatrix(role) {
   const status = d.text("save-status");
   if (role === "viewer") {
     c.push(check("viewer sees the saved report", /Saved · version 4/.test(status), status));
-    c.push(check("no Save button, no publication buttons enabled", !d.$("save-button") && ["reviewed", "final"].every((k) => d.$("publication-" + k)?.disabled)));
+    c.push(check("the workspace is explicitly read-only: \"Read-only access\" is explained, no Save, no enabled publication buttons", !!d.$("read-only-access") && !d.$("save-button") && ["reviewed", "final", "draft"].every((k) => d.$("publication-" + k)?.disabled) && d.$("publication-reason")?.disabled === true, d.text("read-only-access")));
     await d.stage("sources");
-    await d.addEvidence({ type: "NOTES_AND_POLICIES", name: "v.csv", csv: d.DATA.notes + 'DISCLOSURE,viewer-note,Viewer note,"Viewer trying to add",,,\n', currency: "", scale: "" });
-    const saved = await d.save();
-    c.push(check("a viewer's save is refused by the server; nothing is written", /Read-only/.test(saved.status), saved.message));
+    const add = await d.addEvidence({ type: "NOTES_AND_POLICIES", name: "v.csv", csv: d.DATA.notes, currency: "", scale: "" });
+    c.push(check("evidence cannot be added: the form fields and the Add button are disabled", add.kind === "ADD_DISABLED" && d.$("evidence-form-fields")?.disabled === true && !d.$("save-button"), add.kind));
+    await d.stage("statements");
+    c.push(check("no correction controls", !d.$("correct-evidence-open")));
+    await d.stage("review");
+    const forms = [...document.querySelectorAll("form[data-read-only=yes]")];
+    c.push(check("every decision form is read-only (submit disabled)", forms.every((f) => f.querySelector("button[type=submit]").disabled), forms.length + " forms"));
+    const s = await seed();
+    const rows0 = await reportRows("partner", s.companyA);
+    const direct = await post("/rpc/fs_set_publication_state", "viewer", { p_company_id: s.companyA, p_report_id: rows0[0].report_id, p_report_version: 4, p_state: "REVIEWED", p_reason: "direct rpc as viewer" });
+    c.push(check("the server still refuses a viewer's direct write (defence in depth)", direct.status === 400 && /FORBIDDEN/.test(direct.text), direct.text));
     c.push(check("the server still holds four versions", (await reportRows("partner", s.companyA)).length === 4));
   } else if (role === "outsider" || role === "ownerB") {
     c.push(check(`${role} on company A: read-only, no saved versions, no publication controls`, /Read-only/.test(status) && !d.$("saved-versions") && !d.$("publication-controls") && !d.$("save-button"), status));

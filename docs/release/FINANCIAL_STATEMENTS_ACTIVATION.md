@@ -15,7 +15,7 @@ Status: **designed, implemented and proven on disposable databases; nothing is a
 
 Every persistence write function (`fs_commit_revision` — the one atomic entry point for evidence, report version, evaluation and audit — plus `fs_save_report_version`, `fs_save_evaluation`, `fs_append_decision`, `fs_apply_correction_group`, `fs_set_publication_state`; evidence has no standalone write function) calls `fs_actor_member_id(company)`, which requires **all** of: an authenticated session (`auth.uid()`), an accepted non-viewer membership of that company, and `fs_rollout_allows(company)` (kill switch off **and** company allowlisted). A caller who fails the last check receives `PT403 FEATURE_DISABLED`; the UI shows "Saving is not enabled for this company". Reads stay governed by RLS, so history remains readable after a company is deactivated or the kill switch is engaged.
 
-The browser learns its own status only through `financial_statements_workspace_access(company)`, which answers `ENABLED | NOT_A_MEMBER | KILL_SWITCH | NOT_ALLOWLISTED`. The client treats anything other than an explicit `enabled: true` as a denial. There is no client-side way to turn the feature on for a company the server has not allowlisted.
+The browser learns its own status only through `financial_statements_workspace_access(company)`, which answers `ENABLED | NOT_A_MEMBER | KILL_SWITCH | NOT_ALLOWLISTED` and, for a member, their own role (a display hint so a viewer is rendered read-only; every write is still refused server-side). The client treats anything other than an explicit `enabled: true` as a denial. There is no client-side way to turn the feature on for a company the server has not allowlisted.
 
 ## 2. Preconditions (all must be true before any activation)
 
@@ -46,7 +46,7 @@ No step above deletes history, and none needs a database restore.
 
 ## 5. Evidence that this behaves as designed
 
-* `scripts/db-proof/run.mjs` — 274 assertions on a real PostgreSQL 16, replayed from zero: default-denied and **fail-closed** rollout, kill switch, audit immutability, tenancy, RLS, atomic revisions (evidence + version + evaluation + audit; replay, stale-before-write, conflicting replay, concurrent writers, rollback), atomic correction groups, the full publication gate (each blocker, and that a waiver cannot bypass a mandatory reconciliation), direct-RPC bypass attempts, saved-version listing, exact money/JSON round trip.
+* `scripts/db-proof/run.mjs` — 276 assertions on a real PostgreSQL 16, replayed from zero: default-denied and **fail-closed** rollout, kill switch, audit immutability, tenancy, RLS, atomic revisions (evidence + version + evaluation + audit; replay, stale-before-write, conflicting replay, concurrent writers, rollback), atomic correction groups, the full publication gate (each blocker, and that a waiver cannot bypass a mandatory reconciliation), direct-RPC bypass attempts, saved-version listing, exact money/JSON round trip.
 * `src/lib/financialStatementsWorkspace/saveFlow.pg.test.ts` — the real TypeScript client against the real SQL through a loopback bridge (server-derived reviewer, contiguous versions, stale refusal, viewer/outsider/not-allowlisted denial).
 * `scripts/release/verify-release-sql.mjs` — executes the preflight, postcondition and operator scripts and checks the audit trail.
 * Browser E2E on the non-production harness across all seven stages, desktop and 375 px (`E2E_SEVEN_STAGE_PROOF.md`).

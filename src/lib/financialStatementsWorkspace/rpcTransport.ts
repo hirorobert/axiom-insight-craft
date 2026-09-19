@@ -76,6 +76,8 @@ const json = (value: unknown): unknown => JSON.parse(canonicalStringify(value));
 export interface WorkspaceAccess {
   readonly enabled: boolean;
   readonly reason: "ENABLED" | "NOT_A_MEMBER" | "KILL_SWITCH" | "NOT_ALLOWLISTED" | "UNKNOWN";
+  /** The caller's own membership role, when the server reports one. A display hint: the server still refuses every unauthorised write. */
+  readonly role?: string | null;
 }
 
 export interface StoredReportRow {
@@ -222,10 +224,10 @@ export class FsRpcTransport {
 
   async access(companyId: string): Promise<WorkspaceAccess> {
     try {
-      const r = await this.call<{ enabled?: boolean; reason?: string } | null>("financial_statements_workspace_access", { p_company_id: companyId });
+      const r = await this.call<{ enabled?: boolean; reason?: string; role?: string | null } | null>("financial_statements_workspace_access", { p_company_id: companyId });
       const reason = (r?.reason ?? "UNKNOWN") as WorkspaceAccess["reason"];
       // Anything other than an explicit server "enabled: true" is a denial.
-      return { enabled: r?.enabled === true, reason };
+      return { enabled: r?.enabled === true, reason, role: typeof r?.role === "string" ? r.role : null };
     } catch {
       return { enabled: false, reason: "UNKNOWN" };
     }

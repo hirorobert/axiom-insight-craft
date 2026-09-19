@@ -183,7 +183,7 @@ export function PersistenceBanner({ state }: { state: PersistenceState }) {
   );
 }
 
-function DecisionForm({ view, report, onDecide, savingAvailable }: { view: FindingView; report: CanonicalFinancialStatementReport | null; onDecide: (r: DecisionRequest) => Promise<DecisionResult>; savingAvailable: boolean }) {
+function DecisionForm({ view, report, onDecide, savingAvailable, readOnly }: { view: FindingView; report: CanonicalFinancialStatementReport | null; onDecide: (r: DecisionRequest) => Promise<DecisionResult>; savingAvailable: boolean; readOnly: boolean }) {
   const factOptions = report ? correctableFacts(report, view.record) : [];
   const [outcome, setOutcome] = useState<ReviewOutcome>("ACCEPT_WITH_JUDGEMENT");
   const [rationale, setRationale] = useState("");
@@ -208,8 +208,8 @@ function DecisionForm({ view, report, onDecide, savingAvailable }: { view: Findi
   }
 
   return (
-    <form onSubmit={submit} className="mt-3 space-y-2 border-t border-border pt-3" aria-label={`Decide finding ${view.record.ruleId}`}>
-      <fieldset>
+    <form onSubmit={submit} className="mt-3 space-y-2 border-t border-border pt-3" aria-label={`Decide finding ${view.record.ruleId}`} data-read-only={readOnly ? "yes" : undefined}>
+      <fieldset disabled={readOnly}>
         <legend className="text-xs font-medium text-foreground">Your decision</legend>
         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
           {(Object.keys(REVIEW_OUTCOME_LABELS) as ReviewOutcome[]).map((o) => (
@@ -224,7 +224,7 @@ function DecisionForm({ view, report, onDecide, savingAvailable }: { view: Findi
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs">
             Figure to correct
-            <select className="mt-1 block w-full border border-border bg-background p-1.5 text-xs" value={factId} onChange={(e) => setFactId(e.target.value)}>
+            <select className="mt-1 block w-full border border-border bg-background p-1.5 text-xs" value={factId} disabled={readOnly} onChange={(e) => setFactId(e.target.value)}>
               {factOptions.length === 0 && <option value="">No correctable figure in this finding</option>}
               {factOptions.map((f) => (
                 <option key={f.factId} value={f.factId}>
@@ -236,13 +236,13 @@ function DecisionForm({ view, report, onDecide, savingAvailable }: { view: Findi
           </label>
           <label className="text-xs">
             Corrected amount
-            <input className="mt-1 block w-full border border-border bg-background p-1.5 text-xs" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="e.g. 1250000.00" />
+            <input className="mt-1 block w-full border border-border bg-background p-1.5 text-xs" inputMode="decimal" value={amount} disabled={readOnly} onChange={(e) => setAmount(e.target.value)} placeholder="e.g. 1250000.00" />
           </label>
         </div>
       )}
       <label className="block text-xs">
         Documented reason (required)
-        <textarea className="mt-1 block w-full border border-border bg-background p-1.5 text-xs" rows={2} value={rationale} onChange={(e) => setRationale(e.target.value)} />
+        <textarea className="mt-1 block w-full border border-border bg-background p-1.5 text-xs" rows={2} value={rationale} disabled={readOnly} onChange={(e) => setRationale(e.target.value)} />
       </label>
       {error && (
         <p role="alert" className="text-xs text-destructive">
@@ -254,7 +254,7 @@ function DecisionForm({ view, report, onDecide, savingAvailable }: { view: Findi
           ? "This decision is recorded in the draft and stored, with your identity taken from your sign-in, when you save."
           : "Session only: this decision is held in this browser session and is lost if you reload or leave the page. It is not saved anywhere."}
       </p>
-      <Button type="submit" size="sm" disabled={busy}>
+      <Button type="submit" size="sm" disabled={busy || readOnly}>
         {busy ? "Recording…" : savingAvailable ? "Record decision" : "Record decision (session only)"}
       </Button>
     </form>
@@ -263,6 +263,7 @@ function DecisionForm({ view, report, onDecide, savingAvailable }: { view: Findi
 
 export function ReviewStage({ model, onFocusLine }: { model: FinancialStatementsWorkspaceModel; onFocusLine: (lineId: string) => void }) {
   const actionable = model.views.filter((v) => v.record.actionable);
+  const readOnly = model.readOnly;
   const savingAvailable = model.saveStatus !== "DISABLED" && model.saveStatus !== "DENIED" && model.saveStatus !== "CHECKING";
   const corrections = (model.snapshot?.decisions ?? []).filter((d) => d.decisionType === "CORRECT_FACT");
   return (
@@ -300,7 +301,7 @@ export function ReviewStage({ model, onFocusLine }: { model: FinancialStatements
                   Show affected line
                 </Button>
               )}
-              <DecisionForm view={v} report={model.snapshot?.report ?? null} onDecide={model.decide} savingAvailable={savingAvailable} />
+              <DecisionForm view={v} report={model.snapshot?.report ?? null} onDecide={model.decide} savingAvailable={savingAvailable} readOnly={readOnly} />
             </li>
           ))}
         </ul>

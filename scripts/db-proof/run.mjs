@@ -366,6 +366,12 @@ async function proveRollout() {
     const b = (await one(user(U.ownerB), "SELECT public.financial_statements_workspace_access($1) r", [COMPANY_B])).r;
     return a.enabled === true && a.reason === "ENABLED" && b.enabled === false && b.reason === "NOT_ALLOWLISTED";
   });
+  await check("access() reports the caller's OWN role (viewer/preparer/partner) so the UI can render read-only; an outsider gets no role", async () => {
+    const role = async (u) => (await one(user(U[u]), "SELECT public.financial_statements_workspace_access($1) r", [COMPANY_A])).r;
+    const [v, p, pt, o] = [await role("viewer"), await role("preparer"), await role("partner"), await role("outsider")];
+    return v.enabled === true && v.role === "viewer" && p.role === "preparer" && pt.role === "partner" && o.enabled === false && o.role === undefined;
+  });
+  await expectError("a viewer's write is still refused by the server (defence in depth)", "42501", () => ingest(user(U.viewer), evArgs({ company: COMPANY_A })));
   await expectError("company B member still cannot write (PT403)", "PT403", () => ingest(user(U.ownerB), evArgs({ company: COMPANY_B })));
   await check("kill switch engaged: access → KILL_SWITCH and writes → PT403; released: ENABLED again", async () => {
     await rpc(SERVICE, "SELECT public.fs_set_kill_switch(true,'incident drill kill switch','ops-1')");

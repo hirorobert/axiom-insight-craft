@@ -46,7 +46,7 @@ test.
   (partner or manager). This is intentional for this new state machine; widening it is a product decision, not a review fix.
 * **`get_member_company_ids()`** is the existing `SECURITY DEFINER` helper (accepted members plus the company owner). The new
   policies reuse it rather than introduce a second membership definition.
-* **Viewer** members can read history but not write (`fs_actor_member_id` requires a non-viewer role).
+* **Viewer** members can read history but not write (`fs_actor_member_id` requires a non-viewer role). `financial_statements_workspace_access` also returns the caller's own role (a non-viewer row wins, as in the actor resolver) purely as a display hint so the UI can render a viewer read-only; no authority derives from it.
 * **`financial_statement_framework_requirements`** is reference data readable by any signed-in user (it holds no tenant data);
   changing a framework's requirements is a new migration, never an UPDATE (the append-only trigger enforces this).
 

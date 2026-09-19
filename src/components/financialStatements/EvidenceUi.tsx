@@ -114,6 +114,7 @@ export function EvidencePanel({ model }: { model: FinancialStatementsWorkspaceMo
         </p>
       </div>
       <form onSubmit={submit} className="grid gap-2 border border-border p-3 sm:grid-cols-2 lg:grid-cols-6" aria-label="Add evidence">
+        <fieldset disabled={model.readOnly} className="contents" data-testid="evidence-form-fields">
         <label className="text-xs sm:col-span-2">
           <span className="mb-1 block font-medium">Evidence type</span>
           <select className={FIELD} value={type} onChange={(e) => setType(e.target.value as EvidenceType)} data-testid="evidence-type">
@@ -163,6 +164,7 @@ export function EvidencePanel({ model }: { model: FinancialStatementsWorkspaceMo
             Add evidence
           </Button>
         </div>
+        </fieldset>
       </form>
 
       {result && (
@@ -362,6 +364,14 @@ export function SaveBar({ model }: { model: FinancialStatementsWorkspaceModel })
       <Badge variant={copy.tone} data-testid="save-status">
         {model.saveStatus === "SAVED" && model.storedVersion !== null ? `Saved · version ${model.storedVersion}` : copy.label}
       </Badge>
+      {model.readOnlyAccess && (
+        <span className="text-xs text-muted-foreground" data-testid="read-only-access">
+          <Badge variant="secondary" className="mr-1">
+            Read-only access
+          </Badge>
+          Your role is viewer: you can read this workspace and its saved versions, but not add evidence, correct it, record decisions, save, or mark a report Reviewed or Final. An owner, partner or preparer can.
+        </span>
+      )}
       {model.saveStatus === "SAVING" && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
       {model.saveStatus === "SAVED" && <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />}
       {(model.saveStatus === "CONFLICT" || model.saveStatus === "ERROR") && <AlertTriangle className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />}
@@ -418,6 +428,11 @@ export function PublicationControls({ model, blockers = [] }: { model: Financial
           )}
         </div>
       )}
+      {model.readOnlyAccess && (
+        <p className="text-xs text-muted-foreground" data-testid="publication-read-only">
+          Read-only access: your role is viewer, so the report state cannot be changed from here.
+        </p>
+      )}
       {blockers.length > 0 && (
         <p className="text-xs text-destructive" data-testid="publication-blocked">
           Reviewed and Final are unavailable while {blockers.length} statement-set item{blockers.length === 1 ? "" : "s"} remain unresolved (listed under "Why this is not ready to issue"). This is a preview: the database enforces the same completeness rules and refuses Reviewed or Final itself.
@@ -425,7 +440,7 @@ export function PublicationControls({ model, blockers = [] }: { model: Financial
       )}
       <label className="block text-xs">
         <span className="mb-1 block font-medium">Reason (at least 8 characters)</span>
-        <input className={FIELD} value={reason} onChange={(e) => setReason(e.target.value)} data-testid="publication-reason" />
+        <input className={FIELD} value={reason} disabled={model.readOnly} onChange={(e) => setReason(e.target.value)} data-testid="publication-reason" />
       </label>
       <div className="flex flex-wrap gap-2">
         {(["DRAFT", "REVIEWED", "FINAL"] as const).map((s) => (

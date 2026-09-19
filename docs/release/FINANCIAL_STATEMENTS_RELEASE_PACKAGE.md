@@ -152,7 +152,7 @@ service-role key, used only to run `sql/03–05` as a named operator. CI staging
    (a budget in another denomination is reported as an explicit comparison gap).
 6. **Restore is exact or it does not happen.** A reopened latest version becomes an editable draft only if re-composition reproduces its
    stored content hash; otherwise the draft starts fresh, says why, and saving creates a new version.
-7. **A viewer** sees the saved report but the UI offers a Save that the server then refuses (read-only after the attempt); nothing is written.
+7. **A viewer** gets an explicitly read-only workspace ("Read-only access"): no Save, no evidence form, no corrections, no decisions, no Reviewed/Final. The role is a display hint returned by `financial_statements_workspace_access`; the server still refuses every write from a viewer.
 8. **Multiple evidence corrections in one save** land as contiguous report versions in one atomic group (one per correction); a failure
    leaves none.
 9. **Ledger authority is preparer-supplied** (§6).

@@ -18,6 +18,8 @@ import { ReviewStage, PersistenceBanner } from "@/components/financialStatements
 import { OutputsStage, PRINT_CSS } from "@/components/financialStatements/OutputsStage";
 import { FinancialStatementsWorkspace } from "@/components/financialStatements/FinancialStatementsWorkspace";
 import type { FinancialStatementsWorkspaceModel } from "@/hooks/useFinancialStatementsWorkspace";
+import { EvidencePanel, PublicationControls, SaveBar } from "@/components/financialStatements/EvidenceUi";
+import { FsRpcTransport } from "./rpcTransport";
 import { ZERO_TOLERANCE } from "@/lib/canonicalStatement/money";
 import { auditExport, buildLineage, canonicalJsonExport, checklistCsv, evidenceExport, findingsCsv, lineageTag, outputReportFor, UNSAVED_DRAFT_LABEL, versionLabelOf } from "./exports";
 import { evaluateReport, evaluateReportPure, prepareTrialBalanceReport } from "./evaluationOrchestrator";
@@ -296,5 +298,75 @@ describe("version authority — persisted, unsaved, restored and historical outp
     hookState.model = o.model;
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(FinancialStatementsWorkspace, { companyId: "c", periodYear: 2025, companyName: "Acme Ltd", companyTin: null, reportingFramework: "full_ifrs", currency: "TZS", fiscalYearEnd: null, currentUpload: null, uploads: [] })));
     expect(text(html)).toContain("Internal preview — Version 9");
+  });
+});
+
+describe("viewer / read-only access — no mutating control is offered, and the server still refuses", () => {
+  const viewerOf = async (over: Record<string, unknown> = {}) => ({ ...(await makeModel()), saveStatus: "UNSAVED", readOnly: true, readOnlyAccess: true, publication: null, readiness: { ready: true, blockers: [] }, ...over }) as unknown as FinancialStatementsWorkspaceModel;
+  const editorOf = async (over: Record<string, unknown> = {}) => ({ ...(await makeModel()), saveStatus: "UNSAVED", readOnly: false, readOnlyAccess: false, publication: null, readiness: { ready: true, blockers: [] }, ...over }) as unknown as FinancialStatementsWorkspaceModel;
+
+  it("the save bar explains \"Read-only access\" and offers no Save, even with unsaved changes", async () => {
+    const viewer = renderToStaticMarkup(createElement(SaveBar, { model: await viewerOf() }));
+    expect(viewer).toContain('data-testid="read-only-access"');
+    expect(text(viewer)).toContain("Read-only access");
+    expect(text(viewer)).toContain("Your role is viewer");
+    expect(viewer).not.toContain('data-testid="save-button"');
+    const editor = renderToStaticMarkup(createElement(SaveBar, { model: await editorOf() }));
+    expect(editor).toContain('data-testid="save-button"');
+    expect(editor).not.toContain("read-only-access");
+  });
+
+  it("evidence cannot be added: every field and the Add button sit in a disabled fieldset for a viewer, and not for an editor", async () => {
+    const viewer = renderToStaticMarkup(createElement(EvidencePanel, { model: await viewerOf() }));
+    expect(viewer).toMatch(/<fieldset disabled="" class="contents" data-testid="evidence-form-fields">/);
+    const editor = renderToStaticMarkup(createElement(EvidencePanel, { model: await editorOf() }));
+    expect(editor).toMatch(/<fieldset class="contents" data-testid="evidence-form-fields">/);
+  });
+
+  it("Reviewed / Final / Draft, and their reason field, are disabled and explained for a viewer; an authorised editor keeps an enabled reason field", async () => {
+    const viewer = renderToStaticMarkup(createElement(PublicationControls, { model: await viewerOf({ saveStatus: "SAVED" }) }));
+    for (const s of ["draft", "reviewed", "final"]) expect(viewer).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*data-testid="publication-${s}"|<button[^>]*data-testid="publication-${s}"[^>]*disabled=""`));
+    expect(viewer).toMatch(/<input[^>]*disabled=""[^>]*data-testid="publication-reason"/);
+    expect(viewer).toContain('data-testid="publication-read-only"');
+    const editor = renderToStaticMarkup(createElement(PublicationControls, { model: await editorOf({ saveStatus: "SAVED" }) }));
+    expect(editor).not.toMatch(/<input[^>]*disabled=""[^>]*data-testid="publication-reason"/);
+    expect(editor).not.toContain("publication-read-only");
+  });
+
+  it("review decisions cannot be recorded: every decision form is marked read-only with its inputs and submit disabled", async () => {
+    const model = await viewerOf();
+    expect(model.views.filter((v) => v.record.actionable).length).toBeGreaterThan(0); // non-vacuous
+    const html = renderToStaticMarkup(createElement(ReviewStage, { model, onFocusLine: () => undefined }));
+    const forms = html.match(/<form[^>]*aria-label="Decide finding[^>]*>[\s\S]*?<\/form>/g) ?? [];
+    expect(forms.length).toBeGreaterThan(0);
+    for (const f of forms) {
+      expect(f).toContain('data-read-only="yes"');
+      expect(f).toMatch(/<fieldset disabled="">/);
+      expect(f).toMatch(/<textarea[^>]*disabled=""/);
+      expect(f).toMatch(/<button[^>]*type="submit"[^>]*disabled=""|<button[^>]*disabled=""[^>]*type="submit"/);
+    }
+    const editorHtml = renderToStaticMarkup(createElement(ReviewStage, { model: await editorOf(), onFocusLine: () => undefined }));
+    expect(editorHtml).not.toContain('data-read-only="yes"');
+    expect(editorHtml).not.toMatch(/<textarea[^>]*disabled=""/);
+  });
+
+  it("the hook refuses every mutating action for a viewer BEFORE doing anything (save, decide, add evidence, correct evidence, set publication)", () => {
+    const src = fs.readFileSync(path.join(ROOT, "src/hooks/useFinancialStatementsWorkspace.ts"), "utf8");
+    expect(src).toContain('const viewerReadOnly = access?.enabled === true && access.role === "viewer";');
+    const firstStatementAfter = (needle: string) => src.slice(src.indexOf(needle) + needle.length).split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
+    expect(firstStatementAfter("const decide = useCallback(\n    async (request: DecisionRequest): Promise<DecisionResult> => {")).toMatch(/^if \(viewerReadOnly\) return/);
+    expect(firstStatementAfter("(request: EvidenceAddRequest): EvidenceAddResult => {")).toMatch(/^if \(viewerReadOnly\) return/);
+    expect(firstStatementAfter("(request: EvidenceCorrectionRequest): EvidenceCorrectionOutcome => {")).toMatch(/^if \(viewerReadOnly\) return/);
+    expect(firstStatementAfter('async (state: "DRAFT" | "REVIEWED" | "FINAL", why: string) => {')).toMatch(/^if \(viewerReadOnly\) return/);
+    expect(firstStatementAfter("const save = useCallback(async () => {")).toMatch(/^if \(viewing \|\| viewerReadOnly/);
+    expect(src).toMatch(/readOnly: viewing !== null \|\| viewerReadOnly, readOnlyAccess: viewerReadOnly/);
+  });
+
+  it("the transport passes the caller's role through, and anything but an explicit server 'viewer' leaves the workspace editable-by-the-server's-rules (the server still decides)", async () => {
+    const mk = (payload: unknown) => new FsRpcTransport({ rpc: async () => ({ data: payload, error: null }), select: async () => ({ data: [], error: null }) } as never);
+    expect(await mk({ enabled: true, reason: "ENABLED", role: "viewer" }).access("c")).toEqual({ enabled: true, reason: "ENABLED", role: "viewer" });
+    expect(await mk({ enabled: true, reason: "ENABLED", role: "partner" }).access("c")).toMatchObject({ role: "partner" });
+    expect(await mk({ enabled: true, reason: "ENABLED" }).access("c")).toMatchObject({ role: null });
+    expect(await mk({ enabled: false, reason: "NOT_A_MEMBER" }).access("c")).toMatchObject({ enabled: false, role: null });
   });
 });

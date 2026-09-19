@@ -30,7 +30,7 @@ with the observed detail). Identities: `preparer`, `partner`, `viewer` (members 
 | `secondSessionCorrects` (tab 2, preparer) | two evidence corrections, saved once, land as contiguous versions 3 and 4 in one atomic group |
 | `partnerHitsStaleConflict` (tab 1, partner, still at v2) | the stale save is **refused before any write**, naming both versions ("server is at version 4, this session last saw 2"); the server still holds exactly versions 1–4; discard-and-reload restores version 4 with the corrected evidence in use |
 | `partnerPublishesCorrected` (partner) | version 4 accepted as Reviewed, then Final |
-| `roleMatrix` viewer / outsider / other-company owner / company B | a viewer sees the saved report, has no Save, and the server refuses an attempted save (nothing written); an outsider and the other company's owner get "Read-only", no saved versions, no publication controls, and **zero rows** through the API; company B shows the honest "Saving is not enabled for this company" |
+| `roleMatrix` viewer / outsider / other-company owner / company B | a viewer sees the saved report in an explicitly read-only workspace ("Read-only access": no Save, evidence form disabled, no correction or decision controls, Reviewed/Final disabled), and the server still refuses a direct write (nothing written); an outsider and the other company's owner get "Read-only", no saved versions, no publication controls, and **zero rows** through the API; company B shows the honest "Saving is not enabled for this company" |
 | `incompleteRefusal` (partner) | a source change that no longer reproduces version 4 says so and starts fresh; saving creates version 5; the server lists the unmet requirements (`MISSING_STATEMENT:…`, `REQUIRED_EVIDENCE_MISSING:…`, `CASHFLOW_LEDGER_AUTHORITY_MISSING`, `DISCLOSURE_CHECKLIST_INCOMPLETE:…`); the UI disables Reviewed/Final; **direct RPC** Reviewed and Final on it → `PT409 BLOCKED`; a Final version cannot be changed |
 | `mobileSweep` (375 px) | no horizontal page scroll and no element escaping a scroller, on each of the seven stages |
 | keyboard (`tabState`) | the stage tabs use a roving tabindex: ArrowRight/ArrowLeft/Home/End move both selection and focus; the panel is focusable |
@@ -50,5 +50,4 @@ The observed results of the final run are recorded in the pull-request descripti
 
 ## Not covered by this proof
 
-Print-preview page numbering (Chromium margin boxes); a real GoTrue session; any hosted project; load. A viewer is offered a Save that the
-server then refuses. See the release package's known limitations.
+Print-preview page numbering (Chromium margin boxes); a real GoTrue session; any hosted project; load. See the release package's known limitations.

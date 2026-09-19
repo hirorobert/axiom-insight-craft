@@ -121,6 +121,7 @@ export interface RestoreState {
   readonly message: string | null;
 }
 
+const VIEWER_MESSAGE = "Read-only access: your role is viewer, so you can read this workspace but not change, save, review or finalise anything.";
 const READ_ONLY_MESSAGE = (v: number) => `You are viewing saved version ${v} read-only. Return to the working draft to make changes.`;
 
 export interface EvidenceCorrectionRequest {
@@ -186,7 +187,10 @@ export interface FinancialStatementsWorkspaceModel {
   readonly versions: readonly SavedVersionSummary[];
   /** Non-null while a stored version is displayed read-only. */
   readonly viewing: HistoricalView | null;
+  /** True while a stored version is shown, and for a viewer: every mutating control is then unavailable. */
   readonly readOnly: boolean;
+  /** True when the server reports the caller's role as viewer (the workspace is read-only for them, whatever version is shown). */
+  readonly readOnlyAccess: boolean;
   readonly openVersion: (reportVersion: number) => Promise<{ readonly ok: boolean; readonly message: string }>;
   readonly closeVersion: () => void;
   /** Discards the local draft and re-reads the server's latest saved version (the way out of a save conflict). */
@@ -252,6 +256,8 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     if ("balance_sheet" in raw || "income_statement" in raw) return raw as CanonicalStatementsLike;
     return null;
   };
+
+  const viewerReadOnly = access?.enabled === true && access.role === "viewer";
 
   // Server-authoritative access: the workspace's saving surface follows what the server says, never a client flag.
   useEffect(() => {
@@ -435,6 +441,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
 
   const decide = useCallback(
     async (request: DecisionRequest): Promise<DecisionResult> => {
+      if (viewerReadOnly) return { ok: false, message: VIEWER_MESSAGE };
       if (viewing) return { ok: false, message: READ_ONLY_MESSAGE(viewing.reportVersion) };
       if (!snapshot) return { ok: false, message: "There is no prepared report to review." };
       try {
@@ -474,7 +481,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
         return { ok: false, message: err instanceof Error ? err.message : String(err), persistence: state };
       }
     },
-    [snapshot, baseSnapshot, viewing],
+    [snapshot, baseSnapshot, viewing, viewerReadOnly],
   );
 
   // For an evidence-only report the decision log lives only in the repo; mirror it into the effective snapshot.
@@ -501,6 +508,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
   // ── evidence actions ────────────────────────────────────────────────────
   const addEvidence = useCallback(
     (request: EvidenceAddRequest): EvidenceAddResult => {
+      if (viewerReadOnly) return { kind: "REJECTED", diagnostics: [{ code: "READ_ONLY_ACCESS", severity: "ERROR", message: VIEWER_MESSAGE }] };
       if (viewing) return { kind: "REJECTED", diagnostics: [{ code: "READ_ONLY_VERSION", severity: "ERROR", message: READ_ONLY_MESSAGE(viewing.reportVersion) }] };
       const isComparative = request.periodRole === "COMPARATIVE";
       const bounds = isComparative ? priorPeriod : period;
@@ -537,7 +545,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
       setEvidenceStore((cur) => [...cur, { batch, version, saved: false }]);
       return { kind: "ADDED", batch, replay, diagnostics: batch.diagnostics };
     },
-    [viewing, evidenceStore, latestEvidence, evidenceCorrections, inputs.companyId, inputs.periodYear, period, priorPeriod],
+    [viewing, viewerReadOnly, evidenceStore, latestEvidence, evidenceCorrections, inputs.companyId, inputs.periodYear, period, priorPeriod],
   );
 
   const removeUnsavedEvidence = useCallback((evidenceBatchId: string) => {
@@ -547,6 +555,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
 
   const correctEvidence = useCallback(
     (request: EvidenceCorrectionRequest): EvidenceCorrectionOutcome => {
+      if (viewerReadOnly) return { ok: false, message: VIEWER_MESSAGE, diagnostics: [] };
       if (viewing) return { ok: false, message: READ_ONLY_MESSAGE(viewing.reportVersion), diagnostics: [] };
       const target = evidenceStore.find((s) => s.batch.evidenceBatchId === request.evidenceBatchId);
       if (!target) return { ok: false, message: "That evidence is not part of this report.", diagnostics: [] };
@@ -579,7 +588,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
       setPersistence(FINANCIAL_STATEMENT_PERSISTENCE_ENABLED || transport ? "UNSAVED_DRAFT" : "UNAVAILABLE");
       return { ok: true, mode: "RECORDED", batch: result.batch, message: `Evidence corrected as version ${target.version + 1}. Save to record it with the new report version and its re-validation.` };
     },
-    [viewing, evidenceStore, latestEvidence, period, priorPeriod, storedVersion, transport],
+    [viewing, viewerReadOnly, evidenceStore, latestEvidence, period, priorPeriod, storedVersion, transport],
   );
 
   const evidence = useMemo<readonly EvidenceEntry[]>(() => {
@@ -618,7 +627,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
   );
 
   const save = useCallback(async () => {
-    if (viewing || restore.status === "LOADING") return;
+    if (viewing || viewerReadOnly || restore.status === "LOADING") return;
     if (!transport || !access?.enabled || !snapshot || !dirtyKey) return;
     setSaveStatus("SAVING");
     setSaveMessage(null);
@@ -660,10 +669,11 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     } catch {
       /* publication state is advisory here; the server is authoritative */
     }
-  }, [transport, access, snapshot, dirtyKey, inputs.companyId, inputs.periodYear, latestEvidence, decisionsForViews, rebuildAt, evidenceStore, viewing, restore.status]);
+  }, [transport, access, snapshot, dirtyKey, inputs.companyId, inputs.periodYear, latestEvidence, decisionsForViews, rebuildAt, evidenceStore, viewing, viewerReadOnly, restore.status]);
 
   const setPublication = useCallback(
     async (state: "DRAFT" | "REVIEWED" | "FINAL", why: string) => {
+      if (viewerReadOnly) return { ok: false, message: VIEWER_MESSAGE };
       if (viewing) return { ok: false, message: READ_ONLY_MESSAGE(viewing.reportVersion) };
       if (!transport || !snapshot || storedVersion === null || saveStatus !== "SAVED") return { ok: false, message: "Save the report first: a state can only be recorded against a saved version." };
       try {
@@ -676,7 +686,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
         return { ok: false, message };
       }
     },
-    [viewing, transport, snapshot, storedVersion, saveStatus, inputs.companyId, inputs.periodYear],
+    [viewing, viewerReadOnly, transport, snapshot, storedVersion, saveStatus, inputs.companyId, inputs.periodYear],
   );
 
   // ── reopening saved work ────────────────────────────────────────────────
@@ -911,6 +921,6 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     applied, checklist: viewing ? checklistFromReport(viewing.report, profile?.disclosureAreas ?? []) : (applied?.checklist ?? []), evidenceIndex: viewing ? {} : (applied?.evidenceIndex ?? {}), cashPerimeter: viewing ? null : (applied?.cashPerimeter ?? null), budgetComparison: viewing ? budgetFromReport(viewing.report) : (applied?.budgetActual ?? null), addEvidence, removeUnsavedEvidence, correctEvidence,
     saveStatus, saveMessage, access, storedVersion, save, publication, setPublication,
     persistedVersion, versionLabel: versionLabelOf(persistedVersion), output,
-    restore, versions, viewing, readOnly: viewing !== null, openVersion, closeVersion, reloadFromServer, readiness,
+    restore, versions, viewing, readOnly: viewing !== null || viewerReadOnly, readOnlyAccess: viewerReadOnly, openVersion, closeVersion, reloadFromServer, readiness,
   };
 }

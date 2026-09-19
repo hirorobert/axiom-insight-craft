@@ -108,26 +108,28 @@ AS $$
 DECLARE
   v_uid UUID := auth.uid();
   v_kill BOOLEAN;
+  v_role TEXT;
 BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'FORBIDDEN: an authenticated session is required' USING ERRCODE = '42501';
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM public.firm_members fm
-     WHERE fm.user_id = v_uid AND fm.company_id = p_company_id AND fm.accepted_at IS NOT NULL
-  ) THEN
+  -- The caller's OWN role is returned so the UI can render a viewer read-only; it is a display hint only: every write is still refused server-side.
+  SELECT fm.role INTO v_role FROM public.firm_members fm
+   WHERE fm.user_id = v_uid AND fm.company_id = p_company_id AND fm.accepted_at IS NOT NULL
+   ORDER BY (fm.role = 'viewer'), fm.created_at LIMIT 1;  -- a non-viewer row wins, exactly as the actor resolver picks one
+  IF v_role IS NULL THEN
     RETURN jsonb_build_object('enabled', false, 'reason', 'NOT_A_MEMBER');
   END IF;
 
   SELECT s.kill_switch INTO v_kill FROM public.financial_statements_rollout_state s WHERE s.singleton;
   IF v_kill THEN
-    RETURN jsonb_build_object('enabled', false, 'reason', 'KILL_SWITCH');
+    RETURN jsonb_build_object('enabled', false, 'reason', 'KILL_SWITCH', 'role', v_role);
   END IF;
   IF NOT public.fs_rollout_allows(p_company_id) THEN
-    RETURN jsonb_build_object('enabled', false, 'reason', 'NOT_ALLOWLISTED');
+    RETURN jsonb_build_object('enabled', false, 'reason', 'NOT_ALLOWLISTED', 'role', v_role);
   END IF;
-  RETURN jsonb_build_object('enabled', true, 'reason', 'ENABLED');
+  RETURN jsonb_build_object('enabled', true, 'reason', 'ENABLED', 'role', v_role);
 END;
 $$;
 
