@@ -3,30 +3,62 @@
   "release": "financial-statements-production-readiness",
   "branch": "codex/financial-statements-production-readiness",
   "baseCommit": "f6248c05ace36969ad1bc160d54410798a015e30",
-  "sourceCommit": "679e2aa4fa1292bfd43c5c82f5940937773965b3",
+  "sourceCommit": "ff1bd5cd3a0994a225749fcf89e717bd51e7c70c",
+  "commitCount": 26,
+  "commits": [
+    "050f72cc8696775466864a1aa687fe315fc91925",
+    "2bd3ec67ae8ef0696b7de7d6fadaa6790bc339e2",
+    "229d3e27b4fbb7a7ccbfd99258353a9bc190ae2f",
+    "cf58e1e40d2c204f94f81a65143fc7121078b97c",
+    "b5898610e6bc16aeda33299f17a066c86bb96de2",
+    "5174bd37819a79b18de7b3aa20404dc4230cc57f",
+    "3a35a0a5332572da31233086f6e7d37ec1e21110",
+    "ad5913c625de6d7267ba54cfd0c0203fb10a96ba",
+    "d437ad3102ac9108c7040a49eb5f67a742aec55a",
+    "8a2f11661b4c97bb8361a804f2f0095f3fe0be3d",
+    "2456f32e1c4557c6eb0e0d7bec45364744b02aba",
+    "761e3dd53b53bbe449f80a6e32754cc6d3d6b9eb",
+    "7f99749f70223b03feea144e96483a98418214f2",
+    "01e7552ad5edddabff360bf458a4108d15c5a255",
+    "822c725baf13287c883c2b8b748736b6730b4ea8",
+    "679e2aa4fa1292bfd43c5c82f5940937773965b3",
+    "2651003e8ab3e8ee557d53fd728954232a6a009d",
+    "a26abd8832a7b719b0e5384357100b1be926d972",
+    "fdb75ad01d5598d6b04ed16527c389996ab4bb42",
+    "766877a4385c6cc6117f5d8c3fdfd2936096d2a0",
+    "68e85ed3c663c0157706193d76f40393a4e43df3",
+    "ed2c4903d5fe0d6ddbbf7fc14d5513bae2995e78",
+    "e90b82eeac7e288cfb968b3b11cdc908da539df0",
+    "58bf75717501da535052aa706e752444a328a15d",
+    "c6ee1e7afe3e4a7c9adf247053e5e72f881baf2c",
+    "ff1bd5cd3a0994a225749fcf89e717bd51e7c70c"
+  ],
   "migrations": {
-    "supabase/migrations/20260920000000_financial_statements_rollout_control.sql": "7e85126dac9a3fc2d157d404d12b5ac2f7842d007bfdc44b002081bf05bd7152",
-    "supabase/migrations/20260920100000_financial_statements_persistence.sql": "5466d99dfb7ee164d984d8591f7818662a3e13eb88696a59f6fbfa672e6ba55a"
+    "supabase/migrations/20260919100000_financial_statements_rollout_control.sql": "ea986906abe095db96ce022467a5bbb9ce7cd98f72c511276b1a96925364c466",
+    "supabase/migrations/20260919110000_financial_statements_persistence.sql": "6904ea21b4816a95a8405ca84d5d1e167766965aa2129fbc88a0e7fe61e83d4a"
   },
   "documents": {
-    "docs/release/FINANCIAL_STATEMENTS_ACTIVATION.md": "be60fe1e363e9cd8e2853777751698d35632ff05b4404d5af8fb5a059398ba7e",
-    "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md": "b789c936413ba19ed68d5528336e622913bb9532ef799f3673a51a97111577c6",
-    "docs/release/sql/01_preflight.sql": "bed915dc29ef507fb70b424ac4d5275b69b646e34aa5462b476eb053571d9e0c",
+    "docs/release/E2E_SEVEN_STAGE_PROOF.md": "699e379b6683b8c1d4065770051a75b4af21c1c11dfe09541cf0fe0d1b6c9ab1",
+    "docs/release/FINANCIAL_STATEMENTS_ACTIVATION.md": "14d36c800df23faacedab95b4676f639639e844995a7bbc6a6f57d80a67ca7d3",
+    "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md": "dfbd7ed7c7d4f96828c98fc6552c58559f170900902f2ca99606209947ac9d4b",
+    "docs/release/HOSTED_STAGING_ACCEPTANCE.md": "40af43b8ce3cf4813015d9a84f882d4068995a6d0dce5398b15b94735e070615",
+    "docs/release/sql/01_preflight.sql": "df92a6a0d7de0b78137600f633e356ccfe90210b87f79180b0f19f5af4746bfd",
     "docs/release/sql/02_postcondition.sql": "f691eecaf9fed4bba75c52e778e04db3d98f3ac530d5cd174c846590b4498e04",
     "docs/release/sql/03_activate_company.sql": "d69491b52516409b8c5dd86988655f07c1e81b47b9d80de6ffa5c1318333282c",
     "docs/release/sql/04_deactivate_company.sql": "9ea898e1484bfcf3a74a1fecb650d77c24d5ce11da3c887e085012b42b179b62",
-    "docs/release/sql/05_kill_switch.sql": "c3390858799a9e38c46bfc4969af6a98060d19a34734e734301c14be07b13927"
+    "docs/release/sql/05_kill_switch.sql": "c3390858799a9e38c46bfc4969af6a98060d19a34734e734301c14be07b13927",
+    "docs/release/sql/06_staging_realtime_check.sql": "dd4a77bd7631837dfc4e56ee8dbec75305a567aca8cd80632dee013749b01ac7"
   },
   "artifacts": {
     "note": "sha256 of every file in dist/ for the build made at sourceCommit. The existing vite config embeds the build time and the HEAD commit id, so a rebuild is NOT byte-identical: these hashes identify the reviewed build output, they are not a reproducibility check",
     "files": {
       "dist/assets/html2canvas.esm-CBrSDip1.js": "b4f3add809a6d59f46260e8fd56cab240f3153def977386b230a839e8cb0b281",
-      "dist/assets/index-BlTaG3sk.js": "f57af2f9f827c2594786ee3afeb73420dc106e4ac8167e9cb00d417c54901abe",
-      "dist/assets/index-lGsV1ZSB.css": "0039f85072d45064dc395ad766b4909b4e812fd46b18abeb18803c795122513a",
-      "dist/assets/index.es-DnmFMxTP.js": "d32e394ff32b5a420ce4165a8dc8fe3dd6e064bef03764e78d6f8bddba537d0c",
+      "dist/assets/index-C2EZT2Yf.css": "f9adb758b49997c38a4d611ebb30ded8548826caac346b6f4c627677c1891ca2",
+      "dist/assets/index-eGZ84SaN.js": "3fe8c91abc391b1763843908ac8b4c87442a8b155783cc6f61449632d21b15d7",
+      "dist/assets/index.es-D03yw3f8.js": "f2e79927e64e0ed9ec5a73287fdc8fd1384ef1641159d04d7a1f49cf2a5296af",
       "dist/assets/purify.es-C5KSVp3G.js": "91529dee77d4e154b7d8e874a9a9870505bbde7ba15034980a6fab4d40361c47",
-      "dist/favicon.svg": "81249921ef972650854c02e53db05834a2a9efd970ef126750e4d8a2b15d1db5",
-      "dist/index.html": "cf046651b0ea2e803e42779d909002a950526a45e959d12972cef5b051444b23",
+      "dist/favicon.svg": "a7c4c7fcd0e06bf52b549e8fd317cfbb5a5d8b37221562b6c7949f896c5b594d",
+      "dist/index.html": "6cd658a5d55bf6ca4bd17b7a41fa27a3c505202d3957eba0db25c06bca9a7e6b",
       "dist/placeholder.svg": "64badf7aabda0b9630b87020ffb6095cb858ccbcf66b355c2aa08b1063954d3b",
       "dist/robots.txt": "52710c261d851bc1ad35604017862f2a8444e7a0f02cd7b8b49e3ba92e6d4cea"
     }
@@ -46,8 +78,9 @@
     ],
     "ciStaging": [
       "STAGING_SUPABASE_URL",
+      "STAGING_SUPABASE_ANON_KEY",
       "STAGING_SUPABASE_SERVICE_ROLE_KEY",
-      "STAGING_SUPABASE_PROJECT_REF"
+      "STAGING_SUPABASE_PROJECT_REF (a variable, not a secret)"
     ]
   },
   "requiredGateState": {
@@ -60,5 +93,9 @@
     "productionMigration": false,
     "productionFunctionsDeployed": false,
     "productionFeatureEnabled": false
+  },
+  "hostedStaging": {
+    "result": "BLOCKED_MISSING_STAGING_PROJECT",
+    "note": "No hosted staging project is configured. Local disposable-database proof is separate and is not hosted acceptance."
   }
 }
