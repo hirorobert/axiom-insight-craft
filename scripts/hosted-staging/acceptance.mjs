@@ -49,6 +49,7 @@ const HISTORY_TABLES = [
   'financial_statements_rollout_companies',
   'financial_statements_rollout_state',
   'financial_statements_rollout_audit',
+  'financial_statement_framework_requirements',
 ]
 
 export const BLOCKED_CODES = new Set(['URL_MISSING', 'EXPECTED_REF_MISSING'])

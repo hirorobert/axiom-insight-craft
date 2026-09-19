@@ -625,6 +625,9 @@ async function proveTenancyAndImmutability() {
     await expectError(`${t}: table owner UPDATE rejected by append-only trigger`, "P0001", () => admin.query(`UPDATE public.${t} SET id = id`));
     await expectError(`${t}: table owner DELETE rejected by append-only trigger`, "P0001", () => admin.query(`DELETE FROM public.${t}`));
   }
+  await expectError("framework requirements: table owner UPDATE rejected (a change is a new migration)", "P0001", () => admin.query("UPDATE public.financial_statement_framework_requirements SET profile_version = profile_version"));
+  await expectError("framework requirements: table owner DELETE rejected", "P0001", () => admin.query("DELETE FROM public.financial_statement_framework_requirements"));
+  await expectError("framework requirements: authenticated cannot write (no grant)", "42501", () => rpc(user(U.owner), "UPDATE public.financial_statement_framework_requirements SET profile_version = profile_version"));
   await expectError("authenticated direct INSERT into reports denied", "42501", () => rpc(user(U.owner), "INSERT INTO public.financial_statement_reports (report_id, report_version, company_id, period_year, provenance_origin, report_document, content_hash, document_hash, created_by_firm_member_id) VALUES ('x',1,$1,2025,'TRIAL_BALANCE_DERIVED','{}',$2,$2,$3)", [COMPANY_A, hex64("x"), MEMBER[U.owner]]));
   await check("every foreign key from the new tables to companies/firm_members/reports is ON DELETE RESTRICT (history cannot be cascaded away)", async () => {
     const r = await admin.query(`SELECT conrelid::regclass::text t, confdeltype d FROM pg_constraint WHERE contype='f' AND conrelid::regclass::text = ANY($1)`, [["financial_evidence_batches", "financial_statement_reports", "financial_statement_evaluations", "financial_statement_reviewer_decisions", "financial_statement_correction_groups", "financial_statement_publications"]]);
