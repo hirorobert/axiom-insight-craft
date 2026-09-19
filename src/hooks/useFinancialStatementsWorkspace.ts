@@ -40,9 +40,10 @@ import { classifyPersistenceError, initialPersistenceState, type PersistenceStat
 import { createWorkspaceTransport } from "@/lib/financialStatementsWorkspace/supabaseFsBackend";
 import { FsTransportError, type FsRpcTransport, type PublicationRow, type WorkspaceAccess } from "@/lib/financialStatementsWorkspace/rpcTransport";
 import { saveWorkspace, type SavedState } from "@/lib/financialStatementsWorkspace/saveFlow";
-import type { ReviewerDecision, RuleEvaluationRecord } from "@/lib/canonicalStatement/types";
+import type { CorrectEvidenceDecision, ReviewerDecision, RuleEvaluationRecord } from "@/lib/canonicalStatement/types";
 import { ZERO_TOLERANCE } from "@/lib/canonicalStatement/money";
 import { ingestEvidence, classifyReplay, type IntakeRequest } from "@/lib/financialEvidence/intake";
+import { correctEvidenceCell } from "@/lib/financialEvidence/correction";
 import type { EvidenceBatch, EvidenceDiagnostic, EvidenceType, PeriodRole, ReplayStatus } from "@/lib/financialEvidence/types";
 import { applyEvidence, evidenceOnlyReport, latestPerSeries, type ApplyEvidenceResult, type StoredEvidence } from "@/lib/financialGeneration/applyEvidence";
 
@@ -104,6 +105,18 @@ export type EvidenceAddResult =
   | { readonly kind: "EXACT_REPLAY"; readonly batch: EvidenceBatch; readonly replay: ReplayStatus; readonly diagnostics: readonly EvidenceDiagnostic[] }
   | { readonly kind: "REJECTED"; readonly diagnostics: readonly EvidenceDiagnostic[] };
 
+export interface EvidenceCorrectionRequest {
+  readonly evidenceBatchId: string;
+  readonly rowNumber: number;
+  readonly column: string;
+  readonly newValue: string;
+  readonly rationale: string;
+}
+
+export type EvidenceCorrectionOutcome =
+  | { readonly ok: true; readonly mode: "RECORDED" | "REPLACED_UNSAVED"; readonly batch: EvidenceBatch; readonly message: string }
+  | { readonly ok: false; readonly message: string; readonly diagnostics: readonly EvidenceDiagnostic[] };
+
 export interface EvidenceEntry {
   readonly batch: EvidenceBatch;
   readonly version: number;
@@ -135,6 +148,8 @@ export interface FinancialStatementsWorkspaceModel {
   readonly applied: ApplyEvidenceResult | null;
   readonly addEvidence: (request: EvidenceAddRequest) => EvidenceAddResult;
   readonly removeUnsavedEvidence: (evidenceBatchId: string) => void;
+  /** Corrects one cell of the latest version of an evidence series: a new evidence version, never an edit. */
+  readonly correctEvidence: (request: EvidenceCorrectionRequest) => EvidenceCorrectionOutcome;
   // saving
   readonly saveStatus: SaveStatus;
   readonly saveMessage: string | null;
@@ -161,6 +176,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
   const [generation, setGeneration] = useState(0);
   const [evidenceStore, setEvidenceStore] = useState<readonly (StoredEvidence & { readonly saved: boolean })[]>([]);
   const [decisionRevision, setDecisionRevision] = useState(0);
+  const [evidenceCorrections, setEvidenceCorrections] = useState<readonly CorrectEvidenceDecision[]>([]);
   const [access, setAccess] = useState<WorkspaceAccess | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(FINANCIAL_STATEMENT_PERSISTENCE_ENABLED || inputs.transport ? "CHECKING" : "DISABLED");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -326,27 +342,35 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
   // ── evidence → effective report ─────────────────────────────────────────
   const latestEvidence = useMemo(() => latestPerSeries(evidenceStore), [evidenceStore]);
 
+  /** The empty report a cash-basis (evidence-only) statement set is folded into. Depends only on the evidence set's scale and comparative presence. */
+  const evidenceOnlyShellFor = useCallback(
+    (set: readonly EvidenceBatch[]) =>
+      profile && inputs.currency
+        ? evidenceOnlyReport({
+            reportId: sha256Hex(canonicalStringify({ companyId: inputs.companyId, periodYear: inputs.periodYear, kind: "evidence-only-report", framework: profile.kind })),
+            companyId: inputs.companyId,
+            entityName: inputs.companyName,
+            periodYear: inputs.periodYear,
+            startDate: period.startDate,
+            endDate: period.endDate,
+            framework: { kind: profile.kind },
+            currency: inputs.currency,
+            scale: set.find((b) => b.scale !== null)?.scale ?? 2,
+            comparativeYear: set.some((b) => b.periodRole === "COMPARATIVE") ? inputs.periodYear - 1 : undefined,
+          })
+        : null,
+    [profile, inputs.currency, inputs.companyId, inputs.companyName, inputs.periodYear, period],
+  );
+
   const applied = useMemo<ApplyEvidenceResult | null>(() => {
     if (!profile) return null;
     if (baseSnapshot) return applyEvidence({ report: baseSnapshot.report, profile, evidence: latestEvidence, cashAccountKeys: mappingInfo?.cashAccountKeys ?? [] });
-    if (profile.trialBalance.status === "UNSUPPORTED" && inputs.currency) {
-      const scale = latestEvidence.find((b) => b.scale !== null)?.scale ?? 2;
-      const shell = evidenceOnlyReport({
-        reportId: sha256Hex(canonicalStringify({ companyId: inputs.companyId, periodYear: inputs.periodYear, kind: "evidence-only-report", framework: profile.kind })),
-        companyId: inputs.companyId,
-        entityName: inputs.companyName,
-        periodYear: inputs.periodYear,
-        startDate: period.startDate,
-        endDate: period.endDate,
-        framework: { kind: profile.kind },
-        currency: inputs.currency,
-        scale,
-        comparativeYear: latestEvidence.some((b) => b.periodRole === "COMPARATIVE") ? inputs.periodYear - 1 : undefined,
-      });
-      return applyEvidence({ report: shell, profile, evidence: latestEvidence });
+    if (profile.trialBalance.status === "UNSUPPORTED") {
+      const shell = evidenceOnlyShellFor(latestEvidence);
+      return shell ? applyEvidence({ report: shell, profile, evidence: latestEvidence }) : null;
     }
     return null;
-  }, [profile, baseSnapshot, latestEvidence, mappingInfo, inputs.currency, inputs.companyId, inputs.companyName, inputs.periodYear, period]);
+  }, [profile, baseSnapshot, latestEvidence, mappingInfo, evidenceOnlyShellFor]);
 
   const decisionLog = useMemo<readonly ReviewerDecision[]>(() => baseSnapshot?.decisions ?? [], [baseSnapshot]);
   const snapshot = useMemo<StoredReportSnapshot | null>(() => {
@@ -406,7 +430,15 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     if (baseSnapshot || !snapshot) return;
     void repoRef.current.getByReportId(snapshot.report.reportIdentity.reportId).then((s) => setEvidenceOnlyDecisions(s?.decisions ?? []));
   }, [baseSnapshot, snapshot, decisionRevision]);
-  const decisionsForViews = baseSnapshot ? effectiveDecisions : evidenceOnlyDecisions;
+  const decisionsForViews = useMemo<readonly ReviewerDecision[]>(() => {
+    const own = baseSnapshot ? effectiveDecisions : evidenceOnlyDecisions;
+    if (evidenceCorrections.length === 0) return own;
+    // Chronological; equal timestamps keep their original order (fact corrections before evidence corrections).
+    return [...own, ...evidenceCorrections]
+      .map((d, i) => ({ d, i }))
+      .sort((a, b) => (a.d.decidedAt < b.d.decidedAt ? -1 : a.d.decidedAt > b.d.decidedAt ? 1 : a.i - b.i))
+      .map((x) => x.d);
+  }, [baseSnapshot, effectiveDecisions, evidenceOnlyDecisions, evidenceCorrections]);
 
   const views = useMemo(() => (evaluation ? buildFindingViews(evaluation.findings, decisionsForViews) : []), [evaluation, decisionsForViews]);
   const numbering = useMemo(() => (snapshot ? deriveNoteNumbering(snapshot.report) : null), [snapshot]);
@@ -434,6 +466,13 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
       const result = ingestEvidence(intake);
       if (result.outcome === "REJECTED") return { kind: "REJECTED", diagnostics: result.diagnostics };
       const batch = result.batch;
+      const pendingCorrection = latestEvidence.find(
+        (b) =>
+          evidenceCorrections.some((c) => c.newBatchId === b.evidenceBatchId) &&
+          !evidenceStore.find((s) => s.batch.evidenceBatchId === b.evidenceBatchId)?.saved &&
+          b.evidenceType === batch.evidenceType && b.periodRole === batch.periodRole && b.reportingPeriodId === batch.reportingPeriodId && b.seriesKey === batch.seriesKey,
+      );
+      if (pendingCorrection) return { kind: "REJECTED", diagnostics: [{ code: "CORRECTION_PENDING_SAVE", severity: "ERROR", message: "This series has a correction that has not been saved yet. Save first, then upload a new version." }] };
       const replay = classifyReplay(
         batch,
         evidenceStore.map((s) => ({ evidenceBatchId: s.batch.evidenceBatchId, companyId: s.batch.companyId, evidenceType: s.batch.evidenceType, periodRole: s.batch.periodRole, reportingPeriodId: s.batch.reportingPeriodId, seriesKey: s.batch.seriesKey, replayIdentity: s.batch.replayIdentity, version: s.version, documentJson: JSON.stringify(s.batch.document) })),
@@ -443,12 +482,48 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
       setEvidenceStore((cur) => [...cur, { batch, version, saved: false }]);
       return { kind: "ADDED", batch, replay, diagnostics: batch.diagnostics };
     },
-    [evidenceStore, inputs.companyId, inputs.periodYear, period, priorPeriod],
+    [evidenceStore, latestEvidence, evidenceCorrections, inputs.companyId, inputs.periodYear, period, priorPeriod],
   );
 
   const removeUnsavedEvidence = useCallback((evidenceBatchId: string) => {
     setEvidenceStore((cur) => cur.filter((s) => s.saved || s.batch.evidenceBatchId !== evidenceBatchId));
   }, []);
+
+  const correctEvidence = useCallback(
+    (request: EvidenceCorrectionRequest): EvidenceCorrectionOutcome => {
+      const target = evidenceStore.find((s) => s.batch.evidenceBatchId === request.evidenceBatchId);
+      if (!target) return { ok: false, message: "That evidence is not part of this report.", diagnostics: [] };
+      if (!latestEvidence.some((b) => b.evidenceBatchId === request.evidenceBatchId)) return { ok: false, message: "Only the latest version of an evidence series can be corrected.", diagnostics: [] };
+      const bounds = target.batch.periodRole === "COMPARATIVE" ? priorPeriod : period;
+      const result = correctEvidenceCell(target.batch, request, { periodStart: bounds.startDate, periodEnd: bounds.endDate });
+      if ("reason" in result) return { ok: false, message: result.reason, diagnostics: result.diagnostics };
+      if (!target.saved) {
+        // Nothing durable exists yet, so there is nothing to correct on the record: the draft simply holds the fixed version.
+        setEvidenceStore((cur) => [...cur.filter((s) => s.batch.evidenceBatchId !== target.batch.evidenceBatchId), { batch: result.batch, version: target.version, saved: false }]);
+        return { ok: true, mode: "REPLACED_UNSAVED", batch: result.batch, message: "This evidence has not been saved yet, so the corrected version replaced it in the draft." };
+      }
+      const decision: CorrectEvidenceDecision = {
+        decisionId: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `decision-${Date.now()}-${Math.random()}`,
+        decisionType: "CORRECT_EVIDENCE",
+        reviewerId: SESSION_REVIEWER_ID,
+        decidedAt: new Date().toISOString(),
+        evidenceType: target.batch.evidenceType,
+        supersedesBatchId: target.batch.evidenceBatchId,
+        newBatchId: result.batch.evidenceBatchId,
+        rowNumber: request.rowNumber,
+        column: request.column,
+        previousValue: result.previousValue,
+        correctedValue: request.newValue,
+        rationale: request.rationale.trim(),
+        expectedReportVersion: storedVersion ?? 0,
+      };
+      setEvidenceStore((cur) => [...cur, { batch: result.batch, version: target.version + 1, saved: false }]);
+      setEvidenceCorrections((cur) => [...cur, decision]);
+      setPersistence(FINANCIAL_STATEMENT_PERSISTENCE_ENABLED || transport ? "UNSAVED_DRAFT" : "UNAVAILABLE");
+      return { ok: true, mode: "RECORDED", batch: result.batch, message: `Evidence corrected as version ${target.version + 1}. Save to record it with the new report version and its re-validation.` };
+    },
+    [evidenceStore, latestEvidence, period, priorPeriod, storedVersion, transport],
+  );
 
   const evidence = useMemo<readonly EvidenceEntry[]>(() => {
     const latestIds = new Set(latestEvidence.map((b) => b.evidenceBatchId));
@@ -469,6 +544,18 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     if (next !== saveStatus) setSaveStatus(next);
   }, [dirtyKey, saveStatus]);
 
+  /** Re-composes the effective report for the correction chain: the trial-balance base minus some appended facts, plus an evidence set. */
+  const rebuildAt = useCallback(
+    (dropped: ReadonlySet<string>, evidenceSet: readonly EvidenceBatch[]) => {
+      if (!profile) return null;
+      const base = baseSnapshot?.report;
+      if (base) return applyEvidence({ report: { ...base, facts: base.facts.filter((f) => !dropped.has(`${f.factId}#${f.version}`)) }, profile, evidence: evidenceSet, cashAccountKeys: mappingInfo?.cashAccountKeys ?? [] }).report;
+      const shell = profile.trialBalance.status === "UNSUPPORTED" ? evidenceOnlyShellFor(evidenceSet) : null;
+      return shell ? applyEvidence({ report: shell, profile, evidence: evidenceSet }).report : null;
+    },
+    [profile, baseSnapshot, mappingInfo, evidenceOnlyShellFor],
+  );
+
   const save = useCallback(async () => {
     if (!transport || !access?.enabled || !snapshot || !dirtyKey) return;
     setSaveStatus("SAVING");
@@ -482,6 +569,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
       decisions: decisionsForViews,
       evaluate: (r) => evaluateReportPure(r, ZERO_TOLERANCE, STORED_FINDING_TIMESTAMP),
       saved: savedRef.current,
+      rebuild: { at: rebuildAt, allEvidence: evidenceStore },
     });
     if (outcome.status === "FAILED") {
       setSaveStatus(outcome.isConflict ? "CONFLICT" : outcome.kind === "FORBIDDEN" ? "DENIED" : outcome.kind === "FEATURE_DISABLED" ? "DISABLED" : "ERROR");
@@ -509,7 +597,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     } catch {
       /* publication state is advisory here; the server is authoritative */
     }
-  }, [transport, access, snapshot, dirtyKey, inputs.companyId, inputs.periodYear, latestEvidence, decisionsForViews]);
+  }, [transport, access, snapshot, dirtyKey, inputs.companyId, inputs.periodYear, latestEvidence, decisionsForViews, rebuildAt, evidenceStore]);
 
   const setPublication = useCallback(
     async (state: "DRAFT" | "REVIEWED" | "FINAL", why: string) => {
@@ -573,7 +661,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
   return {
     status, reason, diagnostics, profile, sources, structure, composition,
     snapshot: modelSnapshot, evaluation, numbering, views, persistence, notice, decide, rerun,
-    evidence, applied, addEvidence, removeUnsavedEvidence,
+    evidence, applied, addEvidence, removeUnsavedEvidence, correctEvidence,
     saveStatus, saveMessage, access, storedVersion, save, publication, setPublication,
   };
 }

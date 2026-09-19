@@ -15,6 +15,9 @@ import { CANONICAL_SCHEMA_VERSION, type CanonicalFinancialStatementReport, type 
 import { validateCanonicalReport } from "@/lib/canonicalStatement/validation";
 import { applyEvidence } from "@/lib/financialGeneration/applyEvidence";
 import { ingestEvidence } from "@/lib/financialEvidence/intake";
+import { correctEvidenceCell } from "@/lib/financialEvidence/correction";
+import { latestPerSeries } from "@/lib/financialGeneration/applyEvidence";
+import type { CorrectEvidenceDecision } from "@/lib/canonicalStatement/types";
 import { InMemoryFinancialStatementReportRepository } from "./reportRepository";
 import { correctFactAndRecast, evaluateReportPure, prepareTrialBalanceReport } from "./evaluationOrchestrator";
 import { profileForKind } from "./frameworkProfiles";
@@ -141,6 +144,63 @@ describe.skipIf(!seed)("transport + save flow against a real PostgreSQL", () => 
     const s = await sessionFor(seed!.companyB);
     const out = await saveWorkspace({ transport: as("ownerB"), companyId: seed!.companyB, reportingPeriodId: "FY2025", evidence: s.evidence, report: effective(s.snapshot.report), decisions: [], evaluate: (r) => evaluateReportPure(r, ZERO_TOLERANCE, EPOCH), saved: null });
     expect(out).toMatchObject({ status: "FAILED", kind: "FEATURE_DISABLED" });
+  });
+
+  it("an evidence correction is one atomic group: corrected evidence version + new report version + decision + evaluation; a replay is UNCHANGED", async () => {
+    const companyId = seed!.companyA;
+    const profile = profileForKind("IFRS_FOR_SMES");
+    const s = await sessionFor(companyId);
+    const ledger = ingest(companyId, "TRANSACTION_LEDGER", LEDGER.replace(RUN, `${RUN}-ec-${Math.random()}`), "CURRENT");
+    const opening = s.evidence[1];
+    const t = as("partner");
+    const store = [{ batch: ledger, version: 1 }, { batch: opening, version: 1 }];
+    const rebuild = (all: typeof store) => ({
+      at: (dropped: ReadonlySet<string>, ev: readonly (typeof ledger)[]) => applyEvidence({ report: { ...s.snapshot.report, facts: s.snapshot.report.facts.filter((f) => !dropped.has(`${f.factId}#${f.version}`)) }, profile, cashAccountKeys: ["1000"], evidence: ev }).report,
+      allEvidence: all,
+    });
+    const evalFn = (r: CanonicalFinancialStatementReport) => evaluateReportPure(r, ZERO_TOLERANCE, EPOCH);
+    const effectiveOf = (all: typeof store) => rebuild(all).at(new Set(), latestPerSeries(all))!;
+    // 1 — save the uncorrected evidence and report.
+    const first = await saveWorkspace({ transport: t, companyId, reportingPeriodId: "FY2025", evidence: latestPerSeries(store), report: effectiveOf(store), decisions: [], evaluate: evalFn, saved: null, rebuild: rebuild(store) });
+    expect(first, JSON.stringify(first)).toMatchObject({ status: "SAVED" });
+    const v1 = (first as { storedVersion: number }).storedVersion;
+    // 2 — correct one cell of the SAVED ledger: a new version of the series.
+    const fix = correctEvidenceCell(ledger, { rowNumber: 2, column: "payment", newValue: "6500000", rationale: "Supplier invoice re-agreed to statement" }, { periodStart: "2025-01-01", periodEnd: "2025-12-31" });
+    expect("batch" in fix).toBe(true);
+    if (!("batch" in fix)) return;
+    const decision: CorrectEvidenceDecision = { decisionId: `ecd-${RUN}`, decisionType: "CORRECT_EVIDENCE", reviewerId: "client-supplied-ignored", decidedAt: "2026-01-02T00:00:00Z", evidenceType: "TRANSACTION_LEDGER", supersedesBatchId: ledger.evidenceBatchId, newBatchId: fix.batch.evidenceBatchId, rowNumber: 2, column: "payment", previousValue: fix.previousValue, correctedValue: "6500000", rationale: "Supplier invoice re-agreed to statement", expectedReportVersion: v1 };
+    const store2 = [...store, { batch: fix.batch, version: 2 }];
+    const saved: SavedState = { storedVersion: v1, storedDecisionIds: (first as { storedDecisionIds: ReadonlySet<string> }).storedDecisionIds };
+    const second = await saveWorkspace({ transport: t, companyId, reportingPeriodId: "FY2025", evidence: latestPerSeries(store2), report: effectiveOf(store2), decisions: [decision], evaluate: evalFn, saved, rebuild: rebuild(store2) });
+    expect(second, JSON.stringify(second)).toMatchObject({ status: "SAVED", storedVersion: v1 + 1, correctionsSaved: 1 });
+    const reportId = s.snapshot.report.reportIdentity.reportId;
+    // the evidence series now has two versions, the second superseding the first
+    const stored = (await t.listEvidence(companyId, "FY2025")).filter((e) => e.seriesKey === ledger.seriesKey && e.evidenceType === "TRANSACTION_LEDGER").sort((a, b) => a.version - b.version);
+    const tail = stored.filter((e) => e.evidenceBatchId === ledger.evidenceBatchId || e.evidenceBatchId === fix.batch.evidenceBatchId);
+    expect(tail.map((e) => e.evidenceBatchId)).toEqual([ledger.evidenceBatchId, fix.batch.evidenceBatchId]);
+    expect(tail[1].version).toBe(tail[0].version + 1);
+    expect(tail[1].supersedesBatchId).toBe(ledger.evidenceBatchId);
+    // the decision is stored inside the group, with the server-derived reviewer
+    const dec = (await t.listDecisions(reportId)).find((d) => d.decisionId === decision.decisionId)!;
+    expect(dec.correctionGroupId).not.toBeNull();
+    expect(dec.decision.decisionType).toBe("CORRECT_EVIDENCE");
+    expect((dec.decision as { reviewerId: string }).reviewerId).toBe(dec.reviewerFirmMemberId);
+    // v1 still shows the original payment, v2 the corrected one: history is immutable and reproducible
+    const versions = await t.listReportVersions(reportId);
+    const payments = (r: CanonicalFinancialStatementReport) => JSON.stringify(r.facts.filter((f) => f.factId.startsWith("fact:line:cf:")).map((f) => [f.factId, String(f.value?.minorUnits)]));
+    expect(payments(versions.find((v) => v.reportVersion === v1)!.report)).not.toBe(payments(versions.find((v) => v.reportVersion === v1 + 1)!.report));
+    expect((await t.listEvaluations(reportId, v1 + 1)).length).toBe(1);
+    // a replay of the identical session is UNCHANGED
+    const savedAfter: SavedState = { storedVersion: v1 + 1, storedDecisionIds: (second as { storedDecisionIds: ReadonlySet<string> }).storedDecisionIds };
+    expect(await saveWorkspace({ transport: t, companyId, reportingPeriodId: "FY2025", evidence: latestPerSeries(store2), report: effectiveOf(store2), decisions: [decision], evaluate: evalFn, saved: savedAfter, rebuild: rebuild(store2) })).toMatchObject({ status: "UNCHANGED" });
+    // an evidence correction whose predecessor was never stored is refused locally, before anything is written
+    const orphan = correctEvidenceCell(fix.batch, { rowNumber: 1, column: "receipt", newValue: "11000000", rationale: "Credit note issued" }, { periodStart: "2025-01-01", periodEnd: "2025-12-31" });
+    if ("batch" in orphan) {
+      const d2: CorrectEvidenceDecision = { ...decision, decisionId: `ecd2-${RUN}`, supersedesBatchId: fix.batch.evidenceBatchId, newBatchId: orphan.batch.evidenceBatchId, rowNumber: 1, column: "receipt", correctedValue: "11000000" };
+      const store3 = [...store2, { batch: orphan.batch, version: 3 }];
+      const out = await saveWorkspace({ transport: t, companyId, reportingPeriodId: "FY2025", evidence: latestPerSeries(store3), report: effectiveOf(store3), decisions: [decision, d2], evaluate: evalFn, saved: savedAfter, rebuild: rebuild(store3) });
+      expect(out, JSON.stringify(out)).toMatchObject({ status: "SAVED", correctionsSaved: 1 }); // stored predecessor exists (v2), so this one is legitimate
+    }
   });
 
   it("the client never sends an actor: schema version constant is exported and no argument name carries one", () => {

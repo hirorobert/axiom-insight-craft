@@ -134,7 +134,15 @@ export interface CorrectionGroupInput {
   readonly companyId: string;
   readonly reportId: string;
   readonly expectedReportVersion: number;
-  readonly steps: readonly { readonly reportVersion: number; readonly report: CanonicalFinancialStatementReport }[];
+  readonly steps: readonly {
+    readonly reportVersion: number;
+    readonly report: CanonicalFinancialStatementReport;
+    /** A CORRECT_EVIDENCE step stores this corrected evidence version in the same transaction (and only such a step carries one). */
+    readonly evidenceBatch?: EvidenceBatch;
+    readonly expectedPreviousBatchId?: string;
+    /** The evidence versions this step's report was composed from. */
+    readonly evidenceBatchIds?: readonly string[];
+  }[];
   readonly decisions: readonly ReviewerDecision[];
   readonly evaluation?: { readonly evaluationRunId: string; readonly rulePackId: string; readonly rulePackVersion: string; readonly engineVersion: string; readonly inputHash: string; readonly findings: readonly RuleEvaluationRecord[] };
 }
@@ -231,7 +239,32 @@ export class FsRpcTransport {
       p_company_id: input.companyId,
       p_report_id: input.reportId,
       p_expected_report_version: input.expectedReportVersion,
-      p_steps: input.steps.map((s) => ({ reportVersion: s.reportVersion, reportDocument: json(s.report), contentHash: contentHashOfDocument(s.report) })),
+      p_steps: input.steps.map((s) => ({
+        reportVersion: s.reportVersion,
+        reportDocument: json(s.report),
+        contentHash: contentHashOfDocument(s.report),
+        ...(s.evidenceBatchIds ? { evidenceBatchIds: [...s.evidenceBatchIds] } : {}),
+        ...(s.evidenceBatch
+          ? {
+              evidenceBatch: {
+                evidenceBatchId: s.evidenceBatch.evidenceBatchId,
+                reportingPeriodId: s.evidenceBatch.reportingPeriodId,
+                evidenceType: s.evidenceBatch.evidenceType,
+                periodRole: s.evidenceBatch.periodRole,
+                seriesKey: s.evidenceBatch.seriesKey,
+                schemaVersion: s.evidenceBatch.schemaVersion,
+                sourceFileName: s.evidenceBatch.sourceFileName,
+                contentHash: s.evidenceBatch.contentHash,
+                currency: s.evidenceBatch.currency,
+                scale: s.evidenceBatch.scale,
+                batchDocument: s.evidenceBatch.document,
+                validationStatus: s.evidenceBatch.validationStatus,
+                diagnostics: s.evidenceBatch.diagnostics,
+                expectedPreviousBatchId: s.expectedPreviousBatchId ?? null,
+              },
+            }
+          : {}),
+      })),
       p_decisions: input.decisions.map((d) => {
         const { reviewerId: _discarded, ...rest } = d;
         return json(rest);

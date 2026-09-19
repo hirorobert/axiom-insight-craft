@@ -79,6 +79,12 @@ describe("financial-statements migrations — function hardening", () => {
     }
   });
 
+  it("an evidence-correction step binds its decision to the exact evidence version it stores, atomically with the report version", () => {
+    const g = fns.find((f) => f.name === "fs_apply_correction_group")!.body;
+    for (const needle of ["newBatchId", "supersedesBatchId", "fs_ingest_evidence_internal", "INSERT INTO public.financial_statement_reports", "INSERT INTO public.financial_statement_reviewer_decisions"]) expect(g, needle).toContain(needle);
+    expect(g).toMatch(/does not match the evidence version the step stores/);
+  });
+
   it("the actor is derived from auth.uid() and never taken from an argument", () => {
     const actor = fns.find((f) => f.name === "fs_actor_member_id")!.body;
     expect(actor).toMatch(/auth\.uid\(\)/);

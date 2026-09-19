@@ -3,24 +3,31 @@
 //
 // What "Save" means: evidence batches not yet stored are ingested (each a new
 // immutable version of its series); the working report is stored as the next
-// version of its lineage; every fact correction made in this session becomes one
+// version of its lineage; every correction made in this session — of a source
+// figure (CORRECT_FACT) or of source evidence (CORRECT_EVIDENCE) — becomes one
 // contiguous version inside ONE atomic correction group (all or nothing); an
 // evaluation of the final stored version is stored; and standalone reviewer
 // decisions are appended. Nothing is overwritten. The server, not this module,
 // decides staleness: a conflict is surfaced as CONFLICT, never retried blindly.
 //
-// A correction chain is reconstructed deterministically from the append-only fact
-// ledger: report version k is the final report with the facts appended by
-// corrections after k removed. No intermediate document is invented.
+// A correction chain is reconstructed deterministically from the append-only
+// ledgers. Fact corrections: report version k is the base with the facts appended
+// by later corrections removed. Evidence corrections: the evidence set at version k
+// excludes the corrected batches of later corrections, so the previous version of
+// each series feeds the statements again; the report is re-composed by the injected
+// `rebuild`. No intermediate document is invented.
 
-import type { CanonicalFinancialStatementReport, CorrectFactDecision, ReviewerDecision } from "@/lib/canonicalStatement/types";
+import type { CanonicalFinancialStatementReport, CorrectEvidenceDecision, CorrectFactDecision, ReviewerDecision } from "@/lib/canonicalStatement/types";
 import { canonicalStringify, sha256Hex } from "@/lib/canonicalStatement/serialization";
 import type { EvidenceBatch } from "@/lib/financialEvidence/types";
+import { latestPerSeries, type StoredEvidence } from "@/lib/financialGeneration/applyEvidence";
 import { contentHashOf } from "./persistenceContract";
 import type { EvaluationRunRecord } from "./reportRepository";
 import { FsTransportError, type FsRpcTransport } from "./rpcTransport";
 
-const isCorrection = (d: ReviewerDecision): d is CorrectFactDecision => d.decisionType === "CORRECT_FACT";
+export type CorrectionDecision = CorrectFactDecision | CorrectEvidenceDecision;
+const isCorrection = (d: ReviewerDecision): d is CorrectionDecision => d.decisionType === "CORRECT_FACT" || d.decisionType === "CORRECT_EVIDENCE";
+const isEvidenceCorrection = (d: ReviewerDecision): d is CorrectEvidenceDecision => d.decisionType === "CORRECT_EVIDENCE";
 
 /** Session-side memory of what has already been stored, so a second Save appends only what is new. */
 export interface SavedState {
@@ -28,28 +35,73 @@ export interface SavedState {
   readonly storedDecisionIds: ReadonlySet<string>;
 }
 
+/** Re-composes the effective report from the trial-balance base and an evidence set. Supplied by the workspace. */
+export interface ChainRebuild {
+  /** `droppedFactMarkers` are `factId#version` markers of base facts appended by corrections that must not be applied. */
+  readonly at: (droppedFactMarkers: ReadonlySet<string>, evidence: readonly EvidenceBatch[]) => CanonicalFinancialStatementReport | null;
+  /** Every evidence batch the session knows, every version. */
+  readonly allEvidence: readonly StoredEvidence[];
+}
+
+export interface ChainStep {
+  readonly report: CanonicalFinancialStatementReport;
+  readonly decision: CorrectionDecision;
+  /** Present exactly when the decision is CORRECT_EVIDENCE. */
+  readonly evidenceBatch?: EvidenceBatch;
+  readonly evidenceIds?: readonly string[];
+}
+
 export interface ChainPlan {
   /** The report with no session corrections applied. */
   readonly base: CanonicalFinancialStatementReport;
+  readonly baseEvidenceIds?: readonly string[];
   /** One entry per correction, in order: the report as it stood after that correction. */
-  readonly steps: readonly { readonly report: CanonicalFinancialStatementReport; readonly decision: CorrectFactDecision }[];
+  readonly steps: readonly ChainStep[];
   readonly standalone: readonly ReviewerDecision[];
+  /** Batches that arrive only through a correction step and must never be ingested on their own. */
+  readonly correctionBatchIds: ReadonlySet<string>;
 }
 
 const withVersion = (r: CanonicalFinancialStatementReport, version: number): CanonicalFinancialStatementReport => ({ ...r, reportIdentity: { ...r.reportIdentity, reportVersion: version } });
+const marker = (d: CorrectFactDecision) => `${d.factId}#${d.newVersion}`;
+
+export class ChainReconstructionError extends Error {}
 
 /** Deterministically reconstructs the correction chain from the final report and its decision log. */
-export function reconstructChain(finalReport: CanonicalFinancialStatementReport, decisions: readonly ReviewerDecision[]): ChainPlan {
+export function reconstructChain(finalReport: CanonicalFinancialStatementReport, decisions: readonly ReviewerDecision[], rebuild?: ChainRebuild): ChainPlan {
   const corrections = decisions.filter(isCorrection);
-  const marker = (d: CorrectFactDecision) => `${d.factId}#${d.newVersion}`;
-  const withoutAfter = (k: number): CanonicalFinancialStatementReport => {
-    const dropped = new Set(corrections.slice(k).map(marker));
-    return { ...finalReport, facts: finalReport.facts.filter((f) => !dropped.has(`${f.factId}#${f.version}`)) };
+  const standalone = decisions.filter((d) => !isCorrection(d));
+  const correctionBatchIds = new Set(corrections.filter(isEvidenceCorrection).map((d) => d.newBatchId));
+
+  if (correctionBatchIds.size === 0) {
+    const withoutAfter = (k: number): CanonicalFinancialStatementReport => {
+      const dropped = new Set(corrections.slice(k).map((d) => marker(d as CorrectFactDecision)));
+      return { ...finalReport, facts: finalReport.facts.filter((f) => !dropped.has(`${f.factId}#${f.version}`)) };
+    };
+    return { base: withoutAfter(0), steps: corrections.map((decision, i) => ({ report: withoutAfter(i + 1), decision })), standalone, correctionBatchIds };
+  }
+
+  if (!rebuild) throw new ChainReconstructionError("Evidence corrections can only be saved with a report rebuilder.");
+  const at = (k: number) => {
+    const droppedFacts = new Set(corrections.slice(k).filter((d): d is CorrectFactDecision => d.decisionType === "CORRECT_FACT").map(marker));
+    const droppedBatches = new Set(corrections.slice(k).filter(isEvidenceCorrection).map((d) => d.newBatchId));
+    const evidence = latestPerSeries(rebuild.allEvidence.filter((e) => !droppedBatches.has(e.batch.evidenceBatchId)));
+    const report = rebuild.at(droppedFacts, evidence);
+    if (!report) throw new ChainReconstructionError(`The report as it stood after correction ${k} could not be recomposed.`);
+    return { report, evidenceIds: evidence.map((b) => b.evidenceBatchId) };
   };
+  const first = at(0);
   return {
-    base: withoutAfter(0),
-    steps: corrections.map((decision, i) => ({ report: withoutAfter(i + 1), decision })),
-    standalone: decisions.filter((d) => !isCorrection(d)),
+    base: first.report,
+    baseEvidenceIds: first.evidenceIds,
+    steps: corrections.map((decision, i) => {
+      const s = at(i + 1);
+      const batch = isEvidenceCorrection(decision) ? rebuild.allEvidence.find((e) => e.batch.evidenceBatchId === decision.newBatchId)?.batch : undefined;
+      if (isEvidenceCorrection(decision) && !batch) throw new ChainReconstructionError(`The corrected evidence version ${decision.newBatchId} is not part of this session.`);
+      return { report: s.report, decision, evidenceBatch: batch, evidenceIds: s.evidenceIds };
+    }),
+    standalone,
+    correctionBatchIds,
   };
 }
 
@@ -69,26 +121,30 @@ export interface SaveInput {
   /** Evaluates a report at its stored version. Pure; injected so this module holds no rule-engine dependency. */
   readonly evaluate: (report: CanonicalFinancialStatementReport) => EvaluationRunRecord;
   readonly saved: SavedState | null;
+  /** Required only when `decisions` contains a CORRECT_EVIDENCE decision. */
+  readonly rebuild?: ChainRebuild;
 }
 
 export async function saveWorkspace(input: SaveInput): Promise<SaveOutcome> {
   const { transport, companyId } = input;
   try {
     const reportId = input.report.reportIdentity.reportId;
-    const plan = reconstructChain(input.report, input.decisions);
+    const plan = reconstructChain(input.report, input.decisions, input.rebuild);
 
     // 1 — evidence: ingest what the server does not already hold, each as the next version of its series.
+    //     A corrected version travels inside its correction step, never on its own.
     const periods = [...new Set([input.reportingPeriodId, ...input.evidence.map((b) => b.reportingPeriodId)])];
     const storedEvidence = (await Promise.all(periods.map((p) => transport.listEvidence(companyId, p)))).flat();
+    const seriesOf = (b: EvidenceBatch) => storedEvidence.filter((s) => s.evidenceType === b.evidenceType && s.periodRole === b.periodRole && s.seriesKey === b.seriesKey && s.reportingPeriodId === b.reportingPeriodId).sort((a, b2) => b2.version - a.version);
     let ingested = 0;
     for (const batch of input.evidence) {
+      if (plan.correctionBatchIds.has(batch.evidenceBatchId)) continue;
       if (storedEvidence.some((s) => s.replayIdentity === batch.replayIdentity)) continue;
-      const series = storedEvidence.filter((s) => s.evidenceType === batch.evidenceType && s.periodRole === batch.periodRole && s.seriesKey === batch.seriesKey).sort((a, b) => b.version - a.version);
-      const row = await transport.ingestEvidence(batch, series[0]?.evidenceBatchId ?? null);
+      const row = await transport.ingestEvidence(batch, seriesOf(batch)[0]?.evidenceBatchId ?? null);
       storedEvidence.push(row);
       ingested += 1;
     }
-    const evidenceIds = input.evidence.map((b) => b.evidenceBatchId);
+    const evidenceIds = plan.baseEvidenceIds ?? input.evidence.map((b) => b.evidenceBatchId);
 
     // 2 — the report lineage.
     const latest = await transport.latestReport(companyId, input.report.period.periodYear, input.report.provenanceOrigin);
@@ -115,9 +171,22 @@ export async function saveWorkspace(input: SaveInput): Promise<SaveOutcome> {
 
     // 3 — corrections, atomically.
     const newSteps = plan.steps.slice(alreadySavedCorrections);
+    for (const s of newSteps) {
+      const superseded = s.decision.decisionType === "CORRECT_EVIDENCE" ? s.decision.supersedesBatchId : null;
+      if (s.evidenceBatch && superseded !== null && !storedEvidence.some((e) => e.evidenceBatchId === superseded)) {
+        return { status: "FAILED", kind: "LOCAL", message: "A corrected evidence version can only supersede evidence that has already been saved. Save the evidence first.", isConflict: false };
+      }
+    }
     let finalReport = savedBase || !latest ? withVersion(plan.base, storedVersion) : withVersion(plan.steps[Math.max(0, plan.steps.length - 1)]?.report ?? plan.base, storedVersion);
     if (newSteps.length > 0) {
-      const versioned = newSteps.map((s, i) => ({ reportVersion: storedVersion + i + 1, report: withVersion(s.report, storedVersion + i + 1), decision: { ...s.decision, expectedReportVersion: storedVersion + i } as CorrectFactDecision }));
+      const versioned = newSteps.map((s, i) => ({
+        reportVersion: storedVersion + i + 1,
+        report: withVersion(s.report, storedVersion + i + 1),
+        decision: { ...s.decision, expectedReportVersion: storedVersion + i } as CorrectionDecision,
+        evidenceBatch: s.evidenceBatch,
+        evidenceIds: s.evidenceIds,
+        expectedPreviousBatchId: s.decision.decisionType === "CORRECT_EVIDENCE" ? s.decision.supersedesBatchId : undefined,
+      }));
       finalReport = versioned[versioned.length - 1].report;
       const key = sha256Hex(canonicalStringify({ reportId, from: storedVersion, decisions: versioned.map((v) => v.decision.decisionId) }));
       const run = input.evaluate(finalReport);
@@ -127,7 +196,7 @@ export async function saveWorkspace(input: SaveInput): Promise<SaveOutcome> {
         companyId,
         reportId,
         expectedReportVersion: storedVersion,
-        steps: versioned.map((v) => ({ reportVersion: v.reportVersion, report: v.report })),
+        steps: versioned.map((v) => ({ reportVersion: v.reportVersion, report: v.report, evidenceBatch: v.evidenceBatch, expectedPreviousBatchId: v.expectedPreviousBatchId, evidenceBatchIds: v.evidenceIds })),
         decisions: versioned.map((v) => v.decision),
         evaluation: { evaluationRunId: run.evaluationRunId, rulePackId: run.rulePack.rulePackId, rulePackVersion: run.rulePack.rulePackVersion, engineVersion: run.engineVersion, inputHash: run.inputHash, findings: run.findings },
       });

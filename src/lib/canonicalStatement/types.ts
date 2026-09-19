@@ -438,6 +438,7 @@ export type ReviewerDecisionType =
   | "REJECT_FINDING"
   | "ACCEPT_FACT"
   | "CORRECT_FACT"
+  | "CORRECT_EVIDENCE"
   | "REQUEST_EVIDENCE"
   | "DEFER";
 
@@ -495,6 +496,27 @@ export interface CorrectFactDecision extends ReviewerDecisionBase {
   readonly expectedReportVersion: number;
 }
 
+/**
+ * A correction to SOURCE EVIDENCE (transaction classification, equity movement, budget figure, cash-basis
+ * figure, schedule figure, note/disclosure text, cash account map ...). Evidence is immutable: the correction
+ * is a NEW evidence version whose one cell differs, recorded atomically with the new report version, its
+ * re-evaluation and this decision (see fs_apply_correction_group). It never edits a batch in place.
+ */
+export interface CorrectEvidenceDecision extends ReviewerDecisionBase {
+  readonly decisionType: "CORRECT_EVIDENCE";
+  readonly evidenceType: string;
+  readonly supersedesBatchId: string;
+  readonly newBatchId: string;
+  /** 1-based data row of the corrected cell. */
+  readonly rowNumber: number;
+  readonly column: string;
+  readonly previousValue: string;
+  readonly correctedValue: string;
+  readonly rationale: string;
+  /** Optimistic-concurrency guard, exactly as for CORRECT_FACT. */
+  readonly expectedReportVersion: number;
+}
+
 export interface RequestEvidenceDecision extends ReviewerDecisionBase {
   readonly decisionType: "REQUEST_EVIDENCE";
   readonly target?: FindingTarget;
@@ -514,6 +536,7 @@ export type ReviewerDecision =
   | RejectFindingDecision
   | AcceptFactDecision
   | CorrectFactDecision
+  | CorrectEvidenceDecision
   | RequestEvidenceDecision
   | DeferDecision;
 

@@ -18,7 +18,7 @@ The browser learns its own status only through `financial_statements_workspace_a
 ## 2. Preconditions (all must be true before any activation)
 
 1. `docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md` checklist complete and the release manifest verified.
-2. Migrations `20260920000000` and `20260920100000` applied **through the project's reviewed, managed process** (this repository does not apply them), then `docs/release/sql/02_postcondition.sql` passes.
+2. Migrations `20260919100000` and `20260919110000` applied **through the project's reviewed, managed process** (this repository does not apply them), then `docs/release/sql/02_postcondition.sql` passes.
 3. The ship gates flipped in a separate, reviewed commit (only after step 2), deployed by the normal frontend path.
 4. A named operator and an on-call owner for the canary window.
 

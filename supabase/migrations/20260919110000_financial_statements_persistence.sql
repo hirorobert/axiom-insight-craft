@@ -844,6 +844,12 @@ BEGIN
     END IF;
     IF v_dec ->> 'decisionType' = 'CORRECT_EVIDENCE' THEN
       v_eb := v_step -> 'evidenceBatch';
+      -- The decision must describe exactly the evidence version this step stores, superseding exactly the batch it names.
+      IF v_dec ->> 'newBatchId' IS DISTINCT FROM v_eb ->> 'evidenceBatchId'
+         OR v_dec ->> 'supersedesBatchId' IS DISTINCT FROM v_eb ->> 'expectedPreviousBatchId'
+         OR v_dec ->> 'evidenceType' IS DISTINCT FROM v_eb ->> 'evidenceType' THEN
+        RAISE EXCEPTION 'INVALID: the CORRECT_EVIDENCE decision of step % does not match the evidence version the step stores', v_i + 1 USING ERRCODE = '22023';
+      END IF;
       PERFORM public.fs_ingest_evidence_internal(
         v_actor, v_eb ->> 'evidenceBatchId', p_company_id, v_eb ->> 'reportingPeriodId', v_eb ->> 'evidenceType', v_eb ->> 'periodRole',
         v_eb ->> 'seriesKey', v_eb ->> 'schemaVersion', v_eb ->> 'sourceFileName', v_eb ->> 'contentHash', v_eb ->> 'currency',

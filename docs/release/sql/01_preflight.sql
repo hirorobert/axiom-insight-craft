@@ -1,5 +1,5 @@
 -- PREFLIGHT — run read-only against the TARGET database BEFORE applying
--- 20260920000000 and 20260920100000. Aborts (raises) on the first violated
+-- 20260919100000 and 20260919110000. Aborts (raises) on the first violated
 -- expectation. Changes nothing.
 DO $$
 DECLARE

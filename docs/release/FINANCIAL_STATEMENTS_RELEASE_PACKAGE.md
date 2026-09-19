@@ -11,7 +11,7 @@ Branch: `codex/financial-statements-production-readiness`. Manifest: `docs/relea
 | Evidence model & controlled intake (9 families) | `src/lib/financialEvidence/**` |
 | Deterministic generation (direct cash flow, changes in equity, IPSAS cash receipts/payments, budget vs actual, notes/policies/schedules + checklist) | `src/lib/financialGeneration/**` |
 | Canonical rules added (rule pack v2: equity closing tie, equity profit tie, schedule casting) | `src/lib/canonicalStatement/rules/{equityTies,scheduleCasting,rulePack}.ts` |
-| Persistence & rollout migrations (**unapplied**) | `supabase/migrations/20260920000000_…rollout_control.sql`, `…20260920100000_…persistence.sql` |
+| Persistence & rollout migrations (**unapplied**) | `supabase/migrations/20260919100000_…rollout_control.sql`, `…20260919110000_…persistence.sql` |
 | Typed transport, atomic save flow, exports | `src/lib/financialStatementsWorkspace/{rpcTransport,saveFlow,supabaseFsBackend,exports}.ts` |
 | Workspace UI | `src/components/financialStatements/**`, `src/hooks/useFinancialStatementsWorkspace.ts` |
 | Disposable-database proof & bridge | `scripts/db-proof/{run,serve}.mjs`, `scripts/release/verify-release-sql.mjs` |
@@ -19,8 +19,8 @@ Branch: `codex/financial-statements-production-readiness`. Manifest: `docs/relea
 
 ## 2. Migrations (apply order; SHA-256 in the manifest)
 
-1. `20260920000000_financial_statements_rollout_control.sql`
-2. `20260920100000_financial_statements_persistence.sql`
+1. `20260919100000_financial_statements_rollout_control.sql`
+2. `20260919110000_financial_statements_persistence.sql`
 
 Both are forward-only, sort after every existing migration, touch only their own nine tables, and never modify `tax_computations`, `account_mappings`, `engine_runs` or any sign-off table. Preflight/postcondition SQL and its executed proof are in `docs/release/sql` and `scripts/release/verify-release-sql.mjs`.
 
