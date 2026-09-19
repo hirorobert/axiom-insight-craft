@@ -23,6 +23,7 @@ import { NotesStage, PersistenceBanner, ReviewStage, ValidateStage } from "./Not
 import { OutputsStage } from "./OutputsStage";
 import type { FsRpcTransport } from "@/lib/financialStatementsWorkspace/rpcTransport";
 import { SaveBar } from "./EvidenceUi";
+import { ReadOnlyBanner, RestoreBanner, SavedVersionsPanel } from "./SavedWorkUi";
 
 export interface FinancialStatementsWorkspaceProps {
   readonly companyId: string;
@@ -101,6 +102,9 @@ function FinancialStatementsWorkspaceEnabled(props: FinancialStatementsWorkspace
       </header>
 
       <SaveBar model={model} />
+      <RestoreBanner model={model} />
+      <ReadOnlyBanner model={model} />
+      <SavedVersionsPanel model={model} />
 
       <nav aria-label="Financial statements stages" className="overflow-x-auto">
         <ol className="flex min-w-max gap-1" role="tablist" aria-orientation="horizontal">

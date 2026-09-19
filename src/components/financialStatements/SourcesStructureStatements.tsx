@@ -6,6 +6,7 @@ import { AlertTriangle, CheckCircle2, CircleSlash, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { StatementRenderer } from "./StatementRenderer";
 import { BudgetActualTable, EvidencePanel, EvidenceSources } from "./EvidenceUi";
+import { CashPerimeterPanel } from "./SavedWorkUi";
 import type { FinancialStatementsWorkspaceModel } from "@/hooks/useFinancialStatementsWorkspace";
 import type { SourceStatus } from "@/lib/financialStatementsWorkspace/sourcesModel";
 import { labelForStatus, type CompositionEntry, type CompositionStatus } from "@/lib/financialStatementsWorkspace/statementComposition";
@@ -223,6 +224,7 @@ export function StatementsStage({ model }: { model: FinancialStatementsWorkspace
         }
         return <IncompleteStatementCard key={entry.kind} entry={entry} />;
       })}
+      <CashPerimeterPanel model={model} />
     </section>
   );
 }

@@ -72,6 +72,15 @@ async function makeModel(): Promise<FinancialStatementsWorkspaceModel> {
     save: async () => undefined,
     publication: null,
     setPublication: async () => ({ ok: false, message: "" }),
+    correctEvidence: () => ({ ok: false as const, message: "", diagnostics: [] }),
+    restore: { status: "IDLE" as const, message: null },
+    versions: [],
+    viewing: null,
+    readOnly: false,
+    openVersion: async () => ({ ok: false, message: "" }),
+    closeVersion: () => undefined,
+    reloadFromServer: () => undefined,
+    readiness: null,
   };
 }
 

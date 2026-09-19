@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/canonicalStatement/money";
 import type { Statement } from "@/lib/canonicalStatement/types";
 import { EVIDENCE_TYPES, EVIDENCE_TYPE_LABELS, type EvidenceDiagnostic, type EvidenceType, type PeriodRole } from "@/lib/financialEvidence/types";
+import { inspectWorkbook, XLSX_EVIDENCE_TYPES, XLSX_LIMITS, type WorkbookSheetInfo } from "@/lib/financialEvidence/xlsx";
+import { CorrectEvidenceForm } from "./SavedWorkUi";
 import type { EvidenceAddResult, FinancialStatementsWorkspaceModel, SaveStatus } from "@/hooks/useFinancialStatementsWorkspace";
 import type { BudgetActualComparison } from "@/lib/financialGeneration/budgetActual";
 import type { ChecklistItem } from "@/lib/financialGeneration/notesAndSchedules";
@@ -64,13 +66,42 @@ export function EvidencePanel({ model }: { model: FinancialStatementsWorkspaceMo
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<EvidenceAddResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [workbook, setWorkbook] = useState<{ bytes: Uint8Array; sheets: readonly WorkbookSheetInfo[]; diagnostics: readonly EvidenceDiagnostic[] } | null>(null);
+  const [sheet, setSheet] = useState("");
+  const isWorkbook = !!file && /\.xlsx$/i.test(file.name);
+  const xlsxAllowed = (XLSX_EVIDENCE_TYPES as readonly string[]).includes(type);
+
+  async function pick(f: File | null) {
+    setFile(f);
+    setResult(null);
+    setWorkbook(null);
+    setSheet("");
+    if (f && /\.xlsx$/i.test(f.name)) {
+      if (f.size > XLSX_LIMITS.maxBytes) {
+        setResult({ kind: "REJECTED", diagnostics: [{ code: "FILE_TOO_LARGE", severity: "ERROR", message: `The workbook exceeds ${XLSX_LIMITS.maxBytes.toLocaleString("en-US")} bytes.` }] });
+        return;
+      }
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      const inspected = inspectWorkbook(bytes);
+      if (!inspected.ok) setResult({ kind: "REJECTED", diagnostics: inspected.diagnostics });
+      else setWorkbook({ bytes, sheets: inspected.sheets, diagnostics: inspected.diagnostics });
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!file) return;
     setBusy(true);
-    const text = await file.text();
-    setResult(model.addEvidence({ evidenceType: type, periodRole: role, fileName: file.name, mimeType: file.type, text, currency: currency || undefined, scale: scale === "" ? undefined : Number(scale) }));
+    const common = { evidenceType: type, periodRole: role, fileName: file.name, mimeType: file.type, currency: currency || undefined, scale: scale === "" ? undefined : Number(scale) } as const;
+    if (isWorkbook) {
+      if (!workbook || !sheet) {
+        setBusy(false);
+        return;
+      }
+      setResult(model.addEvidence({ ...common, bytes: workbook.bytes, sheetName: sheet }));
+    } else {
+      setResult(model.addEvidence({ ...common, text: await file.text() }));
+    }
     setBusy(false);
   }
 
@@ -79,7 +110,7 @@ export function EvidencePanel({ model }: { model: FinancialStatementsWorkspaceMo
       <div>
         <h4 className="text-sm font-semibold text-foreground">Evidence</h4>
         <p className="text-xs text-muted-foreground">
-          Add CSV evidence (UTF-8, comma-delimited). Every amount must be a plain decimal; nothing is rounded, defaulted or inferred. Currency and decimal places must be stated. Spreadsheet, PDF and image files are refused. A file that does not validate is kept for its diagnostics but is never used.
+          Add CSV evidence (UTF-8, comma-delimited), or an Excel workbook (.xlsx) for ledgers, equity movements, budgets, IPSAS cash statements and schedules. Every amount must be a plain decimal; nothing is rounded, defaulted or inferred. Currency and decimal places must be stated. You choose the sheet: formulas, macros, encrypted or externally linked workbooks are refused, and hidden sheets, rows and columns are disclosed. PDF and image files are refused. A file that does not validate is kept for its diagnostics but is never used.
         </p>
       </div>
       <form onSubmit={submit} className="grid gap-2 border border-border p-3 sm:grid-cols-2 lg:grid-cols-6" aria-label="Add evidence">
@@ -110,10 +141,24 @@ export function EvidencePanel({ model }: { model: FinancialStatementsWorkspaceMo
         </label>
         <label className="text-xs sm:col-span-2 lg:col-span-4">
           <span className="mb-1 block font-medium">File</span>
-          <input type="file" accept=".csv,text/csv" className="block w-full text-xs" onChange={(e) => setFile(e.target.files?.[0] ?? null)} data-testid="evidence-file" />
+          <input type="file" accept={xlsxAllowed ? ".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : ".csv,text/csv"} className="block w-full text-xs" onChange={(e) => void pick(e.target.files?.[0] ?? null)} data-testid="evidence-file" />
         </label>
+        {isWorkbook && workbook && (
+          <label className="text-xs sm:col-span-2 lg:col-span-4" data-testid="sheet-picker">
+            <span className="mb-1 block font-medium">Sheet to read (required — none is chosen for you)</span>
+            <select className={FIELD} value={sheet} onChange={(e) => setSheet(e.target.value)} data-testid="evidence-sheet">
+              <option value="">Choose a sheet…</option>
+              {workbook.sheets.map((s) => (
+                <option key={s.name} value={s.name} disabled={s.state === "veryHidden"}>
+                  {s.name}
+                  {s.state !== "visible" ? ` (${s.state === "hidden" ? "hidden" : "very hidden — cannot be read"})` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="flex items-end sm:col-span-2">
-          <Button type="submit" size="sm" disabled={!file || busy} data-testid="evidence-add">
+          <Button type="submit" size="sm" disabled={!file || busy || (isWorkbook && (!workbook || !sheet))} data-testid="evidence-add">
             {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
             Add evidence
           </Button>
@@ -123,9 +168,9 @@ export function EvidencePanel({ model }: { model: FinancialStatementsWorkspaceMo
       {result && (
         <div className="space-y-2 border border-border p-3" data-testid="evidence-result" data-result-kind={result.kind} role="status">
           <p className="text-sm font-medium text-foreground">
-            {result.kind === "REJECTED" ? "The file was refused" : result.kind === "EXACT_REPLAY" ? "This exact content was already added — nothing changed" : `Added (${result.batch.validationStatus.replace(/_/g, " ").toLowerCase()})`}
+            {result.kind === "REJECTED" ? "The file was refused" : result.kind === "SHEET_SELECTION_REQUIRED" ? "Choose a sheet to read" : result.kind === "EXACT_REPLAY" ? "This exact content was already added — nothing changed" : `Added (${result.batch.validationStatus.replace(/_/g, " ").toLowerCase()})`}
           </p>
-          {result.kind !== "REJECTED" && result.replay.kind === "NEW_VERSION" && <p className="text-xs text-muted-foreground">New version {result.replay.version} of an existing series; the earlier version is kept and no longer feeds the statements.</p>}
+          {(result.kind === "ADDED" || result.kind === "EXACT_REPLAY") && result.replay.kind === "NEW_VERSION" && <p className="text-xs text-muted-foreground">New version {result.replay.version} of an existing series; the earlier version is kept and no longer feeds the statements.</p>}
           <DiagnosticsTable diagnostics={result.diagnostics} />
         </div>
       )}
@@ -148,6 +193,8 @@ export function EvidencePanel({ model }: { model: FinancialStatementsWorkspaceMo
               </div>
               <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
                 {e.batch.sourceFileName ?? "(no file name)"} · {e.batch.document.rows.length} rows · sha256 {e.batch.contentHash.slice(0, 16)}…
+                {e.batch.document.sourceSheet ? ` · sheet "${e.batch.document.sourceSheet}"` : ""}
+                {e.batch.document.sourceFormat === "XLSX" ? " · workbook" : ""}
               </p>
               <p className="mt-1 text-xs text-muted-foreground" data-testid="evidence-use-reason">
                 {e.used ? "Used: " : "Not used: "}
@@ -159,6 +206,7 @@ export function EvidencePanel({ model }: { model: FinancialStatementsWorkspaceMo
                   <DiagnosticsTable diagnostics={e.batch.diagnostics} />
                 </details>
               )}
+              <CorrectEvidenceForm model={model} evidenceBatchId={e.batch.evidenceBatchId} />
             </li>
           ))}
         </ul>
@@ -236,6 +284,7 @@ export function EvidenceSources({ model, statement }: { model: FinancialStatemen
                 <div key={ref.batchId} className="mt-1 overflow-x-auto border border-border">
                   <p className="p-1 font-mono text-[11px] text-muted-foreground">
                     {batch?.sourceFileName ?? ref.batchId} · rows {ref.rowNumbers.join(", ")}
+                    {batch?.document.rowLocators ? ` · cells ${ref.rowNumbers.slice(0, 6).map((n) => batch.document.rowLocators?.[n - 1] ?? `row ${n}`).join(", ")}${ref.rowNumbers.length > 6 ? ", …" : ""}` : ""}
                   </p>
                   {batch && (
                     <table className="w-full text-[11px]">
@@ -307,7 +356,7 @@ const SAVE_COPY: Record<SaveStatus, { label: string; tone: "default" | "destruct
 
 export function SaveBar({ model }: { model: FinancialStatementsWorkspaceModel }) {
   const copy = SAVE_COPY[model.saveStatus];
-  const canSave = model.saveStatus === "UNSAVED" || model.saveStatus === "ERROR";
+  const canSave = (model.saveStatus === "UNSAVED" || model.saveStatus === "ERROR") && !model.readOnly;
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="save-bar" data-save-status={model.saveStatus} role="status">
       <Badge variant={copy.tone} data-testid="save-status">
@@ -323,8 +372,8 @@ export function SaveBar({ model }: { model: FinancialStatementsWorkspaceModel })
         </Button>
       )}
       {model.saveStatus === "CONFLICT" && (
-        <Button type="button" size="sm" variant="outline" onClick={() => window.location.reload()} data-testid="save-reload">
-          Reload
+        <Button type="button" size="sm" variant="outline" onClick={model.reloadFromServer} data-testid="save-reload">
+          Discard my draft and reload the saved version
         </Button>
       )}
       {model.saveMessage && (
@@ -337,6 +386,7 @@ export function SaveBar({ model }: { model: FinancialStatementsWorkspaceModel })
 }
 
 export function PublicationControls({ model, blockers = [] }: { model: FinancialStatementsWorkspaceModel; blockers?: readonly string[] }) {
+  const serverBlockers = model.readiness?.blockers ?? [];
   const [reason, setReason] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -350,10 +400,24 @@ export function PublicationControls({ model, blockers = [] }: { model: Financial
   return (
     <div className="space-y-2 border border-border p-3 fs-no-print" data-testid="publication-controls">
       <p className="text-sm font-medium text-foreground">Report state {model.publication ? `— currently ${model.publication.state}` : "— no state recorded"}</p>
-      <p className="text-xs text-muted-foreground">Only the server can mark a saved version Reviewed or Final, and only an owner or partner may. It refuses while blocking findings remain, when the version was never evaluated, and it never changes a Final version.</p>
+      <p className="text-xs text-muted-foreground">Only the server can mark a saved version Reviewed or Final, and only an owner or partner may. It refuses while the statement set is incomplete, evidence is invalid or superseded, blocking findings or unmet reconciliations remain, or the version was never evaluated, and it never changes a Final version.</p>
+      {model.readiness && (
+        <div className={`text-xs ${model.readiness.ready ? "text-muted-foreground" : "text-destructive"}`} data-testid="server-readiness" data-server-ready={model.readiness.ready ? "yes" : "no"}>
+          <p className="font-medium">{model.readiness.ready ? "The server reports this saved version as ready to mark Reviewed or Final." : `The server would refuse Reviewed or Final for this saved version (${serverBlockers.length} requirement${serverBlockers.length === 1 ? "" : "s"} unmet):`}</p>
+          {serverBlockers.length > 0 && (
+            <ul className="mt-1 list-disc pl-5">
+              {serverBlockers.map((b) => (
+                <li key={b} className="break-words font-mono">
+                  {b}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       {blockers.length > 0 && (
         <p className="text-xs text-destructive" data-testid="publication-blocked">
-          Reviewed and Final are unavailable while {blockers.length} statement-set item{blockers.length === 1 ? "" : "s"} remain unresolved (listed under "Why this is not ready to issue"). The server enforces the finding gate; completeness of the statement set is enforced here.
+          Reviewed and Final are unavailable while {blockers.length} statement-set item{blockers.length === 1 ? "" : "s"} remain unresolved (listed under "Why this is not ready to issue"). This is a preview: the database enforces the same completeness rules and refuses Reviewed or Final itself.
         </p>
       )}
       <label className="block text-xs">
@@ -362,7 +426,7 @@ export function PublicationControls({ model, blockers = [] }: { model: Financial
       </label>
       <div className="flex flex-wrap gap-2">
         {(["DRAFT", "REVIEWED", "FINAL"] as const).map((s) => (
-          <Button key={s} type="button" size="sm" variant="outline" disabled={busy || reason.trim().length < 8 || (s !== "DRAFT" && blockers.length > 0)} onClick={() => void set(s)} data-testid={`publication-${s.toLowerCase()}`}>
+          <Button key={s} type="button" size="sm" variant="outline" disabled={busy || model.readOnly || reason.trim().length < 8 || (s !== "DRAFT" && (blockers.length > 0 || (model.readiness !== null && !model.readiness.ready)))} onClick={() => void set(s)} data-testid={`publication-${s.toLowerCase()}`}>
             Mark {s.toLowerCase()}
           </Button>
         ))}

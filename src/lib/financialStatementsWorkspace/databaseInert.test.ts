@@ -69,8 +69,13 @@ describe("database inertness — schema and functions", () => {
   it.skipIf(!hasMain)("changes no automation-deploy surface other than the reviewed CI/RLS hardening and the disposable-database proof", () => {
     const changed = (gitOut("diff --name-only origin/main...HEAD -- .github package.json supabase/config.toml .lovable scripts") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
-    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/verify-release-sql.mjs"]);
+    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/verify-release-sql.mjs", "package.json"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
+  });
+
+  it.skipIf(!hasMain)("package.json changes by exactly one dependency: the audited zip reader (fflate) behind the secure XLSX intake", () => {
+    const diff = (gitOut("diff -U0 origin/main...HEAD -- package.json") ?? "").split(/\r?\n/).filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l));
+    expect(diff).toEqual(['+    "fflate": "^0.8.2",']);
   });
 });
 

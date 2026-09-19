@@ -83,12 +83,36 @@ export interface StoredReportRow {
   readonly reportVersion: number;
   readonly contentHash: string;
   readonly createdAt: string;
+  readonly companyId: string;
+  /** The evidence versions this report version was composed from. */
+  readonly evidenceBatchIds: readonly string[];
+}
+
+/** One saved report version as listed to a company member: who (role + an opaque, stable reference), when, and its state. */
+export interface SavedVersionSummary {
+  readonly reportId: string;
+  readonly reportVersion: number;
+  readonly createdAt: string;
+  readonly creatorRole: string;
+  readonly creatorRef: string;
+  readonly contentHash: string;
+  readonly evidenceBatchIds: readonly string[];
+  readonly state: "DRAFT" | "REVIEWED" | "FINAL";
+  readonly isLatest: boolean;
+}
+
+export interface ReportReadiness {
+  readonly ready: boolean;
+  readonly blockers: readonly string[];
 }
 
 export interface StoredEvaluationRow {
   readonly evaluationRunId: string;
   readonly reportVersion: number;
+  readonly rulePackId: string;
   readonly rulePackVersion: string;
+  readonly engineVersion: string;
+  readonly inputHash: string;
   readonly findings: readonly RuleEvaluationRecord[];
   readonly createdAt: string;
 }
@@ -115,6 +139,7 @@ export interface StoredEvidenceRow {
   readonly periodRole: string;
   readonly reportingPeriodId: string;
   readonly seriesKey: string;
+  readonly schemaVersion: string;
   readonly version: number;
   readonly validationStatus: string;
   readonly contentHash: string;
@@ -285,6 +310,35 @@ export class FsRpcTransport {
     return toReportRow(latest);
   }
 
+  /** Every saved version of this company's report for the year, from the server's member-only listing. Never trusts a cache. */
+  async listSavedVersions(companyId: string, periodYear: number): Promise<readonly SavedVersionSummary[]> {
+    const rows = await this.call<readonly Record<string, unknown>[] | null>("fs_list_saved_versions", { p_company_id: companyId, p_period_year: periodYear });
+    return (rows ?? []).map((r) => ({
+      reportId: String(r.reportId),
+      reportVersion: Number(r.reportVersion),
+      createdAt: String(r.createdAt),
+      creatorRole: String(r.creatorRole),
+      creatorRef: String(r.creatorRef),
+      contentHash: String(r.contentHash),
+      evidenceBatchIds: ((r.evidenceBatchIds ?? []) as unknown[]).map(String),
+      state: r.state as SavedVersionSummary["state"],
+      isLatest: r.isLatest === true,
+    }));
+  }
+
+  /** The server's own answer to "could this version be marked REVIEWED/FINAL?" — a preview; fs_set_publication_state re-checks it. */
+  async reportReadiness(companyId: string, reportId: string, reportVersion: number): Promise<ReportReadiness> {
+    const r = await this.call<{ ready?: boolean; blockers?: unknown[] } | null>("fs_report_readiness", { p_company_id: companyId, p_report_id: reportId, p_report_version: reportVersion });
+    return { ready: r?.ready === true, blockers: (r?.blockers ?? []).map(String) };
+  }
+
+  /** Reads one exact immutable version. A row that does not belong to `companyId` is treated as not found, whatever the server returned. */
+  async readReportVersion(companyId: string, reportId: string, reportVersion: number): Promise<StoredReportRow | null> {
+    const rows = await this.read("financial_statement_reports", { report_id: reportId, report_version: reportVersion });
+    const row = rows.find((r) => String(r.company_id) === companyId);
+    return row ? toReportRow(row) : null;
+  }
+
   async listReportVersions(reportId: string): Promise<readonly StoredReportRow[]> {
     const rows = await this.read("financial_statement_reports", { report_id: reportId });
     return rows.map(toReportRow).sort((a, b) => a.reportVersion - b.reportVersion);
@@ -293,7 +347,7 @@ export class FsRpcTransport {
   async listEvaluations(reportId: string, reportVersion: number): Promise<readonly StoredEvaluationRow[]> {
     const rows = await this.read("financial_statement_evaluations", { report_id: reportId, report_version: reportVersion });
     return rows
-      .map((r) => ({ evaluationRunId: String(r.evaluation_run_id), reportVersion: Number(r.report_version), rulePackVersion: String(r.rule_pack_version), findings: reviveDocument(r.findings) as readonly RuleEvaluationRecord[], createdAt: String(r.created_at), seq: Number(r.seq) }))
+      .map((r) => ({ evaluationRunId: String(r.evaluation_run_id), reportVersion: Number(r.report_version), rulePackId: String(r.rule_pack_id), rulePackVersion: String(r.rule_pack_version), engineVersion: String(r.engine_version), inputHash: String(r.input_hash), findings: reviveDocument(r.findings) as readonly RuleEvaluationRecord[], createdAt: String(r.created_at), seq: Number(r.seq) }))
       .sort((a, b) => a.seq - b.seq)
       .map(({ seq: _s, ...rest }) => rest);
   }
@@ -329,7 +383,14 @@ function contentHashOfDocument(report: CanonicalFinancialStatementReport): strin
 }
 
 function toReportRow(r: Record<string, unknown>): StoredReportRow {
-  return { report: deserializeReport(JSON.stringify(r.report_document)), reportVersion: Number(r.report_version), contentHash: String(r.content_hash), createdAt: String(r.created_at) };
+  return {
+    report: deserializeReport(JSON.stringify(r.report_document)),
+    reportVersion: Number(r.report_version),
+    contentHash: String(r.content_hash),
+    createdAt: String(r.created_at),
+    companyId: String(r.company_id),
+    evidenceBatchIds: ((r.evidence_batch_ids ?? []) as unknown[]).map(String),
+  };
 }
 
 function toEvidenceRow(r: Record<string, unknown>): StoredEvidenceRow {
@@ -339,6 +400,7 @@ function toEvidenceRow(r: Record<string, unknown>): StoredEvidenceRow {
     periodRole: String(r.period_role),
     reportingPeriodId: String(r.reporting_period_id),
     seriesKey: String(r.series_key),
+    schemaVersion: String(r.schema_version ?? "1"),
     version: Number(r.version),
     validationStatus: String(r.validation_status),
     contentHash: String(r.content_hash),

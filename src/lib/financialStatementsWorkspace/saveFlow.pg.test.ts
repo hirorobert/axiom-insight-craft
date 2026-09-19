@@ -23,6 +23,8 @@ import { correctFactAndRecast, evaluateReportPure, prepareTrialBalanceReport } f
 import { profileForKind } from "./frameworkProfiles";
 import { FsRpcTransport, type FsBackend } from "./rpcTransport";
 import { saveWorkspace, type SavedState } from "./saveFlow";
+import { contentHashOf } from "./persistenceContract";
+import { historicalView, restoreLatestDraft } from "./savedVersions";
 import type { ReviewedTrialBalanceAccountLine } from "./trialBalanceAdapter";
 
 const SEED = process.env.DB_PROOF_SEED_FILE;
@@ -201,6 +203,66 @@ describe.skipIf(!seed)("transport + save flow against a real PostgreSQL", () => 
       const out = await saveWorkspace({ transport: t, companyId, reportingPeriodId: "FY2025", evidence: latestPerSeries(store3), report: effectiveOf(store3), decisions: [decision, d2], evaluate: evalFn, saved: savedAfter, rebuild: rebuild(store3) });
       expect(out, JSON.stringify(out)).toMatchObject({ status: "SAVED", correctionsSaved: 1 }); // stored predecessor exists (v2), so this one is legitimate
     }
+  });
+
+  it("reopening: the server lists saved versions; the latest restores an editable session that reproduces the stored version; every version reads back exactly; other tenants get nothing", async () => {
+    const companyId = seed!.companyA;
+    const t = as("partner");
+    const profile = profileForKind("IFRS_FOR_SMES");
+    const s = await sessionFor(companyId);
+    const reportId = s.snapshot.report.reportIdentity.reportId;
+    const mine = (await t.listSavedVersions(companyId, 2025)).filter((v) => v.reportId === reportId);
+    expect(mine.length).toBeGreaterThan(1);
+    expect(mine.map((v) => v.reportVersion)).toEqual(Array.from({ length: mine.length }, (_, i) => i + 1));
+    expect(mine.filter((v) => v.isLatest)).toHaveLength(1);
+    expect(mine.every((v) => /^[0-9a-f]{8}$/.test(v.creatorRef) && v.creatorRole.length > 0 && !("creatorFirmMemberId" in v))).toBe(true); // an opaque reference, never the firm-member id
+    // immutability: each stored document still hashes to the hash recorded when it was saved
+    for (const v of mine) {
+      const row = (await t.readReportVersion(companyId, reportId, v.reportVersion))!;
+      expect(contentHashOf(row.report), `v${v.reportVersion}`).toBe(v.contentHash);
+      expect(row.contentHash).toBe(v.contentHash);
+    }
+    const latest = mine.find((v) => v.isLatest)!;
+    const stored = (await t.readReportVersion(companyId, reportId, latest.reportVersion))!;
+    const decisions = await t.listDecisions(reportId);
+    const rows = [...(await t.listEvidence(companyId, "FY2025")), ...(await t.listEvidence(companyId, "FY2024"))];
+    const compose = (b: CanonicalFinancialStatementReport | null, ev: readonly ReturnType<typeof ingest>[]) => (b ? applyEvidence({ report: b, profile, cashAccountKeys: ["1000"], evidence: ev }).report : null);
+    const out = restoreLatestDraft({ companyId, freshBase: s.snapshot.report, stored, decisions, evidenceRows: rows, compose });
+    expect(out.kind, out.kind === "DIVERGED" ? out.reason : "").toBe("RESTORED");
+    if (out.kind !== "RESTORED") return;
+    // a source that no longer reproduces the stored version is never restored for editing
+    const drift = await (async () => {
+      const repo = new InMemoryFinancialStatementReportRepository();
+      return (await prepareTrialBalanceReport({ companyId, periodYear: 2025, entityLegalName: "Acme Audit Client Ltd", framework: "ifrs_for_smes", currency: "TZS", currentPeriod: { startDate: "2025-01-01", endDate: "2025-12-31" }, comparativePeriods: [], reviewedAccountLines: TB.map((l) => (l.accountKey === "1000" ? { ...l, balance: 5_000_001 } : l)) }, repo)).snapshot.report;
+    })();
+    expect(restoreLatestDraft({ companyId, freshBase: drift, stored, decisions, evidenceRows: rows, compose }).kind).toBe("DIVERGED");
+    // the restored session is exactly what is stored: saving it again writes nothing
+    const sess = out.session;
+    const merged = [...sess.baseDecisions, ...sess.evidenceCorrections].map((d, i) => ({ d, i })).sort((a, b) => (a.d.decidedAt < b.d.decidedAt ? -1 : a.d.decidedAt > b.d.decidedAt ? 1 : a.i - b.i)).map((x) => x.d);
+    const again = await saveWorkspace({
+      transport: t, companyId, reportingPeriodId: "FY2025", evidence: latestPerSeries(sess.evidence), report: sess.effectiveReport, decisions: merged,
+      evaluate: (r) => evaluateReportPure(r, ZERO_TOLERANCE, EPOCH), saved: sess.saved,
+      rebuild: { at: (dropped, ev) => compose(sess.baseReport && { ...sess.baseReport, facts: sess.baseReport.facts.filter((f) => !dropped.has(`${f.factId}#${f.version}`)) }, ev), allEvidence: sess.evidence },
+    });
+    expect(again, JSON.stringify(again)).toMatchObject({ status: "UNCHANGED" });
+    // an older version is shown exactly as stored, with the evaluation recorded for it
+    const first = (await t.readReportVersion(companyId, reportId, 1))!;
+    const view = historicalView({ companyId, version: first, isLatest: false, state: "DRAFT", evaluations: await t.listEvaluations(reportId, 1), decisions, evidenceRows: rows, publications: [] })!;
+    expect(view.report).toEqual(first.report);
+    expect(view.findings).toEqual((await t.listEvaluations(reportId, 1)).slice(-1)[0]?.findings ?? []);
+    // the server's readiness preview is the same authority that gates REVIEWED/FINAL
+    const readiness = await t.reportReadiness(companyId, reportId, latest.reportVersion);
+    expect(readiness.ready).toBe(false);
+    expect(readiness.blockers.length).toBeGreaterThan(0);
+    // tenancy: another company's owner and an outsider can neither list nor read, and cannot preview readiness
+    for (const sim of ["ownerB", "outsider"]) {
+      await expect(as(sim).listSavedVersions(companyId, 2025)).rejects.toMatchObject({ kind: "FORBIDDEN" });
+      await expect(as(sim).reportReadiness(companyId, reportId, latest.reportVersion)).rejects.toMatchObject({ kind: "FORBIDDEN" });
+      expect(await as(sim).readReportVersion(companyId, reportId, latest.reportVersion)).toBeNull();
+    }
+    // a report id from company A asked for as if it were company B's is not found
+    expect(await as("ownerB").readReportVersion(seed!.companyB, reportId, latest.reportVersion)).toBeNull();
+    expect(await t.readReportVersion(seed!.companyB, reportId, latest.reportVersion)).toBeNull();
   });
 
   it("the client never sends an actor: schema version constant is exported and no argument name carries one", () => {

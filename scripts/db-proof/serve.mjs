@@ -75,7 +75,7 @@ await admin.query("COMMIT");
 fs.writeFileSync(SEED_FILE, JSON.stringify({ url, users, companyA, companyB, bridge: `http://127.0.0.1:${BRIDGE_PORT}` }, null, 2));
 
 const pool = new Pool({ connectionString: url, max: 8 });
-const ALLOWED_RPC = /^(fs_ingest_evidence_batch|fs_save_report_version|fs_save_evaluation|fs_append_decision|fs_apply_correction_group|fs_set_publication_state|financial_statements_workspace_access)$/;
+const ALLOWED_RPC = /^(fs_ingest_evidence_batch|fs_save_report_version|fs_save_evaluation|fs_append_decision|fs_apply_correction_group|fs_set_publication_state|fs_list_saved_versions|fs_report_readiness|financial_statements_workspace_access)$/;
 const ALLOWED_TABLES = /^(financial_evidence_batches|financial_statement_reports|financial_statement_evaluations|financial_statement_reviewer_decisions|financial_statement_correction_groups|financial_statement_publications|companies|account_mappings)$/;
 
 async function asUser(uid, fn) {

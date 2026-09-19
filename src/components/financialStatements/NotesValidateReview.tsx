@@ -13,6 +13,7 @@ import { formatMoney } from "@/lib/canonicalStatement/money";
 import type { CanonicalFinancialStatementReport, MovementSchedule } from "@/lib/canonicalStatement/types";
 import { FindingsPanel } from "./FindingsPanel";
 import { DisclosureChecklist } from "./EvidenceUi";
+import { EvidenceCorrectionHistory } from "./SavedWorkUi";
 import type { DecisionRequest, DecisionResult, FinancialStatementsWorkspaceModel } from "@/hooks/useFinancialStatementsWorkspace";
 import { correctableFacts } from "@/lib/financialStatementsWorkspace/correctableFacts";
 import { isApprovalReady, type FindingView } from "@/lib/financialStatementsWorkspace/findingsView";
@@ -182,7 +183,7 @@ export function PersistenceBanner({ state }: { state: PersistenceState }) {
   );
 }
 
-function DecisionForm({ view, report, onDecide }: { view: FindingView; report: CanonicalFinancialStatementReport | null; onDecide: (r: DecisionRequest) => Promise<DecisionResult> }) {
+function DecisionForm({ view, report, onDecide, savingAvailable }: { view: FindingView; report: CanonicalFinancialStatementReport | null; onDecide: (r: DecisionRequest) => Promise<DecisionResult>; savingAvailable: boolean }) {
   const factOptions = report ? correctableFacts(report, view.record) : [];
   const [outcome, setOutcome] = useState<ReviewOutcome>("ACCEPT_WITH_JUDGEMENT");
   const [rationale, setRationale] = useState("");
@@ -249,10 +250,12 @@ function DecisionForm({ view, report, onDecide }: { view: FindingView; report: C
         </p>
       )}
       <p className="text-xs font-medium text-foreground" data-testid="session-only-notice">
-        Session only: this decision is held in this browser session and is lost if you reload or leave the page. It is not saved anywhere.
+        {savingAvailable
+          ? "This decision is recorded in the draft and stored, with your identity taken from your sign-in, when you save."
+          : "Session only: this decision is held in this browser session and is lost if you reload or leave the page. It is not saved anywhere."}
       </p>
       <Button type="submit" size="sm" disabled={busy}>
-        {busy ? "Recording…" : "Record decision (session only)"}
+        {busy ? "Recording…" : savingAvailable ? "Record decision" : "Record decision (session only)"}
       </Button>
     </form>
   );
@@ -260,6 +263,7 @@ function DecisionForm({ view, report, onDecide }: { view: FindingView; report: C
 
 export function ReviewStage({ model, onFocusLine }: { model: FinancialStatementsWorkspaceModel; onFocusLine: (lineId: string) => void }) {
   const actionable = model.views.filter((v) => v.record.actionable);
+  const savingAvailable = model.saveStatus !== "DISABLED" && model.saveStatus !== "DENIED" && model.saveStatus !== "CHECKING";
   const corrections = (model.snapshot?.decisions ?? []).filter((d) => d.decisionType === "CORRECT_FACT");
   return (
     <section aria-labelledby="fs-review-h" className="space-y-4">
@@ -273,7 +277,9 @@ export function ReviewStage({ model, onFocusLine }: { model: FinancialStatements
         </Alert>
       )}
       <p className="text-xs text-muted-foreground">
-        Accepting a finding or marking it not applicable records your judgement and does not change the accounting result — the finding stays visible with its original outcome. Only a correction to a source figure changes the evaluated statements. A correction is an all-or-nothing change to this session's in-memory draft that re-derives every dependent total; it is not a database transaction and it is not saved.
+        {savingAvailable
+          ? "Accepting a finding or marking it not applicable records your judgement and does not change the accounting result — the finding stays visible with its original outcome. Only a correction changes the evaluated statements: a correction to a source figure re-derives every dependent total, and a correction to source evidence (Sources → Correct a value) creates a new evidence version. When saved, each correction becomes its own report version, together with the re-validation and your decision, in one all-or-nothing step."
+          : "Accepting a finding or marking it not applicable records your judgement and does not change the accounting result — the finding stays visible with its original outcome. Only a correction to a source figure changes the evaluated statements. A correction is an all-or-nothing change to this session's in-memory draft that re-derives every dependent total; it is not a database transaction and it is not saved."}
       </p>
       {actionable.length === 0 ? (
         <p className="text-sm text-muted-foreground">There is nothing to decide: no finding needs review.</p>
@@ -294,15 +300,15 @@ export function ReviewStage({ model, onFocusLine }: { model: FinancialStatements
                   Show affected line
                 </Button>
               )}
-              <DecisionForm view={v} report={model.snapshot?.report ?? null} onDecide={model.decide} />
+              <DecisionForm view={v} report={model.snapshot?.report ?? null} onDecide={model.decide} savingAvailable={savingAvailable} />
             </li>
           ))}
         </ul>
       )}
       <div>
-        <h4 className="text-sm font-semibold text-foreground">Correction history (session only)</h4>
+        <h4 className="text-sm font-semibold text-foreground">{savingAvailable ? "Correction history" : "Correction history (session only)"}</h4>
         {corrections.length === 0 ? (
-          <p className="mt-1 text-xs text-muted-foreground">No figures have been corrected in this session.</p>
+          <p className="mt-1 text-xs text-muted-foreground">{savingAvailable ? "No source figures have been corrected." : "No figures have been corrected in this session."}</p>
         ) : (
           <ol className="mt-1 space-y-1 text-xs" data-testid="correction-history">
             {corrections.map((d) =>
@@ -314,6 +320,7 @@ export function ReviewStage({ model, onFocusLine }: { model: FinancialStatements
             )}
           </ol>
         )}
+        <EvidenceCorrectionHistory decisions={(model.snapshot?.decisions ?? []).filter((d): d is Extract<typeof d, { decisionType: "CORRECT_EVIDENCE" }> => d.decisionType === "CORRECT_EVIDENCE")} />
       </div>
     </section>
   );
