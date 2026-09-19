@@ -4,6 +4,7 @@
 // are detected. They also prove the design: the manifest is a tip commit that cannot name itself yet binds the tree.
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -65,9 +66,22 @@ afterAll(() => {
   for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
 });
 
+interface Manifest {
+  migrations: Record<string, string>;
+  documents: Record<string, string>;
+  commits: string[];
+  commitCount: number;
+  changedFiles: string[];
+  sourceCommit: string;
+  sourceTree: string;
+  baseCommit: string;
+  applied: unknown;
+  [key: string]: unknown;
+}
+
 describe("release manifest — construction", () => {
   let repo: string;
-  let manifest: Record<string, any>;
+  let manifest: Manifest;
   let tip: string;
   beforeAll(async () => {
     repo = makeRepo();
@@ -95,7 +109,7 @@ describe("release manifest — construction", () => {
     expect(manifest.changedFiles).toEqual(["A\tdocs/release/A.md", "A\tdocs/release/B.md", "A\tsrc/a.ts", "A\tsrc/b.ts", `A\t${MIG}`].sort());
     expect(Object.keys(manifest.migrations)).toEqual([MIG]);
     // the migration was committed with CRLF line endings; its recorded hash is of the LF form
-    expect(manifest.migrations[MIG]).toBe(require("node:crypto").createHash("sha256").update("-- new migration\nSELECT 1;\n").digest("hex"));
+    expect(manifest.migrations[MIG]).toBe(createHash("sha256").update("-- new migration\nSELECT 1;\n").digest("hex"));
     expect(Object.keys(manifest.documents)).toEqual(DOCS);
   });
 
@@ -106,7 +120,7 @@ describe("release manifest — construction", () => {
 
 describe("release manifest — every difference between the manifest and the repository is a failure", () => {
   // One sealed repository serves every "recorded value differs" case: the manifest is tampered in memory and verified against it.
-  let shared: { repo: string; manifest: Record<string, any> };
+  let shared: { repo: string; manifest: Manifest };
   beforeAll(async () => {
     const repo = makeRepo();
     shared = { repo, manifest: (await seal(repo)).manifest };
@@ -115,7 +129,7 @@ describe("release manifest — every difference between the manifest and the rep
     const repo = makeRepo();
     return { repo, ...(await seal(repo)) };
   };
-  const tampered = async (mutate: (m: Record<string, any>) => void) => {
+  const tampered = async (mutate: (m: Manifest) => void) => {
     const copy = JSON.parse(JSON.stringify(shared.manifest));
     mutate(copy);
     return verify(shared.repo, copy);
