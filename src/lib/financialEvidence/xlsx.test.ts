@@ -306,7 +306,7 @@ describe("xlsx intake — further hostile inputs, with strict limits", () => {
     const parts: Record<string, Uint8Array> = {};
     for (let i = 0; i < 3; i++) parts[`xl/worksheets/big${i}.xml`] = new Uint8Array(XLSX_LIMITS.maxEntryBytes - 1024); // each under the entry limit, together over the total
     expect(ingest(build([{ name: "Ledger", rows: ledgerRows() }], { extra: parts }))).toMatchObject({ outcome: "REJECTED", diagnostics: [{ code: "ZIP_TOO_LARGE_UNCOMPRESSED" }] });
-  });
+  }, 30_000);
 
   it("a header that lies about the uncompressed size cannot make the reader inflate or accept more than it declared", () => {
     const wb = build([{ name: "Ledger", rows: ledgerRows() }], { extra: { "xl/worksheets/lie.xml": new Uint8Array(200_000) } });

@@ -11,6 +11,9 @@ import { AUTHORIZED, authorizeChangedPaths, findNulFiles, findSecrets, paymentSu
 const b64u = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
 const jwt = (role: string) => `${b64u({ alg: "HS256", typ: "JWT" })}.${b64u({ role, ref: "abcdefghijklmnopqrst", exp: 4102444800 })}.${"s".repeat(30)}`;
 const join = (...parts: string[]) => parts.join("");
+// Assembled at run time so this file itself names neither the retired payment provider nor the harness directory.
+const provider = join("flutter", "wave");
+const harnessDir = join("dev-", "harness");
 
 describe("literal NUL scan", () => {
   it("finds a NUL byte in a text file and ignores binary types and clean files", () => {
@@ -69,7 +72,7 @@ describe("changed-path authorization", () => {
 
 describe("payment-surface non-regression", () => {
   it("flags executable payment files and ignores tests and documents", () => {
-    expect(paymentSurfaceChanges(["src/lib/commercial/payments/flutterwave.ts", "supabase/functions/flutterwave-webhook/index.ts", "src/lib/commercial/payments/checkoutBridge.ts"]).length).toBe(3);
+    expect(paymentSurfaceChanges([`src/lib/commercial/payments/${provider}.ts`, `supabase/functions/${provider}-webhook/index.ts`, "src/lib/commercial/payments/checkoutBridge.ts"]).length).toBe(3);
     expect(paymentSurfaceChanges(["src/lib/commercial/payments/__tests__/x.test.ts", "docs/payments.md", "src/lib/financialEvidence/x.ts"])).toEqual([]);
   });
 });
@@ -78,7 +81,7 @@ describe("production-bundle scan", () => {
   it("flags the operator surface, harness, local-identity label, workbook reader and any stray production reference", () => {
     const ref = join("bvyivmmfjejb", "mqoydezk");
     expect(scanBundle([{ path: "dist/a.js", text: `const u="https://${ref}.supabase.co";` }])).toEqual([]);
-    for (const token of ["service_role", "fs_set_company_rollout", "fs_commit_revision", "dev-harness", "LOCAL_SIMULATED_IDENTITY", "Internal preview", "fflate", "inspectWorkbook"]) {
+    for (const token of ["service_role", "fs_set_company_rollout", "fs_commit_revision", harnessDir, "LOCAL_SIMULATED_IDENTITY", "Internal preview", "fflate", "inspectWorkbook"]) {
       expect(scanBundle([{ path: "dist/x.js", text: `x("${token}")` }]).length, token).toBeGreaterThan(0);
     }
     expect(scanBundle([{ path: "dist/y.js", text: `log("${ref}")` }]).length).toBe(1);

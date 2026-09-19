@@ -169,7 +169,7 @@ describe("financial-statements migrations — table hardening", () => {
     expect(at("STALE_REPORT_VERSION")).toBeLessThan(at("fs_ingest_evidence_internal("));
     expect(at("REPLAY_CONFLICT")).toBeLessThan(at("fs_ingest_evidence_internal("));
     for (const needle of ["not referenced by the report version it creates", "INSERT INTO public.financial_statement_reports", "fs_store_evaluation(", "INSERT INTO public.financial_statement_correction_groups", "'REVISION_COMMITTED'", "pg_advisory_xact_lock"]) expect(b, needle).toContain(needle);
-    expect(persist).toMatch(/'REVISION_COMMITTED'\)\)/); // an allowed audit action
+    expect(persist).toMatch(/'REVISION_COMMITTED', 'EVALUATION_RECORDED'\)\)/); // allowed audit actions
   });
 
   it("framework requirements are seeded for exactly the four frameworks and are immutable", () => {
