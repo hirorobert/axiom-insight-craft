@@ -78,7 +78,7 @@ const effective = (report: CanonicalFinancialStatementReport) => applyEvidence({
 
 describe.skipIf(!seed)("transport + save flow against a real PostgreSQL", () => {
   it("access is server-decided: allowlisted member enabled, other company denied, outsider not a member", async () => {
-    expect(await as("owner").access(seed!.companyA)).toEqual({ enabled: true, reason: "ENABLED" });
+    expect(await as("owner").access(seed!.companyA)).toEqual({ enabled: true, reason: "ENABLED", role: "owner" });
     expect((await as("ownerB").access(seed!.companyB)).reason).toBe("NOT_ALLOWLISTED");
     expect((await as("outsider").access(seed!.companyA)).reason).toBe("NOT_A_MEMBER");
   });

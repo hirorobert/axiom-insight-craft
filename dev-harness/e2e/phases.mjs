@@ -183,15 +183,29 @@ export async function roleMatrix(role) {
   const status = d.text("save-status");
   if (role === "viewer") {
     c.push(check("viewer sees the saved report", /Saved · version 4/.test(status), status));
-    c.push(check("the workspace is explicitly read-only: \"Read-only access\" is explained, no Save, no enabled publication buttons", !!d.$("read-only-access") && !d.$("save-button") && ["reviewed", "final", "draft"].every((k) => d.$("publication-" + k)?.disabled) && d.$("publication-reason")?.disabled === true, d.text("read-only-access")));
+    c.push(check("the workspace is explicitly read-only: \"Read-only access\" is explained, no Save, no enabled publication buttons", !!d.$("read-only-access") && !d.$("save-button") && ["reviewed", "final", "draft"].every((k) => d.$("publication-" + k)?.matches(":disabled")) && d.$("publication-reason")?.matches(":disabled") === true, d.text("read-only-access")));
     await d.stage("sources");
-    const add = await d.addEvidence({ type: "NOTES_AND_POLICIES", name: "v.csv", csv: d.DATA.notes, currency: "", scale: "" });
-    c.push(check("evidence cannot be added: the form fields and the Add button are disabled", add.kind === "ADD_DISABLED" && d.$("evidence-form-fields")?.disabled === true && !d.$("save-button"), add.kind));
+    const fieldset = d.$("evidence-form-fields");
+    const controls = [...fieldset.querySelectorAll("input, select, button")];
+    c.push(check("the evidence form is effectively disabled: the fieldset and every control inside it match :disabled", fieldset.matches(":disabled") && controls.length > 0 && controls.every((el) => el.matches(":disabled")), controls.length + " controls"));
+    // Force it anyway: attach a file to the (disabled) input, fire change, click Add and submit the form programmatically.
+    const before = document.querySelectorAll("[data-evidence-id]").length;
+    const input = d.$("evidence-file");
+    const dt = new DataTransfer();
+    dt.items.add(new File([new TextEncoder().encode(d.DATA.notes)], "viewer-forced.csv", { type: "text/csv" }));
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await d.sleep(300);
+    d.$("evidence-add").click();
+    d.$("evidence-add").closest("form").requestSubmit();
+    await d.sleep(800);
+    const kind = d.$("evidence-result")?.dataset.resultKind;
+    c.push(check("a forced submit adds nothing: no evidence row, none unsaved, no Add result other than a refusal, no Save", document.querySelectorAll("[data-evidence-id]").length === before && ![...document.querySelectorAll("[data-evidence-id]")].some((e) => /Not saved/.test(e.innerText)) && (kind === undefined || kind === "REJECTED") && !d.$("save-button"), "result=" + kind));
     await d.stage("statements");
     c.push(check("no correction controls", !d.$("correct-evidence-open")));
     await d.stage("review");
     const forms = [...document.querySelectorAll("form[data-read-only=yes]")];
-    c.push(check("every decision form is read-only (submit disabled)", forms.every((f) => f.querySelector("button[type=submit]").disabled), forms.length + " forms"));
+    c.push(check("every decision form is read-only (submit disabled)", forms.length > 0 && forms.every((f) => f.querySelector("button[type=submit]").matches(":disabled") && f.querySelector("fieldset").matches(":disabled")), forms.length + " forms"));
     const s = await seed();
     const rows0 = await reportRows("partner", s.companyA);
     const direct = await post("/rpc/fs_set_publication_state", "viewer", { p_company_id: s.companyA, p_report_id: rows0[0].report_id, p_report_version: 4, p_state: "REVIEWED", p_reason: "direct rpc as viewer" });
