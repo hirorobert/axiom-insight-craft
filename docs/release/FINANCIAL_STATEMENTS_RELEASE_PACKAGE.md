@@ -8,21 +8,22 @@ Branch: `codex/financial-statements-production-readiness`. Manifest: `docs/relea
 
 | Area | Files |
 |---|---|
-| Evidence model & controlled intake (9 families) | `src/lib/financialEvidence/**` |
-| Deterministic generation (direct cash flow, changes in equity, IPSAS cash receipts/payments, budget vs actual, notes/policies/schedules + checklist) | `src/lib/financialGeneration/**` |
-| Canonical rules added (rule pack v2: equity closing tie, equity profit tie, schedule casting) | `src/lib/canonicalStatement/rules/{equityTies,scheduleCasting,rulePack}.ts` |
+| Evidence model & controlled intake (10 families incl. cash account map; CSV, plus a secure `.xlsx` reader on the audited `fflate`), evidence-cell correction | `src/lib/financialEvidence/**` |
+| Deterministic generation (direct cash flow, changes in equity, IPSAS cash receipts/payments, budget vs actual, notes/policies/schedules + checklist, **multi-account cash perimeter with ECL reconciliation**) | `src/lib/financialGeneration/**` |
+| Canonical rules added (rule pack 2.1.0: equity closing tie, equity profit tie, schedule casting, cash-flow closing-cash reconciliation v2) | `src/lib/canonicalStatement/rules/{equityTies,scheduleCasting,cashPerimeterReconciliation,rulePack}.ts` |
 | Persistence & rollout migrations (**unapplied**) | `supabase/migrations/20260919100000_…rollout_control.sql`, `…20260919110000_…persistence.sql` |
-| Typed transport, atomic save flow, exports | `src/lib/financialStatementsWorkspace/{rpcTransport,saveFlow,supabaseFsBackend,exports}.ts` |
+| Typed transport, atomic save flow (incl. multi-evidence correction groups), reopening / restore / read-only history, exports | `src/lib/financialStatementsWorkspace/{rpcTransport,saveFlow,savedVersions,supabaseFsBackend,exports}.ts` |
 | Workspace UI | `src/components/financialStatements/**`, `src/hooks/useFinancialStatementsWorkspace.ts` |
 | Disposable-database proof & bridge | `scripts/db-proof/{run,serve}.mjs`, `scripts/release/verify-release-sql.mjs` |
-| Operator SQL | `docs/release/sql/01…05` |
+| Hosted-staging acceptance package (guarded; **not run**) | `scripts/hosted-staging/acceptance.mjs`, `docs/release/HOSTED_STAGING_ACCEPTANCE.md`, `docs/release/sql/06` |
+| Operator SQL | `docs/release/sql/01…06` |
 
 ## 2. Migrations (apply order; SHA-256 in the manifest)
 
 1. `20260919100000_financial_statements_rollout_control.sql`
 2. `20260919110000_financial_statements_persistence.sql`
 
-Both are forward-only, sort after every existing migration, touch only their own nine tables, and never modify `tax_computations`, `account_mappings`, `engine_runs` or any sign-off table. Preflight/postcondition SQL and its executed proof are in `docs/release/sql` and `scripts/release/verify-release-sql.mjs`.
+Both are forward-only, sort after every existing migration, touch only their own eleven tables, and never modify `tax_computations`, `account_mappings`, `engine_runs` or any sign-off table. Preflight/postcondition SQL and its executed proof are in `docs/release/sql` and `scripts/release/verify-release-sql.mjs`.
 
 ## 3. Gates — final-state checklist
 
@@ -51,25 +52,11 @@ DB_PROOF_MODULES_DIR=<dir> node scripts/release/verify-release-sql.mjs
 
 `db-proof/run.mjs` also runs in CI (job `db-contract-tests`, fresh database on the throwaway container).
 
-### Recorded results (LF checkout of commit `2456f32`, real exit codes, no masking pipes)
+### Recorded results
 
-| Gate | Result |
-|---|---|
-| `npx vitest run` (full suite) | exit 0 — 125 files passed, 1 skipped (env-gated DB test); 2684 tests passed, 6 skipped, 12 todo |
-| `npx tsc --noEmit -p tsconfig.app.json` | exit 0 — 0 errors |
-| `npx eslint .` | exit 0 — 0 errors (128 pre-existing warnings) |
-| `npm run build` | exit 0 |
-| `git diff --check origin/main...HEAD` | exit 0 |
-| Conflict markers | 0 files |
-| `node scripts/audit_migrations.mjs --strict` | exit 0 — 123 files, `VERDICT: CLEAN` |
-| `scripts/db-proof/run.mjs` (fresh PostgreSQL 16, all 123 migrations replayed) | 154/154 assertions passed; 13 mutants of the migrations each killed by it |
-| `saveFlow.pg.test.ts` (real TypeScript client ↔ real SQL) | 6/6 passed, re-runnable on the same database |
-| `scripts/release/verify-release-sql.mjs` | all passed |
-| Production bundle scan (`dist/`) | no `service_role`, no rollout/kill-switch function names, no harness, no bridge, no "Internal preview" (the workspace is tree-shaken while its gate is off); the only production-project reference is the pre-existing committed `.env` Supabase URL |
-| Executable payment-provider scan | no payment source file changed (the only file under `commercial/payments` touched is `omega3CheckoutIntervalAuthority.test.ts`, whose migration-tail pin now expects this release's two migrations); the 32 pre-existing `omega3_0` tests pass on an LF checkout; they fail only on a CRLF checkout) |
-| Unauthorized-file inventory | 39 added, 21 modified, all under the areas listed in §1; no `package.json`, no Edge Function, no other migration |
+@@RESULTS@@
 
-Browser E2E (non-production harness, real UI → real transport → disposable PostgreSQL through the loopback bridge; **simulated identity, not GoTrue**): preparer adds a CSV ledger, generates the cash flow, saves (rows verified in the database, invisible to an outsider and to another company's owner); a fresh partner session with identical content is idempotent ("already saved"); a preparer's attempt to mark Reviewed is refused by the server; a partner's succeeds; a viewer's save is refused and shown read-only; an XLSX upload is refused, a formula-injection CSV is stored INVALID and never used; no horizontal overflow in any of the six stages at 375 px width. Screenshots were inspected in the session; they are not committed.
+Browser E2E (non-production harness, real UI → real transport → disposable PostgreSQL through the loopback bridge; **simulated identity, not GoTrue**) covers all **seven** stages (Sources, Structure, Statements, Notes & Policies, Validate, Professional Review, Final Outputs) — see `docs/release/E2E_SEVEN_STAGE_PROOF.md` for the exact scenario and observed results (desktop and 375 px).
 
 ## 4. Canary plan
 
@@ -91,15 +78,17 @@ Browser: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` (public anon key, 
 
 ## 7. Known limitations (read before accepting)
 
-1. **Not exercised against GoTrue or a hosted Supabase project.** Identity in every proof is a simulated `auth.uid()`; hosted role grants, PostgREST exposure and the managed migration path are unverified.
-2. **Intake is CSV only.** XLSX/PDF/DOCX/image inputs are refused safely; there is no document extraction, and extracted candidates can never feed a statement.
+1. **Not exercised against GoTrue or a hosted Supabase project.** Identity in every local proof is a simulated `auth.uid()`; hosted role grants, PostgREST exposure and the managed migration path are unverified. `HOSTED_STAGING_RESULT=BLOCKED_MISSING_STAGING_PROJECT` — no staging project exists; the runbook and guarded script are in `HOSTED_STAGING_ACCEPTANCE.md`. Local disposable-database proof is separate from hosted proof and is never reported as it.
+2. **Spreadsheet intake is `.xlsx` only, for five evidence families** (ledger, equity movements, budget, IPSAS cash, schedules) and CSV for all. Encrypted, macro-enabled, externally linked and formula workbooks, `.xls`/`.xlsb`/`.ods`, PDF, DOCX and images are refused; there is no document extraction and extracted candidates can never feed a statement.
 3. **No DOCX export and no XBRL/iXBRL producer.** Only the adapter contract exists; no filing readiness is claimed.
 4. **Prior-period statements evidence** supplies opening cash only; comparative columns for generated statements come from a comparative trial balance or a comparative evidence batch. One comparative period is supported; comparative note columns are not generated.
-5. **Closing-cash tie** needs exactly one trial-balance line reviewed as the cash account; with several the rule reports insufficient evidence rather than guessing.
-6. **After a reload the session starts a fresh draft.** Saved versions stay in the database (readable through RLS) but there is no "open a saved version" UI yet; a second save appends a new version.
-7. **Corrections apply to trial-balance facts only.** Evidence is corrected at source by uploading a new version.
-8. **Statement-set completeness is enforced in the client**; the server enforces the finding gate, evaluation presence and role. The UI disables Reviewed/Final while completeness items remain.
-9. **Print/PDF** relies on the browser's print engine; page-number margin boxes need a Chromium-class engine and were not verified in a print preview here.
-10. **No load testing** beyond the enforced limits (2 MB, 20,000 rows, 40 columns).
-11. **Artifact hashes in the manifest identify one build; they are not a reproducibility proof.** The pre-existing vite config embeds the build time and the HEAD commit id, so rebuilding changes them. The manifest's migration and document hashes are exact and are what `--check` verifies.
-12. The CI step that runs `db-proof` on the throwaway container was verified locally in external mode against an empty database, but has not yet run in GitHub Actions.
+5. **One cash account map serves both periods.** The perimeter reconciliation is exact and unplugged, but restricted cash is disclosed as a total with its accounts, not as narrative; an account absent from a comparative trial balance leaves the comparative perimeter unestablished (a warning), never guessed.
+6. **Restore is exact or it does not happen.** A reopened latest version becomes an editable draft only if re-composition reproduces its stored content hash; otherwise the draft starts fresh, says why, and saving creates a new version. Evidence stored after the saved version is applied to the draft and shown as unsaved.
+7. **Budget evidence is not part of the stored report document.** Budget-only changes do not produce a new report version, and a historical view shows the statements as stored but cannot re-derive the budget-versus-actual comparison. The print header shows the effective report's internal version, not the stored version number.
+8. **Evidence corrections** apply to the latest version of an evidence series that is already saved (an unsaved batch is simply replaced in the draft, since nothing durable exists to correct); trial-balance figures keep their own fact-correction command. Only one cell is corrected per step; a corrected value must pass the same intake contract as an upload.
+9. **The independence limitation in `DEFECT-SAFISHA-TRANSACTION-LEDGER-GAP-001` is unchanged**: the cash-flow closing figure is reconciled to the reviewed cash perimeter, but two independently derived operating-cash-flow numbers still need a period-complete classified cash-movement ledger that does not exist here.
+10. **Print/PDF** relies on the browser's print engine; page-number margin boxes need a Chromium-class engine and were not verified in a print preview here (the print document's content was verified in the browser).
+11. **No load testing** beyond the enforced limits (2 MB / 20,000 rows / 40 columns for CSV; 5 MB, 300 zip entries, 20,000 rows for workbooks).
+12. **Artifact hashes in the manifest identify one build; they are not a reproducibility proof.** The pre-existing vite config embeds the build time and the HEAD commit id, so rebuilding changes them. The manifest's migration and document hashes are exact and are what `--check` verifies.
+13. The CI step that runs `db-proof` on the throwaway container was verified locally in external mode against an empty database, but has not yet run in GitHub Actions.
+

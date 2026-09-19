@@ -27,6 +27,8 @@ const baseCommit = git("rev-parse", BASE_REF);
 const sourceCommit = git("rev-parse", "HEAD");
 const branch = process.env.RELEASE_BRANCH ?? "codex/financial-statements-production-readiness"; // fixed: a detached verification checkout would otherwise record "HEAD"
 
+// Every commit of the release, oldest first, each exactly once (the manifest's own commit is not in it: it cannot name itself).
+const commits = git("rev-list", "--reverse", `${baseCommit}..${sourceCommit}`).split("\n").filter(Boolean);
 const migrations = git("diff", "--name-only", "--diff-filter=A", `${baseCommit}...HEAD`, "--", "supabase/migrations").split("\n").filter(Boolean).sort();
 const migrationHashes = Object.fromEntries(migrations.map((f) => [f, sha(norm(fs.readFileSync(path.join(REPO, f))))]));
 
@@ -34,7 +36,7 @@ const filesUnder = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFile
 const dist = path.join(REPO, "dist");
 const artifacts = Object.fromEntries(filesUnder(dist).map((f) => [path.relative(REPO, f).split(path.sep).join("/"), sha(fs.readFileSync(f))]).sort((a, b) => (a[0] < b[0] ? -1 : 1)));
 
-const docFiles = ["docs/release/FINANCIAL_STATEMENTS_ACTIVATION.md", "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md", ...filesUnder(path.join(REPO, "docs/release/sql")).map((f) => path.relative(REPO, f).split(path.sep).join("/"))].sort();
+const docFiles = ["docs/release/FINANCIAL_STATEMENTS_ACTIVATION.md", "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md", "docs/release/HOSTED_STAGING_ACCEPTANCE.md", "docs/release/E2E_SEVEN_STAGE_PROOF.md", ...filesUnder(path.join(REPO, "docs/release/sql")).map((f) => path.relative(REPO, f).split(path.sep).join("/"))].sort();
 const documents = Object.fromEntries(docFiles.filter((f) => fs.existsSync(path.join(REPO, f))).map((f) => [f, sha(norm(fs.readFileSync(path.join(REPO, f))))]));
 
 const manifest = {
@@ -43,6 +45,8 @@ const manifest = {
   branch,
   baseCommit,
   sourceCommit,
+  commitCount: commits.length,
+  commits,
   migrations: migrationHashes,
   documents,
   artifacts: { note: Object.keys(artifacts).length === 0 ? "dist/ was not present when this manifest was built; run `npm run build` and rebuild the manifest" : "sha256 of every file in dist/ for the build made at sourceCommit. The existing vite config embeds the build time and the HEAD commit id, so a rebuild is NOT byte-identical: these hashes identify the reviewed build output, they are not a reproducibility check", files: artifacts },
@@ -51,7 +55,7 @@ const manifest = {
     note: "Names only. Values are never stored in this repository.",
     browser: ["VITE_SUPABASE_URL", "VITE_SUPABASE_PUBLISHABLE_KEY (public anon key; already deployed)"],
     operatorOnly: ["service-role key of the target project (used solely to run docs/release/sql/03-05 as a named operator; never shipped to a browser)"],
-    ciStaging: ["STAGING_SUPABASE_URL", "STAGING_SUPABASE_SERVICE_ROLE_KEY", "STAGING_SUPABASE_PROJECT_REF"],
+    ciStaging: ["STAGING_SUPABASE_URL", "STAGING_SUPABASE_ANON_KEY", "STAGING_SUPABASE_SERVICE_ROLE_KEY", "STAGING_SUPABASE_PROJECT_REF (a variable, not a secret)"],
   },
   requiredGateState: {
     FINANCIAL_STATEMENTS_WORKSPACE_ENABLED: false,
@@ -60,6 +64,7 @@ const manifest = {
     serverRollout: "default denied: zero companies enabled, kill switch not engaged",
   },
   applied: { productionMigration: false, productionFunctionsDeployed: false, productionFeatureEnabled: false },
+  hostedStaging: { result: "BLOCKED_MISSING_STAGING_PROJECT", note: "No hosted staging project is configured. Local disposable-database proof is separate and is not hosted acceptance." },
 };
 
 const text = JSON.stringify(manifest, null, 2) + "\n";
@@ -80,6 +85,9 @@ if (process.argv.includes("--check")) {
   const problems = [];
   if (!ancestor) problems.push(`sourceCommit ${existing.sourceCommit} is not an ancestor of HEAD`);
   if (existing.baseCommit !== baseCommit) problems.push("baseCommit differs");
+  const recorded = git("rev-list", "--reverse", `${baseCommit}..${existing.sourceCommit}`).split("\n").filter(Boolean);
+  if (JSON.stringify(existing.commits) !== JSON.stringify(recorded) || existing.commitCount !== recorded.length) problems.push("the commit list or count differs from the history");
+  if (new Set(existing.commits).size !== existing.commits.length) problems.push("a commit is listed twice");
   if (JSON.stringify(existing.migrations) !== JSON.stringify(migrationHashes)) problems.push("migration hashes differ");
   const docsNow = Object.fromEntries(Object.entries(documents));
   for (const [f, h] of Object.entries(existing.documents)) if (docsNow[f] !== h) problems.push(`document changed since the manifest: ${f}`);

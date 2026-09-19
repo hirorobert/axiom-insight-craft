@@ -14,14 +14,14 @@ const sqlFiles = fs.readdirSync(path.join(ROOT, SQL_DIR)).sort();
 
 describe("release package", () => {
   it("ships preflight, postcondition and the three operator scripts", () => {
-    expect(sqlFiles).toEqual(["01_preflight.sql", "02_postcondition.sql", "03_activate_company.sql", "04_deactivate_company.sql", "05_kill_switch.sql"]);
+    expect(sqlFiles).toEqual(["01_preflight.sql", "02_postcondition.sql", "03_activate_company.sql", "04_deactivate_company.sql", "05_kill_switch.sql", "06_staging_realtime_check.sql"]);
     for (const f of ["docs/release/FINANCIAL_STATEMENTS_ACTIVATION.md", "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md", "scripts/release/verify-release-sql.mjs", "scripts/release/build-manifest.mjs"]) {
       expect(fs.existsSync(path.join(ROOT, f)), f).toBe(true);
     }
   });
 
   it("no release file contains a credential, a JWT, a connection string with a password, or a real project host", () => {
-    const files = [...sqlFiles.map((f) => `${SQL_DIR}/${f}`), "docs/release/FINANCIAL_STATEMENTS_ACTIVATION.md", "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md", "scripts/release/build-manifest.mjs", "scripts/release/verify-release-sql.mjs"];
+    const files = [...sqlFiles.map((f) => `${SQL_DIR}/${f}`), "docs/release/FINANCIAL_STATEMENTS_ACTIVATION.md", "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md", "docs/release/HOSTED_STAGING_ACCEPTANCE.md", "scripts/release/build-manifest.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs"];
     for (const f of files) {
       const text = read(f);
       expect(text, f).not.toMatch(/eyJ[A-Za-z0-9_-]{20,}/);
@@ -48,7 +48,7 @@ describe("release package", () => {
     expect(read(`${SQL_DIR}/03_activate_company.sql`)).toMatch(/fs_set_company_rollout\('<COMPANY_UUID>'::uuid, true, '<[^']+>', '<operator name>'\)/);
     expect(read(`${SQL_DIR}/04_deactivate_company.sql`)).toMatch(/fs_set_company_rollout\('<COMPANY_UUID>'::uuid, false/);
     expect(read(`${SQL_DIR}/05_kill_switch.sql`)).toMatch(/fs_set_kill_switch\(true/);
-    for (const f of sqlFiles.slice(2)) expect(read(`${SQL_DIR}/${f}`), f).not.toMatch(/UPDATE\s+public\.financial|INSERT\s+INTO\s+public\.financial|DELETE\s+FROM|TRUNCATE|DROP\s/i);
+    for (const f of sqlFiles.slice(2, 5)) expect(read(`${SQL_DIR}/${f}`), f).not.toMatch(/UPDATE\s+public\.financial|INSERT\s+INTO\s+public\.financial|DELETE\s+FROM|TRUNCATE|DROP\s/i);
   });
 
   it("preflight and postcondition change nothing", () => {
@@ -62,6 +62,9 @@ describe("release package", () => {
     expect(Object.keys(m.migrations)).toEqual(["supabase/migrations/20260919100000_financial_statements_rollout_control.sql", "supabase/migrations/20260919110000_financial_statements_persistence.sql"]);
     for (const [file, hash] of Object.entries(m.migrations)) expect(createHash("sha256").update(lf(read(file))).digest("hex"), file).toBe(hash);
     expect(m.applied).toEqual({ productionMigration: false, productionFunctionsDeployed: false, productionFeatureEnabled: false });
+    expect(m.hostedStaging.result).toBe("BLOCKED_MISSING_STAGING_PROJECT");
+    expect(m.commitCount).toBe(m.commits.length);
+    expect(new Set(m.commits).size).toBe(m.commits.length);
     expect(Object.values(m.requiredGateState).filter((v) => typeof v === "boolean").every((v) => v === false)).toBe(true);
     expect(JSON.stringify(m)).not.toMatch(/eyJ[A-Za-z0-9_-]{20,}/);
   });

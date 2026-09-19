@@ -11,6 +11,8 @@ Status: **designed, implemented and proven on disposable databases; nothing is a
 | Kill switch | `financial_statements_rollout_state.kill_switch` | Only `fs_set_kill_switch(...)`, `service_role` only | not engaged |
 | Audit | `financial_statements_rollout_audit` | Written by the two functions above; UPDATE/DELETE rejected by trigger even for the table owner | empty |
 
+**Publication readiness is decided by the database, not the browser.** `fs_set_publication_state` refuses `REVIEWED`/`FINAL` (`PT409 BLOCKED: …`) unless `fs_publication_blockers` is empty: framework known, every required statement present with comparative figures, comparative period present, required evidence referenced, every referenced evidence version valid and not superseded, an evaluation exists for that exact version, no unresolved blocking finding, no unmet mandatory reconciliation (an ACCEPT decision cannot waive one), the version is the latest, and the caller is an owner or partner with the rollout on. `fs_report_readiness` lets a member preview the same answer; it cannot bypass it (proved by calling the RPC directly).
+
 Every persistence write function (`fs_ingest_evidence_batch`, `fs_save_report_version`, `fs_save_evaluation`, `fs_append_decision`, `fs_apply_correction_group`, `fs_set_publication_state`) calls `fs_actor_member_id(company)`, which requires **all** of: an authenticated session (`auth.uid()`), an accepted non-viewer membership of that company, and `fs_rollout_allows(company)` (kill switch off **and** company allowlisted). A caller who fails the last check receives `PT403 FEATURE_DISABLED`; the UI shows "Saving is not enabled for this company". Reads stay governed by RLS, so history remains readable after a company is deactivated or the kill switch is engaged.
 
 The browser learns its own status only through `financial_statements_workspace_access(company)`, which answers `ENABLED | NOT_A_MEMBER | KILL_SWITCH | NOT_ALLOWLISTED`. The client treats anything other than an explicit `enabled: true` as a denial. There is no client-side way to turn the feature on for a company the server has not allowlisted.
@@ -44,12 +46,13 @@ No step above deletes history, and none needs a database restore.
 
 ## 5. Evidence that this behaves as designed
 
-* `scripts/db-proof/run.mjs` — 154 assertions on a real PostgreSQL 16, replayed from zero: default-denied rollout, kill switch, audit immutability, tenancy, RLS, stale/replay/conflicting replay, concurrent writers, atomic correction-group rollback, finalisation gate, exact money/JSON round trip.
+* `scripts/db-proof/run.mjs` — 191 assertions on a real PostgreSQL 16, replayed from zero: default-denied rollout, kill switch, audit immutability, tenancy, RLS, stale/replay/conflicting replay, concurrent writers, atomic correction-group rollback, finalisation gate, server-authoritative completeness, saved-version listing, multi-evidence correction groups (atomic, decision bound to the exact evidence version), exact money/JSON round trip.
 * `src/lib/financialStatementsWorkspace/saveFlow.pg.test.ts` — the real TypeScript client against the real SQL through a loopback bridge (server-derived reviewer, contiguous versions, stale refusal, viewer/outsider/not-allowlisted denial).
 * `scripts/release/verify-release-sql.mjs` — executes the preflight, postcondition and operator scripts and checks the audit trail.
-* Browser E2E on the non-production harness (see the release package for what was and was not covered).
+* Browser E2E on the non-production harness across all seven stages, desktop and 375 px (`E2E_SEVEN_STAGE_PROOF.md`).
+* `scripts/hosted-staging/acceptance.mjs` — the guarded hosted-staging package; its offline harness proof is `hostedStagingAcceptance.test.ts`. It has **not** been run: `HOSTED_STAGING_RESULT=BLOCKED_MISSING_STAGING_PROJECT`.
 
 ## 6. Not covered here (state this in any acceptance review)
 
 * The proofs use a **simulated** `auth.uid()` (the same GUC mechanism PostgREST uses), not GoTrue-issued JWTs. The real Supabase Auth → PostgREST → `auth.uid()` path is standard but was not exercised.
-* Nothing was applied to a hosted Supabase project, so the managed migration path, hosted role grants and hosted PostgREST exposure are unverified.
+* Nothing was applied to a hosted Supabase project, so the managed migration path, hosted role grants and hosted PostgREST exposure are unverified. Do not describe the local disposable proof as hosted acceptance.
