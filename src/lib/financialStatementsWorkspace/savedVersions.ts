@@ -18,7 +18,7 @@
 
 import type { CanonicalFinancialStatementReport, CorrectEvidenceDecision, CorrectFactDecision, ReviewerDecision, RuleEvaluationRecord } from "@/lib/canonicalStatement/types";
 import type { EvidenceBatch, EvidenceBatchDocument, EvidenceType, PeriodRole, ValidationStatus } from "@/lib/financialEvidence/types";
-import type { StoredEvidence } from "@/lib/financialGeneration/applyEvidence";
+import { latestPerSeries, type StoredEvidence } from "@/lib/financialGeneration/applyEvidence";
 import { contentHashOf } from "./persistenceContract";
 import type { SavedState } from "./saveFlow";
 import type { PublicationRow, StoredDecisionRow, StoredEvaluationRow, StoredEvidenceRow, StoredReportRow } from "./rpcTransport";
@@ -58,8 +58,10 @@ export interface RestoredSession {
   readonly evidence: readonly (StoredEvidence & { readonly saved: true })[];
   readonly saved: SavedState;
   readonly storedVersion: number;
-  /** The effective report the restored session recomposes to (identical to the stored version apart from nothing). */
+  /** The effective report the restored session shows. Equal to the stored version unless `unsavedChanges`. */
   readonly effectiveReport: CanonicalFinancialStatementReport;
+  /** True when newer valid evidence was stored after this version: it is applied to the draft, and the draft is not yet saved. */
+  readonly unsavedChanges: boolean;
 }
 
 export interface RestoreInput {
@@ -107,20 +109,28 @@ export function restoreLatestDraft(input: RestoreInput): RestoreOutcome {
     referenced.push(evidenceBatchFromRow(row, input.companyId));
   }
   const referencedIds = new Set(stored.evidenceBatchIds);
-  // A newer version of a referenced series that the saved report does not use means the evidence moved on after this version was saved.
+  // Evidence stored after this version was saved (a newer version, or a whole series the report does not use) is not lost:
+  // it is applied to the draft, which is then honestly "unsaved". The saved version itself must still reproduce exactly.
+  let unsavedChanges = false;
   for (const row of input.evidenceRows) {
     if (referencedIds.has(row.evidenceBatchId)) continue;
     const series = referenced.find((b) => b.evidenceType === row.evidenceType && b.periodRole === row.periodRole && b.reportingPeriodId === row.reportingPeriodId && b.seriesKey === row.seriesKey);
     const usedVersion = series ? byId.get(series.evidenceBatchId)?.version ?? 0 : 0;
-    if (row.version > usedVersion && row.validationStatus !== "INVALID" && row.validationStatus !== "REQUIRES_REVIEW") {
-      return diverged(`Evidence changed after this version was saved (a newer ${row.evidenceType} version exists that the report does not use).`);
-    }
+    if (row.version > usedVersion && row.validationStatus !== "INVALID" && row.validationStatus !== "REQUIRES_REVIEW") unsavedChanges = true;
   }
 
   const effective = input.compose(baseReport, referenced);
   if (!effective) return diverged("The saved statements could not be recomposed from their stored sources.");
   if (contentHashOf(withVersion(effective, stored.reportVersion)) !== stored.contentHash) {
     return diverged("The source data no longer reproduces the saved statements exactly (the trial balance or its reviewed mapping changed).");
+  }
+
+  let shown = effective;
+  if (unsavedChanges) {
+    const latest = latestPerSeries(input.evidenceRows.map((r) => ({ batch: evidenceBatchFromRow(r, input.companyId), version: r.version })));
+    const composed = input.compose(baseReport, latest);
+    if (!composed) return diverged("The evidence stored after this version was saved cannot be composed with it.");
+    shown = composed;
   }
 
   return {
@@ -132,7 +142,8 @@ export function restoreLatestDraft(input: RestoreInput): RestoreOutcome {
       evidence: input.evidenceRows.map((r) => ({ batch: evidenceBatchFromRow(r, input.companyId), version: r.version, saved: true as const })),
       saved: { storedVersion: stored.reportVersion, storedDecisionIds: new Set(input.decisions.map((d) => d.decisionId)) },
       storedVersion: stored.reportVersion,
-      effectiveReport: effective,
+      effectiveReport: shown,
+      unsavedChanges,
     },
   };
 }
@@ -151,6 +162,8 @@ export interface HistoricalView {
   readonly evaluation: StoredEvaluationRow | null;
   readonly decisions: readonly ReviewerDecision[];
   readonly evidence: readonly EvidenceBatch[];
+  /** evidenceBatchId -> its version number in its series. */
+  readonly evidenceVersions: Readonly<Record<string, number>>;
   readonly publication: PublicationRow | null;
 }
 
@@ -180,6 +193,7 @@ export function historicalView(input: {
     evaluation,
     decisions: input.decisions.map((d) => d.decision),
     evidence: input.evidenceRows.filter((r) => used.has(r.evidenceBatchId)).map((r) => evidenceBatchFromRow(r, input.companyId)),
+    evidenceVersions: Object.fromEntries(input.evidenceRows.filter((r) => used.has(r.evidenceBatchId)).map((r) => [r.evidenceBatchId, r.version])),
     publication,
   };
 }

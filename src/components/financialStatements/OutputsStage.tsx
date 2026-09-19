@@ -184,9 +184,9 @@ export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
               ) : (
                 <section key={entry.kind} className="break-inside-avoid-page" data-incomplete-statement={entry.kind}>
                   <h3 className="text-base font-semibold text-foreground">{entry.title}</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <div className="mt-1 text-xs text-muted-foreground">
                     Not prepared — evidence required. <StatusBadge status={entry.status} />
-                  </p>
+                  </div>
                 </section>
               );
             })}

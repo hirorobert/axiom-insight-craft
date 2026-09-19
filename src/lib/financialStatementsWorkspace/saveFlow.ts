@@ -151,12 +151,23 @@ export async function saveWorkspace(input: SaveInput): Promise<SaveOutcome> {
     let storedVersion = latest?.reportVersion ?? 0;
     let alreadySavedCorrections = 0;
     let savedBase = false;
+    let savedBaseReport: CanonicalFinancialStatementReport = plan.base;
 
     if (input.saved) {
       if (input.saved.storedVersion !== storedVersion) {
         return { status: "FAILED", kind: "STALE_VERSION", message: `The report was saved by someone else since you opened it (server is at version ${storedVersion}, this session last saw ${input.saved.storedVersion}). Nothing was saved.`, isConflict: true };
       }
       alreadySavedCorrections = plan.steps.filter((s) => input.saved!.storedDecisionIds.has(s.decision.decisionId)).length;
+      // Evidence added or replaced since the last save changes the report without any correction: that is a new version too.
+      const atSaved = alreadySavedCorrections > 0 ? plan.steps[alreadySavedCorrections - 1] : null;
+      const stateAfterSaved = atSaved ? atSaved.report : plan.base;
+      if (latest && contentHashOf(withVersion(stateAfterSaved, storedVersion)) !== latest.contentHash) {
+        const next = withVersion(stateAfterSaved, storedVersion + 1);
+        await transport.saveReportVersion(next, contentHashOf(next), atSaved ? atSaved.evidenceIds ?? evidenceIds : evidenceIds);
+        storedVersion += 1;
+        savedBase = true;
+        savedBaseReport = stateAfterSaved;
+      }
     } else {
       const wouldBe = latest ? contentHashOf(withVersion(plan.steps.length > 0 ? plan.steps[plan.steps.length - 1].report : plan.base, storedVersion)) : null;
       if (latest && latest.contentHash === wouldBe) {
@@ -177,7 +188,7 @@ export async function saveWorkspace(input: SaveInput): Promise<SaveOutcome> {
         return { status: "FAILED", kind: "LOCAL", message: "A corrected evidence version can only supersede evidence that has already been saved. Save the evidence first.", isConflict: false };
       }
     }
-    let finalReport = savedBase || !latest ? withVersion(plan.base, storedVersion) : withVersion(plan.steps[Math.max(0, plan.steps.length - 1)]?.report ?? plan.base, storedVersion);
+    let finalReport = savedBase || !latest ? withVersion(savedBaseReport, storedVersion) : withVersion(plan.steps[Math.max(0, plan.steps.length - 1)]?.report ?? plan.base, storedVersion);
     if (newSteps.length > 0) {
       const versioned = newSteps.map((s, i) => ({
         reportVersion: storedVersion + i + 1,

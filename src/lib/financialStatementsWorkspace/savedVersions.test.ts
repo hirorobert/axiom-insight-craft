@@ -111,11 +111,21 @@ describe("restoreLatestDraft", () => {
     expect(restoreLatestDraft({ companyId: COMPANY, freshBase: f.b, stored: f.stored, decisions: [], evidenceRows: [f.rows[0]], compose })).toMatchObject({ kind: "DIVERGED" });
   });
 
-  it("DIVERGED when newer evidence exists that the saved version does not use", async () => {
+  it("newer evidence stored after the saved version is applied to the draft, which is then honestly unsaved", async () => {
     const f = await savedFixture();
-    const newer = batch("TRANSACTION_LEDGER", LEDGER.replace("12000000", "12500000"), "CURRENT", "FY2025");
+    const newer = batch("TRANSACTION_LEDGER", LEDGER.replace("12000000", "12500000").replace("7000000", "7500000"), "CURRENT", "FY2025");
     const out = restoreLatestDraft({ companyId: COMPANY, freshBase: f.b, stored: f.stored, decisions: [], evidenceRows: [...f.rows, evidenceRow(newer, 2)], compose });
-    expect(out.kind === "DIVERGED" && out.reason).toMatch(/newer/);
+    expect(out.kind).toBe("RESTORED");
+    if (out.kind !== "RESTORED") return;
+    expect(out.session.unsavedChanges).toBe(true);
+    expect(contentHashOf(withVersion(out.session.effectiveReport, 3))).not.toBe(f.stored.contentHash);
+    expect(out.session.evidence.map((e) => e.batch.evidenceBatchId)).toContain(newer.evidenceBatchId);
+  });
+
+  it("an exact restore reports no unsaved changes", async () => {
+    const f = await savedFixture();
+    const out = restoreLatestDraft({ companyId: COMPANY, freshBase: f.b, stored: f.stored, decisions: [], evidenceRows: f.rows, compose });
+    expect(out.kind === "RESTORED" && out.session.unsavedChanges).toBe(false);
   });
 
   it("refuses a stored report of another company", async () => {

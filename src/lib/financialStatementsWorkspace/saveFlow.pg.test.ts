@@ -205,6 +205,32 @@ describe.skipIf(!seed)("transport + save flow against a real PostgreSQL", () => 
     }
   });
 
+  it("evidence added after a save (no correction) is a new report version, not a silent no-op", async () => {
+    const companyId = seed!.companyA;
+    const t = as("partner");
+    const s = await sessionFor(companyId);
+    const profile = profileForKind("IFRS_FOR_SMES");
+    const evalFn = (r: CanonicalFinancialStatementReport) => evaluateReportPure(r, ZERO_TOLERANCE, EPOCH);
+    const ledgerA = ingest(companyId, "TRANSACTION_LEDGER", LEDGER.replace(RUN, `${RUN}-late-a-${Math.random()}`), "CURRENT");
+    const opening = s.evidence[1];
+    const eff = (ev: typeof s.evidence) => applyEvidence({ report: s.snapshot.report, profile, cashAccountKeys: ["1000"], evidence: ev }).report!;
+    const first = await saveWorkspace({ transport: t, companyId, reportingPeriodId: "FY2025", evidence: [ledgerA, opening], report: eff([ledgerA, opening]), decisions: [], evaluate: evalFn, saved: null });
+    expect(first).toMatchObject({ status: expect.stringMatching(/SAVED|UNCHANGED/) });
+    const v1 = (first as { storedVersion: number }).storedVersion;
+    const saved: SavedState = { storedVersion: v1, storedDecisionIds: (first as { storedDecisionIds: ReadonlySet<string> }).storedDecisionIds };
+    const ledgerB = ingest(companyId, "TRANSACTION_LEDGER", LEDGER.replace("12000000", "12500000").replace("7000000", "7500000").replace(RUN, `${RUN}-late-b-${Math.random()}`), "CURRENT");
+    const second = await saveWorkspace({ transport: t, companyId, reportingPeriodId: "FY2025", evidence: [ledgerB, opening], report: eff([ledgerB, opening]), decisions: [], evaluate: evalFn, saved });
+    expect(second, JSON.stringify(second)).toMatchObject({ status: "SAVED", storedVersion: v1 + 1 });
+    const stored = (await t.latestReport(companyId, 2025, "TRIAL_BALANCE_DERIVED"))!;
+    expect(stored.reportVersion).toBe(v1 + 1);
+    expect(stored.evidenceBatchIds).toContain(ledgerB.evidenceBatchId);
+    expect(stored.evidenceBatchIds).not.toContain(ledgerA.evidenceBatchId);
+    expect((await t.listEvaluations(stored.report.reportIdentity.reportId, v1 + 1)).length).toBe(1);
+    // and saving the same session again writes nothing
+    const again = await saveWorkspace({ transport: t, companyId, reportingPeriodId: "FY2025", evidence: [ledgerB, opening], report: eff([ledgerB, opening]), decisions: [], evaluate: evalFn, saved: { storedVersion: v1 + 1, storedDecisionIds: (second as { storedDecisionIds: ReadonlySet<string> }).storedDecisionIds } });
+    expect(again).toMatchObject({ status: "UNCHANGED" });
+  });
+
   it("reopening: the server lists saved versions; the latest restores an editable session that reproduces the stored version; every version reads back exactly; other tenants get nothing", async () => {
     const companyId = seed!.companyA;
     const t = as("partner");

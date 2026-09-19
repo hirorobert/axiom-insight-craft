@@ -150,7 +150,14 @@ export function CorrectEvidenceForm({ model, evidenceBatchId }: { model: Financi
   const col = column || columns[0];
   const current = Number.isInteger(rowNumber) && rowNumber >= 1 ? entry.batch.document.rows[rowNumber - 1]?.[columns.indexOf(col)] : undefined;
   const isLatest = model.evidence.filter((e) => e.batch.seriesKey === entry.batch.seriesKey && e.batch.evidenceType === entry.batch.evidenceType && e.batch.periodRole === entry.batch.periodRole && e.version > entry.version).length === 0;
-  if (!isLatest) return null;
+  if (!isLatest && !out) return null;
+  if (!isLatest) {
+    return (
+      <Alert className="mt-2" data-testid="correct-message" role="status">
+        <AlertDescription>{out?.message} This version is now superseded; the newer version below carries the correction.</AlertDescription>
+      </Alert>
+    );
+  }
   return (
     <div className="mt-2" data-testid="correct-evidence">
       {!open ? (

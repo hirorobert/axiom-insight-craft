@@ -650,13 +650,14 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
       try {
         const row = await transport.setPublicationState(snapshot.report.reportIdentity.reportId, storedVersion, inputs.companyId, state, why);
         setPublicationRow(row);
+        void transport.listSavedVersions(inputs.companyId, inputs.periodYear).then(setVersions, () => undefined);
         return { ok: true, message: `Recorded as ${state}.` };
       } catch (e) {
         const message = e instanceof FsTransportError ? e.message : e instanceof Error ? e.message : String(e);
         return { ok: false, message };
       }
     },
-    [viewing, transport, snapshot, storedVersion, saveStatus, inputs.companyId],
+    [viewing, transport, snapshot, storedVersion, saveStatus, inputs.companyId, inputs.periodYear],
   );
 
   // ── reopening saved work ────────────────────────────────────────────────
@@ -723,8 +724,8 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
         setEvidenceCorrections(s.evidenceCorrections);
         setStoredVersion(s.storedVersion);
         setPublicationRow([...pubs].filter((p) => p.reportVersion === s.storedVersion).sort((a, b) => b.seq - a.seq)[0] ?? null);
-        markSavedRef.current = true;
-        setRestore({ status: "RESTORED", message: `Restored your saved work (version ${s.storedVersion}).` });
+        markSavedRef.current = !s.unsavedChanges;
+        setRestore({ status: "RESTORED", message: s.unsavedChanges ? `Restored your saved work (version ${s.storedVersion}) plus evidence stored after it — save to include that evidence in a new version.` : `Restored your saved work (version ${s.storedVersion}).` });
       } catch (e) {
         if (cancelled) return;
         restoredKeyRef.current = null;
@@ -751,6 +752,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     setPublicationRow(null);
     setNotice(null);
     setSaveMessage(null);
+    setSaveStatus("CLEAN");
     setRestoreNonce((n) => n + 1);
     setGeneration((g) => g + 1);
   }, []);
@@ -808,7 +810,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
       evaluation: run,
       numbering: deriveNoteNumbering(viewing.report),
       views: buildFindingViews(viewing.findings, viewing.decisions),
-      evidence: viewing.evidence.map((batch): EvidenceEntry => ({ batch, version: 0, saved: true, used: true, useReason: `Used by saved version ${viewing.reportVersion}.` })),
+      evidence: viewing.evidence.map((batch): EvidenceEntry => ({ batch, version: viewing.evidenceVersions[batch.evidenceBatchId] ?? 1, saved: true, used: true, useReason: `Used by saved version ${viewing.reportVersion}.` })),
     };
   }, [viewing]);
 
