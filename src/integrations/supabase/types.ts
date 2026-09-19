@@ -2040,6 +2040,86 @@ export type Database = {
           },
         ]
       }
+      financial_statements_rollout_audit: {
+        Row: {
+          company_id: string | null
+          created_at: string
+          id: string
+          new_state: boolean
+          operator_label: string
+          previous_state: boolean | null
+          reason: string
+          scope: string
+          seq: number
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string
+          id?: string
+          new_state: boolean
+          operator_label: string
+          previous_state?: boolean | null
+          reason: string
+          scope: string
+          seq?: never
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string
+          id?: string
+          new_state?: boolean
+          operator_label?: string
+          previous_state?: boolean | null
+          reason?: string
+          scope?: string
+          seq?: never
+        }
+        Relationships: []
+      }
+      financial_statements_rollout_companies: {
+        Row: {
+          company_id: string
+          enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fs_rollout_company"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_statements_rollout_state: {
+        Row: {
+          kill_switch: boolean
+          singleton: boolean
+          updated_at: string
+        }
+        Insert: {
+          kill_switch?: boolean
+          singleton?: boolean
+          updated_at?: string
+        }
+        Update: {
+          kill_switch?: boolean
+          singleton?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       findings: {
         Row: {
           assigned_to_user_id: string | null
@@ -5149,6 +5229,10 @@ export type Database = {
         }
         Returns: Json
       }
+      financial_statements_workspace_access: {
+        Args: { p_company_id: string }
+        Returns: Json
+      }
       fold_engagement_authority: {
         Args: { p_engagement_id: string }
         Returns: {
@@ -5170,6 +5254,20 @@ export type Database = {
           occurred_at: string
           sequence_no: number
         }[]
+      }
+      fs_rollout_allows: { Args: { p_company_id: string }; Returns: boolean }
+      fs_set_company_rollout: {
+        Args: {
+          p_company_id: string
+          p_enabled: boolean
+          p_operator_label: string
+          p_reason: string
+        }
+        Returns: undefined
+      }
+      fs_set_kill_switch: {
+        Args: { p_engaged: boolean; p_operator_label: string; p_reason: string }
+        Returns: undefined
       }
       get_authoritative_certification: {
         Args: { p_company_id: string; p_period_year: number }
