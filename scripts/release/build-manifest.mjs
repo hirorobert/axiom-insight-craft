@@ -25,7 +25,7 @@ const norm = (buf) => Buffer.from(buf.toString("utf8").replace(/\r\n/g, "\n"), "
 const BASE_REF = process.env.RELEASE_BASE_REF ?? "origin/main";
 const baseCommit = git("rev-parse", BASE_REF);
 const sourceCommit = git("rev-parse", "HEAD");
-const branch = git("rev-parse", "--abbrev-ref", "HEAD");
+const branch = process.env.RELEASE_BRANCH ?? "codex/financial-statements-production-readiness"; // fixed: a detached verification checkout would otherwise record "HEAD"
 
 const migrations = git("diff", "--name-only", "--diff-filter=A", `${baseCommit}...HEAD`, "--", "supabase/migrations").split("\n").filter(Boolean).sort();
 const migrationHashes = Object.fromEntries(migrations.map((f) => [f, sha(norm(fs.readFileSync(path.join(REPO, f))))]));
