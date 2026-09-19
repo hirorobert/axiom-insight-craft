@@ -1,105 +1,73 @@
-// Builds docs/release/release-manifest.json — the immutable description of what is
-// being released: base/source commits, the SHA-256 of every new migration, the SHA-256
-// of the built artifacts (dist/), the names (never values) of secrets any step needs,
-// and the state every gate must be in.
+// Builds and verifies docs/release/release-manifest.json.
 //
-// Reproducible: no clock is written, so the same commit + the same dist/ give the same
-// file. `sourceCommit` is the commit the manifest was built FROM (its own commit is the
-// one that adds this file, so it cannot name itself).
+//   node scripts/release/build-manifest.mjs           write the manifest for HEAD (then commit ONLY that file as the tip commit)
+//   node scripts/release/build-manifest.mjs --check   verify that HEAD is that tip commit and the manifest describes the repository exactly
 //
-// Usage: node scripts/release/build-manifest.mjs [--check]
-//   --check   fail if the committed manifest is not what would be built now
+// The design (why a manifest can bind the final tree without naming its own commit) is documented in manifestLib.mjs
+// and in docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md. Nothing here reads the clock; the same repository state
+// always yields the same manifest.
 
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildManifest, git, MANIFEST_PATH, verifyManifest } from "./manifestLib.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const OUT = path.join(REPO, "docs/release/release-manifest.json");
-const git = (...a) => execFileSync("git", a, { cwd: REPO, encoding: "utf8" }).trim();
-const sha = (buf) => createHash("sha256").update(buf).digest("hex");
-const norm = (buf) => Buffer.from(buf.toString("utf8").replace(/\r\n/g, "\n"), "utf8"); // hash the LF form so the value is identical on every checkout
-
 const BASE_REF = process.env.RELEASE_BASE_REF ?? "origin/main";
-const baseCommit = git("rev-parse", BASE_REF);
-const sourceCommit = git("rev-parse", "HEAD");
-const branch = process.env.RELEASE_BRANCH ?? "codex/financial-statements-production-readiness"; // fixed: a detached verification checkout would otherwise record "HEAD"
+const BRANCH = process.env.RELEASE_BRANCH ?? "codex/financial-statements-production-readiness"; // fixed: a detached checkout would otherwise record "HEAD"
 
-// Every commit of the release, oldest first, each exactly once (the manifest's own commit is not in it: it cannot name itself).
-const commits = git("rev-list", "--reverse", `${baseCommit}..${sourceCommit}`).split("\n").filter(Boolean);
-const migrations = git("diff", "--name-only", "--diff-filter=A", `${baseCommit}...HEAD`, "--", "supabase/migrations").split("\n").filter(Boolean).sort();
-const migrationHashes = Object.fromEntries(migrations.map((f) => [f, sha(norm(fs.readFileSync(path.join(REPO, f))))]));
+const docFilesAt = async (ref) => (await git(REPO, ["ls-tree", "-r", "--name-only", ref, "docs/release"])).split("\n").filter((f) => f && f !== MANIFEST_PATH);
 
-const filesUnder = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? filesUnder(path.join(dir, e.name)) : [path.join(dir, e.name)])) : []);
 const dist = path.join(REPO, "dist");
-const artifacts = Object.fromEntries(filesUnder(dist).map((f) => [path.relative(REPO, f).split(path.sep).join("/"), sha(fs.readFileSync(f))]).sort((a, b) => (a[0] < b[0] ? -1 : 1)));
+const filesUnder = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? filesUnder(path.join(dir, e.name)) : [path.join(dir, e.name)])) : []);
 
-const docFiles = ["docs/release/FINANCIAL_STATEMENTS_ACTIVATION.md", "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md", "docs/release/HOSTED_STAGING_ACCEPTANCE.md", "docs/release/E2E_SEVEN_STAGE_PROOF.md", ...filesUnder(path.join(REPO, "docs/release/sql")).map((f) => path.relative(REPO, f).split(path.sep).join("/"))].sort();
-const documents = Object.fromEntries(docFiles.filter((f) => fs.existsSync(path.join(REPO, f))).map((f) => [f, sha(norm(fs.readFileSync(path.join(REPO, f))))]));
-
-const manifest = {
-  schema: "cfoclose.release-manifest.v1",
-  release: "financial-statements-production-readiness",
-  branch,
-  baseCommit,
-  sourceCommit,
-  commitCount: commits.length,
-  commits,
-  migrations: migrationHashes,
-  documents,
-  artifacts: { note: Object.keys(artifacts).length === 0 ? "dist/ was not present when this manifest was built; run `npm run build` and rebuild the manifest" : "sha256 of every file in dist/ for the build made at sourceCommit. The existing vite config embeds the build time and the HEAD commit id, so a rebuild is NOT byte-identical: these hashes identify the reviewed build output, they are not a reproducibility check", files: artifacts },
-  productionProjectRef: { value: "bvyivmmfjejbmqoydezk", use: "identity protection only — no command in this release contacts it" },
-  secretNames: {
-    note: "Names only. Values are never stored in this repository.",
-    browser: ["VITE_SUPABASE_URL", "VITE_SUPABASE_PUBLISHABLE_KEY (public anon key; already deployed)"],
-    operatorOnly: ["service-role key of the target project (used solely to run docs/release/sql/03-05 as a named operator; never shipped to a browser)"],
-    ciStaging: ["STAGING_SUPABASE_URL", "STAGING_SUPABASE_ANON_KEY", "STAGING_SUPABASE_SERVICE_ROLE_KEY", "STAGING_SUPABASE_PROJECT_REF (a variable, not a secret)"],
-  },
-  requiredGateState: {
-    FINANCIAL_STATEMENTS_WORKSPACE_ENABLED: false,
-    FINANCIAL_STATEMENT_PERSISTENCE_ENABLED: false,
-    DOCUMENT_REVIEW_ENABLED: false,
-    serverRollout: "default denied: zero companies enabled, kill switch not engaged",
-  },
-  applied: { productionMigration: false, productionFunctionsDeployed: false, productionFeatureEnabled: false },
-  hostedStaging: { result: "BLOCKED_MISSING_STAGING_PROJECT", note: "No hosted staging project is configured. Local disposable-database proof is separate and is not hosted acceptance." },
-};
-
-const text = JSON.stringify(manifest, null, 2) + "\n";
 if (process.argv.includes("--check")) {
-  // The manifest's own commit cannot be its sourceCommit, so --check verifies content, not the commit id:
-  // sourceCommit must be an ancestor of HEAD, and the migration and document hashes must match the files now on disk.
-  if (!fs.existsSync(OUT)) {
-    console.error("release-manifest.json is missing; run: node scripts/release/build-manifest.mjs");
-    process.exit(1);
-  }
-  const existing = JSON.parse(fs.readFileSync(OUT, "utf8"));
-  let ancestor = true;
-  try {
-    execFileSync("git", ["merge-base", "--is-ancestor", existing.sourceCommit, "HEAD"], { cwd: REPO });
-  } catch {
-    ancestor = false;
-  }
-  const problems = [];
-  if (!ancestor) problems.push(`sourceCommit ${existing.sourceCommit} is not an ancestor of HEAD`);
-  if (existing.baseCommit !== baseCommit) problems.push("baseCommit differs");
-  const recorded = git("rev-list", "--reverse", `${baseCommit}..${existing.sourceCommit}`).split("\n").filter(Boolean);
-  if (JSON.stringify(existing.commits) !== JSON.stringify(recorded) || existing.commitCount !== recorded.length) problems.push("the commit list or count differs from the history");
-  if (new Set(existing.commits).size !== existing.commits.length) problems.push("a commit is listed twice");
-  if (JSON.stringify(existing.migrations) !== JSON.stringify(migrationHashes)) problems.push("migration hashes differ");
-  const docsNow = Object.fromEntries(Object.entries(documents));
-  for (const [f, h] of Object.entries(existing.documents)) if (docsNow[f] !== h) problems.push(`document changed since the manifest: ${f}`);
-  const built = Object.keys(artifacts).length > 0;
-  // Artifact hashes are deliberately not compared: the build embeds its commit id and build time (see the note in the manifest).
+  const parent = await git(REPO, ["rev-parse", "HEAD^"]);
+  const problems = await verifyManifest({ repo: REPO, baseRef: BASE_REF, docFiles: await docFilesAt(parent) });
   if (problems.length > 0) {
-    console.error(["release-manifest.json is stale:", ...problems.map((p) => ` - ${p}`)].join("\n"));
+    console.error(["release-manifest.json does not match the repository:", ...problems.map((p) => ` - ${p}`)].join("\n"));
     process.exit(1);
   }
-  console.log(`release-manifest.json is current (source ${existing.sourceCommit.slice(0, 8)}, ${Object.keys(existing.migrations).length} migrations${built ? ", artifact hashes are informational (build embeds commit id and time)" : ""})`);
+  const m = JSON.parse(fs.readFileSync(path.join(REPO, MANIFEST_PATH), "utf8"));
+  console.log(`release-manifest.json matches the repository exactly (source ${m.sourceCommit.slice(0, 12)}, tree ${m.sourceTree.slice(0, 12)}, ${m.commitCount} commits incl. the manifest tip, ${Object.keys(m.migrations).length} migrations, ${m.changedFiles.length} changed files)`);
 } else {
-  fs.mkdirSync(path.dirname(OUT), { recursive: true });
-  fs.writeFileSync(OUT, text);
-  console.log(`wrote ${path.relative(REPO, OUT)} (source ${sourceCommit.slice(0, 8)}, ${Object.keys(migrationHashes).length} migrations, ${Object.keys(artifacts).length} artifacts)`);
+  const head = await git(REPO, ["rev-parse", "HEAD"]);
+  const touched = (await git(REPO, ["diff", "--name-only", "HEAD^", "HEAD"])).split("\n").filter(Boolean);
+  if (touched.length === 1 && touched[0] === MANIFEST_PATH) {
+    console.error("HEAD is already a manifest-only tip commit. To rebuild the manifest, reset to its parent first (git reset --hard HEAD^), then run this again.");
+    process.exit(1);
+  }
+  if ((await git(REPO, ["status", "--porcelain", "--untracked-files=no"])) !== "") {
+    console.error("The working tree has uncommitted changes to tracked files: the manifest describes committed state only. Commit or stash them first.");
+    process.exit(1);
+  }
+  const artifacts = filesUnder(dist).map((f) => path.relative(REPO, f).split(path.sep).join("/")).sort();
+  const manifest = await buildManifest({
+    repo: REPO,
+    baseRef: BASE_REF,
+    sourceRef: "HEAD",
+    branch: BRANCH,
+    docFiles: await docFilesAt("HEAD"),
+    extra: {
+      productionProjectRef: { value: "bvyivmmfjejbmqoydezk", use: "identity protection only — no command in this release contacts it" },
+      secretNames: {
+        note: "Names only. Values are never stored in this repository.",
+        browser: ["VITE_SUPABASE_URL", "VITE_SUPABASE_PUBLISHABLE_KEY (public anon key; already deployed)"],
+        operatorOnly: ["service-role key of the target project (used solely to run docs/release/sql/03-05 as a named operator; never shipped to a browser)"],
+        ciStaging: ["STAGING_SUPABASE_URL", "STAGING_SUPABASE_ANON_KEY", "STAGING_SUPABASE_SERVICE_ROLE_KEY", "STAGING_SUPABASE_PROJECT_REF (a variable, not a secret)"],
+      },
+      requiredGateState: {
+        FINANCIAL_STATEMENTS_WORKSPACE_ENABLED: false,
+        FINANCIAL_STATEMENT_PERSISTENCE_ENABLED: false,
+        DOCUMENT_REVIEW_ENABLED: false,
+        serverRollout: "default denied: zero companies enabled, kill switch not engaged",
+      },
+      applied: { productionMigration: false, productionFunctionsDeployed: false, productionFeatureEnabled: false },
+      hostedStaging: { result: "BLOCKED_MISSING_STAGING_PROJECT", note: "No hosted staging project is configured. Local disposable-database proof is separate and is not hosted acceptance." },
+      buildArtifacts: { note: artifacts.length === 0 ? "dist/ was not present" : "the vite build embeds the build time and the commit id, so artifact bytes are not reproducible; only their names are listed", files: artifacts },
+    },
+  });
+  fs.mkdirSync(path.dirname(path.join(REPO, MANIFEST_PATH)), { recursive: true });
+  fs.writeFileSync(path.join(REPO, MANIFEST_PATH), JSON.stringify(manifest, null, 2) + "\n");
+  console.log(`wrote ${MANIFEST_PATH} for source ${head.slice(0, 12)} (${manifest.commitCount} commits incl. the manifest tip, ${Object.keys(manifest.migrations).length} migrations). Commit ONLY this file as the tip commit.`);
 }

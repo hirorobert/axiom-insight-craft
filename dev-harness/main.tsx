@@ -49,7 +49,7 @@ async function boot() {
       <div className="mx-auto max-w-5xl p-3 sm:p-6">
         <p className="mb-3 border border-dashed border-border p-2 text-xs text-muted-foreground" data-testid="harness-banner">
           NON-PRODUCTION HARNESS — fixture data · scenario “{scenario}” · framework “{framework ?? "not set"}”
-          {bridge ? ` · disposable database via loopback bridge as simulated user “${simUser}” (not GoTrue)` : ""}
+          {bridge ? ` · LOCAL_SIMULATED_IDENTITY “${simUser}” on a disposable database via loopback bridge — not GoTrue, not hosted acceptance` : ""}
         </p>
         <FinancialStatementsWorkspace
           key={`${scenario}-${framework}-${simUser}-${companyId}`}

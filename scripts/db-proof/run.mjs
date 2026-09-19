@@ -313,6 +313,30 @@ async function proveCatalog() {
     const r = (await admin.query(`SELECT count(*)::int n FROM information_schema.columns WHERE table_schema='public' AND table_name = ANY($1) AND data_type IN ('real','double precision','numeric')`, [tables])).rows[0];
     return r.n === 0;
   });
+  await check("the rollout decision FAILS CLOSED: a missing state row or missing company row is a denial, never an implicit allow", async () => {
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN");
+      // The company IS enabled, so only the missing state row can produce an answer: it must be a denial.
+      await c.query("INSERT INTO public.financial_statements_rollout_companies (company_id, enabled) VALUES ($1, true) ON CONFLICT (company_id) DO UPDATE SET enabled = true", [COMPANY_A]);
+      await c.query("DELETE FROM public.financial_statements_rollout_state");
+      const noState = (await c.query("SELECT public.fs_rollout_allows($1) a", [COMPANY_A])).rows[0].a;
+      await c.query("ROLLBACK");
+      await c.query("BEGIN");
+      await c.query("DELETE FROM public.financial_statements_rollout_companies WHERE company_id = $1", [COMPANY_A]);
+      const noCompany = (await c.query("SELECT public.fs_rollout_allows($1) a", [COMPANY_A])).rows[0].a;
+      await c.query("ROLLBACK");
+      return noState === false && noCompany === false;
+    } finally {
+      c.release();
+    }
+  });
+  await check("every table this release owns has RLS enabled, and history is readable only through company membership (no policy reads firm_members directly)", async () => {
+    const owned = ["financial_evidence_batches", "financial_statement_reports", "financial_statement_evaluations", "financial_statement_reviewer_decisions", "financial_statement_correction_groups", "financial_statement_publications", "financial_statement_audit_events", "financial_statement_framework_requirements", "financial_statements_rollout_state", "financial_statements_rollout_companies", "financial_statements_rollout_audit"];
+    const r = (await admin.query("SELECT c.relname, c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relname = ANY($1)", [owned])).rows;
+    const pol = (await admin.query("SELECT tablename, qual FROM pg_policies WHERE schemaname='public' AND tablename = ANY($1)", [owned])).rows;
+    return r.length === owned.length && r.every((x) => x.relrowsecurity) && pol.every((p) => !/firm_members/.test(p.qual ?? ""));
+  });
   await check("rollout state defaults: kill switch off, zero companies enabled", async () => {
     const s = (await admin.query("SELECT kill_switch FROM public.financial_statements_rollout_state")).rows;
     const c = (await admin.query("SELECT count(*)::int n FROM public.financial_statements_rollout_companies WHERE enabled")).rows[0].n;
@@ -595,7 +619,7 @@ async function proveTenancyAndImmutability() {
   });
   await check("a pending (unaccepted) member reads nothing", async () => (await rpc(user(U.pending), "SELECT count(*)::int n FROM public.financial_evidence_batches"))[0].n === 0);
   await expectError("anon cannot read reports (no grant)", "42501", () => rpc(ANON, "SELECT * FROM public.financial_statement_reports"));
-  for (const t of ["financial_evidence_batches", "financial_statement_reports", "financial_statement_evaluations", "financial_statement_reviewer_decisions", "financial_statement_correction_groups", "financial_statement_publications"]) {
+  for (const t of ["financial_evidence_batches", "financial_statement_reports", "financial_statement_evaluations", "financial_statement_reviewer_decisions", "financial_statement_correction_groups", "financial_statement_publications", "financial_statement_audit_events"]) {
     await expectError(`${t}: authenticated direct UPDATE denied`, "42501", () => rpc(user(U.owner), `UPDATE public.${t} SET id = id`));
     await expectError(`${t}: authenticated direct DELETE denied`, "42501", () => rpc(user(U.owner), `DELETE FROM public.${t}`));
     await expectError(`${t}: table owner UPDATE rejected by append-only trigger`, "P0001", () => admin.query(`UPDATE public.${t} SET id = id`));
@@ -711,7 +735,7 @@ async function proveServerCompleteness() {
     const seen = Object.fromEntries(a.map((x) => [x.action, x.n]));
     let immutable = false;
     try { await admin.query("UPDATE public.financial_statement_audit_events SET detail = '{}'"); } catch (e) { immutable = e.code === "P0001"; }
-    return ["EVIDENCE_INGESTED", "REPORT_VERSION_SAVED", "DECISION_RECORDED", "PUBLICATION_STATE_SET"].every((k) => seen[k] > 0) && immutable;
+    return ["EVIDENCE_INGESTED", "REPORT_VERSION_SAVED", "DECISION_RECORDED", "PUBLICATION_STATE_SET", "EVALUATION_RECORDED", "REVISION_COMMITTED"].every((k) => seen[k] > 0) && immutable;
   });
 }
 

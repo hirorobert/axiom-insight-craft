@@ -9,6 +9,7 @@
  * workspace, company and period identity, and refresh keeps the place. Exactly
  * one dominant next action is shown, derived from the first unmet precondition.
  */
+import { useRef } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -72,6 +73,18 @@ function FinancialStatementsWorkspaceEnabled(props: FinancialStatementsWorkspace
     setParams(p, { replace: false });
   }
 
+  // WAI-ARIA tabs with automatic activation: one tab stop (roving tabindex); arrows, Home and End move between the seven stages and keep focus on the tab.
+  const tabRefs = useRef<Partial<Record<WorkspaceStage, HTMLButtonElement | null>>>({});
+  function onTabKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    const last = WORKSPACE_STAGES.length - 1;
+    const target = e.key === "ArrowRight" ? (index + 1) % (last + 1) : e.key === "ArrowLeft" ? (index + last) % (last + 1) : e.key === "Home" ? 0 : e.key === "End" ? last : null;
+    if (target === null) return;
+    e.preventDefault();
+    const next = WORKSPACE_STAGES[target];
+    go(next);
+    window.setTimeout(() => tabRefs.current[next]?.focus(), 0);
+  }
+
   // A finding's affected line lives on the Statements stage: move there first, then focus once it has rendered.
   function focusFromAnywhere(lineId: string) {
     if (focusLine(lineId)) return;
@@ -114,10 +127,15 @@ function FinancialStatementsWorkspaceEnabled(props: FinancialStatementsWorkspace
                 type="button"
                 role="tab"
                 id={`fs-tab-${s}`}
+                ref={(el) => {
+                  tabRefs.current[s] = el;
+                }}
                 aria-selected={stage === s}
                 aria-controls="fs-stage-panel"
+                tabIndex={stage === s ? 0 : -1}
                 data-stage={s}
                 onClick={() => go(s)}
+                onKeyDown={(e) => onTabKeyDown(e, i)}
                 className={`whitespace-nowrap border-b-2 px-3 py-2 text-xs font-medium focus-visible:outline focus-visible:outline-2 ${stage === s ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
               >
                 <span className="mr-1 text-[10px] text-muted-foreground">{i + 1}</span>
@@ -141,7 +159,7 @@ function FinancialStatementsWorkspaceEnabled(props: FinancialStatementsWorkspace
         </div>
       )}
 
-      <div id="fs-stage-panel" role="tabpanel" aria-labelledby={`fs-tab-${stage}`} className="min-w-0">
+      <div id="fs-stage-panel" role="tabpanel" aria-labelledby={`fs-tab-${stage}`} tabIndex={0} className="min-w-0 focus-visible:outline focus-visible:outline-2">
         {model.status === "loading" && (
           <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

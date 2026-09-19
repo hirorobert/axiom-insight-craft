@@ -89,7 +89,8 @@ CREATE OR REPLACE FUNCTION public.fs_rollout_allows(p_company_id UUID)
   SECURITY DEFINER
   SET search_path = pg_catalog, public
 AS $$
-  SELECT NOT (SELECT s.kill_switch FROM public.financial_statements_rollout_state s WHERE s.singleton)
+  -- FAIL CLOSED: a missing state row or a missing company row is a denial, never an implicit allow (NULL would otherwise pass `NOT`).
+  SELECT COALESCE((SELECT NOT s.kill_switch FROM public.financial_statements_rollout_state s WHERE s.singleton), false)
      AND COALESCE((SELECT c.enabled FROM public.financial_statements_rollout_companies c WHERE c.company_id = p_company_id), false);
 $$;
 

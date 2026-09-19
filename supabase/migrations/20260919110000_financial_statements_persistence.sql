@@ -231,7 +231,7 @@ CREATE TABLE public.financial_statement_audit_events (
   CONSTRAINT fsae_pk PRIMARY KEY (id),
   CONSTRAINT fk_fsae_company FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT,
   CONSTRAINT fk_fsae_actor FOREIGN KEY (actor_firm_member_id) REFERENCES public.firm_members(id) ON DELETE RESTRICT,
-  CONSTRAINT chk_fsae_action CHECK (action IN ('EVIDENCE_INGESTED', 'REPORT_VERSION_SAVED', 'DECISION_RECORDED', 'CORRECTION_GROUP_APPLIED', 'PUBLICATION_STATE_SET', 'REVISION_COMMITTED'))
+  CONSTRAINT chk_fsae_action CHECK (action IN ('EVIDENCE_INGESTED', 'REPORT_VERSION_SAVED', 'DECISION_RECORDED', 'CORRECTION_GROUP_APPLIED', 'PUBLICATION_STATE_SET', 'REVISION_COMMITTED', 'EVALUATION_RECORDED'))
 );
 
 CREATE INDEX idx_fsae_company ON public.financial_statement_audit_events (company_id, seq DESC);
@@ -912,10 +912,19 @@ CREATE OR REPLACE FUNCTION public.fs_save_evaluation(
   SET search_path = pg_catalog, public
 AS $$
 DECLARE
-  v_actor UUID;
+  v_actor   UUID;
+  v_existed BOOLEAN;
+  v_row     public.financial_statement_evaluations;
 BEGIN
   v_actor := public.fs_actor_member_id(p_company_id);
-  RETURN public.fs_store_evaluation(p_evaluation_run_id, p_report_id, p_report_version, p_company_id, p_rule_pack_id, p_rule_pack_version, p_engine_version, p_input_hash, p_findings);
+  v_existed := EXISTS (SELECT 1 FROM public.financial_statement_evaluations e WHERE e.evaluation_run_id = p_evaluation_run_id);
+  v_row := public.fs_store_evaluation(p_evaluation_run_id, p_report_id, p_report_version, p_company_id, p_rule_pack_id, p_rule_pack_version, p_engine_version, p_input_hash, p_findings);
+  -- Every accepted write leaves an attributable, immutable event; an exact replay of an existing evaluation writes nothing new.
+  IF NOT v_existed THEN
+    PERFORM public.fs_audit_event(p_company_id, p_report_id, 'EVALUATION_RECORDED',
+      jsonb_build_object('reportVersion', p_report_version::text, 'evaluationRunId', p_evaluation_run_id, 'inputHash', p_input_hash), v_actor);
+  END IF;
+  RETURN v_row;
 END;
 $$;
 
