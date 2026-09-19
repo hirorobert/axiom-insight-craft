@@ -149,8 +149,8 @@ describe("migration directory integrity", () => {
     // — the North-Star document-review canonical table (UNAPPLIED — committed
     // for review only, per its own header comment; sorts after every prior
     // migration). Bumped from 121 -> 123: the two forward-only, UNAPPLIED
-    // financial-statements migrations (20260920000000 rollout control and
-    // 20260920100000 persistence), added for review only.
+    // financial-statements migrations (20260919100000 rollout control and
+    // 20260919110000 persistence), added for review only.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
     expect(files.length).toBe(123);
   });

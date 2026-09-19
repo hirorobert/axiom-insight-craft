@@ -52,9 +52,9 @@ function rotr(x: number, n: number): number {
   return (x >>> n) | (x << (32 - n));
 }
 
-/** Deterministic SHA-256 over the UTF-8 bytes of `input`, returned as lowercase hex. */
-export function sha256Hex(input: string): string {
-  const bytes = new TextEncoder().encode(input);
+/** Deterministic SHA-256 over the UTF-8 bytes of a string (or the raw bytes given), returned as lowercase hex. */
+export function sha256Hex(input: string | Uint8Array): string {
+  const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
   const bitLength = bytes.length * 8;
 
   // Pad: 0x80, then zeros, then the 64-bit big-endian bit length, to a multiple of 64 bytes.

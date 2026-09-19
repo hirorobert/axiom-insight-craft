@@ -67,7 +67,7 @@ describe("Ω3-CHECKOUT migration — presence and ordering", () => {
     // The Lovable-managed trigger-repair migration (20260915045958) and the
     // North-Star financial_statement_documents migration (20260915100000,
     // unapplied — see supabase/migrations/20260915100000_financial_statement_documents.sql)
-    // precede the two financial-statements migrations (20260920000000, 20260920100000).
+    // precede the two financial-statements migrations (20260919100000, 20260919110000).
     expect(thisIndex).toBe(sorted.length - 10);
     expect(sorted[sorted.length - 9]).toBe(
       "20260913000000_omega4_checkout_acquisition_hardening.sql",
@@ -91,8 +91,8 @@ describe("Ω3-CHECKOUT migration — presence and ordering", () => {
       "20260915100000_financial_statement_documents.sql",
     );
     // The two forward-only, UNAPPLIED financial-statements migrations are the newest entries.
-    expect(sorted[sorted.length - 2]).toBe("20260920000000_financial_statements_rollout_control.sql");
-    expect(sorted[sorted.length - 1]).toBe("20260920100000_financial_statements_persistence.sql");
+    expect(sorted[sorted.length - 2]).toBe("20260919100000_financial_statements_rollout_control.sql");
+    expect(sorted[sorted.length - 1]).toBe("20260919110000_financial_statements_persistence.sql");
   });
 
   it("never edits a live Ω1/RLS1/Ω2/Ω3.0 migration file (forward-only)", () => {

@@ -52,6 +52,10 @@ export const IPSAS_SECTIONS = ["OPENING_CASH", "RECEIPTS", "PAYMENTS", "THIRD_PA
 export const SCHEDULE_ROLES = ["OPENING", "ADDITION", "DISPOSAL", "OTHER_ADD", "OTHER_SUBTRACT", "CLOSING", "DETAIL", "TOTAL"] as const;
 export const NOTE_KINDS = ["NOTE", "POLICY", "DISCLOSURE"] as const;
 export const APPLICABILITY = ["APPLICABLE", "NOT_APPLICABLE"] as const;
+export const CASH_CATEGORIES = ["BANK_ACCOUNT", "CASH_ON_HAND", "MOBILE_MONEY", "DESIGNATED_PROJECT", "RESTRICTED_CASH", "OVERDRAFT", "CASH_ECL_ALLOWANCE", "EXCLUDED_NON_CASH"] as const;
+export const CASH_EFFECTS = ["ADD", "SUBTRACT"] as const;
+/** Categories whose balances are part of cash and cash equivalents and therefore of the cash-flow closing figure. */
+export const CASH_ASSET_CATEGORIES = ["BANK_ACCOUNT", "CASH_ON_HAND", "MOBILE_MONEY", "DESIGNATED_PROJECT", "RESTRICTED_CASH"] as const;
 export const PRIOR_STATEMENT_TYPES = ["FINANCIAL_POSITION", "PROFIT_OR_LOSS", "CHANGES_IN_EQUITY", "CASH_FLOWS", "CASH_RECEIPTS_AND_PAYMENTS"] as const;
 
 function duplicates(values: readonly string[]): string[] {
@@ -180,6 +184,22 @@ export const FAMILY_SCHEMAS: Readonly<Record<Exclude<EvidenceType, "TRIAL_BALANC
     hasAmounts: true,
     columns: [req("statement_type", { oneOf: PRIOR_STATEMENT_TYPES }), req("line_key", "KEY"), req("line_label", "TEXT"), req("amount", "DECIMAL"), opt("restated", "YESNO")],
     crossRow: (rows) => uniqueKey(rows, ["statement_type", "line_key"], "DUPLICATE_LINE_KEY", "Prior-period line"),
+  },
+
+  CASH_ACCOUNT_MAP: {
+    hasAmounts: false,
+    columns: [req("account_key", "KEY"), req("category", { oneOf: CASH_CATEGORIES }), req("effect", { oneOf: CASH_EFFECTS }), req("include_in_cash_flow", "YESNO"), opt("note", "TEXT")],
+    crossRow(rows) {
+      const out: EvidenceDiagnostic[] = [...uniqueKey(rows, ["account_key"], "ACCOUNT_MAPPED_TWICE", "Account key")];
+      for (let i = 0; i < rows.count; i++) {
+        const cat = rows.cell(i, "category");
+        const inc = rows.cell(i, "include_in_cash_flow").toUpperCase().startsWith("Y");
+        const asset = (CASH_ASSET_CATEGORIES as readonly string[]).includes(cat);
+        if (asset && !inc) out.push(err("CASH_MAP_INCONSISTENT", `${cat} balances are part of cash and cash equivalents; include_in_cash_flow must be Y.`, i + 1, "include_in_cash_flow", rows.cell(i, "include_in_cash_flow")));
+        if ((cat === "EXCLUDED_NON_CASH" || cat === "CASH_ECL_ALLOWANCE") && inc) out.push(err("CASH_MAP_INCONSISTENT", `${cat} is not part of the cash-flow closing figure; include_in_cash_flow must be N.`, i + 1, "include_in_cash_flow", rows.cell(i, "include_in_cash_flow")));
+      }
+      return out;
+    },
   },
 
   EXTRACTED_CANDIDATES: {

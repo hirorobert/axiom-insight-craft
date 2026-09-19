@@ -21,6 +21,7 @@ import { amountOf, columnReader, type EvidenceRowRef, type GenerationDiagnostic,
 import { buildEquityStatement, type EquityPeriodInput } from "./equityStatement";
 import { buildIpsasCashStatement, type IpsasCashPeriodInput } from "./ipsasCash";
 import { assembleNotes, type ChecklistItem } from "./notesAndSchedules";
+import { cashPerimeterFactId, establishCashPerimeter, type CashPerimeterResult } from "./cashPerimeter";
 
 export interface StoredEvidence {
   readonly batch: EvidenceBatch;
@@ -71,6 +72,8 @@ export interface ApplyEvidenceResult {
   readonly budgetActual: BudgetActualComparison | { status: "EVIDENCE_GAP"; reasons: readonly string[] } | null;
   readonly checklist: readonly ChecklistItem[];
   readonly evidenceIndex: Readonly<Record<string, readonly EvidenceRowRef[]>>;
+  /** The multi-account cash perimeter when a cash account map was supplied; null otherwise. */
+  readonly cashPerimeter: CashPerimeterResult | null;
   readonly use: readonly EvidenceUse[];
   readonly diagnostics: readonly GenerationDiagnostic[];
 }
@@ -107,7 +110,11 @@ function latestFactValue(report: CanonicalFinancialStatementReport, factId: stri
 }
 
 /** Opening cash for a period = closing cash of the period before it, from the comparative SFP or from prior-period statements evidence. */
-function openingCashFor(report: CanonicalFinancialStatementReport, evidence: readonly EvidenceBatch[], role: PeriodRole): { money: Money; source: string } | null {
+function openingCashFor(report: CanonicalFinancialStatementReport, evidence: readonly EvidenceBatch[], role: PeriodRole, perimeter: CashPerimeterResult | null): { money: Money; source: string } | null {
+  if (role === "CURRENT" && perimeter?.status === "ESTABLISHED" && report.comparativePeriods[0]) {
+    const fromPerimeter = perimeter.facts.find((f) => f.factId === cashPerimeterFactId("cfexpected", report.comparativePeriods[0].periodId))?.value;
+    if (fromPerimeter) return { money: fromPerimeter, source: "the comparative-period cash perimeter (all mapped cash accounts)" };
+  }
   if (role === "CURRENT") {
     const comparative = report.comparativePeriods[0];
     const sfp = report.statements.find((s) => s.type === "STATEMENT_OF_FINANCIAL_POSITION");
@@ -146,13 +153,22 @@ export function applyEvidence(input: ApplyEvidenceInput): ApplyEvidenceResult {
   // Cash tie: when exactly one SFP line is a reviewed cash account, it carries the cash concept so Rule 6 can test the cash flow against it.
   const sfpIndex = report.statements.findIndex((s) => s.type === "STATEMENT_OF_FINANCIAL_POSITION");
   const cashKeys = input.cashAccountKeys ?? [];
-  if (sfpIndex >= 0 && cashKeys.length === 1) {
+  const mapBatch = one(usable, "CASH_ACCOUNT_MAP", "CURRENT");
+  let perimeter: CashPerimeterResult | null = null;
+  if (mapBatch && sfpIndex >= 0) {
+    perimeter = establishCashPerimeter({ report, map: mapBatch, reviewedCashAccountKeys: cashKeys });
+    diagnostics.push(...perimeter.diagnostics);
+    use.push({ evidenceType: "CASH_ACCOUNT_MAP", periodRole: "CURRENT", evidenceBatchId: mapBatch.evidenceBatchId, used: perimeter.status === "ESTABLISHED", reason: perimeter.status === "ESTABLISHED" ? "Used to establish the multi-account cash perimeter." : `The perimeter could not be established: ${perimeter.reasons.join(" ")}` });
+  } else if (mapBatch) {
+    use.push({ evidenceType: "CASH_ACCOUNT_MAP", periodRole: "CURRENT", evidenceBatchId: mapBatch.evidenceBatchId, used: false, reason: "There is no statement of financial position to build the cash perimeter from." });
+  }
+  if (!mapBatch && sfpIndex >= 0 && cashKeys.length === 1) {
     const targetId = `line:detail:sfp:${cashKeys[0]}`;
     const sfp = report.statements[sfpIndex];
     const retagged: Statement = { ...sfp, sections: sfp.sections.map((sec) => ({ ...sec, lines: sec.lines.map((l): StatementLine => (l.lineId === targetId && !sfp.sections.some((s2) => s2.lines.some((x) => x.concept === CANONICAL_CONCEPTS.CASH_AND_CASH_EQUIVALENTS_SFP)) ? { ...l, concept: CANONICAL_CONCEPTS.CASH_AND_CASH_EQUIVALENTS_SFP } : l)) })) };
     report = { ...report, statements: report.statements.map((s, i) => (i === sfpIndex ? retagged : s)) };
-  } else if (sfpIndex >= 0) {
-    diagnostics.push({ code: "CASH_PERIMETER_NOT_SINGLE_LINE", severity: "INFO", message: cashKeys.length === 0 ? "No trial-balance account is reviewed as a cash account, so closing cash cannot be tied to the statement of financial position." : `${cashKeys.length} accounts are reviewed as cash; the closing-cash tie needs a single cash line on the statement of financial position, so it is reported as insufficient evidence rather than guessed.` });
+  } else if (!mapBatch && sfpIndex >= 0) {
+    diagnostics.push({ code: "CASH_ACCOUNT_MAP_REQUIRED", severity: "INFO", message: cashKeys.length === 0 ? "No trial-balance account is reviewed as a cash account and no cash account map was supplied, so closing cash cannot be tied to the trial balance." : `${cashKeys.length} accounts are reviewed as cash and no cash account map was supplied. Add a cash account map (each account's category, effect and cash-flow treatment): the closing-cash tie is reported as insufficient evidence rather than guessed.` });
   }
 
   const periodFor = (role: PeriodRole) => (role === "CURRENT" ? { periodId: report.period.periodId, isComparative: false } : comparative ? { periodId: comparative.periodId, isComparative: true } : null);
@@ -192,7 +208,7 @@ export function applyEvidence(input: ApplyEvidenceInput): ApplyEvidenceResult {
     if (items.length > 0) collect("STATEMENT_OF_CASH_RECEIPTS_AND_PAYMENTS", buildIpsasCashStatement(items), batches);
   } else {
     const ledger = inputs<CashFlowPeriodInput>("TRANSACTION_LEDGER", (batch, p, role) => {
-      const opening = openingCashFor(report, usable, role);
+      const opening = openingCashFor(report, usable, role, perimeter);
       return { ...p, ledger: batch, openingCash: opening?.money ?? null, openingSource: opening?.source };
     });
     if (ledger.items.length > 0) collect("STATEMENT_OF_CASH_FLOWS", buildDirectCashFlow(ledger.items), ledger.batches);
@@ -201,10 +217,10 @@ export function applyEvidence(input: ApplyEvidenceInput): ApplyEvidenceResult {
   }
 
   // Notes, policies and schedules (need the statements above so lines can be resolved).
-  const withStatements: CanonicalFinancialStatementReport = { ...report, statements: [...report.statements, ...addStatements], facts: [...report.facts, ...addFacts] };
+  const withStatements: CanonicalFinancialStatementReport = { ...report, statements: [...report.statements, ...addStatements], facts: [...report.facts, ...addFacts, ...(perimeter?.facts ?? [])] };
   const notesBatch = one(usable, "NOTES_AND_POLICIES", "CURRENT") ?? null;
   const scheduleBatches = usable.filter((b) => b.evidenceType === "SUPPORTING_SCHEDULE");
-  const assembly = assembleNotes(withStatements, notesBatch, scheduleBatches, profile.disclosureAreas);
+  const assembly = assembleNotes(withStatements, notesBatch, scheduleBatches, profile.disclosureAreas, perimeter?.note ? { notes: [perimeter.note], unreferencedNoteIds: [perimeter.note.noteId] } : undefined);
   diagnostics.push(...assembly.diagnostics);
   for (const b of [notesBatch, ...scheduleBatches]) if (b) use.push({ evidenceType: b.evidenceType, periodRole: b.periodRole, evidenceBatchId: b.evidenceBatchId, used: true, reason: "Assembled into notes, policies and schedules." });
   for (const [key, ref] of Object.entries(assembly.scheduleRows)) evidenceIndex[`schedule:${key}`] = [{ batchId: ref.batchId, rowNumbers: ref.rowNumbers }];
@@ -231,5 +247,5 @@ export function applyEvidence(input: ApplyEvidenceInput): ApplyEvidenceResult {
     use.push({ evidenceType: "BUDGET", periodRole: "CURRENT", evidenceBatchId: budget.evidenceBatchId, used: budgetActual.status === "GENERATED", reason: budgetActual.status === "GENERATED" ? "Used for the budget comparison." : budgetActual.reasons.join(" ") });
   }
 
-  return { report: finalReport, generated, budgetActual, checklist: assembly.checklist, evidenceIndex, use, diagnostics };
+  return { report: finalReport, generated, budgetActual, checklist: assembly.checklist, evidenceIndex, cashPerimeter: perimeter, use, diagnostics };
 }

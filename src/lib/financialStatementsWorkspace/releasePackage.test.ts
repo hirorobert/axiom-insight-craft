@@ -40,7 +40,7 @@ describe("release package", () => {
       }
       return out;
     };
-    const files = [...walk("src"), ...sqlFiles.map((f) => `${SQL_DIR}/${f}`), "supabase/migrations/20260920000000_financial_statements_rollout_control.sql", "supabase/migrations/20260920100000_financial_statements_persistence.sql"];
+    const files = [...walk("src"), ...sqlFiles.map((f) => `${SQL_DIR}/${f}`), "supabase/migrations/20260919100000_financial_statements_rollout_control.sql", "supabase/migrations/20260919110000_financial_statements_persistence.sql"];
     expect(files.filter((f) => /bvyivmmfjejbmqoydezk/.test(read(f)))).toEqual([]);
   });
 
@@ -59,7 +59,7 @@ describe("release package", () => {
     const p = path.join(ROOT, "docs/release/release-manifest.json");
     if (!fs.existsSync(p)) return;
     const m = JSON.parse(fs.readFileSync(p, "utf8"));
-    expect(Object.keys(m.migrations)).toEqual(["supabase/migrations/20260920000000_financial_statements_rollout_control.sql", "supabase/migrations/20260920100000_financial_statements_persistence.sql"]);
+    expect(Object.keys(m.migrations)).toEqual(["supabase/migrations/20260919100000_financial_statements_rollout_control.sql", "supabase/migrations/20260919110000_financial_statements_persistence.sql"]);
     for (const [file, hash] of Object.entries(m.migrations)) expect(createHash("sha256").update(lf(read(file))).digest("hex"), file).toBe(hash);
     expect(m.applied).toEqual({ productionMigration: false, productionFunctionsDeployed: false, productionFeatureEnabled: false });
     expect(Object.values(m.requiredGateState).filter((v) => typeof v === "boolean").every((v) => v === false)).toBe(true);

@@ -2,7 +2,7 @@
 //
 // Every accounting input to a statement set other than the reviewed trial
 // balance's own account balances is an EVIDENCE BATCH: an immutable, versioned,
-// replay-identified parse of one source file, with exact diagnostics. Nine
+// replay-identified parse of one source file, with exact diagnostics. Ten
 // families exist (A–I). A batch document contains ONLY strings, arrays, objects,
 // booleans and null — never a JSON number — so an amount can never pass through
 // binary floating point on its way to the database, and the database refuses any
@@ -20,6 +20,7 @@ export const EVIDENCE_TYPES = [
   "NOTES_AND_POLICIES", // G
   "PRIOR_PERIOD_STATEMENTS", // H
   "EXTRACTED_CANDIDATES", // I — gated: may never feed a statement
+  "CASH_ACCOUNT_MAP", // J — explicit account → cash-category authority for multi-account cash
 ] as const;
 export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
 
@@ -57,6 +58,12 @@ export interface EvidenceBatchDocument {
   readonly scale: string | null;
   readonly columns: readonly string[];
   readonly rows: readonly (readonly string[])[];
+  /** How the rows were obtained. Strings only, like everything in this document. */
+  readonly sourceFormat?: "CSV" | "XLSX" | "CORRECTION";
+  readonly sourceSheet?: string;
+  /** One locator per data row (e.g. "Ledger!A5:H5"), aligned with `rows`. */
+  readonly rowLocators?: readonly string[];
+  readonly sourceFileSha256?: string;
 }
 
 export interface EvidenceBatch {
@@ -97,4 +104,5 @@ export const EVIDENCE_TYPE_LABELS: Readonly<Record<EvidenceType, string>> = {
   NOTES_AND_POLICIES: "Notes and policies",
   PRIOR_PERIOD_STATEMENTS: "Prior-period statements",
   EXTRACTED_CANDIDATES: "Extracted candidates (review only)",
+  CASH_ACCOUNT_MAP: "Cash account map",
 };

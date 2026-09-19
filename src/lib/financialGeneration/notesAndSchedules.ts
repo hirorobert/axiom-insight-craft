@@ -60,9 +60,15 @@ function textProvenance(batch: EvidenceBatch, row: number, text: string): Proven
   };
 }
 
-export function assembleNotes(report: CanonicalFinancialStatementReport, notesBatch: EvidenceBatch | null, scheduleBatches: readonly EvidenceBatch[], areas: readonly DisclosureArea[]): NotesAssembly {
+/** Notes built elsewhere (e.g. the cash perimeter) that need deterministic numbering; `unreferencedNoteIds` are legitimately not referenced from a face line. */
+export interface ExtraNotes {
+  readonly notes: readonly Note[];
+  readonly unreferencedNoteIds: readonly string[];
+}
+
+export function assembleNotes(report: CanonicalFinancialStatementReport, notesBatch: EvidenceBatch | null, scheduleBatches: readonly EvidenceBatch[], areas: readonly DisclosureArea[], extra?: ExtraNotes): NotesAssembly {
   const diagnostics: GenerationDiagnostic[] = [];
-  const notes = new Map<string, Note>();
+  const notes = new Map<string, Note>(extra?.notes.map((n) => [n.noteId, n] as const) ?? []);
   const refs: NoteReference[] = [];
   const policies: AccountingPolicy[] = [];
   const disclosures: TextualDisclosure[] = [];
@@ -173,7 +179,7 @@ export function assembleNotes(report: CanonicalFinancialStatementReport, notesBa
   const provisional: CanonicalFinancialStatementReport = { ...report, notes: [...notes.values()], noteReferences: [...report.noteReferences, ...refs] };
   const numbering = deriveNoteNumbering(provisional);
   const numbered = [...notes.values()].map((n) => ({ ...n, noteNumber: numbering.numberByNoteId.get(n.noteId) ?? "0" })).sort((a, b) => Number(a.noteNumber) - Number(b.noteNumber));
-  for (const d of numbering.diagnostics) if (d.code === "NOTE_NOT_REFERENCED") diagnostics.push({ code: "NOTE_NOT_REFERENCED", severity: "WARNING", message: d.message });
+  for (const d of numbering.diagnostics) if (d.code === "NOTE_NOT_REFERENCED" && !(d.noteId && extra?.unreferencedNoteIds.includes(d.noteId))) diagnostics.push({ code: "NOTE_NOT_REFERENCED", severity: "WARNING", message: d.message });
 
   return { notes: numbered, noteReferences: refs, accountingPolicies: policies, textualDisclosures: disclosures, facts, checklist, diagnostics, scheduleRows };
 }

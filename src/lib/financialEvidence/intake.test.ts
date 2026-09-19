@@ -56,8 +56,8 @@ describe("intake — every family", () => {
     expect(b.validationStatus).toBe("REQUIRES_REVIEW");
     expect(isUsableEvidence(b)).toBe(false);
   });
-  it("covers exactly nine evidence families", () => {
-    expect(EVIDENCE_TYPES).toHaveLength(9);
+  it("covers exactly ten evidence families (trial balance reference plus nine parsed families)", () => {
+    expect(EVIDENCE_TYPES).toHaveLength(10);
   });
 });
 

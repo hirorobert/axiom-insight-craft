@@ -8,8 +8,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 const DIR = path.resolve(__dirname, "../../../supabase/migrations");
-const ROLLOUT = "20260920000000_financial_statements_rollout_control.sql";
-const PERSIST = "20260920100000_financial_statements_persistence.sql";
+const ROLLOUT = "20260919100000_financial_statements_rollout_control.sql";
+const PERSIST = "20260919110000_financial_statements_persistence.sql";
 const read = (f: string) => fs.readFileSync(path.join(DIR, f), "utf8").replace(/\r\n/g, "\n");
 const rollout = read(ROLLOUT);
 const persist = read(PERSIST);
@@ -85,7 +85,7 @@ describe("financial-statements migrations — function hardening", () => {
     expect(actor).toMatch(/fs_rollout_allows/);
     for (const { name, body } of fns) {
       const header = body.split(/\bAS \$\$/)[0];
-      if (name === "fs_actor_member_id") continue;
+      if (name === "fs_actor_member_id" || name === "fs_audit_event" || name === "fs_ingest_evidence_internal") continue; // internal: revoked from every client role
       expect(header, name).not.toMatch(/p_(actor|reviewer|firm_member|user)\w*/i);
     }
   });
@@ -96,8 +96,8 @@ describe("financial-statements migrations — function hardening", () => {
     }
   });
 
-  it("version writers serialise with an advisory lock", () => {
-    for (const n of ["fs_ingest_evidence_batch", "fs_save_report_version", "fs_apply_correction_group", "fs_set_publication_state", "fs_append_decision"]) {
+  it("version writers serialise with an advisory lock (ingest does so inside its internal implementation)", () => {
+    for (const n of ["fs_ingest_evidence_internal", "fs_save_report_version", "fs_apply_correction_group", "fs_set_publication_state", "fs_append_decision"]) {
       expect(fns.find((f) => f.name === n)?.body, n).toMatch(/pg_advisory_xact_lock/);
     }
   });
@@ -106,11 +106,13 @@ describe("financial-statements migrations — function hardening", () => {
 describe("financial-statements migrations — table hardening", () => {
   const tables = [...both.matchAll(/CREATE TABLE public\.(\w+)/g)].map((m) => m[1]);
 
-  it("creates exactly the expected nine tables", () => {
+  it("creates exactly the expected eleven tables", () => {
     expect(tables.sort()).toEqual(
       [
         "financial_evidence_batches",
+        "financial_statement_audit_events",
         "financial_statement_correction_groups",
+        "financial_statement_framework_requirements",
         "financial_statement_evaluations",
         "financial_statement_publications",
         "financial_statement_reports",
@@ -132,7 +134,25 @@ describe("financial-statements migrations — table hardening", () => {
     expect(withoutAllowlist).not.toMatch(/ON DELETE SET NULL/);
   });
 
-  it("the six history tables get append-only triggers, RLS, and SELECT-only grants through the member helper", () => {
+  it("publication readiness is decided by the database: the gate calls fs_publication_blockers and no client role can call it or the internals", () => {
+    const pub = fns.find((f) => f.name === "fs_set_publication_state")!.body;
+    expect(pub).toMatch(/fs_publication_blockers\(/);
+    expect(pub).toMatch(/BLOCKED:/);
+    for (const n of ["fs_publication_blockers", "fs_unmet_reconciliation_count", "fs_audit_event", "fs_ingest_evidence_internal"]) {
+      expect(both, n).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${n}\\(`));
+      expect(both, n).not.toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${n}\\([^)]*\\) TO[^;]*authenticated`));
+    }
+    const blockers = fns.find((f) => f.name === "fs_publication_blockers")!.body;
+    for (const code of ["FRAMEWORK_UNKNOWN", "MISSING_STATEMENT:", "COMPARATIVE_PERIOD_MISSING", "COMPARATIVE_FIGURES_MISSING:", "REQUIRED_EVIDENCE_MISSING:", "EVIDENCE_NOT_VALID:", "EVIDENCE_SUPERSEDED:", "EVIDENCE_MISSING:", "NOT_EVALUATED", "BLOCKING_FINDINGS:", "RECONCILIATION_UNMET:", "NOT_LATEST_VERSION"]) expect(blockers, code).toContain(code);
+  });
+
+  it("framework requirements are seeded for exactly the four frameworks and are immutable", () => {
+    expect(persist).toMatch(/\('IFRS',[^)]*\)/);
+    for (const k of ["IFRS", "IFRS_FOR_SMES", "IPSAS_ACCRUAL", "IPSAS_CASH"]) expect(persist).toContain(`('${k}',`);
+    expect(persist).toMatch(/trg_fsfr_immutable BEFORE UPDATE OR DELETE ON public\.financial_statement_framework_requirements/);
+  });
+
+  it("the history tables get append-only triggers, RLS, and SELECT-only grants through the member helper", () => {
     expect(persist).toMatch(/BEFORE UPDATE OR DELETE ON public\.%I FOR EACH ROW EXECUTE FUNCTION public\.fs_append_only_guard/);
     expect(persist).toMatch(/ENABLE ROW LEVEL SECURITY/);
     expect(persist).toMatch(/GRANT SELECT ON public\.%I TO authenticated/);

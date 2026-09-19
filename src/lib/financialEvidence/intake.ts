@@ -13,7 +13,7 @@ import { EVIDENCE_SCHEMA_VERSION, type EvidenceBatch, type EvidenceBatchDocument
 
 export const INTAKE_LIMITS = { maxChars: 2_000_000, maxRows: 20_000, maxColumns: 40, maxTextChars: 500, maxLongTextChars: 20_000, maxAmountDigits: 30 } as const;
 
-export interface IntakeRequest {
+export interface IntakeCommon {
   readonly companyId: string;
   readonly evidenceType: EvidenceType;
   readonly periodRole: PeriodRole;
@@ -21,13 +21,30 @@ export interface IntakeRequest {
   readonly seriesKey?: string;
   readonly fileName?: string;
   readonly mimeType?: string;
-  /** The file's text. Binary content must be rejected by the caller before decoding; a NUL character here is rejected too. */
-  readonly text: string;
   readonly currency?: string;
   readonly scale?: number;
   /** ISO dates. When supplied, ledger rows outside them are refused. */
   readonly periodStart?: string;
   readonly periodEnd?: string;
+}
+
+export interface IntakeRequest extends IntakeCommon {
+  /** The file's text. Binary content must be rejected by the caller before decoding; a NUL character here is rejected too. */
+  readonly text: string;
+}
+
+/** Where a set of already-tokenised records came from. Everything downstream (validation, replay, provenance) is source-agnostic. */
+export interface RecordSource {
+  /** Identity of the CONTENT (not of the file container): the replay identity is built from it. */
+  readonly contentHash: string;
+  readonly format: "CSV" | "XLSX" | "CORRECTION";
+  readonly sheet?: string;
+  /** One locator per DATA row (aligned), e.g. "Ledger!A5:H5". */
+  readonly rowLocators?: readonly string[];
+  /** sha256 of the container bytes; provenance only — never part of the replay identity. */
+  readonly fileSha256?: string;
+  readonly fileName?: string | null;
+  readonly extraDiagnostics?: readonly EvidenceDiagnostic[];
 }
 
 export type IntakeResult =
@@ -113,8 +130,6 @@ export function replayIdentityOf(input: { companyId: string; reportingPeriodId: 
 }
 
 export function ingestEvidence(req: IntakeRequest): IntakeResult {
-  const seriesKey = req.seriesKey && req.seriesKey.trim() !== "" ? req.seriesKey.trim() : "default";
-
   if (req.evidenceType === "TRIAL_BALANCE") {
     return rejected(err("USE_TRIAL_BALANCE_IMPORT", "Trial balances are imported and reviewed through the Prepare Data stage; they are not parsed here."));
   }
@@ -128,8 +143,24 @@ export function ingestEvidence(req: IntakeRequest): IntakeResult {
   if (req.text.length > INTAKE_LIMITS.maxChars) return rejected(err("FILE_TOO_LARGE", `The file exceeds ${INTAKE_LIMITS.maxChars.toLocaleString("en-US")} characters.`));
   if (req.text.trim() === "") return rejected(err("EMPTY_FILE", "The file is empty."));
 
+  const parsed = parseCsv(req.text);
+  if (parsed.unterminatedQuoteAtRecord !== null) {
+    return rejected(err("CSV_UNTERMINATED_QUOTE", `A quoted field starting in record ${parsed.unterminatedQuoteAtRecord} is never closed.`));
+  }
+  return ingestRecords(req, parsed.rows.filter((r) => !isBlankRecord(r)), { contentHash: sha256Hex(req.text), format: "CSV", fileName: req.fileName ?? null });
+}
+
+/**
+ * Validates already-tokenised records (header + data rows) against the family schema and builds the batch.
+ * CSV text, an XLSX sheet and a reviewer's cell correction all end here, so they are held to the identical contract.
+ */
+export function ingestRecords(req: IntakeCommon, records: readonly (readonly string[])[], source: RecordSource): IntakeResult {
+  const seriesKey = req.seriesKey && req.seriesKey.trim() !== "" ? req.seriesKey.trim() : "default";
+  if (req.evidenceType === "TRIAL_BALANCE") {
+    return rejected(err("USE_TRIAL_BALANCE_IMPORT", "Trial balances are imported and reviewed through the Prepare Data stage; they are not parsed here."));
+  }
   const schema = FAMILY_SCHEMAS[req.evidenceType];
-  const diagnostics: EvidenceDiagnostic[] = [];
+  const diagnostics: EvidenceDiagnostic[] = [...(source.extraDiagnostics ?? [])];
 
   let currency: string | null = null;
   let scale: number | null = null;
@@ -140,11 +171,6 @@ export function ingestEvidence(req: IntakeRequest): IntakeResult {
     scale = req.scale;
   }
 
-  const parsed = parseCsv(req.text);
-  if (parsed.unterminatedQuoteAtRecord !== null) {
-    return rejected(err("CSV_UNTERMINATED_QUOTE", `A quoted field starting in record ${parsed.unterminatedQuoteAtRecord} is never closed.`));
-  }
-  const records = parsed.rows.filter((r) => !isBlankRecord(r));
   if (records.length === 0) return rejected(err("EMPTY_FILE", "The file contains no data."));
   if (records.length - 1 > INTAKE_LIMITS.maxRows) return rejected(err("TOO_MANY_ROWS", `The file has more than ${INTAKE_LIMITS.maxRows.toLocaleString("en-US")} data rows.`));
 
@@ -204,7 +230,7 @@ export function ingestEvidence(req: IntakeRequest): IntakeResult {
     diagnostics.push({ code: "CANDIDATES_ARE_NOT_ACCEPTED_EVIDENCE", severity: "INFO", message: "Extracted candidates are stored for review only. They can never feed a statement, note or comparative until a reviewer enters the figure through an accepted evidence type." });
   }
 
-  const contentHash = sha256Hex(req.text);
+  const contentHash = source.contentHash;
   const replayIdentity = replayIdentityOf({ companyId: req.companyId, reportingPeriodId: req.reportingPeriodId, evidenceType: req.evidenceType, periodRole: req.periodRole, seriesKey, contentHash });
   const document: EvidenceBatchDocument = {
     schemaVersion: EVIDENCE_SCHEMA_VERSION,
@@ -216,6 +242,10 @@ export function ingestEvidence(req: IntakeRequest): IntakeResult {
     scale: scale === null ? null : String(scale),
     columns,
     rows,
+    sourceFormat: source.format,
+    ...(source.sheet !== undefined ? { sourceSheet: source.sheet } : {}),
+    ...(source.rowLocators ? { rowLocators: source.rowLocators } : {}),
+    ...(source.fileSha256 ? { sourceFileSha256: source.fileSha256 } : {}),
   };
 
   const hasError = diagnostics.some((d) => d.severity === "ERROR");
@@ -232,7 +262,7 @@ export function ingestEvidence(req: IntakeRequest): IntakeResult {
       reportingPeriodId: req.reportingPeriodId,
       seriesKey,
       schemaVersion: EVIDENCE_SCHEMA_VERSION,
-      sourceFileName: req.fileName ?? null,
+      sourceFileName: source.fileName ?? req.fileName ?? null,
       contentHash,
       replayIdentity,
       currency,

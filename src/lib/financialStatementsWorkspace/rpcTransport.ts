@@ -1,5 +1,5 @@
 // financialStatementsWorkspace/rpcTransport.ts — the typed client for the
-// financial-statements persistence RPCs (migration 20260920100000).
+// financial-statements persistence RPCs (migration 20260919110000).
 //
 // Why RPCs and no Edge Function: every write is a SECURITY DEFINER function that
 // derives the acting firm member from the caller's own JWT (auth.uid()), checks

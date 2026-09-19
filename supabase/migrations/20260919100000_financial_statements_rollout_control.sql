@@ -3,7 +3,7 @@
 -- The workspace is DEFAULT DENIED. A company can use it only when (1) the
 -- global kill switch is not engaged AND (2) the company has been explicitly
 -- allowlisted by an operator. This state lives in the database, is enforced by
--- the persistence functions themselves (see 20260920100000), and can be read
+-- the persistence functions themselves (see 20260919110000), and can be read
 -- by a signed-in company member through one function. There is no URL,
 -- localStorage, VITE variable or other browser-side override, and no table
 -- privilege for `anon`/`authenticated`: only the two operator functions below

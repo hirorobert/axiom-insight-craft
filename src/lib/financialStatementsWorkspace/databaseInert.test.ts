@@ -54,15 +54,15 @@ describe("database inertness — schema and functions", () => {
   it("defines financial-statement persistence objects only in the two named unapplied migrations, and adds no Edge Function", () => {
     const migrations = fs.readdirSync(path.join(ROOT, "supabase/migrations"));
     const defining = migrations.filter((f) => /create table[^;(]*public\.(financial_statement_(reports|evaluations|reviewer_decisions|correction_groups|publications)|financial_evidence_batches|financial_statements_rollout_\w+)/i.test(fs.readFileSync(path.join(ROOT, "supabase/migrations", f), "utf8")));
-    expect(defining).toEqual(["20260920000000_financial_statements_rollout_control.sql", "20260920100000_financial_statements_persistence.sql"]);
+    expect(defining).toEqual(["20260919100000_financial_statements_rollout_control.sql", "20260919110000_financial_statements_persistence.sql"]);
     expect(fs.readdirSync(path.join(ROOT, "supabase/functions")).filter((f) => /financial-statements?-workspace|financial-statements?-persistence/.test(f))).toEqual([]);
   });
 
   it.skipIf(!hasMain)("changes under supabase/ relative to origin/main are exactly the two added migrations (no Edge Function, no config change, nothing modified or deleted)", () => {
     const changed = (gitOut("diff --name-status origin/main...HEAD -- supabase") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
     expect(changed).toEqual([
-      "A\tsupabase/migrations/20260920000000_financial_statements_rollout_control.sql",
-      "A\tsupabase/migrations/20260920100000_financial_statements_persistence.sql",
+      "A\tsupabase/migrations/20260919100000_financial_statements_rollout_control.sql",
+      "A\tsupabase/migrations/20260919110000_financial_statements_persistence.sql",
     ]);
   });
 

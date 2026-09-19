@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Disposable-database proof for the financial-statements persistence + rollout
-// migrations (20260920000000, 20260920100000).
+// migrations (20260919100000, 20260919110000).
 //
 // It replays the repository's ENTIRE migration chain from zero on a throwaway
 // PostgreSQL 16 and then exercises the security and integrity contract through
@@ -214,6 +214,18 @@ const reportDoc = (reportId, companyId, version, extra = {}) => ({
   ...extra,
 });
 
+const STATEMENT_TYPES = ["STATEMENT_OF_FINANCIAL_POSITION", "STATEMENT_OF_PROFIT_OR_LOSS", "STATEMENT_OF_CHANGES_IN_EQUITY", "STATEMENT_OF_CASH_FLOWS"];
+/** A report document that satisfies the IFRS profile: four primary statements, each with current AND comparative figures. */
+const completeDoc = (reportId, companyId, version, extra = {}) => ({
+  reportIdentity: { reportId, companyId, reportVersion: version },
+  framework: { kind: "IFRS" },
+  period: { periodId: "CURRENT" },
+  comparativePeriods: [{ periodId: "PRIOR_2024" }],
+  statements: STATEMENT_TYPES.map((type) => ({ statementId: `st:${type}`, type, sections: [{ sectionId: "s", lines: [{ lineId: `l:${type}`, factBindings: [{ periodId: "CURRENT", factId: "f1" }, { periodId: "PRIOR_2024", factId: "f0" }] }] }] })),
+  facts: [{ factId: "f1", value: { minorUnits: { __bigint__: "100" }, currency: "TZS" } }],
+  ...extra,
+});
+
 async function saveReport(caller, reportId, version, companyId, doc, contentHash = hex64(`c${version}`), batches = []) {
   return one(caller, "SELECT * FROM public.fs_save_report_version($1,$2,$3,$4,$5,$6::jsonb,$7,$8::text[])", [
     reportId, version, companyId, 2025, "TRIAL_BALANCE_DERIVED", JSON.stringify(doc), contentHash, batches,
@@ -236,7 +248,7 @@ async function proveReplay(info) {
   group("Replay from zero");
   await check(`all ${info.total} migrations apply in filename order on a fresh PostgreSQL 16`, () => info.applied === info.total);
   await check("server is PostgreSQL 16", async () => (await admin.query("SHOW server_version_num")).rows[0].server_version_num.startsWith("16"));
-  for (const f of ["20260920000000_financial_statements_rollout_control.sql", "20260920100000_financial_statements_persistence.sql"]) {
+  for (const f of ["20260919100000_financial_statements_rollout_control.sql", "20260919110000_financial_statements_persistence.sql"]) {
     await check(`${f} is the latest-ordered migration set`, () => info.files.slice(-2).includes(f));
   }
 }
@@ -525,7 +537,7 @@ async function proveCorrectionGroups() {
 async function provePublication() {
   group("Publication state and finalization gate");
   const rid = `rpt-pub-${uuid()}`;
-  await saveReport(user(U.preparer), rid, 1, COMPANY_A, reportDoc(rid, COMPANY_A, 1));
+  await saveReport(user(U.preparer), rid, 1, COMPANY_A, completeDoc(rid, COMPANY_A, 1));
   const setState = (caller, v, state, reason = "state change with reason") => one(caller, "SELECT * FROM public.fs_set_publication_state($1,$2,$3,$4,$5)", [rid, v, COMPANY_A, state, reason]);
   await check("DRAFT can be recorded by a preparer", async () => (await setState(user(U.preparer), 1, "DRAFT", "initial draft")).state === "DRAFT");
   await expectError("a preparer cannot mark REVIEWED (42501)", "42501", () => setState(user(U.preparer), 1, "REVIEWED"));
@@ -543,10 +555,10 @@ async function provePublication() {
   await check("history is append-only: DRAFT, REVIEWED, FINAL are all retained", async () => (await admin.query("SELECT array_agg(state ORDER BY seq) s FROM public.financial_statement_publications WHERE report_id=$1", [rid])).rows[0].s.join(",") === "DRAFT,REVIEWED,FINAL");
   await check("only the LATEST version may be FINAL: v1 reviewed while v2 exists is refused", async () => {
     const rid2 = `rpt-pub2-${uuid()}`;
-    await saveReport(user(U.preparer), rid2, 1, COMPANY_A, reportDoc(rid2, COMPANY_A, 1));
+    await saveReport(user(U.preparer), rid2, 1, COMPANY_A, completeDoc(rid2, COMPANY_A, 1));
     await saveEval(user(U.partner), "pub2-eval", rid2, 1, COMPANY_A, []);
     await one(user(U.partner), "SELECT * FROM public.fs_set_publication_state($1,1,$2,'REVIEWED','reviewed v1')", [rid2, COMPANY_A]);
-    await saveReport(user(U.preparer), rid2, 2, COMPANY_A, reportDoc(rid2, COMPANY_A, 2));
+    await saveReport(user(U.preparer), rid2, 2, COMPANY_A, completeDoc(rid2, COMPANY_A, 2));
     try { await one(user(U.partner), "SELECT * FROM public.fs_set_publication_state($1,1,$2,'FINAL','finalize old v1')", [rid2, COMPANY_A]); return false; } catch (e) { return e.code === "PT409" && String(e.message).includes("latest"); }
   });
   await expectError("company B cannot change publication state of company A", "PT403", () => one(user(U.ownerB), "SELECT * FROM public.fs_set_publication_state($1,1,$2,'DRAFT','cross company try')", [rid, COMPANY_B]).catch((e) => { throw e; }).then(() => { throw Object.assign(new Error("unexpected success"), { code: "OK" }); }, (e) => { if (e.code === "P0002" || e.code === "PT403") throw Object.assign(e, { code: "PT403" }); throw e; }));
@@ -582,11 +594,167 @@ async function proveTenancyAndImmutability() {
   });
   await expectError("TRUNCATE by a client role is impossible", "42501", () => rpc(user(U.owner), "TRUNCATE public.financial_statement_reports"));
   await check("no function argument accepts an actor (firm member id) — actor is derived from auth.uid() only", async () => {
-    const r = await admin.query(`SELECT p.proname, pg_get_function_arguments(p.oid) args FROM pg_proc p JOIN pg_namespace ns ON ns.oid=p.pronamespace WHERE ns.nspname='public' AND p.proname LIKE 'fs\\_%' AND p.proname NOT IN ('fs_rollout_allows','fs_sha256_hex')`);
+    const r = await admin.query(`SELECT p.proname, pg_get_function_arguments(p.oid) args FROM pg_proc p JOIN pg_namespace ns ON ns.oid=p.pronamespace WHERE ns.nspname='public' AND p.proname LIKE 'fs\\_%' AND p.proname NOT IN ('fs_rollout_allows','fs_sha256_hex') AND has_function_privilege('authenticated', p.oid, 'EXECUTE')`);
     const bad = r.rows.filter((x) => /(firm_member|actor|reviewer|user_id|uid)/i.test(x.args));
     if (bad.length) console.log("        offenders:", JSON.stringify(bad));
     return bad.length === 0;
   });
+}
+
+
+async function proveServerCompleteness() {
+  group("Server-authoritative completeness (direct RPC cannot bypass)");
+  const setState = (caller, rid, v, state, reason = "readiness gate check") => one(caller, "SELECT * FROM public.fs_set_publication_state($1,$2,$3,$4,$5)", [rid, v, COMPANY_A, state, reason]);
+  const readiness = (caller, rid, v) => one(caller, "SELECT public.fs_report_readiness($1,$2,$3) r", [COMPANY_A, rid, v]).then((x) => x.r);
+  const fresh = async (label, doc, opts = {}) => {
+    const rid = `rpt-ready-${label}-${uuid()}`;
+    await saveReport(user(U.preparer), rid, 1, COMPANY_A, doc(rid), hex64(`rd${rid}`), opts.batches ?? []);
+    if (opts.evaluate !== false) await saveEval(user(U.partner), `ev-${rid}`, rid, 1, COMPANY_A, opts.findings ?? []);
+    return rid;
+  };
+  const blocked = async (name, rid, fragment) => expectError(name, "PT409", () => setState(user(U.partner), rid, 1, "REVIEWED"), fragment);
+
+  await check("a complete, evaluated report is ready and can be marked REVIEWED", async () => {
+    const rid = await fresh("ok", (r) => completeDoc(r, COMPANY_A, 1));
+    const r = await readiness(user(U.partner), rid, 1);
+    return r.ready === true && r.blockers.length === 0 && (await setState(user(U.partner), rid, 1, "REVIEWED")).state === "REVIEWED";
+  });
+
+  const noStatements = await fresh("nostmt", (r) => completeDoc(r, COMPANY_A, 1, { statements: [] }));
+  await blocked("a direct RPC cannot mark a report with NO statements REVIEWED", noStatements, "MISSING_STATEMENT:STATEMENT_OF_FINANCIAL_POSITION");
+  await check("the readiness preview lists every missing required statement and agrees with the gate", async () => {
+    const r = await readiness(user(U.viewer), noStatements, 1);
+    return r.ready === false && STATEMENT_TYPES.every((t) => r.blockers.includes(`MISSING_STATEMENT:${t}`));
+  });
+  const oneMissing = await fresh("nocf", (r) => completeDoc(r, COMPANY_A, 1, { statements: completeDoc(r, COMPANY_A, 1).statements.filter((x) => x.type !== "STATEMENT_OF_CASH_FLOWS") }));
+  await blocked("a missing required statement (cash flows) blocks REVIEWED", oneMissing, "MISSING_STATEMENT:STATEMENT_OF_CASH_FLOWS");
+  const noComparative = await fresh("nocomp", (r) => completeDoc(r, COMPANY_A, 1, { comparativePeriods: [] }));
+  await blocked("no comparative period blocks REVIEWED", noComparative, "COMPARATIVE_PERIOD_MISSING");
+  const noCompFigures = await fresh("nocompfig", (r) => completeDoc(r, COMPANY_A, 1, { statements: completeDoc(r, COMPANY_A, 1).statements.map((st) => ({ ...st, sections: [{ sectionId: "s", lines: [{ lineId: "l", factBindings: [{ periodId: "CURRENT", factId: "f1" }] }] }] })) }));
+  await blocked("declared comparative period with no comparative figures blocks REVIEWED", noCompFigures, "COMPARATIVE_FIGURES_MISSING");
+  const unknownFw = await fresh("fw", (r) => completeDoc(r, COMPANY_A, 1, { framework: { kind: "MADE_UP_GAAP" } }));
+  await blocked("an unknown framework blocks REVIEWED", unknownFw, "FRAMEWORK_UNKNOWN");
+  const noEval = await fresh("noeval", (r) => completeDoc(r, COMPANY_A, 1), { evaluate: false });
+  await expectError("a version with no evaluation cannot be REVIEWED (NOT_EVALUATED)", "PT409", () => setState(user(U.partner), noEval, 1, "REVIEWED"), "NOT_EVALUATED");
+  await blocked("a blocking (CRITICAL) finding blocks REVIEWED", await fresh("crit", (r) => completeDoc(r, COMPANY_A, 1), { findings: [finding("CRIT-1")] }), "BLOCKING_FINDINGS:1");
+
+  const recon = await fresh("recon", (r) => completeDoc(r, COMPANY_A, 1), { findings: [finding("N2F-1", { ruleId: "note-to-face-reconciliation", failureSeverity: "LOW" })] });
+  await blocked("an unmet mandatory reconciliation blocks REVIEWED even at LOW severity", recon, "RECONCILIATION_UNMET:1");
+  await check("a reviewer's ACCEPT decision cannot waive a mandatory reconciliation", async () => {
+    await appendDecision(user(U.partner), `d-waive-${recon}`, recon, COMPANY_A, decision(`d-waive-${recon}`, "ACCEPT_FINDING", "N2F-1"));
+    try { await setState(user(U.partner), recon, 1, "REVIEWED"); return false; } catch (e) { return e.code === "PT409" && String(e.message).includes("RECONCILIATION_UNMET"); }
+  });
+
+  // evidence must be valid, current and present
+  const okEv = await ingest(user(U.partner), evArgs({ series: `ready-ok-${uuid()}` }));
+  const badEv = await ingest(user(U.partner), evArgs({ series: `ready-bad-${uuid()}`, status: "INVALID", diags: [{ code: "X" }] }));
+  await blocked("a report that references INVALID evidence cannot be REVIEWED", await fresh("badev", (r) => completeDoc(r, COMPANY_A, 1), { batches: [badEv.evidence_batch_id] }), "EVIDENCE_NOT_VALID");
+  const supSeries = `ready-sup-${uuid()}`;
+  const supV1 = await ingest(user(U.partner), evArgs({ series: supSeries }));
+  await ingest(user(U.partner), evArgs({ series: supSeries, prev: supV1.evidence_batch_id }));
+  await blocked("a report built on SUPERSEDED evidence cannot be REVIEWED", await fresh("sup", (r) => completeDoc(r, COMPANY_A, 1), { batches: [supV1.evidence_batch_id] }), "EVIDENCE_SUPERSEDED");
+  await check("valid current evidence does not block", async () => {
+    const rid = await fresh("goodev", (r) => completeDoc(r, COMPANY_A, 1), { batches: [okEv.evidence_batch_id] });
+    return (await readiness(user(U.partner), rid, 1)).ready === true;
+  });
+
+  // cash-basis framework needs its evidence type
+  const cashDoc = (r, extra = {}) => completeDoc(r, COMPANY_A, 1, { framework: { kind: "IPSAS_CASH" }, statements: [{ statementId: "st", type: "STATEMENT_OF_CASH_RECEIPTS_AND_PAYMENTS", sections: [{ sectionId: "s", lines: [{ lineId: "l", factBindings: [{ periodId: "CURRENT", factId: "f1" }, { periodId: "PRIOR_2024", factId: "f0" }] }] }] }], ...extra });
+  await blocked("an IPSAS cash-basis report without receipts/payments evidence cannot be REVIEWED", await fresh("cashnoev", (r) => cashDoc(r)), "REQUIRED_EVIDENCE_MISSING:IPSAS_CASH_RECEIPTS_PAYMENTS");
+  const cashEv = await ingest(user(U.partner), evArgs({ series: `ready-cash-${uuid()}`, type: "IPSAS_CASH_RECEIPTS_PAYMENTS" }));
+  await check("an IPSAS cash-basis report with valid receipts/payments evidence is ready", async () => (await readiness(user(U.partner), await fresh("cashok", (r) => cashDoc(r), { batches: [cashEv.evidence_batch_id] }), 1)).ready === true);
+
+  // version currency, role, rollout
+  await check("only the LATEST version can be REVIEWED: an older version is blocked with NOT_LATEST_VERSION", async () => {
+    const rid = await fresh("stale", (r) => completeDoc(r, COMPANY_A, 1));
+    await saveReport(user(U.preparer), rid, 2, COMPANY_A, completeDoc(rid, COMPANY_A, 2));
+    try { await setState(user(U.partner), rid, 1, "REVIEWED"); return false; } catch (e) { return e.code === "PT409" && String(e.message).includes("NOT_LATEST_VERSION"); }
+  });
+  await expectError("a preparer cannot review a complete report (42501)", "42501", async () => setState(user(U.preparer), await fresh("role", (r) => completeDoc(r, COMPANY_A, 1)), 1, "REVIEWED"));
+  await check("the kill switch blocks REVIEWED of an otherwise complete report (PT403)", async () => {
+    const rid = await fresh("kill", (r) => completeDoc(r, COMPANY_A, 1));
+    await rpc(SERVICE, "SELECT public.fs_set_kill_switch(true,'completeness proof drill','ops-1')");
+    let ok = false;
+    try { await setState(user(U.partner), rid, 1, "REVIEWED"); } catch (e) { ok = e.code === "PT403"; }
+    await rpc(SERVICE, "SELECT public.fs_set_kill_switch(false,'completeness proof drill over','ops-1')");
+    return ok;
+  });
+  await expectError("readiness preview is refused to a non-member (42501)", "42501", () => readiness(user(U.outsider), noStatements, 1));
+  await expectError("readiness preview is refused to another company's owner (42501)", "42501", () => readiness(user(U.ownerB), noStatements, 1));
+  await expectError("readiness preview is refused to anon", "42501", () => readiness(ANON, noStatements, 1));
+  await check("every decisive action left an audit event, and none can be edited", async () => {
+    const a = (await admin.query("SELECT action, count(*)::int n FROM public.financial_statement_audit_events GROUP BY action")).rows;
+    const seen = Object.fromEntries(a.map((x) => [x.action, x.n]));
+    let immutable = false;
+    try { await admin.query("UPDATE public.financial_statement_audit_events SET detail = '{}'"); } catch (e) { immutable = e.code === "P0001"; }
+    return ["EVIDENCE_INGESTED", "REPORT_VERSION_SAVED", "DECISION_RECORDED", "PUBLICATION_STATE_SET"].every((k) => seen[k] > 0) && immutable;
+  });
+}
+
+async function proveSavedVersions() {
+  group("Saved-version listing and cross-company isolation");
+  const rid = `rpt-list-${uuid()}`;
+  await saveReport(user(U.preparer), rid, 1, COMPANY_A, completeDoc(rid, COMPANY_A, 1));
+  await saveReport(user(U.partner), rid, 2, COMPANY_A, completeDoc(rid, COMPANY_A, 2));
+  const list = (caller, company = COMPANY_A) => one(caller, "SELECT public.fs_list_saved_versions($1, 2025) r", [company]).then((x) => x.r);
+  await check("a member lists every saved version with number, creator role, time, state and latest flag", async () => {
+    const mine = (await list(user(U.viewer))).filter((v) => v.reportId === rid);
+    return mine.length === 2 && mine[0].reportVersion === 1 && mine[0].isLatest === false && mine[1].isLatest === true && mine[0].creatorRole === "preparer" && mine[1].creatorRole === "partner" && /^[0-9a-f]{8}$/.test(mine[1].creatorRef) && !!mine[1].createdAt && mine[1].state === "DRAFT";
+  });
+  await expectError("a non-member cannot list versions (42501)", "42501", () => list(user(U.outsider)));
+  await expectError("another company's owner cannot list this company's versions (42501)", "42501", () => list(user(U.ownerB)));
+  await expectError("anon cannot list versions", "42501", () => list(ANON));
+  await check("the listing never exposes another company's reports", async () => (await list(user(U.owner))).every((v) => v.reportId !== undefined) && (await admin.query("SELECT count(*)::int n FROM public.financial_statement_reports WHERE company_id = $1", [COMPANY_B])).rows[0].n === 0);
+}
+
+async function proveEvidenceCorrectionGroups() {
+  group("Multi-evidence correction groups (atomic)");
+  const rid = `rpt-ecg-${uuid()}`;
+  const series = `ecg-${uuid()}`;
+  const ev1 = await ingest(user(U.preparer), evArgs({ series, type: "BUDGET" }));
+  await saveReport(user(U.preparer), rid, 1, COMPANY_A, completeDoc(rid, COMPANY_A, 1), hex64(`ecg${rid}`), [ev1.evidence_batch_id]);
+  const newBatch = (previous, suffix) => ({
+    evidenceBatchId: `eb-${uuid()}`, reportingPeriodId: "FY2025", evidenceType: "BUDGET", periodRole: "CURRENT", seriesKey: series, schemaVersion: "1",
+    sourceFileName: "budget-corrected.csv", contentHash: hex64(`corr-${suffix}-${rid}`), currency: "TZS", scale: 2,
+    batchDocument: { rows: [{ amount: `1${suffix}.00`, memo: "corrected" }] }, validationStatus: "VALID", diagnostics: [], expectedPreviousBatchId: previous,
+  });
+  const evDecision = (id, expected, batch) => ({ decisionId: id, decisionType: "CORRECT_EVIDENCE", reviewerId: "ignored", evidenceType: "BUDGET", supersedesBatchId: batch.expectedPreviousBatchId, newBatchId: batch.evidenceBatchId, rowNumber: "1", column: "amount", rationale: "agreed to approved budget", expectedReportVersion: expected, decidedAt: "2026-01-01T00:00:00Z" });
+  const apply = (caller, gid, key, expected, steps, decs, ev) =>
+    one(caller, "SELECT * FROM public.fs_apply_correction_group($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb)", [gid, key, COMPANY_A, rid, expected, JSON.stringify(steps), JSON.stringify(decs), ev == null ? null : JSON.stringify(ev)]);
+  const evalFor = (id) => ({ evaluationRunId: id, rulePackId: "rp", rulePackVersion: "2.0.0", engineVersion: "e2", inputHash: hex64(id), findings: [] });
+
+  const b2 = newBatch(ev1.evidence_batch_id, "1");
+  await check("ONE group atomically persists: corrected evidence version + new report version + decision + evaluation + audit event", async () => {
+    const g = await apply(user(U.partner), "ecg1", "idem-ecg-000001", 1, [{ reportVersion: 2, reportDocument: completeDoc(rid, COMPANY_A, 2, { note: "after evidence correction" }), contentHash: hex64("ecg-v2"), evidenceBatchIds: [b2.evidenceBatchId], evidenceBatch: b2 }], [evDecision("ecd-1", 1, b2)], evalFor("ecg-eval-1"));
+    const chain = (await admin.query("SELECT version, supersedes_batch_id FROM public.financial_evidence_batches WHERE series_key = $1 ORDER BY version", [series])).rows;
+    const rpt = (await admin.query("SELECT evidence_batch_ids FROM public.financial_statement_reports WHERE report_id=$1 AND report_version=2", [rid])).rows[0];
+    const audit = (await admin.query("SELECT count(*)::int n FROM public.financial_statement_audit_events WHERE report_id=$1 AND action='CORRECTION_GROUP_APPLIED'", [rid])).rows[0].n;
+    const evalRows = (await admin.query("SELECT count(*)::int n FROM public.financial_statement_evaluations WHERE evaluation_run_id='ecg-eval-1'")).rows[0].n;
+    return g.to_report_version === 2 && chain.length === 2 && chain[1].supersedes_batch_id === ev1.evidence_batch_id && rpt.evidence_batch_ids[0] === b2.evidenceBatchId && audit === 1 && evalRows === 1;
+  });
+  await check("the new report version references the CORRECTED evidence, so the superseded version no longer blocks the latest report", async () => {
+    await saveEval(user(U.partner), "ecg-eval-2", rid, 2, COMPANY_A, []).catch(() => undefined);
+    return !(await one(user(U.partner), "SELECT public.fs_report_readiness($1,$2,2) r", [COMPANY_A, rid]).then((x) => x.r.blockers)).some((b) => b.startsWith("EVIDENCE_SUPERSEDED"));
+  });
+  const b3 = newBatch(b2.evidenceBatchId, "2");
+  const before = async () => ({ ev: (await admin.query("SELECT count(*)::int n FROM public.financial_evidence_batches WHERE series_key=$1", [series])).rows[0].n, rp: (await admin.query("SELECT count(*)::int n FROM public.financial_statement_reports WHERE report_id=$1", [rid])).rows[0].n, dc: (await admin.query("SELECT count(*)::int n FROM public.financial_statement_reviewer_decisions WHERE report_id=$1", [rid])).rows[0].n });
+  await check("ROLLBACK: a group whose SECOND step is invalid leaves no evidence, report, decision or audit residue from its FIRST step", async () => {
+    const snap = await before();
+    const b3b = newBatch(b3.evidenceBatchId, "3");
+    let code = null;
+    try {
+      await apply(user(U.partner), "ecg2", "idem-ecg-000002", 2,
+        [{ reportVersion: 3, reportDocument: completeDoc(rid, COMPANY_A, 3), contentHash: hex64("ecg-v3"), evidenceBatchIds: [b3.evidenceBatchId], evidenceBatch: b3 },
+         { reportVersion: 4, reportDocument: completeDoc(rid, COMPANY_A, 4, { facts: [{ value: { minorUnits: 5 } }] }), contentHash: hex64("ecg-v4"), evidenceBatchIds: [b3b.evidenceBatchId], evidenceBatch: { ...b3b, expectedPreviousBatchId: b3.evidenceBatchId } }],
+        [evDecision("ecd-2", 2, b3), evDecision("ecd-3", 3, b3b)], null);
+    } catch (e) { code = e.code; }
+    const after = await before();
+    return code === "22023" && after.ev === snap.ev && after.rp === snap.rp && after.dc === snap.dc;
+  });
+  await expectError("a CORRECT_EVIDENCE step without its evidence version is refused (22023)", "22023", () => apply(user(U.partner), "ecg3", "idem-ecg-000003", 2, [{ reportVersion: 3, reportDocument: completeDoc(rid, COMPANY_A, 3), contentHash: hex64("x3") }], [evDecision("ecd-4", 2, b3)], null));
+  await expectError("a stale evidence predecessor inside a group is refused (PT409) and nothing lands", "PT409", () => apply(user(U.partner), "ecg4", "idem-ecg-000004", 2, [{ reportVersion: 3, reportDocument: completeDoc(rid, COMPANY_A, 3), contentHash: hex64("x4"), evidenceBatchIds: [b3.evidenceBatchId], evidenceBatch: { ...b3, expectedPreviousBatchId: ev1.evidence_batch_id } }], [evDecision("ecd-5", 2, b3)], null));
+  await expectError("evidence corrections need the same role and rollout as any write (viewer, 42501)", "42501", () => apply(user(U.viewer), "ecg5", "idem-ecg-000005", 2, [{ reportVersion: 3, reportDocument: completeDoc(rid, COMPANY_A, 3), contentHash: hex64("x5"), evidenceBatchIds: [b3.evidenceBatchId], evidenceBatch: b3 }], [evDecision("ecd-6", 2, b3)], null));
+  await expectError("a bare CORRECT_EVIDENCE decision cannot be appended outside a group (22023)", "22023", () => appendDecision(user(U.partner), "ecd-bare", rid, COMPANY_A, { decisionId: "ecd-bare", decisionType: "CORRECT_EVIDENCE", reviewerId: "x" }));
 }
 
 // ── main ────────────────────────────────────────────────────────────────────
@@ -608,6 +776,9 @@ try {
   await proveDecisionsAndEvaluations();
   await proveCorrectionGroups();
   await provePublication();
+  await proveServerCompleteness();
+  await proveSavedVersions();
+  await proveEvidenceCorrectionGroups();
   await proveTenancyAndImmutability();
 } catch (e) {
   fatal = e;
