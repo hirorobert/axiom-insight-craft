@@ -205,6 +205,62 @@ describe.skipIf(!seed)("transport + save flow against a real PostgreSQL", () => 
     }
   });
 
+  it("a correction whose group fails leaves NO corrected evidence behind (atomic), and a correction of never-saved evidence is refused locally", async () => {
+    const companyId = seed!.companyA;
+    const t = as("partner");
+    const profile = profileForKind("IFRS_FOR_SMES");
+    const s = await sessionFor(companyId);
+    const evalFn = (r: CanonicalFinancialStatementReport) => evaluateReportPure(r, ZERO_TOLERANCE, EPOCH);
+    const ctx = { periodStart: "2025-01-01", periodEnd: "2025-12-31" };
+    const opening = s.evidence[1];
+    const ledger = ingest(companyId, "TRANSACTION_LEDGER", LEDGER.replace(RUN, `${RUN}-atomic-${Math.random()}`), "CURRENT");
+    const rebuildFor = (all: { batch: typeof ledger; version: number }[]) => ({
+      at: (dropped: ReadonlySet<string>, ev: readonly (typeof ledger)[]) => applyEvidence({ report: { ...s.snapshot.report, facts: s.snapshot.report.facts.filter((f) => !dropped.has(`${f.factId}#${f.version}`)) }, profile, cashAccountKeys: ["1000"], evidence: ev }).report,
+      allEvidence: all,
+    });
+    const store1 = [{ batch: ledger, version: 1 }, { batch: opening, version: 1 }];
+    const eff = (all: typeof store1) => rebuildFor(all).at(new Set(), latestPerSeries(all))!;
+    const first = await saveWorkspace({ transport: t, companyId, reportingPeriodId: "FY2025", evidence: latestPerSeries(store1), report: eff(store1), decisions: [], evaluate: evalFn, saved: null, rebuild: rebuildFor(store1) });
+    expect(first).toMatchObject({ status: expect.stringMatching(/SAVED|UNCHANGED/) });
+    const v1 = (first as { storedVersion: number }).storedVersion;
+    const ids1 = (first as { storedDecisionIds: ReadonlySet<string> }).storedDecisionIds;
+    // (a) a group that fails on the server (its decision id already exists) must not leave the corrected evidence stored
+    const fix = correctEvidenceCell(ledger, { rowNumber: 1, column: "description", newValue: "Customers atomic", rationale: "Atomicity probe correction" }, ctx);
+    if (!("batch" in fix)) throw new Error("fixture");
+    const dupId = `dup-${RUN}`;
+    {
+      // create an existing stored decision to collide with
+      const seedFix = correctEvidenceCell(fix.batch, { rowNumber: 2, column: "description", newValue: "Suppliers atomic", rationale: "Seed a stored decision" }, ctx);
+      if (!("batch" in seedFix)) throw new Error("fixture2");
+      const dSeed: CorrectEvidenceDecision = { decisionId: dupId, decisionType: "CORRECT_EVIDENCE", reviewerId: "x", decidedAt: "2026-01-03T00:00:00Z", evidenceType: "TRANSACTION_LEDGER", supersedesBatchId: ledger.evidenceBatchId, newBatchId: fix.batch.evidenceBatchId, rowNumber: 1, column: "description", previousValue: fix.previousValue, correctedValue: "Customers atomic", rationale: "Atomicity probe correction", expectedReportVersion: v1 };
+      const store2 = [...store1, { batch: fix.batch, version: 2 }];
+      const ok = await saveWorkspace({ transport: t, companyId, reportingPeriodId: "FY2025", evidence: latestPerSeries(store2), report: eff(store2), decisions: [dSeed], evaluate: evalFn, saved: { storedVersion: v1, storedDecisionIds: ids1 }, rebuild: rebuildFor(store2) });
+      expect(ok, JSON.stringify(ok)).toMatchObject({ status: "SAVED" });
+      const latest2 = (await t.latestReport(companyId, 2025, "TRIAL_BALANCE_DERIVED"))!.reportVersion;
+      const probe = correctEvidenceCell(fix.batch, { rowNumber: 2, column: "description", newValue: "Suppliers atomic", rationale: "Atomicity probe correction two" }, ctx);
+      if (!("batch" in probe)) throw new Error("fixture3");
+      const dProbe: CorrectEvidenceDecision = { ...dSeed, decisionId: dupId, supersedesBatchId: fix.batch.evidenceBatchId, newBatchId: probe.batch.evidenceBatchId, rowNumber: 2, previousValue: probe.previousValue, correctedValue: "Suppliers atomic", expectedReportVersion: latest2 };
+      const store3 = [...store2, { batch: probe.batch, version: 3 }];
+      const failed = await saveWorkspace({ transport: t, companyId, reportingPeriodId: "FY2025", evidence: latestPerSeries(store3), report: eff(store3), decisions: [dSeed, dProbe], evaluate: evalFn, saved: { storedVersion: latest2, storedDecisionIds: new Set() }, rebuild: rebuildFor(store3) });
+      expect(failed.status).toBe("FAILED");
+      const stored = await t.listEvidence(companyId, "FY2025");
+      expect(stored.some((e) => e.evidenceBatchId === probe.batch.evidenceBatchId)).toBe(false);
+      const referencing = (await t.listReportVersions(s.snapshot.report.reportIdentity.reportId)).filter((v) => v.evidenceBatchIds.includes(probe.batch.evidenceBatchId));
+      expect(referencing).toEqual([]); // no report version of the failed group exists either
+    }
+    // (b) correcting evidence that was never saved cannot be recorded as a correction: refused before anything is written
+    const unsaved = ingest(companyId, "TRANSACTION_LEDGER", LEDGER.replace(RUN, `${RUN}-unsaved-${Math.random()}`), "CURRENT");
+    const fixUnsaved = correctEvidenceCell(unsaved, { rowNumber: 1, column: "description", newValue: "Customers unsaved fix", rationale: "Correction of unsaved evidence" }, ctx);
+    if (!("batch" in fixUnsaved)) throw new Error("fixture4");
+    const cur = (await t.latestReport(companyId, 2025, "TRIAL_BALANCE_DERIVED"))!.reportVersion;
+    const dUnsaved: CorrectEvidenceDecision = { decisionId: `ecd-unsaved-${RUN}`, decisionType: "CORRECT_EVIDENCE", reviewerId: "x", decidedAt: "2026-01-04T00:00:00Z", evidenceType: "TRANSACTION_LEDGER", supersedesBatchId: unsaved.evidenceBatchId, newBatchId: fixUnsaved.batch.evidenceBatchId, rowNumber: 1, column: "description", previousValue: fixUnsaved.previousValue, correctedValue: "Customers unsaved fix", rationale: "Correction of unsaved evidence", expectedReportVersion: cur };
+    const store4 = [{ batch: unsaved, version: 1 }, { batch: fixUnsaved.batch, version: 2 }, { batch: opening, version: 1 }];
+    const refused = await saveWorkspace({ transport: t, companyId, reportingPeriodId: "FY2025", evidence: latestPerSeries(store4), report: eff(store4), decisions: [dUnsaved], evaluate: evalFn, saved: { storedVersion: cur, storedDecisionIds: new Set() }, rebuild: rebuildFor(store4) });
+    expect(refused).toMatchObject({ status: "FAILED", kind: "LOCAL" });
+    expect((refused as { message: string }).message).toMatch(/already been saved/);
+    expect((await t.listEvidence(companyId, "FY2025")).some((e) => e.evidenceBatchId === unsaved.evidenceBatchId)).toBe(false);
+  });
+
   it("evidence added after a save (no correction) is a new report version, not a silent no-op", async () => {
     const companyId = seed!.companyA;
     const t = as("partner");

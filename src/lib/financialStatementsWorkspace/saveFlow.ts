@@ -135,6 +135,14 @@ export async function saveWorkspace(input: SaveInput): Promise<SaveOutcome> {
     //     A corrected version travels inside its correction step, never on its own.
     const periods = [...new Set([input.reportingPeriodId, ...input.evidence.map((b) => b.reportingPeriodId)])];
     const storedEvidence = (await Promise.all(periods.map((p) => transport.listEvidence(companyId, p)))).flat();
+    // A correction supersedes stored evidence. If that evidence was never saved there is nothing durable to correct: refuse BEFORE anything is written.
+    const pendingCorrections = plan.steps.filter((st) => !input.saved?.storedDecisionIds.has(st.decision.decisionId));
+    for (const st of pendingCorrections) {
+      const superseded = st.decision.decisionType === "CORRECT_EVIDENCE" ? st.decision.supersedesBatchId : null;
+      if (superseded !== null && !storedEvidence.some((e) => e.evidenceBatchId === superseded)) {
+        return { status: "FAILED", kind: "LOCAL", message: "A corrected evidence version can only supersede evidence that has already been saved. Save the evidence first.", isConflict: false };
+      }
+    }
     const seriesOf = (b: EvidenceBatch) => storedEvidence.filter((s) => s.evidenceType === b.evidenceType && s.periodRole === b.periodRole && s.seriesKey === b.seriesKey && s.reportingPeriodId === b.reportingPeriodId).sort((a, b2) => b2.version - a.version);
     let ingested = 0;
     for (const batch of input.evidence) {
@@ -182,12 +190,6 @@ export async function saveWorkspace(input: SaveInput): Promise<SaveOutcome> {
 
     // 3 — corrections, atomically.
     const newSteps = plan.steps.slice(alreadySavedCorrections);
-    for (const s of newSteps) {
-      const superseded = s.decision.decisionType === "CORRECT_EVIDENCE" ? s.decision.supersedesBatchId : null;
-      if (s.evidenceBatch && superseded !== null && !storedEvidence.some((e) => e.evidenceBatchId === superseded)) {
-        return { status: "FAILED", kind: "LOCAL", message: "A corrected evidence version can only supersede evidence that has already been saved. Save the evidence first.", isConflict: false };
-      }
-    }
     let finalReport = savedBase || !latest ? withVersion(savedBaseReport, storedVersion) : withVersion(plan.steps[Math.max(0, plan.steps.length - 1)]?.report ?? plan.base, storedVersion);
     if (newSteps.length > 0) {
       const versioned = newSteps.map((s, i) => ({
