@@ -54,7 +54,7 @@ DB_PROOF_MODULES_DIR=<dir> node scripts/release/verify-release-sql.mjs
 
 ### Recorded results
 
-@@RESULTS@@
+The recorded results (real exit codes, LF checkout, no masking pipes) are in `docs/release/VERIFICATION_RESULTS.md`. That file is deliberately **not** hashed in the manifest: it records gates that ran on the manifest's own commit, so it can only be written after it.
 
 Browser E2E (non-production harness, real UI → real transport → disposable PostgreSQL through the loopback bridge; **simulated identity, not GoTrue**) covers all **seven** stages (Sources, Structure, Statements, Notes & Policies, Validate, Professional Review, Final Outputs) — see `docs/release/E2E_SEVEN_STAGE_PROOF.md` for the exact scenario and observed results (desktop and 375 px).
 
