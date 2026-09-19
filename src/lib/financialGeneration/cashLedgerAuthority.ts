@@ -100,6 +100,8 @@ export function establishCashLedgerAuthority(input: {
     return empty("UNRESOLVED", unresolvedNote);
   }
 
+  // Aggregates (sums of one or more ledger rows) are COMPUTED facts: they carry an explicit derivation instead of borrowing the locator of a row,
+  // so a single-row account can never collide with the cash-flow line fact built from that same row (duplicate-detection).
   const zero = money(report.presentationCurrency.currency, report.presentationCurrency.scale, 0n);
   const read = columnReader(ledger);
   const byCode = new Map<string, { sum: Money; rows: number[] }>();
@@ -131,7 +133,7 @@ export function establishCashLedgerAuthority(input: {
     if (knownCodes.has(code)) continue;
     const v = byCode.get(code)!;
     orphans.push({ code, movement: v.sum });
-    facts.push(evidenceFact(ledger, cashRollFactId("orphan", code), v.sum, period, v.rows[0], `ledger rows ${describeRows(v.rows)} name account ${code}, which is not an established cash-flow cash account`));
+    facts.push(evidenceFact(ledger, cashRollFactId("orphan", code), v.sum, period, 0, `ledger rows ${describeRows(v.rows)} name account ${code}, which is not an established cash-flow cash account`));
     reasons.push(`Ledger rows ${describeRows(v.rows)} name account ${code}, which the cash review did not establish as a cash account included in cash flows.`);
     diagnostics.push({ code: "LEDGER_ROW_ACCOUNT_NOT_A_CASH_ACCOUNT", severity: "ERROR", message: `Ledger rows ${describeRows(v.rows)} name account ${code}, which the cash review did not establish as a cash account included in cash flows.` });
   }
@@ -140,7 +142,7 @@ export function establishCashLedgerAuthority(input: {
   for (const a of [...cashAccounts].sort((x, y) => byCodepoint(x.accountKey, y.accountKey))) {
     const led = byCode.get(a.accountKey);
     const ledgerMovement = led?.sum ?? zero;
-    facts.push(evidenceFact(ledger, cashRollFactId("ledger", a.accountKey), ledgerMovement, period, led?.rows[0] ?? 0, led ? `ledger movement of account ${a.accountKey}: rows ${describeRows(led.rows)}` : `computed: the ledger records no row for account ${a.accountKey}`));
+    facts.push(evidenceFact(ledger, cashRollFactId("ledger", a.accountKey), ledgerMovement, period, 0, led ? `ledger movement of account ${a.accountKey}: rows ${describeRows(led.rows)}` : `computed: the ledger records no row for account ${a.accountKey}`));
     const open = contribution(a, comparative);
     const close = contribution(a, current);
     let tb: Money | null = null;

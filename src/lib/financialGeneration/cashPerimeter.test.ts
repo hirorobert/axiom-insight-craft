@@ -78,6 +78,22 @@ const run = async (over: { map?: string; ledgerReceipt?: string; accounts?: Acc[
 const factOf = (r: { report: CanonicalFinancialStatementReport | null }, role: Parameters<typeof cashPerimeterFactId>[0], period = "CURRENT") => r.report!.facts.find((f) => f.factId === cashPerimeterFactId(role, period))?.value?.minorUnits;
 
 describe("multi-account cash perimeter", () => {
+  it("an account whose whole ledger movement is one row does not collide with the cash-flow line built from that row (no false duplicate-fact finding)", async () => {
+    const r = await run();
+    const dup = evaluate(r.report).filter((f) => f.ruleId === "duplicate-detection" && f.outcome === "FAIL");
+    expect(dup).toEqual([]);
+  });
+
+  it("evidence stated at another scale than the statements is excluded with a reason — never combined, never a crash", async () => {
+    const base = await tbReport();
+    const wrongScale = parse("TRANSACTION_LEDGER", ledger("1650000"), "CURRENT", { scale: 0 });
+    const wrongCurrency = parse("EQUITY_MOVEMENTS", ["component,movement_type,amount,description", "Share capital,OPENING_BALANCE,100,", "Share capital,CLOSING_BALANCE,100,", ""].join("\n"), "CURRENT", { currency: "USD" });
+    const r = applyEvidence({ report: base, profile: profileForKind("IFRS_FOR_SMES"), cashAccountKeys: ACCOUNTS.filter((a) => a.cash).map((a) => a.key), evidence: [parse("CASH_ACCOUNT_MAP", mapCsv(), "CURRENT", { currency: undefined, scale: undefined }), wrongScale, wrongCurrency] });
+    expect(r.diagnostics.filter((d) => d.code === "EVIDENCE_DENOMINATION_MISMATCH").length).toBe(2);
+    expect(r.use.filter((u) => !u.used && /no conversion is performed/.test(u.reason)).map((u) => u.evidenceType).sort()).toEqual(["EQUITY_MOVEMENTS", "TRANSACTION_LEDGER"]);
+    expect(r.report?.statements.some((s) => s.type === "STATEMENT_OF_CASH_FLOWS")).toBe(false);
+  });
+
   it("aggregates several banks, cash on hand, mobile money, designated and restricted cash, ECL and an overdraft — and the ledger ties", async () => {
     const r = await run();
     expect(r.cashPerimeter?.status).toBe("ESTABLISHED");

@@ -65,6 +65,9 @@ async function makeModel(): Promise<FinancialStatementsWorkspaceModel> {
     rerun: () => undefined,
     evidence: [],
     applied: null,
+    checklist: [],
+    evidenceIndex: {},
+    cashPerimeter: null,
     budgetComparison: null,
     persistedVersion: null,
     versionLabel: "Unsaved draft",
@@ -236,6 +239,18 @@ describe("version authority — persisted, unsaved, restored and historical outp
     const canonical = JSON.parse(files(o)[0].content);
     expect(canonical.lineage).toMatchObject({ reportVersion: null, persisted: false, label: "Unsaved draft" });
     expect(canonical.report.reportIdentity.reportVersion).toBe(0); // 0 = not persisted; the transient counter is never exported
+  });
+
+  it("a historical view shows ITS OWN state, not the working draft's: version 3 (FINAL) beside a latest version with no state, and never the latest version's readiness", async () => {
+    const o = await outputFor(3, "FINAL");
+    const viewing = { reportVersion: 3, state: "FINAL" } as FinancialStatementsWorkspaceModel["viewing"];
+    const model = { ...o.model, saveStatus: "SAVED", viewing, readOnly: true, publication: null, readiness: { ready: true, blockers: [] } } as unknown as FinancialStatementsWorkspaceModel;
+    const html = renderToStaticMarkup(createElement(OutputsStage, { model }));
+    expect(html).toMatch(/data-testid="publication-state"[^>]*>[^<]*Report state[^<]*(<!-- -->)?\s*(<!-- -->)?of version 3 — FINAL \(read-only\)/);
+    expect(html).not.toContain('data-testid="server-readiness"');
+    const live = renderToStaticMarkup(createElement(OutputsStage, { model: { ...model, viewing: null, readOnly: false } as FinancialStatementsWorkspaceModel }));
+    expect(live).toContain('data-testid="server-readiness"');
+    expect(text(live)).toContain("no state recorded");
   });
 
   it("a PERSISTED version is shown and exported under ITS persisted number, with its own evaluation lineage", async () => {

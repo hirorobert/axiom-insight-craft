@@ -154,8 +154,17 @@ export function applyEvidence(input: ApplyEvidenceInput): ApplyEvidenceResult {
   const diagnostics: GenerationDiagnostic[] = [];
   const use: EvidenceUse[] = [];
   const usable: EvidenceBatch[] = [];
+  const presentation = input.report.presentationCurrency;
   for (const b of input.evidence) {
-    if (isUsableEvidence(b)) {
+    if (isUsableEvidence(b) && b.evidenceType !== "BUDGET" && b.currency !== null && b.scale !== null && (b.currency !== presentation.currency || b.scale !== presentation.scale)) {
+      // Amounts are never converted or rescaled: evidence stated in another currency or at another number of decimal places than the
+      // statements are presented in is excluded (with the reason shown) instead of being combined with them. A budget states its own
+      // mismatch as an explicit comparison gap (budgetActual.ts), so it is not excluded here.
+      const stated = `${b.currency} at ${b.scale} decimal place${b.scale === 1 ? "" : "s"}`;
+      const shown = `${presentation.currency} at ${presentation.scale} decimal place${presentation.scale === 1 ? "" : "s"}`;
+      diagnostics.push({ code: "EVIDENCE_DENOMINATION_MISMATCH", severity: "WARNING", message: `${b.sourceFileName ?? "An evidence file"} is stated in ${stated}, but the statements are presented in ${shown}. No conversion or rescaling is performed, so it was not used; re-state it in ${shown}.` });
+      use.push({ evidenceType: b.evidenceType, periodRole: b.periodRole, evidenceBatchId: b.evidenceBatchId, used: false, reason: `Excluded: stated in ${stated}, statements are presented in ${shown}; no conversion is performed.` });
+    } else if (isUsableEvidence(b)) {
       usable.push(b);
     } else {
       use.push({ evidenceType: b.evidenceType, periodRole: b.periodRole, evidenceBatchId: b.evidenceBatchId, used: false, reason: b.evidenceType === "EXTRACTED_CANDIDATES" ? "Extracted candidates are review-only and never feed a statement." : `Excluded: validation status ${b.validationStatus}.` });

@@ -182,6 +182,22 @@ export function checklistDisclosures(profile: FrameworkProfile, checklist: reado
     });
 }
 
+/**
+ * The disclosure checklist recorded IN a stored report. Label and reference come from the framework profile's own area list
+ * (keyed by the stored area id); the state and the satisfying note key come from the stored disclosure text
+ * ("STATE: label (reference) — key"). An area with no stored record is MISSING — a stored version never borrows today's evidence.
+ */
+export function checklistFromReport(report: CanonicalFinancialStatementReport, areas: readonly { readonly id: string; readonly label: string; readonly reference: string }[]): ChecklistItem[] {
+  return areas.map((a): ChecklistItem => {
+    const stored = report.textualDisclosures.find((d) => d.disclosureId === checklistDisclosureId(a.id));
+    const state = CHECKLIST_STATES.find((s) => stored?.text.startsWith(`${s}: `));
+    if (!stored || !state) return { areaId: a.id, label: a.label, reference: a.reference, state: "MISSING" };
+    const dash = stored.text.lastIndexOf(" — ");
+    const satisfiedBy = dash >= 0 ? stored.text.slice(dash + 3) : undefined;
+    return { areaId: a.id, label: a.label, reference: a.reference, state, ...(satisfiedBy ? { satisfiedBy } : {}) };
+  });
+}
+
 // ── mapping coverage ───────────────────────────────────────────────────────
 
 export function mappingCoverageDisclosure(report: CanonicalFinancialStatementReport, coverage: MappingCoverage): TextualDisclosure | null {

@@ -7,7 +7,7 @@ import { profileForKind } from "@/lib/financialStatementsWorkspace/frameworkProf
 import { InMemoryFinancialStatementReportRepository } from "@/lib/financialStatementsWorkspace/reportRepository";
 import type { ReviewedTrialBalanceAccountLine } from "@/lib/financialStatementsWorkspace/trialBalanceAdapter";
 import { applyEvidence } from "./applyEvidence";
-import { BUDGET_GAP_DISCLOSURE_ID, BUDGET_NOTE_ID, budgetFromReport, checklistDisclosureId, MAPPING_COVERAGE_DISCLOSURE_ID } from "./persistedAuthority";
+import { BUDGET_GAP_DISCLOSURE_ID, BUDGET_NOTE_ID, budgetFromReport, checklistDisclosureId, checklistFromReport, MAPPING_COVERAGE_DISCLOSURE_ID } from "./persistedAuthority";
 
 const line = (o: Partial<ReviewedTrialBalanceAccountLine> & Pick<ReviewedTrialBalanceAccountLine, "accountKey" | "accountName" | "statement" | "classification" | "normalBalance" | "balance">): ReviewedTrialBalanceAccountLine => ({
   currency: "TZS", scale: 2, periodId: "CURRENT", isComparative: false, isCashAccount: false, isRetainedEarnings: false, isPayrollAccount: false, sourceUploadId: "u1", sourceHash: "a".repeat(64), ...o,
@@ -103,6 +103,19 @@ describe("the disclosure checklist and mapping coverage live IN the stored repor
     expect(by[checklistDisclosureId("basis-of-preparation")].text.startsWith("PROVIDED:")).toBe(true);
     expect(by[checklistDisclosureId("accounting-policies")].text.startsWith("PROVIDED:")).toBe(true);
     expect(by[checklistDisclosureId("basis-of-preparation")].provenance.locator).toMatchObject({ kind: "EVIDENCE_ROW", batchId: notes.evidenceBatchId });
+  });
+
+  it("a stored version reproduces its OWN checklist from the report alone — the live evidence is never consulted", async () => {
+    const notes = parse("NOTES_AND_POLICIES", ["kind,key,title,body,checklist_ref,applicability", 'POLICY,pol.basis,Basis,"Prepared under the IFRS for SMEs.",basis-of-preparation,', 'POLICY,pol.other,Other,"None apply here.",accounting-policies,NOT_APPLICABLE', ""].join("\n"), { currency: undefined, scale: undefined });
+    const r = await run(null, [notes]);
+    const stored = checklistFromReport(r.report!, profile.disclosureAreas);
+    expect(stored.map((c) => [c.areaId, c.state, c.satisfiedBy])).toEqual(r.checklist.map((c) => [c.areaId, c.state, c.satisfiedBy]));
+    expect(stored.find((c) => c.areaId === "basis-of-preparation")).toMatchObject({ state: "PROVIDED", satisfiedBy: "pol.basis" });
+    expect(stored.find((c) => c.areaId === "accounting-policies")?.state).toBe("NOT_APPLICABLE_WITH_RATIONALE");
+    // a report with no record for an area (or no checklist at all) reads as MISSING, never as PROVIDED
+    const none = checklistFromReport({ ...r.report!, textualDisclosures: [] }, profile.disclosureAreas);
+    expect(none.every((c) => c.state === "MISSING")).toBe(true);
+    expect(none.map((c) => c.label)).toEqual(profile.disclosureAreas.map((a) => a.label));
   });
 
   it("changing a disclosure changes the report's content identity", async () => {

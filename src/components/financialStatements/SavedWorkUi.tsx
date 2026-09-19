@@ -261,7 +261,7 @@ const ROLE_LABEL: Record<string, string> = {
 
 /** The multi-account cash perimeter and its reconciliation, from the explicit cash account map. */
 export function CashPerimeterPanel({ model }: { model: FinancialStatementsWorkspaceModel }) {
-  const perimeter = model.applied?.cashPerimeter;
+  const perimeter = model.cashPerimeter;
   const report = model.snapshot?.report;
   if (!perimeter || !report) return null;
   const period = report.period.periodId;

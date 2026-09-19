@@ -88,7 +88,7 @@ export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
           auditExport({ report, lineage, evaluation: outputEvaluation, decisions: model.snapshot?.decisions ?? [], evidence: evidenceRows, publication: model.publication ? { state: model.publication.state, reason: model.publication.reason } : null, exportedAt: null }),
           ...(outputEvaluation ? [findingsCsv(report, outputEvaluation.findings, lineage)] : []),
           ...(budget ? [budgetCsv(report, budget, lineage)] : []),
-          ...(model.applied && model.applied.checklist.length > 0 ? [checklistCsv(report, model.applied.checklist, lineage)] : []),
+          ...(model.checklist.length > 0 ? [checklistCsv(report, model.checklist, lineage)] : []),
         ]
       : [];
 
@@ -219,10 +219,10 @@ export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
               </section>
             )}
 
-            {model.applied && model.applied.checklist.some((c) => c.state !== "PROVIDED") && (
+            {model.checklist.some((c) => c.state !== "PROVIDED") && (
               <section className="fs-no-print" data-testid="print-checklist-gaps">
                 <h3 className="text-base font-semibold text-foreground">Disclosure checklist</h3>
-                <DisclosureChecklist checklist={model.applied.checklist} />
+                <DisclosureChecklist checklist={model.checklist} />
               </section>
             )}
 

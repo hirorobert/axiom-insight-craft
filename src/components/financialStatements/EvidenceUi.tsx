@@ -268,7 +268,7 @@ export function BudgetActualTable({ comparison }: { comparison: Extract<BudgetAc
 
 /** Drill-down: which evidence rows stand behind each line of a generated statement. */
 export function EvidenceSources({ model, statement }: { model: FinancialStatementsWorkspaceModel; statement: Statement }) {
-  const index = model.applied?.evidenceIndex ?? {};
+  const index = model.evidenceIndex;
   const lines = statement.sections.flatMap((s) => s.lines).filter((l) => index[l.lineId]?.length);
   if (lines.length === 0) return null;
   return (
@@ -399,9 +399,12 @@ export function PublicationControls({ model, blockers = [] }: { model: Financial
   }
   return (
     <div className="space-y-2 border border-border p-3 fs-no-print" data-testid="publication-controls">
-      <p className="text-sm font-medium text-foreground">Report state {model.publication ? `— currently ${model.publication.state}` : "— no state recorded"}</p>
+      <p className="text-sm font-medium text-foreground" data-testid="publication-state">
+        Report state{" "}
+        {model.viewing ? `of version ${model.viewing.reportVersion} — ${model.viewing.state ? model.viewing.state.toUpperCase() : "no state recorded"} (read-only)` : model.publication ? `— currently ${model.publication.state}` : "— no state recorded"}
+      </p>
       <p className="text-xs text-muted-foreground">Only the server can mark a saved version Reviewed or Final, and only an owner or partner may. It refuses while the statement set is incomplete, evidence is invalid or superseded, blocking findings or unmet reconciliations remain, or the version was never evaluated, and it never changes a Final version.</p>
-      {model.readiness && (
+      {model.readiness && !model.viewing && (
         <div className={`text-xs ${model.readiness.ready ? "text-muted-foreground" : "text-destructive"}`} data-testid="server-readiness" data-server-ready={model.readiness.ready ? "yes" : "no"}>
           <p className="font-medium">{model.readiness.ready ? "The server reports this saved version as ready to mark Reviewed or Final." : `The server would refuse Reviewed or Final for this saved version (${serverBlockers.length} requirement${serverBlockers.length === 1 ? "" : "s"} unmet):`}</p>
           {serverBlockers.length > 0 && (

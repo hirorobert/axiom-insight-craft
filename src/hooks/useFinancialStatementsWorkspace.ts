@@ -41,7 +41,7 @@ import { createWorkspaceTransport } from "@/lib/financialStatementsWorkspace/sup
 import { FsTransportError, type FsRpcTransport, type PublicationRow, type ReportReadiness, type SavedVersionSummary, type WorkspaceAccess } from "@/lib/financialStatementsWorkspace/rpcTransport";
 import { generatedFromStoredReport, historicalView, restoreLatestDraft, type HistoricalView } from "@/lib/financialStatementsWorkspace/savedVersions";
 import { buildLineage, outputReportFor, versionLabelOf, type ExportLineage } from "@/lib/financialStatementsWorkspace/exports";
-import { budgetFromReport } from "@/lib/financialGeneration/persistedAuthority";
+import { budgetFromReport, checklistFromReport } from "@/lib/financialGeneration/persistedAuthority";
 import type { CanonicalFinancialStatementReport } from "@/lib/canonicalStatement/types";
 import { saveWorkspace, type SavedState } from "@/lib/financialStatementsWorkspace/saveFlow";
 import type { CorrectEvidenceDecision, ReviewerDecision, RuleEvaluationRecord } from "@/lib/canonicalStatement/types";
@@ -164,6 +164,11 @@ export interface FinancialStatementsWorkspaceModel {
   // evidence
   readonly evidence: readonly EvidenceEntry[];
   readonly applied: ApplyEvidenceResult | null;
+  /** The disclosure checklist being shown: for a stored version, the one recorded IN that version (never today's evidence). */
+  readonly checklist: ApplyEvidenceResult["checklist"];
+  /** Live row-level drill-down and cash-perimeter detail; both are empty while a stored version is shown, since they can only be derived from live evidence. */
+  readonly evidenceIndex: ApplyEvidenceResult["evidenceIndex"];
+  readonly cashPerimeter: ApplyEvidenceResult["cashPerimeter"];
   /** The budget comparison being shown: for a stored version, the one recorded IN that version. */
   readonly budgetComparison: ApplyEvidenceResult["budgetActual"];
   readonly addEvidence: (request: EvidenceAddRequest) => EvidenceAddResult;
@@ -903,7 +908,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     views: historical ? historical.views : views,
     persistence, notice, decide, rerun,
     evidence: historical ? historical.evidence : evidence,
-    applied, budgetComparison: viewing ? budgetFromReport(viewing.report) : (applied?.budgetActual ?? null), addEvidence, removeUnsavedEvidence, correctEvidence,
+    applied, checklist: viewing ? checklistFromReport(viewing.report, profile?.disclosureAreas ?? []) : (applied?.checklist ?? []), evidenceIndex: viewing ? {} : (applied?.evidenceIndex ?? {}), cashPerimeter: viewing ? null : (applied?.cashPerimeter ?? null), budgetComparison: viewing ? budgetFromReport(viewing.report) : (applied?.budgetActual ?? null), addEvidence, removeUnsavedEvidence, correctEvidence,
     saveStatus, saveMessage, access, storedVersion, save, publication, setPublication,
     persistedVersion, versionLabel: versionLabelOf(persistedVersion), output,
     restore, versions, viewing, readOnly: viewing !== null, openVersion, closeVersion, reloadFromServer, readiness,

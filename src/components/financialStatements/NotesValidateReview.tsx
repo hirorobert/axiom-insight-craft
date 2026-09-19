@@ -64,8 +64,8 @@ export function NotesStage({ model }: { model: FinancialStatementsWorkspaceModel
       {profile && (
         <div>
           <h4 className="text-sm font-semibold text-foreground">Required disclosure areas — {profile.displayName}</h4>
-          {model.applied && model.applied.checklist.length > 0 && <DisclosureChecklist checklist={model.applied.checklist} />}
-          <ul className={model.applied && model.applied.checklist.length > 0 ? "hidden" : "mt-1 divide-y divide-border border border-border text-sm"} data-testid="disclosure-areas">
+          {model.checklist.length > 0 && <DisclosureChecklist checklist={model.checklist} />}
+          <ul className={model.checklist.length > 0 ? "hidden" : "mt-1 divide-y divide-border border border-border text-sm"} data-testid="disclosure-areas">
             {profile.disclosureAreas.map((a) => (
               <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 p-2">
                 <span>
