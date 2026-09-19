@@ -12,7 +12,7 @@
 //                       local port in a temp dir that is deleted afterwards.
 //                       Needs `embedded-postgres` + `pg`; set DB_PROOF_MODULES_DIR to a
 //                       directory whose node_modules contains them, or install them.
-//   external            DB_PROOF_MODE=external DB_PROOF_DATABASE_URL=postgres://…
+//   external            DB_PROOF_MODE=external DB_PROOF_CONN=postgres://…
 //                       for a throwaway database (CI service container). Refuses every
 //                       host that is not loopback, and refuses the production project
 //                       ref outright. The database must be EMPTY: the proof applies the
@@ -88,8 +88,8 @@ function assertLocal(urlString) {
 
 async function startDatabase() {
   if (MODE === "external") {
-    const url = process.env.DB_PROOF_DATABASE_URL;
-    if (!url) throw new Error("DB_PROOF_MODE=external requires DB_PROOF_DATABASE_URL");
+    const url = process.env.DB_PROOF_CONN;
+    if (!url) throw new Error("DB_PROOF_MODE=external requires DB_PROOF_CONN");
     assertLocal(url);
     return url;
   }

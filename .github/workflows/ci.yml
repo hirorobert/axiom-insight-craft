@@ -191,3 +191,12 @@ jobs:
 
       - name: Run disposable-DB contract test harness
         run: bash scripts/db-contract-tests/run.sh
+
+      - name: Financial-statements persistence proof (fresh database on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_proof
+        run: |
+          createdb fs_proof
+          npm install --no-save --no-package-lock --ignore-scripts pg@8
+          node scripts/db-proof/run.mjs
