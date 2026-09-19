@@ -61,6 +61,17 @@ async function makeModel(): Promise<FinancialStatementsWorkspaceModel> {
     notice: null,
     decide: async () => ({ ok: true as const }),
     rerun: () => undefined,
+    evidence: [],
+    applied: null,
+    addEvidence: () => ({ kind: "REJECTED" as const, diagnostics: [] }),
+    removeUnsavedEvidence: () => undefined,
+    saveStatus: "DISABLED" as const,
+    saveMessage: null,
+    access: null,
+    storedVersion: null,
+    save: async () => undefined,
+    publication: null,
+    setPublication: async () => ({ ok: false, message: "" }),
   };
 }
 
@@ -134,14 +145,23 @@ describe("honest draft — final outputs are draft-only; no approval or final st
     expect(text(html)).toContain("Draft — not reviewed or approved");
   });
 
-  it("no source in the workspace defines an approval, sign-off or final output status", () => {
+  it("a Reviewed/Final state exists only as a SERVER-recorded publication state: no source defines an approval, sign-off or issue status, and the two modules that name a state cannot show one while saving is disabled", async () => {
     const dir = path.join(ROOT, "src/components/financialStatements");
     const files = fs.readdirSync(dir).filter((f) => /\.tsx?$/.test(f) && !/\.test\./.test(f));
+    const mayNameFinal = new Set(["EvidenceUi.tsx", "OutputsStage.tsx"]);
     for (const f of files) {
       const src = fs.readFileSync(path.join(dir, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-      expect(src, f).not.toMatch(/["'`](APPROVED|FINAL|ISSUED|SIGNED_OFF|SIGNED-OFF)["'`]/);
+      expect(src, f).not.toMatch(/["'`](APPROVED|ISSUED|SIGNED_OFF|SIGNED-OFF)["'`]/);
+      if (!mayNameFinal.has(f)) expect(src, f).not.toMatch(/["'`]FINAL["'`]/);
       expect(src, f).not.toMatch(/statement_sign_offs|hesabu_gate_before_signoff/);
     }
+    // With saving disabled (persistence gate off) no state control is offered and the stamp is DRAFT whatever a caller passes.
+    const model = await makeModel();
+    const html = renderToStaticMarkup(createElement(OutputsStage, { model }));
+    expect(html).not.toContain("publication-controls");
+    const { outputStatus } = await import("./exports");
+    expect(outputStatus("FINAL", 1)).toBe("DRAFT"); // blockers always force DRAFT
+    expect(outputStatus(null, 0)).toBe("DRAFT"); // a state the server never recorded is never shown
   });
 });
 

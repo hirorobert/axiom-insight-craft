@@ -21,6 +21,8 @@ import { FINANCIAL_STATEMENTS_WORKSPACE_ENABLED, isWorkspaceRenderable } from "@
 import { SourcesStage, StatementsStage, StructureStage } from "./SourcesStructureStatements";
 import { NotesStage, PersistenceBanner, ReviewStage, ValidateStage } from "./NotesValidateReview";
 import { OutputsStage } from "./OutputsStage";
+import type { FsRpcTransport } from "@/lib/financialStatementsWorkspace/rpcTransport";
+import { SaveBar } from "./EvidenceUi";
 
 export interface FinancialStatementsWorkspaceProps {
   readonly companyId: string;
@@ -34,6 +36,8 @@ export interface FinancialStatementsWorkspaceProps {
   readonly uploads: readonly WorkspaceUploadInput[];
   readonly loadAccountMappings?: AccountMappingLoader;
   readonly signatureBlocks?: readonly string[];
+  /** Injected only by the non-production harness; production builds it behind the source gate. */
+  readonly transport?: FsRpcTransport | null;
 }
 
 function focusLine(lineId: string) {
@@ -87,7 +91,7 @@ function FinancialStatementsWorkspaceEnabled(props: FinancialStatementsWorkspace
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" data-testid="draft-badge">
-            Internal preview — unsaved draft
+            {model.saveStatus === "SAVED" ? "Internal preview — saved draft" : "Internal preview — unsaved draft"}
           </Badge>
           <Button type="button" variant="outline" size="sm" onClick={model.rerun} disabled={model.status === "loading"}>
             <RefreshCw className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
@@ -95,6 +99,8 @@ function FinancialStatementsWorkspaceEnabled(props: FinancialStatementsWorkspace
           </Button>
         </div>
       </header>
+
+      <SaveBar model={model} />
 
       <nav aria-label="Financial statements stages" className="overflow-x-auto">
         <ol className="flex min-w-max gap-1" role="tablist" aria-orientation="horizontal">

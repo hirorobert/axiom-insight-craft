@@ -106,6 +106,10 @@ const bridge = http.createServer(async (req, res) => {
   try {
     if (!uid) throw Object.assign(new Error("unknown simulated user"), { code: "42501" });
     const u = new URL(req.url, "http://x");
+    if (u.pathname === "/seed") {
+      res.writeHead(200, cors);
+      return res.end(JSON.stringify({ companyA, companyB, users: Object.keys(users) }));
+    }
     if (u.pathname.startsWith("/rpc/")) {
       const fn = u.pathname.slice(5);
       if (!ALLOWED_RPC.test(fn)) throw Object.assign(new Error("function not exposed"), { code: "42883" });

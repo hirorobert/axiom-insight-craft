@@ -93,6 +93,7 @@ describe("database inertness — the workspace code cannot mutate a database", (
     const offenders: string[] = [];
     for (const f of workspaceSources) {
       if (TRANSPORT_FILES.has(rel(f))) continue; // audited separately below
+      if (rel(f) === "dev-harness/bridgeBackend.ts") continue; // loopback-only dev tool, audited below
       const src = stripComments(fs.readFileSync(f, "utf8"));
       for (const [re, what] of forbidden) if (re.test(src)) offenders.push(`${rel(f)}: ${what}`);
     }
@@ -110,8 +111,14 @@ describe("database inertness — the workspace code cannot mutate a database", (
   });
 
   it("nothing except the gated factory constructs a transport, and the factory refuses when the gate is off", () => {
-    const constructors = workspaceSources.filter((f) => /new FsRpcTransport/.test(stripComments(fs.readFileSync(f, "utf8")))).map(rel);
-    expect(constructors).toEqual(["src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"]);
+    const constructors = workspaceSources.filter((f) => /new FsRpcTransport/.test(stripComments(fs.readFileSync(f, "utf8")))).map(rel).sort();
+    expect(constructors).toEqual(["dev-harness/main.tsx", "src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"]);
+    // the harness transport is dev-only and loopback-only
+    const harnessMain = stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/main.tsx"), "utf8"));
+    expect(harnessMain).toMatch(/if \(!import\.meta\.env\.DEV\)/);
+    const bridge = stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/bridgeBackend.ts"), "utf8"));
+    expect(bridge).toMatch(/assertLoopback\(bridge\)/);
+    expect(bridge).toMatch(/host !== "127\.0\.0\.1" && host !== "localhost"/);
     const adapter = stripComments(fs.readFileSync(path.join(ROOT, "src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"), "utf8"));
     expect(adapter).toMatch(/return gate \? new FsRpcTransport\(supabaseFsBackend\) : null/);
   });

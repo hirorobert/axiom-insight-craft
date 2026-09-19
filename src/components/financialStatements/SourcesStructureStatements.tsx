@@ -5,6 +5,7 @@
 import { AlertTriangle, CheckCircle2, CircleSlash, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { StatementRenderer } from "./StatementRenderer";
+import { BudgetActualTable, EvidencePanel, EvidenceSources } from "./EvidenceUi";
 import type { FinancialStatementsWorkspaceModel } from "@/hooks/useFinancialStatementsWorkspace";
 import type { SourceStatus } from "@/lib/financialStatementsWorkspace/sourcesModel";
 import { labelForStatus, type CompositionEntry, type CompositionStatus } from "@/lib/financialStatementsWorkspace/statementComposition";
@@ -35,6 +36,7 @@ export function SourcesStage({ model }: { model: FinancialStatementsWorkspaceMod
           </li>
         ))}
       </ul>
+      <EvidencePanel model={model} />
     </section>
   );
 }
@@ -207,9 +209,17 @@ export function StatementsStage({ model }: { model: FinancialStatementsWorkspace
       {composition.entries.map((entry) => {
         const statement = entry.statementId ? snapshot?.report.statements.find((s) => s.statementId === entry.statementId) : undefined;
         if (snapshot && statement) {
-          const node = <StatementRenderer key={entry.kind} report={snapshot.report} statement={statement} profile={profile} numbering={numbering} startOnNewPage={rendered > 0} />;
+          const node = (
+            <div key={entry.kind}>
+              <StatementRenderer report={snapshot.report} statement={statement} profile={profile} numbering={numbering} startOnNewPage={rendered > 0} />
+              <EvidenceSources model={model} statement={statement} />
+            </div>
+          );
           rendered += 1;
           return node;
+        }
+        if (entry.kind === "BUDGET_VS_ACTUAL" && entry.status === "PRESENT" && model.applied?.budgetActual?.status === "GENERATED") {
+          return <BudgetActualTable key={entry.kind} comparison={model.applied.budgetActual} />;
         }
         return <IncompleteStatementCard key={entry.kind} entry={entry} />;
       })}

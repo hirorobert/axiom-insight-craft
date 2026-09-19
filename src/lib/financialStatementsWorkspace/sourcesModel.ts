@@ -23,6 +23,8 @@ export interface SourcesInput {
   readonly comparative: ComparativeSourceState<ComparativeCandidateUpload & { readonly file_name?: string }>;
   /** Source constant DOCUMENT_REVIEW_ENABLED — extraction adapters do not exist, so this only ever describes intake, never assessment. */
   readonly documentReviewEnabled: boolean;
+  /** Latest version of each evidence series in the session. */
+  readonly evidence?: readonly { readonly evidenceType: string; readonly periodRole: string; readonly validationStatus: string; readonly evidenceBatchId: string }[];
 }
 
 export function buildSources(input: SourcesInput): readonly SourceEntry[] {
@@ -50,12 +52,13 @@ export function buildSources(input: SourcesInput): readonly SourceEntry[] {
       status: "UNAVAILABLE",
       detail: "Reading figures from previously issued statements requires document extraction, which is not available yet. Import the prior-year trial balance instead.",
     },
-    {
-      id: "supporting-schedules",
-      label: "Supporting schedules",
-      status: "UNAVAILABLE",
-      detail: "There is no intake for supporting schedules yet, so notes and movement schedules cannot be populated from source.",
-    },
+    (() => {
+      const schedules = (input.evidence ?? []).filter((e) => e.evidenceType === "SUPPORTING_SCHEDULE");
+      const usable = schedules.filter((e) => e.validationStatus === "VALID" || e.validationStatus === "VALID_WITH_WARNINGS");
+      return usable.length > 0
+        ? ({ id: "supporting-schedules", label: "Supporting schedules", status: "AVAILABLE", detail: `${usable.length} validated schedule file${usable.length === 1 ? "" : "s"} feed notes and movement schedules.`, provenance: usable.map((e) => e.evidenceBatchId).join(", ") } as const)
+        : ({ id: "supporting-schedules", label: "Supporting schedules", status: schedules.length > 0 ? "INELIGIBLE" : "MISSING", detail: schedules.length > 0 ? "A schedule file was added but did not validate; see its diagnostics under Evidence." : "No supporting schedule has been added. Add a CSV schedule under Evidence to populate notes and movement schedules." } as const);
+    })(),
     {
       id: "existing-statement-intake",
       label: "Existing-statement intake",

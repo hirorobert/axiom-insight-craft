@@ -12,6 +12,7 @@ import { resolveLatestFact } from "@/lib/canonicalStatement/provenance";
 import { formatMoney } from "@/lib/canonicalStatement/money";
 import type { CanonicalFinancialStatementReport, MovementSchedule } from "@/lib/canonicalStatement/types";
 import { FindingsPanel } from "./FindingsPanel";
+import { DisclosureChecklist } from "./EvidenceUi";
 import type { DecisionRequest, DecisionResult, FinancialStatementsWorkspaceModel } from "@/hooks/useFinancialStatementsWorkspace";
 import { correctableFacts } from "@/lib/financialStatementsWorkspace/correctableFacts";
 import { isApprovalReady, type FindingView } from "@/lib/financialStatementsWorkspace/findingsView";
@@ -62,7 +63,8 @@ export function NotesStage({ model }: { model: FinancialStatementsWorkspaceModel
       {profile && (
         <div>
           <h4 className="text-sm font-semibold text-foreground">Required disclosure areas — {profile.displayName}</h4>
-          <ul className="mt-1 divide-y divide-border border border-border text-sm" data-testid="disclosure-areas">
+          {model.applied && model.applied.checklist.length > 0 && <DisclosureChecklist checklist={model.applied.checklist} />}
+          <ul className={model.applied && model.applied.checklist.length > 0 ? "hidden" : "mt-1 divide-y divide-border border border-border text-sm"} data-testid="disclosure-areas">
             {profile.disclosureAreas.map((a) => (
               <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 p-2">
                 <span>
@@ -106,6 +108,11 @@ export function NotesStage({ model }: { model: FinancialStatementsWorkspaceModel
                 <p className="text-sm font-medium">
                   Note {numbering?.numberByNoteId.get(n.noteId)} — {n.title}
                 </p>
+                {report?.textualDisclosures.filter((d) => d.relatedNoteId === n.noteId).map((d) => (
+                  <p key={d.disclosureId} className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground" data-testid="note-text">
+                    {d.text}
+                  </p>
+                ))}
                 {n.movementSchedule && report && <MovementTable report={report} schedule={n.movementSchedule} />}
               </li>
             ))}
