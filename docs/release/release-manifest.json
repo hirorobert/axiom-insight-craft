@@ -4,9 +4,9 @@
   "branch": "codex/financial-statements-production-readiness",
   "design": "Candidate = sourceCommit + one manifest-only tip commit. sourceTree is the git tree of the candidate without docs/release/release-manifest.json. commits lists origin/main..sourceCommit followed by MANIFEST_TIP (the tip itself). Verification recomputes every field.",
   "baseCommit": "f6248c05ace36969ad1bc160d54410798a015e30",
-  "sourceCommit": "189f04931a155d101add16925d5d8a2b0040f985",
-  "sourceTree": "4db3e8be5fd429065233aba1f90d78637ceb1c31",
-  "commitCount": 41,
+  "sourceCommit": "bceab982cb2eb60722ea586590ecbe84cd920ce4",
+  "sourceTree": "4bcc1dcd8e235c24345260dcf4b184d763bccf5a",
+  "commitCount": 43,
   "commits": [
     "050f72cc8696775466864a1aa687fe315fc91925",
     "2bd3ec67ae8ef0696b7de7d6fadaa6790bc339e2",
@@ -48,6 +48,8 @@
     "5530b05176fbe0bb5a74bc48677b4a073c5227bb",
     "a5f51c54618d7b5a0b361bb1d5e35c0459f2ea41",
     "189f04931a155d101add16925d5d8a2b0040f985",
+    "0d31522bea471920ec1cfb7140af4a684ddbbcca",
+    "bceab982cb2eb60722ea586590ecbe84cd920ce4",
     "MANIFEST_TIP"
   ],
   "changedFiles": [
@@ -202,8 +204,8 @@
     "files": [
       "dist/assets/html2canvas.esm-CBrSDip1.js",
       "dist/assets/index-BBYUHkeF.css",
-      "dist/assets/index-B_Yv7Crd.js",
-      "dist/assets/index.es-B4duUhFM.js",
+      "dist/assets/index-Bv_-l__h.js",
+      "dist/assets/index.es-DVIvsesJ.js",
       "dist/assets/purify.es-C5KSVp3G.js",
       "dist/favicon.svg",
       "dist/index.html",
