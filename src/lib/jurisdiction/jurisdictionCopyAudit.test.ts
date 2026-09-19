@@ -28,7 +28,10 @@ export const JURISDICTION_MODULES: readonly string[] = [
   "components/PaymentLedgerPanel.tsx",
   "components/EvidenceRequestPanel.tsx",
   "components/TransferPricingPanel.tsx",
+  "lib/jurisdiction/filingTerms.ts",
   "components/TaxLossPanel.tsx",
+  "components/ThinCapWorkpaper.tsx",
+  "components/AddBacksWorkpaper.tsx",
   "lib/generateTaxComputationPDF.ts",
   "lib/accounting/museIpsasRulePack.ts",
 ];
@@ -36,7 +39,7 @@ export const JURISDICTION_MODULES: readonly string[] = [
 /** Currency pickers: ISO-4217 reference data. */
 const CURRENCY_LIST_FILES = ["components/workspace/FirstRunEngagement.tsx", "components/CompanyManager.tsx"];
 
-const FORBIDDEN = /\b(TRA|TIN|EFDMS)\b|Tanzania/;
+const FORBIDDEN = /\b(TRA|TIN|EFDMS|TAA)\b|Tanzania|ITA Cap|Cap\.\s?332/;
 
 function walk(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {

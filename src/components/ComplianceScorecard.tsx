@@ -166,7 +166,7 @@ export function ComplianceScorecard() {
                 Compliance Scorecard
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5">
-                ITA Cap.332 R.E.2023 — weighted risk score per entity
+                Weighted risk score per entity
               </p>
             </div>
           </div>
@@ -242,7 +242,7 @@ export function ComplianceScorecard() {
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold text-foreground truncate">{company.companyName}</span>
                           {company.tin && (
-                            <span className="text-xs text-muted-foreground font-mono">TIN: {company.tin}</span>
+                            <span className="text-xs text-muted-foreground font-mono">Tax identifier: {company.tin}</span>
                           )}
                         </div>
                       </div>

@@ -300,7 +300,7 @@ export function deriveWorkspaceState(
         label: "Compute Corporate Tax",
         description: taxBlocked
           ? "Statements validated — resolve Prepare Data reconciliation to unlock tax computation"
-          : "Statements validated — compute corporate income tax (ITA Cap.332)",
+          : "Statements validated — compute corporate income tax",
         href: `${b}/tax`,
         blocked: taxBlocked,
         blocker: taxBlocked ? "Prepare Data reconciliation must clear first" : undefined,

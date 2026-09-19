@@ -18,6 +18,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { filingTerm, isFilingTermKey, type FilingTermKey } from "@/lib/jurisdiction/filingTerms";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,7 +39,7 @@ interface ChecklistItem {
   status: ItemStatus;
   dueDate?: string;
   exposureTzs?: number;
-  itraRef: string;        // statutory reference
+  itraRef: string | null; // statutory reference from the configured jurisdiction, or null
   note?: string;
 }
 
@@ -47,6 +48,8 @@ interface TRAFilingChecklistProps {
   companyId: string | null;
   periodYear?: number;
   periodMonth?: number;   // 1–12 (fiscal year end month)
+  /** The workspace's configured filing jurisdiction. Absent → neutral wording and no statutory citations. */
+  jurisdiction?: string | null;
   companyName?: string;
 }
 
@@ -96,23 +99,6 @@ function statusBadge(s: ItemStatus) {
   return <Badge className={`text-[10px] ${className}`}>{label}</Badge>;
 }
 
-// ── Category → checklist item label map ───────────────────────
-
-const CATEGORY_LABELS: Record<string, { label: string; itraRef: string }> = {
-  sdl:                 { label: "SDL Returns & Payments",        itraRef: "Skills & Development Levy Act s.11" },
-  nssf:                { label: "NSSF Contributions",            itraRef: "NSSF Act s.27" },
-  service_levy:        { label: "Service Levy",                  itraRef: "Local Government Finance Act s.6" },
-  paye:                { label: "PAYE Remittances",              itraRef: "ITA Cap.332 s.81" },
-  vat:                 { label: "VAT Returns",                   itraRef: "VAT Act Cap.148" },
-  wht:                 { label: "Withholding Tax",               itraRef: "ITA Cap.332 s.82" },
-  thin_cap:            { label: "Thin Capitalisation (ITA s.12)", itraRef: "ITA Cap.332 s.12" },
-  entertainment:       { label: "Entertainment Disallowance",    itraRef: "ITA Cap.332 s.11(j)" },
-  management_fee:      { label: "Management Fee Cap",            itraRef: "ITA Cap.332 s.33" },
-  presumptive_tax:     { label: "Presumptive Tax Assessment",    itraRef: "ITA Cap.332 s.67" },
-  penalties:           { label: "Outstanding Penalties",         itraRef: "TAA 2015 s.76" },
-  unknown:             { label: "Other Statutory Finding",       itraRef: "ITA Cap.332" },
-};
-
 // ── Component ─────────────────────────────────────────────────
 
 export function TRAFilingChecklist({
@@ -121,6 +107,7 @@ export function TRAFilingChecklist({
   periodYear,
   periodMonth,
   companyName,
+  jurisdiction,
 }: TRAFilingChecklistProps) {
   const [items, setItems]     = useState<ChecklistItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -179,48 +166,49 @@ export function TRAFilingChecklist({
 
       // ── 3. Build checklist items ───────────────────────────────────
 
+      const t = (key: FilingTermKey) => filingTerm(jurisdiction ?? null, key);
       const result: ChecklistItem[] = [];
 
       // A. SDL
       const sdl = byCategory.get("sdl");
       result.push({
         id: "sdl",
-        label: "SDL Returns & Payments",
-        description: "Monthly 4.5% of gross emoluments — due by last working day of following month.",
+        label: t("sdl").label,
+        description: t("sdl").description,
         status: sdl
           ? (sdl.hasOverdue ? "overdue" : "open_finding")
           : "clear",
         dueDate: sdl?.latestPeriodEnd ?? undefined,
         exposureTzs: sdl?.totalExposure,
-        itraRef: "Skills & Development Levy Act s.11",
+        itraRef: t("sdl").reference,
       });
 
       // B. NSSF
       const nssf = byCategory.get("nssf");
       result.push({
         id: "nssf",
-        label: "NSSF Contributions",
-        description: "Employee + employer NSSF contributions — 10% + 10% of basic salary.",
+        label: t("nssf").label,
+        description: t("nssf").description,
         status: nssf
           ? (nssf.hasOverdue ? "overdue" : "open_finding")
           : "clear",
         dueDate: nssf?.latestPeriodEnd ?? undefined,
         exposureTzs: nssf?.totalExposure,
-        itraRef: "NSSF Act s.27",
+        itraRef: t("nssf").reference,
       });
 
       // C. Service Levy
       const sl = byCategory.get("service_levy");
       result.push({
         id: "service_levy",
-        label: "Service Levy",
-        description: "0.3% of annual turnover — payable to local government authority.",
+        label: t("service_levy").label,
+        description: t("service_levy").description,
         status: sl
           ? (sl.hasOverdue ? "overdue" : "open_finding")
           : "clear",
         dueDate: sl?.latestPeriodEnd ?? undefined,
         exposureTzs: sl?.totalExposure,
-        itraRef: "Local Government Finance Act s.6",
+        itraRef: t("service_levy").reference,
       });
 
       // D. PAYE — shown only if engine surfaced a finding
@@ -228,12 +216,12 @@ export function TRAFilingChecklist({
       if (paye) {
         result.push({
           id: "paye",
-          label: "PAYE Remittances",
-          description: "Pay-As-You-Earn — deducted and remitted monthly to the tax authority.",
+          label: t("paye").label,
+          description: t("paye").description,
           status: paye.hasOverdue ? "overdue" : "open_finding",
           dueDate: paye.latestPeriodEnd ?? undefined,
           exposureTzs: paye.totalExposure,
-          itraRef: "ITA Cap.332 s.81",
+          itraRef: t("paye").reference,
           note: "PAYE not computed by this engine — finding from prior run shown.",
         });
       }
@@ -243,23 +231,23 @@ export function TRAFilingChecklist({
       if (wht) {
         result.push({
           id: "wht",
-          label: "Withholding Tax",
-          description: "WHT on service payments, dividends, or interest — remitted to the tax authority.",
+          label: t("wht").label,
+          description: t("wht").description,
           status: wht.hasOverdue ? "overdue" : "open_finding",
           dueDate: wht.latestPeriodEnd ?? undefined,
           exposureTzs: wht.totalExposure,
-          itraRef: "ITA Cap.332 s.82",
+          itraRef: t("wht").reference,
         });
       }
 
       // F. CIT Provisional Return (ITA s.88) — only if tax computation exists
       result.push({
         id: "cit_provisional",
-        label: "CIT Provisional Return (ITA s.88)",
-        description: "Quarterly instalment payments — due 3, 6, 9, 12 months after fiscal year start.",
+        label: t("cit_provisional").label,
+        description: t("cit_provisional").description,
         status: hasTaxComp ? "clear" : "no_data",
         dueDate: effYear && effMonth ? citInstalment1Due(effYear, effMonth) : undefined,
-        itraRef: "ITA Cap.332 s.88",
+        itraRef: t("cit_provisional").reference,
         note: hasTaxComp
           ? "Tax computation committed — instalment schedule generated."
           : "Commit a tax computation to generate the instalment schedule.",
@@ -268,11 +256,11 @@ export function TRAFilingChecklist({
       // G. CIT Final Return
       result.push({
         id: "cit_final",
-        label: "CIT Final Return (ITA s.89)",
-        description: "Annual corporate income tax return — due 6 months after fiscal year end.",
+        label: t("cit_final").label,
+        description: t("cit_final").description,
         status: hasTaxComp ? "clear" : "no_data",
         dueDate: effYear && effMonth ? citReturnDueDate(effYear, effMonth) : undefined,
-        itraRef: "ITA Cap.332 s.89",
+        itraRef: t("cit_final").reference,
       });
 
       // H. Penalties from findings
@@ -280,18 +268,19 @@ export function TRAFilingChecklist({
       if (pen) {
         result.push({
           id: "penalties",
-          label: "Outstanding tax authority penalties",
-          description: "5% per month on unpaid tax (TAA 2015 s.76) — accruing daily.",
+          label: t("penalties").label,
+          description: t("penalties").description,
           status: "overdue",
           exposureTzs: pen.totalExposure,
-          itraRef: "TAA 2015 s.76",
+          itraRef: t("penalties").reference,
         });
       }
 
       // I. Any other categories found
       for (const [cat, data] of byCategory.entries()) {
         if (["sdl","nssf","service_levy","paye","wht","penalties"].includes(cat)) continue;
-        const meta = CATEGORY_LABELS[cat];
+        const known: FilingTermKey | null = isFilingTermKey(cat) ? cat : null;
+        const meta = known ? t(known) : null;
         result.push({
           id: `other-${cat}`,
           label: meta?.label ?? `Finding: ${cat}`,
@@ -299,7 +288,7 @@ export function TRAFilingChecklist({
           status: data.hasOverdue ? "overdue" : "open_finding",
           dueDate: data.latestPeriodEnd ?? undefined,
           exposureTzs: data.totalExposure,
-          itraRef: meta?.itraRef ?? "ITA Cap.332",
+          itraRef: meta?.reference ?? t("unknown").reference,
         });
       }
 
@@ -314,7 +303,7 @@ export function TRAFilingChecklist({
 
   useEffect(() => {
     build();
-  }, [uploadId, companyId]);
+  }, [uploadId, companyId, jurisdiction]);
 
   // ── Summary counts ────────────────────────────────────────────
 
@@ -429,9 +418,11 @@ export function TRAFilingChecklist({
                   {item.note && (
                     <p className="text-[10px] text-primary mt-0.5 italic">{item.note}</p>
                   )}
-                  <p className="text-[10px] text-muted-foreground/60 mt-0.5 font-mono">
-                    {item.itraRef}
-                  </p>
+                  {item.itraRef && (
+                    <p className="text-[10px] text-muted-foreground/60 mt-0.5 font-mono">
+                      {item.itraRef}
+                    </p>
+                  )}
                 </div>
 
                 <div className="text-right flex-shrink-0 space-y-0.5">
@@ -457,7 +448,7 @@ export function TRAFilingChecklist({
               <p className="text-[10px] text-muted-foreground">
                 This checklist is derived from open findings and committed tax computations.
                 Resolve findings via the <strong>Compliance Findings</strong> panel.
-                CIT dates are computed per ITA Cap.332 s.88–89 from the fiscal year end.
+                Corporate income tax dates are computed from the fiscal year end.
               </p>
             </div>
           </div>
