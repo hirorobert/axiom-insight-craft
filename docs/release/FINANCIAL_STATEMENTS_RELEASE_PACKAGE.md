@@ -91,4 +91,3 @@ Browser: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` (public anon key, 
 11. **No load testing** beyond the enforced limits (2 MB / 20,000 rows / 40 columns for CSV; 5 MB, 300 zip entries, 20,000 rows for workbooks).
 12. **Artifact hashes in the manifest identify one build; they are not a reproducibility proof.** The pre-existing vite config embeds the build time and the HEAD commit id, so rebuilding changes them. The manifest's migration and document hashes are exact and are what `--check` verifies.
 13. The CI step that runs `db-proof` on the throwaway container was verified locally in external mode against an empty database, but has not yet run in GitHub Actions.
-
