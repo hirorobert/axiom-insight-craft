@@ -29,4 +29,3 @@ docs/internal/
 
 __pycache__/
 *.pyc
-.db-proof-seed.json

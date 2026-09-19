@@ -39,13 +39,13 @@ The commands and their actual exit codes are recorded in the final report of the
 
 ```
 npm test                                   # full suite
-npx tsc --noEmit -p tsconfig.app.json      # typecheck (pre-existing errors listed in CLAUDE.md §9)
+npx tsc --noEmit -p tsconfig.app.json      # typecheck (0 errors at hand-off)
 npx eslint .                               # lint
 npm run build                              # production build
 node scripts/audit_migrations.mjs --strict # must print VERDICT: CLEAN
 node scripts/release/build-manifest.mjs --check
 DB_PROOF_MODULES_DIR=<dir with pg + embedded-postgres> node scripts/db-proof/run.mjs
-DB_PROOF_MODULES_DIR=<dir> node scripts/db-proof/serve.mjs   # then: DB_PROOF_SEED_FILE=.db-proof-seed.json npx vitest run saveFlow.pg
+DB_PROOF_MODULES_DIR=<dir> node scripts/db-proof/serve.mjs   # then: DB_PROOF_SEED_FILE=<seed path printed by serve.mjs> npx vitest run saveFlow.pg
 DB_PROOF_MODULES_DIR=<dir> node scripts/release/verify-release-sql.mjs
 ```
 

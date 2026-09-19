@@ -12,7 +12,7 @@
 // that limitation is stated in the release documentation.
 //
 // Usage: DB_PROOF_MODULES_DIR=<dir with node_modules/{pg,embedded-postgres}> node scripts/db-proof/serve.mjs
-//   env: DB_PROOF_SEED_FILE (default ./.db-proof-seed.json), DB_PROOF_BRIDGE_PORT (default 54999)
+//   env: DB_PROOF_SEED_FILE (default <os temp dir>/cfoclose-db-proof-seed.json, outside the repository), DB_PROOF_BRIDGE_PORT (default 54999)
 
 import fs from "node:fs";
 import http from "node:http";
@@ -24,7 +24,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR ? path.resolve(process.env.DB_PROOF_MODULES_DIR) : REPO;
-const SEED_FILE = path.resolve(process.env.DB_PROOF_SEED_FILE ?? path.join(REPO, ".db-proof-seed.json"));
+const SEED_FILE = path.resolve(process.env.DB_PROOF_SEED_FILE ?? path.join(os.tmpdir(), "cfoclose-db-proof-seed.json"));
 const BRIDGE_PORT = Number(process.env.DB_PROOF_BRIDGE_PORT ?? 54999);
 const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";

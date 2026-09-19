@@ -4,9 +4,10 @@
 // operator scripts work and are audited. Loopback only; it never reads a credential.
 //
 // Usage: DB_PROOF_MODULES_DIR=<dir with node_modules/pg> node scripts/release/verify-release-sql.mjs
-// (with `node scripts/db-proof/serve.mjs` running, which writes .db-proof-seed.json)
+// (with `node scripts/db-proof/serve.mjs` running, which writes its seed file to the OS temp dir; override with DB_PROOF_SEED_FILE)
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -14,7 +15,7 @@ import { fileURLToPath } from "node:url";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const MOD = process.env.DB_PROOF_MODULES_DIR ? path.resolve(process.env.DB_PROOF_MODULES_DIR) : REPO;
 const { Client } = createRequire(path.join(MOD, "noop.js"))("pg");
-const seed = JSON.parse(fs.readFileSync(path.join(REPO, ".db-proof-seed.json"), "utf8"));
+const seed = JSON.parse(fs.readFileSync(process.env.DB_PROOF_SEED_FILE ?? path.join(os.tmpdir(), "cfoclose-db-proof-seed.json"), "utf8"));
 if (!/^postgres:\/\/[^@]*@(localhost|127\.0\.0\.1)[:/]/.test(seed.url) || seed.url.includes("bvyivmmfjejbmqoydezk")) throw new Error("REFUSED: not a loopback disposable database");
 const base = seed.url.replace(/\/e2e$/, "");
 
