@@ -180,11 +180,120 @@ describe("multi-account cash perimeter", () => {
   });
 
   it("the cash perimeter note is numbered and not reported as unreferenced", async () => {
-    const r = await run();
+    const r = await runLedger(COMPLETE_ROWS);
     const n = r.report!.notes.find((x) => x.noteId === "note:cash-perimeter")!;
     expect(n.title).toBe("Cash and cash equivalents");
     expect(n.noteNumber).not.toBe("0");
     expect(r.diagnostics.some((d) => d.code === "NOTE_NOT_REFERENCED" && d.message.includes("Cash and cash equivalents"))).toBe(false);
     expect(evaluate(r.report).filter((x) => x.outcome === "FAIL" && x.ruleId !== "missing-comparative-detection").map((x) => `${x.ruleId}: ${x.deterministicCalculation}`)).toEqual([]);
+  });
+});
+
+// ── ledger completeness, account by account (DEFECT-SAFISHA-TRANSACTION-LEDGER-GAP-001) ─────────────────────────────
+const LEDGER_HEADER = "transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line\n";
+const LROW = (id: string, code: string, receipt: string, payment = "") => `${id},2025-03-01,${code},Movement ${id},${receipt},${payment},OPERATING,Receipts and payments\n`;
+/** Movement of each account's contribution between the two trial balances: 1010 +1,000,000 · 1020 +500,000 · 1030 +100,000 · 1040 +100,000 · 1050 +200,000 · 1060 0 · overdraft 2050 −250,000. */
+const COMPLETE_ROWS = [LROW("T1", "1010", "1000000"), LROW("T2", "1020", "500000"), LROW("T3", "1030", "100000"), LROW("T4", "1040", "100000"), LROW("T5", "1050", "200000"), LROW("T6", "2050", "", "250000")];
+const ledgerOf = (rows: string[]) => LEDGER_HEADER + rows.join("");
+const runLedger = async (rows: string[], over: { map?: string; accounts?: Acc[]; cashKeys?: string[]; useMap?: boolean; extra?: EvidenceBatch[] } = {}) => {
+  const base = await tbReport(over.accounts);
+  const evidence = [...(over.useMap === false ? [] : [parse("CASH_ACCOUNT_MAP", over.map ?? mapCsv(), "CURRENT", { currency: undefined, scale: undefined })]), parse("TRANSACTION_LEDGER", ledgerOf(rows)), ...(over.extra ?? [])];
+  return applyEvidence({ report: base, profile: profileForKind("IFRS_FOR_SMES"), cashAccountKeys: over.cashKeys ?? ACCOUNTS.filter((a) => a.cash).map((a) => a.key), evidence });
+};
+const roll = (f: readonly RuleEvaluationRecord[]) => f.filter((x) => x.ruleId === "cashflow-account-rollforward" && x.outcome !== "NOT_APPLICABLE");
+const summary = (f: readonly RuleEvaluationRecord[]) => roll(f).map((x) => `${x.outcome}|${x.deterministicCalculation}`).sort();
+
+describe("cash ledger completeness — account by account", () => {
+  it("a complete ledger passes for every account (banks, cash on hand, mobile money, project, restricted with no movement, overdraft) and the closing ties", async () => {
+    const r = await runLedger(COMPLETE_ROWS);
+    expect(r.cashLedgerAuthority?.status).toBe("ESTABLISHED");
+    const f = evaluate(r.report);
+    expect(roll(f).map((x) => x.outcome)).toEqual(Array(7).fill("PASS")); // 1010 1020 1030 1040 1050 1060 2050 — restricted 1060 has a genuine zero movement
+    expect(rule6(f).map((x) => x.outcome)).toEqual(["PASS"]);
+    expect(f.filter((x) => x.outcome === "FAIL" && x.ruleId !== "missing-comparative-detection" && x.ruleId !== "duplicate-detection")).toEqual([]);
+    expect(r.cashLedgerAuthority!.rows.find((x) => x.accountKey === "1060")!.ledgerMovement.minorUnits).toBe(0n);
+  });
+
+  it("offsetting errors that keep the NET right are caught: the closing tie PASSES, the per-account rollforward FAILS", async () => {
+    const rows = [LROW("T1", "1010", "1000000"), LROW("T2", "1020", "500000"), LROW("T3", "1030", "", ""), LROW("T4", "1040", "200000"), LROW("T5", "1050", "200000"), LROW("T6", "2050", "", "250000")].map((x) => x);
+    // 1030 loses its 100,000 receipt; 1040 is overstated by the same 100,000 — the net is unchanged.
+    const r = await runLedger([LROW("T1", "1010", "1000000"), LROW("T2", "1020", "500000"), LROW("T4", "1040", "200000"), LROW("T5", "1050", "200000"), LROW("T6", "2050", "", "250000")]);
+    void rows;
+    const f = evaluate(r.report);
+    expect(rule6(f).map((x) => x.outcome)).toEqual(["PASS"]);
+    const failed = roll(f).filter((x) => x.outcome === "FAIL").map((x) => x.deterministicCalculation);
+    expect(failed).toHaveLength(2);
+    expect(failed.join(" ")).toContain("difference -100000.00");
+    expect(failed.join(" ")).toContain("difference 100000.00");
+  });
+
+  it("a ledger row naming an account that is not established as cash FAILS (unknown code, excluded fixed deposit, ECL allowance) — nothing is reassigned", async () => {
+    for (const code of ["9999", "1099", "1090"]) {
+      const r = await runLedger([...COMPLETE_ROWS, LROW("T9", code, "10")]);
+      const f = evaluate(r.report);
+      const fails = roll(f).filter((x) => x.outcome === "FAIL");
+      expect(fails.map((x) => x.deterministicCalculation).join(" "), code).toContain("not an established cash account");
+      expect(r.diagnostics.map((d) => d.code), code).toContain("LEDGER_ROW_ACCOUNT_NOT_A_CASH_ACCOUNT");
+      expect(r.cashLedgerAuthority?.status).toBe("UNRESOLVED");
+    }
+  });
+
+  it("restricted/designated cash with a recorded movement that the balances do not show FAILS for that account only", async () => {
+    const r = await runLedger([...COMPLETE_ROWS, LROW("T7", "1060", "5000")]);
+    const fails = roll(evaluate(r.report)).filter((x) => x.outcome === "FAIL");
+    expect(fails).toHaveLength(1);
+    expect(fails[0].deterministicCalculation).toContain("ledger movement 5000.00 vs trial-balance movement 0.00");
+  });
+
+  it("an account with no balance in the comparative period leaves the authority UNRESOLVED: insufficient evidence, never a pass", async () => {
+    const accounts = ACCOUNTS.map((a) => (a.key === "1050" ? { ...a, prior: undefined } : a));
+    const r = await runLedger(COMPLETE_ROWS, { accounts });
+    expect(r.cashLedgerAuthority?.status).toBe("UNRESOLVED");
+    expect(r.diagnostics.map((d) => d.code)).toContain("CASH_ROLLFORWARD_BALANCE_MISSING");
+    expect(roll(evaluate(r.report)).some((x) => x.outcome === "INSUFFICIENT_EVIDENCE")).toBe(true);
+  });
+
+  it("several reviewed cash accounts and NO map: the ledger cannot be checked, so the rule reports insufficient evidence", async () => {
+    const r = await runLedger(COMPLETE_ROWS, { useMap: false });
+    expect(r.cashLedgerAuthority?.status).toBe("UNRESOLVED");
+    expect(roll(evaluate(r.report)).map((x) => x.outcome)).toEqual(["INSUFFICIENT_EVIDENCE"]);
+  });
+
+  it("exactly one reviewed cash account and no map: that account is the whole perimeter and its ledger is tested", async () => {
+    const one: Acc[] = [
+      { key: "1010", name: "Bank", cls: "current_assets", normal: "debit", cur: 3_000_000, prior: 2_000_000, cash: true },
+      { key: "3000", name: "Share capital", cls: "equity", normal: "credit", cur: 3_000_000, prior: 2_000_000 },
+    ];
+    const good = await runLedger([LROW("T1", "1010", "1000000")], { accounts: one, cashKeys: ["1010"], useMap: false });
+    expect(roll(evaluate(good.report)).map((x) => x.outcome)).toEqual(["PASS"]);
+    const bad = await runLedger([LROW("T1", "1010", "900000")], { accounts: one, cashKeys: ["1010"], useMap: false });
+    expect(roll(evaluate(bad.report)).map((x) => x.outcome)).toEqual(["FAIL"]);
+    const orphan = await runLedger([LROW("T1", "1010", "1000000"), LROW("T2", "7777", "1")], { accounts: one, cashKeys: ["1010"], useMap: false });
+    expect(roll(evaluate(orphan.report)).some((x) => x.outcome === "FAIL")).toBe(true);
+  });
+
+  it("conflicting opening-cash evidence (prior-period statements vs the comparative perimeter) presents NO opening or closing cash and says so", async () => {
+    const prior = parse("PRIOR_PERIOD_STATEMENTS", "statement_type,line_key,line_label,amount\nFINANCIAL_POSITION,cash_and_cash_equivalents_sfp,Cash,1\n", "COMPARATIVE", { reportingPeriodId: "FY2024" });
+    const r = await runLedger(COMPLETE_ROWS, { extra: [prior] });
+    expect(r.diagnostics.map((d) => d.code)).toContain("OPENING_CASH_CONFLICT");
+    const cf = r.report!.statements.find((s) => s.type === "STATEMENT_OF_CASH_FLOWS")!;
+    expect(cf.sections.flatMap((s) => s.lines).some((l) => l.lineId === "line:cf:opening" || l.lineId === "line:cf:closing")).toBe(false);
+  });
+
+  it("is invariant under any permutation of the map rows and the ledger rows: identical outcomes, calculations and amounts", async () => {
+    const base = await runLedger(COMPLETE_ROWS);
+    const permutations = [[...COMPLETE_ROWS].reverse(), [COMPLETE_ROWS[3], COMPLETE_ROWS[0], COMPLETE_ROWS[5], COMPLETE_ROWS[2], COMPLETE_ROWS[4], COMPLETE_ROWS[1]]];
+    for (const rows of permutations) {
+      const r = await runLedger(rows, { map: mapCsv([...MAP_ROWS].reverse()) });
+      expect(summary(evaluate(r.report))).toEqual(summary(evaluate(base.report)));
+      expect(r.cashLedgerAuthority!.rows.map((x) => [x.accountKey, x.ledgerMovement.minorUnits, x.tbMovement?.minorUnits])).toEqual(base.cashLedgerAuthority!.rows.map((x) => [x.accountKey, x.ledgerMovement.minorUnits, x.tbMovement?.minorUnits]));
+      for (const role of ["gross", "restricted", "ecl", "overdraft", "excluded", "net", "cfexpected"] as const) expect(factOf(r, role)).toBe(factOf(base, role));
+    }
+  });
+
+  it("no ledger-derived cash flow means no ledger authority (not applicable, not a pass)", async () => {
+    const r = applyEvidence({ report: await tbReport(), profile: profileForKind("IFRS_FOR_SMES"), cashAccountKeys: ["1010"], evidence: [] });
+    expect(r.cashLedgerAuthority).toBeNull();
+    expect(r.report!.notes.some((n) => n.noteId === "note:cash-ledger-authority")).toBe(false);
   });
 });

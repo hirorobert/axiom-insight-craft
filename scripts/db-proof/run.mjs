@@ -20,6 +20,7 @@
 //
 // This script never reads Supabase credentials and can never reach a hosted project.
 
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -215,13 +216,17 @@ const reportDoc = (reportId, companyId, version, extra = {}) => ({
 });
 
 const STATEMENT_TYPES = ["STATEMENT_OF_FINANCIAL_POSITION", "STATEMENT_OF_PROFIT_OR_LOSS", "STATEMENT_OF_CHANGES_IN_EQUITY", "STATEMENT_OF_CASH_FLOWS"];
-/** A report document that satisfies the IFRS profile: four primary statements, each with current AND comparative figures. */
+const AREAS = ["accounting-policies", "basis-of-preparation", "supporting-notes"];
+const bothPeriods = (lineId) => ({ lineId, factBindings: [{ periodId: "CURRENT", factId: "f1" }, { periodId: "PRIOR_2024", factId: "f0" }] });
+/** A report document that satisfies the IFRS profile in full: four primary statements with current AND comparative figures, a closing-cash line, a cash ledger authority note, a full disclosure checklist and complete mapping coverage. */
 const completeDoc = (reportId, companyId, version, extra = {}) => ({
   reportIdentity: { reportId, companyId, reportVersion: version },
   framework: { kind: "IFRS" },
   period: { periodId: "CURRENT" },
   comparativePeriods: [{ periodId: "PRIOR_2024" }],
-  statements: STATEMENT_TYPES.map((type) => ({ statementId: `st:${type}`, type, sections: [{ sectionId: "s", lines: [{ lineId: `l:${type}`, factBindings: [{ periodId: "CURRENT", factId: "f1" }, { periodId: "PRIOR_2024", factId: "f0" }] }] }] })),
+  statements: STATEMENT_TYPES.map((type) => ({ statementId: `st:${type}`, type, sections: [{ sectionId: "s", lines: type === "STATEMENT_OF_CASH_FLOWS" ? [bothPeriods("line:cf:opening"), bothPeriods("line:cf:closing")] : [bothPeriods(`l:${type}`)] }] })),
+  notes: [{ noteId: "note:cash-ledger-authority", monetaryFactIds: ["fact:cashroll:ledger:abc", "fact:cashroll:tb:abc"] }],
+  textualDisclosures: [...AREAS.map((a) => ({ disclosureId: `checklist:${a}`, text: `PROVIDED: ${a}` })), { disclosureId: "mapping:coverage", text: "total=12;unmapped=0;ambiguous=0" }],
   facts: [{ factId: "f1", value: { minorUnits: { __bigint__: "100" }, currency: "TZS" } }],
   ...extra,
 });
@@ -233,8 +238,23 @@ async function saveReport(caller, reportId, version, companyId, doc, contentHash
 }
 const saveEval = (caller, runId, reportId, version, companyId, findings, inputHash = hex64(`e${runId}`)) =>
   one(caller, "SELECT * FROM public.fs_save_evaluation($1,$2,$3,$4,'rule-pack','1','engine-1',$5,$6::jsonb)", [runId, reportId, version, companyId, inputHash, JSON.stringify(findings)]);
-const ingest = (caller, args) =>
-  one(caller, "SELECT * FROM public.fs_ingest_evidence_batch($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14::jsonb,$15)", args);
+/** The evidence payload fs_commit_revision takes, from an evArgs() tuple. */
+const evidencePayload = (a) => ({ evidenceBatchId: a[0], reportingPeriodId: a[2], evidenceType: a[3], periodRole: a[4], seriesKey: a[5], schemaVersion: a[6], sourceFileName: a[7], contentHash: a[8], currency: a[9], scale: a[10], batchDocument: JSON.parse(a[11]), validationStatus: a[12], diagnostics: JSON.parse(a[13]), expectedPreviousBatchId: a[14] });
+const sha256 = (text) => createHash("sha256").update(text).digest("hex");
+const dummyEvaluation = (seed = uuid()) => ({ evaluationRunId: `ev-${seed}`, rulePackId: "rp", rulePackVersion: "2", engineVersion: "e2", inputHash: hex64(`ie-${seed}`), findings: [] });
+/** ONE atomic revision: evidence + the next report version + its evaluation + the audit event. */
+const commitRevision = (caller, o) =>
+  one(caller, "SELECT * FROM public.fs_commit_revision($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::jsonb,$10::text[],$11::jsonb)", [
+    o.company ?? COMPANY_A, o.reportId, o.expected ?? 0, o.key ?? `key-${uuid()}`, 2025, "TRIAL_BALANCE_DERIVED", JSON.stringify(o.doc), o.contentHash ?? sha256(JSON.stringify(o.doc)),
+    JSON.stringify(o.evidence ?? []), o.ids ?? (o.evidence ?? []).map((e) => e.evidenceBatchId), JSON.stringify(o.evaluation ?? dummyEvaluation()),
+  ]);
+/** Evidence can only be accepted through a revision: this wraps one evidence batch in a fresh report lineage and returns the stored evidence row. */
+const ingest = async (caller, args) => {
+  const reportId = `rpt-ev-${uuid()}`;
+  const company = args[1];
+  const rev = await commitRevision(caller, { company, reportId, expected: 0, doc: reportDoc(reportId, company, 1, { note: args[0] }), evidence: [evidencePayload(args)] });
+  return (await admin.query("SELECT * FROM public.financial_evidence_batches WHERE evidence_batch_id = $1", [rev.evidence_batch_ids[0]])).rows[0];
+};
 const evArgs = (o = {}) => {
   const d = { batchId: `eb-${uuid()}`, company: COMPANY_A, period: "FY2025", type: "TRANSACTION_LEDGER", role: "CURRENT", series: "cash", schema: "1", file: "ledger.csv", hash: hex64(`ev-${uuid()}`), currency: "TZS", scale: 2, doc: { rows: [{ amount: "1234567890123456789.12", memo: "ok" }] }, status: "VALID", diags: [], prev: null, ...o };
   return [d.batchId, d.company, d.period, d.type, d.role, d.series, d.schema, d.file, d.hash, d.currency, d.scale, JSON.stringify(d.doc), d.status, JSON.stringify(d.diags), d.prev];
@@ -255,7 +275,7 @@ async function proveReplay(info) {
 
 async function proveCatalog() {
   group("Static catalog contract");
-  const fnNames = ["fs_ingest_evidence_batch", "fs_save_report_version", "fs_save_evaluation", "fs_append_decision", "fs_apply_correction_group", "fs_set_publication_state", "financial_statements_workspace_access"];
+  const fnNames = ["fs_commit_revision", "fs_save_report_version", "fs_save_evaluation", "fs_append_decision", "fs_apply_correction_group", "fs_set_publication_state", "financial_statements_workspace_access"];
   for (const n of fnNames) {
     await check(`${n}: SECURITY DEFINER, pinned search_path, EXECUTE for authenticated only`, async () => {
       const r = (await admin.query(
@@ -537,7 +557,8 @@ async function proveCorrectionGroups() {
 async function provePublication() {
   group("Publication state and finalization gate");
   const rid = `rpt-pub-${uuid()}`;
-  await saveReport(user(U.preparer), rid, 1, COMPANY_A, completeDoc(rid, COMPANY_A, 1));
+  const reqEv = [(await ingest(user(U.partner), evArgs({ series: `pub-ledger-${uuid()}`, type: "TRANSACTION_LEDGER" }))).evidence_batch_id, (await ingest(user(U.partner), evArgs({ series: `pub-equity-${uuid()}`, type: "EQUITY_MOVEMENTS" }))).evidence_batch_id];
+  await saveReport(user(U.preparer), rid, 1, COMPANY_A, completeDoc(rid, COMPANY_A, 1), hex64("c1"), reqEv);
   const setState = (caller, v, state, reason = "state change with reason") => one(caller, "SELECT * FROM public.fs_set_publication_state($1,$2,$3,$4,$5)", [rid, v, COMPANY_A, state, reason]);
   await check("DRAFT can be recorded by a preparer", async () => (await setState(user(U.preparer), 1, "DRAFT", "initial draft")).state === "DRAFT");
   await expectError("a preparer cannot mark REVIEWED (42501)", "42501", () => setState(user(U.preparer), 1, "REVIEWED"));
@@ -555,7 +576,7 @@ async function provePublication() {
   await check("history is append-only: DRAFT, REVIEWED, FINAL are all retained", async () => (await admin.query("SELECT array_agg(state ORDER BY seq) s FROM public.financial_statement_publications WHERE report_id=$1", [rid])).rows[0].s.join(",") === "DRAFT,REVIEWED,FINAL");
   await check("only the LATEST version may be FINAL: v1 reviewed while v2 exists is refused", async () => {
     const rid2 = `rpt-pub2-${uuid()}`;
-    await saveReport(user(U.preparer), rid2, 1, COMPANY_A, completeDoc(rid2, COMPANY_A, 1));
+    await saveReport(user(U.preparer), rid2, 1, COMPANY_A, completeDoc(rid2, COMPANY_A, 1), hex64("c1"), reqEv);
     await saveEval(user(U.partner), "pub2-eval", rid2, 1, COMPANY_A, []);
     await one(user(U.partner), "SELECT * FROM public.fs_set_publication_state($1,1,$2,'REVIEWED','reviewed v1')", [rid2, COMPANY_A]);
     await saveReport(user(U.preparer), rid2, 2, COMPANY_A, completeDoc(rid2, COMPANY_A, 2));
@@ -606,9 +627,12 @@ async function proveServerCompleteness() {
   group("Server-authoritative completeness (direct RPC cannot bypass)");
   const setState = (caller, rid, v, state, reason = "readiness gate check") => one(caller, "SELECT * FROM public.fs_set_publication_state($1,$2,$3,$4,$5)", [rid, v, COMPANY_A, state, reason]);
   const readiness = (caller, rid, v) => one(caller, "SELECT public.fs_report_readiness($1,$2,$3) r", [COMPANY_A, rid, v]).then((x) => x.r);
+  // Every framework except IPSAS cash-basis requires a transaction ledger and equity movements as the authority for its generated statements.
+  const reqLedger = await ingest(user(U.partner), evArgs({ series: `req-ledger-${uuid()}`, type: "TRANSACTION_LEDGER" }));
+  const reqEquity = await ingest(user(U.partner), evArgs({ series: `req-equity-${uuid()}`, type: "EQUITY_MOVEMENTS" }));
   const fresh = async (label, doc, opts = {}) => {
     const rid = `rpt-ready-${label}-${uuid()}`;
-    await saveReport(user(U.preparer), rid, 1, COMPANY_A, doc(rid), hex64(`rd${rid}`), opts.batches ?? []);
+    await saveReport(user(U.preparer), rid, 1, COMPANY_A, doc(rid), hex64(`rd${rid}`), [reqLedger.evidence_batch_id, reqEquity.evidence_batch_id, ...(opts.batches ?? [])]);
     if (opts.evaluate !== false) await saveEval(user(U.partner), `ev-${rid}`, rid, 1, COMPANY_A, opts.findings ?? []);
     return rid;
   };
@@ -718,6 +742,7 @@ async function proveEvidenceCorrectionGroups() {
     sourceFileName: "budget-corrected.csv", contentHash: hex64(`corr-${suffix}-${rid}`), currency: "TZS", scale: 2,
     batchDocument: { rows: [{ amount: `1${suffix}.00`, memo: "corrected" }] }, validationStatus: "VALID", diagnostics: [], expectedPreviousBatchId: previous,
   });
+  const before_ = async () => ({ ev: (await admin.query("SELECT count(*)::int n FROM public.financial_evidence_batches WHERE series_key=$1", [series])).rows[0].n, rp: (await admin.query("SELECT count(*)::int n FROM public.financial_statement_reports WHERE report_id=$1", [rid])).rows[0].n, dc: (await admin.query("SELECT count(*)::int n FROM public.financial_statement_reviewer_decisions WHERE report_id=$1", [rid])).rows[0].n, gr: (await admin.query("SELECT count(*)::int n FROM public.financial_statement_correction_groups WHERE report_id=$1", [rid])).rows[0].n });
   const evDecision = (id, expected, batch) => ({ decisionId: id, decisionType: "CORRECT_EVIDENCE", reviewerId: "ignored", evidenceType: "BUDGET", supersedesBatchId: batch.expectedPreviousBatchId, newBatchId: batch.evidenceBatchId, rowNumber: "1", column: "amount", rationale: "agreed to approved budget", expectedReportVersion: expected, decidedAt: "2026-01-01T00:00:00Z" });
   const apply = (caller, gid, key, expected, steps, decs, ev) =>
     one(caller, "SELECT * FROM public.fs_apply_correction_group($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb)", [gid, key, COMPANY_A, rid, expected, JSON.stringify(steps), JSON.stringify(decs), ev == null ? null : JSON.stringify(ev)]);
@@ -758,6 +783,269 @@ async function proveEvidenceCorrectionGroups() {
   await expectError("a decision whose superseded batch differs from the step's predecessor is refused (22023)", "22023", () => apply(user(U.partner), "ecg4c", "idem-ecg-00004c", 2, [{ reportVersion: 3, reportDocument: completeDoc(rid, COMPANY_A, 3), contentHash: hex64("x4c"), evidenceBatchIds: [b3.evidenceBatchId], evidenceBatch: b3 }], [{ ...evDecision("ecd-5c", 2, b3), supersedesBatchId: ev1.evidence_batch_id }], null));
   await expectError("evidence corrections need the same role and rollout as any write (viewer, 42501)", "42501", () => apply(user(U.viewer), "ecg5", "idem-ecg-000005", 2, [{ reportVersion: 3, reportDocument: completeDoc(rid, COMPANY_A, 3), contentHash: hex64("x5"), evidenceBatchIds: [b3.evidenceBatchId], evidenceBatch: b3 }], [evDecision("ecd-6", 2, b3)], null));
   await expectError("a bare CORRECT_EVIDENCE decision cannot be appended outside a group (22023)", "22023", () => appendDecision(user(U.partner), "ecd-bare", rid, COMPANY_A, { decisionId: "ecd-bare", decisionType: "CORRECT_EVIDENCE", reviewerId: "x" }));
+
+  // ── deterministic replay, conflicting replay, stale refusal and concurrent writers ──────────────
+  const groupCount = async () => (await admin.query("SELECT count(*)::int n FROM public.financial_statement_correction_groups WHERE report_id=$1", [rid])).rows[0].n;
+  await check("exact replay of a multi-evidence group (same key, same content) returns the stored group and writes nothing", async () => {
+    const before = await before_();
+    const g = await apply(user(U.partner), "ecg1", "idem-ecg-000001", 1, [{ reportVersion: 2, reportDocument: completeDoc(rid, COMPANY_A, 2, { note: "after evidence correction" }), contentHash: hex64("ecg-v2"), evidenceBatchIds: [b2.evidenceBatchId], evidenceBatch: b2 }], [evDecision("ecd-1", 1, b2)], evalFor("ecg-eval-1"));
+    const after = await before_();
+    return g.group_id === "ecg1" && JSON.stringify(before) === JSON.stringify(after);
+  });
+  await expectError("a conflicting replay (same key, different content) is refused with REPLAY_CONFLICT and writes nothing", "PT409", async () => {
+    const snap = await before_();
+    try { await apply(user(U.partner), "ecg1", "idem-ecg-000001", 1, [{ reportVersion: 2, reportDocument: completeDoc(rid, COMPANY_A, 2, { note: "TAMPERED" }), contentHash: hex64("ecg-v2"), evidenceBatchIds: [b2.evidenceBatchId], evidenceBatch: b2 }], [evDecision("ecd-1", 1, b2)], evalFor("ecg-eval-1")); }
+    catch (e) { if (JSON.stringify(await before_()) !== JSON.stringify(snap)) throw new Error("wrote"); throw e; }
+  }, "REPLAY_CONFLICT");
+  await expectError("a stale expected report version is refused before any write", "PT409", () => apply(user(U.partner), "ecg-stale", "idem-ecg-stale-1", 1, [{ reportVersion: 2, reportDocument: completeDoc(rid, COMPANY_A, 2, { note: "stale" }), contentHash: hex64("stale"), evidenceBatchIds: [b2.evidenceBatchId], evidenceBatch: newBatch(b2.evidenceBatchId, "9") }], [evDecision("ecd-stale", 1, newBatch(b2.evidenceBatchId, "9"))], null), "STALE_REPORT_VERSION");
+  const latestEvidenceId = async () => (await admin.query("SELECT evidence_batch_id FROM public.financial_evidence_batches WHERE series_key=$1 ORDER BY version DESC LIMIT 1", [series])).rows[0].evidence_batch_id;
+  const latestVersion = async () => (await admin.query("SELECT max(report_version)::int v FROM public.financial_statement_reports WHERE report_id=$1", [rid])).rows[0].v;
+  await check("6 concurrent submissions of the SAME group (same key): one group, one new version, all succeed", async () => {
+    const v = await latestVersion();
+    const prev = await latestEvidenceId();
+    const bA = newBatch(prev, "cc");
+    const groups = await groupCount();
+    const settled = await Promise.allSettled(Array.from({ length: 6 }, () => apply(user(U.partner), "ecg-same", "idem-ecg-same-0001", v, [{ reportVersion: v + 1, reportDocument: completeDoc(rid, COMPANY_A, v + 1, { note: "same" }), contentHash: hex64("same-doc"), evidenceBatchIds: [bA.evidenceBatchId], evidenceBatch: bA }], [evDecision("ecd-same", v, bA)], null)));
+    return settled.every((r) => r.status === "fulfilled") && (await groupCount()) === groups + 1 && (await latestVersion()) === v + 1;
+  });
+  await check("6 concurrent NON-equivalent groups on the same expected version: exactly one wins, five get PT409, and the losers leave no evidence", async () => {
+    const v = await latestVersion();
+    const prev = await latestEvidenceId();
+    const evBefore = (await admin.query("SELECT count(*)::int n FROM public.financial_evidence_batches WHERE series_key=$1", [series])).rows[0].n;
+    const settled = await Promise.allSettled(Array.from({ length: 6 }, (_, i) => {
+      const b = newBatch(prev, `w${i}`);
+      return apply(user(i % 2 ? U.preparer : U.partner), `ecg-w${i}`, `idem-ecg-w${i}-0001`, v, [{ reportVersion: v + 1, reportDocument: completeDoc(rid, COMPANY_A, v + 1, { note: `writer-${i}` }), contentHash: hex64(`w${i}`), evidenceBatchIds: [b.evidenceBatchId], evidenceBatch: b }], [evDecision(`ecd-w${i}`, v, b)], null);
+    }));
+    const ok = settled.filter((r) => r.status === "fulfilled").length;
+    const conflicts = settled.filter((r) => r.status === "rejected" && r.reason.code === "PT409").length;
+    const evAfter = (await admin.query("SELECT count(*)::int n FROM public.financial_evidence_batches WHERE series_key=$1", [series])).rows[0].n;
+    return ok === 1 && conflicts === 5 && (await latestVersion()) === v + 1 && evAfter === evBefore + 1;
+  });
+  await check("steps are applied in deterministic order: versions are contiguous and each decision is bound to the version it produced", async () => {
+    const rows = (await admin.query("SELECT report_version FROM public.financial_statement_reports WHERE report_id=$1 ORDER BY report_version", [rid])).rows.map((r) => r.report_version);
+    return rows.every((v, i) => v === i + 1);
+  });
+}
+
+
+// ── every remaining publication requirement is enforced by the database ─────────────────────────────
+async function proveGateExtensions() {
+  group("Server-authoritative publication: cash-flow / SOCIE / mappings / disclosures / budget authority");
+  const setState = (caller, rid, v, state, reason = "extended gate check") => one(caller, "SELECT * FROM public.fs_set_publication_state($1,$2,$3,$4,$5)", [rid, v, COMPANY_A, state, reason]);
+  const ledgerEv = await ingest(user(U.partner), evArgs({ series: `gx-ledger-${uuid()}`, type: "TRANSACTION_LEDGER" }));
+  const equityEv = await ingest(user(U.partner), evArgs({ series: `gx-equity-${uuid()}`, type: "EQUITY_MOVEMENTS" }));
+  const budgetEv = await ingest(user(U.partner), evArgs({ series: `gx-budget-${uuid()}`, type: "BUDGET" }));
+  const base = [ledgerEv.evidence_batch_id, equityEv.evidence_batch_id];
+  const fresh = async (label, doc, batches = base, findings = []) => {
+    const rid = `rpt-gx-${label}-${uuid()}`;
+    await saveReport(user(U.preparer), rid, 1, COMPANY_A, doc(rid), hex64(`gx${rid}`), batches);
+    await saveEval(user(U.partner), `ev-${rid}`, rid, 1, COMPANY_A, findings);
+    return rid;
+  };
+  const readiness = (rid) => one(user(U.partner), "SELECT public.fs_report_readiness($1,$2,1) r", [COMPANY_A, rid]).then((x) => x.r);
+  const gate = async (name, doc, fragment, batches = base, findings = []) => {
+    const rid = await fresh(name.replace(/\W+/g, "").slice(0, 12), doc, batches, findings);
+    await expectError(`${name}: a direct RPC cannot mark it REVIEWED`, "PT409", () => setState(user(U.partner), rid, 1, "REVIEWED"), fragment);
+    await check(`${name}: the readiness preview reports the same blocker`, async () => (await readiness(rid)).blockers.some((b) => b.startsWith(fragment)));
+  };
+  const docWith = (mutate) => (r) => { const d = completeDoc(r, COMPANY_A, 1); return mutate(d) ?? d; };
+
+  await check("the complete document with its required evidence is ready", async () => (await readiness(await fresh("ok", (r) => completeDoc(r, COMPANY_A, 1)))).ready === true);
+
+  // cash-flow authority
+  await gate("no closing-cash line on the cash flow", docWith((d) => { d.statements = d.statements.map((s) => (s.type === "STATEMENT_OF_CASH_FLOWS" ? { ...s, sections: [{ sectionId: "s", lines: [bothPeriods("line:cf:opening")] }] } : s)); }), "CASHFLOW_CLOSING_CASH_MISSING");
+  await gate("no cash ledger authority note", docWith((d) => { d.notes = []; }), "CASHFLOW_LEDGER_AUTHORITY_MISSING");
+  await gate("a ledger authority that established no account", docWith((d) => { d.notes = [{ noteId: "note:cash-ledger-authority", monetaryFactIds: [] }]; }), "CASHFLOW_LEDGER_AUTHORITY_UNRESOLVED");
+  await gate("no transaction ledger evidence behind the cash flow", (r) => completeDoc(r, COMPANY_A, 1), "REQUIRED_EVIDENCE_MISSING:TRANSACTION_LEDGER", [equityEv.evidence_batch_id]);
+  await gate("a failing per-account cash rollforward cannot be waved through by ACCEPT", (r) => completeDoc(r, COMPANY_A, 1), "RECONCILIATION_UNMET:1", base, [finding("ROLL-1", { ruleId: "cashflow-account-rollforward", failureSeverity: "LOW" })]);
+  // SOCIE authority
+  await gate("changes in equity with no equity-movement evidence", (r) => completeDoc(r, COMPANY_A, 1), "REQUIRED_EVIDENCE_MISSING:EQUITY_MOVEMENTS", [ledgerEv.evidence_batch_id]);
+  await gate("a failing statement-of-financial-position equation cannot be waved through by ACCEPT", (r) => completeDoc(r, COMPANY_A, 1), "RECONCILIATION_UNMET:1", base, [finding("SFP-1", { ruleId: "sfp-equation", failureSeverity: "LOW" })]);
+  await gate("a failing equity closing tie", (r) => completeDoc(r, COMPANY_A, 1), "RECONCILIATION_UNMET:1", base, [finding("EQ-1", { ruleId: "equity-closing-tie", failureSeverity: "LOW" })]);
+  // reviewed mappings
+  await gate("mapping coverage not recorded", docWith((d) => { d.textualDisclosures = d.textualDisclosures.filter((x) => x.disclosureId !== "mapping:coverage"); }), "MAPPING_REVIEW_UNRECORDED");
+  await gate("an unmapped account", docWith((d) => { d.textualDisclosures = d.textualDisclosures.map((x) => (x.disclosureId === "mapping:coverage" ? { ...x, text: "total=12;unmapped=1;ambiguous=0" } : x)); }), "MAPPING_UNREVIEWED");
+  await gate("an ambiguous account", docWith((d) => { d.textualDisclosures = d.textualDisclosures.map((x) => (x.disclosureId === "mapping:coverage" ? { ...x, text: "total=12;unmapped=0;ambiguous=2" } : x)); }), "MAPPING_UNREVIEWED");
+  await gate("zero accounts reviewed", docWith((d) => { d.textualDisclosures = d.textualDisclosures.map((x) => (x.disclosureId === "mapping:coverage" ? { ...x, text: "total=0;unmapped=0;ambiguous=0" } : x)); }), "MAPPING_UNREVIEWED");
+  // disclosure checklist
+  await gate("a disclosure area absent from the checklist", docWith((d) => { d.textualDisclosures = d.textualDisclosures.filter((x) => x.disclosureId !== "checklist:supporting-notes"); }), "DISCLOSURE_CHECKLIST_ABSENT:supporting-notes");
+  await gate("a disclosure area MISSING", docWith((d) => { d.textualDisclosures = d.textualDisclosures.map((x) => (x.disclosureId === "checklist:accounting-policies" ? { ...x, text: "MISSING: Material accounting policy information" } : x)); }), "DISCLOSURE_CHECKLIST_INCOMPLETE:accounting-policies");
+  await check("a not-applicable-with-rationale area does not block", async () => (await readiness(await fresh("na", docWith((d) => { d.textualDisclosures = d.textualDisclosures.map((x) => (x.disclosureId === "checklist:supporting-notes" ? { ...x, text: "NOT_APPLICABLE_WITH_RATIONALE: no supporting notes apply" } : x)); })))).ready === true);
+  // budget completeness
+  const line = (o) => ({ disclosureId: `budget:line:${o.lineKey}`, text: JSON.stringify({ lineKey: o.lineKey, label: o.lineKey, nature: "EXPENSE", basis: "ORIGINAL_BUDGET", original: "10.00", final: null, matched: true, actualFactId: "f1", required: null, explanation: null, row: 1, notes: [], ...o }) });
+  await gate("a budget was supplied but the report carries no comparison", (r) => completeDoc(r, COMPANY_A, 1), "BUDGET_COMPARISON_MISSING", [...base, budgetEv.evidence_batch_id]);
+  await gate("the budget comparison could not be made", docWith((d) => { d.textualDisclosures.push({ disclosureId: "budget:gap", text: "The budget comparison cannot be made: currency differs." }); }), "BUDGET_COMPARISON_GAP");
+  await gate("a budget line with no unique actual", docWith((d) => { d.textualDisclosures.push(line({ lineKey: "ghost", matched: false, actualFactId: null })); }), "BUDGET_LINE_UNMATCHED:ghost", [...base, budgetEv.evidence_batch_id]);
+  await gate("a material variance with no explanation", docWith((d) => { d.textualDisclosures.push(line({ lineKey: "opex", required: true, explanation: "  " })); }), "BUDGET_EXPLANATION_MISSING:opex", [...base, budgetEv.evidence_batch_id]);
+  await gate("an unreadable stored budget line record", docWith((d) => { d.textualDisclosures.push({ disclosureId: "budget:line:junk", text: "{not json" }); }), "BUDGET_LINE_UNREADABLE:budget:line:junk", [...base, budgetEv.evidence_batch_id]);
+  await check("a complete budget comparison (matched, explained) does not block", async () => (await readiness(await fresh("budgetok", docWith((d) => { d.textualDisclosures.push(line({ lineKey: "opex", required: true, explanation: "Council approved a reallocation" })); }), [...base, budgetEv.evidence_batch_id]))).ready === true);
+  // the client is not the enforcement boundary
+  await check("the preparer (client) cannot bypass any of these: only an owner or partner may review, and the same gates apply to them", async () => {
+    const rid = await fresh("role", docWith((d) => { d.notes = []; }));
+    try { await setState(user(U.preparer), rid, 1, "REVIEWED"); return false; } catch (e) { return e.code === "42501"; }
+  });
+}
+
+// ── C. no silent evidence mutations: evidence is accepted only inside an atomic, attributable revision ─────
+async function proveRevisions() {
+  group("Atomic revisions: evidence + report version + evaluation + audit (no silent evidence mutation)");
+  const counts = async (company = COMPANY_A) => {
+    const q = async (t) => (await admin.query(`SELECT count(*)::int n FROM public.${t} WHERE company_id = $1`, [company])).rows[0].n;
+    return { ev: await q("financial_evidence_batches"), rp: await q("financial_statement_reports"), evl: await q("financial_statement_evaluations"), au: await q("financial_statement_audit_events"), gr: await q("financial_statement_correction_groups") };
+  };
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const series = `rev-${uuid()}`;
+  const mk = (o = {}) => evArgs({ series, type: "BUDGET", ...o });
+  const rid = `rpt-rev-${uuid()}`;
+
+  await check("there is NO standalone client function that accepts evidence", async () => {
+    const r = (await admin.query("SELECT count(*)::int n FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace WHERE ns.nspname='public' AND p.proname = 'fs_ingest_evidence_batch'")).rows[0].n;
+    const internalOpen = (await admin.query("SELECT bool_or(has_function_privilege('authenticated', p.oid, 'EXECUTE') OR has_function_privilege('anon', p.oid, 'EXECUTE')) x FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace WHERE ns.nspname='public' AND p.proname = 'fs_ingest_evidence_internal'")).rows[0].x;
+    return r === 0 && internalOpen === false;
+  });
+
+  // unauthorised callers perform ZERO writes
+  const evA = mk();
+  for (const [label, caller, code, company] of [["a viewer", user(U.viewer), "42501", COMPANY_A], ["a non-member", user(U.outsider), "42501", COMPANY_A], ["a pending (unaccepted) member", user(U.pending), "42501", COMPANY_A], ["another company's owner", user(U.ownerB), "42501", COMPANY_A], ["anon", ANON, "42501", COMPANY_A]]) {
+    await check(`${label} cannot commit a revision and NOTHING is written`, async () => {
+      const before = await counts(company);
+      let got = null;
+      try { await commitRevision(caller, { reportId: `${rid}-denied`, doc: reportDoc(`${rid}-denied`, COMPANY_A, 1), evidence: [evidencePayload(mk())] }); } catch (e) { got = e.code; }
+      return got === code && same(await counts(company), before);
+    });
+  }
+  await check("a company that is not allowlisted is refused (PT403) with zero writes", async () => {
+    const before = await counts(COMPANY_B);
+    let got = null;
+    try { await commitRevision(user(U.ownerB), { company: COMPANY_B, reportId: `${rid}-b`, doc: reportDoc(`${rid}-b`, COMPANY_B, 1), evidence: [evidencePayload(evArgs({ company: COMPANY_B }))] }); } catch (e) { got = e.code; }
+    return got === "PT403" && same(await counts(COMPANY_B), before);
+  });
+
+  // atomic success, with a full attribution trail
+  const doc1 = reportDoc(rid, COMPANY_A, 1, { note: "v1 budget A" });
+  const ev1 = evidencePayload(mk());
+  const key1 = `rev-key-${uuid()}`;
+  const evalOf = (n) => dummyEvaluation(`rev-eval-${n}-${uuid()}`);
+  const eval1 = evalOf(1);
+  let v1;
+  await check("one revision atomically stores the evidence, report v1, its evaluation, the group record and an audit event", async () => {
+    const before = await counts();
+    v1 = await commitRevision(user(U.preparer), { reportId: rid, expected: 0, key: key1, doc: doc1, evidence: [ev1], evaluation: eval1 });
+    const after = await counts();
+    const audit = (await admin.query("SELECT detail, actor_firm_member_id FROM public.financial_statement_audit_events WHERE report_id = $1 AND action = 'REVISION_COMMITTED'", [rid])).rows;
+    return v1.report_version === 1 && after.ev === before.ev + 1 && after.rp === before.rp + 1 && after.evl === before.evl + 1 && after.gr === before.gr + 1
+      && audit.length === 1 && audit[0].actor_firm_member_id === MEMBER[U.preparer] && audit[0].detail.evidenceBatchIds.includes(ev1.evidenceBatchId) && audit[0].detail.evaluationRunId === eval1.evaluationRunId;
+  });
+  await check("the accepted evidence is referenced by the immutable version, and the actor is the server-derived firm member (never a client value)", async () => {
+    const e = (await admin.query("SELECT uploaded_by_firm_member_id FROM public.financial_evidence_batches WHERE evidence_batch_id = $1", [ev1.evidenceBatchId])).rows[0];
+    return v1.evidence_batch_ids.includes(ev1.evidenceBatchId) && e.uploaded_by_firm_member_id === MEMBER[U.preparer] && v1.created_by_firm_member_id === MEMBER[U.preparer];
+  });
+
+  // exact replay is idempotent; conflicting replay fails closed
+  await check("exact replay (same key, same content) returns the stored version and writes nothing", async () => {
+    const before = await counts();
+    const again = await commitRevision(user(U.preparer), { reportId: rid, expected: 0, key: key1, doc: doc1, evidence: [ev1], evaluation: eval1 });
+    return again.report_version === 1 && again.id === v1.id && same(await counts(), before);
+  });
+  await expectError("the same idempotency key with DIFFERENT content is refused (REPLAY_CONFLICT, PT409) and writes nothing", "PT409", async () => {
+    const before = await counts();
+    try { await commitRevision(user(U.preparer), { reportId: rid, expected: 0, key: key1, doc: reportDoc(rid, COMPANY_A, 1, { note: "tampered" }), evidence: [ev1], evaluation: eval1 }); } catch (e) { if (!same(await counts(), before)) throw new Error("wrote"); throw e; }
+  }, "REPLAY_CONFLICT");
+  await check("exact replay under a NEW key (a client retry) converges on the stored version instead of duplicating it", async () => {
+    const before = await counts();
+    const again = await commitRevision(user(U.preparer), { reportId: rid, expected: 0, key: `retry-${uuid()}`, doc: doc1, evidence: [ev1], evaluation: eval1 });
+    return again.id === v1.id && same(await counts(), before);
+  });
+
+  // stale before any write
+  await check("a stale expected version fails BEFORE any write: the new evidence is not stored either", async () => {
+    const before = await counts();
+    const fresh = mk({ prev: ev1.evidenceBatchId });
+    let got = null;
+    try { await commitRevision(user(U.partner), { reportId: rid, expected: 0, doc: reportDoc(rid, COMPANY_A, 1, { note: "a different v1" }), evidence: [evidencePayload(fresh)] }); } catch (e) { got = [e.code, String(e.message)]; }
+    const stored = (await admin.query("SELECT count(*)::int n FROM public.financial_evidence_batches WHERE evidence_batch_id = $1", [fresh[0]])).rows[0].n;
+    return got?.[0] === "PT409" && got[1].startsWith("STALE_REPORT_VERSION") && stored === 0 && same(await counts(), before);
+  });
+
+  // changed evidence => changed content identity => a NEW immutable version, even when the document is otherwise identical
+  const ev2 = evidencePayload(mk({ prev: ev1.evidenceBatchId, doc: { rows: [{ amount: "2.00", memo: "budget B" }] } }));
+  let v2;
+  await check("a budget-only change (identical report document, new evidence version) creates version 2 — never a silent evidence write", async () => {
+    v2 = await commitRevision(user(U.partner), { reportId: rid, expected: 1, doc: { ...doc1, reportIdentity: { ...doc1.reportIdentity, reportVersion: 2 } }, evidence: [ev2], evaluation: evalOf(2) });
+    const chain = (await admin.query("SELECT version, supersedes_batch_id FROM public.financial_evidence_batches WHERE series_key = $1 ORDER BY version", [series])).rows;
+    return v2.report_version === 2 && v2.evidence_batch_ids.includes(ev2.evidenceBatchId) && chain.length === 2 && chain[1].supersedes_batch_id === ev1.evidenceBatchId && v2.content_hash !== v1.content_hash;
+  });
+  await check("changed evidence produces a changed content identity: version 1 still references (and reproduces) its own evidence", async () => {
+    const r1 = (await admin.query("SELECT evidence_batch_ids, document_hash FROM public.financial_statement_reports WHERE report_id = $1 AND report_version = 1", [rid])).rows[0];
+    return r1.evidence_batch_ids.includes(ev1.evidenceBatchId) && !r1.evidence_batch_ids.includes(ev2.evidenceBatchId);
+  });
+  await check("unchanged content and unchanged evidence REUSES the latest version: nothing is written", async () => {
+    const before = await counts();
+    const reuse = await commitRevision(user(U.partner), { reportId: rid, expected: 2, doc: { ...doc1, reportIdentity: { ...doc1.reportIdentity, reportVersion: 3 } }, ids: [ev2.evidenceBatchId], evidence: [] });
+    return reuse.report_version === 2 && reuse.id === v2.id && same(await counts(), before);
+  });
+
+  // partial failure rolls EVERYTHING back together
+  await check("a failure part-way (a bad second evidence batch) rolls back the first evidence, the report, the evaluation and the audit event", async () => {
+    const before = await counts();
+    const good = mk({ prev: ev2.evidenceBatchId, doc: { rows: [{ amount: "3.00" }] } });
+    const bad = evArgs({ series: `${series}-b`, type: "BUDGET", doc: { rows: [{ amount: 4 }] } }); // a JSON number is refused
+    let code = null;
+    try { await commitRevision(user(U.partner), { reportId: rid, expected: 2, doc: reportDoc(rid, COMPANY_A, 3, { note: "rollback" }), evidence: [evidencePayload(good), evidencePayload(bad)] }); } catch (e) { code = e.code; }
+    const stored = (await admin.query("SELECT count(*)::int n FROM public.financial_evidence_batches WHERE evidence_batch_id = $1", [good[0]])).rows[0].n;
+    return code === "22023" && stored === 0 && same(await counts(), before);
+  });
+  await check("a failing EVALUATION (after the evidence and report were inserted) rolls all of it back", async () => {
+    const before = await counts();
+    const good = mk({ prev: ev2.evidenceBatchId, doc: { rows: [{ amount: "5.00" }] } });
+    let code = null;
+    try { await commitRevision(user(U.partner), { reportId: rid, expected: 2, doc: reportDoc(rid, COMPANY_A, 3, { note: "bad eval" }), evidence: [evidencePayload(good)], evaluation: { ...evalOf(3), inputHash: "not-a-hash" } }); } catch (e) { code = e.code; }
+    const stored = (await admin.query("SELECT count(*)::int n FROM public.financial_evidence_batches WHERE evidence_batch_id = $1", [good[0]])).rows[0].n;
+    return code !== null && stored === 0 && same(await counts(), before);
+  });
+  await expectError("evidence that no version references cannot be accepted (22023)", "22023", () => commitRevision(user(U.partner), { reportId: rid, expected: 2, doc: reportDoc(rid, COMPANY_A, 3, { note: "orphan" }), evidence: [evidencePayload(mk({ prev: ev2.evidenceBatchId }))], ids: [] }));
+  await expectError("a revision without an evaluation is refused (22023)", "22023", () => one(user(U.partner), "SELECT * FROM public.fs_commit_revision($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::jsonb,$10::text[],NULL)", [COMPANY_A, rid, 2, `k-${uuid()}`, 2025, "TRIAL_BALANCE_DERIVED", JSON.stringify(reportDoc(rid, COMPANY_A, 3)), hex64("x"), "[]", []]));
+  await expectError("a document that lies about its version or lineage is refused (22023)", "22023", () => commitRevision(user(U.partner), { reportId: rid, expected: 2, doc: reportDoc(rid, COMPANY_A, 9), evidence: [] }));
+
+  // concurrency
+  await check("8 concurrent EQUIVALENT revisions (same content, different keys) converge: one version, one evidence row, all succeed", async () => {
+    const r = `rpt-conv-${uuid()}`;
+    const shared = evArgs({ series: `conv-${uuid()}`, type: "BUDGET", batchId: `eb-conv-${uuid()}` });
+    const doc = reportDoc(r, COMPANY_A, 1, { note: "convergent" });
+    const settled = await Promise.allSettled(Array.from({ length: 8 }, (_, i) => commitRevision(user(i % 2 ? U.preparer : U.partner), { reportId: r, expected: 0, key: `conv-${i}-${uuid()}`, doc, evidence: [evidencePayload(shared)], evaluation: { ...dummyEvaluation("conv"), evaluationRunId: "ev-conv-shared-" + r } })));
+    const versions = (await admin.query("SELECT count(*)::int n FROM public.financial_statement_reports WHERE report_id = $1", [r])).rows[0].n;
+    const evidence = (await admin.query("SELECT count(*)::int n FROM public.financial_evidence_batches WHERE evidence_batch_id = $1", [shared[0]])).rows[0].n;
+    return settled.every((s) => s.status === "fulfilled") && versions === 1 && evidence === 1;
+  });
+  await check("8 concurrent NON-equivalent revisions on the same expected version: exactly one wins, seven get PT409, and none overwrites another", async () => {
+    const r = `rpt-race-${uuid()}`;
+    const sr = `race-${uuid()}`;
+    const settled = await Promise.allSettled(Array.from({ length: 8 }, (_, i) => commitRevision(user(i % 2 ? U.preparer : U.partner), { reportId: r, expected: 0, doc: reportDoc(r, COMPANY_A, 1, { note: `writer-${i}` }), evidence: [evidencePayload(evArgs({ series: sr, type: "BUDGET", hash: hex64(`race-${i}-${r}`) }))] })));
+    const ok = settled.filter((s) => s.status === "fulfilled").length;
+    const conflicts = settled.filter((s) => s.status === "rejected" && s.reason.code === "PT409").length;
+    const versions = (await admin.query("SELECT count(*)::int n FROM public.financial_statement_reports WHERE report_id = $1", [r])).rows[0].n;
+    const evChain = (await admin.query("SELECT count(*)::int n FROM public.financial_evidence_batches WHERE series_key = $1", [sr])).rows[0].n;
+    return ok === 1 && conflicts === 7 && versions === 1 && evChain === 1; // the seven losers left no evidence behind
+  });
+  await check("the same idempotency key raced by 8 sessions: one revision, all return it", async () => {
+    const r = `rpt-key-${uuid()}`;
+    const key = `same-key-${uuid()}`;
+    const args = evArgs({ series: `keyed-${uuid()}`, type: "BUDGET" });
+    const doc = reportDoc(r, COMPANY_A, 1, { note: "keyed" });
+    const ev = evalOf("keyed");
+    const settled = await Promise.allSettled(Array.from({ length: 8 }, () => commitRevision(user(U.partner), { reportId: r, expected: 0, key, doc, evidence: [evidencePayload(args)], evaluation: ev })));
+    const versions = (await admin.query("SELECT count(*)::int n FROM public.financial_statement_reports WHERE report_id = $1", [r])).rows[0].n;
+    return settled.every((s) => s.status === "fulfilled") && versions === 1;
+  });
+  await check("a lineage cannot be revised across companies (a report id from company A submitted as company B's is refused)", async () => {
+    let code = null;
+    try { await commitRevision(user(U.ownerB), { company: COMPANY_B, reportId: rid, expected: 2, doc: reportDoc(rid, COMPANY_B, 3), evidence: [] }); } catch (e) { code = e.code; }
+    return code === "PT403" || code === "42501";
+  });
+  await check("reload semantics: the latest successfully persisted state is exactly what a fresh reader sees (version 2, both evidence versions in the chain)", async () => {
+    const latest = (await admin.query("SELECT report_version, evidence_batch_ids FROM public.financial_statement_reports WHERE report_id = $1 ORDER BY report_version DESC LIMIT 1", [rid])).rows[0];
+    return latest.report_version === 2 && latest.evidence_batch_ids.includes(ev2.evidenceBatchId);
+  });
 }
 
 // ── main ────────────────────────────────────────────────────────────────────
@@ -780,6 +1068,8 @@ try {
   await proveCorrectionGroups();
   await provePublication();
   await proveServerCompleteness();
+  await proveGateExtensions();
+  await proveRevisions();
   await proveSavedVersions();
   await proveEvidenceCorrectionGroups();
   await proveTenancyAndImmutability();

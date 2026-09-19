@@ -225,3 +225,153 @@ describe("xlsx intake — hostile packages", () => {
     expect(JSON.stringify(readWorkbookSheet(wb, "Ledger"))).toBe(JSON.stringify(readWorkbookSheet(wb, "Ledger")));
   });
 });
+
+describe("one canonical ingestion contract: CSV and XLSX converge", () => {
+  const CSV = "transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line\nT1,2025-03-01,1000,Customers,1500000.50,,OPERATING,Receipts from customers\nT2,2025-04-01,1000,Suppliers,,400000,OPERATING,Payments to suppliers\n";
+  const csv = () => {
+    const r = ingestEvidence({ ...base, evidenceType: "TRANSACTION_LEDGER", text: CSV, fileName: "ledger.csv" });
+    if (r.outcome !== "PARSED") throw new Error("csv rejected");
+    return r.batch;
+  };
+  const xlsx = (rows = ledgerRows()) => {
+    const r = ingest(build([{ name: "Ledger", rows }]));
+    if (r.outcome !== "PARSED") throw new Error("xlsx rejected");
+    return r.batch;
+  };
+
+  it("the same reviewed evidence as CSV and as a workbook has ONE canonical identity (content hash, replay identity, batch id)", () => {
+    const a = csv();
+    const b = xlsx();
+    expect(a.validationStatus).toBe("VALID");
+    expect(b.validationStatus).toBe("VALID");
+    expect(b.contentHash).toBe(a.contentHash);
+    expect(b.replayIdentity).toBe(a.replayIdentity);
+    expect(b.evidenceBatchId).toBe(a.evidenceBatchId);
+    expect(b.document.rows).toEqual(a.document.rows);
+    // provenance differs and is recorded, but never enters the identity
+    expect(a.document.sourceFormat).toBe("CSV");
+    expect(b.document.sourceFormat).toBe("XLSX");
+    expect(b.document.sourceSheet).toBe("Ledger");
+    expect(b.document.sourceFileSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(a.document.sourceFileSha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("supplying the same evidence again in the OTHER format is an exact replay, and a different value is a different identity", () => {
+    expect(xlsx().replayIdentity).toBe(csv().replayIdentity);
+    const changed = ledgerRows();
+    changed[1][4] = { n: "1500000.51" };
+    expect(xlsx(changed).replayIdentity).not.toBe(csv().replayIdentity);
+    expect(xlsx(changed).contentHash).not.toBe(csv().contentHash);
+  });
+
+  it("the workbook's sheet name, hidden sheets and metadata never change the identity", () => {
+    const withHidden = ingest(build([{ name: "Ledger", rows: ledgerRows() }, { name: "Scratch", rows: [["x"]], state: "hidden" }]));
+    if (withHidden.outcome !== "PARSED") throw new Error("rejected");
+    expect(withHidden.batch.contentHash).toBe(csv().contentHash);
+    const renamed = ingestWorkbook({ ...base, evidenceType: "TRANSACTION_LEDGER", bytes: build([{ name: "Q1 ledger", rows: ledgerRows() }]), sheetName: "Q1 ledger" });
+    if (renamed.outcome !== "PARSED") throw new Error("rejected");
+    expect(renamed.batch.contentHash).toBe(csv().contentHash);
+  });
+});
+
+describe("xlsx intake — further hostile inputs, with strict limits", () => {
+  const cellsOf = (value: string): Cell[][] => [LEDGER_HEADER, ["T1", "2025-03-01", "1000", value, { n: "10" }, null, "OPERATING", "Receipts"]];
+  const rowsWith = (col: number, value: string): Cell[][] => {
+    const r = ledgerRows();
+    r[1][col] = value;
+    return r;
+  };
+  const invalid = (rows: Cell[][]) => {
+    const r = ingest(build([{ name: "Ledger", rows }]));
+    return r.outcome === "PARSED" && r.batch.validationStatus === "INVALID" ? r.batch.diagnostics.filter((d) => d.severity === "ERROR").map((d) => d.code) : null;
+  };
+
+  it("malformed and truncated zip archives are refused, never partially read", () => {
+    const good = build([{ name: "Ledger", rows: ledgerRows() }]);
+    const truncated = good.slice(0, Math.floor(good.length / 2));
+    expect(ingest(truncated)).toMatchObject({ outcome: "REJECTED", diagnostics: [{ code: "ZIP_CORRUPT" }] });
+    const noDirectory = good.slice(0, good.length - 30); // the end-of-central-directory record is gone
+    expect(ingest(noDirectory)).toMatchObject({ outcome: "REJECTED" });
+    const corrupted = good.slice();
+    for (let i = 0; i < 40; i++) corrupted[good.length - 60 + i] = 0xff; // central directory smashed
+    expect(ingest(corrupted)).toMatchObject({ outcome: "REJECTED" });
+    expect(ingest(new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4, 5, 6, 7, 8]))).toMatchObject({ outcome: "REJECTED" });
+    for (const bytes of [good.slice(0, 4), good.slice(0, 22), new Uint8Array([0x50, 0x4b, 0x05, 0x06, ...new Array(18).fill(0)])]) expect(ingest(bytes).outcome).toBe("REJECTED");
+  });
+
+  it("a package with too many parts and one that expands beyond the total limit are refused before inflation", () => {
+    const many: Record<string, string> = {};
+    for (let i = 0; i < XLSX_LIMITS.maxEntries + 5; i++) many[`xl/worksheets/extra${i}.xml`] = "<x/>";
+    expect(ingest(build([{ name: "Ledger", rows: ledgerRows() }], { extra: many }))).toMatchObject({ outcome: "REJECTED", diagnostics: [{ code: "ZIP_TOO_MANY_ENTRIES" }] });
+    const parts: Record<string, Uint8Array> = {};
+    for (let i = 0; i < 3; i++) parts[`xl/worksheets/big${i}.xml`] = new Uint8Array(XLSX_LIMITS.maxEntryBytes - 1024); // each under the entry limit, together over the total
+    expect(ingest(build([{ name: "Ledger", rows: ledgerRows() }], { extra: parts }))).toMatchObject({ outcome: "REJECTED", diagnostics: [{ code: "ZIP_TOO_LARGE_UNCOMPRESSED" }] });
+  });
+
+  it("a header that lies about the uncompressed size cannot make the reader inflate or accept more than it declared", () => {
+    const wb = build([{ name: "Ledger", rows: ledgerRows() }], { extra: { "xl/worksheets/lie.xml": new Uint8Array(200_000) } });
+    // shrink every declared uncompressed size (central directory 0x02014b50 @ +24, local header 0x04034b50 @ +22) to 10 bytes
+    const lied = wb.slice();
+    const view = new DataView(lied.buffer);
+    for (let i = 0; i + 30 < lied.length; i++) {
+      const sig = view.getUint32(i, true);
+      if (sig === 0x02014b50) view.setUint32(i + 24, 10, true);
+      if (sig === 0x04034b50) view.setUint32(i + 22, 10, true);
+    }
+    const started = Date.now();
+    const r = ingest(lied);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(r.outcome === "PARSED" ? r.batch.validationStatus !== "VALID" : true).toBe(true);
+  });
+
+  it("formula-like text, direction overrides, zero-width and control characters in any cell are refused (never stored as usable evidence)", () => {
+    for (const payload of ["=cmd|' /C calc'!A0", "+1+1", "-2+3+cmd", "@SUM(A1)", "＝1+1", "\t=1+1"]) expect(invalid(cellsOf(payload)), payload).toContain("FORMULA_INJECTION");
+    expect(invalid(cellsOf("Customers\u202Efdp.exe"))).toContain("HIDDEN_CHARACTER");
+    expect(invalid(cellsOf("Customers\u200Bltd"))).toContain("HIDDEN_CHARACTER");
+    expect(invalid(cellsOf("Customers\u0007"))).toContain("CONTROL_CHARACTER");
+  });
+
+  it("locale-dependent numbers and dates are NEVER interpreted: they must be given in the one explicit form", () => {
+    for (const amount of ["1.234,56", "1,5", "1 234.56", "(500.00)", "١٢٣", "1e3x", "1_000"]) expect(invalid(rowsWith(4, amount)), amount).not.toBeNull();
+    for (const date of ["01/02/2025", "2025/03/01", "1 Mar 2025", "2025-3-1", "2025-02-30", "٢٠٢٥-٠٣-٠١"]) expect(invalid(rowsWith(1, date)), date).toContain("DATE_NOT_ISO");
+    const eNotation = ledgerRows();
+    eNotation[1][4] = { n: "1.5E+6" };
+    const r = ingest(build([{ name: "Ledger", rows: eNotation }]));
+    expect(r.outcome === "PARSED" && r.batch.document.rows[0][4]).toBe("1500000"); // exact arithmetic, no float
+  });
+
+  it("no silent coercion: a blank required cell, a boolean and a spreadsheet error are errors, not zero or false", () => {
+    expect(invalid(rowsWith(4, ""))).not.toBeNull(); // receipt AND payment both blank
+    const r = ledgerRows();
+    r[1][4] = { b: true };
+    expect(codes(ingest(build([{ name: "Ledger", rows: r }])))).toContain("BOOLEAN_CELL");
+    const e = ledgerRows();
+    e[1][4] = { e: "#DIV/0!" };
+    expect(codes(ingest(build([{ name: "Ledger", rows: e }])))).toContain("ERROR_CELL");
+  });
+
+  it("processing time is bounded: a clock that runs past the limit stops the read with a precise refusal and no partial result", () => {
+    const rows: Cell[][] = [LEDGER_HEADER];
+    for (let i = 0; i < 600; i++) rows.push([`T${i}`, "2025-03-01", "1000", "x", { n: "1" }, null, "OPERATING", "Receipts"]);
+    const wb = build([{ name: "Ledger", rows }]);
+    let t = 0;
+    const r = ingestWorkbook({ ...base, evidenceType: "TRANSACTION_LEDGER", bytes: wb, sheetName: "Ledger", now: () => (t += XLSX_LIMITS.maxMillis) });
+    expect(r).toMatchObject({ outcome: "REJECTED", diagnostics: [{ code: "PROCESSING_TIME_LIMIT" }] });
+    // a fast clock reads the very same file completely
+    expect(ingestWorkbook({ ...base, evidenceType: "TRANSACTION_LEDGER", bytes: wb, sheetName: "Ledger", now: () => 0 }).outcome).toBe("PARSED");
+  });
+
+  it("strict structural limits: rows, columns, bytes — each refused with its own code", () => {
+    const wide: Cell[][] = [Array.from({ length: 41 }, (_, i) => `c${i}`), Array.from({ length: 41 }, () => "1")];
+    expect(ingest(build([{ name: "Ledger", rows: wide }]))).toMatchObject({ outcome: "REJECTED", diagnostics: [{ code: "TOO_MANY_COLUMNS" }] });
+    const long: Cell[][] = [["a"]];
+    for (let i = 0; i < 20_100; i++) long.push([`v${i}`]);
+    expect(ingest(build([{ name: "Ledger", rows: long }]))).toMatchObject({ outcome: "REJECTED", diagnostics: [{ code: "TOO_MANY_ROWS" }] });
+    expect(ingest(new Uint8Array(XLSX_LIMITS.maxBytes + 1).fill(0x50))).toMatchObject({ outcome: "REJECTED", diagnostics: [{ code: "FILE_TOO_LARGE" }] });
+  });
+
+  it("unsupported binary spreadsheet formats are refused by content even when misnamed as .xlsx", () => {
+    expect(ingest(new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0, 0, 0, 0]), { fileName: "ledger.xlsx" })).toMatchObject({ outcome: "REJECTED", diagnostics: [{ code: "ENCRYPTED_OR_LEGACY_BINARY_WORKBOOK" }] });
+    for (const name of ["a.xlsb", "a.xls", "a.ods"]) expect(ingestEvidence({ ...base, evidenceType: "BUDGET", fileName: name, text: "x" })).toMatchObject({ outcome: "REJECTED" });
+  });
+});

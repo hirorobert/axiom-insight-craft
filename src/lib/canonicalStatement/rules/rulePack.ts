@@ -18,6 +18,7 @@ import { orphanedNoteReferenceDetectionRule } from "./orphanedNoteReferenceDetec
 import { equityClosingTieRule, equityProfitTieRule } from "./equityTies";
 import { scheduleCastingRule } from "./scheduleCasting";
 import { cashPerimeterReconciliationRule } from "./cashPerimeterReconciliation";
+import { cashLedgerRollforwardRule } from "./cashLedgerRollforward";
 
 export const ENGINE_VERSION = "1.0.0";
 
@@ -40,17 +41,17 @@ export const CANONICAL_RULE_PACK_V1_RULES: readonly RuleDefinition[] = [
 ];
 
 /**
- * Rule pack v2 = every v1 rule (unchanged) plus the two equity tie rules, the schedule casting rule, and Rule 6 v2 (cash perimeter, which is Rule 6 v1 when no perimeter exists). A
+ * Rule pack v2 = every v1 rule (unchanged) plus the two equity tie rules, the schedule casting rule, and Rule 6 v2 (cash perimeter, which is Rule 6 v1 when no perimeter exists) and the account-by-account cash ledger rollforward. A
  * separate pack identity, so v1 evaluations remain reproducible byte-for-byte.
  */
 export const CANONICAL_RULE_PACK_V2: RulePackIdentity = {
   rulePackId: "canonical-statement-rules",
-  rulePackVersion: "2.1.0",
+  rulePackVersion: "2.2.0",
 };
 
-export const CANONICAL_RULE_PACK_V2_RULES: readonly RuleDefinition[] = [...CANONICAL_RULE_PACK_V1_RULES.map((r) => (r === cashFlowClosingReconciliationRule ? cashPerimeterReconciliationRule : r)), equityClosingTieRule, equityProfitTieRule, scheduleCastingRule];
+export const CANONICAL_RULE_PACK_V2_RULES: readonly RuleDefinition[] = [...CANONICAL_RULE_PACK_V1_RULES.map((r) => (r === cashFlowClosingReconciliationRule ? cashPerimeterReconciliationRule : r)), equityClosingTieRule, equityProfitTieRule, scheduleCastingRule, cashLedgerRollforwardRule];
 
-export const ENGINE_VERSION_V2 = "2.1.0";
+export const ENGINE_VERSION_V2 = "2.2.0";
 
 export function runCanonicalRulePackV2(ctx: RuleContext, clock?: Clock) {
   return runRulePack(CANONICAL_RULE_PACK_V2, CANONICAL_RULE_PACK_V2_RULES, ctx, ENGINE_VERSION_V2, clock);
@@ -62,6 +63,7 @@ export function runCanonicalRulePackV1(ctx: RuleContext, clock?: Clock) {
 
 export {
   cashPerimeterReconciliationRule,
+  cashLedgerRollforwardRule,
   equityClosingTieRule,
   equityProfitTieRule,
   scheduleCastingRule,

@@ -50,7 +50,7 @@ describe("uploads: hostile files", () => {
     expect(isFormulaLike("=1")).toBe(true);
     const report = { entity: { legalName: "Acme" }, period: { periodYear: 2025 }, reportIdentity: { reportVersion: 1 } } as unknown as CanonicalFinancialStatementReport;
     const finding = { ruleId: "r", outcome: "FAIL", failureSeverity: "HIGH", actionable: true, affected: {}, deterministicCalculation: "=HYPERLINK(\"http://x\")", remediationGuidance: "+cmd", findingKey: "@k" } as never;
-    const csv = findingsCsv(report, [finding]).content;
+    const csv = findingsCsv(report, [finding], { reportId: "r", companyId: "c", periodYear: 2025, reportVersion: null, persisted: false, label: "Unsaved draft", contentHash: "h", evaluation: null, publicationState: null }).content;
     expect(csv).not.toMatch(/(^|,|\r\n)"?[=+@]/);
     expect(toCsv([["=1+1"]])).toBe("'=1+1\r\n");
   });
@@ -127,7 +127,8 @@ describe("transport: identity, gates and hostile responses", () => {
   it("no request the client can build carries an actor, reviewer, user or firm-member argument", async () => {
     const t = new FsRpcTransport(backend(() => ok({})));
     const batch = (ingestEvidence({ ...base, evidenceType: "BUDGET", text: csvOf("k,l,REVENUE,1") }) as { batch: never }).batch;
-    await t.ingestEvidence(batch, null).catch(() => undefined);
+    const stub = { reportIdentity: { reportId: "r", companyId: "c", reportVersion: 1 }, period: { periodYear: 2025 }, provenanceOrigin: "TRIAL_BALANCE_DERIVED" } as unknown as CanonicalFinancialStatementReport;
+    await t.commitRevision({ companyId: "c", reportId: "r", expectedReportVersion: 0, idempotencyKey: "idem-key-1", report: stub, evidence: [{ batch, expectedPreviousBatchId: null }], evidenceBatchIds: [(batch as { evidenceBatchId: string }).evidenceBatchId], evaluation: { evaluationRunId: "e", rulePackId: "p", rulePackVersion: "1", engineVersion: "1", inputHash: "h", findings: [] } }).catch(() => undefined);
     await t.appendDecision("r", "c", { decisionId: "d", decisionType: "DEFER", reviewerId: "attacker-chosen-firm-member", decidedAt: "x" } as never).catch(() => undefined);
     await t.setPublicationState("r", 1, "c", "REVIEWED", "long enough reason").catch(() => undefined);
     await t.access("c");
@@ -177,7 +178,7 @@ describe("money never becomes a JSON number", () => {
       presentationCurrency: { currency: "TZS", scale: 2, roundingPolicy: { mode: "HALF_UP", scale: 2 }, presentationMultiplier: 1n },
       facts: [{ factId: "f", version: 1, value: { currency: "TZS", scale: 2, minorUnits: 9007199254740993n }, reportingPeriod: { periodId: "CURRENT", isComparative: false }, signConvention: "NATURAL", provenance: {}, supersedesVersion: null }],
     } as unknown as CanonicalFinancialStatementReport;
-    const file = canonicalJsonExport(report, null).content;
+    const file = canonicalJsonExport(report, { reportId: "r", companyId: "c", periodYear: 2025, reportVersion: null, persisted: false, label: "Unsaved draft", contentHash: "h", evaluation: null, publicationState: null }).content;
     expect(file).toContain('"__bigint__": "9007199254740993"'); // beyond 2^53: a float would corrupt it
     expect(file).not.toMatch(/"minorUnits": \d/);
     expect(canonicalStringify(report)).toContain("9007199254740993");

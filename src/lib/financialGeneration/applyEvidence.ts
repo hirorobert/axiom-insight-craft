@@ -21,7 +21,9 @@ import { amountOf, columnReader, type EvidenceRowRef, type GenerationDiagnostic,
 import { buildEquityStatement, type EquityPeriodInput } from "./equityStatement";
 import { buildIpsasCashStatement, type IpsasCashPeriodInput } from "./ipsasCash";
 import { assembleNotes, type ChecklistItem } from "./notesAndSchedules";
-import { cashPerimeterFactId, establishCashPerimeter, type CashPerimeterResult } from "./cashPerimeter";
+import { cashPerimeterFactId, establishCashPerimeter, readCashAccountMap, type CashPerimeterResult } from "./cashPerimeter";
+import { accountsFromPerimeterMap, accountsFromSingleReviewedCash, establishCashLedgerAuthority, type CashLedgerAuthorityResult } from "./cashLedgerAuthority";
+import { checklistDisclosures, derivedChecklistSource, embedBudgetComparison, mappingCoverageDisclosure, type MappingCoverage } from "./persistedAuthority";
 
 export interface StoredEvidence {
   readonly batch: EvidenceBatch;
@@ -48,6 +50,8 @@ export interface ApplyEvidenceInput {
   /** Account keys of trial-balance accounts professionally reviewed as cash accounts. */
   readonly cashAccountKeys?: readonly string[];
   readonly budget?: BudgetActualOptions;
+  /** How many trial-balance accounts were reviewed / unmapped / ambiguous when the base report was prepared. Recorded in the document so the database can see it. */
+  readonly mappingCoverage?: MappingCoverage;
 }
 
 export interface EvidenceUse {
@@ -74,6 +78,8 @@ export interface ApplyEvidenceResult {
   readonly evidenceIndex: Readonly<Record<string, readonly EvidenceRowRef[]>>;
   /** The multi-account cash perimeter when a cash account map was supplied; null otherwise. */
   readonly cashPerimeter: CashPerimeterResult | null;
+  /** Account-by-account completeness of the cash ledger; null when there is no ledger-derived cash flow. */
+  readonly cashLedgerAuthority: CashLedgerAuthorityResult | null;
   readonly use: readonly EvidenceUse[];
   readonly diagnostics: readonly GenerationDiagnostic[];
 }
@@ -110,27 +116,37 @@ function latestFactValue(report: CanonicalFinancialStatementReport, factId: stri
 }
 
 /** Opening cash for a period = closing cash of the period before it, from the comparative SFP or from prior-period statements evidence. */
-function openingCashFor(report: CanonicalFinancialStatementReport, evidence: readonly EvidenceBatch[], role: PeriodRole, perimeter: CashPerimeterResult | null): { money: Money; source: string } | null {
-  if (role === "CURRENT" && perimeter?.status === "ESTABLISHED" && report.comparativePeriods[0]) {
+type OpeningCash = { readonly money: Money; readonly source: string } | { readonly conflict: string } | null;
+
+function openingCashFor(report: CanonicalFinancialStatementReport, evidence: readonly EvidenceBatch[], role: PeriodRole, perimeter: CashPerimeterResult | null): OpeningCash {
+  if (role !== "CURRENT") return null;
+  // Every authority that speaks about opening cash is consulted; if two of them disagree NOTHING is chosen (fail closed).
+  const candidates: { money: Money; source: string }[] = [];
+  if (perimeter?.status === "ESTABLISHED" && report.comparativePeriods[0]) {
     const fromPerimeter = perimeter.facts.find((f) => f.factId === cashPerimeterFactId("cfexpected", report.comparativePeriods[0].periodId))?.value;
-    if (fromPerimeter) return { money: fromPerimeter, source: "the comparative-period cash perimeter (all mapped cash accounts)" };
+    if (fromPerimeter) candidates.push({ money: fromPerimeter, source: "the comparative-period cash perimeter (all mapped cash accounts)" });
   }
-  if (role === "CURRENT") {
-    const comparative = report.comparativePeriods[0];
-    const sfp = report.statements.find((s) => s.type === "STATEMENT_OF_FINANCIAL_POSITION");
-    const cashLine = sfp?.sections.flatMap((s) => s.lines).find((l) => l.concept === CANONICAL_CONCEPTS.CASH_AND_CASH_EQUIVALENTS_SFP);
-    const factId = comparative && cashLine ? cashLine.factBindings.find((b) => b.periodId === comparative.periodId)?.factId : undefined;
-    const fromSfp = factId ? latestFactValue(report, factId) : null;
-    if (fromSfp) return { money: fromSfp, source: "the comparative-period statement of financial position" };
-  }
-  const prior = one(evidence, "PRIOR_PERIOD_STATEMENTS", role === "CURRENT" ? "COMPARATIVE" : "COMPARATIVE");
-  if (prior && role === "CURRENT") {
+  const comparative = report.comparativePeriods[0];
+  const sfp = report.statements.find((s) => s.type === "STATEMENT_OF_FINANCIAL_POSITION");
+  const cashLine = sfp?.sections.flatMap((s) => s.lines).find((l) => l.concept === CANONICAL_CONCEPTS.CASH_AND_CASH_EQUIVALENTS_SFP);
+  const factId = comparative && cashLine ? cashLine.factBindings.find((b) => b.periodId === comparative.periodId)?.factId : undefined;
+  const fromSfp = factId ? latestFactValue(report, factId) : null;
+  if (fromSfp && perimeter?.status !== "ESTABLISHED") candidates.push({ money: fromSfp, source: "the comparative-period statement of financial position" });
+  const prior = one(evidence, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE");
+  if (prior) {
     const read = columnReader(prior);
     for (let row = 1; row <= prior.document.rows.length; row++) {
-      if (read(row, "statement_type") === "FINANCIAL_POSITION" && read(row, "line_key") === CANONICAL_CONCEPTS.CASH_AND_CASH_EQUIVALENTS_SFP) return { money: amountOf(prior, read(row, "amount")), source: `prior-period statements evidence batch ${prior.evidenceBatchId} row ${row}` };
+      if (read(row, "statement_type") === "FINANCIAL_POSITION" && read(row, "line_key") === CANONICAL_CONCEPTS.CASH_AND_CASH_EQUIVALENTS_SFP) {
+        candidates.push({ money: amountOf(prior, read(row, "amount")), source: `prior-period statements evidence batch ${prior.evidenceBatchId} row ${row}` });
+        break;
+      }
     }
   }
-  return null;
+  if (candidates.length === 0) return null;
+  const first = candidates[0];
+  const clash = candidates.find((c) => c.money.minorUnits !== first.money.minorUnits || c.money.currency !== first.money.currency || c.money.scale !== first.money.scale);
+  if (clash) return { conflict: `${first.source} states opening cash ${first.money.minorUnits} but ${clash.source} states ${clash.money.minorUnits} (minor units)` };
+  return first;
 }
 
 export function applyEvidence(input: ApplyEvidenceInput): ApplyEvidenceResult {
@@ -209,21 +225,40 @@ export function applyEvidence(input: ApplyEvidenceInput): ApplyEvidenceResult {
   } else {
     const ledger = inputs<CashFlowPeriodInput>("TRANSACTION_LEDGER", (batch, p, role) => {
       const opening = openingCashFor(report, usable, role, perimeter);
-      return { ...p, ledger: batch, openingCash: opening?.money ?? null, openingSource: opening?.source };
+      if (opening && "conflict" in opening) diagnostics.push({ code: "OPENING_CASH_CONFLICT", severity: "ERROR", message: `Opening cash is stated inconsistently: ${opening.conflict}. No opening or closing cash is presented and nothing is chosen between them.` });
+      return { ...p, ledger: batch, openingCash: opening && "money" in opening ? opening.money : null, openingSource: opening && "source" in opening ? opening.source : undefined };
     });
     if (ledger.items.length > 0) collect("STATEMENT_OF_CASH_FLOWS", buildDirectCashFlow(ledger.items), ledger.batches);
     const equity = inputs<EquityPeriodInput>("EQUITY_MOVEMENTS", (batch, p) => ({ ...p, batch }));
     if (equity.items.length > 0) collect("STATEMENT_OF_CHANGES_IN_EQUITY", buildEquityStatement(equity.items), equity.batches);
   }
 
+  // Is the ledger COMPLETE? Tested account by account against the reviewed trial balances (see cashLedgerAuthority.ts).
+  let ledgerAuthority: CashLedgerAuthorityResult | null = null;
+  if (profile.basis !== "CASH") {
+    const currentLedger = one(usable, "TRANSACTION_LEDGER", "CURRENT") ?? null;
+    if (currentLedger && generated.some((g) => g.kind === "STATEMENT_OF_CASH_FLOWS" && g.result.status === "GENERATED")) {
+      const accounts = mapBatch ? accountsFromPerimeterMap(readCashAccountMap(mapBatch)) : cashKeys.length === 1 ? accountsFromSingleReviewedCash(cashKeys[0]) : null;
+      ledgerAuthority = establishCashLedgerAuthority({ report: { ...report, statements: [...report.statements, ...addStatements], facts: [...report.facts, ...addFacts] }, accounts, ledger: currentLedger });
+      diagnostics.push(...ledgerAuthority.diagnostics);
+    }
+  }
+
   // Notes, policies and schedules (need the statements above so lines can be resolved).
-  const withStatements: CanonicalFinancialStatementReport = { ...report, statements: [...report.statements, ...addStatements], facts: [...report.facts, ...addFacts, ...(perimeter?.facts ?? [])] };
+  const withStatements: CanonicalFinancialStatementReport = { ...report, statements: [...report.statements, ...addStatements], facts: [...report.facts, ...addFacts, ...(perimeter?.facts ?? []), ...(ledgerAuthority?.facts ?? [])] };
   const notesBatch = one(usable, "NOTES_AND_POLICIES", "CURRENT") ?? null;
   const scheduleBatches = usable.filter((b) => b.evidenceType === "SUPPORTING_SCHEDULE");
-  const assembly = assembleNotes(withStatements, notesBatch, scheduleBatches, profile.disclosureAreas, perimeter?.note ? { notes: [perimeter.note], unreferencedNoteIds: [perimeter.note.noteId] } : undefined);
+  const extraNotes = [...(perimeter?.note ? [perimeter.note] : []), ...(ledgerAuthority?.note ? [ledgerAuthority.note] : [])];
+  const assembly = assembleNotes(withStatements, notesBatch, scheduleBatches, profile.disclosureAreas, extraNotes.length > 0 ? { notes: extraNotes, unreferencedNoteIds: extraNotes.map((n) => n.noteId) } : undefined);
   diagnostics.push(...assembly.diagnostics);
   for (const b of [notesBatch, ...scheduleBatches]) if (b) use.push({ evidenceType: b.evidenceType, periodRole: b.periodRole, evidenceBatchId: b.evidenceBatchId, used: true, reason: "Assembled into notes, policies and schedules." });
   for (const [key, ref] of Object.entries(assembly.scheduleRows)) evidenceIndex[`schedule:${key}`] = [{ batchId: ref.batchId, rowNumbers: ref.rowNumbers }];
+
+  // Disclosure checklist and mapping coverage go INTO the document: the database must be able to see them.
+  const persistedDisclosures = [
+    ...checklistDisclosures(profile, assembly.checklist, notesBatch, derivedChecklistSource(profile)),
+    ...((input.mappingCoverage ? [mappingCoverageDisclosure(report, input.mappingCoverage)] : []).filter((d): d is NonNullable<typeof d> => d !== null)),
+  ];
 
   let finalReport: CanonicalFinancialStatementReport | null = null;
   try {
@@ -232,7 +267,7 @@ export function applyEvidence(input: ApplyEvidenceInput): ApplyEvidenceResult {
       notes: [...report.notes, ...assembly.notes],
       noteReferences: [...report.noteReferences, ...assembly.noteReferences],
       accountingPolicies: [...report.accountingPolicies, ...assembly.accountingPolicies],
-      textualDisclosures: [...report.textualDisclosures, ...assembly.textualDisclosures],
+      textualDisclosures: [...report.textualDisclosures, ...assembly.textualDisclosures, ...persistedDisclosures],
       facts: [...withStatements.facts, ...assembly.facts],
     });
   } catch (e) {
@@ -244,8 +279,18 @@ export function applyEvidence(input: ApplyEvidenceInput): ApplyEvidenceResult {
   if (budget) {
     budgetActual = finalReport ? buildBudgetActual(finalReport, budget, input.budget) : { status: "EVIDENCE_GAP" as const, reasons: ["No valid report exists to compare the budget against."] };
     if (budgetActual.status === "GENERATED") diagnostics.push(...budgetActual.diagnostics);
+    // The comparison is part of the stored report: a budget-only change is a change of the report's content.
+    if (finalReport) {
+      const emb = embedBudgetComparison(finalReport, budget, budgetActual);
+      try {
+        finalReport = validateCanonicalReport({ ...finalReport, facts: [...finalReport.facts, ...emb.facts], notes: [...finalReport.notes, ...emb.notes], textualDisclosures: [...finalReport.textualDisclosures, ...emb.disclosures] });
+      } catch (e) {
+        diagnostics.push({ code: "BUDGET_NOT_EMBEDDABLE", severity: "ERROR", message: `The budget comparison could not be recorded in the report: ${(e as Error).message}` });
+        finalReport = null;
+      }
+    }
     use.push({ evidenceType: "BUDGET", periodRole: "CURRENT", evidenceBatchId: budget.evidenceBatchId, used: budgetActual.status === "GENERATED", reason: budgetActual.status === "GENERATED" ? "Used for the budget comparison." : budgetActual.reasons.join(" ") });
   }
 
-  return { report: finalReport, generated, budgetActual, checklist: assembly.checklist, evidenceIndex, cashPerimeter: perimeter, use, diagnostics };
+  return { report: finalReport, generated, budgetActual, checklist: assembly.checklist, evidenceIndex, cashPerimeter: perimeter, cashLedgerAuthority: ledgerAuthority, use, diagnostics };
 }

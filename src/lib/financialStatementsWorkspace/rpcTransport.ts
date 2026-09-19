@@ -172,6 +172,39 @@ export interface CorrectionGroupInput {
   readonly evaluation?: { readonly evaluationRunId: string; readonly rulePackId: string; readonly rulePackVersion: string; readonly engineVersion: string; readonly inputHash: string; readonly findings: readonly RuleEvaluationRecord[] };
 }
 
+export interface CommitRevisionInput {
+  readonly companyId: string;
+  readonly reportId: string;
+  readonly expectedReportVersion: number;
+  readonly idempotencyKey: string;
+  /** The report at version expectedReportVersion + 1. */
+  readonly report: CanonicalFinancialStatementReport;
+  /** Evidence batches this revision ingests, each with the batch it supersedes (null for a new series). */
+  readonly evidence: readonly { readonly batch: EvidenceBatch; readonly expectedPreviousBatchId: string | null }[];
+  /** The evidence versions the report was composed from (every ingested batch must be among them). */
+  readonly evidenceBatchIds: readonly string[];
+  readonly evaluation: { readonly evaluationRunId: string; readonly rulePackId: string; readonly rulePackVersion: string; readonly engineVersion: string; readonly inputHash: string; readonly findings: readonly RuleEvaluationRecord[] };
+}
+
+function evidencePayload(batch: EvidenceBatch, expectedPreviousBatchId: string | null) {
+  return {
+    evidenceBatchId: batch.evidenceBatchId,
+    reportingPeriodId: batch.reportingPeriodId,
+    evidenceType: batch.evidenceType,
+    periodRole: batch.periodRole,
+    seriesKey: batch.seriesKey,
+    schemaVersion: batch.schemaVersion,
+    sourceFileName: batch.sourceFileName,
+    contentHash: batch.contentHash,
+    currency: batch.currency,
+    scale: batch.scale,
+    batchDocument: batch.document,
+    validationStatus: batch.validationStatus,
+    diagnostics: batch.diagnostics,
+    expectedPreviousBatchId,
+  };
+}
+
 export class FsRpcTransport {
   constructor(private readonly backend: FsBackend) {}
 
@@ -198,25 +231,28 @@ export class FsRpcTransport {
     }
   }
 
-  async ingestEvidence(batch: EvidenceBatch, expectedPreviousBatchId: string | null): Promise<StoredEvidenceRow> {
-    const row = await this.call<Record<string, unknown>>("fs_ingest_evidence_batch", {
-      p_evidence_batch_id: batch.evidenceBatchId,
-      p_company_id: batch.companyId,
-      p_reporting_period_id: batch.reportingPeriodId,
-      p_evidence_type: batch.evidenceType,
-      p_period_role: batch.periodRole,
-      p_series_key: batch.seriesKey,
-      p_schema_version: batch.schemaVersion,
-      p_source_file_name: batch.sourceFileName,
-      p_content_hash: batch.contentHash,
-      p_currency: batch.currency,
-      p_scale: batch.scale,
-      p_batch_document: batch.document,
-      p_validation_status: batch.validationStatus,
-      p_diagnostics: batch.diagnostics,
-      p_expected_previous_batch_id: expectedPreviousBatchId,
+  /**
+   * The ONLY way evidence is accepted: one atomic call that stores the evidence batches, the immutable report version that
+   * references them, the evaluation of that version and an audit event — or nothing. Exact replay (same idempotency key and
+   * content) returns the stored version; the same key with different content, or a stale expected version, is refused.
+   * Returns the version the server holds after the call (an unchanged revision reuses the latest version).
+   */
+  async commitRevision(input: CommitRevisionInput): Promise<{ readonly reportVersion: number; readonly created: boolean }> {
+    const row = await this.call<Record<string, unknown>>("fs_commit_revision", {
+      p_company_id: input.companyId,
+      p_report_id: input.reportId,
+      p_expected_report_version: input.expectedReportVersion,
+      p_idempotency_key: input.idempotencyKey,
+      p_period_year: input.report.period.periodYear,
+      p_provenance_origin: input.report.provenanceOrigin,
+      p_report_document: json(input.report),
+      p_content_hash: contentHashOfDocument(input.report),
+      p_evidence: input.evidence.map((e) => evidencePayload(e.batch, e.expectedPreviousBatchId)),
+      p_evidence_batch_ids: [...input.evidenceBatchIds],
+      p_evaluation: { ...input.evaluation, findings: json(input.evaluation.findings) },
     });
-    return toEvidenceRow(row);
+    const reportVersion = Number(row.report_version);
+    return { reportVersion, created: reportVersion === input.expectedReportVersion + 1 };
   }
 
   async listEvidence(companyId: string, reportingPeriodId: string): Promise<readonly StoredEvidenceRow[]> {
@@ -269,26 +305,7 @@ export class FsRpcTransport {
         reportDocument: json(s.report),
         contentHash: contentHashOfDocument(s.report),
         ...(s.evidenceBatchIds ? { evidenceBatchIds: [...s.evidenceBatchIds] } : {}),
-        ...(s.evidenceBatch
-          ? {
-              evidenceBatch: {
-                evidenceBatchId: s.evidenceBatch.evidenceBatchId,
-                reportingPeriodId: s.evidenceBatch.reportingPeriodId,
-                evidenceType: s.evidenceBatch.evidenceType,
-                periodRole: s.evidenceBatch.periodRole,
-                seriesKey: s.evidenceBatch.seriesKey,
-                schemaVersion: s.evidenceBatch.schemaVersion,
-                sourceFileName: s.evidenceBatch.sourceFileName,
-                contentHash: s.evidenceBatch.contentHash,
-                currency: s.evidenceBatch.currency,
-                scale: s.evidenceBatch.scale,
-                batchDocument: s.evidenceBatch.document,
-                validationStatus: s.evidenceBatch.validationStatus,
-                diagnostics: s.evidenceBatch.diagnostics,
-                expectedPreviousBatchId: s.expectedPreviousBatchId ?? null,
-              },
-            }
-          : {}),
+        ...(s.evidenceBatch ? { evidenceBatch: evidencePayload(s.evidenceBatch, s.expectedPreviousBatchId ?? null) } : {}),
       })),
       p_decisions: input.decisions.map((d) => {
         const { reviewerId: _discarded, ...rest } = d;

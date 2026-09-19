@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { FRAMEWORK_PROFILES } from "./frameworkProfiles";
 
 const DIR = path.resolve(__dirname, "../../../supabase/migrations");
 const ROLLOUT = "20260919100000_financial_statements_rollout_control.sql";
@@ -48,7 +49,7 @@ describe("financial-statements migrations — ordering and isolation", () => {
 describe("financial-statements migrations — function hardening", () => {
   it("finds the expected function set", () => {
     const names = fns.map((f) => f.name).sort();
-    for (const n of ["fs_actor_member_id", "fs_save_report_version", "fs_apply_correction_group", "fs_ingest_evidence_batch", "fs_set_publication_state", "fs_rollout_allows", "fs_set_kill_switch", "financial_statements_workspace_access"]) {
+    for (const n of ["fs_actor_member_id", "fs_save_report_version", "fs_apply_correction_group", "fs_commit_revision", "fs_set_publication_state", "fs_rollout_allows", "fs_set_kill_switch", "financial_statements_workspace_access"]) {
       expect(names).toContain(n);
     }
   });
@@ -58,7 +59,7 @@ describe("financial-statements migrations — function hardening", () => {
   });
 
   it("every client-callable writer is SECURITY DEFINER", () => {
-    for (const n of ["fs_ingest_evidence_batch", "fs_save_report_version", "fs_save_evaluation", "fs_append_decision", "fs_apply_correction_group", "fs_set_publication_state"]) {
+    for (const n of ["fs_commit_revision", "fs_save_report_version", "fs_save_evaluation", "fs_append_decision", "fs_apply_correction_group", "fs_set_publication_state"]) {
       expect(fns.find((f) => f.name === n)?.body, n).toMatch(/SECURITY DEFINER/);
     }
   });
@@ -97,13 +98,13 @@ describe("financial-statements migrations — function hardening", () => {
   });
 
   it("writers resolve the actor through the gate helper", () => {
-    for (const n of ["fs_ingest_evidence_batch", "fs_save_report_version", "fs_save_evaluation", "fs_append_decision", "fs_apply_correction_group", "fs_set_publication_state"]) {
+    for (const n of ["fs_commit_revision", "fs_save_report_version", "fs_save_evaluation", "fs_append_decision", "fs_apply_correction_group", "fs_set_publication_state"]) {
       expect(fns.find((f) => f.name === n)?.body, n).toMatch(/fs_actor_member_id\(p_company_id\)/);
     }
   });
 
   it("version writers serialise with an advisory lock (ingest does so inside its internal implementation)", () => {
-    for (const n of ["fs_ingest_evidence_internal", "fs_save_report_version", "fs_apply_correction_group", "fs_set_publication_state", "fs_append_decision"]) {
+    for (const n of ["fs_ingest_evidence_internal", "fs_commit_revision", "fs_save_report_version", "fs_apply_correction_group", "fs_set_publication_state", "fs_append_decision"]) {
       expect(fns.find((f) => f.name === n)?.body, n).toMatch(/pg_advisory_xact_lock/);
     }
   });
@@ -149,13 +150,60 @@ describe("financial-statements migrations — table hardening", () => {
       expect(both, n).not.toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${n}\\([^)]*\\) TO[^;]*authenticated`));
     }
     const blockers = fns.find((f) => f.name === "fs_publication_blockers")!.body;
-    for (const code of ["FRAMEWORK_UNKNOWN", "MISSING_STATEMENT:", "COMPARATIVE_PERIOD_MISSING", "COMPARATIVE_FIGURES_MISSING:", "REQUIRED_EVIDENCE_MISSING:", "EVIDENCE_NOT_VALID:", "EVIDENCE_SUPERSEDED:", "EVIDENCE_MISSING:", "NOT_EVALUATED", "BLOCKING_FINDINGS:", "RECONCILIATION_UNMET:", "NOT_LATEST_VERSION"]) expect(blockers, code).toContain(code);
+    for (const code of ["FRAMEWORK_UNKNOWN", "MISSING_STATEMENT:", "COMPARATIVE_PERIOD_MISSING", "COMPARATIVE_FIGURES_MISSING:", "REQUIRED_EVIDENCE_MISSING:", "EVIDENCE_NOT_VALID:", "EVIDENCE_SUPERSEDED:", "EVIDENCE_MISSING:", "NOT_EVALUATED", "BLOCKING_FINDINGS:", "RECONCILIATION_UNMET:", "NOT_LATEST_VERSION",
+      "CASHFLOW_CLOSING_CASH_MISSING", "CASHFLOW_LEDGER_AUTHORITY_MISSING", "CASHFLOW_LEDGER_AUTHORITY_UNRESOLVED", "MAPPING_REVIEW_UNRECORDED", "MAPPING_UNREVIEWED:",
+      "DISCLOSURE_CHECKLIST_ABSENT:", "DISCLOSURE_CHECKLIST_INCOMPLETE:", "BUDGET_COMPARISON_GAP", "BUDGET_COMPARISON_MISSING", "BUDGET_LINE_UNMATCHED:", "BUDGET_EXPLANATION_MISSING:", "BUDGET_LINE_UNREADABLE:"]) expect(blockers, code).toContain(code);
+  });
+
+  it("there is no standalone client function that accepts evidence: evidence enters only through fs_commit_revision or a correction group", () => {
+    expect(persist).not.toMatch(/CREATE OR REPLACE FUNCTION public\.fs_ingest_evidence_batch/);
+    expect(persist).not.toMatch(/GRANT EXECUTE ON FUNCTION public\.fs_ingest_evidence_(batch|internal)/);
+    const internalCallers = fns.filter((f) => f.body.includes("fs_ingest_evidence_internal(") && f.name !== "fs_ingest_evidence_internal").map((f) => f.name).sort();
+    expect(internalCallers).toEqual(["fs_apply_correction_group", "fs_commit_revision"]);
+  });
+
+  it("a revision is atomic and attributable: authorises first, refuses stale before any write, converges on replays, and records evidence + version + evaluation + audit", () => {
+    const b = fns.find((f) => f.name === "fs_commit_revision")!.body;
+    const at = (needle: string) => { const i = b.indexOf(needle); expect(i, needle).toBeGreaterThan(-1); return i; };
+    expect(at("fs_actor_member_id(p_company_id)")).toBeLessThan(at("fs_ingest_evidence_internal("));
+    expect(at("STALE_REPORT_VERSION")).toBeLessThan(at("fs_ingest_evidence_internal("));
+    expect(at("REPLAY_CONFLICT")).toBeLessThan(at("fs_ingest_evidence_internal("));
+    for (const needle of ["not referenced by the report version it creates", "INSERT INTO public.financial_statement_reports", "fs_store_evaluation(", "INSERT INTO public.financial_statement_correction_groups", "'REVISION_COMMITTED'", "pg_advisory_xact_lock"]) expect(b, needle).toContain(needle);
+    expect(persist).toMatch(/'REVISION_COMMITTED'\)\)/); // an allowed audit action
   });
 
   it("framework requirements are seeded for exactly the four frameworks and are immutable", () => {
     expect(persist).toMatch(/\('IFRS',[^)]*\)/);
     for (const k of ["IFRS", "IFRS_FOR_SMES", "IPSAS_ACCRUAL", "IPSAS_CASH"]) expect(persist).toContain(`('${k}',`);
     expect(persist).toMatch(/trg_fsfr_immutable BEFORE UPDATE OR DELETE ON public\.financial_statement_framework_requirements/);
+  });
+
+  it("the database's framework requirements are the product's framework profiles: statements, evidence, disclosure areas and mapping review", () => {
+    const rows = [...persist.matchAll(/\('(IFRS|IFRS_FOR_SMES|IPSAS_ACCRUAL|IPSAS_CASH)',\s*ARRAY\[([^\]]*)\],\s*(true|false),\s*ARRAY\[([^\]]*)\],\s*ARRAY\[([^\]]*)\],\s*(true|false),\s*'([\d.]+)'\)/g)];
+    expect(rows.map((m) => m[1]).sort()).toEqual(["IFRS", "IFRS_FOR_SMES", "IPSAS_ACCRUAL", "IPSAS_CASH"]);
+    const list = (raw: string) => [...raw.matchAll(/'([^']+)'/g)].map((x) => x[1]).sort();
+    for (const m of rows) {
+      const profile = FRAMEWORK_PROFILES[m[1] as keyof typeof FRAMEWORK_PROFILES];
+      const requiredStatements = profile.expectedStatements.filter((e) => e.requirement === "REQUIRED" && e.kind !== "BUDGET_VS_ACTUAL" && e.kind !== "STATEMENT_OF_COMPREHENSIVE_INCOME").map((e) => e.kind).sort();
+      expect(list(m[2]), `${m[1]} statements`).toEqual(requiredStatements);
+      expect(m[3], `${m[1]} comparatives`).toBe(String(profile.comparativesRequired));
+      expect(list(m[5]), `${m[1]} disclosure areas`).toEqual(profile.disclosureAreas.map((a) => a.id).sort());
+      expect(m[6], `${m[1]} mapping review`).toBe(String(profile.trialBalance.status === "SUPPORTED"));
+      const evidence = list(m[4]);
+      if (profile.basis === "CASH") expect(evidence).toEqual(["IPSAS_CASH_RECEIPTS_PAYMENTS"]);
+      else expect(evidence).toEqual(["EQUITY_MOVEMENTS", "TRANSACTION_LEDGER"]); // the cash flow and changes in equity exist only as generated from this evidence
+    }
+  });
+
+  it("every reconciliation rule the database treats as mandatory exists in the rule pack, and the pack's cash rollforward is among them", () => {
+    const mandatory = [...(persist.match(/f\.j ->> 'ruleId' IN \(([^)]*)\)/)?.[1] ?? "").matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect(mandatory).toContain("cashflow-account-rollforward");
+    const rulesSrc = fs.readFileSync(path.resolve(__dirname, "../canonicalStatement/rules/rulePack.ts"), "utf8");
+    expect(rulesSrc).toContain("cashLedgerRollforwardRule");
+    for (const id of mandatory) {
+      const found = fs.readdirSync(path.resolve(__dirname, "../canonicalStatement/rules")).some((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && fs.readFileSync(path.resolve(__dirname, "../canonicalStatement/rules", f), "utf8").includes(`"${id}"`));
+      expect(found, id).toBe(true);
+    }
   });
 
   it("the history tables get append-only triggers, RLS, and SELECT-only grants through the member helper", () => {

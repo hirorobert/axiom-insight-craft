@@ -144,14 +144,10 @@ export async function saveWorkspace(input: SaveInput): Promise<SaveOutcome> {
       }
     }
     const seriesOf = (b: EvidenceBatch) => storedEvidence.filter((s) => s.evidenceType === b.evidenceType && s.periodRole === b.periodRole && s.seriesKey === b.seriesKey && s.reportingPeriodId === b.reportingPeriodId).sort((a, b2) => b2.version - a.version);
+    // Evidence the server does not hold yet. It is NOT written on its own: it travels inside the revision that creates the
+    // report version referencing it (fs_commit_revision), so no accepted evidence can exist without a version, evaluation and audit event.
+    const pendingEvidence = input.evidence.filter((b) => !plan.correctionBatchIds.has(b.evidenceBatchId) && !storedEvidence.some((s) => s.replayIdentity === b.replayIdentity));
     let ingested = 0;
-    for (const batch of input.evidence) {
-      if (plan.correctionBatchIds.has(batch.evidenceBatchId)) continue;
-      if (storedEvidence.some((s) => s.replayIdentity === batch.replayIdentity)) continue;
-      const row = await transport.ingestEvidence(batch, seriesOf(batch)[0]?.evidenceBatchId ?? null);
-      storedEvidence.push(row);
-      ingested += 1;
-    }
     const evidenceIds = plan.baseEvidenceIds ?? input.evidence.map((b) => b.evidenceBatchId);
 
     // 2 — the report lineage.
@@ -161,6 +157,29 @@ export async function saveWorkspace(input: SaveInput): Promise<SaveOutcome> {
     let savedBase = false;
     let savedBaseReport: CanonicalFinancialStatementReport = plan.base;
 
+    /** One atomic call: evidence + the next report version + its evaluation + the audit event. */
+    const commit = async (state: CanonicalFinancialStatementReport, ids: readonly string[]) => {
+      const next = withVersion(state, storedVersion + 1);
+      const run = input.evaluate(next);
+      const key = sha256Hex(canonicalStringify({ kind: "revision", reportId, from: storedVersion, contentHash: contentHashOf(next), ids, evidence: pendingEvidence.map((b) => b.evidenceBatchId) }));
+      const out = await transport.commitRevision({
+        companyId,
+        reportId,
+        expectedReportVersion: storedVersion,
+        idempotencyKey: key,
+        report: next,
+        evidence: pendingEvidence.map((batch) => ({ batch, expectedPreviousBatchId: seriesOf(batch)[0]?.evidenceBatchId ?? null })),
+        evidenceBatchIds: ids,
+        evaluation: { evaluationRunId: run.evaluationRunId, rulePackId: run.rulePack.rulePackId, rulePackVersion: run.rulePack.rulePackVersion, engineVersion: run.engineVersion, inputHash: run.inputHash, findings: run.findings },
+      });
+      ingested = pendingEvidence.length;
+      if (out.created) {
+        storedVersion = out.reportVersion;
+        savedBase = true;
+        savedBaseReport = state;
+      }
+    };
+
     if (input.saved) {
       if (input.saved.storedVersion !== storedVersion) {
         return { status: "FAILED", kind: "STALE_VERSION", message: `The report was saved by someone else since you opened it (server is at version ${storedVersion}, this session last saw ${input.saved.storedVersion}). Nothing was saved.`, isConflict: true };
@@ -169,22 +188,15 @@ export async function saveWorkspace(input: SaveInput): Promise<SaveOutcome> {
       // Evidence added or replaced since the last save changes the report without any correction: that is a new version too.
       const atSaved = alreadySavedCorrections > 0 ? plan.steps[alreadySavedCorrections - 1] : null;
       const stateAfterSaved = atSaved ? atSaved.report : plan.base;
-      if (latest && contentHashOf(withVersion(stateAfterSaved, storedVersion)) !== latest.contentHash) {
-        const next = withVersion(stateAfterSaved, storedVersion + 1);
-        await transport.saveReportVersion(next, contentHashOf(next), atSaved ? atSaved.evidenceIds ?? evidenceIds : evidenceIds);
-        storedVersion += 1;
-        savedBase = true;
-        savedBaseReport = stateAfterSaved;
+      if ((latest && contentHashOf(withVersion(stateAfterSaved, storedVersion)) !== latest.contentHash) || pendingEvidence.length > 0) {
+        await commit(stateAfterSaved, atSaved ? atSaved.evidenceIds ?? evidenceIds : evidenceIds);
       }
     } else {
       const wouldBe = latest ? contentHashOf(withVersion(plan.steps.length > 0 ? plan.steps[plan.steps.length - 1].report : plan.base, storedVersion)) : null;
-      if (latest && latest.contentHash === wouldBe) {
-        alreadySavedCorrections = plan.steps.length; // identical content is already stored
+      if (latest && latest.contentHash === wouldBe && pendingEvidence.length === 0) {
+        alreadySavedCorrections = plan.steps.length; // identical content and evidence are already stored
       } else {
-        const base = withVersion(plan.base, storedVersion + 1);
-        await transport.saveReportVersion(base, contentHashOf(base), evidenceIds);
-        storedVersion += 1;
-        savedBase = true;
+        await commit(plan.base, evidenceIds);
       }
     }
 
@@ -214,9 +226,6 @@ export async function saveWorkspace(input: SaveInput): Promise<SaveOutcome> {
         evaluation: { evaluationRunId: run.evaluationRunId, rulePackId: run.rulePack.rulePackId, rulePackVersion: run.rulePack.rulePackVersion, engineVersion: run.engineVersion, inputHash: run.inputHash, findings: run.findings },
       });
       storedVersion += versioned.length;
-    } else if (savedBase || !latest) {
-      const run = input.evaluate(finalReport);
-      await transport.saveEvaluation({ evaluationRunId: run.evaluationRunId, reportId, reportVersion: storedVersion, companyId, rulePackId: run.rulePack.rulePackId, rulePackVersion: run.rulePack.rulePackVersion, engineVersion: run.engineVersion, inputHash: run.inputHash, findings: run.findings });
     }
 
     // 4 — standalone decisions not yet stored.

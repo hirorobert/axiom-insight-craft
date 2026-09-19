@@ -6,10 +6,13 @@
 // value, and nothing that fails validation can ever be presented as usable evidence.
 
 import { moneyFromDecimalString } from "@/lib/canonicalStatement/money";
-import { sha256Hex } from "@/lib/canonicalStatement/serialization";
+import { canonicalStringify, sha256Hex } from "@/lib/canonicalStatement/serialization";
 import { hasControlCharacter, hasHiddenCharacter, isBlankRecord, isFormulaLike, parseCsv } from "./csv";
 import { FAMILY_SCHEMAS, type CellKind, type ColumnSpec, type RowAccess } from "./schemas";
 import { EVIDENCE_SCHEMA_VERSION, type EvidenceBatch, type EvidenceBatchDocument, type EvidenceDiagnostic, type EvidenceType, type PeriodRole, type ReplayStatus, type ValidationStatus } from "./types";
+
+/** The content identity of evidence: a hash of its canonical records (header + rows as exact strings), independent of file format. */
+export const canonicalIdentityOf = (records: readonly (readonly string[])[]): string => sha256Hex(canonicalStringify({ records }));
 
 export const INTAKE_LIMITS = { maxChars: 2_000_000, maxRows: 20_000, maxColumns: 40, maxTextChars: 500, maxLongTextChars: 20_000, maxAmountDigits: 30 } as const;
 
@@ -147,7 +150,10 @@ export function ingestEvidence(req: IntakeRequest): IntakeResult {
   if (parsed.unterminatedQuoteAtRecord !== null) {
     return rejected(err("CSV_UNTERMINATED_QUOTE", `A quoted field starting in record ${parsed.unterminatedQuoteAtRecord} is never closed.`));
   }
-  return ingestRecords(req, parsed.rows.filter((r) => !isBlankRecord(r)), { contentHash: sha256Hex(req.text), format: "CSV", fileName: req.fileName ?? null });
+  const records = parsed.rows.filter((r) => !isBlankRecord(r));
+  // The identity is that of the CANONICAL RECORDS, not of the container: the same reviewed evidence supplied as CSV or as an
+  // .xlsx converges on the same content hash (and therefore the same replay identity). The container's own hash is provenance only.
+  return ingestRecords(req, records, { contentHash: canonicalIdentityOf(records), format: "CSV", fileName: req.fileName ?? null, fileSha256: sha256Hex(req.text) });
 }
 
 /**

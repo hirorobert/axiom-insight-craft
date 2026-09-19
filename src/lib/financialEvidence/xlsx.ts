@@ -21,11 +21,11 @@
 //   * every data row carries a "Sheet!A5:H5" locator.
 
 import { unzipSync, strFromU8 } from "fflate";
-import { canonicalStringify, sha256Hex } from "@/lib/canonicalStatement/serialization";
-import { INTAKE_LIMITS, ingestRecords, type IntakeCommon, type IntakeResult } from "./intake";
+import { sha256Hex } from "@/lib/canonicalStatement/serialization";
+import { canonicalIdentityOf, INTAKE_LIMITS, ingestRecords, type IntakeCommon, type IntakeResult } from "./intake";
 import type { EvidenceDiagnostic, EvidenceType } from "./types";
 
-export const XLSX_LIMITS = { maxBytes: 5_000_000, maxEntries: 300, maxEntryBytes: 30_000_000, maxTotalBytes: 60_000_000, maxXmlDepth: 64, maxDisclosed: 20 } as const;
+export const XLSX_LIMITS = { maxBytes: 5_000_000, maxEntries: 300, maxEntryBytes: 30_000_000, maxTotalBytes: 60_000_000, maxXmlDepth: 64, maxDisclosed: 20, maxMillis: 5_000 } as const;
 
 /** The five families that accept a workbook. Everything else remains CSV-only. */
 export const XLSX_EVIDENCE_TYPES: readonly EvidenceType[] = ["TRANSACTION_LEDGER", "EQUITY_MOVEMENTS", "BUDGET", "IPSAS_CASH_RECEIPTS_PAYMENTS", "SUPPORTING_SCHEDULE"];
@@ -298,7 +298,9 @@ export interface SheetRead {
   readonly diagnostics: EvidenceDiagnostic[];
 }
 
-export function readWorkbookSheet(bytes: Uint8Array, sheetName: string): SheetRead | { readonly ok: false; readonly diagnostics: EvidenceDiagnostic[] } {
+export function readWorkbookSheet(bytes: Uint8Array, sheetName: string, opts: { readonly now?: () => number } = {}): SheetRead | { readonly ok: false; readonly diagnostics: EvidenceDiagnostic[] } {
+  const now = opts.now ?? (() => (typeof performance !== "undefined" ? performance.now() : Date.now()));
+  const started = now();
   const opened = open(bytes);
   if (!("files" in opened)) return { ok: false, diagnostics: [...opened.diagnostics] };
   const diagnostics: EvidenceDiagnostic[] = [];
@@ -328,12 +330,18 @@ export function readWorkbookSheet(bytes: Uint8Array, sheetName: string): SheetRe
     const cellErrors: EvidenceDiagnostic[] = [];
     let maxCol = -1;
     let rowCount = 0;
+    let cells = 0;
+    const overTime = () => now() - started > XLSX_LIMITS.maxMillis;
+    const timeUp: { readonly ok: false; readonly diagnostics: EvidenceDiagnostic[] } = { ok: false, diagnostics: [err("PROCESSING_TIME_LIMIT", `Reading the sheet took longer than ${XLSX_LIMITS.maxMillis / 1000} seconds and was stopped.`)] };
     for (const row of kids(child(ws, "sheetData"), "row")) {
       rowCount += 1;
+      if (overTime()) return timeUp;
       if (rowCount > INTAKE_LIMITS.maxRows + 50) return { ok: false, diagnostics: [err("TOO_MANY_ROWS", `The sheet has more than ${INTAKE_LIMITS.maxRows.toLocaleString("en-US")} data rows.`)] };
       const hidden = row.attrs.hidden === "1" || row.attrs.hidden === "true";
       let seq = 0;
       for (const c of kids(row, "c")) {
+        cells += 1;
+        if ((cells & 255) === 0 && overTime()) return timeUp;
         const rc = splitRef(c.attrs.r ?? "") ?? { col: seq, row: Number(row.attrs.r ?? rowCount) };
         seq = rc.col + 1;
         const at = `${colLetters(rc.col)}${rc.row}`;
@@ -403,6 +411,8 @@ export interface WorkbookIntakeRequest extends IntakeCommon {
   readonly bytes: Uint8Array;
   /** Required: no sheet is ever chosen for the user. */
   readonly sheetName?: string;
+  /** Injectable clock (milliseconds) for the processing-time limit; tests supply one, production uses performance.now(). */
+  readonly now?: () => number;
 }
 
 export type WorkbookIntakeResult =
@@ -419,8 +429,8 @@ export function ingestWorkbook(req: WorkbookIntakeRequest): WorkbookIntakeResult
     if (!inspected.ok) return { outcome: "REJECTED", diagnostics: inspected.diagnostics };
     return { outcome: "SHEET_SELECTION_REQUIRED", sheets: inspected.sheets, diagnostics: inspected.diagnostics };
   }
-  const read = readWorkbookSheet(req.bytes, req.sheetName);
+  const read = readWorkbookSheet(req.bytes, req.sheetName, { now: req.now });
   if (!read.ok) return { outcome: "REJECTED", diagnostics: read.diagnostics };
-  const contentHash = sha256Hex(canonicalStringify({ format: "XLSX", sheet: read.sheet, records: read.records }));
+  const contentHash = canonicalIdentityOf(read.records);
   return ingestRecords(req, read.records, { contentHash, format: "XLSX", sheet: read.sheet, rowLocators: read.rowLocators, fileSha256, fileName: req.fileName ?? null, extraDiagnostics: read.diagnostics });
 }

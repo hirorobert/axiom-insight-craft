@@ -73,20 +73,24 @@ export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
   for (const d of structure.diagnostics) if (d.severity === "BLOCKING") blockers.push(d.message);
   for (const b of composition?.blockers ?? []) blockers.push(b);
   if (model.views.length > 0 && !isApprovalReady(model.views)) blockers.push("Blocking or insufficient-evidence findings remain.");
-  const report = snapshot?.report ?? null;
+  // Everything on this stage — print, every export — is rendered from ONE output: the persisted version (or the honest "Unsaved draft").
+  const report = model.output?.report ?? null;
+  const lineage = model.output?.lineage ?? null;
   const status = outputStatus(model.publication?.state ?? null, blockers.length);
   const evidenceRows = model.evidence.map((e) => ({ batch: e.batch, version: e.version }));
-  const budget = model.applied?.budgetActual?.status === "GENERATED" ? model.applied.budgetActual : null;
-  const bundle = report
-    ? [
-        canonicalJsonExport(report, model.storedVersion),
-        evidenceExport(report, evidenceRows),
-        auditExport({ report, storedVersion: model.storedVersion, evaluation: model.evaluation, decisions: model.snapshot?.decisions ?? [], evidence: evidenceRows, publication: model.publication ? { state: model.publication.state, reason: model.publication.reason } : null, exportedAt: null }),
-        ...(model.evaluation ? [findingsCsv(report, model.evaluation.findings)] : []),
-        ...(budget ? [budgetCsv(report, budget)] : []),
-        ...(model.applied && model.applied.checklist.length > 0 ? [checklistCsv(report, model.applied.checklist)] : []),
-      ]
-    : [];
+  const budget = model.budgetComparison?.status === "GENERATED" ? model.budgetComparison : null;
+  const outputEvaluation = model.output?.evaluation ?? null;
+  const bundle =
+    report && lineage
+      ? [
+          canonicalJsonExport(report, lineage),
+          evidenceExport(report, evidenceRows, lineage),
+          auditExport({ report, lineage, evaluation: outputEvaluation, decisions: model.snapshot?.decisions ?? [], evidence: evidenceRows, publication: model.publication ? { state: model.publication.state, reason: model.publication.reason } : null, exportedAt: null }),
+          ...(outputEvaluation ? [findingsCsv(report, outputEvaluation.findings, lineage)] : []),
+          ...(budget ? [budgetCsv(report, budget, lineage)] : []),
+          ...(model.applied && model.applied.checklist.length > 0 ? [checklistCsv(report, model.applied.checklist, lineage)] : []),
+        ]
+      : [];
 
   return (
     <section aria-labelledby="fs-outputs-h" className="space-y-4">
@@ -107,7 +111,7 @@ export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
       <div className="flex flex-wrap gap-2 fs-no-print" data-testid="export-buttons">
         {bundle.map((f) => (
           <Button key={f.fileName} type="button" variant="outline" size="sm" onClick={() => download(f)} data-export-file={f.fileName}>
-            {f.fileName.replace(/^.*?-v\d+\./, "").replace(/\./g, " ")} ({f.mimeType === "text/csv" ? "CSV" : "JSON"})
+            {f.fileName.replace(/^.*?-(v\d+|unsaved-draft)\./, "").replace(/\./g, " ")} ({f.mimeType === "text/csv" ? "CSV" : "JSON"})
           </Button>
         ))}
       </div>
@@ -159,7 +163,7 @@ export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
                 Financial statements for the period {report.period.startDate} to {report.period.endDate}
               </p>
               <p className="text-xs text-muted-foreground">
-                {profile.displayName} · presented in {report.presentationCurrency.currency}, full units · report {report.reportIdentity.reportId.slice(0, 8)} v{report.reportIdentity.reportVersion}
+                {profile.displayName} · presented in {report.presentationCurrency.currency}, full units · report {report.reportIdentity.reportId.slice(0, 8)} · <span data-testid="print-version">{lineage?.label ?? "Unsaved draft"}</span>{lineage?.evaluation ? ` · evaluation ${lineage.evaluation.evaluationRunId.slice(0, 8)}` : ""}
               </p>
             </header>
 

@@ -18,7 +18,9 @@ import { ReviewStage, PersistenceBanner } from "@/components/financialStatements
 import { OutputsStage, PRINT_CSS } from "@/components/financialStatements/OutputsStage";
 import { FinancialStatementsWorkspace } from "@/components/financialStatements/FinancialStatementsWorkspace";
 import type { FinancialStatementsWorkspaceModel } from "@/hooks/useFinancialStatementsWorkspace";
-import { evaluateReport, prepareTrialBalanceReport } from "./evaluationOrchestrator";
+import { ZERO_TOLERANCE } from "@/lib/canonicalStatement/money";
+import { auditExport, buildLineage, canonicalJsonExport, checklistCsv, evidenceExport, findingsCsv, lineageTag, outputReportFor, UNSAVED_DRAFT_LABEL, versionLabelOf } from "./exports";
+import { evaluateReport, evaluateReportPure, prepareTrialBalanceReport } from "./evaluationOrchestrator";
 import { InMemoryFinancialStatementReportRepository } from "./reportRepository";
 import { buildFindingViews } from "./findingsView";
 import { FRAMEWORK_PROFILES } from "./frameworkProfiles";
@@ -63,6 +65,10 @@ async function makeModel(): Promise<FinancialStatementsWorkspaceModel> {
     rerun: () => undefined,
     evidence: [],
     applied: null,
+    budgetComparison: null,
+    persistedVersion: null,
+    versionLabel: "Unsaved draft",
+    output: { report: outputReportFor(snapshot.report, null), evaluation: evaluateReportPure(snapshot.report, ZERO_TOLERANCE, () => "1970-01-01T00:00:00.000Z"), lineage: buildLineage({ report: outputReportFor(snapshot.report, null), persistedVersion: null, evaluation: evaluateReportPure(snapshot.report, ZERO_TOLERANCE, () => "1970-01-01T00:00:00.000Z"), publicationState: null }) },
     addEvidence: () => ({ kind: "REJECTED" as const, diagnostics: [] }),
     removeUnsavedEvidence: () => undefined,
     saveStatus: "DISABLED" as const,
@@ -93,10 +99,10 @@ describe("honest draft — persistence is disabled in source", () => {
 });
 
 describe("honest draft — workspace header", () => {
-  it('labels the workspace "Internal preview — unsaved draft"', async () => {
+  it('labels the workspace "Internal preview — Unsaved draft"', async () => {
     hookState.model = await makeModel();
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(FinancialStatementsWorkspace, { companyId: "c", periodYear: 2025, companyName: "Acme Ltd", companyTin: null, reportingFramework: "full_ifrs", currency: "TZS", fiscalYearEnd: null, currentUpload: null, uploads: [] })));
-    expect(text(html)).toContain("Internal preview — unsaved draft");
+    expect(text(html)).toContain("Internal preview — Unsaved draft");
     expect(text(html)).not.toMatch(/Draft — not saved/);
   });
 });
@@ -192,5 +198,88 @@ describe("honest draft — no wording implies database persistence", () => {
         }
       }
     }
+  });
+});
+
+// ── D. persisted version authority: print, JSON, evidence and audit identify the SAME lineage ─────────────────────────
+describe("version authority — persisted, unsaved, restored and historical outputs", () => {
+  const EPOCH = () => "1970-01-01T00:00:00.000Z";
+  const outputFor = async (persistedVersion: number | null, publicationState: "DRAFT" | "REVIEWED" | "FINAL" | null = null) => {
+    const model = await makeModel();
+    const report = outputReportFor(model.snapshot!.report, persistedVersion);
+    const evaluation = evaluateReportPure(persistedVersion === null ? model.snapshot!.report : report, ZERO_TOLERANCE, EPOCH);
+    const lineage = buildLineage({ report, persistedVersion, evaluation, publicationState });
+    return { model: { ...model, persistedVersion, versionLabel: versionLabelOf(persistedVersion), output: { report, evaluation, lineage } } as FinancialStatementsWorkspaceModel, report, evaluation, lineage };
+  };
+  const renderOutputs = (model: FinancialStatementsWorkspaceModel) => text(renderToStaticMarkup(createElement(OutputsStage, { model })));
+  const files = (o: Awaited<ReturnType<typeof outputFor>>) => {
+    const evidence = [] as never[];
+    return [
+      canonicalJsonExport(o.report, o.lineage),
+      evidenceExport(o.report, evidence, o.lineage),
+      auditExport({ report: o.report, lineage: o.lineage, evaluation: o.evaluation, decisions: [], evidence, publication: null, exportedAt: null }),
+      findingsCsv(o.report, o.evaluation.findings, o.lineage),
+      checklistCsv(o.report, [{ areaId: "basis-of-preparation", label: "Basis of preparation", reference: "IAS 1", state: "MISSING" }], o.lineage),
+    ];
+  };
+
+  it("UNSAVED work says exactly \"Unsaved draft\": in the print header, the file names and the document — never a version counter", async () => {
+    const o = await outputFor(null);
+    expect(UNSAVED_DRAFT_LABEL).toBe("Unsaved draft");
+    const html = renderToStaticMarkup(createElement(OutputsStage, { model: o.model }));
+    expect(html).toMatch(/data-testid="print-version">Unsaved draft</);
+    expect(text(html)).not.toMatch(/report [0-9a-f]{8} · Version/);
+    for (const f of files(o)) {
+      expect(f.fileName, f.fileName).toContain("-unsaved-draft.");
+      expect(f.fileName).not.toMatch(/-v\d+\./);
+    }
+    const canonical = JSON.parse(files(o)[0].content);
+    expect(canonical.lineage).toMatchObject({ reportVersion: null, persisted: false, label: "Unsaved draft" });
+    expect(canonical.report.reportIdentity.reportVersion).toBe(0); // 0 = not persisted; the transient counter is never exported
+  });
+
+  it("a PERSISTED version is shown and exported under ITS persisted number, with its own evaluation lineage", async () => {
+    const o = await outputFor(7, "REVIEWED");
+    const html = renderToStaticMarkup(createElement(OutputsStage, { model: o.model }));
+    expect(html).toMatch(/data-testid="print-version">Version 7</);
+    expect(text(html)).toContain(`evaluation ${o.evaluation.evaluationRunId.slice(0, 8)}`);
+    for (const f of files(o)) expect(f.fileName, f.fileName).toContain("-v7.");
+    expect(JSON.parse(files(o)[0].content).report.reportIdentity.reportVersion).toBe(7);
+  });
+
+  it("JSON, evidence, audit and CSV outputs all identify the SAME report, version and evaluation", async () => {
+    const o = await outputFor(4, "DRAFT");
+    const [canonical, evidence, audit, findings, checklist] = files(o);
+    const lineageOf = (f: { content: string }) => JSON.parse(f.content).lineage;
+    expect(lineageOf(evidence)).toEqual(lineageOf(canonical));
+    expect(lineageOf(audit)).toEqual(lineageOf(canonical));
+    expect(lineageOf(canonical)).toMatchObject({ reportId: o.report.reportIdentity.reportId, reportVersion: 4, persisted: true, evaluation: { evaluationRunId: o.evaluation.evaluationRunId, inputHash: o.evaluation.inputHash } });
+    expect(JSON.parse(audit.content).report).toMatchObject({ reportVersion: 4, versionLabel: "Version 4", contentHash: lineageOf(canonical).contentHash });
+    for (const csv of [findings, checklist]) expect(csv.content).toContain(lineageTag(o.lineage));
+    expect(new Set([canonical, evidence, audit, findings, checklist].map((f) => f.fileName.replace(/\.[a-z-]+\.(json|csv)$/, ""))).size).toBe(1);
+  });
+
+  it("the content hash in the lineage is the hash of the exported document, so a stored version and its export agree", async () => {
+    const o = await outputFor(3);
+    expect(o.lineage.contentHash).toBe(JSON.parse(files(o)[0].content).lineage.contentHash);
+    expect((await outputFor(3)).lineage.contentHash).toBe(o.lineage.contentHash); // deterministic
+    expect((await outputFor(4)).lineage.contentHash).not.toBe(o.lineage.contentHash); // the version is part of the identity
+  });
+
+  it("RESTORED and HISTORICAL outputs carry their own persisted version, never the session's", async () => {
+    const restored = await outputFor(5);
+    const historical = await outputFor(2, "FINAL");
+    expect(renderOutputs(restored.model)).toContain("Version 5");
+    const h = renderOutputs(historical.model);
+    expect(h).toContain("Version 2");
+    expect(h).not.toContain("Version 5");
+    expect(historical.lineage.publicationState).toBe("FINAL");
+  });
+
+  it("the workspace header uses the same label", async () => {
+    const o = await outputFor(9);
+    hookState.model = o.model;
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(FinancialStatementsWorkspace, { companyId: "c", periodYear: 2025, companyName: "Acme Ltd", companyTin: null, reportingFramework: "full_ifrs", currency: "TZS", fiscalYearEnd: null, currentUpload: null, uploads: [] })));
+    expect(text(html)).toContain("Internal preview — Version 9");
   });
 });

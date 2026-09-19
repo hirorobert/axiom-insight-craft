@@ -76,7 +76,7 @@ export interface EvidenceBatch {
   readonly seriesKey: string;
   readonly schemaVersion: string;
   readonly sourceFileName: string | null;
-  /** sha256 of the exact source text. */
+  /** sha256 of the canonical records (header + rows as exact strings): identical for the same evidence supplied as CSV or as a workbook. */
   readonly contentHash: string;
   /** sha256(companyId|reportingPeriodId|evidenceType|periodRole|seriesKey|contentHash) — identical to the database's replay identity. */
   readonly replayIdentity: string;

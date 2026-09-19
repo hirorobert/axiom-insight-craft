@@ -20,7 +20,7 @@ BEGIN
   END LOOP;
 
   -- writers: SECURITY DEFINER, pinned search_path, authenticated only
-  FOREACH f IN ARRAY ARRAY['fs_ingest_evidence_batch', 'fs_save_report_version', 'fs_save_evaluation', 'fs_append_decision', 'fs_apply_correction_group', 'fs_set_publication_state', 'financial_statements_workspace_access'] LOOP
+  FOREACH f IN ARRAY ARRAY['fs_commit_revision', 'fs_save_report_version', 'fs_save_evaluation', 'fs_append_decision', 'fs_apply_correction_group', 'fs_set_publication_state', 'financial_statements_workspace_access'] LOOP
     IF NOT EXISTS (
       SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
        WHERE n.nspname = 'public' AND p.proname = f AND p.prosecdef

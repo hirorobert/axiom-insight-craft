@@ -75,7 +75,7 @@ await admin.query("COMMIT");
 fs.writeFileSync(SEED_FILE, JSON.stringify({ url, users, companyA, companyB, bridge: `http://127.0.0.1:${BRIDGE_PORT}` }, null, 2));
 
 const pool = new Pool({ connectionString: url, max: 8 });
-const ALLOWED_RPC = /^(fs_ingest_evidence_batch|fs_save_report_version|fs_save_evaluation|fs_append_decision|fs_apply_correction_group|fs_set_publication_state|fs_list_saved_versions|fs_report_readiness|financial_statements_workspace_access)$/;
+const ALLOWED_RPC = /^(fs_commit_revision|fs_save_report_version|fs_save_evaluation|fs_append_decision|fs_apply_correction_group|fs_set_publication_state|fs_list_saved_versions|fs_report_readiness|financial_statements_workspace_access)$/;
 const ALLOWED_TABLES = /^(financial_evidence_batches|financial_statement_reports|financial_statement_evaluations|financial_statement_reviewer_decisions|financial_statement_correction_groups|financial_statement_publications|companies|account_mappings)$/;
 
 async function asUser(uid, fn) {
@@ -114,7 +114,7 @@ const bridge = http.createServer(async (req, res) => {
       const fn = u.pathname.slice(5);
       if (!ALLOWED_RPC.test(fn)) throw Object.assign(new Error("function not exposed"), { code: "42883" });
       const keys = Object.keys(body);
-      const JSON_KEYS = /^p_(batch_document|diagnostics|report_document|findings|decision|steps|decisions|evaluation)$/;
+      const JSON_KEYS = /^p_(batch_document|diagnostics|report_document|findings|decision|steps|decisions|evaluation|evidence)$/;
       const sql = `SELECT to_jsonb(public.${fn}(${keys.map((k, i) => `${k} => $${i + 1}${JSON_KEYS.test(k) ? "::jsonb" : ""}`).join(", ")})) AS r`;
       const params = keys.map((k) => (JSON_KEYS.test(k) && body[k] !== null ? JSON.stringify(body[k]) : body[k]));
       const rows = await asUser(uid, (c) => c.query(sql, params).then((r) => r.rows));

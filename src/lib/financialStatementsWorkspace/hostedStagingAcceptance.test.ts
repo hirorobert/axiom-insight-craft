@@ -34,6 +34,7 @@ interface Faults {
   outsiderLists?: boolean;
   wrongRole?: boolean;
   noSignIn?: boolean;
+  legacyIngest?: boolean;
 }
 
 /** A tiny in-memory GoTrue + PostgREST + RLS, with optional faults. */
@@ -93,11 +94,12 @@ function world(f: Faults = {}) {
         return res(200, { enabled: on, reason: on ? "ENABLED" : "NOT_ALLOWLISTED" });
       }
       if (fn === "fs_list_saved_versions") return member || f.outsiderLists ? res(200, []) : res(403, { code: "42501", message: "FORBIDDEN" });
-      if (fn === "fs_ingest_evidence_batch") {
+      if (fn === "fs_ingest_evidence_batch") return f.legacyIngest ? res(200, {}) : res(404, { code: "PGRST202" });
+      if (fn === "fs_commit_revision") {
         if (!member && !f.outsiderWrites) return res(403, { code: "42501", message: "FORBIDDEN" });
         if (!(f.defaultEnabled || enabled.has(company)) && !f.writeWhileDisabled) return res(403, { code: "PT403", message: "FEATURE_DISABLED" });
-        evidence.push({ id: body.p_evidence_batch_id, company });
-        return res(200, { evidence_batch_id: body.p_evidence_batch_id });
+        for (const e of body.p_evidence ?? []) evidence.push({ id: e.evidenceBatchId, company });
+        return res(200, { report_version: 1 });
       }
       return res(404);
     }
@@ -125,7 +127,7 @@ describe("hosted-staging acceptance harness — a correctly configured stack", (
     expect(r.results.filter((x: { status: string }) => x.status === "FAIL"), JSON.stringify(r.results)).toEqual([]);
     expect(r.overall).toBe("AUTOMATED_PASS_MANUAL_REALTIME_PENDING");
     expect(statusOf(r, "REALTIME_PUBLICATION_EXCLUDES_HISTORY_TABLES")).toBe("MANUAL_PENDING");
-    for (const id of ["GOTRUE_ADMIN_CREATE_USERS", "GOTRUE_PASSWORD_SIGN_IN", "JWT_ROLE_CLAIMS", "POSTGREST_INTERNALS_NOT_EXPOSED", "POSTGREST_ANON_DENIED", "POSTGREST_HISTORY_TABLES_NOT_WRITABLE", "FEATURE_DEFAULT_DENIED", "WRITE_REFUSED_WHILE_DISABLED", "SERVICE_ROLE_ENABLES_COMPANY", "AUTHENTICATED_WRITE_ROUNDTRIP", "OUTSIDER_WRITE_REFUSED", "RLS_MEMBER_READS_OWN_ROWS", "RLS_OUTSIDER_SEES_NOTHING", "RLS_OUTSIDER_CANNOT_LIST_VERSIONS"]) {
+    for (const id of ["GOTRUE_ADMIN_CREATE_USERS", "GOTRUE_PASSWORD_SIGN_IN", "JWT_ROLE_CLAIMS", "POSTGREST_INTERNALS_NOT_EXPOSED", "POSTGREST_ANON_DENIED", "POSTGREST_HISTORY_TABLES_NOT_WRITABLE", "NO_STANDALONE_EVIDENCE_WRITE", "FEATURE_DEFAULT_DENIED", "WRITE_REFUSED_WHILE_DISABLED", "SERVICE_ROLE_ENABLES_COMPANY", "AUTHENTICATED_WRITE_ROUNDTRIP", "OUTSIDER_WRITE_REFUSED", "RLS_MEMBER_READS_OWN_ROWS", "RLS_OUTSIDER_SEES_NOTHING", "RLS_OUTSIDER_CANNOT_LIST_VERSIONS"]) {
       expect(statusOf(r, id), id).toBe("PASS");
     }
   });
@@ -149,6 +151,7 @@ describe("hosted-staging acceptance harness — a correctly configured stack", (
 describe("hosted-staging acceptance harness — every mis-exposure is caught and named", () => {
   it.each([
     ["an internal function callable by authenticated", { exposeInternal: true }, "POSTGREST_INTERNALS_NOT_EXPOSED"],
+    ["a standalone client evidence writer that still exists", { legacyIngest: true }, "NO_STANDALONE_EVIDENCE_WRITE"],
     ["the persistence RPCs open to anon", { anonOpen: true }, "POSTGREST_ANON_DENIED"],
     ["a history table writable through REST", { tableWritable: true }, "POSTGREST_HISTORY_TABLES_NOT_WRITABLE"],
     ["an outsider reading a member's rows (RLS broken)", { outsiderReads: true }, "RLS_OUTSIDER_SEES_NOTHING"],

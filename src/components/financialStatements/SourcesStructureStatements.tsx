@@ -219,8 +219,8 @@ export function StatementsStage({ model }: { model: FinancialStatementsWorkspace
           rendered += 1;
           return node;
         }
-        if (entry.kind === "BUDGET_VS_ACTUAL" && entry.status === "PRESENT" && model.applied?.budgetActual?.status === "GENERATED") {
-          return <BudgetActualTable key={entry.kind} comparison={model.applied.budgetActual} />;
+        if (entry.kind === "BUDGET_VS_ACTUAL" && entry.status === "PRESENT" && model.budgetComparison?.status === "GENERATED") {
+          return <BudgetActualTable key={entry.kind} comparison={model.budgetComparison} />;
         }
         return <IncompleteStatementCard key={entry.kind} entry={entry} />;
       })}

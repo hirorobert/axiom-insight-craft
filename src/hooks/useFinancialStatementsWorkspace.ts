@@ -40,6 +40,9 @@ import { classifyPersistenceError, initialPersistenceState, type PersistenceStat
 import { createWorkspaceTransport } from "@/lib/financialStatementsWorkspace/supabaseFsBackend";
 import { FsTransportError, type FsRpcTransport, type PublicationRow, type ReportReadiness, type SavedVersionSummary, type WorkspaceAccess } from "@/lib/financialStatementsWorkspace/rpcTransport";
 import { generatedFromStoredReport, historicalView, restoreLatestDraft, type HistoricalView } from "@/lib/financialStatementsWorkspace/savedVersions";
+import { buildLineage, outputReportFor, versionLabelOf, type ExportLineage } from "@/lib/financialStatementsWorkspace/exports";
+import { budgetFromReport } from "@/lib/financialGeneration/persistedAuthority";
+import type { CanonicalFinancialStatementReport } from "@/lib/canonicalStatement/types";
 import { saveWorkspace, type SavedState } from "@/lib/financialStatementsWorkspace/saveFlow";
 import type { CorrectEvidenceDecision, ReviewerDecision, RuleEvaluationRecord } from "@/lib/canonicalStatement/types";
 import { ZERO_TOLERANCE } from "@/lib/canonicalStatement/money";
@@ -161,6 +164,8 @@ export interface FinancialStatementsWorkspaceModel {
   // evidence
   readonly evidence: readonly EvidenceEntry[];
   readonly applied: ApplyEvidenceResult | null;
+  /** The budget comparison being shown: for a stored version, the one recorded IN that version. */
+  readonly budgetComparison: ApplyEvidenceResult["budgetActual"];
   readonly addEvidence: (request: EvidenceAddRequest) => EvidenceAddResult;
   readonly removeUnsavedEvidence: (evidenceBatchId: string) => void;
   /** Corrects one cell of the latest version of an evidence series: a new evidence version, never an edit. */
@@ -183,6 +188,12 @@ export interface FinancialStatementsWorkspaceModel {
   readonly reloadFromServer: () => void;
   /** The server's own readiness answer for the stored latest version (a preview; publication re-checks it). */
   readonly readiness: ReportReadiness | null;
+  /** The persisted report version being shown, or null for unsaved work. Never a transient counter. */
+  readonly persistedVersion: number | null;
+  /** "Version N" for persisted work, exactly "Unsaved draft" otherwise. */
+  readonly versionLabel: string;
+  /** What print and every export are rendered from: one report, one evaluation, one lineage. */
+  readonly output: { readonly report: CanonicalFinancialStatementReport; readonly evaluation: EvaluationRunRecord | null; readonly lineage: ExportLineage } | null;
   readonly publication: PublicationRow | null;
   readonly setPublication: (state: "DRAFT" | "REVIEWED" | "FINAL", reason: string) => Promise<{ readonly ok: boolean; readonly message: string }>;
 }
@@ -396,15 +407,18 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     [profile, inputs.currency, inputs.companyId, inputs.companyName, inputs.periodYear, period],
   );
 
+  /** How many trial-balance accounts were reviewed / unmapped / ambiguous: recorded in the report so the database can see it. */
+  const mappingCoverage = useMemo(() => (mappingInfo ? { total: mappingInfo.total, unmapped: mappingInfo.unmapped.length, ambiguous: mappingInfo.ambiguous.length } : undefined), [mappingInfo]);
+
   const applied = useMemo<ApplyEvidenceResult | null>(() => {
     if (!profile) return null;
-    if (baseSnapshot) return applyEvidence({ report: baseSnapshot.report, profile, evidence: latestEvidence, cashAccountKeys: mappingInfo?.cashAccountKeys ?? [] });
+    if (baseSnapshot) return applyEvidence({ report: baseSnapshot.report, profile, evidence: latestEvidence, cashAccountKeys: mappingInfo?.cashAccountKeys ?? [], mappingCoverage });
     if (profile.trialBalance.status === "UNSUPPORTED") {
       const shell = evidenceOnlyShellFor(latestEvidence);
       return shell ? applyEvidence({ report: shell, profile, evidence: latestEvidence }) : null;
     }
     return null;
-  }, [profile, baseSnapshot, latestEvidence, mappingInfo, evidenceOnlyShellFor]);
+  }, [profile, baseSnapshot, latestEvidence, mappingInfo, mappingCoverage, evidenceOnlyShellFor]);
 
   const decisionLog = useMemo<readonly ReviewerDecision[]>(() => baseSnapshot?.decisions ?? [], [baseSnapshot]);
   const snapshot = useMemo<StoredReportSnapshot | null>(() => {
@@ -591,11 +605,11 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     (dropped: ReadonlySet<string>, evidenceSet: readonly EvidenceBatch[]) => {
       if (!profile) return null;
       const base = baseSnapshot?.report;
-      if (base) return applyEvidence({ report: { ...base, facts: base.facts.filter((f) => !dropped.has(`${f.factId}#${f.version}`)) }, profile, evidence: evidenceSet, cashAccountKeys: mappingInfo?.cashAccountKeys ?? [] }).report;
+      if (base) return applyEvidence({ report: { ...base, facts: base.facts.filter((f) => !dropped.has(`${f.factId}#${f.version}`)) }, profile, evidence: evidenceSet, cashAccountKeys: mappingInfo?.cashAccountKeys ?? [], mappingCoverage }).report;
       const shell = profile.trialBalance.status === "UNSUPPORTED" ? evidenceOnlyShellFor(evidenceSet) : null;
       return shell ? applyEvidence({ report: shell, profile, evidence: evidenceSet }).report : null;
     },
-    [profile, baseSnapshot, mappingInfo, evidenceOnlyShellFor],
+    [profile, baseSnapshot, mappingInfo, mappingCoverage, evidenceOnlyShellFor],
   );
 
   const save = useCallback(async () => {
@@ -702,7 +716,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
           stored,
           decisions,
           evidenceRows,
-          compose: (base, ev) => (base ? applyEvidence({ report: base, profile, evidence: ev, cashAccountKeys: mappingInfo?.cashAccountKeys ?? [] }).report : (() => { const shell = evidenceOnlyShellFor(ev); return shell ? applyEvidence({ report: shell, profile, evidence: ev }).report : null; })()),
+          compose: (base, ev) => (base ? applyEvidence({ report: base, profile, evidence: ev, cashAccountKeys: mappingInfo?.cashAccountKeys ?? [], mappingCoverage }).report : (() => { const shell = evidenceOnlyShellFor(ev); return shell ? applyEvidence({ report: shell, profile, evidence: ev }).report : null; })()),
         });
         if (outcome.kind === "DIVERGED") {
           setRestore({ status: "DIVERGED", message: `Saved version ${outcome.storedVersion} could not be restored for editing: ${outcome.reason} Open it under Saved versions to read it exactly as stored; saving now creates a new version.` });
@@ -858,10 +872,24 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     [profile, inputs.reportingFramework, inputs.currency, inputs.periodYear, period, comparative, snapshot, composition, mappingInfo],
   );
 
+  // ── persisted version authority: one report, one evaluation, one lineage for print and every export ──
+  const persistedVersion: number | null = viewing ? viewing.reportVersion : saveStatus === "SAVED" && storedVersion !== null ? storedVersion : null;
+  const publicationState = viewing ? viewing.state : (publication?.state ?? null);
+  const sourceReport = viewing ? viewing.report : (snapshot?.report ?? null);
+  const historicalEvaluation = historical?.evaluation ?? null;
+  const output = useMemo(() => {
+    if (!sourceReport) return null;
+    const report = viewing ? sourceReport : outputReportFor(sourceReport, persistedVersion);
+    // A persisted view uses the evaluation RECORDED for that version; current work is evaluated at exactly the version it is exported as.
+    // Unsaved work is evaluated as the (valid) session document it is; its lineage says persisted: false.
+    const evaluationRecord = viewing ? historicalEvaluation : evaluateReportPure(persistedVersion === null ? sourceReport : report, ZERO_TOLERANCE, STORED_FINDING_TIMESTAMP);
+    return { report, evaluation: evaluationRecord, lineage: buildLineage({ report, persistedVersion, evaluation: evaluationRecord, publicationState }) };
+  }, [sourceReport, viewing, persistedVersion, historicalEvaluation, publicationState]);
+
   const viewingComposition = useMemo(
     () =>
       viewing && profile
-        ? composeStatements({ profile, report: viewing.report, comparativeAvailable: viewing.report.comparativePeriods.length > 0, cashPerimeterReviewed: true, generated: generatedFromStoredReport(viewing.report), budgetActual: null })
+        ? composeStatements({ profile, report: viewing.report, comparativeAvailable: viewing.report.comparativePeriods.length > 0, cashPerimeterReviewed: true, generated: generatedFromStoredReport(viewing.report), budgetActual: budgetFromReport(viewing.report) })
         : null,
     [viewing, profile],
   );
@@ -875,8 +903,9 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     views: historical ? historical.views : views,
     persistence, notice, decide, rerun,
     evidence: historical ? historical.evidence : evidence,
-    applied, addEvidence, removeUnsavedEvidence, correctEvidence,
+    applied, budgetComparison: viewing ? budgetFromReport(viewing.report) : (applied?.budgetActual ?? null), addEvidence, removeUnsavedEvidence, correctEvidence,
     saveStatus, saveMessage, access, storedVersion, save, publication, setPublication,
+    persistedVersion, versionLabel: versionLabelOf(persistedVersion), output,
     restore, versions, viewing, readOnly: viewing !== null, openVersion, closeVersion, reloadFromServer, readiness,
   };
 }

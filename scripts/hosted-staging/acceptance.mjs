@@ -36,6 +36,7 @@ export const INTERNAL_FUNCTIONS = [
   ['fs_audit_event', { p_company_id: '00000000-0000-0000-0000-000000000000', p_report_id: 'x', p_action: 'X', p_detail: {}, p_actor: '00000000-0000-0000-0000-000000000000' }],
   ['fs_set_company_rollout', { p_company_id: '00000000-0000-0000-0000-000000000000', p_enabled: true, p_reason: 'should be refused', p_operator_label: 'x' }],
   ['fs_set_kill_switch', { p_engaged: true, p_reason: 'should be refused', p_operator_label: 'x' }],
+  ['fs_ingest_evidence_internal', { p_actor: '00000000-0000-0000-0000-000000000000', p_evidence_batch_id: 'x', p_company_id: '00000000-0000-0000-0000-000000000000', p_reporting_period_id: 'FY2025', p_evidence_type: 'BUDGET', p_period_role: 'CURRENT', p_series_key: 'x', p_schema_version: '1', p_source_file_name: null, p_content_hash: '0'.repeat(64), p_currency: 'TZS', p_scale: 2, p_batch_document: {}, p_validation_status: 'VALID', p_diagnostics: [], p_expected_previous_batch_id: null }],
 ]
 const HISTORY_TABLES = [
   'financial_evidence_batches',
@@ -150,8 +151,20 @@ export async function runAcceptance({ env, fetchImpl = fetch, log = () => {} }) 
     record('COMPANY_CREATED_BY_PARTNER', true, 'a throwaway company was created')
     const denied = await rpcAs('financial_statements_workspace_access', { p_company_id: companyId }, users.partner.token)
     record('FEATURE_DEFAULT_DENIED', denied.ok && denied.json?.enabled === false && denied.json?.reason === 'NOT_ALLOWLISTED', 'a member of a company that is not allowlisted is told NOT_ALLOWLISTED')
-    const evidenceArgs = (id) => ({ p_evidence_batch_id: id, p_company_id: companyId, p_reporting_period_id: 'FY2025', p_evidence_type: 'TRANSACTION_LEDGER', p_period_role: 'CURRENT', p_series_key: 'acceptance', p_schema_version: '1', p_source_file_name: 'ledger.csv', p_content_hash: randomBytes(32).toString('hex'), p_currency: 'TZS', p_scale: 2, p_batch_document: { rows: [{ amount: '1.00', memo: 'acceptance' }] }, p_validation_status: 'VALID', p_diagnostics: [], p_expected_previous_batch_id: null })
-    const blocked = await rpcAs('fs_ingest_evidence_batch', evidenceArgs(`eb-${randomUUID()}`), users.partner.token)
+    // Evidence is accepted ONLY inside an atomic revision (evidence + report version + evaluation + audit event).
+    const revisionArgs = (id) => {
+      const reportId = `${run}-${randomUUID()}`
+      const contentHash = randomBytes(32).toString('hex')
+      return {
+        p_company_id: companyId, p_report_id: reportId, p_expected_report_version: 0, p_idempotency_key: `${run}-${randomUUID()}`, p_period_year: 2025, p_provenance_origin: 'TRIAL_BALANCE_DERIVED',
+        p_report_document: { reportIdentity: { reportId, companyId, reportVersion: 1 }, acceptance: run }, p_content_hash: contentHash,
+        p_evidence: [{ evidenceBatchId: id, reportingPeriodId: 'FY2025', evidenceType: 'TRANSACTION_LEDGER', periodRole: 'CURRENT', seriesKey: 'acceptance', schemaVersion: '1', sourceFileName: 'ledger.csv', contentHash, currency: 'TZS', scale: 2, batchDocument: { rows: [{ amount: '1.00', memo: 'acceptance' }] }, validationStatus: 'VALID', diagnostics: [], expectedPreviousBatchId: null }],
+        p_evidence_batch_ids: [id], p_evaluation: { evaluationRunId: `${run}-${randomUUID()}`, rulePackId: 'acceptance', rulePackVersion: '1', engineVersion: '1', inputHash: contentHash, findings: [] },
+      }
+    }
+    const legacy = await rpcAs('fs_ingest_evidence_batch', { p_company_id: companyId }, users.partner.token)
+    record('NO_STANDALONE_EVIDENCE_WRITE', !legacy.ok, `the standalone evidence writer does not exist for clients (${legacy.status})`)
+    const blocked = await rpcAs('fs_commit_revision', revisionArgs(`eb-${randomUUID()}`), users.partner.token)
     record('WRITE_REFUSED_WHILE_DISABLED', !blocked.ok && /FEATURE_DISABLED|PT403/.test(JSON.stringify(blocked.json ?? {})), `a write is refused while the company is not allowlisted (${blocked.status})`)
 
     // 9 — operator enables the company (service role only); the same write now succeeds, and only for the member.
@@ -161,9 +174,9 @@ export async function runAcceptance({ env, fetchImpl = fetch, log = () => {} }) 
     const enabled = await rpcAs('financial_statements_workspace_access', { p_company_id: companyId }, users.partner.token)
     record('FEATURE_ENABLED_AFTER_OPERATOR_ACTION', enabled.ok && enabled.json?.enabled === true, 'access now reports enabled')
     const batchId = `eb-${randomUUID()}`
-    const wrote = await rpcAs('fs_ingest_evidence_batch', evidenceArgs(batchId), users.partner.token)
-    record('AUTHENTICATED_WRITE_ROUNDTRIP', wrote.ok, `the member stored an evidence version (${wrote.status})`)
-    const outsiderWrite = await rpcAs('fs_ingest_evidence_batch', evidenceArgs(`eb-${randomUUID()}`), users.outsider.token)
+    const wrote = await rpcAs('fs_commit_revision', revisionArgs(batchId), users.partner.token)
+    record('AUTHENTICATED_WRITE_ROUNDTRIP', wrote.ok, `the member stored an evidence version inside an atomic revision (${wrote.status})`)
+    const outsiderWrite = await rpcAs('fs_commit_revision', revisionArgs(`eb-${randomUUID()}`), users.outsider.token)
     record('OUTSIDER_WRITE_REFUSED', !outsiderWrite.ok, `a non-member cannot write to the company (${outsiderWrite.status})`)
 
     // 10 — RLS through PostgREST: the member reads it back, the outsider sees nothing.

@@ -92,7 +92,7 @@ function FinancialStatementsWorkspaceEnabled(props: FinancialStatementsWorkspace
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" data-testid="draft-badge">
-            {model.saveStatus === "SAVED" ? "Internal preview — saved draft" : "Internal preview — unsaved draft"}
+            Internal preview — {model.versionLabel}
           </Badge>
           <Button type="button" variant="outline" size="sm" onClick={model.rerun} disabled={model.status === "loading"}>
             <RefreshCw className="mr-1 h-3.5 w-3.5" aria-hidden="true" />

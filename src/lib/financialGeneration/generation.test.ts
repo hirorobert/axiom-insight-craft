@@ -181,7 +181,11 @@ describe("supporting schedules, notes and policies", () => {
   });
   it("no evidence means no invented policy, note or disclosure", async () => {
     const r = applyEvidence({ report: await tbReport(), profile: profileForKind("IFRS_FOR_SMES"), evidence: [] });
-    expect([r.report!.notes.length, r.report!.accountingPolicies.length, r.report!.textualDisclosures.length]).toEqual([0, 0, 0]);
+    // No policy or note is invented. The only disclosure records are the checklist's honest MISSING markers (one per framework area).
+    expect([r.report!.notes.length, r.report!.accountingPolicies.length]).toEqual([0, 0]);
+    const disclosures = r.report!.textualDisclosures;
+    expect(disclosures.every((d) => d.disclosureId.startsWith("checklist:") && d.text.startsWith("MISSING:"))).toBe(true);
+    expect(disclosures).toHaveLength(r.checklist.length);
     expect(r.checklist.every((c) => c.state === "MISSING")).toBe(true);
   });
 });
