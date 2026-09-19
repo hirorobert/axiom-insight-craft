@@ -13,6 +13,12 @@ export const CANONICAL_CONCEPTS = {
   TOTAL_LIABILITIES_AND_EQUITY: "total_liabilities_and_equity",
   CASH_AND_CASH_EQUIVALENTS_CLOSING_CF: "cash_and_cash_equivalents_closing_cf",
   CASH_AND_CASH_EQUIVALENTS_SFP: "cash_and_cash_equivalents_sfp",
+  /** The net result (surplus/deficit or profit/loss) line of the statement of profit or loss. */
+  NET_RESULT: "net_result",
+  /** Closing total equity at the foot of the statement of changes in equity. */
+  SOCIE_CLOSING_TOTAL: "socie_closing_total",
+  /** Total of the profit-or-loss movement across all equity components in the statement of changes in equity. */
+  SOCIE_PROFIT_OR_LOSS_TOTAL: "socie_profit_or_loss_total",
 } as const;
 
 export type CanonicalConcept = (typeof CANONICAL_CONCEPTS)[keyof typeof CANONICAL_CONCEPTS];

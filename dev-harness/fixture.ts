@@ -5,7 +5,7 @@
 import type { AccountMappingRow } from "../src/lib/financialStatementsWorkspace/mapWorkspaceTrialBalance";
 import type { WorkspaceUploadInput } from "../src/hooks/useFinancialStatementsWorkspace";
 
-export type ScenarioId = "defect" | "clean" | "no-comparative" | "unmapped" | "ambiguous" | "no-fye";
+export type ScenarioId = "defect" | "clean" | "no-comparative" | "unmapped" | "ambiguous" | "no-fye" | "multicash";
 
 interface Account {
   code: string;
@@ -32,6 +32,22 @@ function accounts(year: "current" | "prior", scenario: ScenarioId): Account[] {
     { code: "5000", name: "Cost of Sales", statement: "income_statement", classification: "cost_of_goods_sold", normal: "debit", balance: year === "current" ? 6_000_000 : 5_250_000 },
     { code: "6000", name: "Operating Expenses", statement: "income_statement", classification: "operating_expenses", normal: "debit", balance: year === "current" ? 3_000_000 : 2_800_000 },
   ];
+  if (scenario === "multicash") {
+    // Cash is many accounts: banks, mobile money, cash on hand, a restricted project account, an ECL allowance and an overdraft.
+    // Current: gross 6,300,000 (restricted 900,000), ECL -100,000, overdraft 200,000 -> cash-flow closing 6,100,000, net SFP 6,200,000.
+    // Prior:   gross 5,200,000 (restricted 700,000), ECL -100,000, overdraft 100,000 -> opening 5,100,000, net SFP 5,100,000.
+    const cur = year === "current";
+    const cash = (code: string, name: string, balance: number): Account => ({ code, name, statement: "balance_sheet", classification: "current_assets", normal: "debit", balance, cash: true });
+    const multi: Account[] = [
+      cash("1000", "Cash at Bank - Main", cur ? 4_200_000 : 3_300_000),
+      cash("1010", "Mobile Money Wallet", 800_000),
+      cash("1020", "Cash on Hand", 400_000),
+      cash("1030", "Donor Project Account", cur ? 900_000 : 700_000),
+      { code: "1090", name: "Allowance for Credit Losses - Cash", statement: "balance_sheet", classification: "current_assets", normal: "debit", balance: -100_000 },
+      { code: "2100", name: "Bank Overdraft", statement: "balance_sheet", classification: "current_liabilities", normal: "credit", balance: cur ? 200_000 : 100_000 },
+    ];
+    return [...multi, ...list.filter((a) => a.code !== "1000").map((a) => (a.code === "2000" && cur ? { ...a, balance: 4_000_000 } : a))];
+  }
   // The defect scenario's prior year lacks the depreciation account, so comparative subtotals/totals show the dash policy.
   return scenario === "defect" && year === "prior" ? list.filter((a) => a.code !== "1590") : list;
 }

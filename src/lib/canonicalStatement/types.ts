@@ -94,7 +94,7 @@ export function isValidPresentationMultiplier(value: bigint): boolean {
 
 // ─── Provenance ──────────────────────────────────────────────────────────
 
-export type ArtifactKind = "PDF" | "DOCX" | "XLSX" | "IXBRL" | "TRIAL_BALANCE";
+export type ArtifactKind = "PDF" | "DOCX" | "XLSX" | "IXBRL" | "TRIAL_BALANCE" | "EVIDENCE_BATCH";
 
 export interface SourceArtifact {
   readonly sourceDocumentId: string;
@@ -120,6 +120,8 @@ export type SourceLocator =
   | { readonly kind: "XLSX_CELL"; readonly sheetName: string; readonly cellRef: string }
   | { readonly kind: "IXBRL_ELEMENT"; readonly elementId: string; readonly xpath?: string }
   | { readonly kind: "TRIAL_BALANCE_ROW"; readonly accountCode: string; readonly uploadId: string }
+  /** A row of a controlled evidence batch (financialEvidence/**) — batchId is the immutable batch identity, rowNumber is 1-based within the parsed data rows. */
+  | { readonly kind: "EVIDENCE_ROW"; readonly batchId: string; readonly rowNumber: number; /** Set on a COMPUTED fact (a total): the factId it is derived under, so two totals with equal values never share a provenance fingerprint. */ readonly derivation?: string }
   | { readonly kind: "MANUAL"; readonly note: string };
 
 export type ExtractionMethod =
@@ -129,6 +131,7 @@ export type ExtractionMethod =
   | "PDF_OCR"
   | "DOCX_STRUCTURED"
   | "XLSX_CELL"
+  | "EVIDENCE_BATCH_DERIVED"
   | "MANUAL_REVIEWER_ENTRY";
 
 export type ExtractionConfidence = { readonly kind: "CERTAIN" } | { readonly kind: "ESTIMATED"; readonly score: number };
@@ -435,6 +438,7 @@ export type ReviewerDecisionType =
   | "REJECT_FINDING"
   | "ACCEPT_FACT"
   | "CORRECT_FACT"
+  | "CORRECT_EVIDENCE"
   | "REQUEST_EVIDENCE"
   | "DEFER";
 
@@ -492,6 +496,27 @@ export interface CorrectFactDecision extends ReviewerDecisionBase {
   readonly expectedReportVersion: number;
 }
 
+/**
+ * A correction to SOURCE EVIDENCE (transaction classification, equity movement, budget figure, cash-basis
+ * figure, schedule figure, note/disclosure text, cash account map ...). Evidence is immutable: the correction
+ * is a NEW evidence version whose one cell differs, recorded atomically with the new report version, its
+ * re-evaluation and this decision (see fs_apply_correction_group). It never edits a batch in place.
+ */
+export interface CorrectEvidenceDecision extends ReviewerDecisionBase {
+  readonly decisionType: "CORRECT_EVIDENCE";
+  readonly evidenceType: string;
+  readonly supersedesBatchId: string;
+  readonly newBatchId: string;
+  /** 1-based data row of the corrected cell. */
+  readonly rowNumber: number;
+  readonly column: string;
+  readonly previousValue: string;
+  readonly correctedValue: string;
+  readonly rationale: string;
+  /** Optimistic-concurrency guard, exactly as for CORRECT_FACT. */
+  readonly expectedReportVersion: number;
+}
+
 export interface RequestEvidenceDecision extends ReviewerDecisionBase {
   readonly decisionType: "REQUEST_EVIDENCE";
   readonly target?: FindingTarget;
@@ -511,6 +536,7 @@ export type ReviewerDecision =
   | RejectFindingDecision
   | AcceptFactDecision
   | CorrectFactDecision
+  | CorrectEvidenceDecision
   | RequestEvidenceDecision
   | DeferDecision;
 

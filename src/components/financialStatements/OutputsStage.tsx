@@ -19,12 +19,36 @@ import type { FinancialStatementsWorkspaceModel } from "@/hooks/useFinancialStat
 import { isApprovalReady } from "@/lib/financialStatementsWorkspace/findingsView";
 import { StatementRenderer } from "./StatementRenderer";
 import { StatusBadge } from "./SourcesStructureStatements";
+import { BudgetActualTable, DisclosureChecklist, PublicationControls } from "./EvidenceUi";
+import { auditExport, budgetCsv, canonicalJsonExport, checklistCsv, evidenceExport, findingsCsv, outputStatus, type ExportFile } from "@/lib/financialStatementsWorkspace/exports";
+
+function download(file: ExportFile) {
+  const url = URL.createObjectURL(new Blob([file.content], { type: `${file.mimeType};charset=utf-8` }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = file.fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+const STAMP = {
+  DRAFT: "Draft — not reviewed or approved",
+  REVIEWED: "Reviewed — not yet final",
+  FINAL: "Final — recorded by an authorised reviewer",
+} as const;
 
 export const PRINT_DOCUMENT_ID = "fs-print-document";
 
 // Print isolates ONLY the report document, on A4 portrait, repeats table headers, avoids row splits, and draws a diagonal DRAFT watermark.
 export const PRINT_CSS = `@media print {
-  @page { size: A4 portrait; margin: 15mm; }
+  @page { size: A4 portrait; margin: 15mm; @bottom-center { content: "Page " counter(page) " of " counter(pages); font-size: 9pt; } }
+  @page fs-landscape { size: A4 landscape; margin: 15mm; @bottom-center { content: "Page " counter(page) " of " counter(pages); font-size: 9pt; } }
+  #${PRINT_DOCUMENT_ID} .fs-landscape { page: fs-landscape; break-before: page; }
+  #${PRINT_DOCUMENT_ID} .fs-toc a { text-decoration: none; color: inherit; }
+  #${PRINT_DOCUMENT_ID} table { max-width: 100%; }
+  #${PRINT_DOCUMENT_ID} td, #${PRINT_DOCUMENT_ID} th { overflow-wrap: anywhere; }
   body * { visibility: hidden !important; }
   /* Remove everything that is neither the document, inside it, nor one of its ancestors from layout, so no blank pages are produced. */
   body *:not(:has(#${PRINT_DOCUMENT_ID})):not(#${PRINT_DOCUMENT_ID}):not(#${PRINT_DOCUMENT_ID} *) { display: none !important; }
@@ -49,7 +73,24 @@ export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
   for (const d of structure.diagnostics) if (d.severity === "BLOCKING") blockers.push(d.message);
   for (const b of composition?.blockers ?? []) blockers.push(b);
   if (model.views.length > 0 && !isApprovalReady(model.views)) blockers.push("Blocking or insufficient-evidence findings remain.");
-  const report = snapshot?.report ?? null;
+  // Everything on this stage — print, every export — is rendered from ONE output: the persisted version (or the honest "Unsaved draft").
+  const report = model.output?.report ?? null;
+  const lineage = model.output?.lineage ?? null;
+  const status = outputStatus(model.publication?.state ?? null, blockers.length);
+  const evidenceRows = model.evidence.map((e) => ({ batch: e.batch, version: e.version }));
+  const budget = model.budgetComparison?.status === "GENERATED" ? model.budgetComparison : null;
+  const outputEvaluation = model.output?.evaluation ?? null;
+  const bundle =
+    report && lineage
+      ? [
+          canonicalJsonExport(report, lineage),
+          evidenceExport(report, evidenceRows, lineage),
+          auditExport({ report, lineage, evaluation: outputEvaluation, decisions: model.snapshot?.decisions ?? [], evidence: evidenceRows, publication: model.publication ? { state: model.publication.state, reason: model.publication.reason } : null, exportedAt: null }),
+          ...(outputEvaluation ? [findingsCsv(report, outputEvaluation.findings, lineage)] : []),
+          ...(budget ? [budgetCsv(report, budget, lineage)] : []),
+          ...(model.checklist.length > 0 ? [checklistCsv(report, model.checklist, lineage)] : []),
+        ]
+      : [];
 
   return (
     <section aria-labelledby="fs-outputs-h" className="space-y-4">
@@ -66,6 +107,16 @@ export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
           Print / save as PDF (draft)
         </Button>
       </div>
+
+      <div className="flex flex-wrap gap-2 fs-no-print" data-testid="export-buttons">
+        {bundle.map((f) => (
+          <Button key={f.fileName} type="button" variant="outline" size="sm" onClick={() => download(f)} data-export-file={f.fileName}>
+            {f.fileName.replace(/^.*?-(v\d+|unsaved-draft)\./, "").replace(/\./g, " ")} ({f.mimeType === "text/csv" ? "CSV" : "JSON"})
+          </Button>
+        ))}
+      </div>
+
+      <PublicationControls model={model} blockers={blockers} />
 
       <ul className="divide-y divide-border border border-border text-sm fs-no-print" data-testid="output-capabilities">
         <li className="flex flex-wrap items-center justify-between gap-2 p-2">
@@ -104,16 +155,31 @@ export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
           <>
             <header className="space-y-1 break-after-avoid">
               <p className="text-xs font-semibold uppercase tracking-wide text-destructive" data-testid="draft-stamp">
-                Draft — not reviewed or approved{blockers.length > 0 ? " — unresolved items remain" : ""}
+                {STAMP[status]}
+                {blockers.length > 0 ? " — unresolved items remain" : ""}
               </p>
               <h2 className="text-xl font-semibold text-foreground">{report.entity.legalName}</h2>
               <p className="text-sm text-foreground">
                 Financial statements for the period {report.period.startDate} to {report.period.endDate}
               </p>
               <p className="text-xs text-muted-foreground">
-                {profile.displayName} · presented in {report.presentationCurrency.currency}, full units · report {report.reportIdentity.reportId.slice(0, 8)} v{report.reportIdentity.reportVersion}
+                {profile.displayName} · presented in {report.presentationCurrency.currency}, full units · report {report.reportIdentity.reportId.slice(0, 8)} · <span data-testid="print-version">{lineage?.label ?? "Unsaved draft"}</span>{lineage?.evaluation ? ` · evaluation ${lineage.evaluation.evaluationRunId.slice(0, 8)}` : ""}
               </p>
             </header>
+
+            <nav aria-label="Contents" className="fs-toc space-y-1" data-testid="print-toc">
+              <p className="text-sm font-semibold text-foreground">Contents</p>
+              <ol className="list-decimal pl-5 text-sm">
+                {composition.entries.map((entry) => (
+                  <li key={entry.kind}>
+                    <a href={`#statement-${entry.statementId ?? entry.kind}`}>{entry.title}</a>
+                  </li>
+                ))}
+                {budget && <li>Budget versus actual</li>}
+                {report.notes.length > 0 && <li>Notes</li>}
+                {report.accountingPolicies.length > 0 && <li>Accounting policies</li>}
+              </ol>
+            </nav>
 
             {composition.entries.map((entry, i) => {
               const statement = entry.statementId ? report.statements.find((s) => s.statementId === entry.statementId) : undefined;
@@ -122,12 +188,43 @@ export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
               ) : (
                 <section key={entry.kind} className="break-inside-avoid-page" data-incomplete-statement={entry.kind}>
                   <h3 className="text-base font-semibold text-foreground">{entry.title}</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <div className="mt-1 text-xs text-muted-foreground">
                     Not prepared — evidence required. <StatusBadge status={entry.status} />
-                  </p>
+                  </div>
                 </section>
               );
             })}
+
+            {budget && (
+              <div className="fs-landscape">
+                <BudgetActualTable comparison={budget} />
+              </div>
+            )}
+
+            {report.notes.length > 0 && (
+              <section className="print:break-before-page" data-testid="print-notes">
+                <h3 className="text-base font-semibold text-foreground">Notes</h3>
+                {[...report.notes].sort((a, b) => Number(numbering?.numberByNoteId.get(a.noteId) ?? 0) - Number(numbering?.numberByNoteId.get(b.noteId) ?? 0)).map((n) => (
+                  <div key={n.noteId} className="mt-2 break-inside-avoid-page">
+                    <p className="text-sm font-medium">
+                      Note {numbering?.numberByNoteId.get(n.noteId)} — {n.title}
+                    </p>
+                    {report.textualDisclosures.filter((d) => d.relatedNoteId === n.noteId).map((d) => (
+                      <p key={d.disclosureId} className="whitespace-pre-wrap text-sm text-muted-foreground">
+                        {d.text}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </section>
+            )}
+
+            {model.checklist.some((c) => c.state !== "PROVIDED") && (
+              <section className="fs-no-print" data-testid="print-checklist-gaps">
+                <h3 className="text-base font-semibold text-foreground">Disclosure checklist</h3>
+                <DisclosureChecklist checklist={model.checklist} />
+              </section>
+            )}
 
             {report.accountingPolicies.length > 0 && (
               <section className="print:break-before-page">

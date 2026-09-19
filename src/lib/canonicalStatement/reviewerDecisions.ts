@@ -12,7 +12,7 @@
 
 import type { ReviewerDecision, ReviewerDecisionLog } from "./types";
 
-export type StandaloneReviewerDecision = Exclude<ReviewerDecision, { decisionType: "CORRECT_FACT" }>;
+export type StandaloneReviewerDecision = Exclude<ReviewerDecision, { decisionType: "CORRECT_FACT" | "CORRECT_EVIDENCE" }>;
 
 export class DuplicateDecisionIdError extends Error {
   constructor(decisionId: string) {

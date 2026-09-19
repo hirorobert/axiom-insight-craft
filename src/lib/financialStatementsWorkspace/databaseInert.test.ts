@@ -1,10 +1,10 @@
 /**
  * Database-inertness proof for the financial-statements workspace change.
  *
- * This change must not add or alter any database schema, Edge Function or
- * write path, and the workspace code must be unable to mutate a database even
- * if its gates were flipped. The SQL persistence candidate is preserved on a
- * separate branch and is deliberately absent here.
+ * This branch adds exactly two UNAPPLIED forward-only migrations (rollout
+ * control and persistence) and nothing else under supabase/: no Edge
+ * Function, no config change. The workspace code reaches a database only
+ * through the single gated transport module, and every gate defaults to off.
  *
  * Static and non-executing: it reads the real sources.
  */
@@ -27,8 +27,13 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/** The only modules that may name an RPC or a table read: the transport (over an injected backend) and its single Supabase adapter. */
+const TRANSPORT_FILES = new Set(["src/lib/financialStatementsWorkspace/rpcTransport.ts", "src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"]);
+
 const workspaceSources = [
   ...walk(path.join(ROOT, "src/lib/financialStatementsWorkspace")),
+  ...walk(path.join(ROOT, "src/lib/financialEvidence")),
+  ...walk(path.join(ROOT, "src/lib/financialGeneration")),
   ...walk(path.join(ROOT, "src/components/financialStatements")),
   ...walk(path.join(ROOT, "dev-harness")),
   path.join(ROOT, "src/hooks/useFinancialStatementsWorkspace.ts"),
@@ -46,21 +51,31 @@ const gitOut = (args: string): string | null => {
 const hasMain = gitOut("rev-parse --verify --quiet origin/main") !== null;
 
 describe("database inertness — schema and functions", () => {
-  it("adds no migration and defines no financial-statement persistence object anywhere under supabase/", () => {
-    const files = [...fs.readdirSync(path.join(ROOT, "supabase/migrations")), ...fs.readdirSync(path.join(ROOT, "supabase/functions"))];
-    expect(files.filter((f) => /financial_statement_(reports|evaluations|reviewer_decisions)|financial-statement-workspace/.test(f))).toEqual([]);
+  it("defines financial-statement persistence objects only in the two named unapplied migrations, and adds no Edge Function", () => {
+    const migrations = fs.readdirSync(path.join(ROOT, "supabase/migrations"));
+    const defining = migrations.filter((f) => /create table[^;(]*public\.(financial_statement_(reports|evaluations|reviewer_decisions|correction_groups|publications)|financial_evidence_batches|financial_statements_rollout_\w+)/i.test(fs.readFileSync(path.join(ROOT, "supabase/migrations", f), "utf8")));
+    expect(defining).toEqual(["20260919100000_financial_statements_rollout_control.sql", "20260919110000_financial_statements_persistence.sql"]);
+    expect(fs.readdirSync(path.join(ROOT, "supabase/functions")).filter((f) => /financial-statements?-workspace|financial-statements?-persistence/.test(f))).toEqual([]);
   });
 
-  it.skipIf(!hasMain)("changes nothing under supabase/ relative to origin/main (no migration, no Edge Function, no config change)", () => {
-    const changed = (gitOut("diff --name-status origin/main...HEAD -- supabase") ?? "").trim();
-    expect(changed).toBe("");
+  it.skipIf(!hasMain)("changes under supabase/ relative to origin/main are exactly the two added migrations (no Edge Function, no config change, nothing modified or deleted)", () => {
+    const changed = (gitOut("diff --name-status origin/main...HEAD -- supabase") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
+    expect(changed).toEqual([
+      "A\tsupabase/migrations/20260919100000_financial_statements_rollout_control.sql",
+      "A\tsupabase/migrations/20260919110000_financial_statements_persistence.sql",
+    ]);
   });
 
-  it.skipIf(!hasMain)("changes no automation-deploy surface other than the RLS-regression hardening in ci.yml", () => {
+  it.skipIf(!hasMain)("changes no automation-deploy surface other than the reviewed CI/RLS hardening, the disposable-database proof and the guarded hosted-staging acceptance script", () => {
     const changed = (gitOut("diff --name-only origin/main...HEAD -- .github package.json supabase/config.toml .lovable scripts") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
-    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs"]);
+    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/manifestLib.mjs", "scripts/release/scan-repo.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs", "package.json"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
+  });
+
+  it.skipIf(!hasMain)("package.json changes by exactly one dependency: the audited zip reader (fflate) behind the secure XLSX intake", () => {
+    const diff = (gitOut("diff -U0 origin/main...HEAD -- package.json") ?? "").split(/\r?\n/).filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l));
+    expect(diff).toEqual(['+    "fflate": "^0.8.2",']);
   });
 });
 
@@ -82,14 +97,39 @@ describe("database inertness — the workspace code cannot mutate a database", (
     ];
     const offenders: string[] = [];
     for (const f of workspaceSources) {
+      if (TRANSPORT_FILES.has(rel(f))) continue; // audited separately below
+      if (rel(f) === "dev-harness/bridgeBackend.ts") continue; // loopback-only dev tool, audited below
       const src = stripComments(fs.readFileSync(f, "utf8"));
       for (const [re, what] of forbidden) if (re.test(src)) offenders.push(`${rel(f)}: ${what}`);
     }
     expect(offenders).toEqual([]);
   });
 
-  it("the only Supabase access in workspace code is one read-only select of account_mappings, in the hook", () => {
-    const users = workspaceSources.filter((f) => /integrations\/supabase|supabase\.from|createClient/.test(stripComments(fs.readFileSync(f, "utf8")))).map(rel);
+  it("the transport modules hold no service-role reference, no actor argument and no deploy command; only the adapter imports the Supabase client", () => {
+    for (const f of TRANSPORT_FILES) {
+      const src = stripComments(fs.readFileSync(path.join(ROOT, f), "utf8"));
+      expect(src, f).not.toMatch(/service_role|SERVICE_ROLE|supabase\s+(db|functions|link|migration)|psql\b|db push|VITE_|localStorage|sessionStorage/i);
+      expect(src, f).not.toMatch(/p_(actor|reviewer|firm_member|user)\w*\s*:/i);
+    }
+    const importsClient = [...TRANSPORT_FILES].filter((f) => /integrations\/supabase/.test(stripComments(fs.readFileSync(path.join(ROOT, f), "utf8"))));
+    expect(importsClient).toEqual(["src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"]);
+  });
+
+  it("nothing except the gated factory constructs a transport, and the factory refuses when the gate is off", () => {
+    const constructors = workspaceSources.filter((f) => /new FsRpcTransport/.test(stripComments(fs.readFileSync(f, "utf8")))).map(rel).sort();
+    expect(constructors).toEqual(["dev-harness/main.tsx", "src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"]);
+    // the harness transport is dev-only and loopback-only
+    const harnessMain = stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/main.tsx"), "utf8"));
+    expect(harnessMain).toMatch(/if \(!import\.meta\.env\.DEV\)/);
+    const bridge = stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/bridgeBackend.ts"), "utf8"));
+    expect(bridge).toMatch(/assertLoopback\(bridge\)/);
+    expect(bridge).toMatch(/host !== "127\.0\.0\.1" && host !== "localhost"/);
+    const adapter = stripComments(fs.readFileSync(path.join(ROOT, "src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"), "utf8"));
+    expect(adapter).toMatch(/return gate \? new FsRpcTransport\(supabaseFsBackend\) : null/);
+  });
+
+  it("the only other Supabase access in workspace code is one read-only select of account_mappings, in the hook", () => {
+    const users = workspaceSources.filter((f) => !TRANSPORT_FILES.has(rel(f))).filter((f) => /integrations\/supabase|supabase\.from|createClient/.test(stripComments(fs.readFileSync(f, "utf8")))).map(rel);
     expect(users).toEqual(["src/hooks/useFinancialStatementsWorkspace.ts"]);
     const hook = stripComments(fs.readFileSync(path.join(ROOT, "src/hooks/useFinancialStatementsWorkspace.ts"), "utf8"));
     const calls = [...hook.matchAll(/supabase\s*\.from\(([^)]*)\)([\s\S]{0,400}?)(?=;)/g)];

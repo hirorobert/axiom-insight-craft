@@ -125,7 +125,7 @@ function readMigration(fileName: string): string {
 }
 
 describe("migration directory integrity", () => {
-  it("contains exactly 121 migration files", () => {
+  it("contains exactly 123 migration files", () => {
     // Bumped from 113 -> 114: 20260912100000_omega3_checkout_cfoclose_
     // offers_and_interval_authority.sql (Ω3-CHECKOUT), forward-only,
     // sorts after every prior file. Bumped from 114 -> 115:
@@ -148,9 +148,11 @@ describe("migration directory integrity", () => {
     // Bumped from 120 -> 121: 20260915100000_financial_statement_documents.sql
     // — the North-Star document-review canonical table (UNAPPLIED — committed
     // for review only, per its own header comment; sorts after every prior
-    // migration).
+    // migration). Bumped from 121 -> 123: the two forward-only, UNAPPLIED
+    // financial-statements migrations (20260919100000 rollout control and
+    // 20260919110000 persistence), added for review only.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(121);
+    expect(files.length).toBe(123);
   });
 });
 

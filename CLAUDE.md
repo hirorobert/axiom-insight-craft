@@ -413,6 +413,24 @@ Related, separately registered: **DEFECT-KINGA-COMPARATIVE-ENGINE-ZERO-SUBSTITUT
 unrelated live defect in a different comparative-period engine, found during
 Phase 4.
 
+**Status update — financial-statements workspace (2026-09-19, branch
+`codex/financial-statements-production-readiness`):** the gap above is NOT
+closed for SAFISHA itself — `safisha_transactions` is still not a
+period-complete, classified cash-movement ledger. The financial-statements
+workspace no longer depends on it: cash flow is built from an explicit
+transaction-ledger *evidence family* (controlled CSV/XLSX intake, row
+provenance), the cash perimeter from an explicit cash account map, and
+completeness is enforced per account — each cash account's ledger movement
+must equal its trial-balance movement between the two reviewed trial
+balances (rule `cashflow-account-rollforward`, rule pack 2.2.0); ledger rows
+naming a non-cash account, a missing balance or conflicting opening cash fail
+closed, and the server refuses Reviewed/Final while that authority is missing.
+The remaining limitation is unchanged in kind: the ledger is preparer-supplied
+evidence reconciled to the trial balance, not independently extracted from the
+bank, so two independently *derived* operating-cash-flow numbers still need a
+source that does not exist here. See
+`docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md` §6.
+
 **DEFECT-ACCOUNT-REVIEW-AUTHORITATIVE-FLAGS-001** — Severity: HIGH — Status:
 OPEN / AUTHORITATIVE PROJECTION CORRUPTION (repair in progress on the same
 branch that registers this entry — see Phase 6 below)

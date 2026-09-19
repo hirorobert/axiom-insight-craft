@@ -13,6 +13,8 @@
 import type { CanonicalFinancialStatementReport } from "@/lib/canonicalStatement/types";
 import { NET_RESULT_CONCEPT } from "./trialBalanceAdapter";
 import type { ExpectedStatement, FrameworkProfile, WorkspaceStatementKind } from "./frameworkProfiles";
+import type { GenerationResult } from "@/lib/financialGeneration/common";
+import type { BudgetActualComparison } from "@/lib/financialGeneration/budgetActual";
 
 export type CompositionStatus = "PRESENT" | "PARTIAL" | "EVIDENCE_GAP" | "UNSUPPORTED" | "UNDETERMINED";
 
@@ -37,6 +39,9 @@ export interface CompositionInput {
   readonly comparativeAvailable: boolean;
   /** True when at least one account is explicitly reviewed as a cash account. */
   readonly cashPerimeterReviewed: boolean;
+  /** Results of evidence-driven generation, keyed by statement type. Absent = no evidence was applied. */
+  readonly generated?: Readonly<Record<string, GenerationResult>>;
+  readonly budgetActual?: BudgetActualComparison | { readonly status: "EVIDENCE_GAP"; readonly reasons: readonly string[] } | null;
 }
 
 export interface StatementComposition {
@@ -123,7 +128,16 @@ export function composeStatements(input: CompositionInput): StatementComposition
       case "STATEMENT_OF_COMPREHENSIVE_INCOME":
         entries.push({ ...base, status: "UNDETERMINED", availableEvidence: [], evidenceRequirements: ["Confirmation whether the entity has any other comprehensive income items, and their classification."] });
         break;
-      case "STATEMENT_OF_CHANGES_IN_EQUITY":
+      case "STATEMENT_OF_CHANGES_IN_EQUITY": {
+        const g = input.generated?.STATEMENT_OF_CHANGES_IN_EQUITY;
+        if (g?.status === "GENERATED") {
+          entries.push({ ...base, status: "PRESENT", availableEvidence: ["Validated equity-movement evidence"], evidenceRequirements: [], statementId: g.statement.statementId });
+          break;
+        }
+        if (g?.status === "EVIDENCE_GAP") {
+          entries.push({ ...base, status: "EVIDENCE_GAP", availableEvidence: ["Equity-movement evidence was supplied but is incomplete"], evidenceRequirements: [...g.reasons, ...SOCIE_REQUIREMENTS] });
+          break;
+        }
         entries.push({
           ...base,
           status: "EVIDENCE_GAP",
@@ -134,7 +148,22 @@ export function composeStatements(input: CompositionInput): StatementComposition
           evidenceRequirements: SOCIE_REQUIREMENTS,
         });
         break;
-      case "STATEMENT_OF_CASH_FLOWS":
+      }
+      case "STATEMENT_OF_CASH_FLOWS": {
+        const g = input.generated?.STATEMENT_OF_CASH_FLOWS;
+        if (g?.status === "GENERATED") {
+          const complete = g.statement.sections.some((s) => s.lines.some((l) => l.lineId === "line:cf:closing"));
+          entries.push(
+            complete
+              ? { ...base, status: "PRESENT", availableEvidence: ["Validated cash transaction ledger", "Opening cash from reviewed evidence"], evidenceRequirements: [], statementId: g.statement.statementId }
+              : { ...base, status: "PARTIAL", availableEvidence: ["Validated cash transaction ledger"], evidenceRequirements: ["Opening cash and cash equivalents, so opening and closing cash can be presented and agreed to the statement of financial position."], statementId: g.statement.statementId },
+          );
+          break;
+        }
+        if (g?.status === "EVIDENCE_GAP") {
+          entries.push({ ...base, status: "EVIDENCE_GAP", availableEvidence: ["A cash ledger was supplied but is incomplete"], evidenceRequirements: [...g.reasons, ...SCF_REQUIREMENTS] });
+          break;
+        }
         entries.push({
           ...base,
           status: "EVIDENCE_GAP",
@@ -142,11 +171,20 @@ export function composeStatements(input: CompositionInput): StatementComposition
           evidenceRequirements: SCF_REQUIREMENTS,
         });
         break;
-      case "BUDGET_VS_ACTUAL":
-        entries.push({ ...base, status: "EVIDENCE_GAP", availableEvidence: ["Actual amounts from the reviewed trial balance"], evidenceRequirements: BUDGET_REQUIREMENTS });
+      }
+      case "BUDGET_VS_ACTUAL": {
+        const b = input.budgetActual;
+        if (b?.status === "GENERATED") entries.push({ ...base, status: "PRESENT", availableEvidence: ["Approved budget evidence", "Actual amounts from the statements"], evidenceRequirements: [] });
+        else if (b?.status === "EVIDENCE_GAP") entries.push({ ...base, status: "EVIDENCE_GAP", availableEvidence: ["Budget evidence was supplied but cannot be compared"], evidenceRequirements: [...b.reasons, ...BUDGET_REQUIREMENTS] });
+        else entries.push({ ...base, status: "EVIDENCE_GAP", availableEvidence: ["Actual amounts from the reviewed trial balance"], evidenceRequirements: BUDGET_REQUIREMENTS });
         break;
-      default:
-        entries.push({ ...base, status: "UNDETERMINED", availableEvidence: [], evidenceRequirements: [] });
+      }
+      default: {
+        const g = input.generated?.[expected.kind];
+        if (g?.status === "GENERATED") entries.push({ ...base, status: "PRESENT", availableEvidence: ["Validated evidence"], evidenceRequirements: [], statementId: g.statement.statementId });
+        else if (g?.status === "EVIDENCE_GAP") entries.push({ ...base, status: "EVIDENCE_GAP", availableEvidence: ["Evidence was supplied but is incomplete"], evidenceRequirements: [...g.reasons] });
+        else entries.push({ ...base, status: "UNDETERMINED", availableEvidence: [], evidenceRequirements: [] });
+      }
     }
   }
 

@@ -14,7 +14,7 @@
 import { sha256Hex, canonicalStringify } from "@/lib/canonicalStatement/serialization";
 import { validateCanonicalReport } from "@/lib/canonicalStatement/validation";
 import { buildRuleContext, type Clock, systemClock } from "@/lib/canonicalStatement/rules/ruleEngine";
-import { runCanonicalRulePackV1, CANONICAL_RULE_PACK_V1, ENGINE_VERSION } from "@/lib/canonicalStatement/rules/rulePack";
+import { runCanonicalRulePackV2, CANONICAL_RULE_PACK_V2, ENGINE_VERSION_V2 } from "@/lib/canonicalStatement/rules/rulePack";
 import { recordFactCorrection, type CanonicalReviewState } from "@/lib/canonicalStatement/reviewState";
 import { appendDecision as appendStandaloneDecision, type StandaloneReviewerDecision } from "@/lib/canonicalStatement/reviewerDecisions";
 import { ZERO_TOLERANCE, formatMoney, isValidCurrencyCode, type Tolerance } from "@/lib/canonicalStatement/money";
@@ -140,25 +140,25 @@ export async function evaluateReport(snapshot: StoredReportSnapshot, repo: Finan
     canonicalStringify({
       reportId: report.reportIdentity.reportId,
       reportVersion: report.reportIdentity.reportVersion,
-      rulePack: CANONICAL_RULE_PACK_V1,
-      engineVersion: ENGINE_VERSION,
+      rulePack: CANONICAL_RULE_PACK_V2,
+      engineVersion: ENGINE_VERSION_V2,
     }),
   );
 
-  const existing = await repo.getEvaluationRun(report.reportIdentity.reportId, report.reportIdentity.reportVersion, CANONICAL_RULE_PACK_V1);
+  const existing = await repo.getEvaluationRun(report.reportIdentity.reportId, report.reportIdentity.reportVersion, CANONICAL_RULE_PACK_V2);
   if (existing && existing.inputHash === inputHash) {
     return existing;
   }
 
   const ctx = buildRuleContext(report, tolerance);
-  const findings = runCanonicalRulePackV1(ctx, clock);
+  const findings = runCanonicalRulePackV2(ctx, clock);
   const run: EvaluationRunRecord = {
     evaluationRunId,
     reportId: report.reportIdentity.reportId,
     reportVersion: report.reportIdentity.reportVersion,
     inputHash,
-    rulePack: CANONICAL_RULE_PACK_V1,
-    engineVersion: ENGINE_VERSION,
+    rulePack: CANONICAL_RULE_PACK_V2,
+    engineVersion: ENGINE_VERSION_V2,
     findings,
     createdAt: clock(),
   };
@@ -270,4 +270,23 @@ export async function correctFactAndRecast(params: {
   const snapshot: StoredReportSnapshot = { report: state.report, decisions: state.decisions };
   await repo.saveReport(snapshot);
   return snapshot;
+}
+
+/**
+ * Evaluates a report with the current rule pack WITHOUT touching any repository —
+ * the same deterministic identity and findings as `evaluateReport`, for callers (the
+ * save flow) that store the result themselves at a version of their own choosing.
+ */
+export function evaluateReportPure(report: CanonicalFinancialStatementReport, tolerance: Tolerance = ZERO_TOLERANCE, clock: Clock = systemClock): EvaluationRunRecord {
+  const inputHash = sha256Hex(canonicalStringify(report));
+  return {
+    evaluationRunId: sha256Hex(canonicalStringify({ reportId: report.reportIdentity.reportId, reportVersion: report.reportIdentity.reportVersion, rulePack: CANONICAL_RULE_PACK_V2, engineVersion: ENGINE_VERSION_V2, inputHash })),
+    reportId: report.reportIdentity.reportId,
+    reportVersion: report.reportIdentity.reportVersion,
+    inputHash,
+    rulePack: CANONICAL_RULE_PACK_V2,
+    engineVersion: ENGINE_VERSION_V2,
+    findings: runCanonicalRulePackV2(buildRuleContext(report, tolerance), clock),
+    createdAt: clock(),
+  };
 }
