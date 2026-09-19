@@ -14,6 +14,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { EngagementAuthorityType, EngagementCapability, EngagementMandate } from "@/lib/workspace/mandate";
+import { byEarliest, openEngagementWithScope } from "@/lib/workspace/engagementSetup";
+import { supabaseEngagementPort } from "@/lib/workspace/engagementSupabasePort";
 
 export interface EngagementRecord {
   id: string;
@@ -102,14 +104,17 @@ export function useEngagementMandate(
     // Reporting periods for this company; pick the one for this year.
     const { data: periods } = await supabase
       .from("fiscal_periods")
-      .select("id, fiscal_year_end, reporting_end")
+      .select("id, created_at, fiscal_year_end, reporting_end")
       .eq("company_id", companyId);
 
-    const period = (periods ?? []).find(
-      (p) =>
-        yearOf(p.reporting_end as string | null) === periodYear ||
-        yearOf(p.fiscal_year_end as string | null) === periodYear,
-    );
+    // Deterministic: if a race ever created two periods for the year, the earliest-created is the period of record.
+    const period = (periods ?? [])
+      .filter(
+        (p) =>
+          yearOf(p.reporting_end as string | null) === periodYear ||
+          yearOf(p.fiscal_year_end as string | null) === periodYear,
+      )
+      .sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)) || String(x.id).localeCompare(String(y.id)))[0];
 
     if (!period) {
       setEngagement(null);
@@ -126,8 +131,11 @@ export function useEngagementMandate(
       .eq("fiscal_period_id", period.id)
       .order("opened_at", { ascending: false });
 
-    // Compatibility resolution: the open engagement of record for this period.
-    const open = (engagements ?? []).find((e) => e.status === "open") ?? null;
+    // The engagement of record: the EARLIEST open engagement (the same convergence rule as engagementSetup).
+    const open =
+      [...(engagements ?? [])]
+        .filter((e) => e.status === "open")
+        .sort((x, y) => byEarliest(x as { id: string; opened_at: string }, y as { id: string; opened_at: string }))[0] ?? null;
     setEngagement((open as EngagementRecord | null) ?? null);
 
     if (!open) {
@@ -161,62 +169,12 @@ export function useEngagementMandate(
 
   const createEngagement = useCallback(
     async (capabilities: EngagementCapability[], engagementType = "composite") => {
-      if (!memberId) throw new Error("You are not an accepted member of this company.");
-      if (capabilities.length === 0) throw new Error("Choose at least one outcome.");
-
-      // Reporting period of record for this year, created on first use.
-      const { data: periods } = await supabase
-        .from("fiscal_periods")
-        .select("id, fiscal_year_end, reporting_end")
-        .eq("company_id", companyId);
-
-      let periodId = (periods ?? []).find(
-        (p) =>
-          yearOf(p.reporting_end as string | null) === periodYear ||
-          yearOf(p.fiscal_year_end as string | null) === periodYear,
-      )?.id;
-
-      if (!periodId) {
-        const { data: created, error } = await supabase
-          .from("fiscal_periods")
-          .insert({
-            company_id: companyId,
-            fiscal_year_end: `${periodYear}-12-31`,
-            reporting_start: `${periodYear}-01-01`,
-            reporting_end: `${periodYear}-12-31`,
-            period_label: `FY${periodYear}`,
-            created_by: user!.id,
-          })
-          .select("id")
-          .single();
-        if (error) throw error;
-        periodId = created.id;
-      }
-
-      const { data: eng, error: engErr } = await supabase
-        .from("engagements")
-        .insert({
-          fiscal_period_id: periodId,
-          company_id: companyId,
-          engagement_type: engagementType,
-          created_by_member_id: memberId,
-        })
-        .select("id")
-        .single();
-      if (engErr) throw engErr;
-
-      for (const cap of capabilities) {
-        const { error } = await supabase.rpc("grant_engagement_capability", {
-          p_engagement_id: eng.id,
-          p_capability: cap,
-          p_reason: "Declared when the engagement was opened",
-        });
-        if (error) throw error;
-      }
-
+      if (!user) throw new Error("Sign in to choose services.");
+      // Idempotent and convergent: repeated clicks, retries and concurrent requests end on ONE engagement.
+      await openEngagementWithScope(supabaseEngagementPort(supabase, user.id), { companyId, year: periodYear, capabilities, engagementType });
       await load();
     },
-    [companyId, periodYear, memberId, user, load],
+    [companyId, periodYear, user, load],
   );
 
   const grantCapability = useCallback(

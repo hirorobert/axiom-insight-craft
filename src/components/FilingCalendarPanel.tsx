@@ -404,7 +404,7 @@ export function FilingCalendarPanel() {
                               {e.companyName}
                               {e.companyTin && (
                                 <span className="ml-1.5 font-mono bg-secondary px-1 py-0.5 rounded text-[9px]">
-                                  TIN: {e.companyTin}
+                                  Tax identifier: {e.companyTin}
                                 </span>
                               )}
                             </p>

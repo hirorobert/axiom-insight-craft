@@ -50,7 +50,7 @@ export default function ReconcileWorkspace() {
         <div>
           <p className="text-sm font-medium text-foreground">Reconcile</p>
           <p className="text-xs text-muted-foreground mt-1">
-            EFDMS reconciliation and adjusting journal review require a validated trial balance.
+            Reconciliation and adjusting journal review require a validated trial balance.
           </p>
         </div>
       </div>

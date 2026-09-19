@@ -433,7 +433,7 @@ export function ExportStatements({
       doc.setFontSize(14); doc.setTextColor(30);
       doc.text(companyName || "—", 14, y); y += 7;
       doc.setFontSize(8.5); doc.setTextColor(80);
-      if (companyTin) { doc.text(`TIN: ${companyTin}`, 14, y); y += 4.5; }
+      if (companyTin) { doc.text(`Tax identifier: ${companyTin}`, 14, y); y += 4.5; }
       doc.text(`Period year end: ${periodYearEnd || "—"}`, 14, y);             y += 4.5;
       doc.text(`Framework: ${cfg.displayLabel}`, 14, y);                       y += 4.5;
       doc.text(`Generated: ${generatedAt} · ${totalCount > 0 ? `${autoCount}/${totalCount} accounts auto-classified` : "—"} · Kinga`, 14, y); y += 4.5;
@@ -961,7 +961,7 @@ export function ExportStatements({
     const summaryData = [
       [companyName || "—"],
       [""],
-      ["TIN",                 companyTin    || "—"],
+      ["Tax identifier",      companyTin    || "—"],
       ["Period year end",     periodYearEnd || "—"],
       ["Reporting framework", cfg.displayLabel],
       ["Generated",           generatedAt],

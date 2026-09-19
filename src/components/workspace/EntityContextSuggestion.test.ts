@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatEntityContextSuggestion } from "./EntityContextSuggestion";
+import { formatEntityContextSuggestion, FRAMEWORK_NOT_SELECTED } from "./EntityContextSuggestion";
 
 // No React component-testing harness exists in this project (no
 // @testing-library/react dependency) — per the Slice 4B hardening scope,
@@ -27,16 +27,39 @@ describe("formatEntityContextSuggestion — reporting_framework present", () => 
 });
 
 describe("formatEntityContextSuggestion — reporting_framework absent/invalid", () => {
-  it("renders nothing (null) for a null value — never fabricates a signal", () => {
-    expect(formatEntityContextSuggestion(null)).toBeNull();
+  it('says exactly "Framework not selected" for a null value ("Decide later") — never a fabricated or "unconfirmed default" value', () => {
+    expect(formatEntityContextSuggestion(null)).toEqual({ text: "Framework not selected", confidence: "NONE", detail: undefined });
+    expect(FRAMEWORK_NOT_SELECTED).toBe("Framework not selected");
   });
 
-  it("renders nothing (null) for undefined", () => {
-    expect(formatEntityContextSuggestion(undefined)).toBeNull();
+  it("says the same for undefined and for a value outside the known CHECK constraint", () => {
+    expect(formatEntityContextSuggestion(undefined)!.text).toBe("Framework not selected");
+    expect(formatEntityContextSuggestion("not_a_real_framework")!.text).toBe("Framework not selected");
+  });
+});
+
+describe("formatEntityContextSuggestion — an explicit selection at workspace creation is confirmed", () => {
+  const AFTER = "2026-09-19T08:00:00Z"; // after the 2026-09-03 cut-over that removed the schema default
+  const BEFORE = "2026-08-01T08:00:00Z";
+
+  it("IFRS for SMES selected on a post-cut-over company reads as confirmed, not as an unconfirmed default", () => {
+    const r = formatEntityContextSuggestion("ifrs_for_smes", AFTER)!;
+    expect(r.text).toBe("Reporting framework: IFRS for SMEs (confirmed)");
+    expect(r.confidence).toBe("HIGH");
+    expect(r.text).not.toMatch(/unconfirmed/);
   });
 
-  it("renders nothing (null) for a value outside the known CHECK constraint", () => {
-    expect(formatEntityContextSuggestion("not_a_real_framework")).toBeNull();
+  it("every explicit framework on a post-cut-over company is confirmed", () => {
+    for (const v of ["full_ifrs", "ifrs_for_smes", "ipsas_accrual", "ipsas_cash"]) expect(formatEntityContextSuggestion(v, AFTER)!.confidence).toBe("HIGH");
+  });
+
+  it("a legacy row (created before the cut-over, or of unknown age) keeps the honest 'unconfirmed default' reading", () => {
+    expect(formatEntityContextSuggestion("ifrs_for_smes", BEFORE)!.text).toMatch(/unconfirmed default/);
+    expect(formatEntityContextSuggestion("ifrs_for_smes", null)!.text).toMatch(/unconfirmed default/);
+  });
+
+  it("'Decide later' on a post-cut-over company is still Framework not selected", () => {
+    expect(formatEntityContextSuggestion(null, AFTER)!.text).toBe("Framework not selected");
   });
 });
 

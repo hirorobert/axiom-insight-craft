@@ -17,13 +17,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-/** A real TRA TIN is 9 or 11 digits — anything else (including "PUT-REAL-TRA-TIN-HERE") is missing */
-function isTinMissing(tin: string | null | undefined): boolean {
-  if (!tin) return true;
-  if (/PUT-REAL|placeholder/i.test(tin)) return true;
-  return !/^\d{9,12}$/.test(tin.replace(/-/g, ""));
-}
-
 interface FileUpload {
   id: string;
   file: File;
@@ -307,16 +300,8 @@ export const TrialBalanceUpload = ({
       return;
     }
 
-    // Phase 1 Slice 2 (DEFECT-GLOBAL-TIN-GATE-001): a TRA (Tanzania Revenue
-    // Authority) TIN is a Tanzania-specific fact, not a universal prerequisite
-    // for SAFISHA upload/certification -- SAFF's core pipeline is jurisdiction-
-    // neutral. This gate used to block every entity, including legitimate
-    // non-Tanzanian ones, which can never have a TRA TIN. TIN missingness is
-    // still surfaced -- see the informational warnings below and
-    // WorkspaceOverview.tsx's "TIN required" prompt, both non-blocking -- but
-    // it no longer prevents upload. Where a TIN genuinely is required (a TRA
-    // filing pack), that workflow is responsible for asking for it explicitly
-    // at that point.
+    // Upload is jurisdiction-neutral: no tax-registration field gates or warns here. A tax-profile requirement
+    // belongs to an active tax / filing service and the configured filing jurisdiction (lib/jurisdiction/taxProfile).
 
     const queuedFiles = files.filter((f) => f.status === "queued");
     if (queuedFiles.length === 0) {
@@ -432,10 +417,6 @@ export const TrialBalanceUpload = ({
   const completedCount = files.filter((f) => f.status === "complete").length;
   const isProcessing = processingCount > 0;
 
-  const lockedCompany = lockedCompanyId
-    ? companies.find((c) => c.id === lockedCompanyId)
-    : undefined;
-
   return (
     <section
       id="upload"
@@ -454,18 +435,6 @@ export const TrialBalanceUpload = ({
               Upload CSV or Excel. CFOClose validates, classifies every account, and produces statutory-grade output.
             </p>
           </div>
-        )}
-
-        {/* Destination is already stated once in the workspace bar. This is
-            informational, not a gate — TIN is a TRA-filing requirement, not
-            a universal upload prerequisite (Phase 1 Slice 2). */}
-        {embedded && lockedCompanyId && isTinMissing(lockedCompany?.tin) && (
-          <p className="mb-4 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
-            <AlertTriangle className="w-3 h-3 shrink-0" />
-            TRA TIN not set —{" "}
-            <Link to="/settings" className="underline underline-offset-2">add it in Settings</Link>{" "}
-            before filing with TRA.
-          </p>
         )}
 
         {/* Company Selector */}
@@ -504,23 +473,11 @@ export const TrialBalanceUpload = ({
               <p className="text-xs text-destructive mt-1">
                 Select a company before uploading.
               </p>
-            ) : (() => {
-              const sel = companies.find((c) => c.id === (selectedCompanyId ?? companies[0]?.id));
-              return isTinMissing(sel?.tin) ? (
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3 shrink-0" />
-                  TRA TIN not set.{" "}
-                  <Link to="/settings" className="underline underline-offset-2 hover:text-amber-700">
-                    Add it in Settings
-                  </Link>{" "}
-                  before filing with TRA.
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Associate uploads with a company for better organization
-                </p>
-              );
-            })()}
+            ) : (
+              <p className="text-xs text-muted-foreground mt-1">
+                Associate uploads with a company for better organization
+              </p>
+            )}
           </div>
         )}
 

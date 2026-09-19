@@ -223,7 +223,7 @@ export function ClientSummaryPanel({ companyId, uploadId, periodYear, companyNam
                   <div className="flex items-start justify-between flex-wrap gap-3">
                     <div>
                       <h2 className="text-xl font-bold text-foreground">{companyName ?? "Company"}</h2>
-                      {data.companyTin && <p className="text-xs text-muted-foreground mt-0.5">TIN: {data.companyTin}</p>}
+                      {data.companyTin && <p className="text-xs text-muted-foreground mt-0.5">Tax identifier: {data.companyTin}</p>}
                       <p className="text-sm text-muted-foreground">Financial Year {periodYear} — Tax Position Summary</p>
                     </div>
                     <div className="text-right text-xs text-muted-foreground">
@@ -297,7 +297,7 @@ export function ClientSummaryPanel({ companyId, uploadId, periodYear, companyNam
                               ))}
                             </ul>
                             <p className="text-xs text-red-700/70 mt-1">
-                              These may result in penalties if not resolved before TRA assessment. Please contact your CPA to discuss next steps.
+                              These may result in penalties if not resolved before a tax authority assessment. Please contact your CPA to discuss next steps.
                             </p>
                           </div>
                         </div>
@@ -348,7 +348,7 @@ export function ClientSummaryPanel({ companyId, uploadId, periodYear, companyNam
                     This summary was prepared by {data.cpaName} ({data.cpaFirm}) using CFOClose / Kinga Engine on {fmtDate(data.generatedAt)}.
                     It is intended for the use of {companyName ?? "the company"} only and should not be shared with third parties
                     without the written consent of your CPA. Figures are based on the trial balance provided and are subject to
-                    review by the Tanzania Revenue Authority. This document does not constitute a final tax assessment.
+                    review by the tax authority. This document does not constitute a final tax assessment.
                     © CFOClose | Powered by Kinga | ITA Chapter 332, R.E. 2023 compliant.
                   </p>
                 </div>

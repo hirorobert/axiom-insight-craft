@@ -1,6 +1,6 @@
 // ============================================================
 // TRAFilingChecklist — Roadmap Item 5H
-// TRA e-Filing Readiness Checklist, auto-generated from the
+// Electronic filing readiness Checklist, auto-generated from the
 // findings table + latest tax_computation for the selected upload.
 //
 // NO new engine, NO new edge function. Pure read-and-render.
@@ -229,7 +229,7 @@ export function TRAFilingChecklist({
         result.push({
           id: "paye",
           label: "PAYE Remittances",
-          description: "Pay-As-You-Earn — deducted and remitted monthly to TRA.",
+          description: "Pay-As-You-Earn — deducted and remitted monthly to the tax authority.",
           status: paye.hasOverdue ? "overdue" : "open_finding",
           dueDate: paye.latestPeriodEnd ?? undefined,
           exposureTzs: paye.totalExposure,
@@ -244,7 +244,7 @@ export function TRAFilingChecklist({
         result.push({
           id: "wht",
           label: "Withholding Tax",
-          description: "WHT on service payments, dividends, or interest — remitted to TRA.",
+          description: "WHT on service payments, dividends, or interest — remitted to the tax authority.",
           status: wht.hasOverdue ? "overdue" : "open_finding",
           dueDate: wht.latestPeriodEnd ?? undefined,
           exposureTzs: wht.totalExposure,
@@ -280,7 +280,7 @@ export function TRAFilingChecklist({
       if (pen) {
         result.push({
           id: "penalties",
-          label: "Outstanding TRA Penalties",
+          label: "Outstanding tax authority penalties",
           description: "5% per month on unpaid tax (TAA 2015 s.76) — accruing daily.",
           status: "overdue",
           exposureTzs: pen.totalExposure,
@@ -337,7 +337,7 @@ export function TRAFilingChecklist({
           <div>
             <CardTitle className="text-lg flex items-center gap-2">
               <FileCheck className="w-5 h-5 text-primary" />
-              TRA e-Filing Readiness
+              Electronic filing readiness
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
               {companyName ?? "Selected company"} — auto-generated from findings and tax computation

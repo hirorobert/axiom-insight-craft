@@ -53,6 +53,12 @@ export interface DetectionInput {
   /** Raw companies.reporting_framework DB value, exactly as stored today. */
   companyReportingFrameworkDbValue: string | null | undefined;
   /**
+   * companies.created_at. Since migration 20260903100000 a NEW company persists a null framework until one is explicitly
+   * chosen, so any non-null value on a company created AFTER that cut-over can only be a deliberate selection — even
+   * 'ifrs_for_smes'. Absent (unknown creation time) keeps the conservative pre-cut-over reading.
+   */
+  companyCreatedAt?: string | null;
+  /**
    * Forward-compatible hook for Slice 12 (audited mapping memory): when a
    * prior professional confirmation exists, pass it here and it wins over
    * the raw DB value at HIGH confidence. Always undefined today — no store
@@ -66,6 +72,9 @@ export interface DetectionInput {
     evidenceDetail: string;
   };
 }
+
+/** Migration 20260903100000 removed the column default: rows created at or after this instant were never defaulted. */
+export const NO_DEFAULT_CUTOVER_ISO = "2026-09-03T10:00:00";
 
 // ── Detection ──────────────────────────────────────────────────────────────────
 
@@ -116,6 +125,21 @@ function detectReportingFramework(input: DetectionInput): Provenance<ReportingFr
   }
 
   const dbValue = input.companyReportingFrameworkDbValue as CompanyReportingFrameworkDbValue;
+
+  // A framework on a post-cut-over company was selected explicitly (no schema default exists any more): it is confirmed.
+  if (input.companyCreatedAt && input.companyCreatedAt >= NO_DEFAULT_CUTOVER_ISO) {
+    return {
+      value: pair.framework,
+      confidence: "HIGH",
+      source: "USER_MANUAL_ENTRY",
+      evidence: [
+        {
+          source: "USER_MANUAL_ENTRY",
+          detail: `companies.reporting_framework '${dbValue}' was selected explicitly when the workspace was created or later edited (the column has had no schema default since the 2026-09-03 cut-over).`,
+        },
+      ],
+    };
+  }
 
   if (dbValue === "ifrs_for_smes") {
     // Phase 1 (SAFF V5 PART IX, reconciled 2026-09-03): companies.reporting_

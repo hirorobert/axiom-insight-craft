@@ -59,7 +59,7 @@ export default function ComplianceWorkspace() {
         <div>
           <p className="text-sm font-medium text-foreground">Compliance Review</p>
           <p className="text-xs text-muted-foreground mt-1">
-            TRA audit readiness, client summaries, and evidence packages require a validated trial balance.
+            Audit readiness, client summaries, and evidence packages require a validated trial balance.
           </p>
         </div>
       </div>

@@ -48,7 +48,7 @@ export default function EngagementScopeBoundary({
         <div className="mt-8 flex flex-wrap gap-2">
           {canAmend && engagement && (
             <Button onClick={() => setOpen(true)} className="rounded-none h-11 px-5">
-              Amend engagement scope
+              Manage services
             </Button>
           )}
           <Button asChild variant="outline" className="rounded-none h-11 px-5">

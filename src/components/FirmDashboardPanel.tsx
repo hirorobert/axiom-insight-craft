@@ -336,7 +336,7 @@ export function FirmDashboardPanel() {
                       >
                         <td className="py-2.5 px-3">
                           <div className="font-semibold text-foreground truncate max-w-[160px]">{row.companyName}</div>
-                          {row.tin && <div className="text-muted-foreground/60 text-[10px]">TIN: {row.tin}</div>}
+                          {row.tin && <div className="text-muted-foreground/60 text-[10px]">Tax identifier: {row.tin}</div>}
                         </td>
                         <td className="py-2.5 px-3 text-center">
                           <div className="flex flex-col items-center gap-1">

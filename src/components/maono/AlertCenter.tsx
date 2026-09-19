@@ -65,7 +65,7 @@ const ALERT_TYPE_LABELS: Record<string, string> = {
   variance_threshold: "Variance Threshold",
   cash_critical:      "Cash Critical",
   cash_watch:         "Cash Watch",
-  tra_risk_signal:    "TRA Audit Risk",
+  tra_risk_signal:    "Tax Authority Audit Risk",
   budget_missing:     "Budget Missing",
   trend_deterioration:"Trend Deterioration",
 };

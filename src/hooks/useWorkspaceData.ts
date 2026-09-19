@@ -45,6 +45,7 @@ export interface WorkspaceCompany {
   reporting_framework: string | null;
   fiscal_year_end: string | null;
   currency: string | null;
+  created_at?: string | null;
 }
 
 export interface UseWorkspaceDataReturn {
@@ -153,7 +154,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     // Fetch company
     const { data: co } = await supabase
       .from("companies")
-      .select("id, name, code, tin, reporting_framework, fiscal_year_end, currency")
+      .select("id, name, code, tin, reporting_framework, fiscal_year_end, currency, created_at")
       .eq("id", cId)
       .single();
 

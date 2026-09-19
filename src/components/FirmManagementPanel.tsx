@@ -352,7 +352,7 @@ export function FirmManagementPanel() {
                 <span className="text-sm font-semibold">{selectedCo.name}</span>
                 {selectedCo.tin && (
                   <span className="text-[10px] font-mono text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
-                    TIN: {selectedCo.tin}
+                    Tax identifier: {selectedCo.tin}
                   </span>
                 )}
                 <span className="text-xs text-muted-foreground ml-auto">
@@ -547,7 +547,7 @@ export function FirmManagementPanel() {
               <p className="text-[10px] text-muted-foreground">
                 Inviting to: <span className="font-semibold text-foreground">{selectedCo?.name}</span>
                 {selectedCo?.tin && (
-                  <span className="ml-1.5 font-mono">(TIN: {selectedCo.tin})</span>
+                  <span className="ml-1.5 font-mono">(Tax identifier: {selectedCo.tin})</span>
                 )}
               </p>
             </div>

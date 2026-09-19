@@ -285,9 +285,9 @@ export default function Settings() {
               <div>
                 <SectionDivider title="Companies" />
                 <p className="text-xs text-muted-foreground mb-6 leading-relaxed">
-                  Add and manage client companies. Jurisdiction-specific identifiers — such as
-                  the Tanzania TRA Tax Identification Number — are configured per company and
-                  applied only to engagements in that jurisdiction.
+                  Add and manage client companies. Jurisdiction-specific identifiers, such as the
+                  tax identifier, are configured per company and applied only where the
+                  filing jurisdiction requires them.
                 </p>
                 <CompanyManager />
 

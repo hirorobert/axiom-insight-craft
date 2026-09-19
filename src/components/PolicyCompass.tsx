@@ -137,7 +137,7 @@ export function PolicyCompass({ financialData }: PolicyCompassProps) {
           Policy Compass
         </CardTitle>
         <CardDescription>
-          Tanzania statutory guidance — ITA Cap.332, SDL, PAYE, IFRS for SMEs, IPSAS
+          Statutory guidance for the configured filing jurisdiction — income tax, payroll levies, IFRS for SMEs, IPSAS
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -172,7 +172,7 @@ export function PolicyCompass({ financialData }: PolicyCompassProps) {
 
           {/* Quick Questions */}
           <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">Tanzania-Specific Questions</label>
+            <label className="text-xs text-muted-foreground">Jurisdiction-Specific Questions</label>
             <div className="flex flex-wrap gap-2">
               {COMMON_QUESTIONS.map((q, i) => (
                 <Button

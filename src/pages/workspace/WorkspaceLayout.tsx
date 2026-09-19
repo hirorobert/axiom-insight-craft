@@ -23,6 +23,7 @@ import { EngagementContext } from "@/contexts/EngagementContext";
 import { useWorkspaceData } from "@/hooks/useWorkspaceData";
 import { useEngagementMandate } from "@/hooks/useEngagementMandate";
 import { projectMandate } from "@/lib/workspace/mandate";
+import { deriveWorkspaceNavigation } from "@/lib/workspace/navigation";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,8 +38,8 @@ import {
   LogOut,
   ChevronDown,
 } from "lucide-react";
-import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
-import type { MissionStatus } from "@/lib/workspace/types";
+import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
+import type { MissionStatus, WorkspaceMission } from "@/lib/workspace/types";
 
 /**
  * Tab word in professional sentence case, derived from the canonical metadata
@@ -164,7 +165,12 @@ export default function WorkspaceLayout() {
   // Stages the mandate keeps in the active rail. While the mandate is loading or
   // undeclared, projectMandate returns every stage — nothing is ever hidden on
   // unknown scope.
-  const visibleStages = missionViews.filter((v) => v.visible).map((v) => v.stage);
+  const scopeDeclared = !!engagementApi.mandate && engagementApi.mandate.granted.length > 0;
+  const navItems = deriveWorkspaceNavigation({
+    basePath: `/workspace/${companyId}/${periodYear}`,
+    scopeDeclared,
+    missionViews: engagementApi.loading ? [] : missionViews,
+  });
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -247,55 +253,39 @@ export default function WorkspaceLayout() {
           <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="flex items-stretch min-w-max">
 
-              {/* Overview tab */}
-              <Link
-                to={basePath}
-                className={[
-                  "flex items-center gap-1 px-2 sm:px-3 xl:px-4 py-3 text-[11px] sm:text-xs font-medium border-b-2 transition-colors shrink-0",
-                  activeSlug === "overview" || pathSegments.length === 4
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
-                ].join(" ")}
-              >
-                <span className="hidden md:inline">Overview</span>
-                <span className="md:hidden sr-only">Overview</span>
-              </Link>
-
-              {/* Stage tabs */}
-              {STAGE_SEQUENCE.filter((slug) => visibleStages.includes(slug)).map((slug) => {
+              {navItems.map((item) => {
+                const isOverview = item.id === "overview";
+                const isActive = isOverview ? activeSlug === "overview" || pathSegments.length === 4 : activeSlug === item.id;
+                const base = "flex items-center gap-1 px-2 sm:px-3 xl:px-4 py-3 text-[11px] sm:text-xs font-medium border-b-2 transition-colors shrink-0";
+                if (isOverview) {
+                  return (
+                    <Link
+                      key="overview"
+                      to={item.href}
+                      className={[base, isActive ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"].join(" ")}
+                    >
+                      <span>Overview</span>
+                    </Link>
+                  );
+                }
+                const slug = item.id as WorkspaceMission;
                 const config = STAGE_CONFIGS[slug];
                 const mission = workspaceState.missions[slug];
-                const view = missionViews.find((v) => v.stage === slug);
-                const isActive = activeSlug === slug;
-                const isLocked = mission.status === "locked";
                 const Icon = config.icon;
-
                 return (
                   <Link
                     key={slug}
-                    to={`${basePath}/${slug}`}
-                    title={
-                      view?.prerequisiteOnly
-                        ? `${config.description} — input evidence for this engagement`
-                        : config.description
-                    }
+                    to={item.href}
                     aria-label={config.label}
-                    className={[
-                      "flex items-center gap-1 px-2 sm:px-3 xl:px-4 py-3 text-[11px] sm:text-xs font-medium border-b-2 transition-colors shrink-0",
-                      isActive
-                        ? "border-primary text-foreground"
-                        : isLocked
-                        ? "border-transparent text-muted-foreground/40"
-                        : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
-                    ].join(" ")}
+                    aria-disabled={item.disabled || undefined}
+                    title={item.disabled ? `${item.reason} ${item.action}` : item.inputEvidenceOnly ? `${config.description} — input evidence for this workspace` : config.description}
+                    className={[base, isActive ? "border-primary text-foreground" : item.disabled ? "border-transparent text-muted-foreground/40" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"].join(" ")}
                   >
                     <Icon className="w-3.5 h-3.5 shrink-0" />
-                    {/* Full professional stage language from md upward; below
-                        768px the tab compresses to icon + status with the name
-                        carried by aria-label/title. */}
                     <span className="hidden md:inline xl:hidden">{tabWord(config.tabLabel)}</span>
                     <span className="hidden xl:inline">{config.label}</span>
                     <span className="md:hidden sr-only">{config.label}</span>
+                    {item.disabled && <span className="sr-only">{item.reason} {item.action}</span>}
                     {!loading && <StatusDot status={mission.status} />}
                   </Link>
                 );

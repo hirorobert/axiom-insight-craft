@@ -106,7 +106,7 @@ export function CashFlowForecast({ weeks, currency = "TZS" }: CashFlowForecastPr
         <div>
           <h3 className="text-sm font-semibold text-gray-900">13-Week Cash Flow Forecast</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Deterministic model — AR aging × collection rates + Tanzania statutory calendar
+            Deterministic model — AR aging × collection rates + statutory calendar
           </p>
         </div>
         <div className="flex gap-2">

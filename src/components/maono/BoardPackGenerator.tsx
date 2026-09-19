@@ -530,7 +530,7 @@ export function BoardPackGenerator({
 
               {/* Section 6: Risk signals */}
               {pack.riskData?.tra_signals?.length > 0 && (
-                <PrintablePackSection title="6. TRA Audit Risk Signals">
+                <PrintablePackSection title="6. Tax Authority Audit Risk Signals">
                   {pack.riskData.tra_signals.map((s: any, i: number) => (
                     <div key={i} className="mb-2 text-xs">
                       <span className={`font-semibold ${s.severity === "critical" ? "text-red-700" : "text-amber-700"}`}>

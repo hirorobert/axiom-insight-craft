@@ -91,9 +91,10 @@ describe("Ω3-BRAND · public brand", () => {
     expect(marketingCopy).not.toMatch(/\bSAFISHA\b|\bHESABU\b|\bKINGA\b|\bMAONO\b/);
   });
 
-  it("08 · Tanzania jurisdiction-pack explanation is present", () => {
+  it("08 · jurisdiction-pack explanation is present, and neutral (no single jurisdiction is named)", () => {
     const jurisdictionText = JURISDICTION_SECTION.items.map((i) => i.detail).join(" ");
-    expect(jurisdictionText).toMatch(/Tanzania/);
+    expect(jurisdictionText).toMatch(/jurisdiction/i);
+    expect(jurisdictionText).not.toMatch(/Tanzania|TRA|TIN/);
   });
 
   it("09 · /pricing navigation entry exists in NAV", () => {
@@ -309,12 +310,13 @@ describe("Ω3-BRAND · Settings section — real billingDisplay.ts functions", (
     expect(hookSrc).toMatch(/get_my_billing_summary/);
   });
 
-  it("30 · Tanzania TIN copy is present under Companies, not globally exposed", () => {
+  it("30 · no tax-registration or jurisdiction-specific copy is globally exposed; the jurisdiction pack is described neutrally", () => {
     const globalHero = [HERO.headline, HERO.subhead, HERO_FOOTING].join(" ");
-    expect(globalHero).not.toMatch(/TIN|TRA Tax Identification/);
+    expect(globalHero).not.toMatch(/TIN|TRA|Tanzania/);
     const jurisdictionDetail = JURISDICTION_SECTION.items
-      .find((i) => i.label.toLowerCase().includes("tanzania"))?.detail ?? "";
-    expect(jurisdictionDetail).toMatch(/Tanzania/);
+      .find((i) => i.label.toLowerCase().includes("jurisdiction compliance"))?.detail ?? "";
+    expect(jurisdictionDetail).toMatch(/configured jurisdiction/);
+    expect(jurisdictionDetail).not.toMatch(/Tanzania|TRA|TIN/);
   });
 });
 

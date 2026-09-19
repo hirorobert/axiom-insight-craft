@@ -24,6 +24,7 @@ import {
   type EngagementCapability,
 } from "@/lib/workspace/mandate";
 import { useEngagement } from "@/contexts/EngagementContext";
+import { LAUNCH_COPY } from "@/lib/workspace/onboardingState";
 
 export default function EngagementScopeDialog({
   open,
@@ -91,13 +92,13 @@ export default function EngagementScopeDialog({
         <DialogHeader>
           <DialogTitle className="text-[17px] font-semibold tracking-tight">
             {mode === "declare"
-              ? "What are you preparing for this client?"
-              : "Amend engagement scope"}
+              ? LAUNCH_COPY.launchpadHeading
+              : LAUNCH_COPY.scopeEditor}
           </DialogTitle>
           <DialogDescription className="text-[13px]">
             {mode === "declare"
-              ? "Choose the outcomes you were engaged to deliver. Anything you do not select stays out of this engagement; you can amend it later."
-              : "Adding or withdrawing an outcome appends an entry to the engagement file. Completed work is never removed."}
+              ? "Choose what you want to complete. Anything you do not select stays out of this workspace; you can change it later."
+              : "Adding or withdrawing a service appends an entry to the engagement file. Completed work is never removed."}
           </DialogDescription>
         </DialogHeader>
 

@@ -94,7 +94,7 @@ export function RiskRadar({ riskData, isLoading }: RiskRadarProps) {
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Risk Radar</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Statistical + TRA compliance signals
+            Statistical + tax authority compliance signals
           </p>
         </div>
         <div className={`rounded-full px-3 py-1 text-sm font-semibold ${OVERALL_RISK_STYLE[summary.overall_risk]}`}>
@@ -137,7 +137,7 @@ export function RiskRadar({ riskData, isLoading }: RiskRadarProps) {
                 : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            {tab === "signals" ? `TRA Signals (${tra_signals.length})` : `Trends (${realTrends.length})`}
+            {tab === "signals" ? `Tax authority signals (${tra_signals.length})` : `Trends (${realTrends.length})`}
           </button>
         ))}
       </div>
@@ -148,7 +148,7 @@ export function RiskRadar({ riskData, isLoading }: RiskRadarProps) {
           <>
             {tra_signals.length === 0 ? (
               <div className="text-sm text-green-700 bg-green-50 rounded-lg p-4 text-center">
-                ✓ No TRA audit risk signals detected for this period.
+                ✓ No tax authority audit risk signals detected for this period.
               </div>
             ) : (
               <div className="space-y-3">
@@ -182,7 +182,7 @@ export function RiskRadar({ riskData, isLoading }: RiskRadarProps) {
               <div className="mb-3 rounded-lg bg-gray-50 border border-gray-200 p-3 text-xs text-gray-600">
                 <strong>Trend analysis not available:</strong> This company has fewer than 2 periods
                 of historical data. Statistical trend detection requires at least 2 complete periods.
-                TRA signals above still apply.
+                Tax authority signals above still apply.
               </div>
             )}
 

@@ -23,6 +23,8 @@ interface FrameworkConfirmationBannerProps {
    * already treats it as UNKNOWN/NONE confidence correctly.
    */
   reportingFrameworkDbValue: string | null;
+  /** companies.created_at — a deliberate selection on a post-cut-over company reads as confirmed. */
+  companyCreatedAt?: string | null;
 }
 
 const TONE_STYLES: Record<
@@ -45,9 +47,11 @@ const TONE_STYLES: Record<
 
 export function FrameworkConfirmationBanner({
   reportingFrameworkDbValue,
+  companyCreatedAt,
 }: FrameworkConfirmationBannerProps) {
   const context = detectEntityAccountingContext({
     companyReportingFrameworkDbValue: reportingFrameworkDbValue,
+    companyCreatedAt,
   });
   const posture = classifyConfirmationPosture(context.reportingFramework);
   const content = buildFrameworkBannerContent(

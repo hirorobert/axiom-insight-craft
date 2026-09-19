@@ -21,11 +21,11 @@
 
 import { useState, useEffect } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, AlertTriangle, RefreshCw, Upload } from "lucide-react";
+import { ArrowRight, AlertTriangle, RefreshCw } from "lucide-react";
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -37,6 +37,12 @@ import { buildPrepareReviewRoute } from "@/lib/workspace/resolveActiveUpload";
 import { capabilityTitle } from "@/lib/workspace/mandate";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 import { readRememberedOutcome } from "@/lib/product/outcomes";
+import ServiceLaunchpad from "@/components/workspace/ServiceLaunchpad";
+import DataChoiceCard from "@/components/workspace/DataChoiceCard";
+import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
+import { useDataStart } from "@/hooks/useDataStart";
+import { deriveLaunchState, LAUNCH_COPY } from "@/lib/workspace/onboardingState";
+import { evaluateTaxProfile, TAX_PROFILE_COPY } from "@/lib/jurisdiction/taxProfile";
 import { resolveNextActionDestination } from "@/lib/workspace/resolveNextActionDestination";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -62,7 +68,7 @@ function countUnresolved(
   return { unresolved, total, classified };
 }
 
-const num = (n: number) => n.toLocaleString("en-TZ");
+const num = (n: number) => n.toLocaleString("en-US");
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -78,9 +84,7 @@ export default function WorkspaceOverview() {
     refreshUpload,
   } = useWorkspace();
 
-  const [searchParams] = useSearchParams();
-  // Phase 3C: suppress DataStart if user explicitly chose "Start with empty workspace"
-  const skipDataStart = searchParams.get("skipDataStart") === "1";
+  const navigate = useNavigate();
 
   const [retrying, setRetrying] = useState(false);
   const [tinDialogOpen, setTinDialogOpen] = useState(false);
@@ -94,7 +98,10 @@ export default function WorkspaceOverview() {
     events,
     canAmend,
     loading: mandateLoading,
+    createEngagement,
   } = useEngagement();
+  // Durable data choice for this workspace (never a URL flag, local flag or navigation history).
+  const dataStart = useDataStart(companyId, periodYear);
 
   // Retry the ingest pipeline when the active upload failed.
   const handleRetryProcessing = async () => {
@@ -158,10 +165,10 @@ export default function WorkspaceOverview() {
   const selectedOutcome = readRememberedOutcome();
 
   const effectiveTin = tinOverride ?? company?.tin ?? null;
-  const tinMissing =
-    !effectiveTin ||
-    /PUT-REAL|placeholder|todo|tbd/i.test(effectiveTin) ||
-    !/^\d+$/.test(effectiveTin.replace(/-/g, ""));
+  const granted = mandate?.granted ?? null;
+  // A tax-profile warning needs (1) an active tax/filing service, (2) a configured jurisdiction that requires the field
+  // and (3) the field actually missing. No jurisdiction is configured for a workspace today, so it never fires by inference.
+  const taxProfile = evaluateTaxProfile({ granted, jurisdiction: null, taxIdentifier: effectiveTin });
 
   const prepareStatus = missions.prepare.status;
   const prepareDone = prepareStatus === "passed" || prepareStatus === "signed";
@@ -181,16 +188,6 @@ export default function WorkspaceOverview() {
   const { unresolved, total, classified } = countUnresolved(
     upload?.processing_result as Record<string, unknown> | null,
   );
-
-  // TIN is an exception only when it is missing/invalid AND the current
-  // canonical next action actually names it as the blocker. Phase 1 Slice 2
-  // (DEFECT-GLOBAL-TIN-GATE-001): the upload gate that used to make TIN
-  // unconditionally blocking pre-upload is gone -- SAFISHA upload/
-  // certification no longer requires a TRA TIN at all, so its mere absence
-  // before an upload exists is no longer itself a blocker. TIN only matters
-  // where a real downstream workflow (e.g. TRA filing) actually needs it and
-  // says so via nextAction.blocker.
-  const tinBlocksNextAction = tinMissing && /tin/i.test(nextAction.blocker ?? "");
 
   // ── The single decision on this screen ────────────────────────────────────
   type Decision = {
@@ -214,40 +211,24 @@ export default function WorkspaceOverview() {
   const isProcessing = s === "processing" || s === "pending" || s === "queued";
   const needsReview = s === "needs_review" && unresolved > 0;
 
-  const mandateUndeclared = !mandateLoading && (!engagement || !mandate || mandate.granted.length === 0);
+  const launchState = deriveLaunchState({ granted, hasUpload, dataStart: dataStart.choice });
 
-  if (mandateUndeclared) {
-    // Scope is declared, never inferred. Until it is declared there is no
-    // defensible next accounting action, so this is the one decision.
-    decision = {
-      eyebrow: "Engagement",
-      headline: selectedOutcome
-        ? `Confirm: ${selectedOutcome.title.toLowerCase()}`
-        : "What are you preparing for this client?",
-      detail: selectedOutcome
-        ? "Confirm or refine this outcome before work begins. CFOClose will show only the stages the engagement requires."
-        : "Record the required deliverables for this period. CFOClose then shows only the stages that mandate requires.",
-      button: {
-        label: canAmend ? "Declare engagement scope" : "Ask a partner to open the engagement",
-        onClick: canAmend ? () => setScopeDialogOpen(true) : undefined,
-        disabled: !canAmend,
-        icon: <ArrowRight className="w-4 h-4" />,
-      },
-      tone: canAmend ? "primary" : "muted",
-    };
-  } else if (!hasUpload) {
-    // DataStart state — rendered as a dedicated surface in Zone B (see below).
-    // The decision object here is a safe fallback if the conditional is missed.
+  if (launchState === "IMPORT_PENDING") {
     decision = {
       eyebrow: STAGE_CONFIGS.prepare.label,
-      headline: "How would you like to begin?",
-      detail: "Import a trial balance to start the financial review workflow.",
-      button: {
-        label: "Import trial balance",
-        href: `${basePath}/prepare`,
-        icon: <Upload className="w-4 h-4" />,
-      },
+      headline: "Continue importing your trial balance.",
+      detail: "You chose to import data. Nothing has been uploaded yet.",
+      button: { label: LAUNCH_COPY.primaryAction, href: `${basePath}/prepare`, icon: <ArrowRight className="w-4 h-4" /> },
       tone: "primary",
+    };
+  } else if (launchState === "EMPTY_WORKSPACE" || (!hasUpload && launchState === "ACTIVE")) {
+    // The genuine empty workspace: nothing is pending and nothing redirects. Importing later is a quiet, optional action.
+    decision = {
+      eyebrow: "Workspace",
+      headline: "Your workspace is ready.",
+      detail: "No financial data has been added yet. Add it whenever you are ready.",
+      button: { label: LAUNCH_COPY.emptyStateCta, href: `${basePath}/prepare`, icon: <ArrowRight className="w-4 h-4" /> },
+      tone: "muted",
     };
   } else if (isFailed) {
     decision = {
@@ -358,14 +339,16 @@ export default function WorkspaceOverview() {
           Zone A therefore carries only what is actionable: a blocking TIN.
           TIN never appears merely because the record holds a value. */}
       {company && (
-        <p className="mb-6 text-[12px] text-muted-foreground tracking-wide">
+        <div className="mb-6 flex flex-wrap items-center text-[12px] text-muted-foreground tracking-wide">
           <span className="text-foreground/80">{company.name}</span>
           <span className="px-1.5 text-muted-foreground/50">·</span>
           <span className="tabular-nums">FY{periodYear}</span>
-        </p>
+          <span className="px-1.5 text-muted-foreground/50">·</span>
+          <EntityContextSuggestion reportingFrameworkDbValue={company.reporting_framework} companyCreatedAt={company.created_at} />
+        </div>
       )}
 
-      {tinBlocksNextAction && (
+      {taxProfile.warn && (
         <header className="mb-6">
           <button
             type="button"
@@ -373,7 +356,7 @@ export default function WorkspaceOverview() {
             className="inline-flex items-center gap-2 text-[13px] text-amber-600 dark:text-amber-500 hover:underline underline-offset-4"
           >
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            TIN required — add it
+            {TAX_PROFILE_COPY.warning}
           </button>
         </header>
       )}
@@ -381,51 +364,22 @@ export default function WorkspaceOverview() {
       {/* ── ZONE B · Current decision — the one centre of gravity ────────── */}
       <section className="mb-10 sm:mb-14" data-testid="current-decision">
 
-        {!hasUpload && !skipDataStart ? (
-          /* ── DataStart surface: no data yet ──────────────────────────── */
-          <SurfaceCard className="px-5 py-8 sm:px-8 sm:py-10">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] mb-5 text-muted-foreground">
-              Step 2 of 2
-            </p>
-            <h2 className="text-2xl sm:text-[2rem] font-semibold tracking-tight text-foreground leading-[1.2] max-w-xl mb-6">
-              How would you like to begin?
-            </h2>
-
-            <div className="space-y-3 max-w-lg">
-              {/* Option A — Import trial balance (recommended, working destination) */}
-              <Link
-                to={`${basePath}/prepare`}
-                data-testid="primary-cta"
-                className="flex items-start justify-between gap-4 p-4 border border-border hover:border-primary/60 hover:bg-primary/5 transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <div>
-                  <p className="text-[13px] font-semibold text-foreground mb-0.5 group-hover:text-primary transition-colors">
-                    Import a trial balance
-                  </p>
-                  <p className="text-[12px] text-muted-foreground leading-relaxed">
-                    Upload CSV or XLSX. The system checks it balances, classifies
-                    every account, and flags exceptions for review.
-                  </p>
-                  <span className="inline-block mt-2 text-[10px] font-mono uppercase tracking-[0.16em] text-primary">
-                    Recommended
-                  </span>
-                </div>
-                <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary shrink-0 mt-0.5 transition-colors" />
-              </Link>
-
-            </div>
-
-            {/* Secondary — start empty */}
-            <p className="mt-6 text-[12px] text-muted-foreground">
-              <Link
-                to={`${basePath}?skipDataStart=1`}
-                className="underline underline-offset-4 hover:text-foreground transition-colors"
-              >
-                Start with an empty workspace
-              </Link>
-              {" "}— you can add data at any time.
-            </p>
-          </SurfaceCard>
+        {mandateLoading || dataStart.loading ? (
+          <Skeleton className="h-56 w-full" />
+        ) : launchState === "LAUNCHPAD" ? (
+          <ServiceLaunchpad canChoose={canAmend} onConfirm={(selected) => createEngagement(selected)} />
+        ) : launchState === "DATA_CHOICE" ? (
+          <DataChoiceCard
+            onImport={async () => {
+              // Persist first; only then leave the Overview for the single canonical upload surface.
+              if (await dataStart.record("import")) navigate(`${basePath}/prepare`);
+              else throw new Error("Your choice could not be saved. Try again.");
+            }}
+            onStartEmpty={async () => {
+              // Persist first; the Overview then re-derives to the genuine empty workspace. No navigation.
+              if (!(await dataStart.record("empty"))) throw new Error("Your choice could not be saved. Try again.");
+            }}
+          />
         ) : (
           /* ── Standard decision surface ───────────────────────────────── */
           <SurfaceCard className="px-5 py-8 sm:px-8 sm:py-10">
@@ -488,7 +442,7 @@ export default function WorkspaceOverview() {
                 onClick={() => setScopeDialogOpen(true)}
                 className="underline underline-offset-4 hover:text-foreground"
               >
-                Amend scope
+                {LAUNCH_COPY.scopeEditor}
               </button>
             </>
           )}

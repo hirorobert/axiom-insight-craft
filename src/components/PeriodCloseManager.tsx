@@ -350,7 +350,7 @@ export function PeriodCloseManager({ userId }: Props) {
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold text-foreground truncate">{company.name}</span>
                             {company.tin && (
-                              <span className="text-xs text-muted-foreground font-mono hidden sm:inline">TIN: {company.tin}</span>
+                              <span className="text-xs text-muted-foreground font-mono hidden sm:inline">Tax identifier: {company.tin}</span>
                             )}
                             {so?.period_year && (
                               <span className="text-xs text-muted-foreground">FY{so.period_year}</span>

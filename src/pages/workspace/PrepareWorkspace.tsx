@@ -400,7 +400,7 @@ export default function PrepareWorkspace() {
             {upload && (
               <p className="mt-1 truncate text-sm text-muted-foreground">{upload.file_name}</p>
             )}
-            <EntityContextSuggestion reportingFrameworkDbValue={company?.reporting_framework} />
+            <EntityContextSuggestion reportingFrameworkDbValue={company?.reporting_framework} companyCreatedAt={company?.created_at} />
           </div>
           {upload && !showUploader && (
             <div className="flex flex-wrap gap-2">
