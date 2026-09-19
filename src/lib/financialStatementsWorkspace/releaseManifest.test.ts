@@ -118,6 +118,17 @@ describe("release manifest — construction", () => {
   });
 });
 
+describe("release manifest — a source that already carries an older manifest", () => {
+  it("still binds and verifies: the source tree is taken WITHOUT the manifest file, so a stale predecessor cannot break the binding", async () => {
+    const repo = makeRepo();
+    write(repo, MANIFEST_PATH, '{"schema":"an-older-stale-manifest"}\n');
+    commit(repo, "chore: a stale manifest from an earlier candidate");
+    const { manifest } = await seal(repo);
+    expect(manifest.schema).toBe("cfoclose.release-manifest.v2");
+    expect(await verify(repo)).toEqual([]);
+  });
+});
+
 describe("release manifest — every difference between the manifest and the repository is a failure", () => {
   // One sealed repository serves every "recorded value differs" case: the manifest is tampered in memory and verified against it.
   let shared: { repo: string; manifest: Manifest };

@@ -120,7 +120,7 @@ export async function verifyManifest({ repo, baseRef, headRef = "HEAD", migratio
   // 2. The tree being released, minus only the manifest, is the tree the manifest describes.
   const treeNow = await treeWithout(repo, head, MANIFEST_PATH);
   if (manifest.sourceTree !== treeNow) problems.push("the repository tree (without the manifest) differs from sourceTree");
-  if (manifest.sourceTree !== (await git(repo, ["rev-parse", `${parent}^{tree}`])) && tipFiles.length === 1) problems.push("sourceTree is not the tree of the source commit");
+  if (manifest.sourceTree !== (await treeWithout(repo, parent, MANIFEST_PATH)) && tipFiles.length === 1) problems.push("sourceTree is not the tree of the source commit");
 
   // 3. Base.
   const base = await git(repo, ["rev-parse", baseRef]);
