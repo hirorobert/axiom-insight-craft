@@ -45,7 +45,7 @@ const manifest = {
   sourceCommit,
   migrations: migrationHashes,
   documents,
-  artifacts: { note: Object.keys(artifacts).length === 0 ? "dist/ was not present when this manifest was built; run `npm run build` and rebuild the manifest" : "sha256 of every file in dist/", files: artifacts },
+  artifacts: { note: Object.keys(artifacts).length === 0 ? "dist/ was not present when this manifest was built; run `npm run build` and rebuild the manifest" : "sha256 of every file in dist/ for the build made at sourceCommit. The existing vite config embeds the build time and the HEAD commit id, so a rebuild is NOT byte-identical: these hashes identify the reviewed build output, they are not a reproducibility check", files: artifacts },
   productionProjectRef: { value: "bvyivmmfjejbmqoydezk", use: "identity protection only — no command in this release contacts it" },
   secretNames: {
     note: "Names only. Values are never stored in this repository.",
@@ -84,12 +84,12 @@ if (process.argv.includes("--check")) {
   const docsNow = Object.fromEntries(Object.entries(documents));
   for (const [f, h] of Object.entries(existing.documents)) if (docsNow[f] !== h) problems.push(`document changed since the manifest: ${f}`);
   const built = Object.keys(artifacts).length > 0;
-  if (built && JSON.stringify(existing.artifacts.files) !== JSON.stringify(artifacts)) problems.push("artifact hashes differ from the current dist/");
+  // Artifact hashes are deliberately not compared: the build embeds its commit id and build time (see the note in the manifest).
   if (problems.length > 0) {
     console.error(["release-manifest.json is stale:", ...problems.map((p) => ` - ${p}`)].join("\n"));
     process.exit(1);
   }
-  console.log(`release-manifest.json is current (source ${existing.sourceCommit.slice(0, 8)}, ${Object.keys(existing.migrations).length} migrations${built ? ", artifacts verified" : ", artifacts not re-checked: no dist/"})`);
+  console.log(`release-manifest.json is current (source ${existing.sourceCommit.slice(0, 8)}, ${Object.keys(existing.migrations).length} migrations${built ? ", artifact hashes are informational (build embeds commit id and time)" : ""})`);
 } else {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, text);

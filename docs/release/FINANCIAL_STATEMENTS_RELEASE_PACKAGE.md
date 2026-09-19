@@ -101,4 +101,5 @@ Browser: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` (public anon key, 
 8. **Statement-set completeness is enforced in the client**; the server enforces the finding gate, evaluation presence and role. The UI disables Reviewed/Final while completeness items remain.
 9. **Print/PDF** relies on the browser's print engine; page-number margin boxes need a Chromium-class engine and were not verified in a print preview here.
 10. **No load testing** beyond the enforced limits (2 MB, 20,000 rows, 40 columns).
-11. The CI step that runs `db-proof` on the throwaway container was verified locally in external mode against an empty database, but has not yet run in GitHub Actions.
+11. **Artifact hashes in the manifest identify one build; they are not a reproducibility proof.** The pre-existing vite config embeds the build time and the HEAD commit id, so rebuilding changes them. The manifest's migration and document hashes are exact and are what `--check` verifies.
+12. The CI step that runs `db-proof` on the throwaway container was verified locally in external mode against an empty database, but has not yet run in GitHub Actions.
