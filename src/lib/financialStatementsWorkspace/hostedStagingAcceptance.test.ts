@@ -78,7 +78,8 @@ function world(f: Faults = {}) {
       const fn = p.slice("/rest/v1/rpc/".length);
       if (INTERNAL_FUNCTIONS.some(([n]: [string]) => n === fn)) {
         if (fn === "fs_set_company_rollout" && me.isService) {
-          body.p_enabled ? enabled.add(body.p_company_id) : enabled.delete(body.p_company_id);
+          if (body.p_enabled) enabled.add(body.p_company_id);
+          else enabled.delete(body.p_company_id);
           return res(200, null);
         }
         return f.exposeInternal ? res(200, null) : res(404, { code: "PGRST202" });
