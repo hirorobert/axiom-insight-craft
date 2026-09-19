@@ -3,14 +3,14 @@
   "release": "financial-statements-production-readiness",
   "branch": "codex/financial-statements-production-readiness",
   "baseCommit": "f6248c05ace36969ad1bc160d54410798a015e30",
-  "sourceCommit": "01e7552ad5edddabff360bf458a4108d15c5a255",
+  "sourceCommit": "679e2aa4fa1292bfd43c5c82f5940937773965b3",
   "migrations": {
     "supabase/migrations/20260920000000_financial_statements_rollout_control.sql": "7e85126dac9a3fc2d157d404d12b5ac2f7842d007bfdc44b002081bf05bd7152",
     "supabase/migrations/20260920100000_financial_statements_persistence.sql": "5466d99dfb7ee164d984d8591f7818662a3e13eb88696a59f6fbfa672e6ba55a"
   },
   "documents": {
     "docs/release/FINANCIAL_STATEMENTS_ACTIVATION.md": "be60fe1e363e9cd8e2853777751698d35632ff05b4404d5af8fb5a059398ba7e",
-    "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md": "bfed26d38eada7e5cce9febee8556d1c51e5b9cb4664ff2830538380817e9d08",
+    "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md": "b789c936413ba19ed68d5528336e622913bb9532ef799f3673a51a97111577c6",
     "docs/release/sql/01_preflight.sql": "bed915dc29ef507fb70b424ac4d5275b69b646e34aa5462b476eb053571d9e0c",
     "docs/release/sql/02_postcondition.sql": "f691eecaf9fed4bba75c52e778e04db3d98f3ac530d5cd174c846590b4498e04",
     "docs/release/sql/03_activate_company.sql": "d69491b52516409b8c5dd86988655f07c1e81b47b9d80de6ffa5c1318333282c",
@@ -18,15 +18,15 @@
     "docs/release/sql/05_kill_switch.sql": "c3390858799a9e38c46bfc4969af6a98060d19a34734e734301c14be07b13927"
   },
   "artifacts": {
-    "note": "sha256 of every file in dist/",
+    "note": "sha256 of every file in dist/ for the build made at sourceCommit. The existing vite config embeds the build time and the HEAD commit id, so a rebuild is NOT byte-identical: these hashes identify the reviewed build output, they are not a reproducibility check",
     "files": {
       "dist/assets/html2canvas.esm-CBrSDip1.js": "b4f3add809a6d59f46260e8fd56cab240f3153def977386b230a839e8cb0b281",
-      "dist/assets/index-DJFV93SL.js": "235f685f45b640a5136741a56b77a84dabcf888836443aade8bfbdea41e1ef5c",
+      "dist/assets/index-BlTaG3sk.js": "f57af2f9f827c2594786ee3afeb73420dc106e4ac8167e9cb00d417c54901abe",
       "dist/assets/index-lGsV1ZSB.css": "0039f85072d45064dc395ad766b4909b4e812fd46b18abeb18803c795122513a",
-      "dist/assets/index.es-DV3qxmir.js": "91216a103036ce44947b87c21db141b989c83e2976fc6666b2ffe78ae3bc2103",
+      "dist/assets/index.es-DnmFMxTP.js": "d32e394ff32b5a420ce4165a8dc8fe3dd6e064bef03764e78d6f8bddba537d0c",
       "dist/assets/purify.es-C5KSVp3G.js": "91529dee77d4e154b7d8e874a9a9870505bbde7ba15034980a6fab4d40361c47",
       "dist/favicon.svg": "81249921ef972650854c02e53db05834a2a9efd970ef126750e4d8a2b15d1db5",
-      "dist/index.html": "052f36169a9488524d8c7d56ab6804f3c634ce1f764293f07e8a39a64ff3e018",
+      "dist/index.html": "cf046651b0ea2e803e42779d909002a950526a45e959d12972cef5b051444b23",
       "dist/placeholder.svg": "64badf7aabda0b9630b87020ffb6095cb858ccbcf66b355c2aa08b1063954d3b",
       "dist/robots.txt": "52710c261d851bc1ad35604017862f2a8444e7a0f02cd7b8b49e3ba92e6d4cea"
     }
