@@ -204,6 +204,9 @@ const IPSAS_CASH: FrameworkProfile = {
   },
 };
 
+/** Bumped whenever any profile's statement set, titles, terminology or disclosure areas change, so a stored report can name the wording authority it was prepared under. */
+export const FRAMEWORK_PROFILES_VERSION = "1.1.0";
+
 export const FRAMEWORK_PROFILES: Readonly<Record<ReportingFrameworkKind, FrameworkProfile>> = {
   IFRS: FULL_IFRS,
   IFRS_FOR_SMES: IFRS_FOR_SMES,
