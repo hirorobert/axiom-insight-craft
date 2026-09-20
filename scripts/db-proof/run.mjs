@@ -269,7 +269,8 @@ async function proveReplay(info) {
   await check(`all ${info.total} migrations apply in filename order on a fresh PostgreSQL 16`, () => info.applied === info.total);
   await check("server is PostgreSQL 16", async () => (await admin.query("SHOW server_version_num")).rows[0].server_version_num.startsWith("16"));
   for (const f of ["20260919100000_financial_statements_rollout_control.sql", "20260919110000_financial_statements_persistence.sql"]) {
-    await check(`${f} is the latest-ordered migration set`, () => info.files.slice(-2).includes(f));
+    // 20260920100000_workspace_setup_authority.sql is a later forward-only addition: the two FS migrations stay directly before it.
+    await check(`${f} is in the latest-ordered migration set (only forward-only later additions follow)`, () => info.files.slice(-3, -1).includes(f));
   }
 }
 
