@@ -120,7 +120,7 @@ describe("Flutterwave decommission — static active-source scan", () => {
   it("no Flutterwave SDK or package is declared as a dependency", () => {
     const pkg = read("package.json");
     expect(pkg).not.toMatch(/flutterwave|flw-|rave-/i);
-    const lock = read("package-lock.json");
+    const lock = read("bun.lock"); // the repository's only lockfile
     expect(lock).not.toMatch(/flutterwave/i);
   });
 });
