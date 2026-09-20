@@ -26,7 +26,7 @@ const Index = () => {
 
   // A repeat/expired confirmation-link click lands here with an auth error in
   // the URL hash — show a friendly explanation instead of a silent redirect.
-  const authLinkError = getAuthLinkError();
+  const authLinkError = getAuthLinkError(window.location.hash);
 
   // Authenticated users go directly to the workspace — never see the marketing page.
   useEffect(() => {
