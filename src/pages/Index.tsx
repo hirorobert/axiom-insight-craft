@@ -35,6 +35,12 @@ const Index = () => {
     }
   }, [user, loading, navigate]);
 
+  // Auth link errors (consumed/expired confirmation link) take priority over
+  // both the marketing page and the signed-in redirect.
+  if (authLinkError) {
+    return <AuthLinkErrorScreen linkError={authLinkError} />;
+  }
+
   // Suppress flash — render nothing while auth resolves or redirect is in flight.
   if (loading || user) return null;
 
