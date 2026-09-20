@@ -8,6 +8,7 @@ import { ProductTour } from "@/components/ProductTour";
 import { Features } from "@/components/Features";
 import { ClosingCTA } from "@/components/ClosingCTA";
 import { Footer } from "@/components/Footer";
+import { AuthLinkErrorScreen, getAuthLinkError } from "@/components/AuthLinkErrorScreen";
 
 // ─── Page composition ────────────────────────────────────────────────────────
 // Section order follows conversion architecture:
@@ -23,12 +24,22 @@ const Index = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
 
+  // A repeat/expired confirmation-link click lands here with an auth error in
+  // the URL hash — show a friendly explanation instead of a silent redirect.
+  const authLinkError = getAuthLinkError(window.location.hash);
+
   // Authenticated users go directly to the workspace — never see the marketing page.
   useEffect(() => {
     if (!loading && user) {
       navigate("/dashboard", { replace: true });
     }
   }, [user, loading, navigate]);
+
+  // Auth link errors (consumed/expired confirmation link) take priority over
+  // both the marketing page and the signed-in redirect.
+  if (authLinkError) {
+    return <AuthLinkErrorScreen linkError={authLinkError} />;
+  }
 
   // Suppress flash — render nothing while auth resolves or redirect is in flight.
   if (loading || user) return null;
