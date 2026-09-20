@@ -15,7 +15,7 @@ const corsHeaders = {
 }
 
 // Configuration
-const SITE_NAME = "Axiom Insights"
+const SITE_NAME = "CFOClose"
 const SENDER_DOMAIN = "notify.cfoclose.com"
 const ROOT_DOMAIN = "cfoclose.com"
 const FROM_DOMAIN = "notify.cfoclose.com"
@@ -129,7 +129,7 @@ const handler = createAuthEmailHandler({
   sendUrl: Deno.env.get('LOVABLE_SEND_URL'),
   emails: {
     signup: {
-      subject: 'Confirm your email',
+      subject: 'Confirm your CFOClose account',
       render: (data) =>
         React.createElement(SignupEmail, {
           siteName: SITE_NAME,
