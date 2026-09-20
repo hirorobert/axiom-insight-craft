@@ -8,29 +8,10 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { translateAuthError } from "@/lib/auth/translateAuthError";
+import { getAuthLinkError, type AuthLinkError } from "@/lib/auth/authLinkError";
 
-export interface AuthLinkError {
-  error: string;
-  errorCode: string | null;
-  errorDescription: string | null;
-}
-
-/**
- * Reads Supabase Auth error fragments from the URL hash, e.g. the redirect a
- * user lands on after clicking an already-consumed or expired email link:
- *   /#error=access_denied&error_code=otp_expired&error_description=...
- * Returns null when no auth error is present.
- */
-export function getAuthLinkError(hash: string = window.location.hash): AuthLinkError | null {
-  const params = new URLSearchParams(hash.replace(/^#/, ""));
-  const error = params.get("error");
-  if (!error) return null;
-  return {
-    error,
-    errorCode: params.get("error_code"),
-    errorDescription: params.get("error_description"),
-  };
-}
+export { getAuthLinkError };
+export type { AuthLinkError };
 
 /**
  * Friendly screen shown when a repeat/expired confirmation-link click lands on
