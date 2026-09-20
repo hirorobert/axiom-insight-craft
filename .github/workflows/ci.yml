@@ -75,7 +75,7 @@ jobs:
         run: bunx tsc --noEmit -p tsconfig.app.json
 
   release-gate:
-    name: Release Gate (clean Linux, npm ci, full suite)
+    name: Release Gate (clean Linux, frozen lockfile, full suite)
     runs-on: ubuntu-latest
     # The deterministic acceptance gate: exact head of the pull request, dependencies from the committed lockfile,
     # LF line endings (.gitattributes), zero failing tests — there is no "baseline failure" allowance.
@@ -88,23 +88,32 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies from the lockfile
-        run: npm ci
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # bun.lock is the project's authoritative lockfile (package-lock.json is not kept in sync with package.json).
+      - name: Install dependencies from the committed lockfile (frozen)
+        run: bun install --frozen-lockfile
 
       - name: Jurisdiction audits (copy audit + import boundary)
-        run: npx vitest run src/lib/jurisdiction
+        run: bunx vitest run src/lib/jurisdiction
 
       - name: Lint
-        run: npm run lint
+        run: bun run lint
 
       - name: Type check
-        run: npx tsc --noEmit -p tsconfig.app.json
+        run: bunx tsc --noEmit -p tsconfig.app.json
 
       - name: Full test suite
-        run: npm test
+        run: bun run test
 
       - name: Build
-        run: npm run build
+        run: bun run build
+
+      - name: Jurisdiction pack isolation (the pack is a separate lazy chunk; entry chunks carry no statutory wording)
+        run: node scripts/ci/assertPackIsolation.mjs dist
 
   golden-tests:
     name: Golden Fixture Tests (vitest)

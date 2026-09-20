@@ -72,7 +72,7 @@ describe("database inertness — schema and functions", () => {
   it.skipIf(!hasMain)("changes no automation-deploy surface other than the reviewed CI/RLS hardening, the disposable-database proof and the guarded hosted-staging acceptance script", () => {
     const changed = (gitOut("diff --name-only origin/main...HEAD -- .github package.json supabase/config.toml .lovable scripts") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
-    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/manifestLib.mjs", "scripts/release/scan-repo.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs", "scripts/db-proof/setupAuthority.mjs", "package.json"]);
+    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/manifestLib.mjs", "scripts/release/scan-repo.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs", "scripts/db-proof/setupAuthority.mjs", "scripts/ci/assertPackIsolation.mjs", "package.json"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

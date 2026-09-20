@@ -43,7 +43,7 @@ describe("jurisdiction import boundary", () => {
   it("the loader reaches a pack only through dynamic import()", () => {
     const code = fs.readFileSync(path.join(SRC, "lib/jurisdiction/packLoader.ts"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
     expect(code).not.toMatch(/^\s*import\s[^;]*jurisdiction-packs/m);
-    expect(code).toMatch(/import\("@\/jurisdiction-packs\/tz"\)/);
+    expect(code).toMatch(/import\("@\/jurisdiction-packs\/tz\/tzPack"\)/);
   });
 
   it("the moved statutory modules are not imported anywhere outside the pack by their old locations", () => {

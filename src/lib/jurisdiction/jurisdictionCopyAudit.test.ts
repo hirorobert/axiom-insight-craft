@@ -30,7 +30,7 @@ export const JURISDICTION_MODULES = (files: readonly string[]): string[] => [...
 /** Currency pickers: ISO-4217 reference data. */
 const CURRENCY_LIST_FILES = ["components/workspace/FirstRunEngagement.tsx", "components/CompanyManager.tsx"];
 
-const FORBIDDEN = /\b(TRA|TIN|EFDMS|TAA)\b|Tanzania|ITA Cap|Cap\.\s?332/;
+const FORBIDDEN = /\b(TRA|TIN|EFDMS|TAA|ITA|SDL|NSSF|WCF)\b|Tanzania|Finance Act|Cap\.\s?332/;
 
 function walk(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -69,7 +69,8 @@ export function visibleStrings(code: string): string[] {
   const src = stripComments(code);
   const found: string[] = [];
   for (const m of src.matchAll(/"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g)) found.push(m[1] ?? m[2] ?? m[3] ?? "");
-  for (const m of src.matchAll(/>([^<>{}=;]*[A-Za-z][^<>{}=;]*)</g)) found.push(m[1]);
+  // JSX text sits between a tag end `>` or an expression end `}` and the next tag or expression.
+  for (const m of src.matchAll(/[>}]([^<>{}=;]*[A-Za-z][^<>{}=;]*)(?=[<{])/g)) found.push(m[1]);
   return found.filter((s) => !/PUT-REAL/.test(s));
 }
 

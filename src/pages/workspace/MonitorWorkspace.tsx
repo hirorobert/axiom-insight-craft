@@ -12,7 +12,6 @@ import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { MaonoDashboard } from "@/components/maono/MaonoDashboard";
 import { ComplianceScorecard } from "@/components/ComplianceScorecard";
 import { FirmDashboardPanel } from "@/components/FirmDashboardPanel";
-import { FilingCalendarPanel } from "@/components/FilingCalendarPanel";
 import { JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
@@ -42,7 +41,7 @@ export default function MonitorWorkspace() {
 
       {/* Filing Calendar — multi-company deadline view */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <FilingCalendarPanel />
+        <JurisdictionPanel jurisdiction={company?.filing_jurisdiction ?? null} panel="filingCalendar" companyId={companyId} uploadId={upload?.id ?? ""} periodYear={periodYear} userId="" />
         <JurisdictionPanel jurisdiction={company?.filing_jurisdiction ?? null} panel="paymentLedger" companyId={companyId} uploadId={upload?.id ?? ""} periodYear={periodYear} userId="" />
       </div>
 

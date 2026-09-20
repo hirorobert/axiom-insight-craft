@@ -26,7 +26,11 @@ export type PackPanelId =
   | "auditReadiness"
   | "reconciliation"
   | "filingChecklist"
-  | "paymentLedger";
+  | "paymentLedger"
+  | "comparative"
+  | "capitalAllowances"
+  | "clientSummary"
+  | "filingCalendar";
 
 export interface JurisdictionPack {
   readonly code: string;

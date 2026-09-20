@@ -23,7 +23,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { JurisdictionGate, JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
 import { useEngagement } from "@/contexts/EngagementContext";
 import { serviceAvailability } from "@/lib/jurisdiction/registry";
-import { ClientSummaryPanel } from "@/components/ClientSummaryPanel";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
 function deriveFiscalPeriod(upload: WorkspaceUpload, fiscalYearEnd: string | null) {
@@ -103,7 +102,9 @@ export default function ComplianceWorkspace() {
         userId={user?.id ?? ""}
       />
 
-      <ClientSummaryPanel
+      <JurisdictionPanel
+        jurisdiction={jurisdiction}
+        panel="clientSummary"
         companyId={upload.company_id}
         uploadId={upload.id}
         periodYear={fpYear}

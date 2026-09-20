@@ -71,7 +71,7 @@ const TEMPLATE_ROWS: string[][] = [
   ["4000", "Revenue", "", "48000000"],
   ["5000", "Cost of Sales", "19300000", ""],
   ["6010", "Staff Costs", "9700000", ""],
-  ["6050", "SDL Expense", "340000", ""],
+  ["6050", "Payroll Levy Expense", "340000", ""],
   ["6200", "Rent", "3260000", ""],
 ];
 

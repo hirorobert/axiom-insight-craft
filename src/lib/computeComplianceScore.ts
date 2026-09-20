@@ -145,7 +145,7 @@ export function scoreFromData(input: ScoringInputData): ComplianceScore {
     contribution: scoreB * 0.20,
     maxPts: 20,
     detail: tpFindings.length === 0 && tpWarnings === 0
-      ? "No TP risk detected (ITA s.33 + s.24A)"
+      ? "No transfer-pricing risk detected"
       : `${tpFindings.length} TP finding${tpFindings.length !== 1 ? "s" : ""}, ${tpWarnings} warning${tpWarnings !== 1 ? "s" : ""} — TZS ${tpExposure.toLocaleString("en-TZ", { maximumFractionDigits: 0 })} exposure`,
     status: scoreB >= 90 ? "good" : scoreB >= 60 ? "warn" : "bad",
   };

@@ -27,7 +27,7 @@ import {
   computeWearTear,
   formatWearTearPreview,
   type ITAClass,
-} from "@/lib/computeWearTear";
+} from "./computeWearTear";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

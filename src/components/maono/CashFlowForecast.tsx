@@ -251,7 +251,7 @@ export function CashFlowForecast({ weeks, currency = "TZS" }: CashFlowForecastPr
             )}
             {selectedWeek.sdl_due > 0 && (
               <div className="flex justify-between">
-                <span className="text-gray-600">SDL due</span>
+                <span className="text-gray-600">Payroll levy due</span>
                 <span className="font-medium text-red-700">{fmtFull(selectedWeek.sdl_due)}</span>
               </div>
             )}
@@ -288,7 +288,7 @@ export function CashFlowForecast({ weeks, currency = "TZS" }: CashFlowForecastPr
             <table className="w-full text-xs">
               <thead className="bg-gray-100">
                 <tr>
-                  {["Week", "PAYE", "VAT", "SDL", "WHT", "Total Statutory"].map(h => (
+                  {["Week", "PAYE", "VAT", "Payroll levy", "WHT", "Total Statutory"].map(h => (
                     <th key={h} className="px-3 py-2 text-left text-gray-600 font-medium">{h}</th>
                   ))}
                 </tr>

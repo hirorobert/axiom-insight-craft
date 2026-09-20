@@ -118,7 +118,7 @@ function exportToExcel(pack: BoardPackData) {
   // Sheet 3: Cash Forecast
   const cashRows = [
     ["13-WEEK CASH FLOW FORECAST"],
-    ["Week", "Forecast Date", "Opening Cash", "AR Inflows", "Other Inflows", "AP Outflows", "PAYE", "VAT", "SDL", "WHT", "Total Outflows", "Closing Cash", "Risk"],
+    ["Week", "Forecast Date", "Opening Cash", "AR Inflows", "Other Inflows", "AP Outflows", "PAYE", "VAT", "Payroll levy", "WHT", "Total Outflows", "Closing Cash", "Risk"],
   ];
   for (const w of pack.cashWeeks) {
     cashRows.push([

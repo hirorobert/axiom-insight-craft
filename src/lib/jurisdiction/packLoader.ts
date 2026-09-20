@@ -9,7 +9,7 @@
 import type { JurisdictionPack } from "./packTypes";
 
 const LOADERS: Readonly<Record<string, () => Promise<{ default: JurisdictionPack }>>> = {
-  TZ: () => import("@/jurisdiction-packs/tz"),
+  TZ: () => import("@/jurisdiction-packs/tz/tzPack"),
 };
 
 export const LOADABLE_PACK_CODES: readonly string[] = Object.keys(LOADERS);

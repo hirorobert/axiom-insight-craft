@@ -24,8 +24,6 @@ import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
 import { JurisdictionGate, JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
 import { useEngagement } from "@/contexts/EngagementContext";
 import { serviceAvailability } from "@/lib/jurisdiction/registry";
-import { KingaComparativePanel } from "@/components/KingaComparativePanel";
-import { CapitalAllowancesRegister } from "@/components/CapitalAllowancesRegister";
 import type { TaxResultForExport } from "@/components/ExportStatements";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
@@ -144,7 +142,7 @@ export default function TaxWorkspace() {
       )}
 
       {activeTab === "comparative" && (
-        <KingaComparativePanel companyId={upload.company_id} />
+        <JurisdictionPanel jurisdiction={jurisdiction} panel="comparative" companyId={upload.company_id} uploadId={upload.id} periodYear={fpYear} userId={user?.id ?? ""} />
       )}
 
       {activeTab === "workpapers" && (
@@ -158,7 +156,9 @@ export default function TaxWorkspace() {
             companyName={upload.company_name ?? undefined}
             userId={user?.id ?? ""}
           />
-          <CapitalAllowancesRegister
+          <JurisdictionPanel
+            jurisdiction={jurisdiction}
+            panel="capitalAllowances"
             companyId={upload.company_id}
             uploadId={upload.id}
             periodYear={fpYear}
