@@ -53,25 +53,18 @@ describe("TrialBalanceUpload.tsx — TIN no longer blocks upload", () => {
     expect(startProcessing).not.toMatch(/TRA TIN.*before uploading/i);
   });
 
-  it("the informational (non-blocking) TIN warnings are preserved, reworded away from a false 'before uploading' claim", () => {
-    // Both informational banners still exist -- awareness is not removed,
-    // only the hard block. Their wording no longer implies upload is gated.
-    const tinWarnings = TRIAL_BALANCE_UPLOAD.match(/TRA TIN not set/g) ?? [];
-    expect(tinWarnings.length).toBeGreaterThanOrEqual(2);
-    expect(TRIAL_BALANCE_UPLOAD).not.toMatch(/TRA TIN not set[\s\S]{0,200}before uploading/);
+  it("the upload surface carries no tax-registration warning at all: it is a global data surface, and a tax-profile warning belongs to an active tax/filing service", () => {
+    expect(TRIAL_BALANCE_UPLOAD).not.toMatch(/TIN not set|TRA TIN|before filing with/i);
+    expect(TRIAL_BALANCE_UPLOAD).not.toMatch(/isTinMissing/);
   });
 });
 
 describe("WorkspaceOverview.tsx — TIN prompt no longer assumes an upload-time gate", () => {
-  it("tinBlocksNextAction no longer references hasUpload (the removed gate's own signal)", () => {
-    const match = WORKSPACE_OVERVIEW.match(/const tinBlocksNextAction =([^;]+);/);
+  it("the tax-profile warning derives from evaluateTaxProfile (service + jurisdiction + missing) and never from an upload", () => {
+    const match = WORKSPACE_OVERVIEW.match(/const taxProfile = evaluateTaxProfile\(([\s\S]+?)\);/);
     expect(match).not.toBeNull();
-    expect(match![1]).not.toMatch(/hasUpload/);
-  });
-
-  it("tinBlocksNextAction still derives from tinMissing and the real next-action blocker text", () => {
-    const match = WORKSPACE_OVERVIEW.match(/const tinBlocksNextAction =([^;]+);/);
-    expect(match![1]).toMatch(/tinMissing/);
-    expect(match![1]).toMatch(/nextAction\.blocker/);
+    expect(match![1]).not.toMatch(/hasUpload|upload/);
+    expect(WORKSPACE_OVERVIEW).toMatch(/taxProfile\.warn/);
+    expect(WORKSPACE_OVERVIEW).not.toMatch(/tinBlocksNextAction/);
   });
 });

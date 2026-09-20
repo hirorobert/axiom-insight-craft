@@ -16,7 +16,7 @@ import {
   AlertTriangle, CheckCircle2, XCircle, Play, Loader2,
   RefreshCw, ChevronDown, ChevronUp, Info, ShieldAlert, Plus, ClipboardList,
 } from "lucide-react";
-import { EvidenceRequestPanel } from "@/components/EvidenceRequestPanel";
+import { EvidenceRequestPanel } from "./EvidenceRequestPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

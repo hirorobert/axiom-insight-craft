@@ -24,12 +24,12 @@ export function isTinValid(raw: string): boolean {
  */
 export function validateTin(raw: string): string | null {
   const trimmed = raw.trim();
-  if (!trimmed) return "Enter the 9-digit TIN issued by the Tanzania Revenue Authority.";
+  if (!trimmed) return "Enter the tax identifier issued by your tax authority.";
   if (/[^0-9\s-]/.test(trimmed)) return "Digits, spaces and dashes only — no letters or symbols.";
   const digits = trimmed.replace(/\D/g, "");
   if (digits.length < 9) return `Too short — ${digits.length} of 9 digits entered.`;
-  if (digits.length > 9) return `Too long — ${digits.length} digits entered, a TRA TIN has exactly 9.`;
-  if (/^0+$/.test(digits)) return "A TIN cannot be all zeros.";
+  if (digits.length > 9) return `Too long — ${digits.length} digits entered; check the identifier.`;
+  if (/^0+$/.test(digits)) return "A tax identifier cannot be all zeros.";
   return null;
 }
 
@@ -84,10 +84,10 @@ export default function CompanyTinDialog({
         .eq("id", companyId);
       if (error) throw error;
       onSaved(formatted);
-      toast.success("TIN saved.");
+      toast.success("Tax identifier saved.");
       onOpenChange(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save the TIN.");
+      toast.error(err instanceof Error ? err.message : "Could not save the tax identifier.");
     } finally {
       setSaving(false);
     }
@@ -97,14 +97,14 @@ export default function CompanyTinDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Set TRA Tax Identification Number</DialogTitle>
+          <DialogTitle>Set tax identifier</DialogTitle>
           <DialogDescription>
-            {companyName} — required before any TRA document, filing pack or export can be produced.
+            {companyName} — required where your filing jurisdiction needs it, before a filing pack or export can be produced.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2 py-2">
-          <Label htmlFor="workspace-tin">TIN</Label>
+          <Label htmlFor="workspace-tin">Tax identifier</Label>
           <Input
             id="workspace-tin"
             value={value}
@@ -133,7 +133,7 @@ export default function CompanyTinDialog({
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={save} disabled={!valid || saving}>
-            {saving ? "Saving…" : "Save TIN"}
+            {saving ? "Saving…" : "Save tax identifier"}
           </Button>
         </DialogFooter>
       </DialogContent>

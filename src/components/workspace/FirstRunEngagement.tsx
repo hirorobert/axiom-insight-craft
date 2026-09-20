@@ -204,9 +204,6 @@ export default function FirstRunEngagement({
     >
       {/* Header */}
       <div className="space-y-1.5">
-        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-          Step 1 of 2
-        </p>
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
           Set up your reporting workspace
         </h1>

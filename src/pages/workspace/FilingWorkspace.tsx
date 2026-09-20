@@ -13,7 +13,9 @@ import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
 import { NoteSynth } from "@/components/NoteSynth";
 import { MgmtLetterPanel } from "@/components/MgmtLetterPanel";
-import { TRAFilingChecklist } from "@/components/TRAFilingChecklist";
+import { JurisdictionGate, JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
+import { useEngagement } from "@/contexts/EngagementContext";
+import { serviceAvailability } from "@/lib/jurisdiction/registry";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
 function deriveFiscalPeriod(upload: WorkspaceUpload, fiscalYearEnd: string | null) {
@@ -90,12 +92,15 @@ export default function FilingWorkspace() {
       )}
 
       {/* TRA Filing Checklist */}
-      <TRAFilingChecklist
-        uploadId={upload.id}
+      <JurisdictionPanel
+        jurisdiction={company?.filing_jurisdiction ?? null}
+        panel="filingChecklist"
         companyId={upload.company_id}
+        uploadId={upload.id}
         periodYear={fpYear}
         periodMonth={fpMonth}
         companyName={upload.company_name ?? undefined}
+        userId=""
       />
     </div>
   );

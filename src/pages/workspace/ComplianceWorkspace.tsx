@@ -20,9 +20,9 @@
 import { ClipboardCheck } from "lucide-react";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { KingaFindingsPanel } from "@/components/KingaFindingsPanel";
-import { TRAAuditReadinessPanel } from "@/components/TRAAuditReadinessPanel";
-import { ClientSummaryPanel } from "@/components/ClientSummaryPanel";
+import { JurisdictionGate, JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
+import { useEngagement } from "@/contexts/EngagementContext";
+import { serviceAvailability } from "@/lib/jurisdiction/registry";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
 function deriveFiscalPeriod(upload: WorkspaceUpload, fiscalYearEnd: string | null) {
@@ -46,8 +46,15 @@ function deriveFiscalPeriod(upload: WorkspaceUpload, fiscalYearEnd: string | nul
 }
 
 export default function ComplianceWorkspace() {
-  const { upload, company } = useWorkspace();
+  const { upload, company, companyId } = useWorkspace();
   const { user } = useAuth();
+  const { canAmend } = useEngagement();
+  const jurisdiction = company?.filing_jurisdiction ?? null;
+
+  // Compliance review is unavailable until a filing jurisdiction is selected — and only for one that ships a pack.
+  if (!serviceAvailability("COMPLIANCE_REVIEW", jurisdiction).available) {
+    return <JurisdictionGate capability="COMPLIANCE_REVIEW" jurisdiction={jurisdiction} companyId={companyId} canChange={canAmend} />;
+  }
 
   const ready =
     upload && upload.company_id && upload.status === "complete" && upload.is_valid === true;
@@ -59,7 +66,7 @@ export default function ComplianceWorkspace() {
         <div>
           <p className="text-sm font-medium text-foreground">Compliance Review</p>
           <p className="text-xs text-muted-foreground mt-1">
-            TRA audit readiness, client summaries, and evidence packages require a validated trial balance.
+            Audit readiness, client summaries, and evidence packages require a validated trial balance.
           </p>
         </div>
       </div>
@@ -73,7 +80,9 @@ export default function ComplianceWorkspace() {
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <KingaFindingsPanel
+      <JurisdictionPanel
+        jurisdiction={jurisdiction}
+        panel="findings"
         companyId={upload.company_id}
         uploadId={upload.id}
         periodYear={fpYear}
@@ -82,7 +91,9 @@ export default function ComplianceWorkspace() {
         userId={user?.id ?? ""}
       />
 
-      <TRAAuditReadinessPanel
+      <JurisdictionPanel
+        jurisdiction={jurisdiction}
+        panel="auditReadiness"
         companyId={upload.company_id}
         uploadId={upload.id}
         periodYear={fpYear}
@@ -91,7 +102,9 @@ export default function ComplianceWorkspace() {
         userId={user?.id ?? ""}
       />
 
-      <ClientSummaryPanel
+      <JurisdictionPanel
+        jurisdiction={jurisdiction}
+        panel="clientSummary"
         companyId={upload.company_id}
         uploadId={upload.id}
         periodYear={fpYear}

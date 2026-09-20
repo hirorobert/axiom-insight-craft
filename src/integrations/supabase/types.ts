@@ -1320,6 +1320,7 @@ export type Database = {
           created_at: string
           currency: string | null
           description: string | null
+          filing_jurisdiction: string | null
           fiscal_year_end: string | null
           id: string
           industry: string | null
@@ -1335,6 +1336,7 @@ export type Database = {
           created_at?: string
           currency?: string | null
           description?: string | null
+          filing_jurisdiction?: string | null
           fiscal_year_end?: string | null
           id?: string
           industry?: string | null
@@ -1350,6 +1352,7 @@ export type Database = {
           created_at?: string
           currency?: string | null
           description?: string | null
+          filing_jurisdiction?: string | null
           fiscal_year_end?: string | null
           id?: string
           industry?: string | null

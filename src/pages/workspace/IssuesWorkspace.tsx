@@ -9,7 +9,7 @@
 
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { KingaFindingsPanel } from "@/components/KingaFindingsPanel";
+import { JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
 import { Inbox } from "lucide-react";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
@@ -47,7 +47,9 @@ export default function IssuesWorkspace() {
       {upload?.company_id &&
         upload.status === "complete" &&
         upload.is_valid === true && (
-          <KingaFindingsPanel
+          <JurisdictionPanel
+            jurisdiction={company?.filing_jurisdiction ?? null}
+            panel="findings"
             companyId={upload.company_id}
             uploadId={upload.id}
             periodYear={fpYear}

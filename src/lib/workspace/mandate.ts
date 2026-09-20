@@ -56,7 +56,7 @@ export const CAPABILITY_OUTCOMES: {
   {
     capability: "TAX_COMPUTATION",
     title: "Tax computation",
-    description: "Compute the tax position. Source data is available as input evidence.",
+    description: "Compute the tax position from the prepared source data.",
   },
   {
     capability: "COMPLIANCE_REVIEW",

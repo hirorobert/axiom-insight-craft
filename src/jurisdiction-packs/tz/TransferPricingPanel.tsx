@@ -43,7 +43,7 @@ import {
   AlertTriangle, ChevronDown, ChevronRight, RefreshCw,
   ShieldAlert, FileText, CheckCircle, Globe, Building,
 } from "lucide-react";
-import { EvidenceRequestPanel } from "@/components/EvidenceRequestPanel";
+import { EvidenceRequestPanel } from "./EvidenceRequestPanel";
 import { toast } from "sonner";
 
 // ── Types ─────────────────────────────────────────────────────

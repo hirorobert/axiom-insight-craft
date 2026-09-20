@@ -12,14 +12,13 @@ import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { MaonoDashboard } from "@/components/maono/MaonoDashboard";
 import { ComplianceScorecard } from "@/components/ComplianceScorecard";
 import { FirmDashboardPanel } from "@/components/FirmDashboardPanel";
-import { FilingCalendarPanel } from "@/components/FilingCalendarPanel";
-import { PaymentLedgerPanel } from "@/components/PaymentLedgerPanel";
+import { JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
 export default function MonitorWorkspace() {
-  const { upload, periodYear } = useWorkspace();
+  const { upload, periodYear, company, companyId } = useWorkspace();
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -42,8 +41,8 @@ export default function MonitorWorkspace() {
 
       {/* Filing Calendar — multi-company deadline view */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <FilingCalendarPanel />
-        <PaymentLedgerPanel />
+        <JurisdictionPanel jurisdiction={company?.filing_jurisdiction ?? null} panel="filingCalendar" companyId={companyId} uploadId={upload?.id ?? ""} periodYear={periodYear} userId="" />
+        <JurisdictionPanel jurisdiction={company?.filing_jurisdiction ?? null} panel="paymentLedger" companyId={companyId} uploadId={upload?.id ?? ""} periodYear={periodYear} userId="" />
       </div>
 
       {/* Firm Dashboard — partner-level overview */}

@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { computeWearTear, ITA_CLASS_CONFIG, getITAClassConfig } from "../computeWearTear";
+import { computeWearTear, ITA_CLASS_CONFIG, getITAClassConfig } from "./computeWearTear";
 
 // ── Class 1 — 37.5% Reducing Balance ─────────────────────────────────────────
 

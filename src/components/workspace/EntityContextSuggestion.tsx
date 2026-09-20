@@ -13,6 +13,8 @@ import type { ReportingFramework, ConfidenceLevel } from "@/lib/accounting/entit
 
 interface Props {
   reportingFrameworkDbValue: string | null | undefined;
+  /** companies.created_at — lets a deliberate selection on a post-cut-over company read as confirmed. */
+  companyCreatedAt?: string | null;
 }
 
 const FRAMEWORK_LABEL: Record<ReportingFramework, string> = {
@@ -30,6 +32,8 @@ const CONFIDENCE_LABEL: Record<ConfidenceLevel, string> = {
   NONE: "no signal",
 };
 
+export const FRAMEWORK_NOT_SELECTED = "Framework not selected";
+
 export interface EntityContextSuggestionText {
   text: string;
   confidence: ConfidenceLevel;
@@ -44,11 +48,13 @@ export interface EntityContextSuggestionText {
  */
 export function formatEntityContextSuggestion(
   reportingFrameworkDbValue: string | null | undefined,
+  companyCreatedAt?: string | null,
 ): EntityContextSuggestionText | null {
-  const ctx = detectEntityAccountingContext({ companyReportingFrameworkDbValue: reportingFrameworkDbValue });
+  const ctx = detectEntityAccountingContext({ companyReportingFrameworkDbValue: reportingFrameworkDbValue, companyCreatedAt });
   const fw = ctx.reportingFramework;
 
-  if (fw.confidence === "NONE") return null;
+  // "Decide later" persists no framework: say so plainly — never an invented or "unconfirmed default" value.
+  if (fw.confidence === "NONE") return { text: FRAMEWORK_NOT_SELECTED, confidence: "NONE", detail: undefined };
 
   return {
     text: `Reporting framework: ${FRAMEWORK_LABEL[fw.value]} (${CONFIDENCE_LABEL[fw.confidence]})`,
@@ -57,8 +63,8 @@ export function formatEntityContextSuggestion(
   };
 }
 
-export function EntityContextSuggestion({ reportingFrameworkDbValue }: Props) {
-  const formatted = formatEntityContextSuggestion(reportingFrameworkDbValue);
+export function EntityContextSuggestion({ reportingFrameworkDbValue, companyCreatedAt }: Props) {
+  const formatted = formatEntityContextSuggestion(reportingFrameworkDbValue, companyCreatedAt);
   if (!formatted) return null;
 
   return (

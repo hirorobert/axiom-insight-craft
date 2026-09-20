@@ -352,9 +352,9 @@ export const CompanyManager = () => {
                             <Badge
                               variant="outline"
                               className="text-xs border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                              title="TRA TIN is missing or still a placeholder. Enter the real TIN."
+                              title="The tax identifier is missing or still a placeholder."
                             >
-                              TIN needed
+                              Tax identifier needed
                             </Badge>
                           )}
                         </div>
@@ -415,8 +415,8 @@ export const CompanyManager = () => {
             {/* TIN — mandatory for TRA submissions */}
             <div className="space-y-2">
               <Label htmlFor="tin">
-                TRA Tax Identification Number (TIN)
-                <span className="ml-1 text-xs text-muted-foreground">(required for TRA documents)</span>
+                Tax identifier
+                <span className="ml-1 text-xs text-muted-foreground">(only where your filing jurisdiction requires it)</span>
               </Label>
               <Input
                 id="tin"
@@ -446,6 +446,7 @@ export const CompanyManager = () => {
               {editingCompany && (
                 <FrameworkConfirmationBanner
                   reportingFrameworkDbValue={formData.reporting_framework}
+                  companyCreatedAt={(editingCompany as { created_at?: string } | null)?.created_at ?? null}
                 />
               )}
               <Select

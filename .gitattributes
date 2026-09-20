@@ -1,0 +1,14 @@
+# Deterministic line endings: LF in every checkout on every platform (Windows contributors included).
+# Files already stored with CRLF in the index keep their stored form (git does not rewrite them under text=auto).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.xlsx binary
+*.zip binary

@@ -433,7 +433,7 @@ export function ExportStatements({
       doc.setFontSize(14); doc.setTextColor(30);
       doc.text(companyName || "—", 14, y); y += 7;
       doc.setFontSize(8.5); doc.setTextColor(80);
-      if (companyTin) { doc.text(`TIN: ${companyTin}`, 14, y); y += 4.5; }
+      if (companyTin) { doc.text(`Tax identifier: ${companyTin}`, 14, y); y += 4.5; }
       doc.text(`Period year end: ${periodYearEnd || "—"}`, 14, y);             y += 4.5;
       doc.text(`Framework: ${cfg.displayLabel}`, 14, y);                       y += 4.5;
       doc.text(`Generated: ${generatedAt} · ${totalCount > 0 ? `${autoCount}/${totalCount} accounts auto-classified` : "—"} · Kinga`, 14, y); y += 4.5;
@@ -745,7 +745,7 @@ export function ExportStatements({
     } else {
       doc.setFontSize(8); doc.setTextColor(120);
       doc.text(
-        `${cfg.statementNames.equity} will appear here once the ITA Tax Analysis has been run and committed.`,
+        `${cfg.statementNames.equity} will appear here once the tax analysis has been run and committed.`,
         14, y + 6
       );
       doc.setFontSize(6.5); doc.setTextColor(160);
@@ -864,7 +864,7 @@ export function ExportStatements({
         const d2Y = scfAfter + scfNoteLines.length * 3.5 + 2;
         doc.setFontSize(6.5); doc.setTextColor(180, 80, 0);
         doc.text(
-          "⚠  One or more asset disposals: IFRS sale proceeds not provided — ITA tax cost (WDV) used as fallback. " +
+          "⚠  One or more asset disposals: IFRS sale proceeds not provided — tax cost (WDV) used as fallback. " +
           "Enter actual disposal proceeds in the capital allowance schedule to correct investing activities.",
           14, d2Y
         );
@@ -872,7 +872,7 @@ export function ExportStatements({
     } else {
       doc.setFontSize(8); doc.setTextColor(120);
       doc.text(
-        `${cfg.statementNames.cashFlow} will appear here once the ITA Tax Analysis has been run and committed.`,
+        `${cfg.statementNames.cashFlow} will appear here once the tax analysis has been run and committed.`,
         14, y + 6
       );
     }
@@ -961,7 +961,7 @@ export function ExportStatements({
     const summaryData = [
       [companyName || "—"],
       [""],
-      ["TIN",                 companyTin    || "—"],
+      ["Tax identifier",      companyTin    || "—"],
       ["Period year end",     periodYearEnd || "—"],
       ["Reporting framework", cfg.displayLabel],
       ["Generated",           generatedAt],

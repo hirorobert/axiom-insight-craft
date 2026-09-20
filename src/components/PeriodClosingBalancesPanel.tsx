@@ -188,7 +188,7 @@ export function PeriodClosingBalancesPanel({ companyId, companyName }: Props) {
                 Period Closing Balances
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {companyName ? `${companyName} · ` : ""}Multi-year continuity engine — ITA Cap.332 / IAS 12
+                {companyName ? `${companyName} · ` : ""}Multi-year continuity engine — IAS 12
               </p>
             </div>
           </div>
@@ -242,7 +242,7 @@ export function PeriodClosingBalancesPanel({ companyId, companyName }: Props) {
             {/* ── W&T WDV by Class ──────────────────────────────── */}
             <TabsContent value="wdv" className="mt-3 space-y-2">
               <p className="text-xs text-muted-foreground mb-2">
-                Written-down values carried forward to FY{(selectedYear ?? 0) + 1} capital allowances schedule (ITA s.34).
+                Written-down values carried forward to FY{(selectedYear ?? 0) + 1} capital allowances schedule.
               </p>
               {WDV_CLASSES.map(cls => {
                 const val = current[cls.key] ?? 0;
@@ -313,7 +313,7 @@ export function PeriodClosingBalancesPanel({ companyId, companyName }: Props) {
               <div className={`rounded-xl border p-3 space-y-2 ${current.cumulative_unrelieved_loss_tzs > 0 ? "border-red-200 bg-red-50/50" : "border-emerald-200 bg-emerald-50/50"}`}>
                 <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                   <BookOpen className={`w-3.5 h-3.5 ${current.cumulative_unrelieved_loss_tzs > 0 ? "text-red-600" : "text-emerald-600"}`} />
-                  Cumulative Unrelieved Loss — ITA s.19(2)
+                  Cumulative Unrelieved Loss
                 </h4>
                 <div className="flex items-center justify-between">
                   <div>

@@ -18,7 +18,7 @@ Changes made via Lovable will be committed automatically to this repo.
 
 If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+The only requirement is having [Bun](https://bun.sh) 1.3.14 installed (the repository's single package manager — see `packageManager` in `package.json`).
 
 Follow these steps:
 
@@ -29,11 +29,11 @@ git clone <YOUR_GIT_URL>
 # Step 2: Navigate to the project directory.
 cd <YOUR_PROJECT_NAME>
 
-# Step 3: Install the necessary dependencies.
-npm i
+# Step 3: Install the exact dependencies from the committed lockfile (bun.lock).
+bun install --frozen-lockfile
 
 # Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+bun run dev
 ```
 
 **Edit a file directly in GitHub**

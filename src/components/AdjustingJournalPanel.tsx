@@ -424,7 +424,7 @@ export function AdjustingJournalPanel({ companyId, uploadId, periodYear, company
                 Adjusting Journal Entries
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {companyName ? `${companyName} · ` : ""}FY{periodYear} — ITA Cap.332 / IAS 8
+                {companyName ? `${companyName} · ` : ""}FY{periodYear} — IAS 8
               </p>
             </div>
           </div>
@@ -774,7 +774,7 @@ export function AdjustingJournalPanel({ companyId, uploadId, periodYear, company
         {/* IAS 8 reference footer */}
         <div className="pt-2 border-t border-border/40 text-xs text-muted-foreground/70 flex items-center gap-1.5">
           <BookOpen className="w-3 h-3" />
-          AJEs prepared under IAS 8 (Accounting Policies, Changes in Accounting Estimates and Errors). Engine AJEs reference ITA Cap.332 R.E.2023.
+          AJEs prepared under IAS 8 (Accounting Policies, Changes in Accounting Estimates and Errors).
         </div>
       </CardContent>
     </Card>

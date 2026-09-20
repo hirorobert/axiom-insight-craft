@@ -139,7 +139,7 @@ export const PLATFORM_TABLE = [
       "Wear-and-tear schedules where configured",
       "Evidence-linked findings for professional review",
     ],
-    basis: "Jurisdiction pack — Tanzania available; others in validation",
+    basis: "Jurisdiction packs are enabled per workspace as each is validated",
   },
   {
     module: "Filing Package",
@@ -232,9 +232,9 @@ export const JURISDICTION_SECTION = {
         "Framework-aware presentation contexts are supported. The exact IFRS or IPSAS workflow shown to a firm depends on its configured and verified reporting path.",
     },
     {
-      label: "Tanzania compliance pack",
+      label: "Jurisdiction compliance packs",
       detail:
-        "Structured corporate income-tax workpapers, wear-and-tear schedules, EFDMS reconciliation, findings review and filing-readiness support are available within configured Tanzania engagements. Professional review remains required.",
+        "Structured corporate income-tax workpapers, wear-and-tear schedules, fiscal-device reconciliation, findings review and filing-readiness support are available within configured jurisdiction engagements. Professional review remains required.",
     },
     {
       label: "Additional jurisdictions",

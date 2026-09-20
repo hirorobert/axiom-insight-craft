@@ -45,6 +45,9 @@ export interface WorkspaceCompany {
   reporting_framework: string | null;
   fiscal_year_end: string | null;
   currency: string | null;
+  created_at?: string | null;
+  /** Explicitly selected filing jurisdiction (ISO alpha-2), or null. Never inferred. */
+  filing_jurisdiction?: string | null;
 }
 
 export interface UseWorkspaceDataReturn {
@@ -153,7 +156,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     // Fetch company
     const { data: co } = await supabase
       .from("companies")
-      .select("id, name, code, tin, reporting_framework, fiscal_year_end, currency")
+      .select("id, name, code, tin, reporting_framework, fiscal_year_end, currency, created_at, filing_jurisdiction")
       .eq("id", cId)
       .single();
 

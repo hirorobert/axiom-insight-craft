@@ -362,7 +362,7 @@ function AccountantView({ analyses, insights, riskData, cashWeeks, alerts, onAck
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Risk + TRA Signals</div>
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Risk + Tax Authority Signals</div>
           <RiskRadar riskData={riskData} />
         </div>
         <div>

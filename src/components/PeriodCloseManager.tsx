@@ -350,7 +350,7 @@ export function PeriodCloseManager({ userId }: Props) {
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold text-foreground truncate">{company.name}</span>
                             {company.tin && (
-                              <span className="text-xs text-muted-foreground font-mono hidden sm:inline">TIN: {company.tin}</span>
+                              <span className="text-xs text-muted-foreground font-mono hidden sm:inline">Tax identifier: {company.tin}</span>
                             )}
                             {so?.period_year && (
                               <span className="text-xs text-muted-foreground">FY{so.period_year}</span>
@@ -439,7 +439,7 @@ export function PeriodCloseManager({ userId }: Props) {
                                 <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
                                 <div>
                                   <p className="font-medium text-emerald-800">Period is locked and immutable.</p>
-                                  <p className="text-emerald-700/80 mt-0.5">New trial balance uploads for FY{so.period_year} are blocked by the database. Unlock requires direct DB admin access (TAA 2015 s.29 audit trail preserved).</p>
+                                  <p className="text-emerald-700/80 mt-0.5">New trial balance uploads for FY{so.period_year} are blocked by the database. Unlock requires direct DB admin access (audit trail preserved).</p>
                                 </div>
                               </div>
                             )}
@@ -479,7 +479,7 @@ export function PeriodCloseManager({ userId }: Props) {
                                         <li>The DB enforces immutability via RLS — no user can override</li>
                                         <li>Statements hash is preserved for non-repudiation</li>
                                       </ul>
-                                      <p className="text-xs text-muted-foreground">TAA 2015 s.29 requires audit trail preservation. Unlock requires database admin intervention.</p>
+                                      <p className="text-xs text-muted-foreground">Audit-trail preservation applies. Unlock requires database admin intervention.</p>
                                     </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
@@ -519,7 +519,7 @@ export function PeriodCloseManager({ userId }: Props) {
 
           {companies.length > 0 && (
             <div className="pt-2 border-t border-border/40 text-xs text-muted-foreground/70">
-              Sign-off chain enforced per IAS 1 / IFRS for SMEs. Period lock triggers DB immutability — TAA 2015 s.29 audit trail preserved.
+              Sign-off chain enforced per IAS 1 / IFRS for SMEs. Period lock triggers DB immutability — audit trail preserved.
             </div>
           )}
         </CardContent>
@@ -543,7 +543,7 @@ export function PeriodCloseManager({ userId }: Props) {
 
           <div className="space-y-3 py-2">
             <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-              By signing, you confirm that the financial statements and tax computations for this period have been reviewed and are accurate under ITA Cap.332 R.E.2023 and IFRS for SMEs.
+              By signing, you confirm that the financial statements and tax computations for this period have been reviewed and are accurate under the applicable reporting framework and tax rules.
             </div>
             <div>
               <Label className="text-xs font-medium">Reviewer note (optional)</Label>

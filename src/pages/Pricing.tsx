@@ -43,7 +43,7 @@ const FREE_FEATURES = [
 
 const PAID_FEATURES = [
   "Full IFRS statement suite — IAS 1, IAS 7, disclosure notes",
-  "Configured Tanzania tax and compliance workflow",
+  "Configured jurisdiction tax and compliance workflow",
   "Bank reconciliation with evidence verification",
   "Comparative financial statements — current vs prior period",
   "Variance analysis with configurable materiality thresholds",
@@ -302,7 +302,7 @@ export default function Pricing() {
                 {
                   label: "Jurisdiction pack",
                   detail:
-                    "Tanzania compliance pack included. Additional jurisdictions added as validated.",
+                    "Jurisdiction compliance pack included. Additional jurisdictions added as validated.",
                 },
                 {
                   label: "Audit-grade security",

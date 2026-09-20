@@ -15,6 +15,9 @@ TRA compliance, IPSAS/IFRS for SMEs) and the Iron Dome Ω∞ architecture.
 
 **Stack:** React + TypeScript + Vite · Supabase (Postgres + Auth + Storage + Edge Functions) · Tailwind CSS + shadcn/ui · Lucide icons
 
+**Package manager:** Bun, exactly `bun@1.3.14` (`packageManager` in `package.json`; pinned in every CI job). `bun.lock` is the only
+lockfile — see section 14. Never run `npm install`/`npm ci`/`yarn`/`pnpm`; never commit another lockfile.
+
 **Repo root:** `C:\Users\user\axiom-insight-craft`
 
 ---
@@ -229,6 +232,11 @@ accounting_errors, safisha_status`
 Sign-off workflow table. Has the `hesabu_gate_before_signoff` trigger which
 enforces that hesabu-validate must pass before a sign-off is accepted.
 
+### workspace_setup_authority (PR #25 — unapplied to the hosted backend until explicitly approved)
+`20260920100000_workspace_setup_authority.sql` — `uq_engagements_one_open_per_period`, transactional
+`open_engagement_with_scope`, engagement-scoped append-only `engagement_setup_events`, `companies.filing_jurisdiction`.
+Proven by `scripts/db-proof/setupAuthority.mjs`. Only Lovable/the owner applies it.
+
 ### five WIP migrations (NOT yet in origin/main)
 These must be applied in this exact order before any other WIP work:
 1. `20260720100000` — RLS hardening + segregation of duties
@@ -241,6 +249,9 @@ These must be applied in this exact order before any other WIP work:
 
 ## 7. Canonical File Map
 
+This map is verified by `src/lib/__tests__/claudeFileMap.test.ts`: every path below must exist, and every non-test file in
+`src/jurisdiction-packs/tz/` and `src/lib/workspace/` must be listed. Update both together.
+
 ```
 src/
   lib/
@@ -248,15 +259,52 @@ src/
       stageMetadata.ts        ← CANONICAL stage slugs/labels/icons/sequence
       types.ts                ← WorkspaceMission, MissionStatus, WorkspaceState
       deriveWorkspaceState.ts ← Pure state engine (no async, no side effects)
+      onboardingState.ts      ← Pure launch state machine (LAUNCHPAD/DATA_CHOICE/IMPORT_PENDING/EMPTY_WORKSPACE/ACTIVE) + LAUNCH_COPY
+      navigation.ts           ← Navigation derived from the persisted engagement scope
+      mandate.ts              ← Engagement capabilities registry (CAPABILITY_OUTCOMES) + mandate projection
+      workspaceSetupClient.ts ← ONLY client path to workspace setup RPCs (open_engagement_with_scope, data start, jurisdiction)
+      certificationRevalidationGuard.ts ← Certification revalidation guard
+      computeCertificationReadiness.ts  ← Certification readiness (pure)
+      computePreflight.ts     ← Preflight checks (pure)
+      discardSuppression.ts   ← Discarded-upload suppression rules
+      resolveActiveUpload.ts  ← Which upload is the active one
+      resolveNextActionDestination.ts ← Next-action routing
+    jurisdiction/
+      registry.ts             ← Filing-jurisdiction registry: ISO codes, which services need one, which have a pack
+      packLoader.ts           ← ONLY module allowed to import a pack (dynamic import() only)
+      packTypes.ts            ← Jurisdiction pack contract (panels by id)
+      taxProfile.ts           ← Tax-profile warnings (conditional on jurisdiction, never global)
     computeComplianceScore.ts ← Pure scoring engine (no DB writes)
-    computeWearTear.ts        ← Pure W&T calculator (ITA s.34 rates)
     normalizeAccountName.ts   ← Account name normalisation
+
+  jurisdiction-packs/
+    tz/                       ← THE Tanzania pack. Loaded only when TZ is explicitly selected. All Tanzanian statutory code lives here.
+      tzPack.tsx              ← Pack manifest (default export) — the lazy chunk entry
+      KingaTaxPanel.tsx       ← Tax computation panel (ITA Cap.332)
+      KingaComparativePanel.tsx ← Multi-year comparative / AMT
+      KingaFindingsPanel.tsx  ← Compliance findings
+      TaxLossPanel.tsx        ← Assessed-loss carry-forward
+      TransferPricingPanel.tsx ← ITA s.33 workpaper
+      ThinCapWorkpaper.tsx    ← ITA s.24A workpaper (gated state only)
+      AddBacksWorkpaper.tsx   ← Add-backs workpaper
+      CapitalAllowancesRegister.tsx ← Capital allowances (still rendered in the Tax stage, via JurisdictionPanel)
+      computeWearTear.ts      ← Pure W&T calculator (ITA s.34 rates) — moved here from src/lib/
+      EvidenceRequestPanel.tsx ← Evidence requests
+      TRAAuditReadinessPanel.tsx ← Audit readiness
+      TRAFilingChecklist.tsx  ← Filing checklist
+      EFDMSReconciliationPanel.tsx ← EFDMS reconciliation
+      PaymentLedgerPanel.tsx  ← Payment ledger
+      ClientSummaryPanel.tsx  ← Client summary (Compliance stage)
+      FilingCalendarPanel.tsx ← Filing calendar (Monitor stage)
+      PolicyCompass.tsx       ← Policy assistant (currently unrouted)
+      filingTerms.ts          ← Filing terminology configuration
+      generateTaxComputationPDF.ts ← Tax computation PDF
 
   pages/
     Dashboard.tsx             ← Auth gateway only. Routes to /workspace. NO panels.
     workspace/
-      WorkspaceLayout.tsx     ← Shell: top bar + stage tab nav + <Outlet>
-      WorkspaceOverview.tsx   ← Command center: next action + 7-row progress table
+      WorkspaceLayout.tsx     ← Shell: top bar + derived stage nav + <Outlet>
+      WorkspaceOverview.tsx   ← Command center: ONE dominant decision (launchpad / data choice / next action)
       PrepareWorkspace.tsx    ← Stage 1
       ReconcileWorkspace.tsx  ← Stage 2
       StatementsWorkspace.tsx ← Stage 3 (has known TS bug — see section 9)
@@ -267,8 +315,17 @@ src/
 
   components/
     TrialBalanceUpload.tsx    ← Upload component. Has TIN gate + duplicate detection.
-    SaffLogo.tsx              ← Inline SVG logo. Single source of truth for branding.
+    CFOCloseWordmark.tsx      ← CFOClose wordmark. Single source of truth for branding (SaffLogo.tsx was removed in the rebrand).
     Header.tsx                ← PUBLIC header only. Not used inside workspace.
+    jurisdiction/
+      JurisdictionPanel.tsx   ← JurisdictionPanel/JurisdictionGate: the only way a stage page reaches a pack
+      FilingJurisdictionSetting.tsx ← Neutral "Filing jurisdiction" setting
+    workspace/
+      ServiceLaunchpad.tsx    ← "What would you like to complete?" (services from the canonical registry)
+      DataChoiceCard.tsx      ← The one data question
+      EngagementScopeDialog.tsx ← "Manage services"
+      StageScopeGate.tsx      ← Stage URL cannot bypass scope
+      FirstRunEngagement.tsx  ← Zero-company first-run form
     safisha/
       SafishaGate.tsx         ← Post-upload evidence gate. Cannot be skipped.
 
@@ -276,8 +333,20 @@ src/
     WorkspaceContext.tsx      ← React context wrapping useWorkspaceData
   hooks/
     useWorkspaceData.ts       ← Authoritative DB reads for workspace state
+    useDataStart.ts           ← Engagement-scoped data-start decision (server-authoritative)
+    useEngagementMandate.ts   ← Engagement scope; creation goes through open_engagement_with_scope
+    useJurisdictionPack.ts    ← Loads the selected jurisdiction's pack through packLoader
   constants/
     copy.ts                   ← All user-visible copy strings. Nav labels live here.
+
+scripts/
+  ci/
+    assertSingleLockfile.mjs  ← CI guard: bun is the only package manager, bun.lock the only lockfile
+    packageManagerAuthority.mjs ← The checks behind that guard
+    assertPackIsolation.mjs   ← Build guard: the pack is a separate lazy chunk; entry chunks carry no statutory wording
+  db-proof/
+    run.mjs                   ← Financial-statements persistence proof (real PostgreSQL)
+    setupAuthority.mjs        ← Workspace setup authority proof (25-way concurrency, role/RLS matrix)
 
 supabase/
   functions/
@@ -292,6 +361,15 @@ supabase/
     generate-xbrl/            ← XBRL filing pack generator
   migrations/                 ← All migrations. Apply in filename order.
 ```
+
+**Moved by the first-run remediation (PR #25):** every Tanzanian statutory module now lives under
+`src/jurisdiction-packs/tz/` (previously `src/components/*` and `src/lib/*`): `KingaTaxPanel`, `KingaComparativePanel`,
+`KingaFindingsPanel`, `TaxLossPanel`, `TransferPricingPanel`, `ThinCapWorkpaper`, `AddBacksWorkpaper`,
+`CapitalAllowancesRegister`, `EvidenceRequestPanel`, `TRAAuditReadinessPanel`, `TRAFilingChecklist`,
+`EFDMSReconciliationPanel`, `PaymentLedgerPanel`, `ClientSummaryPanel`, `FilingCalendarPanel`, `PolicyCompass`,
+`computeWearTear.ts` (+ its test), `filingTerms.ts` (+ its test, from `src/lib/jurisdiction/`) and
+`generateTaxComputationPDF.ts` (from `src/lib/`). Global code must never import them directly — only `packLoader` may,
+and only through dynamic `import()` (enforced by `src/lib/jurisdiction/jurisdictionBoundary.test.ts`).
 
 ---
 
@@ -313,7 +391,8 @@ and ask the user to confirm before proceeding.
    labels.** These names are internal. Users see "Reconcile", "Statements",
    "Compute Tax", "Monitor".
 
-5. **Do not move CapitalAllowancesRegister out of the Tax stage.**
+5. **Do not move CapitalAllowancesRegister out of the Tax stage.** (The file lives in the TZ pack directory but is still rendered
+   by `TaxWorkspace` through `JurisdictionPanel` — the stage placement is what this rule protects.)
 
 6. **Do not delete Compliance functionality.**
 
@@ -708,8 +787,14 @@ supabase functions deploy generate-xbrl
 # Check function health
 supabase functions list
 
-# Run TypeScript check (pre-existing errors are acceptable — see section 9)
-node_modules/typescript/bin/tsc --noEmit -p tsconfig.app.json
+# Install exactly what the lockfile says, then the release gate (must be zero failures)
+bun install --frozen-lockfile
+bunx tsc --noEmit -p tsconfig.app.json
+bun run lint
+bun run test
+bun run build
+node scripts/ci/assertPackIsolation.mjs dist
+node scripts/ci/assertSingleLockfile.mjs
 ```
 
 ---
@@ -752,3 +837,18 @@ Before starting any new task, verify:
 8. Does it bypass SafishaGate? → forbidden, the gate is non-skippable
 
 When in doubt: read Iron Dome Ω∞ rules in section 4 first.
+
+---
+
+## 14. Repository Integrity
+
+- **One package manager: Bun `1.3.14`.** Evidence: `bun.lock` is the only lockfile that installs frozen against `package.json`
+  (`bun.lockb` and `package-lock.json` were both stale and are removed); the newest lockfile commit is Lovable's bot writing
+  `bun.lock`; every CI job already used Bun. `packageManager` in `package.json` and every `bun-version` in
+  `.github/workflows/ci.yml` must match exactly. Enforced by `scripts/ci/assertSingleLockfile.mjs` and
+  `src/lib/__tests__/packageManagerAuthority.test.ts` (which reject any other lockfile, a floating Bun version, an unfrozen
+  `bun install`, and any `npm`/`yarn`/`pnpm`/`npx` in a workflow). `deno.lock` belongs to the Deno edge functions and is allowed.
+- **Line endings:** `.gitattributes` forces LF; do not commit CRLF.
+- **Release gate:** the CI `Release Gate` job runs the frozen install, jurisdiction audits, lint, typecheck, the full suite,
+  the build and the pack-isolation guard. There is no "baseline failure" allowance.
+- **File map (section 7)** is verified by `src/lib/__tests__/claudeFileMap.test.ts`; keep it accurate when moving files.

@@ -151,8 +151,10 @@ describe("migration directory integrity", () => {
     // migration). Bumped from 121 -> 123: the two forward-only, UNAPPLIED
     // financial-statements migrations (20260919100000 rollout control and
     // 20260919110000 persistence), added for review only.
+    // Bumped from 123 -> 124: 20260920100000_workspace_setup_authority.sql (one open engagement per period,
+    // engagement-scoped append-only setup events, explicit filing jurisdiction) — forward-only, sorts last.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(123);
+    expect(files.length).toBe(124);
   });
 });
 

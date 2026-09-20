@@ -82,7 +82,7 @@ export function deriveWorkspaceState(
       companyName,
       missions: {
         prepare:    { status: "not_started", label: "Prepare Data",     summary: "No trial balance imported",     href: `${b}/prepare` },
-        reconcile:  na("Reconcile",          "reconcile",  companyId, periodYear, "Available — EFDMS and journal review"),
+        reconcile:  na("Reconcile",          "reconcile",  companyId, periodYear, "Available — reconciliation and journal review"),
         statements: locked("Prepare Statements", "statements", companyId, periodYear, "Import trial balance first"),
         tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
         compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
@@ -115,7 +115,7 @@ export function deriveWorkspaceState(
       ...uploadCommon,
       missions: {
         prepare:    { status: "in_progress", label: "Prepare Data",     summary: "Parsing and classifying trial balance…", href: `${b}/prepare` },
-        reconcile:  na("Reconcile",          "reconcile",  companyId, periodYear, "Available — EFDMS and journal review"),
+        reconcile:  na("Reconcile",          "reconcile",  companyId, periodYear, "Available — reconciliation and journal review"),
         statements: locked("Prepare Statements", "statements", companyId, periodYear, "Awaiting Prepare Data"),
         tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Awaiting Prepare Data"),
         compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
@@ -141,7 +141,7 @@ export function deriveWorkspaceState(
       ...uploadCommon,
       missions: {
         prepare:    { status: "review_required", label: "Prepare Data",     summary: "Account classification review required", href: `${b}/prepare` },
-        reconcile:  na("Reconcile",              "reconcile",  companyId, periodYear, "Available — EFDMS and journal review"),
+        reconcile:  na("Reconcile",              "reconcile",  companyId, periodYear, "Available — reconciliation and journal review"),
         statements: locked("Prepare Statements", "statements", companyId, periodYear, "Resolve Prepare Data review items first"),
         tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
         compliance: na("Compliance Review",      "compliance", companyId, periodYear, "Available after tax computation"),
@@ -166,7 +166,7 @@ export function deriveWorkspaceState(
       ...uploadCommon,
       missions: {
         prepare:    { status: "blocked", label: "Prepare Data",     summary: "Upload processing failed", href: `${b}/prepare` },
-        reconcile:  na("Reconcile",      "reconcile",  companyId, periodYear, "Available — EFDMS and journal review"),
+        reconcile:  na("Reconcile",      "reconcile",  companyId, periodYear, "Available — reconciliation and journal review"),
         statements: locked("Prepare Statements", "statements", companyId, periodYear, "Resolve Prepare Data error first"),
         tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
         compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
@@ -191,7 +191,7 @@ export function deriveWorkspaceState(
       ...uploadCommon,
       missions: {
         prepare:    { status: "blocked", label: "Prepare Data",     summary: "Validation errors present", href: `${b}/prepare` },
-        reconcile:  na("Reconcile",      "reconcile",  companyId, periodYear, "Available — EFDMS and journal review"),
+        reconcile:  na("Reconcile",      "reconcile",  companyId, periodYear, "Available — reconciliation and journal review"),
         statements: locked("Prepare Statements", "statements", companyId, periodYear, "Clear validation errors first"),
         tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
         compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
@@ -225,8 +225,8 @@ export function deriveWorkspaceState(
     return {
       ...uploadCommon,
       missions: {
-        prepare:    { status: "blocked", label: "Prepare Data", summary: `EFDMS reconciliation: ${upload.safishaStatus}`, href: `${b}/prepare`, blocker: upload.safishaStatus ?? undefined },
-        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — EFDMS and journal review"),
+        prepare:    { status: "blocked", label: "Prepare Data", summary: `Reconciliation: ${upload.safishaStatus}`, href: `${b}/prepare`, blocker: upload.safishaStatus ?? undefined },
+        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — reconciliation and journal review"),
         statements: statementsInPrepareBlock,
         tax:        locked("Compute Tax",    "tax",    companyId, periodYear, "Prepare Data reconciliation must clear before tax computation (constitutional gate)"),
         compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
@@ -236,7 +236,7 @@ export function deriveWorkspaceState(
       nextAction: {
         id: "resolve-reconciliation",
         label: "Resolve Reconciliation Exceptions",
-        description: `EFDMS matching blocked (${upload.safishaStatus}) — resolve exceptions before tax computation can run`,
+        description: `Reconciliation matching blocked (${upload.safishaStatus}) — resolve exceptions before tax computation can run`,
         href: `${b}/prepare`,
         blocked: false,
         mission: "prepare",
@@ -250,14 +250,14 @@ export function deriveWorkspaceState(
   // ── PATH 7 + 8: TB valid, no HESABU yet ──────────────────────────────────
   if (!upload.hesabuPassedAt) {
     const prepareSummary = safishaClean
-      ? "TB clean — EFDMS reconciled"
+      ? "TB clean — reconciled"
       : "TB validated and processed";
 
     return {
       ...uploadCommon,
       missions: {
         prepare:    { status: "passed", label: "Prepare Data",     summary: prepareSummary, href: `${b}/prepare` },
-        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — EFDMS and journal review"),
+        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — reconciliation and journal review"),
         statements: { status: "ready",  label: "Prepare Statements", summary: "Ready to validate statements", href: `${b}/statements` },
         tax:        locked("Compute Tax",    "tax",    companyId, periodYear, "Complete Prepare Statements validation first"),
         compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after tax computation"),
@@ -286,7 +286,7 @@ export function deriveWorkspaceState(
       lastUpdatedAt: upload.hesabuPassedAt ?? upload.processedAt ?? upload.uploadedAt,
       missions: {
         prepare:    { status: safishaClean ? "passed" : "blocked", label: "Prepare Data",     summary: safishaClean ? "TB clean and reconciled" : "Reconciliation exceptions present", href: `${b}/prepare` },
-        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — EFDMS and journal review"),
+        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — reconciliation and journal review"),
         statements: { status: "passed", label: "Prepare Statements", summary: "Statements validated", href: `${b}/statements` },
         tax:        taxBlocked
           ? locked("Compute Tax", "tax", companyId, periodYear, "Prepare Data reconciliation must clear first (constitutional gate)")
@@ -300,7 +300,7 @@ export function deriveWorkspaceState(
         label: "Compute Corporate Tax",
         description: taxBlocked
           ? "Statements validated — resolve Prepare Data reconciliation to unlock tax computation"
-          : "Statements validated — compute corporate income tax (ITA Cap.332)",
+          : "Statements validated — compute corporate income tax",
         href: `${b}/tax`,
         blocked: taxBlocked,
         blocker: taxBlocked ? "Prepare Data reconciliation must clear first" : undefined,
@@ -317,7 +317,7 @@ export function deriveWorkspaceState(
       lastUpdatedAt: upload.kingaSignedAt ?? upload.hesabuPassedAt ?? upload.processedAt ?? upload.uploadedAt,
       missions: {
         prepare:    { status: "passed", label: "Prepare Data",     summary: "TB clean and reconciled",     href: `${b}/prepare` },
-        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — EFDMS and journal review"),
+        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — reconciliation and journal review"),
         statements: { status: "passed", label: "Prepare Statements", summary: "Statements validated",       href: `${b}/statements` },
         tax:        { status: "signed", label: "Compute Tax",        summary: "Tax computed and signed",    href: `${b}/tax` },
         compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
@@ -342,7 +342,7 @@ export function deriveWorkspaceState(
     lastUpdatedAt: upload.filingSubmittedAt,
     missions: {
       prepare:    { status: "signed", label: "Prepare Data",     summary: "TB clean and reconciled",        href: `${b}/prepare` },
-      reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — EFDMS and journal review"),
+      reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — reconciliation and journal review"),
       statements: { status: "signed", label: "Prepare Statements", summary: "Statements validated and signed", href: `${b}/statements` },
       tax:        { status: "signed", label: "Compute Tax",        summary: "Tax computed and signed",        href: `${b}/tax` },
       compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
