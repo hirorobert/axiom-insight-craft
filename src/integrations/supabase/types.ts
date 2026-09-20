@@ -1320,6 +1320,7 @@ export type Database = {
           created_at: string
           currency: string | null
           description: string | null
+          filing_jurisdiction: string | null
           fiscal_year_end: string | null
           id: string
           industry: string | null
@@ -1335,6 +1336,7 @@ export type Database = {
           created_at?: string
           currency?: string | null
           description?: string | null
+          filing_jurisdiction?: string | null
           fiscal_year_end?: string | null
           id?: string
           industry?: string | null
@@ -1350,6 +1352,7 @@ export type Database = {
           created_at?: string
           currency?: string | null
           description?: string | null
+          filing_jurisdiction?: string | null
           fiscal_year_end?: string | null
           id?: string
           industry?: string | null
@@ -1694,6 +1697,48 @@ export type Database = {
           },
           {
             foreignKeyName: "engagement_mandate_events_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      engagement_setup_events: {
+        Row: {
+          actor_member_id: string
+          engagement_id: string
+          event_type: string
+          id: string
+          occurred_at: string
+          sequence_no: number
+        }
+        Insert: {
+          actor_member_id: string
+          engagement_id: string
+          event_type: string
+          id?: string
+          occurred_at?: string
+          sequence_no: number
+        }
+        Update: {
+          actor_member_id?: string
+          engagement_id?: string
+          event_type?: string
+          id?: string
+          occurred_at?: string
+          sequence_no?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engagement_setup_events_actor_member_id_fkey"
+            columns: ["actor_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "engagement_setup_events_engagement_id_fkey"
             columns: ["engagement_id"]
             isOneToOne: false
             referencedRelation: "engagements"
@@ -5636,6 +5681,10 @@ export type Database = {
         Args: { p_billing_customer_id: string; p_checkout_intent_id: string }
         Returns: Json
       }
+      capability_needs_jurisdiction: {
+        Args: { p_capability: string }
+        Returns: boolean
+      }
       carry_forward_wdv: {
         Args: { p_company_id: string; p_from_year: number; p_to_year: number }
         Returns: {
@@ -5688,6 +5737,10 @@ export type Database = {
           p_verified_at: string
         }
         Returns: Json
+      }
+      engagement_data_start_state: {
+        Args: { p_engagement_id: string }
+        Returns: string
       }
       financial_statements_workspace_access: {
         Args: { p_company_id: string }
@@ -6082,6 +6135,10 @@ export type Database = {
           suppressed: boolean
         }[]
       }
+      get_engagement_setup_state: {
+        Args: { p_engagement_id: string }
+        Returns: Json
+      }
       get_member_company_ids: { Args: never; Returns: string[] }
       get_my_billing_summary: { Args: never; Returns: Json }
       grant_engagement_authority: {
@@ -6186,12 +6243,29 @@ export type Database = {
         Args: { p_engagement_id: string }
         Returns: number
       }
+      open_engagement_with_scope: {
+        Args: {
+          p_capabilities: string[]
+          p_company_id: string
+          p_engagement_type?: string
+          p_period_year: number
+        }
+        Returns: Json
+      }
       persist_checkout_provider_result: {
         Args: {
           p_checkout_intent_id: string
           p_creation_token: string
           p_provider_checkout_ref: string
           p_provider_checkout_url: string
+        }
+        Returns: Json
+      }
+      record_engagement_data_start: {
+        Args: {
+          p_choice: string
+          p_engagement_id: string
+          p_expected_state?: string
         }
         Returns: Json
       }
@@ -6274,6 +6348,10 @@ export type Database = {
           opened: number
           resolved: number
         }[]
+      }
+      set_company_filing_jurisdiction: {
+        Args: { p_company_id: string; p_jurisdiction: string }
+        Returns: string
       }
       xbrl_write_instance: {
         Args: {
