@@ -7,32 +7,12 @@
  *    With no jurisdiction, or one without a pack, it renders nothing and imports nothing.
  */
 
-import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { loadJurisdictionPack } from "@/lib/jurisdiction/packLoader";
-import type { JurisdictionPack, PackPanelId, PackPanelProps } from "@/lib/jurisdiction/packTypes";
-import { hasJurisdictionPack, serviceAvailability } from "@/lib/jurisdiction/registry";
+import { useJurisdictionPack } from "@/hooks/useJurisdictionPack";
+import type { PackPanelId, PackPanelProps } from "@/lib/jurisdiction/packTypes";
+import { serviceAvailability } from "@/lib/jurisdiction/registry";
 import type { EngagementCapability } from "@/lib/workspace/mandate";
 import FilingJurisdictionSetting from "@/components/jurisdiction/FilingJurisdictionSetting";
-
-export function useJurisdictionPack(code: string | null | undefined): { pack: JurisdictionPack | null; loading: boolean } {
-  const [state, setState] = useState<{ code: string | null | undefined; pack: JurisdictionPack | null; done: boolean }>({ code, pack: null, done: !code || !hasJurisdictionPack(code) });
-  useEffect(() => {
-    let cancelled = false;
-    if (!code || !hasJurisdictionPack(code)) {
-      setState({ code, pack: null, done: true });
-      return;
-    }
-    setState({ code, pack: null, done: false });
-    void loadJurisdictionPack(code)
-      .then((pack) => !cancelled && setState({ code, pack, done: true }))
-      .catch(() => !cancelled && setState({ code, pack: null, done: true }));
-    return () => {
-      cancelled = true;
-    };
-  }, [code]);
-  return { pack: state.code === code ? state.pack : null, loading: !(state.code === code && state.done) };
-}
 
 export function JurisdictionPanel({ jurisdiction, panel, ...props }: { jurisdiction: string | null | undefined; panel: PackPanelId } & PackPanelProps) {
   const { pack, loading } = useJurisdictionPack(jurisdiction);
