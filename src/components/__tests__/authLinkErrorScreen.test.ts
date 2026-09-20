@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getAuthLinkError } from "@/components/AuthLinkErrorScreen";
+import { getAuthLinkError } from "@/lib/auth/authLinkError";
 
 describe("getAuthLinkError", () => {
   it("parses a consumed/expired confirmation-link fragment", () => {
