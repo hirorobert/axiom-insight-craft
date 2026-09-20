@@ -25,7 +25,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, AlertTriangle, RefreshCw } from "lucide-react";
+import { ArrowRight, AlertTriangle, FileText, RefreshCw } from "lucide-react";
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -33,7 +33,7 @@ import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
 import EngagementScopeDialog from "@/components/workspace/EngagementScopeDialog";
 import PreviousEngagementWork from "@/components/workspace/PreviousEngagementWork";
 import { useEngagement } from "@/contexts/EngagementContext";
-import { buildPrepareReviewRoute } from "@/lib/workspace/resolveActiveUpload";
+import { buildPrepareReviewRoute, buildPrepareUploadRoute } from "@/lib/workspace/resolveActiveUpload";
 import { capabilityTitle } from "@/lib/workspace/mandate";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 import { readRememberedOutcome } from "@/lib/product/outcomes";
@@ -44,6 +44,8 @@ import { useDataStart } from "@/hooks/useDataStart";
 import { deriveLaunchState, LAUNCH_COPY } from "@/lib/workspace/onboardingState";
 import { evaluateTaxProfile, TAX_PROFILE_COPY } from "@/lib/jurisdiction/taxProfile";
 import { resolveNextActionDestination } from "@/lib/workspace/resolveNextActionDestination";
+import { detectEntityAccountingContext } from "@/lib/accounting/detectEntityContext";
+import { classifyConfirmationPosture } from "@/lib/accounting/confirmationPosture";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -69,6 +71,85 @@ function countUnresolved(
 }
 
 const num = (n: number) => n.toLocaleString("en-US");
+
+// ── File provenance ─────────────────────────────────────────────────────────
+// Pure formatting of the stored upload record. A value that is missing or not
+// a usable measurement returns null so the caller omits it — nothing is ever
+// substituted.
+
+function formatFileSize(bytes: number): string | null {
+  if (!Number.isFinite(bytes) || bytes <= 0) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const RELATIVE_TIME = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+const RELATIVE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
+
+function describeUploadTime(uploadedAt: string, nowMs: number): { relative: string; exact: string } | null {
+  const uploaded = new Date(uploadedAt);
+  const uploadedMs = uploaded.getTime();
+  if (Number.isNaN(uploadedMs)) return null;
+
+  const exact = uploaded.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+  const seconds = Math.round((nowMs - uploadedMs) / 1000);
+  // Older than a week (or in the future, from clock skew): a date is more honest than "412 days ago".
+  if (seconds < 0 || seconds > RELATIVE_WINDOW_SECONDS) {
+    return { relative: uploaded.toLocaleDateString("en-GB", { dateStyle: "medium" }), exact };
+  }
+  if (seconds < 60) return { relative: "just now", exact };
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return { relative: RELATIVE_TIME.format(-minutes, "minute"), exact };
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return { relative: RELATIVE_TIME.format(-hours, "hour"), exact };
+  return { relative: RELATIVE_TIME.format(-Math.floor(hours / 24), "day"), exact };
+}
+
+function ActiveFileProvenance({
+  fileName,
+  fileSize,
+  uploadedAt,
+  manageHref,
+}: {
+  fileName: string;
+  fileSize: number;
+  uploadedAt: string;
+  manageHref: string;
+}) {
+  const size = formatFileSize(fileSize);
+  const time = describeUploadTime(uploadedAt, Date.now());
+  return (
+    <div className="mb-3 flex items-center justify-between gap-4" data-testid="active-file-provenance">
+      <p className="flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
+        <FileText aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate font-mono text-foreground/80" title={fileName}>
+          {fileName}
+        </span>
+        {size && (
+          <>
+            <span aria-hidden="true" className="text-muted-foreground/50">·</span>
+            <span className="shrink-0">{size}</span>
+          </>
+        )}
+        {time && (
+          <>
+            <span aria-hidden="true" className="text-muted-foreground/50">·</span>
+            <time className="shrink-0" dateTime={uploadedAt} title={time.exact}>
+              {time.relative}
+            </time>
+          </>
+        )}
+      </p>
+      <Link
+        to={manageHref}
+        className="shrink-0 whitespace-nowrap text-[12px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
+      >
+        Manage file <span aria-hidden="true">→</span>
+      </Link>
+    </div>
+  );
+}
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -164,6 +245,15 @@ export default function WorkspaceOverview() {
   const basePath = `/workspace/${companyId}/${periodYear}`;
   const selectedOutcome = readRememberedOutcome();
 
+  // A stored value alone is not a decision: pre-cut-over rows may hold the historical 'ifrs_for_smes' default. The
+  // existing confirmation authority (detector provenance + classifyConfirmationPosture, as in FrameworkConfirmationBanner)
+  // says when a framework is settled — HIGH confidence or professionally confirmed, which also implies a recognised value.
+  // Only then is the header breadcrumb the authority and the suggestion redundant; otherwise it stays as the setup aid.
+  const frameworkPosture = classifyConfirmationPosture(
+    detectEntityAccountingContext({ companyReportingFrameworkDbValue: company?.reporting_framework, companyCreatedAt: company?.created_at }).reportingFramework,
+  );
+  const frameworkConfirmed = frameworkPosture === "QUIET_CONFIRMATION" || frameworkPosture === "NO_PROMPT_NEEDED";
+
   const effectiveTin = tinOverride ?? company?.tin ?? null;
   const granted = mandate?.granted ?? null;
   // A tax-profile warning needs (1) an active tax/filing service, (2) a configured jurisdiction that requires the field
@@ -203,6 +293,8 @@ export default function WorkspaceOverview() {
       disabled?: boolean;
     };
     tone: "primary" | "warn" | "muted";
+    /** Set only by decisions about a file the preparer may need to swap out (failed processing, accounts needing review). */
+    offersFileReplacement?: boolean;
   };
 
   let decision: Decision;
@@ -250,6 +342,7 @@ export default function WorkspaceOverview() {
         icon: <RefreshCw className={`w-4 h-4 ${retrying ? "animate-spin" : ""}`} />,
       },
       tone: "warn",
+      offersFileReplacement: true,
     };
   } else if (isProcessing) {
     decision = {
@@ -278,6 +371,7 @@ export default function WorkspaceOverview() {
         icon: <ArrowRight className="w-4 h-4" />,
       },
       tone: "primary",
+      offersFileReplacement: true,
     };
   } else if (!prepareDone) {
     decision = {
@@ -315,6 +409,9 @@ export default function WorkspaceOverview() {
     };
   }
 
+  // One route to the exact upload on screen, from the existing Prepare route builder.
+  const manageUploadHref = buildPrepareUploadRoute(companyId, periodYear, upload?.id ?? null);
+
   const eyebrowTone =
     decision.tone === "warn"
       ? "text-destructive"
@@ -336,7 +433,7 @@ export default function WorkspaceOverview() {
       )}
 
       <EngagementScopeDialog
-        open={scopeDialogOpen}
+        open={scopeDialogOpen && canAmend}
         onOpenChange={setScopeDialogOpen}
         mode={engagement ? "amend" : "declare"}
       />
@@ -351,8 +448,12 @@ export default function WorkspaceOverview() {
           <span className="text-foreground/80">{company.name}</span>
           <span className="px-1.5 text-muted-foreground/50">·</span>
           <span className="tabular-nums">FY{periodYear}</span>
-          <span className="px-1.5 text-muted-foreground/50">·</span>
-          <EntityContextSuggestion reportingFrameworkDbValue={company.reporting_framework} companyCreatedAt={company.created_at} />
+          {!frameworkConfirmed && (
+            <>
+              <span className="px-1.5 text-muted-foreground/50">·</span>
+              <EntityContextSuggestion reportingFrameworkDbValue={company.reporting_framework} companyCreatedAt={company.created_at} />
+            </>
+          )}
         </div>
       )}
 
@@ -390,71 +491,93 @@ export default function WorkspaceOverview() {
           />
         ) : (
           /* ── Standard decision surface ───────────────────────────────── */
-          <SurfaceCard className="px-5 py-8 sm:px-8 sm:py-10">
-            <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-5 ${eyebrowTone}`}>
-              {decision.eyebrow}
-            </p>
-            <h2 className="text-2xl sm:text-[2rem] font-semibold tracking-tight text-foreground leading-[1.2] max-w-xl">
-              {decision.headline}
-            </h2>
-            {decision.detail && (
-              <p className="mt-4 text-[14px] text-muted-foreground leading-relaxed max-w-xl">
-                {decision.detail}
-              </p>
+          <>
+            {/* The stored record of the file this decision is about — shown only from the typed upload contract, never inferred. */}
+            {upload && (
+              <ActiveFileProvenance
+                fileName={upload.file_name}
+                fileSize={upload.file_size}
+                uploadedAt={upload.uploaded_at}
+                manageHref={manageUploadHref}
+              />
             )}
 
-            <div className="mt-8">
-              {decision.button.href && !decision.button.disabled ? (
-                <Button
-                  asChild
-                  size="lg"
-                  data-testid="primary-cta"
-                  variant={decision.tone === "muted" ? "outline" : "default"}
-                  className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
-                >
-                  <Link to={decision.button.href}>
+            <SurfaceCard className="px-5 py-8 sm:px-8 sm:py-10">
+              <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-5 ${eyebrowTone}`}>
+                {decision.eyebrow}
+              </p>
+              <h2 className="text-2xl sm:text-[2rem] font-semibold tracking-tight text-foreground leading-[1.2] max-w-xl">
+                {decision.headline}
+              </h2>
+              {decision.detail && (
+                <p className="mt-4 text-[14px] text-muted-foreground leading-relaxed max-w-xl">
+                  {decision.detail}
+                </p>
+              )}
+
+              <div className="mt-8">
+                {decision.button.href && !decision.button.disabled ? (
+                  <Button
+                    asChild
+                    size="lg"
+                    data-testid="primary-cta"
+                    variant={decision.tone === "muted" ? "outline" : "default"}
+                    className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
+                  >
+                    <Link to={decision.button.href}>
+                      {decision.button.icon}
+                      <span className="mx-2">{decision.button.label}</span>
+                    </Link>
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={decision.button.onClick}
+                    disabled={decision.button.disabled}
+                    size="lg"
+                    data-testid="primary-cta"
+                    variant={decision.tone === "warn" ? "destructive" : "default"}
+                    className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
+                  >
                     {decision.button.icon}
                     <span className="mx-2">{decision.button.label}</span>
+                  </Button>
+                )}
+              </div>
+
+              {/* Quiet escape: replacing or removing the upload is Prepare Data's existing behaviour, not a second implementation. */}
+              {decision.offersFileReplacement && (
+                <p className="mt-6 border-t border-border pt-5 text-[12px] text-muted-foreground" data-testid="replace-file-escape">
+                  Need to replace this file?{" "}
+                  <Link to={manageUploadHref} className="underline underline-offset-4 hover:text-foreground">
+                    Upload a replacement or remove this upload in Prepare Data <span aria-hidden="true">→</span>
                   </Link>
-                </Button>
-              ) : (
-                <Button
-                  onClick={decision.button.onClick}
-                  disabled={decision.button.disabled}
-                  size="lg"
-                  data-testid="primary-cta"
-                  variant={decision.tone === "warn" ? "destructive" : "default"}
-                  className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
-                >
-                  {decision.button.icon}
-                  <span className="mx-2">{decision.button.label}</span>
-                </Button>
+                </p>
               )}
-            </div>
-          </SurfaceCard>
+            </SurfaceCard>
+          </>
         )}
       </section>
 
-      {/* Mandate footnote — one quiet line, and the only amend affordance.
-          Names the actual outcomes (not just a bare count) so the destination
-          this engagement is heading toward is visible from the home screen,
-          not only inside the scope-declaration dialog where it was chosen. */}
+      {/* Services row — the mandated outcomes from the persisted engagement scope, and the only amend affordance.
+          Names the actual outcomes (not just a bare count) so the destination this engagement is heading toward
+          is visible from the home screen, not only inside the scope dialog where it was chosen. */}
       {engagement && mandate && mandate.granted.length > 0 && (
-        <p className="mt-4 text-[12px] text-muted-foreground/80">
-          This engagement covers {mandate.granted.map((cap) => capabilityTitle(cap)).join(", ")}.
+        <div className="mt-6 flex items-start justify-between gap-4 border-t border-border pt-5" data-testid="engagement-services">
+          <p className="min-w-0 text-[12px] text-muted-foreground">
+            <span className="mr-2 text-[10px] font-semibold uppercase tracking-[0.18em]">Services</span>
+            {mandate.granted.map((cap) => capabilityTitle(cap)).join(", ")}
+          </p>
           {canAmend && (
-            <>
-              {" "}
-              <button
-                type="button"
-                onClick={() => setScopeDialogOpen(true)}
-                className="underline underline-offset-4 hover:text-foreground"
-              >
-                {LAUNCH_COPY.scopeEditor}
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => setScopeDialogOpen(true)}
+              title={LAUNCH_COPY.scopeEditor}
+              className="shrink-0 whitespace-nowrap text-[12px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
+            >
+              Amend scope <span aria-hidden="true">→</span>
+            </button>
           )}
-        </p>
+        </div>
       )}
 
       <PreviousEngagementWork views={missionViews} events={events} />

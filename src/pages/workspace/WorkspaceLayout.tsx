@@ -25,8 +25,12 @@ import { useEngagementMandate } from "@/hooks/useEngagementMandate";
 import { projectMandate } from "@/lib/workspace/mandate";
 import { deriveWorkspaceNavigation } from "@/lib/workspace/navigation";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
+import type { CompanyReportingFrameworkDbValue } from "@/lib/accounting/frameworkAdapter";
+import { detectEntityAccountingContext } from "@/lib/accounting/detectEntityContext";
+import { classifyConfirmationPosture } from "@/lib/accounting/confirmationPosture";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   CheckCircle2,
   XCircle,
@@ -47,6 +51,21 @@ import type { MissionStatus, WorkspaceMission } from "@/lib/workspace/types";
  */
 function tabWord(tabLabel: string): string {
   return tabLabel.charAt(0) + tabLabel.slice(1).toLowerCase();
+}
+
+// Wording of the persisted `companies.reporting_framework` value, identical to the labels Company Settings shows.
+// EXHAUSTIVENESS AUTHORITY: `CompanyReportingFrameworkDbValue` (src/lib/accounting/frameworkAdapter.ts), the exported
+// CHECK-constrained value set. Adding or removing a persisted value there fails the typecheck here until this map matches.
+// (No neutral exported label mapping exists outside the flag-gated statements workspace, which the shell may not import.)
+const PERSISTED_FRAMEWORK_LABEL: Record<CompanyReportingFrameworkDbValue, string> = {
+  ifrs_for_smes: "IFRS for SMEs",
+  full_ifrs: "Full IFRS",
+  ipsas_accrual: "IPSAS Accrual",
+  ipsas_cash: "IPSAS Cash Basis",
+};
+
+function isPersistedFramework(value: string | null | undefined): value is CompanyReportingFrameworkDbValue {
+  return !!value && Object.prototype.hasOwnProperty.call(PERSISTED_FRAMEWORK_LABEL, value);
 }
 
 // ── Status dot — tooltip explains the symbol ───────────────────────────────
@@ -187,6 +206,17 @@ export default function WorkspaceLayout() {
   // Human-readable period label — never an internal DB ID
   const periodLabel = periodYear > 2000 ? `FY${periodYear}` : "—";
 
+  // The value shown is only the persisted companies.reporting_framework; null or unrecognised omits it (never inferred
+  // or defaulted). Whether it is a settled decision comes from the existing confirmation authority (the same one
+  // FrameworkConfirmationBanner uses): only HIGH confidence / professionally confirmed counts. A legacy default
+  // ('ifrs_for_smes' on a pre-cut-over row) or an unbacked preparer selection is shown marked "unconfirmed".
+  const persistedFramework = company?.reporting_framework;
+  const frameworkLabel = isPersistedFramework(persistedFramework) ? PERSISTED_FRAMEWORK_LABEL[persistedFramework] : null;
+  const confirmationPosture = classifyConfirmationPosture(
+    detectEntityAccountingContext({ companyReportingFrameworkDbValue: persistedFramework, companyCreatedAt: company?.created_at }).reportingFramework,
+  );
+  const frameworkConfirmed = confirmationPosture === "QUIET_CONFIRMATION" || confirmationPosture === "NO_PROMPT_NEEDED";
+
   return (
     <WorkspaceContext.Provider value={workspaceData}>
      <EngagementContext.Provider value={{ ...engagementApi, missionViews }}>
@@ -211,14 +241,33 @@ export default function WorkspaceLayout() {
               {loading ? (
                 <Skeleton className="h-4 w-36" />
               ) : (
-                <div className="flex items-center gap-2 text-sm min-w-0">
-                  <span className="font-semibold text-foreground truncate max-w-[140px] sm:max-w-xs">
-                    {company?.name ?? "Loading…"}
-                  </span>
-                  <span className="text-muted-foreground shrink-0">·</span>
-                  <span className="text-muted-foreground tabular-nums shrink-0 font-mono text-xs">
-                    {periodLabel}
-                  </span>
+                // Two lines below sm (company · FY, then the framework), one line from sm up. The header keeps its h-14,
+                // so the sticky stage nav offset is unaffected; every part truncates instead of overflowing.
+                <div className="flex min-w-0 flex-col justify-center gap-0.5 text-sm leading-tight sm:flex-row sm:items-center sm:gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="font-semibold text-foreground truncate max-w-[140px] sm:max-w-xs">
+                      {company?.name ?? "Loading…"}
+                    </span>
+                    <span className="text-muted-foreground shrink-0">·</span>
+                    <span className="text-muted-foreground tabular-nums shrink-0 font-mono text-xs">
+                      {periodLabel}
+                    </span>
+                  </div>
+                  {frameworkLabel && (
+                    <div
+                      data-testid="workspace-framework"
+                      data-confirmed={frameworkConfirmed}
+                      className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground sm:text-xs"
+                      title={`Reporting framework: ${frameworkLabel}${frameworkConfirmed ? "" : " (unconfirmed)"}`}
+                    >
+                      <span aria-hidden="true" className="hidden shrink-0 sm:block">·</span>
+                      <span className="min-w-0 truncate">
+                        <span className="sr-only">Reporting framework: </span>
+                        {frameworkLabel}
+                      </span>
+                      {!frameworkConfirmed && <span className="shrink-0 text-[10px] sm:text-xs">(unconfirmed)</span>}
+                    </div>
+                  )}
                   {/* TIN is an exception surface, not header chrome — the
                       Overview owns it and shows it only when it blocks. */}
                 </div>
@@ -272,22 +321,34 @@ export default function WorkspaceLayout() {
                 const config = STAGE_CONFIGS[slug];
                 const mission = workspaceState.missions[slug];
                 const Icon = config.icon;
-                return (
+                const lockedReasonId = `stage-locked-${slug}`;
+                const tab = (
                   <Link
                     key={slug}
                     to={item.href}
                     aria-label={config.label}
                     aria-disabled={item.disabled || undefined}
-                    title={item.disabled ? `${item.reason} ${item.action}` : item.inputEvidenceOnly ? `${config.description} — input evidence for this workspace` : config.description}
+                    aria-describedby={item.disabled ? lockedReasonId : undefined}
+                    title={item.disabled ? undefined : item.inputEvidenceOnly ? `${config.description} — input evidence for this workspace` : config.description}
                     className={[base, isActive ? "border-primary text-foreground" : item.disabled ? "border-transparent text-muted-foreground/40" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"].join(" ")}
                   >
                     <Icon className="w-3.5 h-3.5 shrink-0" />
                     <span className="hidden md:inline xl:hidden">{tabWord(config.tabLabel)}</span>
                     <span className="hidden xl:inline">{config.label}</span>
                     <span className="md:hidden sr-only">{config.label}</span>
-                    {item.disabled && <span className="sr-only">{item.reason} {item.action}</span>}
+                    {item.disabled && <span id={lockedReasonId} className="sr-only">{item.reason} {item.action}</span>}
                     {!loading && <StatusDot status={mission.status} />}
                   </Link>
+                );
+                // A locked tab keeps its href (tapping opens the stage's own lock explanation); the tooltip adds the
+                // explanation on hover and keyboard focus. Radix does not open tooltips on touch, so touch is served by that tap-through.
+                return item.disabled ? (
+                  <Tooltip key={slug}>
+                    <TooltipTrigger asChild>{tab}</TooltipTrigger>
+                    <TooltipContent>{config.label} — complete earlier stages first</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  tab
                 );
               })}
 
