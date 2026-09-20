@@ -12,7 +12,7 @@
 import { GitCompare } from "lucide-react";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { EFDMSReconciliationPanel } from "@/components/EFDMSReconciliationPanel";
+import { JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
 import { AdjustingJournalPanel } from "@/components/AdjustingJournalPanel";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
@@ -64,14 +64,16 @@ export default function ReconcileWorkspace() {
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <EFDMSReconciliationPanel
+      {/* Jurisdiction extension: renders only when the workspace explicitly selected a jurisdiction whose pack ships one. */}
+      <JurisdictionPanel
+        jurisdiction={company?.filing_jurisdiction ?? null}
+        panel="reconciliation"
         companyId={upload.company_id}
         uploadId={upload.id}
         periodYear={fpYear}
         periodMonth={fpMonth}
         companyName={upload.company_name ?? undefined}
         userId={user?.id ?? ""}
-        isVatRegistered={true}
       />
 
       <AdjustingJournalPanel

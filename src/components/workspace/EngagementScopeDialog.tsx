@@ -25,6 +25,8 @@ import {
 } from "@/lib/workspace/mandate";
 import { useEngagement } from "@/contexts/EngagementContext";
 import { LAUNCH_COPY } from "@/lib/workspace/onboardingState";
+import { serviceAvailability } from "@/lib/jurisdiction/registry";
+import { useWorkspace } from "@/contexts/WorkspaceContext";
 
 export default function EngagementScopeDialog({
   open,
@@ -38,6 +40,8 @@ export default function EngagementScopeDialog({
   const { mandate, engagement, createEngagement, grantCapability, revokeCapability } =
     useEngagement();
 
+  const { company } = useWorkspace();
+  const jurisdiction = company?.filing_jurisdiction ?? null;
   const current = mandate?.granted ?? [];
   const [selected, setSelected] = useState<EngagementCapability[]>([]);
   const [reason, setReason] = useState("");
@@ -105,13 +109,16 @@ export default function EngagementScopeDialog({
         <ul className="divide-y divide-border border-y border-border -mx-6">
           {CAPABILITY_OUTCOMES.map((o) => {
             const on = selected.includes(o.capability);
+            // A service already in scope can always be withdrawn; a new jurisdiction-dependent one needs the jurisdiction first.
+            const avail = current.includes(o.capability) ? { available: true as const } : serviceAvailability(o.capability, jurisdiction);
             return (
               <li key={o.capability}>
                 <button
                   type="button"
                   onClick={() => toggle(o.capability)}
                   aria-pressed={on}
-                  className="w-full text-left px-6 py-3 flex items-start gap-3 hover:bg-secondary/50 transition-colors"
+                  disabled={!avail.available}
+                  className="w-full text-left px-6 py-3 flex items-start gap-3 hover:bg-secondary/50 transition-colors disabled:opacity-60"
                 >
                   <span
                     className={[
@@ -128,6 +135,11 @@ export default function EngagementScopeDialog({
                     <span className="block text-[12px] text-muted-foreground leading-snug">
                       {o.description}
                     </span>
+                    {!avail.available && (
+                      <span className="block text-[11px] text-amber-600 dark:text-amber-500 leading-snug mt-1">
+                        {(avail as { message: string }).message}
+                      </span>
+                    )}
                   </span>
                 </button>
               </li>

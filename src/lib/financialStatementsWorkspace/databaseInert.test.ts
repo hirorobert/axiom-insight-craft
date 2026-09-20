@@ -58,24 +58,28 @@ describe("database inertness — schema and functions", () => {
     expect(fs.readdirSync(path.join(ROOT, "supabase/functions")).filter((f) => /financial-statements?-workspace|financial-statements?-persistence/.test(f))).toEqual([]);
   });
 
-  it.skipIf(!hasMain)("changes under supabase/ relative to origin/main are exactly the two added migrations (no Edge Function, no config change, nothing modified or deleted)", () => {
+  it.skipIf(!hasMain)("changes under supabase/ relative to origin/main are only ADDED migrations (no Edge Function, no config change, nothing modified or deleted)", () => {
+    // The two financial-statements migrations are already on main; a later change may only append forward-only migrations.
     const changed = (gitOut("diff --name-status origin/main...HEAD -- supabase") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
-    expect(changed).toEqual([
-      "A\tsupabase/migrations/20260919100000_financial_statements_rollout_control.sql",
-      "A\tsupabase/migrations/20260919110000_financial_statements_persistence.sql",
-    ]);
+    const allowedAdditions = new Set(["supabase/migrations/20260920100000_workspace_setup_authority.sql"]);
+    for (const line of changed) {
+      const [status, file] = line.split("\t");
+      expect(status, line).toBe("A");
+      expect(allowedAdditions.has(file), `${file} is not a reviewed migration addition`).toBe(true);
+    }
   });
 
   it.skipIf(!hasMain)("changes no automation-deploy surface other than the reviewed CI/RLS hardening, the disposable-database proof and the guarded hosted-staging acceptance script", () => {
     const changed = (gitOut("diff --name-only origin/main...HEAD -- .github package.json supabase/config.toml .lovable scripts") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
-    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/manifestLib.mjs", "scripts/release/scan-repo.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs", "package.json"]);
+    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/manifestLib.mjs", "scripts/release/scan-repo.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs", "scripts/db-proof/setupAuthority.mjs", "package.json"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 
-  it.skipIf(!hasMain)("package.json changes by exactly one dependency: the audited zip reader (fflate) behind the secure XLSX intake", () => {
-    const diff = (gitOut("diff -U0 origin/main...HEAD -- package.json") ?? "").split(/\r?\n/).filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l));
-    expect(diff).toEqual(['+    "fflate": "^0.8.2",']);
+  it.skipIf(!hasMain)("package.json adds no dependency relative to origin/main (fflate, the audited zip reader behind the secure XLSX intake, is already declared)", () => {
+    const diff = (gitOut("diff -U0 origin/main...HEAD -- package.json") ?? "").split(/\r?\n/).filter((l) => /^\+/.test(l) && !/^\+\+\+/.test(l));
+    expect(diff.filter((l) => /"[@\w./-]+":\s*"[\^~]?\d/.test(l))).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).dependencies.fflate).toBeDefined();
   });
 });
 

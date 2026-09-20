@@ -18,9 +18,9 @@ import {
   CheckCircle, Info, Plus, RefreshCw, History, Lock, Unlock,
   TrendingUp, ArrowUpDown, PenLine, Calendar,
 } from "lucide-react";
-import { TaxLossPanel } from "@/components/TaxLossPanel";
+import { TaxLossPanel } from "./TaxLossPanel";
 import { HesabuAssurancePanel } from "@/components/HesabuAssurancePanel";
-import { generateTaxComputationPDF } from "@/lib/generateTaxComputationPDF";
+import { generateTaxComputationPDF } from "./generateTaxComputationPDF";
 import { FileDown, ShieldCheck, ShieldX, ShieldAlert } from "lucide-react";
 
 // ── ITA CLASS METADATA — VERIFIED: PwC Tanzania (reviewed 14 Jan 2026) ───

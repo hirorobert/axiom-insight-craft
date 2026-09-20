@@ -14,8 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { EngagementAuthorityType, EngagementCapability, EngagementMandate } from "@/lib/workspace/mandate";
-import { byEarliest, openEngagementWithScope } from "@/lib/workspace/engagementSetup";
-import { supabaseEngagementPort } from "@/lib/workspace/engagementSupabasePort";
+import { openEngagementWithScope, type RpcClient } from "@/lib/workspace/workspaceSetupClient";
 
 export interface EngagementRecord {
   id: string;
@@ -131,11 +130,8 @@ export function useEngagementMandate(
       .eq("fiscal_period_id", period.id)
       .order("opened_at", { ascending: false });
 
-    // The engagement of record: the EARLIEST open engagement (the same convergence rule as engagementSetup).
-    const open =
-      [...(engagements ?? [])]
-        .filter((e) => e.status === "open")
-        .sort((x, y) => byEarliest(x as { id: string; opened_at: string }, y as { id: string; opened_at: string }))[0] ?? null;
+    // The database guarantees at most ONE open engagement per reporting period (uq_engagements_one_open_per_period).
+    const open = (engagements ?? []).find((e) => e.status === "open") ?? null;
     setEngagement((open as EngagementRecord | null) ?? null);
 
     if (!open) {
@@ -171,7 +167,7 @@ export function useEngagementMandate(
     async (capabilities: EngagementCapability[], engagementType = "composite") => {
       if (!user) throw new Error("Sign in to choose services.");
       // Idempotent and convergent: repeated clicks, retries and concurrent requests end on ONE engagement.
-      await openEngagementWithScope(supabaseEngagementPort(supabase, user.id), { companyId, year: periodYear, capabilities, engagementType });
+      await openEngagementWithScope(supabase as unknown as RpcClient, { companyId, year: periodYear, capabilities, engagementType });
       await load();
     },
     [companyId, periodYear, user, load],

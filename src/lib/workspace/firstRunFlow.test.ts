@@ -7,10 +7,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { CAPABILITY_OUTCOMES, projectMandate, type EngagementCapability } from "./mandate";
-import { deriveLaunchState, DATA_START_STEP, dataStartChoiceFromStep, LAUNCH_COPY, requiresAccountingData } from "./onboardingState";
+import { deriveLaunchState, LAUNCH_COPY, requiresAccountingData } from "./onboardingState";
 import { deriveWorkspaceNavigation } from "./navigation";
-import { EngagementSetupError, openEngagementWithScope, type EngagementPort } from "./engagementSetup";
-import { readDataStart, recordDataStart, type DataStartPort } from "./dataStartStore";
+import { classifySetupError, getSetupState, openEngagementWithScope, recordDataStart, WorkspaceSetupError, type RpcClient } from "./workspaceSetupClient";
 import { STAGE_SEQUENCE } from "./stageMetadata";
 import type { MissionState, MissionStatus, WorkspaceMission } from "./types";
 
@@ -18,88 +17,6 @@ const ROOT = path.resolve(__dirname, "../..");
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
 
-// ── an in-memory database with the constraints the real one enforces ─────────────────────────────
-class FakeDb {
-  members = new Map<string, string>(); // `${company}|${user}` → role
-  periods: { id: string; company: string; year: number; created_at: string }[] = [];
-  engagements: { id: string; period: string; company: string; status: "open" | "closed"; opened_at: string }[] = [];
-  grants = new Map<string, Set<EngagementCapability>>();
-  onboarding = new Map<string, string>(); // `${user}|${company}|${year}` → step
-  private clock = 0;
-  private seq = 0;
-  now = () => `2026-09-19T10:00:${String(++this.clock).padStart(2, "0")}.000Z`;
-  id = (p: string) => `${p}-${++this.seq}`;
-  upserts = 0;
-}
-const tick = (n = 0) => new Promise<void>((r) => setTimeout(r, n));
-
-function enginePort(db: FakeDb, user: string, jitter = 0): EngagementPort {
-  return {
-    async memberOf(company) {
-      await tick(jitter);
-      const role = db.members.get(`${company}|${user}`);
-      return role ? { id: `m-${user}`, role } : null;
-    },
-    async periodsFor(company, year) {
-      await tick(jitter);
-      return db.periods.filter((p) => p.company === company && p.year === year).map((p) => ({ id: p.id, created_at: p.created_at }));
-    },
-    async createPeriod(company, year) {
-      await tick(jitter);
-      const row = { id: db.id("period"), company, year, created_at: db.now() };
-      db.periods.push(row); // no uniqueness: a race may create two, exactly like the real table
-      return { id: row.id };
-    },
-    async openEngagements(period) {
-      await tick(jitter);
-      return db.engagements.filter((e) => e.period === period && e.status === "open").map((e) => ({ id: e.id, opened_at: e.opened_at }));
-    },
-    async createEngagement(period, company) {
-      await tick(jitter);
-      const row = { id: db.id("eng"), period, company, status: "open" as const, opened_at: db.now() };
-      db.engagements.push(row);
-      return { id: row.id };
-    },
-    async closeEngagement(id) {
-      await tick(jitter);
-      const e = db.engagements.find((x) => x.id === id);
-      if (e) e.status = "closed";
-    },
-    async granted(id) {
-      await tick(jitter);
-      return [...(db.grants.get(id) ?? [])];
-    },
-    async grant(id, cap) {
-      await tick(jitter);
-      const set = db.grants.get(id) ?? new Set<EngagementCapability>();
-      if (set.has(cap)) throw Object.assign(new Error(`Capability ${cap} is already part of this engagement.`), { code: "23001" });
-      set.add(cap);
-      db.grants.set(id, set);
-    },
-  };
-}
-
-function dataPort(db: FakeDb, user: string): DataStartPort {
-  return {
-    async read(company, year) {
-      return db.onboarding.get(`${user}|${company}|${year}`) ?? null;
-    },
-    async upsert(company, year, step) {
-      db.upserts++;
-      db.onboarding.set(`${user}|${company}|${year}`, step); // UNIQUE(user, company, year): an upsert can only ever leave one row
-    },
-  };
-}
-
-const seeded = () => {
-  const db = new FakeDb();
-  db.members.set("co-A|owner", "owner");
-  db.members.set("co-A|partner", "partner");
-  db.members.set("co-A|preparer", "preparer");
-  db.members.set("co-A|viewer", "viewer");
-  db.members.set("co-B|owner", "owner");
-  return db;
-};
 
 // ── 1–2, 6, 7: the state machine ─────────────────────────────────────────────────────────────────
 describe("launch state machine — durable inputs only", () => {
@@ -114,16 +31,12 @@ describe("launch state machine — durable inputs only", () => {
     expect(deriveLaunchState({ granted: FS, hasUpload: false, dataStart: null })).toBe("DATA_CHOICE");
   });
 
-  it("the two data choices resolve to DIFFERENT persisted states and DIFFERENT workflow states", () => {
-    expect(DATA_START_STEP.import).not.toBe(DATA_START_STEP.empty);
+  it("the two data choices resolve to DIFFERENT workflow states", () => {
     const imp = deriveLaunchState({ granted: FS, hasUpload: false, dataStart: "import" });
     const emp = deriveLaunchState({ granted: FS, hasUpload: false, dataStart: "empty" });
     expect(imp).toBe("IMPORT_PENDING");
     expect(emp).toBe("EMPTY_WORKSPACE");
     expect(imp).not.toBe(emp);
-    expect(dataStartChoiceFromStep(DATA_START_STEP.import)).toBe("import");
-    expect(dataStartChoiceFromStep(DATA_START_STEP.empty)).toBe("empty");
-    expect(dataStartChoiceFromStep("upload")).toBeNull(); // a legacy step id never counts as a decision
   });
 
   it("once data exists the question can never reappear, whichever choice was recorded", () => {
@@ -147,119 +60,79 @@ describe("launch state machine — durable inputs only", () => {
   });
 });
 
-// ── 3, 14, 15, 16: engagement setup ──────────────────────────────────────────────────────────────
-describe("engagement setup — idempotent, convergent, authorised", () => {
-  it("a selection persists: a fresh session (new port, same database) sees the same engagement and services", async () => {
-    const db = seeded();
-    const first = await openEngagementWithScope(enginePort(db, "owner"), { companyId: "co-A", year: 2026, capabilities: ["FINANCIAL_STATEMENTS", "MONITORING"] });
-    const second = await openEngagementWithScope(enginePort(db, "partner"), { companyId: "co-A", year: 2026, capabilities: [] as never }).catch(() => null);
-    expect(second).toBeNull(); // an empty selection is refused, never treated as "keep as is"
-    const session2 = enginePort(db, "owner");
-    const again = await openEngagementWithScope(session2, { companyId: "co-A", year: 2026, capabilities: ["FINANCIAL_STATEMENTS"] });
-    expect(again.engagementId).toBe(first.engagementId);
-    expect([...again.granted].sort()).toEqual(["FINANCIAL_STATEMENTS", "MONITORING"]);
+// ── the client is a thin, typed RPC layer: every rule lives in the database (proved in scripts/db-proof/setupAuthority.mjs) ──
+type RpcCall = { fn: string; args: Record<string, unknown> };
+const fakeRpc = (reply: (c: RpcCall) => { data?: unknown; error?: { code?: string; message?: string } | null }) => {
+  const calls: RpcCall[] = [];
+  const client: RpcClient = {
+    async rpc(fn, args) {
+      const c = { fn, args: args ?? {} };
+      calls.push(c);
+      const r = reply(c);
+      return { data: r.data ?? null, error: r.error ?? null };
+    },
+  };
+  return { client, calls };
+};
+
+describe("workspace setup client — server-authoritative, no client-side compensation", () => {
+  it("opening an engagement is ONE transactional RPC carrying the scope (no client-side create/close/grant sequence)", async () => {
+    const { client, calls } = fakeRpc(() => ({ data: { engagementId: "e1", periodId: "p1", created: true, granted: ["FINANCIAL_STATEMENTS"] } }));
+    const out = await openEngagementWithScope(client, { companyId: "co-A", year: 2026, capabilities: ["FINANCIAL_STATEMENTS", "FINANCIAL_STATEMENTS"] });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].fn).toBe("open_engagement_with_scope");
+    expect(calls[0].args).toMatchObject({ p_company_id: "co-A", p_period_year: 2026, p_capabilities: ["FINANCIAL_STATEMENTS"] });
+    expect(out).toEqual({ engagementId: "e1", periodId: "p1", created: true, granted: ["FINANCIAL_STATEMENTS"] });
   });
 
-  it("repeated clicks create ONE engagement, ONE period and ONE grant per service", async () => {
-    const db = seeded();
-    const results: string[] = [];
-    for (let i = 0; i < 6; i++) results.push((await openEngagementWithScope(enginePort(db, "owner"), { companyId: "co-A", year: 2026, capabilities: ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"] })).engagementId);
-    expect(new Set(results).size).toBe(1);
-    expect(db.engagements.filter((e) => e.status === "open")).toHaveLength(1);
-    expect(db.periods).toHaveLength(1);
-    expect([...db.grants.get(results[0])!].sort()).toEqual(["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]);
+  it("the actor is never sent: identity is derived from the JWT inside the database", async () => {
+    const { client, calls } = fakeRpc((c) => ({ data: c.fn === "get_engagement_setup_state" ? { dataStart: null, sequence: 0 } : { dataStart: "empty", changed: true, replay: false } }));
+    await getSetupState(client, "e1");
+    await recordDataStart(client, "e1", "empty", null);
+    await openEngagementWithScope(fakeRpc(() => ({ data: { engagementId: "e", periodId: "p", created: false, granted: [] } })).client, { companyId: "c", year: 2026, capabilities: ["MONITORING"] });
+    for (const c of calls) expect(Object.keys(c.args).join(",")).not.toMatch(/user|actor|member|auth/i);
   });
 
-  it("CONCURRENT setup requests (different interleavings) converge on one open engagement and one grant per service", async () => {
-    for (const jitters of [[0, 0], [1, 6], [6, 1], [3, 3], [0, 9]]) {
-      const db = seeded();
-      const out = await Promise.all(jitters.map((j, i) => openEngagementWithScope(enginePort(db, i % 2 ? "partner" : "owner", j), { companyId: "co-A", year: 2026, capabilities: ["FINANCIAL_STATEMENTS", "COMPLIANCE_REVIEW"] })));
-      const open = db.engagements.filter((e) => e.status === "open");
-      expect(open, `jitter ${jitters}`).toHaveLength(1);
-      expect(new Set(out.map((o) => o.engagementId)), `jitter ${jitters}`).toEqual(new Set([open[0].id]));
-      expect([...db.grants.get(open[0].id)!].sort()).toEqual(["COMPLIANCE_REVIEW", "FINANCIAL_STATEMENTS"]);
-    }
+  it("the data choice is keyed by the ENGAGEMENT and carries the last-seen state for conflict detection", async () => {
+    const { client, calls } = fakeRpc(() => ({ data: { dataStart: "import", changed: true, replay: false } }));
+    const r = await recordDataStart(client, "eng-1", "import", null);
+    expect(calls[0]).toEqual({ fn: "record_engagement_data_start", args: { p_engagement_id: "eng-1", p_choice: "import", p_expected_state: null } });
+    expect(r).toEqual({ dataStart: "import", changed: true, replay: false });
   });
 
-  it("a request that loses the race closes its own engagement and never leaves a second open one", async () => {
-    const db = seeded();
-    await Promise.all([openEngagementWithScope(enginePort(db, "owner", 0), { companyId: "co-A", year: 2026, capabilities: ["MONITORING"] }), openEngagementWithScope(enginePort(db, "owner", 2), { companyId: "co-A", year: 2026, capabilities: ["MONITORING"] })]);
-    expect(db.engagements.filter((e) => e.status === "open")).toHaveLength(1);
-    expect(db.engagements.every((e) => e.status === "open" || !db.grants.has(e.id))).toBe(true); // no grant on a closed loser
+  it("a replay is reported as success, not as a change", async () => {
+    const { client } = fakeRpc(() => ({ data: { dataStart: "empty", changed: false, replay: true } }));
+    expect(await recordDataStart(client, "e", "empty", "empty")).toEqual({ dataStart: "empty", changed: false, replay: true });
   });
 
-  it("separate companies (and separate years) keep independent state", async () => {
-    const db = seeded();
-    const a = await openEngagementWithScope(enginePort(db, "owner"), { companyId: "co-A", year: 2026, capabilities: ["FINANCIAL_STATEMENTS"] });
-    const b = await openEngagementWithScope(enginePort(db, "owner"), { companyId: "co-B", year: 2026, capabilities: ["TAX_COMPUTATION"] });
-    const a2025 = await openEngagementWithScope(enginePort(db, "owner"), { companyId: "co-A", year: 2025, capabilities: ["MONITORING"] });
-    expect(new Set([a.engagementId, b.engagementId, a2025.engagementId]).size).toBe(3);
-    expect([...db.grants.get(a.engagementId)!]).toEqual(["FINANCIAL_STATEMENTS"]);
-    expect([...db.grants.get(b.engagementId)!]).toEqual(["TAX_COMPUTATION"]);
-    expect([...db.grants.get(a2025.engagementId)!]).toEqual(["MONITORING"]);
+  it("server errors are classified explicitly (never swallowed, never inferred)", () => {
+    expect(classifySetupError({ code: "42501", message: "x" }).kind).toBe("NOT_AUTHORISED");
+    expect(classifySetupError({ code: "PT422", message: "JURISDICTION_REQUIRED: x" }).kind).toBe("JURISDICTION_REQUIRED");
+    expect(classifySetupError({ code: "PT409", message: "CONFLICT: already import" }).kind).toBe("CONFLICT");
+    expect(classifySetupError({ code: "PT409", message: "CONFLICT: already import" }).message).toBe("already import");
+    expect(classifySetupError({ code: "22023", message: "INVALID: bad" }).kind).toBe("INVALID");
+    expect(classifySetupError({ code: "P0002", message: "" }).kind).toBe("NOT_FOUND");
+    expect(classifySetupError({ code: "XX000", message: "boom" }).kind).toBe("UNKNOWN");
+    expect(classifySetupError(null).kind).toBe("UNKNOWN");
   });
 
-  it("unauthorised callers cannot open or amend scope and nothing is created", async () => {
-    const db = seeded();
-    for (const [user, kind] of [["preparer", "NOT_AUTHORISED"], ["viewer", "NOT_AUTHORISED"], ["stranger", "NOT_A_MEMBER"]] as const) {
-      const err = await openEngagementWithScope(enginePort(db, user), { companyId: "co-A", year: 2026, capabilities: ["FINANCIAL_STATEMENTS"] }).catch((e) => e);
-      expect(err).toBeInstanceOf(EngagementSetupError);
-      expect((err as EngagementSetupError).kind).toBe(kind);
-    }
-    // another company's owner cannot act on co-A either
-    const cross = await openEngagementWithScope(enginePort(db, "owner"), { companyId: "co-Z", year: 2026, capabilities: ["FINANCIAL_STATEMENTS"] }).catch((e) => e);
-    expect((cross as EngagementSetupError).kind).toBe("NOT_A_MEMBER");
-    expect(db.engagements).toHaveLength(0);
-    expect(db.periods).toHaveLength(0);
+  it("a rejected call surfaces as a WorkspaceSetupError with the mapped kind", async () => {
+    const { client } = fakeRpc(() => ({ error: { code: "PT409", message: "CONFLICT: another member chose import" } }));
+    const err = await recordDataStart(client, "e", "empty", null).catch((e) => e);
+    expect(err).toBeInstanceOf(WorkspaceSetupError);
+    expect((err as WorkspaceSetupError).kind).toBe("CONFLICT");
   });
 
-  it("an amendment adds only what is missing (an 'already part of this engagement' refusal is success, not an error)", async () => {
-    const db = seeded();
-    const first = await openEngagementWithScope(enginePort(db, "owner"), { companyId: "co-A", year: 2026, capabilities: ["FINANCIAL_STATEMENTS"] });
-    const more = await openEngagementWithScope(enginePort(db, "owner"), { companyId: "co-A", year: 2026, capabilities: ["FINANCIAL_STATEMENTS", "FILING_PREPARATION"] });
-    expect(more.engagementId).toBe(first.engagementId);
-    expect([...more.granted].sort()).toEqual(["FILING_PREPARATION", "FINANCIAL_STATEMENTS"]);
+  it("the migration enforces the invariants the client relies on (one open engagement per period, append-only events, advisory lock)", () => {
+    const sql = fs.readFileSync(path.resolve(ROOT, "../supabase/migrations/20260920100000_workspace_setup_authority.sql"), "utf8");
+    expect(sql).toMatch(/CREATE UNIQUE INDEX[\s\S]{0,60}uq_engagements_one_open_per_period[\s\S]{0,200}WHERE\s+status\s*=\s*'open'/i);
+    expect(sql).toMatch(/pg_advisory_xact_lock\(hashtextextended\('open_engagement:'/);
+    expect(sql).toMatch(/engagement_setup_events/);
+    expect(sql).toMatch(/auth\.uid\(\)/);
+    expect(sql).not.toMatch(/GRANT[^;]*\bTO\s+(anon|public)\b/i);
   });
 });
 
-// ── 5, 7, 14, 15: the data choice is durable and idempotent ─────────────────────────────────────
-describe("data-start persistence", () => {
-  it("'Start without data' is durable: a refresh or fresh session reads it back and the question never reappears", async () => {
-    const db = seeded();
-    expect(await readDataStart(dataPort(db, "owner"), "co-A", 2026)).toBeNull();
-    await recordDataStart(dataPort(db, "owner"), "co-A", 2026, "empty");
-    for (let refresh = 0; refresh < 3; refresh++) {
-      const choice = await readDataStart(dataPort(db, "owner"), "co-A", 2026);
-      expect(choice).toBe("empty");
-      expect(deriveLaunchState({ granted: ["FINANCIAL_STATEMENTS"], hasUpload: false, dataStart: choice })).toBe("EMPTY_WORKSPACE");
-    }
-  });
-
-  it("recording the same choice repeatedly (double clicks) writes once", async () => {
-    const db = seeded();
-    await Promise.all([1, 2, 3].map(() => recordDataStart(dataPort(db, "owner"), "co-A", 2026, "import")));
-    await recordDataStart(dataPort(db, "owner"), "co-A", 2026, "import");
-    expect(db.onboarding.size).toBe(1);
-    expect(db.upserts).toBeLessThanOrEqual(3); // concurrent first clicks may each upsert; the UNIQUE key leaves one row
-    expect(await readDataStart(dataPort(db, "owner"), "co-A", 2026)).toBe("import");
-  });
-
-  it("the choice is per company and year: one workspace's decision never affects another", async () => {
-    const db = seeded();
-    await recordDataStart(dataPort(db, "owner"), "co-A", 2026, "empty");
-    expect(await readDataStart(dataPort(db, "owner"), "co-B", 2026)).toBeNull();
-    expect(await readDataStart(dataPort(db, "owner"), "co-A", 2025)).toBeNull();
-    expect(await readDataStart(dataPort(db, "partner"), "co-A", 2026)).toBeNull(); // per user: RLS keeps another member's row private
-  });
-
-  it("the two choices persist as different rows of state", async () => {
-    const db = seeded();
-    await recordDataStart(dataPort(db, "owner"), "co-A", 2026, "import");
-    await recordDataStart(dataPort(db, "owner"), "co-B", 2026, "empty");
-    expect(db.onboarding.get("owner|co-A|2026")).toBe(DATA_START_STEP.import);
-    expect(db.onboarding.get("owner|co-B|2026")).toBe(DATA_START_STEP.empty);
-  });
-});
 
 // ── 8, 9, 17: navigation ─────────────────────────────────────────────────────────────────────────
 describe("navigation is generated from persisted scope", () => {
@@ -334,7 +207,7 @@ describe("UI wiring contracts", () => {
     const files = walk(ROOT).filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\./.test(f));
     for (const f of files) expect(fs.readFileSync(f, "utf8"), path.relative(ROOT, f)).not.toMatch(/skipDataStart/);
     expect(overview).not.toMatch(/useSearchParams|searchParams|localStorage|sessionStorage/);
-    expect(overview).toMatch(/useDataStart\(companyId, periodYear\)/);
+    expect(overview).toMatch(/useDataStart\(engagement\?\.id \?\? null\)/);
   });
 
   it("the launchpad renders when no scope exists, from the canonical registry (no second catalogue)", () => {
@@ -354,7 +227,7 @@ describe("UI wiring contracts", () => {
   });
 
   it("the empty workspace renders in place: 'Import data' is the one, non-blocking call to action", () => {
-    expect(overview).toMatch(/launchState === "EMPTY_WORKSPACE"[\s\S]{0,700}LAUNCH_COPY\.emptyStateCta[\s\S]{0,120}tone: "muted"/);
+    expect(overview).toMatch(/launchState === "EMPTY_WORKSPACE"[\s\S]{0,700}LAUNCH_COPY\.emptyStateCta[\s\S]{0,400}tone: "muted"/);
   });
 
   it("exactly ONE trial-balance upload surface exists: the Prepare route", () => {

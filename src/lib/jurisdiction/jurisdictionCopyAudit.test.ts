@@ -20,21 +20,12 @@ import { evaluateTaxProfile } from "./taxProfile";
 
 const SRC = path.resolve(__dirname, "../..");
 
-/** Statutory-engine modules: jurisdiction-scoped by design (rendered only inside an in-scope tax / compliance / fiscal-device module). */
-export const JURISDICTION_MODULES: readonly string[] = [
-  "components/EFDMSReconciliationPanel.tsx",
-  "components/TRAAuditReadinessPanel.tsx",
-  "components/KingaFindingsPanel.tsx",
-  "components/PaymentLedgerPanel.tsx",
-  "components/EvidenceRequestPanel.tsx",
-  "components/TransferPricingPanel.tsx",
-  "lib/jurisdiction/filingTerms.ts",
-  "components/TaxLossPanel.tsx",
-  "components/ThinCapWorkpaper.tsx",
-  "components/AddBacksWorkpaper.tsx",
-  "lib/generateTaxComputationPDF.ts",
-  "lib/accounting/museIpsasRulePack.ts",
-];
+/** The Tanzania jurisdiction pack: the ONLY place statutory Tanzanian wording may live. Loaded solely through the registry. */
+const TZ_PACK_DIR = "jurisdiction-packs/tz/";
+/** Reference rule-pack modules that are jurisdiction-scoped by design and not imported by any shell surface. */
+const OTHER_JURISDICTION_MODULES: readonly string[] = ["lib/accounting/museIpsasRulePack.ts"];
+const inTzPack = (rel: string) => rel.startsWith(TZ_PACK_DIR);
+export const JURISDICTION_MODULES = (files: readonly string[]): string[] => [...files.filter(inTzPack), ...OTHER_JURISDICTION_MODULES];
 
 /** Currency pickers: ISO-4217 reference data. */
 const CURRENCY_LIST_FILES = ["components/workspace/FirstRunEngagement.tsx", "components/CompanyManager.tsx"];
@@ -102,7 +93,7 @@ describe("jurisdiction-neutral copy", () => {
   it("no user-visible string outside the inventoried statutory-engine modules names TRA, TIN, EFDMS or Tanzania", () => {
     const offenders: string[] = [];
     for (const rel of files) {
-      if (JURISDICTION_MODULES.includes(rel)) continue;
+      if (inTzPack(rel) || OTHER_JURISDICTION_MODULES.includes(rel)) continue;
       const hits = findForbidden(fs.readFileSync(path.join(SRC, rel), "utf8")).filter((h) => !(CURRENCY_LIST_FILES.includes(rel) && /^[A-Z]{3} — /.test(h)));
       for (const h of hits) offenders.push(`${rel}: ${h}`);
     }
@@ -110,20 +101,22 @@ describe("jurisdiction-neutral copy", () => {
   });
 
   it("the inventory only lists files that exist and really carry such wording (no stale allowlist)", () => {
-    for (const rel of JURISDICTION_MODULES) {
+    for (const rel of OTHER_JURISDICTION_MODULES) {
       expect(files, rel).toContain(rel);
       expect(findForbidden(fs.readFileSync(path.join(SRC, rel), "utf8")).length, `${rel} no longer needs an exemption`).toBeGreaterThan(0);
     }
+    expect(files.filter(inTzPack).length, "the TZ pack directory exists and is non-empty").toBeGreaterThan(0);
   });
 
   it("no statutory-engine module is rendered by a first-run, overview, upload, settings or layout surface", () => {
     const shell = ["pages/workspace/WorkspaceOverview.tsx", "pages/workspace/WorkspaceLayout.tsx", "pages/workspace/PrepareWorkspace.tsx", "pages/Settings.tsx", "components/TrialBalanceUpload.tsx", "components/workspace/FirstRunEngagement.tsx", "components/workspace/ServiceLaunchpad.tsx", "components/workspace/DataChoiceCard.tsx"];
     for (const rel of shell) {
       const code = fs.readFileSync(path.join(SRC, rel), "utf8");
-      for (const mod of JURISDICTION_MODULES) {
+      for (const mod of JURISDICTION_MODULES(files)) {
         const base = path.basename(mod).replace(/\.(tsx|ts)$/, "");
         expect(new RegExp(`from ["'][^"']*/${base}["']`).test(code), `${rel} must not import ${base}`).toBe(false);
       }
+      expect(code, `${rel} must not reference the jurisdiction pack directory`).not.toMatch(/jurisdiction-packs/);
     }
   });
 });

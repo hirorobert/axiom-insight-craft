@@ -74,6 +74,38 @@ jobs:
       - name: Type check
         run: bunx tsc --noEmit -p tsconfig.app.json
 
+  release-gate:
+    name: Release Gate (clean Linux, npm ci, full suite)
+    runs-on: ubuntu-latest
+    # The deterministic acceptance gate: exact head of the pull request, dependencies from the committed lockfile,
+    # LF line endings (.gitattributes), zero failing tests — there is no "baseline failure" allowance.
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      - name: Jurisdiction audits (copy audit + import boundary)
+        run: npx vitest run src/lib/jurisdiction
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit -p tsconfig.app.json
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
   golden-tests:
     name: Golden Fixture Tests (vitest)
     runs-on: ubuntu-latest
@@ -200,3 +232,11 @@ jobs:
           createdb fs_proof
           npm install --no-save --no-package-lock --ignore-scripts pg@8
           node scripts/db-proof/run.mjs
+
+      - name: Workspace setup authority proof (25-way concurrency, role/RLS matrix, on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/setup_proof
+        run: |
+          createdb setup_proof
+          node scripts/db-proof/setupAuthority.mjs

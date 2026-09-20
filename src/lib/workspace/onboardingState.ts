@@ -20,18 +20,6 @@ import {
 /** The persisted data choice. `null` = not yet decided. */
 export type DataStartChoice = "import" | "empty";
 
-/** `onboarding_progress.current_step` values owned by this state machine (distinct from any legacy step id). */
-export const DATA_START_STEP: Record<DataStartChoice, string> = {
-  import: "data_start_import",
-  empty: "data_start_empty",
-};
-
-export function dataStartChoiceFromStep(step: string | null | undefined): DataStartChoice | null {
-  if (step === DATA_START_STEP.import) return "import";
-  if (step === DATA_START_STEP.empty) return "empty";
-  return null;
-}
-
 /**
  * A service needs accounting data when its stages, or the evidence it relies on (followed transitively through the
  * services that own that evidence), include Prepare Data.

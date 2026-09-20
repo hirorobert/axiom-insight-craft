@@ -21,12 +21,11 @@ import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
 
-import { KingaTaxPanel } from "@/components/KingaTaxPanel";
+import { JurisdictionGate, JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
+import { useEngagement } from "@/contexts/EngagementContext";
+import { serviceAvailability } from "@/lib/jurisdiction/registry";
 import { KingaComparativePanel } from "@/components/KingaComparativePanel";
-import { TransferPricingPanel } from "@/components/TransferPricingPanel";
 import { CapitalAllowancesRegister } from "@/components/CapitalAllowancesRegister";
-import { ThinCapWorkpaper } from "@/components/ThinCapWorkpaper";
-import { AddBacksWorkpaper } from "@/components/AddBacksWorkpaper";
 import type { TaxResultForExport } from "@/components/ExportStatements";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
@@ -63,10 +62,17 @@ type TabId = (typeof TABS)[number]["id"];
 export default function TaxWorkspace() {
   const { upload, company, workspaceState, companyId, periodYear } = useWorkspace();
   const { user } = useAuth();
+  const { canAmend } = useEngagement();
+  const jurisdiction = company?.filing_jurisdiction ?? null;
   const [activeTab, setActiveTab] = useState<TabId>("tax");
   const [taxResult, setTaxResult] = useState<TaxResultForExport | null>(null);
 
   const mission = workspaceState.missions.tax;
+
+  // Tax computation is unavailable until a filing jurisdiction is selected — and only for one that ships a pack.
+  if (!serviceAvailability("TAX_COMPUTATION", jurisdiction).available) {
+    return <JurisdictionGate capability="TAX_COMPUTATION" jurisdiction={jurisdiction} companyId={companyId} canChange={canAmend} />;
+  }
 
   if (mission.status === "locked") {
     return (
@@ -123,7 +129,9 @@ export default function TaxWorkspace() {
 
       {/* Tab content */}
       {activeTab === "tax" && (
-        <KingaTaxPanel
+        <JurisdictionPanel
+          jurisdiction={jurisdiction}
+          panel="taxComputation"
           companyId={upload.company_id}
           uploadId={upload.id}
           periodYear={fpYear}
@@ -131,7 +139,7 @@ export default function TaxWorkspace() {
           companyName={upload.company_name ?? undefined}
           companyTin={company?.tin ?? undefined}
           userId={user?.id ?? ""}
-          onResultChange={setTaxResult}
+          onResultChange={(r) => setTaxResult(r as TaxResultForExport | null)}
         />
       )}
 
@@ -141,7 +149,9 @@ export default function TaxWorkspace() {
 
       {activeTab === "workpapers" && (
         <div className="space-y-6">
-          <TransferPricingPanel
+          <JurisdictionPanel
+            jurisdiction={jurisdiction}
+            panel="transferPricing"
             companyId={upload.company_id}
             uploadId={upload.id}
             periodYear={fpYear}
@@ -155,13 +165,18 @@ export default function TaxWorkspace() {
             companyName={upload.company_name ?? undefined}
             userId={user?.id ?? ""}
           />
-          <ThinCapWorkpaper
+          <JurisdictionPanel
+            jurisdiction={jurisdiction}
+            panel="thinCap"
             companyId={upload.company_id}
             uploadId={upload.id}
             periodYear={fpYear}
             companyName={upload.company_name ?? undefined}
+            userId={user?.id ?? ""}
           />
-          <AddBacksWorkpaper
+          <JurisdictionPanel
+            jurisdiction={jurisdiction}
+            panel="addBacks"
             companyId={upload.company_id}
             uploadId={upload.id}
             periodYear={fpYear}

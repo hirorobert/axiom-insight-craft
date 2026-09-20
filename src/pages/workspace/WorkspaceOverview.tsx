@@ -101,7 +101,7 @@ export default function WorkspaceOverview() {
     createEngagement,
   } = useEngagement();
   // Durable data choice for this workspace (never a URL flag, local flag or navigation history).
-  const dataStart = useDataStart(companyId, periodYear);
+  const dataStart = useDataStart(engagement?.id ?? null);
 
   // Retry the ingest pipeline when the active upload failed.
   const handleRetryProcessing = async () => {
@@ -168,7 +168,8 @@ export default function WorkspaceOverview() {
   const granted = mandate?.granted ?? null;
   // A tax-profile warning needs (1) an active tax/filing service, (2) a configured jurisdiction that requires the field
   // and (3) the field actually missing. No jurisdiction is configured for a workspace today, so it never fires by inference.
-  const taxProfile = evaluateTaxProfile({ granted, jurisdiction: null, taxIdentifier: effectiveTin });
+  const jurisdiction = company?.filing_jurisdiction ?? null;
+  const taxProfile = evaluateTaxProfile({ granted, jurisdiction, taxIdentifier: effectiveTin });
 
   const prepareStatus = missions.prepare.status;
   const prepareDone = prepareStatus === "passed" || prepareStatus === "signed";
@@ -227,7 +228,14 @@ export default function WorkspaceOverview() {
       eyebrow: "Workspace",
       headline: "Your workspace is ready.",
       detail: "No financial data has been added yet. Add it whenever you are ready.",
-      button: { label: LAUNCH_COPY.emptyStateCta, href: `${basePath}/prepare`, icon: <ArrowRight className="w-4 h-4" /> },
+      // empty → import is the one permitted follow-up transition: recorded on the server, then the single upload surface opens.
+      button: {
+        label: LAUNCH_COPY.emptyStateCta,
+        onClick: async () => {
+          if (await dataStart.record("import")) navigate(`${basePath}/prepare`);
+        },
+        icon: <ArrowRight className="w-4 h-4" />,
+      },
       tone: "muted",
     };
   } else if (isFailed) {
@@ -367,7 +375,7 @@ export default function WorkspaceOverview() {
         {mandateLoading || dataStart.loading ? (
           <Skeleton className="h-56 w-full" />
         ) : launchState === "LAUNCHPAD" ? (
-          <ServiceLaunchpad canChoose={canAmend} onConfirm={(selected) => createEngagement(selected)} />
+          <ServiceLaunchpad canChoose={canAmend} companyId={companyId} jurisdiction={jurisdiction} onConfirm={(selected) => createEngagement(selected)} />
         ) : launchState === "DATA_CHOICE" ? (
           <DataChoiceCard
             onImport={async () => {

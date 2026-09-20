@@ -18,7 +18,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { filingTerm, isFilingTermKey, type FilingTermKey } from "@/lib/jurisdiction/filingTerms";
+import { filingTerm, isFilingTermKey, type FilingTermKey } from "./filingTerms";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
