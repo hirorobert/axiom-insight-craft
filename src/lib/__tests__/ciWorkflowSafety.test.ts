@@ -79,7 +79,7 @@ describe("RLS regression workflow contract", () => {
   it("never logs a secret: no shell tracing, env dumps, echoes of variables, or debug logging", () => {
     expect(rls).not.toMatch(/set\s+-[a-z]*x|printenv|\benv\s*\||\bset\s*\||echo\s+[^\n]*(\$\{?STAGING|secrets\.)|ACTIONS_STEP_DEBUG|ACTIONS_RUNNER_DEBUG|cat\s+[^\n]*\.env/);
     const runs = [...rls.matchAll(/^\s+run: (.*)$/gm)].map((m) => m[1]);
-    expect(runs).toEqual(["node scripts/ci/stagingGuard.mjs", "bun install", "bun run test:rls"]);
+    expect(runs).toEqual(["node scripts/ci/stagingGuard.mjs", "bun install --frozen-lockfile", "bun run test:rls"]);
   });
 
   it("does not deploy, push or apply anything to a database", () => {
