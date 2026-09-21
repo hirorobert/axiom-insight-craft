@@ -7,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The real client is built from Vite env variables; the tests exercise only how its responses are interpreted.
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { functions: { invoke } } }));
+// These tests exercise the client's behaviour when the `service_enquiry_phase1` gate is ON; the OFF refusal is proven in serviceEnquiryGate.test.ts.
+vi.mock("./serviceEnquiryGate", async () => {
+  const real = await vi.importActual<typeof import("./serviceEnquiryGate")>("./serviceEnquiryGate");
+  return { ...real, SERVICE_ENQUIRY_PHASE1_ENABLED: true, SERVICE_ENQUIRY_SURFACES: real.surfacesFor(true) };
+});
 import { interpretResponse, parseReceipt, submitServiceEnquiry, type EnquiryWireRequest } from "./client";
 import {
   EMPTY_FORM_VALUES,

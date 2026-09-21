@@ -6,6 +6,7 @@ import { z } from "zod";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { EnquiryReceipt, FieldError } from "./contract";
+import { SERVICE_ENQUIRY_SURFACES } from "./serviceEnquiryGate";
 
 const receiptSchema = z.object({
   reference: z.string().regex(/^CFQ-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/),
@@ -72,6 +73,9 @@ export interface EnquiryWireRequest {
 }
 
 export async function submitServiceEnquiry(request: EnquiryWireRequest): Promise<SubmitOutcome> {
+  // Rollout control, not authorization: while `service_enquiry_phase1` is OFF no request ever leaves the browser, even if a
+  // component were somehow mounted. (The Edge Function still validates everything when the gate is ON.)
+  if (!SERVICE_ENQUIRY_SURFACES.submissionAllowed) return { kind: "unavailable" };
   try {
     const { data, error } = await supabase.functions.invoke("submit-service-enquiry", { body: request });
     if (!error) return interpretResponse(200, data);

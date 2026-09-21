@@ -61,7 +61,19 @@ describe("database inertness — schema and functions", () => {
   it.skipIf(!hasMain)("changes under supabase/ relative to origin/main are only ADDED migrations (no Edge Function, no config change, nothing modified or deleted)", () => {
     // The two financial-statements migrations are already on main; a later change may only append forward-only migrations.
     const changed = (gitOut("diff --name-status origin/main...HEAD -- supabase") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
-    const allowedAdditions = new Set(["supabase/migrations/20260920100000_workspace_setup_authority.sql"]);
+    // Reviewed additive artifacts: the Phase 1 service enquiry intake (PR #27) adds one forward-only migration and two NEW Edge
+    // Functions (with their shared modules). Nothing existing is modified or deleted — every status must still be "A".
+    const allowedAdditions = new Set([
+      "supabase/migrations/20260920100000_workspace_setup_authority.sql",
+      "supabase/migrations/20260921100000_service_enquiry_intake.sql",
+      "supabase/functions/_shared/serviceEnquiryContract.ts",
+      "supabase/functions/_shared/serviceEnquiryEmail.ts",
+      "supabase/functions/_shared/serviceEnquiryEmailCorpus.json",
+      "supabase/functions/_shared/serviceEnquiryHandler.ts",
+      "supabase/functions/_shared/serviceEnquiryWiring.ts",
+      "supabase/functions/dispatch-enquiry-notifications/index.ts",
+      "supabase/functions/submit-service-enquiry/index.ts",
+    ]);
     for (const line of changed) {
       const [status, file] = line.split("\t");
       expect(status, line).toBe("A");
@@ -72,7 +84,7 @@ describe("database inertness — schema and functions", () => {
   it.skipIf(!hasMain)("changes no automation-deploy surface other than the reviewed CI/RLS hardening, the disposable-database proof and the guarded hosted-staging acceptance script", () => {
     const changed = (gitOut("diff --name-only origin/main...HEAD -- .github package.json supabase/config.toml .lovable scripts") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
-    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/manifestLib.mjs", "scripts/release/scan-repo.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs", "scripts/db-proof/setupAuthority.mjs", "scripts/ci/assertPackIsolation.mjs", "scripts/ci/assertSingleLockfile.mjs", "scripts/ci/packageManagerAuthority.mjs", "package.json"]);
+    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serviceEnquiries.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/manifestLib.mjs", "scripts/release/scan-repo.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs", "scripts/db-proof/setupAuthority.mjs", "scripts/ci/assertPackIsolation.mjs", "scripts/ci/assertSingleLockfile.mjs", "scripts/ci/packageManagerAuthority.mjs", "package.json"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

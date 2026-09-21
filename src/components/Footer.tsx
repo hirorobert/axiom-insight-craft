@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { FOOTER, BRAND, NAV, PRICING } from "@/constants/copy";
 import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
+import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
 const PRODUCT_LINKS = [
   { label: "Outcomes",  href: "/#outcomes"  },
@@ -84,12 +85,14 @@ export function Footer() {
             © {new Date().getFullYear()} {BRAND.name}. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
-            <Link
-              to={contactHref("site_footer")}
-              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Contact
-            </Link>
+            {SERVICE_ENQUIRY_SURFACES.footerContactLink && (
+              <Link
+                to={contactHref("site_footer")}
+                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Contact
+              </Link>
+            )}
             {FOOTER.legal.map(({ label, href }) => (
               <Link
                 key={href}

@@ -52,7 +52,7 @@ describe("one canonical backend, six entry points", () => {
     expect(code("src/components/Header.tsx")).toMatch(/contactHref\("help_support"\)/);
     expect(code("src/components/Footer.tsx")).toMatch(/contactHref\("site_footer"\)/);
     expect(code("src/pages/workspace/WorkspaceLayout.tsx")).toMatch(/contactHref\("help_support"\)/);
-    expect(read("src/App.tsx")).toMatch(/path="\/contact" element=\{<Contact \/>\}/);
+    expect(read("src/lib/serviceEnquiry/serviceEnquiryRoutes.tsx")).toMatch(/path="\/contact"[\s\S]*?<Contact \/>/);
   });
 
   it("the contact page, the donor tile and the tax tile ALL render the one ServiceEnquiryForm", () => {
@@ -97,7 +97,7 @@ describe("donor / funder expert intake (position 03, expert-led)", () => {
   it("is rendered in the public outcome selector immediately before the tax tile, inside the existing PUBLIC_PRODUCT_OUTCOMES map", () => {
     const tour = code("src/components/ProductTour.tsx");
     expect(tour).toMatch(/PUBLIC_PRODUCT_OUTCOMES\.map/);
-    expect(tour).toMatch(/outcome\.id === "tax-compliance" \?[\s\S]*?<DonorExpertTile \/>\s*<TaxJurisdictionTile number=\{outcome\.number\} \/>/);
+    expect(tour).toMatch(/outcome\.id === "tax-compliance" && SERVICE_ENQUIRY_SURFACES\.taxExperience \?[\s\S]*?\{SERVICE_ENQUIRY_SURFACES\.donorTile && <DonorExpertTile \/>\}\s*<TaxJurisdictionTile number=\{outcome\.number\} \/>/);
   });
 
   it("submits service code donor_reporting from the workflow_donor context, with only triage fields", () => {
@@ -304,9 +304,9 @@ describe("staff queue — server-side authorization, honest states", () => {
   const page = code("src/pages/admin/EnquiryQueue.tsx");
 
   it("is a lazy, separate chunk mounted at /admin/enquiries — and the route is a screen, not a security boundary", () => {
-    const app = read("src/App.tsx");
-    expect(app).toMatch(/const EnquiryQueue = lazy\(\(\) => import\("@\/pages\/admin\/EnquiryQueue"\)\)/);
-    expect(app).toMatch(/path="\/admin\/enquiries"/);
+    const routes = read("src/lib/serviceEnquiry/serviceEnquiryRoutes.tsx");
+    expect(routes).toMatch(/const EnquiryQueue = lazy\(\(\) => import\("@\/pages\/admin\/EnquiryQueue"\)\)/);
+    expect(routes).toMatch(/path="\/admin\/enquiries"/);
     expect(read("src/pages/admin/EnquiryQueue.tsx")).toMatch(/not a security boundary/);
   });
 

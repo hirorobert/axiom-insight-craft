@@ -8,13 +8,20 @@ import { Footer } from "@/components/Footer";
 import { ServiceEnquiryForm } from "@/components/enquiry/ServiceEnquiryForm";
 import { sourceFromSearch } from "@/lib/serviceEnquiry/entryPoints";
 import { ENQUIRY_FORM_COPY } from "@/lib/serviceEnquiry/copy";
+import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
+import NotFound from "@/pages/NotFound";
 
 const GENERAL_CHOICES = [
   { code: "general", label: "A general question" },
   { code: "support", label: "Help using CFOClose" },
 ] as const;
 
+/** Behind the `service_enquiry_phase1` gate: even if mounted directly, an OFF gate shows the standard not-found page, never the form. */
 export default function Contact() {
+  return SERVICE_ENQUIRY_SURFACES.contactRoute ? <ContactPage /> : <NotFound />;
+}
+
+function ContactPage() {
   const [params] = useSearchParams();
   const sourceContext = sourceFromSearch(params.get("from"));
 

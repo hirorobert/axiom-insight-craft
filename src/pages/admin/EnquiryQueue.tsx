@@ -8,6 +8,8 @@
  */
 
 import { useMemo } from "react";
+import NotFound from "@/pages/NotFound";
+import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import { Link, useSearchParams } from "react-router-dom";
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -94,7 +96,12 @@ function QueueRowItem({ row, selected, onOpen }: { row: QueueRow; selected: bool
   );
 }
 
+/** Behind the `service_enquiry_phase1` gate: while it is OFF the queue never mounts, so no staff query is ever issued. */
 export default function EnquiryQueue() {
+  return SERVICE_ENQUIRY_SURFACES.staffQueueRoute ? <EnquiryQueueScreen /> : <NotFound />;
+}
+
+function EnquiryQueueScreen() {
   const { user, loading: authLoading } = useAuth();
   const [params, setParams] = useSearchParams();
   const filters = useMemo(() => parseQueueFilters(params), [params]);

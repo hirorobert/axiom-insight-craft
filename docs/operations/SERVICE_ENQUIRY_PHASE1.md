@@ -7,6 +7,23 @@ Phase 1 is one canonical enquiry backend, one reusable enquiry form, a donor/fun
 expert intake, contextual entry points, a secured staff triage queue and a transactional notification outbox. It deliberately
 contains **no** donor-reporting workbench, tax calculation, file upload, CRM, automatic acceptance, proposal or assignment.
 
+## Dark-launch gate (`service_enquiry_phase1`)
+
+The whole user-facing experience sits behind one independent rollout gate, `src/lib/serviceEnquiry/serviceEnquiryGate.ts`,
+**committed OFF** — so it is OFF in every environment, including production. It follows the repository's gate convention
+(a source-controlled constant; no `VITE_*` variable, storage value, query parameter or runtime setting can change it), and it
+fails closed: only the exact configuration `{ gate: "service_enquiry_phase1", enabled: true }` is ON; a missing, malformed or
+unreadable configuration is OFF. It does not reuse or alter any other rollout gate.
+
+While OFF the product is identical to current `main`: no donor tile (the original tax card is unchanged), no Contact link in
+the header, footer or the two Help & support menus, `/contact` and `/admin/enquiries` are not registered (the existing
+not-found page answers), and no request can reach `submit-service-enquiry`. The migration and both Edge Functions are
+independent of the gate and can be applied and deployed while it is OFF. The gate is rollout control only — authorization is
+still enforced by the database (`staff_*` functions refuse anyone who is not active platform staff) and never consults it.
+
+**Enabling it is a reviewed code change** (`enabled: true` in `COMMITTED_CONFIG`), made only after the activation checklist
+below is complete: migration applied, both functions deployed, first platform staff enrolled, and the email path verified.
+
 ## Architecture
 
 | Layer | Artefact |
