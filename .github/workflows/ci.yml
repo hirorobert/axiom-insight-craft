@@ -257,3 +257,11 @@ jobs:
         run: |
           createdb setup_proof
           node scripts/db-proof/setupAuthority.mjs
+
+      - name: Service enquiry intake proof (no direct table access, idempotency, 100-pair transition matrix, concurrency, outbox, on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/enquiry_proof
+        run: |
+          createdb enquiry_proof
+          node scripts/db-proof/serviceEnquiries.mjs

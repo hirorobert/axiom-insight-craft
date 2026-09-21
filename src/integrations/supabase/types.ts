@@ -3861,6 +3861,75 @@ export type Database = {
           },
         ]
       }
+      platform_staff_audit: {
+        Row: {
+          action: string
+          created_at: string
+          id: string
+          new_role: string | null
+          operator_label: string
+          previous_role: string | null
+          reason: string
+          seq: number
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          id?: string
+          new_role?: string | null
+          operator_label: string
+          previous_role?: string | null
+          reason: string
+          seq?: never
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          id?: string
+          new_role?: string | null
+          operator_label?: string
+          previous_role?: string | null
+          reason?: string
+          seq?: never
+          user_id?: string
+        }
+        Relationships: []
+      }
+      platform_staff_members: {
+        Row: {
+          granted_at: string
+          granted_by_label: string
+          is_active: boolean
+          revoked_at: string | null
+          revoked_reason: string | null
+          staff_role: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          granted_at?: string
+          granted_by_label: string
+          is_active?: boolean
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          staff_role: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          granted_at?: string
+          granted_by_label?: string
+          is_active?: boolean
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          staff_role?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -4162,6 +4231,216 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      service_enquiries: {
+        Row: {
+          assigned_to_user_id: string | null
+          country_code: string | null
+          created_at: string
+          id: string
+          idempotency_key: string
+          message: string
+          organization: string | null
+          payload: Json
+          payload_schema_version: number
+          public_reference: string
+          request_fingerprint: string
+          requester_email: string
+          requester_name: string
+          requester_user_id: string | null
+          service_code: string
+          source_context: string
+          status: string
+          subject: string
+          submitted_at: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to_user_id?: string | null
+          country_code?: string | null
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          message: string
+          organization?: string | null
+          payload?: Json
+          payload_schema_version?: number
+          public_reference?: string
+          request_fingerprint: string
+          requester_email: string
+          requester_name: string
+          requester_user_id?: string | null
+          service_code: string
+          source_context: string
+          status?: string
+          subject: string
+          submitted_at?: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to_user_id?: string | null
+          country_code?: string | null
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          message?: string
+          organization?: string | null
+          payload?: Json
+          payload_schema_version?: number
+          public_reference?: string
+          request_fingerprint?: string
+          requester_email?: string
+          requester_name?: string
+          requester_user_id?: string | null
+          service_code?: string
+          source_context?: string
+          status?: string
+          subject?: string
+          submitted_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_service_enquiries_assignee"
+            columns: ["assigned_to_user_id"]
+            isOneToOne: false
+            referencedRelation: "platform_staff_members"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      service_enquiry_events: {
+        Row: {
+          actor_kind: string
+          actor_user_id: string | null
+          assigned_to_user_id: string | null
+          created_at: string
+          enquiry_id: string
+          event_kind: string
+          id: string
+          new_status: string
+          note: string | null
+          previous_status: string | null
+          seq: number
+        }
+        Insert: {
+          actor_kind: string
+          actor_user_id?: string | null
+          assigned_to_user_id?: string | null
+          created_at?: string
+          enquiry_id: string
+          event_kind: string
+          id?: string
+          new_status: string
+          note?: string | null
+          previous_status?: string | null
+          seq?: never
+        }
+        Update: {
+          actor_kind?: string
+          actor_user_id?: string | null
+          assigned_to_user_id?: string | null
+          created_at?: string
+          enquiry_id?: string
+          event_kind?: string
+          id?: string
+          new_status?: string
+          note?: string | null
+          previous_status?: string | null
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_service_enquiry_events_enquiry"
+            columns: ["enquiry_id"]
+            isOneToOne: false
+            referencedRelation: "service_enquiries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_enquiry_notifications: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          enquiry_id: string
+          id: string
+          kind: string
+          last_attempt_at: string | null
+          last_error_code: string | null
+          provider_message_id: string | null
+          sent_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          enquiry_id: string
+          id?: string
+          kind: string
+          last_attempt_at?: string | null
+          last_error_code?: string | null
+          provider_message_id?: string | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          enquiry_id?: string
+          id?: string
+          kind?: string
+          last_attempt_at?: string | null
+          last_error_code?: string | null
+          provider_message_id?: string | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_service_enquiry_notifications_enquiry"
+            columns: ["enquiry_id"]
+            isOneToOne: false
+            referencedRelation: "service_enquiries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_enquiry_rate_limits: {
+        Row: {
+          bucket: string
+          hits: number
+          window_start: string
+        }
+        Insert: {
+          bucket: string
+          hits?: number
+          window_start: string
+        }
+        Update: {
+          bucket?: string
+          hits?: number
+          window_start?: string
+        }
+        Relationships: []
+      }
+      service_enquiry_status_transitions: {
+        Row: {
+          from_status: string
+          to_status: string
+        }
+        Insert: {
+          from_status: string
+          to_status: string
+        }
+        Update: {
+          from_status?: string
+          to_status?: string
+        }
+        Relationships: []
       }
       statement_sign_offs: {
         Row: {
@@ -5738,9 +6017,33 @@ export type Database = {
         }
         Returns: Json
       }
+      current_platform_staff_role: { Args: never; Returns: string }
       engagement_data_start_state: {
         Args: { p_engagement_id: string }
         Returns: string
+      }
+      enquiry_email_is_valid: { Args: { p_email: string }; Returns: boolean }
+      enquiry_notification_claim: {
+        Args: { p_enquiry_id?: string; p_limit?: number }
+        Returns: Json
+      }
+      enquiry_notification_complete: {
+        Args: {
+          p_error_code?: string
+          p_id: string
+          p_outcome: string
+          p_provider_message_id?: string
+        }
+        Returns: Json
+      }
+      enquiry_text_ok: {
+        Args: {
+          p_max: number
+          p_min: number
+          p_multiline: boolean
+          p_text: string
+        }
+        Returns: boolean
       }
       financial_statements_workspace_access: {
         Args: { p_company_id: string }
@@ -6096,6 +6399,7 @@ export type Database = {
         Args: { p_report_id: string; p_version: number }
         Returns: number
       }
+      generate_service_enquiry_reference: { Args: never; Returns: string }
       get_authoritative_certification: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: {
@@ -6182,6 +6486,7 @@ export type Database = {
         Returns: string
       }
       is_commercial_admin: { Args: never; Returns: boolean }
+      is_iso_3166_alpha2: { Args: { p_code: string }; Returns: boolean }
       maono_check_safisha_gate: {
         Args: { p_upload_ids: string[] }
         Returns: {
@@ -6259,6 +6564,19 @@ export type Database = {
           p_provider_checkout_ref: string
           p_provider_checkout_url: string
         }
+        Returns: Json
+      }
+      platform_staff_grant: {
+        Args: {
+          p_operator_label: string
+          p_reason: string
+          p_staff_role: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      platform_staff_revoke: {
+        Args: { p_operator_label: string; p_reason: string; p_user_id: string }
         Returns: Json
       }
       record_engagement_data_start: {
@@ -6349,10 +6667,58 @@ export type Database = {
           resolved: number
         }[]
       }
+      service_enquiry_ack_state: {
+        Args: { p_enquiry_id: string }
+        Returns: string
+      }
+      service_enquiry_payload_valid: {
+        Args: { p_payload: Json; p_service: string; p_version: number }
+        Returns: boolean
+      }
+      service_enquiry_status_is_valid: {
+        Args: { p_status: string }
+        Returns: boolean
+      }
       set_company_filing_jurisdiction: {
         Args: { p_company_id: string; p_jurisdiction: string }
         Returns: string
       }
+      staff_add_service_enquiry_note: {
+        Args: { p_enquiry_id: string; p_note: string }
+        Returns: Json
+      }
+      staff_assign_service_enquiry: {
+        Args: { p_assignee: string; p_enquiry_id: string; p_note?: string }
+        Returns: Json
+      }
+      staff_get_service_enquiry: {
+        Args: { p_enquiry_id: string }
+        Returns: Json
+      }
+      staff_list_platform_staff: { Args: never; Returns: Json }
+      staff_list_service_enquiries: {
+        Args: {
+          p_country?: string
+          p_from?: string
+          p_limit?: number
+          p_offset?: number
+          p_search?: string
+          p_service?: string[]
+          p_status?: string[]
+          p_to?: string
+        }
+        Returns: Json
+      }
+      staff_transition_service_enquiry: {
+        Args: {
+          p_enquiry_id: string
+          p_expected_status?: string
+          p_note?: string
+          p_to_status: string
+        }
+        Returns: Json
+      }
+      submit_service_enquiry: { Args: { p_request: Json }; Returns: Json }
       xbrl_write_instance: {
         Args: {
           p_company_id: string

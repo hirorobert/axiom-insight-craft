@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -46,6 +47,11 @@ const queryClient = new QueryClient();
 import PaymentReturn from "@/pages/billing/PaymentReturn";
 import CommercialAdmin from "@/pages/commercial/CommercialAdmin";
 import Pricing from "@/pages/Pricing";
+import Contact from "@/pages/Contact";
+
+// The staff triage queue is internal: it loads on demand, so its code is never part of the public entry chunk. Access is
+// enforced by the database (platform-staff-only RPCs) — this route is not a security boundary, only a screen.
+const EnquiryQueue = lazy(() => import("@/pages/admin/EnquiryQueue"));
 
 function LegacySubRouteRedirect({ to }: { to: string }) {
   const { companyId, periodYear } = useParams<{ companyId: string; periodYear: string }>();
@@ -111,6 +117,17 @@ const App = () => (
                 {/* ── Auth + utility ── */}
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/pricing" element={<Pricing />} />
+                <Route path="/contact" element={<Contact />} />
+                <Route
+                  path="/admin/enquiries"
+                  element={
+                    <PageErrorBoundary pageName="Enquiry queue">
+                      <Suspense fallback={<div className="p-6 text-sm text-muted-foreground" role="status">Loading…</div>}>
+                        <EnquiryQueue />
+                      </Suspense>
+                    </PageErrorBoundary>
+                  }
+                />
                 <Route path="/terms" element={<Terms />} />
                 <Route path="/billing/payment/return" element={<PaymentReturn />} />
                 <Route path="/commercial/admin" element={<CommercialAdmin />} />

@@ -68,30 +68,31 @@ describe("Ω3-CHECKOUT migration — presence and ordering", () => {
     // North-Star financial_statement_documents migration (20260915100000,
     // unapplied — see supabase/migrations/20260915100000_financial_statement_documents.sql)
     // precede the two financial-statements migrations (20260919100000, 20260919110000).
-    expect(thisIndex).toBe(sorted.length - 11);
-    expect(sorted[sorted.length - 10]).toBe(
+    // 20260921100000 (service enquiry intake) is one more forward-only entry after the workspace setup authority migration.
+    expect(thisIndex).toBe(sorted.length - 12);
+    expect(sorted[sorted.length - 11]).toBe(
       "20260913000000_omega4_checkout_acquisition_hardening.sql",
     );
-    expect(sorted[sorted.length - 9]).toBe(
+    expect(sorted[sorted.length - 10]).toBe(
       "20260913054040_56b232d3-6503-4586-8166-151c46a08f0e.sql",
     );
-    expect(sorted[sorted.length - 8]).toBe(
+    expect(sorted[sorted.length - 9]).toBe(
       "20260913165425_b9a0a379-313f-48ec-8878-e6f0aefff5a7.sql",
     );
-    expect(sorted[sorted.length - 7]).toBe(
+    expect(sorted[sorted.length - 8]).toBe(
       "20260914000000_omega3_checkout_provider_boundary_repair.sql",
     );
-    expect(sorted[sorted.length - 6]).toBe(
+    expect(sorted[sorted.length - 7]).toBe(
       "20260914120000_omega5_billing_projection_truth.sql",
     );
-    expect(sorted[sorted.length - 5]).toBe(
+    expect(sorted[sorted.length - 6]).toBe(
       "20260915045958_96cc735e-defd-4747-870d-2784030b6da6.sql",
     );
-    expect(sorted[sorted.length - 4]).toBe(
+    expect(sorted[sorted.length - 5]).toBe(
       "20260915100000_financial_statement_documents.sql",
     );
     // The two forward-only, UNAPPLIED financial-statements migrations are the newest entries.
-    expect(sorted[sorted.length - 3]).toBe("20260919100000_financial_statements_rollout_control.sql");
+    expect(sorted[sorted.length - 4]).toBe("20260919100000_financial_statements_rollout_control.sql");
 
   });
 

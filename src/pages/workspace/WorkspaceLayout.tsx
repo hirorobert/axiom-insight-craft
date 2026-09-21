@@ -40,9 +40,11 @@ import {
   Settings,
   RefreshCw,
   LogOut,
+  LifeBuoy,
   ChevronDown,
 } from "lucide-react";
 import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
+import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
 import type { MissionStatus, WorkspaceMission } from "@/lib/workspace/types";
 
 /**
@@ -155,6 +157,14 @@ function UserMenu({ email }: { email: string }) {
           >
             <Settings className="w-4 h-4" />
             Settings
+          </Link>
+          <Link
+            to={contactHref("help_support")}
+            className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-secondary transition-colors"
+            onClick={() => setOpen(false)}
+          >
+            <LifeBuoy className="w-4 h-4" />
+            Help &amp; support
           </Link>
           <button
             onClick={handleSignOut}
