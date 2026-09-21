@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
-import { SERVICE_CODES, isIsoCountryCode } from "./contract";
+import { SERVICE_CODES, isIsoCountryCode, isNotificationStatus, type NotificationStatus } from "./contract";
 
 export const ENQUIRY_STATUSES = ["submitted", "triage", "awaiting_client", "scoping", "proposal_sent", "accepted", "declined", "spam", "withdrawn", "closed"] as const;
 export type EnquiryStatus = (typeof ENQUIRY_STATUSES)[number];
@@ -122,7 +122,44 @@ export function toRpcArgs(f: QueueFilters): QueueRpcArgs {
 
 // ── response schemas ──────────────────────────────────────────────────────────────────────────────────────────────────
 
-const ackState = z.enum(["sent", "pending", "unavailable"]);
+/**
+ * The outbox status as the queue shows it. These are six different facts and are never blended: "accepted" is only the email
+ * provider taking the message — it is not delivery. "delivered" and "bounced" exist for verified provider events, which nothing
+ * emits yet, so today an enquiry can be queued, processing, accepted or failed.
+ */
+export const NOTIFICATION_STATUS_LABELS: Readonly<Record<NotificationStatus, string>> = {
+  queued: "queued",
+  processing: "processing",
+  accepted: "accepted by email provider",
+  delivered: "delivered (confirmed)",
+  failed: "failed",
+  bounced: "bounced",
+};
+
+export function notificationStatusLabel(state: string | null): string {
+  if (state === null) return "none";
+  return isNotificationStatus(state) ? NOTIFICATION_STATUS_LABELS[state] : state;
+}
+
+/** Explains a failure code in words. Never states or implies delivery. */
+export function notificationFailureNote(code: string | null): string | null {
+  switch (code) {
+    case null:
+      return null;
+    case "NON_DELIVERABLE_TEST_ADDRESS":
+      return "Not sent: the address is a reserved test address that can never receive mail.";
+    case "EMAIL_NOT_CONFIGURED":
+    case "INTERNAL_RECIPIENT_NOT_CONFIGURED":
+      return "Not sent yet: email delivery is not configured.";
+    case "PROVIDER_TIMEOUT":
+    case "PROVIDER_ERROR":
+      return "The email provider did not accept the message; it will be retried.";
+    case "LEASE_EXPIRED":
+      return "The send was interrupted and could not be retried.";
+    default:
+      return `Code ${code}`;
+  }
+}
 
 const queueRow = z.object({
   id: z.string().uuid(),
@@ -137,7 +174,8 @@ const queueRow = z.object({
   status: z.string(),
   assigned_to_user_id: z.string().uuid().nullable(),
   submitted_at: z.string(),
-  acknowledgement: ackState,
+  // Raw outbox statuses for the requester acknowledgement and the internal notice.
+  acknowledgement: z.string().nullable(),
   staff_notification: z.string().nullable(),
 });
 export type QueueRow = z.infer<typeof queueRow>;
@@ -181,7 +219,7 @@ const detailSchema = z.object({
       created_at: z.string(),
     }),
   ),
-  notifications: z.array(z.object({ kind: z.string(), status: z.string(), attempt_count: z.number(), last_error_code: z.string().nullable(), sent_at: z.string().nullable() })),
+  notifications: z.array(z.object({ kind: z.string(), status: z.string(), attempt_count: z.number(), last_error_code: z.string().nullable(), accepted_at: z.string().nullable() })),
 });
 export type EnquiryDetail = z.infer<typeof detailSchema>;
 
@@ -247,10 +285,10 @@ export const addEnquiryNote = async (id: string, note: string): Promise<void> =>
   unwrap(await supabase.rpc("staff_add_service_enquiry_note", { p_enquiry_id: id, p_note: note }), doneSchema);
 };
 
-const dispatchSchema = z.object({ claimed: z.number(), sent: z.number(), retry: z.number(), failed: z.number(), blocked: z.number() });
+const dispatchSchema = z.object({ claimed: z.number(), accepted: z.number(), retry: z.number(), failed: z.number(), blocked: z.number() });
 export type DispatchTally = z.infer<typeof dispatchSchema>;
 
-/** Staff-triggered retry of pending notifications (verified server-side: only ACTIVE platform staff are accepted). */
+/** Staff-triggered retry of queued notifications (verified server-side: only ACTIVE platform staff are accepted). */
 export async function retryPendingNotifications(): Promise<DispatchTally> {
   const { data, error } = await supabase.functions.invoke("dispatch-enquiry-notifications", { body: {} });
   if (error) throw new QueueError("unavailable");

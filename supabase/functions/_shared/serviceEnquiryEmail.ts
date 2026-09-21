@@ -19,9 +19,34 @@ export interface OutboundEmail {
   readonly subject: string;
   readonly html: string;
   readonly text: string;
-  /** The outbox row id: the provider de-duplicates on it, so a retry after a timeout cannot double-send. */
+  /** See notificationIdempotencyKey: stable per notification, different for the acknowledgement and the internal notice. */
   readonly idempotencyKey: string;
   readonly purpose: "transactional";
+}
+
+/**
+ * The provider de-duplicates on this key, so a retry after a timeout can never send a second message. It is derived from the
+ * notification's own row id AND its kind, so the requester acknowledgement and the internal notification of one enquiry always
+ * have different, independent identities, and a given notification always has the same one.
+ */
+export const notificationIdempotencyKey = (kind: "requester_acknowledgement" | "staff_notification", notificationId: string): string => `cfoclose-enquiry:${kind}:${notificationId}`;
+
+/**
+ * Addresses that can never be a real mailbox (RFC 2606 / RFC 6761 reserved names). Sending to them and recording the provider's
+ * acceptance would look like a successful delivery while nothing can arrive, so they are never sent: the notification is
+ * recorded as a non-deliverable test failure instead.
+ */
+const RESERVED_TLDS: readonly string[] = ["test", "example", "invalid", "localhost", "local"];
+const RESERVED_DOMAINS: readonly string[] = ["example.com", "example.net", "example.org"];
+
+export function isNonDeliverableAddress(address: string): boolean {
+  const at = address.lastIndexOf("@");
+  if (at < 0) return false;
+  const domain = address.slice(at + 1).trim().toLowerCase().replace(/\.$/, "");
+  if (domain === "") return false;
+  const labels = domain.split(".");
+  if (RESERVED_TLDS.includes(labels[labels.length - 1])) return true;
+  return RESERVED_DOMAINS.some((d) => domain === d || domain.endsWith(`.${d}`));
 }
 
 const escapeHtml = (s: string): string =>
@@ -56,7 +81,7 @@ export function buildRequesterAcknowledgement(input: { reference: string; to: st
       "This message confirms receipt only. It is not acceptance of an engagement, a proposal or professional advice.",
       "Please do not send passwords, credentials or highly sensitive source documents by email.",
     ]),
-    idempotencyKey: input.notificationId,
+    idempotencyKey: notificationIdempotencyKey("requester_acknowledgement", input.notificationId),
     purpose: "transactional",
   };
 }
@@ -88,7 +113,7 @@ export function buildStaffNotification(input: {
       `Service: ${escapeHtml(input.serviceCode)}<br/>Country: ${escapeHtml(country)}<br/>Source: ${escapeHtml(input.sourceContext)}`,
       `Open the <a href="${ENQUIRY_QUEUE_URL}">secured queue</a> to review it. Requester details are not included in this message.`,
     ]),
-    idempotencyKey: input.notificationId,
+    idempotencyKey: notificationIdempotencyKey("staff_notification", input.notificationId),
     purpose: "transactional",
   };
 }

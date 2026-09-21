@@ -24,6 +24,7 @@ import {
   getEnquiry,
   isEnquiryStatus,
   listStaff,
+  notificationFailureNote,
   transitionEnquiry,
   type EnquiryDetail,
   type EnquiryStatus,
@@ -190,6 +191,18 @@ export function EnquiryDetailSheet({ id, onClose }: Props) {
                   <NotificationChip key={n.kind} label={n.kind === "requester_acknowledgement" ? "Acknowledgement" : "Internal notice"} state={n.status} />
                 ))}
               </div>
+              {d.notifications.some((n) => notificationFailureNote(n.last_error_code)) && (
+                <ul className="space-y-1 text-xs text-muted-foreground" data-testid="notification-notes">
+                  {d.notifications.map((n) => {
+                    const note = notificationFailureNote(n.last_error_code);
+                    return note ? (
+                      <li key={n.kind}>
+                        {n.kind === "requester_acknowledgement" ? "Acknowledgement" : "Internal notice"}: {note}
+                      </li>
+                    ) : null;
+                  })}
+                </ul>
+              )}
             </section>
 
             <section aria-labelledby="det-status" className="space-y-3">

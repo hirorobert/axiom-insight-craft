@@ -9,10 +9,16 @@
 //   * a filled honeypot stores nothing and is not told why;
 //   * rate limiting keys are HMACs of the client address / email — a raw address is never stored or logged;
 //   * the enquiry commits atomically in the database BEFORE any email is attempted; email trouble can never lose or roll it back;
-//   * nothing about the request (message, email, tokens, payload, IP) is ever logged — events carry codes and a correlation id only.
+//   * an ANONYMOUS submission must pass a server-verified anti-abuse challenge (a signed-in user is protected by rate limits and
+//     idempotency instead); the browser's token is only a claim, missing/unsafe configuration refuses rather than admits, and
+//     neither the token nor any address is logged;
+//   * nothing about the request (message, email, tokens, payload, IP) is ever logged — events carry codes and a correlation id only;
+//   * notification outcomes are reported truthfully: "accepted" means the email PROVIDER accepted the message — never delivery —
+//     and an address that can never receive mail (.test, example.*) is a recorded failure, not a success.
 
 import {
   HONEYPOT_FIELD,
+  extractChallengeToken,
   MAX_REQUEST_BODY_BYTES,
   RATE_POLICY,
   hasHoneypot,
@@ -24,7 +30,8 @@ import {
   type FieldError,
   type NormalizedEnquiry,
 } from "./serviceEnquiryContract.ts";
-import { buildRequesterAcknowledgement, buildStaffNotification, type OutboundEmail } from "./serviceEnquiryEmail.ts";
+import { buildRequesterAcknowledgement, buildStaffNotification, isNonDeliverableAddress, type OutboundEmail } from "./serviceEnquiryEmail.ts";
+import type { ChallengeVerifier } from "./serviceEnquiryChallenge.ts";
 
 export interface RpcResult {
   readonly data: unknown;
@@ -44,6 +51,8 @@ export interface EnquiryDeps {
   log(event: Record<string, unknown>): void;
   correlationId(): string;
   emailTimeoutMs?: number;
+  /** Server-side verification of the anti-abuse challenge for anonymous submissions. Required: there is no "no challenge" default. */
+  challenge: ChallengeVerifier;
 }
 
 export interface DispatchDeps extends EnquiryDeps {
@@ -69,6 +78,9 @@ const ERROR_MESSAGES: Readonly<Record<EnquiryErrorCode, string>> = {
   validation_failed: "Some fields need attention.",
   idempotency_key_reuse: "This submission key was already used with different content. Start a new enquiry.",
   rate_limited: "Too many enquiries have been sent. Please try again later.",
+  challenge_required: "Please complete the security check and send again.",
+  challenge_failed: "The security check could not be confirmed. Please complete it again and send again.",
+  challenge_unavailable: "We could not verify the security check right now. Please try again shortly.",
   internal_error: "We could not record your enquiry right now. Please try again shortly.",
 };
 
@@ -136,7 +148,8 @@ export interface ClaimedNotification {
 export interface DispatchOutcome {
   readonly id: string;
   readonly kind: ClaimedNotification["kind"];
-  readonly outcome: "sent" | "retry" | "failed" | "blocked";
+  /** accepted = the email provider accepted the message (NOT delivery); retry = back to the queue; failed = permanent; blocked = not configured. */
+  readonly outcome: "accepted" | "retry" | "failed" | "blocked";
 }
 
 async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -167,6 +180,9 @@ export async function dispatchClaimed(rows: readonly ClaimedNotification[], deps
         if (!row.requester_email) {
           outcome = "failed";
           code = "NO_RECIPIENT";
+        } else if (isNonDeliverableAddress(row.requester_email)) {
+          outcome = "failed"; // never sent: provider acceptance of a reserved address would masquerade as delivery
+          code = "NON_DELIVERABLE_TEST_ADDRESS";
         } else {
           email = buildRequesterAcknowledgement({ reference: row.reference, to: row.requester_email, notificationId: row.id });
           outcome = "retry";
@@ -174,6 +190,9 @@ export async function dispatchClaimed(rows: readonly ClaimedNotification[], deps
       } else if (!deps.internalRecipient) {
         outcome = "blocked";
         code = "INTERNAL_RECIPIENT_NOT_CONFIGURED";
+      } else if (isNonDeliverableAddress(deps.internalRecipient)) {
+        outcome = "failed";
+        code = "NON_DELIVERABLE_TEST_ADDRESS";
       } else {
         email = buildStaffNotification({ reference: row.reference, serviceCode: row.service_code, countryCode: row.country_code, sourceContext: row.source_context, to: deps.internalRecipient, notificationId: row.id });
         outcome = "retry";
@@ -181,7 +200,7 @@ export async function dispatchClaimed(rows: readonly ClaimedNotification[], deps
       if (email && deps.sendEmail) {
         try {
           const sent = await withTimeout(deps.sendEmail(email), deps.emailTimeoutMs ?? 4000);
-          outcome = "sent";
+          outcome = "accepted"; // the provider took the message. Delivery is unknown and is never inferred from this.
           providerId = sent.providerMessageId ?? null;
         } catch (e) {
           outcome = "retry";
@@ -210,7 +229,7 @@ async function notifyAfterCommit(enquiryId: string, deps: EnquiryDeps): Promise<
     const outcomes = await dispatchClaimed(claim.data as ClaimedNotification[], deps);
     const ack = outcomes.find((o) => o.kind === "requester_acknowledgement");
     if (!ack) return deps.sendEmail ? "pending" : "unavailable";
-    return ack.outcome === "sent" ? "sent" : ack.outcome === "blocked" || ack.outcome === "failed" ? "unavailable" : "pending";
+    return ack.outcome === "accepted" ? "sent" : ack.outcome === "blocked" || ack.outcome === "failed" ? "unavailable" : "pending";
   } catch {
     return deps.sendEmail ? "pending" : "unavailable";
   }
@@ -259,6 +278,23 @@ export async function handleSubmitEnquiry(req: Request, deps: EnquiryDeps): Prom
       userId = await deps.verifyUserId(token);
     } catch {
       userId = null; // an unverifiable token is anonymous — never trusted, never guessed
+    }
+  }
+
+  // Anonymous submissions must pass a SERVER-verified challenge. This runs before any rate-limit bucket is charged or any row is
+  // written, so a bot can neither consume a victim's email bucket nor reach the database. Signed-in users skip it.
+  if (userId === null) {
+    let verdict: Awaited<ReturnType<ChallengeVerifier["verify"]>>;
+    try {
+      verdict = await deps.challenge.verify(extractChallengeToken(parsed));
+    } catch {
+      verdict = { kind: "unavailable", reason: "provider_error" }; // a verifier that throws is a refusal, never a pass
+    }
+    if (verdict.kind !== "passed") {
+      // A code only: neither the token nor any address is ever logged.
+      deps.log({ event: "enquiry.challenge", correlationId, provider: deps.challenge.provider, outcome: verdict.kind, reason: verdict.reason });
+      if (verdict.kind === "unavailable") return fail(503, "challenge_unavailable", {}, { "Retry-After": "30" });
+      return fail(403, verdict.reason === "missing" ? "challenge_required" : "challenge_failed");
     }
   }
 
@@ -352,7 +388,7 @@ export async function handleDispatchNotifications(req: Request, deps: DispatchDe
     return fail(500, "internal_error");
   }
   const outcomes = await dispatchClaimed(claim.data as ClaimedNotification[], deps);
-  const tally = { claimed: outcomes.length, sent: 0, retry: 0, failed: 0, blocked: 0 };
+  const tally = { claimed: outcomes.length, accepted: 0, retry: 0, failed: 0, blocked: 0 };
   for (const o of outcomes) tally[o.outcome] += 1;
   deps.log({ event: "enquiry.dispatch", correlationId, ...tally });
   return json(200, tally);

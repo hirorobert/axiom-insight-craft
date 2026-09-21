@@ -39,6 +39,8 @@ export type SubmitOutcome =
   | { readonly kind: "invalid"; readonly fields: readonly FieldError[] }
   | { readonly kind: "rate_limited"; readonly retryAfterSeconds: number }
   | { readonly kind: "conflict" }
+  /** The anti-abuse challenge was missing, wrong, expired or already used: the person must complete it again. */
+  | { readonly kind: "challenge" }
   | { readonly kind: "unavailable" };
 
 /** Pure: maps an HTTP status and parsed JSON body to what the form should do. */
@@ -51,6 +53,7 @@ export function interpretResponse(status: number, body: unknown): SubmitOutcome 
   const data = parsed.success ? parsed.data : {};
   if (status === 400) return { kind: "invalid", fields: (data.fields ?? []).map((f) => ({ field: f.field, code: f.code })) };
   if (status === 409) return { kind: "conflict" };
+  if (status === 403 && (data.error?.code === "challenge_required" || data.error?.code === "challenge_failed")) return { kind: "challenge" };
   if (status === 429) return { kind: "rate_limited", retryAfterSeconds: Math.max(1, Math.round(data.retry_after_seconds ?? 60)) };
   return { kind: "unavailable" };
 }
@@ -70,6 +73,8 @@ export interface EnquiryWireRequest {
   privacy_acknowledged: boolean;
   payload?: Record<string, string>;
   enquiry_hp?: string;
+  /** Anti-abuse challenge response; required by the server for anonymous submissions only. */
+  challenge_token?: string;
 }
 
 export async function submitServiceEnquiry(request: EnquiryWireRequest): Promise<SubmitOutcome> {

@@ -5,10 +5,17 @@
 //   ENQUIRY_EMAIL_ENABLED=true          switch on application email (requires LOVABLE_API_KEY, the platform key the auth hook already uses)
 //   ENQUIRY_INTERNAL_NOTIFY_TO=<addr>   internal notification destination — never guessed; without it no internal email is attempted
 //   LOVABLE_SEND_URL                    optional override, same variable the auth hook honours
+//
+// Anti-abuse challenge for ANONYMOUS submissions (unlike the email settings above, absence here refuses anonymous enquiries):
+//   TURNSTILE_SECRET_KEY                Cloudflare Turnstile secret. Server-side only; never returned or logged.
+//   TURNSTILE_EXPECTED_HOSTNAMES        optional, comma separated; when set, a token issued for any other hostname is refused
+//   ENQUIRY_CHALLENGE_MODE              unset/"turnstile" (default) or "bypass_for_local_development" — the bypass is honoured ONLY
+//                                       when SUPABASE_URL is a local stack; on a hosted project it is an error and enquiries are refused
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendLovableEmail } from "npm:@lovable.dev/email-js@0.1.0";
 import type { DispatchDeps } from "./serviceEnquiryHandler.ts";
+import { createChallengeVerifier, resolveChallengeConfig, type FetchLike } from "./serviceEnquiryChallenge.ts";
 
 export function buildEnquiryDeps(): DispatchDeps {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -16,6 +23,9 @@ export function buildEnquiryDeps(): DispatchDeps {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const emailKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
   const emailEnabled = Deno.env.get("ENQUIRY_EMAIL_ENABLED") === "true" && emailKey !== "";
+
+  // Resolved once. Missing/unsafe configuration yields a verifier that refuses every anonymous submission (fail closed).
+  const challenge = createChallengeVerifier(resolveChallengeConfig({ get: (name) => Deno.env.get(name) }), fetch as unknown as FetchLike);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
@@ -27,6 +37,8 @@ export function buildEnquiryDeps(): DispatchDeps {
     createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: `Bearer ${token}` } } });
 
   return {
+    challenge,
+
     async rpc(fn, args) {
       const { data, error } = await admin.rpc(fn, args);
       return { data, error: error ? { code: error.code, message: error.message } : null };

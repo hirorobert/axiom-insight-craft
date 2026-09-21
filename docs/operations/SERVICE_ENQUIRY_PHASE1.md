@@ -61,8 +61,9 @@ below is complete: migration applied, both functions deployed, first platform st
 
 ## Activation checklist (not yet performed)
 
-1. **Apply the migration** through the project's managed path (Lovable / `supabase db push`, in filename order). It is additive
-   and forward-only. Run `node scripts/db-proof/serviceEnquiries.mjs` against a throwaway database first (CI does this).
+1. **Apply the migrations** through the project's managed path (Lovable / `supabase db push`, in filename order):
+   `20260921100000_service_enquiry_intake.sql` and then `20260922100000_service_enquiry_activation_readiness.sql`. Both are
+   forward-only; the second converts the outbox to the honest status model (below) and adds reference search. Run `node scripts/db-proof/serviceEnquiries.mjs` against a throwaway database first (CI does this).
 2. **Deploy both Edge Functions**: `supabase functions deploy submit-service-enquiry` and
    `supabase functions deploy dispatch-enquiry-notifications` (default `verify_jwt`; no `config.toml` change is needed).
 3. **Refresh generated types** after the migration is applied. This branch already contains the new objects, produced by the
@@ -73,6 +74,11 @@ below is complete: migration applied, both functions deployed, first platform st
    enquiry is still recorded and the receipt says the email acknowledgement is *unavailable*; nothing is ever reported as sent
    that was not. The recipient is never guessed.
 5. **Enrol the first platform staff member** (see below). Until then the queue correctly refuses everyone.
+6. **Install the anti-abuse challenge (required before the gate is enabled)** — see *Anti-abuse challenge* below. Until it is
+   configured, the deployed function refuses every *anonymous* submission (signed-in users are unaffected), which is the safe
+   state while the gate is OFF.
+7. **Run the real-mailbox acceptance test** — see *Real-mailbox acceptance test* below — and only then change
+   `COMMITTED_CONFIG` in `serviceEnquiryGate.ts` in a reviewed change.
 
 ### Bootstrapping platform staff (`PLATFORM_STAFF_BOOTSTRAP_REQUIRED`)
 
@@ -96,19 +102,90 @@ Revoke with `public.platform_staff_revoke(user_id, reason, operator_label)`. Eve
 append-only `platform_staff_audit` table. The queue is at `/admin/enquiries` and is intentionally not linked from any public
 navigation; access is enforced by the database, not by the route.
 
+## Anti-abuse challenge
+
+Anonymous submissions must pass a **server-verified** challenge; the browser's token is only a claim.
+
+* **Provider.** No approved CAPTCHA provider existed in the repository or the Lovable-managed configuration, so **Cloudflare
+  Turnstile** is integrated behind a provider-neutral boundary (`ChallengeVerifier` in
+  `supabase/functions/_shared/serviceEnquiryChallenge.ts`). A different provider is a new implementation of that one interface.
+* **Who is challenged.** Anonymous submissions only. A signed-in user is protected by per-IP / per-email / global rate limits and
+  idempotency, exactly as before. Identity comes only from a *verified* JWT, so a forged or expired bearer token earns no
+  exemption. If the server does not accept a signed-in session it answers `challenge_required` and the form shows the widget.
+* **Order.** The challenge is verified after validation and before any rate-limit bucket is charged or any row is written, so a
+  bot can neither reach the database nor burn a victim's email bucket. The honeypot, 16 KiB body cap, validation, rate limits
+  and idempotency all remain active.
+* **Fail closed.** A missing, malformed or unsafe production configuration makes the function refuse anonymous submissions
+  (`503 challenge_unavailable`), never admit them. So do provider timeout (3 s), provider outage, a malformed provider response,
+  a wrong secret, a replayed/expired token (`403 challenge_failed`) and a token minted for another widget action or hostname.
+* **Development vs production.** There is no silent default. `ENQUIRY_CHALLENGE_MODE=bypass_for_local_development` is honoured
+  **only** when `SUPABASE_URL` is a local stack (`localhost`, `127.0.0.1`, `kong`, …); on a hosted project it is a configuration
+  error and enquiries are refused. Cloudflare's published "always passes" test secrets are likewise refused outside a local stack.
+* **Privacy.** Neither the token, the secret nor any network identifier is logged, stored or fingerprinted, and no client
+  address is sent to the provider (`remoteip` is deliberately omitted).
+
+Installation (an operator action — nothing here was performed):
+
+1. In the Cloudflare dashboard create a Turnstile widget for the production hostname(s); note the **site key** (public) and
+   **secret key** (private).
+2. Set the function secret `TURNSTILE_SECRET_KEY` on the Supabase project, and optionally `TURNSTILE_EXPECTED_HOSTNAMES`
+   (comma separated, e.g. `cfoclose.com,www.cfoclose.com`) so a token issued for any other hostname is refused.
+3. Set the build variable `VITE_TURNSTILE_SITE_KEY` to the site key (public by design). Without it the form shows "the security
+   check is not available" and does not send.
+4. Verify with the gate still OFF, by calling `submit-service-enquiry` directly: no token → `403 challenge_required`; a garbage
+   token → `403 challenge_failed`; then, with the gate ON in a preview only, one real widget completion → `201`.
+
 ## Email
 
 Application acknowledgements are separate from authentication emails and use the platform's existing sender domain:
 `CFOClose <noreply@notify.cfoclose.com>`. The authentication email hook is untouched. The send goes through
 `sendLovableEmail` from `@lovable.dev/email-js@0.1.0` (the package the auth hook already pins) with `purpose: "transactional"`
-and the outbox row id as the idempotency key. **This path could not be exercised from the authoring environment** (no platform
-key); it is therefore gated behind explicit configuration and must be verified with one synthetic message before staff rely on it.
-A failed or unconfigured send leaves a `pending` outbox row (retryable from the queue) and never loses or rolls back the enquiry.
+and a per-notification idempotency key (`cfoclose-enquiry:<kind>:<row id>`). **This path could not be exercised from the
+authoring environment** (no platform key); it is therefore gated behind explicit configuration and must be verified (below)
+before staff rely on it. A failed or unconfigured send leaves a `queued` outbox row (retryable from the queue) and never loses or
+rolls back the enquiry.
+
+### Status model — what each word means
+
+| Status | Meaning | Who can set it |
+|---|---|---|
+| `queued` | created, or re-queued after a transient failure / "not configured" | submission, completion |
+| `processing` | claimed by a dispatcher; a 10-minute lease, so a crashed dispatcher cannot strand it | claim |
+| `accepted` | the **email provider accepted** the message. This is all a send call can prove — **not delivery** | completion |
+| `delivered` | confirmed by a **verified provider event** | nothing today |
+| `failed` | permanent failure, retries exhausted (5), lease expired on the last attempt, or a **non-deliverable address** | completion, claim |
+| `bounced` | reported by a verified provider event | nothing today |
+
+`delivered` and `bounced` exist so the vocabulary is honest and ready, but **no provider-event ingestion exists**: a trigger
+refuses those states unless a future verified-event function deliberately sets `app.enquiry_provider_event = 'verified'`, and
+the transition graph (`queued → processing → accepted|queued|failed`, `accepted → delivered|bounced`) is enforced by the database.
+The requester's receipt says the provider *accepted* an acknowledgement and that delivery is not guaranteed; it never says
+"delivered". The staff queue shows the raw status of each notification (`accepted by email provider`, never a blended "sent").
+
+Reserved addresses (`.test`, `.example`, `.invalid`, `.localhost`, `.local`, `example.com|net|org`) can never receive mail, so
+they are **not sent**: the notification is recorded as `failed` with `NON_DELIVERABLE_TEST_ADDRESS` instead of appearing to
+succeed. Real-mailbox testing must therefore use a real address.
+
+### Real-mailbox acceptance test (explicitly authorised, not yet performed)
+
+Support is in place; the test itself needs the owner's authorisation, a mailbox they control, and configured email secrets.
+
+1. With the gate ON in a preview only, submit **one** enquiry using the real mailbox as the requester address.
+2. Expect exactly **two** outbox rows for it — one `requester_acknowledgement`, one `staff_notification` — each with its own id
+   and provider idempotency key (`select kind, status, attempt_count, provider_message_id from service_enquiry_notifications`).
+3. Both should reach `accepted`. Check the mailbox: acceptance is *not* delivery, so the arrival of the message is the evidence.
+4. Retry safety: use **Retry queued notifications** in the queue, or call `dispatch-enquiry-notifications` again — nothing is
+   re-sent (no `queued` rows remain, and a re-send would carry the same idempotency key).
+5. Independence: temporarily unset `ENQUIRY_INTERNAL_NOTIFY_TO` and submit again — the acknowledgement is `accepted` while the
+   internal notice stays `queued` (`INTERNAL_RECIPIENT_NOT_CONFIGURED`), and the receipt is unaffected.
 
 ## Known limitations and follow-ups
 
-* **No CAPTCHA provider is configured**; the controls are honeypot, body cap, per-IP/per-email/global rate limits and
-  idempotency. A provider can be added later without changing the contract.
+* The anti-abuse challenge (Cloudflare Turnstile) is integrated and unit-tested against fake providers, but **has not been run
+  against the real provider**: it needs the operator to install the keys and complete the verification above.
+* Reference search is index-backed. Organisation / email search is a literal substring scan (no `pg_trgm` dependency); its cost
+  is bounded by the submission rate limits (at most 400 enquiries per hour), the 100-character term cap and the 100-row page cap.
+* No provider delivery/bounce events are ingested, so `delivered` and `bounced` are never set (see *Status model*).
 * **No platform rate-limit facility existed**; a small database-backed fixed-window limiter is part of the migration.
 * The public **Privacy Policy** does not yet mention enquiry handling. It is a legally reviewed surface and was not edited here.
 * A financial-statements expert-help entry was not added: the statements page is diff-pinned by `workspaceGate.test.ts`.

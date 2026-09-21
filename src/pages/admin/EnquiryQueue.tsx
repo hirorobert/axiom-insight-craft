@@ -120,7 +120,7 @@ function EnquiryQueueScreen() {
   const retry = useMutation({
     mutationFn: retryPendingNotifications,
     onSuccess: (t) => {
-      toast.success(t.blocked > 0 ? `Email delivery is not configured for ${t.blocked} pending notification(s); they remain queued.` : `Notifications processed: ${t.sent} sent, ${t.retry} to retry, ${t.failed} failed.`);
+      toast.success(t.blocked > 0 ? `Email delivery is not configured for ${t.blocked} queued notification(s); they remain queued.` : `Notifications processed: ${t.accepted} accepted by the email provider (delivery is not confirmed), ${t.retry} to retry, ${t.failed} failed.`);
       void list.refetch();
     },
     onError: () => toast.error("Could not process notifications."),
@@ -182,7 +182,7 @@ function EnquiryQueueScreen() {
             </p>
             <Button type="button" variant="outline" className="min-h-11" disabled={retry.isPending} onClick={() => retry.mutate()}>
               {retry.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
-              Retry pending notifications
+              Retry queued notifications
             </Button>
           </div>
 

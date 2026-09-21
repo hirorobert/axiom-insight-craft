@@ -1,8 +1,9 @@
 // Enquiry status as icon + word (never colour alone), plus the notification state chip. Notification state is deliberately a
 // separate control from status: an unsent email says nothing about where the enquiry stands.
 
-import { Archive, CheckCircle2, Clock, FileSearch, Inbox, Mail, MailWarning, Search, Send, ShieldAlert, Undo2, XCircle, type LucideIcon } from "lucide-react";
-import { STATUS_LABELS, isEnquiryStatus, type EnquiryStatus } from "@/lib/serviceEnquiry/staffQueue";
+import { Archive, CheckCircle2, Clock, FileSearch, Inbox, Mail, MailCheck, MailWarning, MailX, Search, Send, ShieldAlert, Undo2, XCircle, type LucideIcon } from "lucide-react";
+import { isNotificationStatus, type NotificationStatus } from "@/lib/serviceEnquiry/contract";
+import { STATUS_LABELS, isEnquiryStatus, notificationStatusLabel, type EnquiryStatus } from "@/lib/serviceEnquiry/staffQueue";
 
 const STATUS_ICON: Readonly<Record<EnquiryStatus, LucideIcon>> = {
   submitted: Inbox,
@@ -28,15 +29,23 @@ export function StatusBadge({ status }: { status: string }) {
   );
 }
 
-const NOTIFICATION_WORDS: Readonly<Record<string, string>> = { sent: "sent", pending: "pending", unavailable: "unavailable", failed: "failed" };
+// Icon + word, never colour alone. "Accepted" (the provider took the message) and "delivered" (a verified provider event)
+// are different states with different icons and words; only accepted can occur today.
+const NOTIFICATION_ICON: Readonly<Record<NotificationStatus, LucideIcon>> = {
+  queued: Clock,
+  processing: Clock,
+  accepted: Mail,
+  delivered: MailCheck,
+  failed: MailX,
+  bounced: MailWarning,
+};
 
 export function NotificationChip({ label, state }: { label: string; state: string | null }) {
-  const word = state ? (NOTIFICATION_WORDS[state] ?? state) : "none";
-  const Icon = state === "sent" ? Mail : MailWarning;
+  const Icon = state !== null && isNotificationStatus(state) ? NOTIFICATION_ICON[state] : MailWarning;
   return (
     <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" data-testid="notification-chip" data-state={state ?? "none"}>
       <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      {label}: {word}
+      {label}: {notificationStatusLabel(state)}
     </span>
   );
 }

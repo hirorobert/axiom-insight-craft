@@ -33,7 +33,9 @@ import {
 import { clearAttempt, clearReceipt, loadAttempt, loadReceipt, resolveAttempt, saveAttempt, saveReceipt } from "@/lib/serviceEnquiry/receiptStore";
 import type { EnquiryReceipt } from "@/lib/serviceEnquiry/contract";
 import { countryOptions } from "@/lib/serviceEnquiry/jurisdictionPathways";
+import { CHALLENGE_SITE_KEY, challengeState } from "@/lib/serviceEnquiry/challenge";
 import { EnquiryReceiptView } from "./EnquiryReceiptView";
+import { ChallengeWidget } from "./ChallengeWidget";
 import { SelectField, TextAreaField, TextField } from "./EnquiryFields";
 
 // Built on first use: Intl.DisplayNames for ~250 regions is not needed until a country selector actually renders.
@@ -77,6 +79,12 @@ export function ServiceEnquiryForm({ formKey, variant, serviceCode, sourceContex
   const [submitting, setSubmitting] = useState(false);
   const [receipt, setReceipt] = useState<EnquiryReceipt | null>(() => loadReceipt(formKey));
   const inFlight = useRef(false);
+  // Anonymous visitors complete a challenge whose token the SERVER verifies. Signed-in users skip it (the server confirms the
+  // session); if the server says the session is not valid it asks for the challenge and `forceChallenge` shows it.
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  const [challengeReset, setChallengeReset] = useState(0);
+  const [forceChallenge, setForceChallenge] = useState(false);
+  const challenge = challengeState({ signedIn: Boolean(user), forced: forceChallenge, siteKey: CHALLENGE_SITE_KEY });
 
   const activeService: ServiceCode = variant === "general" ? choice : serviceCode;
   const set = useCallback(<K extends keyof EnquiryFormValues>(key: K, v: EnquiryFormValues[K]) => setValues((prev) => ({ ...prev, [key]: v })), []);
@@ -113,11 +121,25 @@ export function ServiceEnquiryForm({ formKey, variant, serviceCode, sourceContex
       }
       setErrors([]);
 
+      if (challenge === "unavailable") {
+        setNotice(ENQUIRY_FORM_COPY.challengeUnavailable); // no site key in this build: refuse to send unprotected
+        return;
+      }
+      if (challenge === "required" && !challengeToken) {
+        setNotice(ENQUIRY_FORM_COPY.challengeIncomplete);
+        return;
+      }
+
       const fingerprint = await requestFingerprint(check.normalized);
       const attempt = resolveAttempt(loadAttempt(formKey), fingerprint, () => crypto.randomUUID());
       saveAttempt(formKey, attempt);
 
-      const outcome = await submitServiceEnquiry(buildWireRequest(effective, ctx, attempt.key));
+      const outcome = await submitServiceEnquiry(buildWireRequest(effective, ctx, attempt.key, challenge === "required" ? challengeToken : null));
+      if (outcome.kind !== "receipt") {
+        // A challenge token is single-use: whatever went wrong, the next attempt needs a fresh one.
+        setChallengeToken(null);
+        setChallengeReset((n) => n + 1);
+      }
       switch (outcome.kind) {
         case "receipt":
           saveReceipt(formKey, outcome.receipt);
@@ -131,6 +153,10 @@ export function ServiceEnquiryForm({ formKey, variant, serviceCode, sourceContex
           break;
         case "rate_limited":
           setNotice(ENQUIRY_FORM_COPY.rateLimited);
+          break;
+        case "challenge":
+          setForceChallenge(true);
+          setNotice(ENQUIRY_FORM_COPY.challengeFailed);
           break;
         case "conflict":
           clearAttempt(formKey); // the next send is a new enquiry with a new key
@@ -315,6 +341,13 @@ export function ServiceEnquiryForm({ formKey, variant, serviceCode, sourceContex
           <input type="text" name={HONEYPOT_FIELD} tabIndex={-1} autoComplete="off" value={values.honeypot} onChange={(e) => set("honeypot", e.target.value)} />
         </label>
       </div>
+
+      {challenge === "required" && CHALLENGE_SITE_KEY && <ChallengeWidget siteKey={CHALLENGE_SITE_KEY} resetKey={challengeReset} onToken={setChallengeToken} />}
+      {challenge === "unavailable" && (
+        <p role="alert" className="text-sm text-destructive" data-testid="challenge-unavailable">
+          {ENQUIRY_FORM_COPY.challengeUnavailable}
+        </p>
+      )}
 
       <p role="status" aria-live="polite" className="sr-only">
         {submitting ? "Sending your enquiry" : ""}
