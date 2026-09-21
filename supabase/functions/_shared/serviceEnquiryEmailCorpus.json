@@ -1,0 +1,41 @@
+{
+  "description": "Shared corpus for the enquiry email rule. The SQL function public.enquiry_email_is_valid (proved in scripts/db-proof/serviceEnquiries.mjs) and the TypeScript validator (serviceEnquiryContract.ts, proved in vitest) must agree on every entry. Addresses are synthetic and use the reserved .test TLD.",
+  "valid": [
+    "a@example.test",
+    "first.last@example.test",
+    "first.last+tag@sub.example.test",
+    "o'brien@example.test",
+    "user_name@example-domain.test",
+    "x@a1.b2.example.test",
+    "1234567890@example.test",
+    "a-b@example.test"
+  ],
+  "invalid": [
+    "",
+    "Upper@example.test",
+    "USER@EXAMPLE.TEST",
+    " leading@example.test",
+    "trailing@example.test ",
+    "no-at.example.test",
+    "a@b",
+    "a@@example.test",
+    "a@example@test.test",
+    ".dot@example.test",
+    "dot.@example.test",
+    "do..t@example.test",
+    "a@-bad.test",
+    "a@bad-.test",
+    "a b@example.test",
+    "a@exa mple.test",
+    "a@example..test",
+    "a@.example.test",
+    "a@example.test.",
+    "\"quoted\"@example.test",
+    "a@[192.0.2.1]",
+    "a,b@example.test",
+    "a;b@example.test",
+    "<a@example.test>",
+    "name <a@example.test>",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.test"
+  ]
+}

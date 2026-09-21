@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { ArrowRight, CheckCircle2, Clock, Zap } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
@@ -5,6 +6,9 @@ import {
   outcomeAuthHref,
   rememberOutcome,
 } from "@/lib/product/outcomes";
+import { DonorExpertTile } from "@/components/enquiry/DonorExpertTile";
+import { TaxJurisdictionTile } from "@/components/enquiry/TaxJurisdictionTile";
+import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
 const AVAIL_ICON = {
   "Workflow available": <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" strokeWidth={2} />,
@@ -53,8 +57,17 @@ export function ProductTour() {
         </div>
 
         {/* ── Standard outcome cards — 2-col grid ──────────────────────── */}
-        <div className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-2">
-          {PUBLIC_PRODUCT_OUTCOMES.map((outcome) => outcome.id === "full-close" ? null : (
+        <div className={`grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-2${SERVICE_ENQUIRY_SURFACES.donorTile ? " sm:[&>*:last-child:nth-child(odd)]:col-span-2" : ""}`}>
+          {PUBLIC_PRODUCT_OUTCOMES.map((outcome) => outcome.id === "full-close" ? null : outcome.id === "tax-compliance" && SERVICE_ENQUIRY_SURFACES.taxExperience ? (
+            // Behind the `service_enquiry_phase1` rollout gate (OFF by default): the expert-led donor intake (position 03,
+            // filling the slot the withheld statement-review outcome leaves) and the jurisdiction-neutral tax tile. Neither is a
+            // self-serve outcome: both open the one canonical enquiry form. While the gate is OFF this branch never runs and
+            // the tax outcome renders as the standard card below, exactly as it did before this feature existed.
+            <Fragment key={outcome.id}>
+              {SERVICE_ENQUIRY_SURFACES.donorTile && <DonorExpertTile />}
+              <TaxJurisdictionTile number={outcome.number} />
+            </Fragment>
+          ) : (
             <article
               key={outcome.id}
               className="group relative flex flex-col bg-background p-6 transition-colors hover:bg-muted/30"

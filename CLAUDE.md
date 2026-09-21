@@ -237,6 +237,15 @@ enforces that hesabu-validate must pass before a sign-off is accepted.
 `open_engagement_with_scope`, engagement-scoped append-only `engagement_setup_events`, `companies.filing_jurisdiction`.
 Proven by `scripts/db-proof/setupAuthority.mjs`. Only Lovable/the owner applies it.
 
+### service_enquiries (Phase 1 service enquiry and expert intake — unapplied until explicitly approved)
+`20260921100000_service_enquiry_intake.sql` — the ONE enquiry authority: `service_enquiries`, append-only
+`service_enquiry_events`, a transactional notification outbox, and a NEW separate **`platform_staff_members`** authority
+(a company owner/admin/member is never platform staff; nobody is seeded; enrolment is a `service_role` operator action).
+No client role — and not even `service_role` — can write these tables directly; submission is the `submit-service-enquiry`
+Edge Function and every status change is one locked, matrix-validated function. Proven by
+`scripts/db-proof/serviceEnquiries.mjs`. Runbook, activation checklist and limitations:
+`docs/operations/SERVICE_ENQUIRY_PHASE1.md`. The staff queue is `/admin/enquiries` (not linked from public navigation).
+
 ### five WIP migrations (NOT yet in origin/main)
 These must be applied in this exact order before any other WIP work:
 1. `20260720100000` — RLS hardening + segregation of duties

@@ -27,8 +27,8 @@ const fns = [...functionBlocks(rollout), ...functionBlocks(persist)];
 
 describe("financial-statements migrations — ordering and isolation", () => {
   it("both migrations exist and sort after every other migration", () => {
-    // Later forward-only migrations (workspace setup authority) may follow; nothing else may sort between or before them.
-    const LATER = ["20260920100000_workspace_setup_authority.sql"];
+    // Later forward-only migrations (workspace setup authority, service enquiry intake) may follow; nothing else may sort between or before them.
+    const LATER = ["20260920100000_workspace_setup_authority.sql", "20260921100000_service_enquiry_intake.sql"];
     const all = fs.readdirSync(DIR).filter((f) => f.endsWith(".sql") && !LATER.includes(f)).sort();
     expect(all.slice(-2)).toEqual([ROLLOUT, PERSIST]);
     expect(fs.readdirSync(DIR).filter((f) => f.endsWith(".sql")).sort().slice(-LATER.length)).toEqual(LATER);

@@ -1,0 +1,352 @@
+// The `service_enquiry_phase1` dark-launch gate. While OFF (the committed state, in every environment) the product must be
+// exactly current main: no donor tile, the original tax card, no Contact/Help links, no /contact form, no /admin/enquiries
+// queue, and no request to submit-service-enquiry. While ON, the complete PR #27 experience is exposed — the same
+// implementation, not a second one. The gate is rollout control only: authorization stays in the database.
+//
+// OFF-state fidelity is proven against GOLDEN renders captured from origin/main's own Header, Footer and ProductTour
+// (src/lib/serviceEnquiry/__fixtures__/main-*.html) — not against expectations written by the author of the change.
+
+import fs from "node:fs";
+import path from "node:path";
+import { createElement, type ComponentType, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const spies = vi.hoisted(() => ({ invoke: vi.fn(), rpc: vi.fn(), from: vi.fn() }));
+vi.mock("@/integrations/supabase/client", () => ({ supabase: { functions: { invoke: spies.invoke }, rpc: spies.rpc, from: spies.from } }));
+vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: null, loading: false, signOut: async () => undefined }) }));
+
+import { ENTRY_POINTS } from "./entryPoints";
+import { SERVICE_ENQUIRY_PHASE1_ENABLED, SERVICE_ENQUIRY_PHASE1_GATE, SERVICE_ENQUIRY_SURFACES, evaluateServiceEnquiryGate, surfacesFor, type ServiceEnquirySurfaces } from "./serviceEnquiryGate";
+
+const ROOT = path.resolve(__dirname, "../../..");
+const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
+const code = (rel: string) => read(rel).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+const fixture = (name: string) => fs.readFileSync(path.join(__dirname, "__fixtures__", name), "utf8");
+const normalizeYear = (html: string) => html.replace(/© \d{4}/g, "© YEAR");
+
+const GATE_ON = { gate: "service_enquiry_phase1", enabled: true };
+
+/** Loads modules fresh with the gate forced to a state, exactly as a build with that committed configuration would behave. */
+async function withGate<T>(enabled: boolean, load: () => Promise<T>): Promise<T> {
+  vi.resetModules();
+  vi.doMock("./serviceEnquiryGate", async () => {
+    const real = await vi.importActual<typeof import("./serviceEnquiryGate")>("./serviceEnquiryGate");
+    return { ...real, SERVICE_ENQUIRY_PHASE1_ENABLED: enabled, SERVICE_ENQUIRY_SURFACES: real.surfacesFor(enabled) };
+  });
+  vi.doMock("@/lib/serviceEnquiry/serviceEnquiryGate", async () => {
+    const real = await vi.importActual<typeof import("./serviceEnquiryGate")>("./serviceEnquiryGate");
+    return { ...real, SERVICE_ENQUIRY_PHASE1_ENABLED: enabled, SERVICE_ENQUIRY_SURFACES: real.surfacesFor(enabled) };
+  });
+  return load();
+}
+
+const inRouter = (el: ReactElement, url = "/") => renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [url] }, el));
+const renderComponent = (C: ComponentType, url = "/") => inRouter(createElement(C), url);
+
+beforeEach(() => {
+  spies.invoke.mockReset();
+  spies.rpc.mockReset();
+  spies.from.mockReset();
+  vi.spyOn(console, "error").mockImplementation(() => undefined); // NotFound logs its own 404 line; React warns about SSR layout effects
+});
+afterEach(() => {
+  vi.doUnmock("./serviceEnquiryGate");
+  vi.doUnmock("@/lib/serviceEnquiry/serviceEnquiryGate");
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe("1–3. the gate defaults OFF and fails closed", () => {
+  it("is OFF in the committed configuration, so it is OFF in every environment (development, preview and production alike)", () => {
+    expect(SERVICE_ENQUIRY_PHASE1_GATE).toBe("service_enquiry_phase1");
+    expect(SERVICE_ENQUIRY_PHASE1_ENABLED).toBe(false);
+    expect(Object.values(SERVICE_ENQUIRY_SURFACES).every((v) => v === false)).toBe(true);
+    expect(code("src/lib/serviceEnquiry/serviceEnquiryGate.ts")).toMatch(/COMMITTED_CONFIG: ServiceEnquiryGateConfig = \{ gate: SERVICE_ENQUIRY_PHASE1_GATE, enabled: false \}/);
+  });
+
+  it("a MISSING configuration is OFF", () => {
+    for (const missing of [undefined, null]) expect(evaluateServiceEnquiryGate(missing)).toBe(false);
+    expect(evaluateServiceEnquiryGate({})).toBe(false);
+    expect((evaluateServiceEnquiryGate as () => boolean)()).toBe(false);
+  });
+
+  it("a MALFORMED configuration is OFF — only the exact, well-formed 'enabled' configuration is ON", () => {
+    const malformed: unknown[] = [
+      true, false, 1, 0, "true", "1", "on", "service_enquiry_phase1", [], [true], () => true,
+      { enabled: true },
+      { gate: "service_enquiry_phase1" },
+      { gate: "service_enquiry_phase1", enabled: "true" },
+      { gate: "service_enquiry_phase1", enabled: 1 },
+      { gate: "service_enquiry_phase1", enabled: null },
+      { gate: "service_enquiry_phase1", enabled: false },
+      { gate: "SERVICE_ENQUIRY_PHASE1", enabled: true },
+      { gate: "financial_statements_workspace", enabled: true },
+      { gate: "service_enquiry_phase1", enabled: true, extra: true },
+      { gate: ["service_enquiry_phase1"], enabled: true },
+      Object.assign(Object.create({ gate: "service_enquiry_phase1", enabled: true }), {}),
+    ];
+    for (const m of malformed) expect(evaluateServiceEnquiryGate(m), JSON.stringify(m) ?? String(m)).toBe(false);
+    expect(evaluateServiceEnquiryGate(GATE_ON)).toBe(true);
+  });
+
+  it("an UNAVAILABLE configuration (reading it throws) is OFF and never propagates the error", () => {
+    const hostile = { gate: "service_enquiry_phase1" };
+    Object.defineProperty(hostile, "enabled", { enumerable: true, get() { throw new Error("config store unreachable"); } });
+    expect(() => evaluateServiceEnquiryGate(hostile)).not.toThrow();
+    expect(evaluateServiceEnquiryGate(hostile)).toBe(false);
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    expect(evaluateServiceEnquiryGate(revoked.proxy)).toBe(false);
+  });
+
+  it("surfacesFor is strict: anything but the boolean true is OFF for every surface", () => {
+    for (const v of [false, undefined, null, 0, 1, "true", {}] as unknown[]) expect(Object.values(surfacesFor(v as boolean)).every((s) => s === false), String(v)).toBe(true);
+    expect(Object.values(surfacesFor(true)).every((s) => s === true)).toBe(true);
+  });
+});
+
+describe("the gate cannot be turned on from the browser or by deployment configuration", () => {
+  const GATE_FILES = ["src/lib/serviceEnquiry/serviceEnquiryGate.ts", "src/lib/serviceEnquiry/serviceEnquiryRoutes.tsx"];
+
+  it("reads no environment variable, storage, cookie, URL, query parameter or network", () => {
+    for (const f of GATE_FILES) {
+      expect(code(f), f).not.toMatch(/import\.meta\.env|process\.env|localStorage|sessionStorage|document\.cookie|window\.location|location\.(search|hash|href)|URLSearchParams|useSearchParams|fetch\(|indexedDB|Deno\.env/);
+    }
+    expect(code(GATE_FILES[0])).not.toMatch(/^import\s/m);
+    expect(read("src/vite-env.d.ts")).not.toMatch(/ENQUIRY|service_enquiry/i);
+    for (const f of fs.readdirSync(ROOT).filter((n) => n.startsWith(".env"))) expect(read(f), f).not.toMatch(/ENQUIRY_PHASE1|SERVICE_ENQUIRY/i);
+  });
+
+  it("no browser-editable value changes the outcome: stored values and URL parameters are ignored", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => "true", setItem: () => undefined, removeItem: () => undefined });
+    vi.stubGlobal("sessionStorage", { getItem: () => "true", setItem: () => undefined, removeItem: () => undefined });
+    vi.stubGlobal("window", { location: { search: "?service_enquiry_phase1=true&enabled=1", hash: "#service_enquiry_phase1" }, localStorage: { getItem: () => "true" } });
+    vi.resetModules();
+    const fresh = await import("./serviceEnquiryGate");
+    expect(fresh.SERVICE_ENQUIRY_PHASE1_ENABLED).toBe(false);
+    expect(Object.values(fresh.SERVICE_ENQUIRY_SURFACES).every((v) => v === false)).toBe(true);
+  });
+
+  it("is independent of every other rollout gate and does not import or alter them", () => {
+    const gate = code("src/lib/serviceEnquiry/serviceEnquiryGate.ts");
+    expect(gate).not.toMatch(/FINANCIAL_STATEMENTS_WORKSPACE_\w+|FINANCIAL_STATEMENT_PERSISTENCE_\w+|DOCUMENT_REVIEW_\w+|workspaceGate|persistenceGate/);
+    for (const other of ["src/lib/financialStatementsWorkspace/workspaceGate.ts", "src/lib/financialStatementsWorkspace/persistenceGate.ts", "src/lib/product/outcomes.ts"]) {
+      expect(read(other), other).not.toMatch(/service_enquiry|serviceEnquiry/i);
+    }
+    expect(fs.existsSync(path.join(ROOT, "src/lib/financialStatementsWorkspace/workspaceGate.ts"))).toBe(true);
+  });
+});
+
+describe("4/9. OFF: every public entry point is absent and existing behaviour is byte-identical to current main", () => {
+  it("ProductTour renders EXACTLY main's markup: original tax card, no donor tile, same numbering and layout", async () => {
+    const { ProductTour } = await withGate(false, () => import("@/components/ProductTour"));
+    const html = renderComponent(ProductTour);
+    expect(html).toBe(fixture("main-ProductTour.html"));
+    expect(html).toContain("Assess tax and compliance");
+    expect(html).toContain("/auth?mode=signup&amp;intent=tax-compliance");
+    expect(html).not.toMatch(/Expert-led|Report to a donor or funder|Jurisdiction required|Select jurisdiction|data-testid="(donor|tax)-tile"/);
+    expect([...html.matchAll(/>(0\d)</g)].map((m) => m[1])).toEqual(["01", "02", "04", "05"]);
+  });
+
+  it("the public Header renders EXACTLY main's markup (landing and inner pages): no Contact link", async () => {
+    const { Header } = await withGate(false, () => import("@/components/Header"));
+    expect(renderComponent(Header, "/")).toBe(fixture("main-Header-landing.html"));
+    expect(renderComponent(Header, "/pricing")).toBe(fixture("main-Header-inner.html"));
+    expect(renderComponent(Header, "/")).not.toMatch(/Contact|Help &amp; support|\/contact/);
+  });
+
+  it("the public Footer renders EXACTLY main's markup: no Contact link", async () => {
+    const { Footer } = await withGate(false, () => import("@/components/Footer"));
+    const html = renderComponent(Footer);
+    expect(normalizeYear(html)).toBe(normalizeYear(fixture("main-Footer.html")));
+    expect(html).not.toMatch(/Contact|\/contact/);
+  });
+
+  it("every entry point in the registry is disabled by the OFF surfaces, and no source path reaches contactHref except behind a surface flag", () => {
+    const off = surfacesFor(false);
+    const flagFor: Record<(typeof ENTRY_POINTS)[number]["id"], keyof ServiceEnquirySurfaces> = { header: "headerContactLink", footer: "footerContactLink", help_support: "helpSupportLinks", contact_page: "contactRoute", workflow_donor: "donorTile", workflow_tax: "taxExperience" };
+    expect(Object.keys(flagFor).sort()).toEqual(ENTRY_POINTS.map((e) => e.id).sort()); // a new entry point cannot be added without a gate flag
+    for (const e of ENTRY_POINTS) expect(off[flagFor[e.id]], e.id).toBe(false);
+
+    for (const f of ["src/components/Header.tsx", "src/components/Footer.tsx", "src/pages/workspace/WorkspaceLayout.tsx"]) {
+      const src = code(f);
+      const uses = [...src.matchAll(/contactHref\(/g)].map((m) => m.index ?? 0).filter((i) => src[i - 1] !== " " || !/import/.test(src.slice(Math.max(0, i - 8), i)));
+      for (const at of uses) {
+        if (/^import .*contactHref/m.test(src.slice(Math.max(0, at - 60), at + 30))) continue;
+        expect(src.slice(Math.max(0, at - 260), at), `${f}: contactHref( at ${at} is not behind a surface flag`).toMatch(/SERVICE_ENQUIRY_SURFACES\.(headerContactLink|footerContactLink|helpSupportLinks) && \(/);
+      }
+    }
+    const linkers = walkSrc().filter((f) => /contactHref\(/.test(code(f)) && !f.endsWith("entryPoints.ts")).sort();
+    expect(linkers).toEqual(["src/components/Footer.tsx", "src/components/Header.tsx", "src/pages/workspace/WorkspaceLayout.tsx"]);
+  });
+
+  it("no financial-statement surface links to enquiries", () => {
+    for (const f of walkSrc().filter((p) => /financialStatements|StatementsWorkspace|StatementReviewWorkspace/.test(p))) expect(code(f), f).not.toMatch(/contactHref|\/contact|serviceEnquiry|enquir/i);
+  });
+});
+
+describe("5–7. OFF: /contact and /admin/enquiries do not exist, and nothing can submit", () => {
+  const routed = (routes: ReactElement[], url: string, NotFound: ComponentType) =>
+    inRouter(createElement(Routes, null, ...routes, createElement(Route, { path: "*", element: createElement(NotFound) })), url);
+
+  it("OFF: the route factory returns no routes, so both paths fall through to the existing catch-all (not-found)", async () => {
+    const [{ serviceEnquiryRoutes }, { default: NotFound }] = await withGate(false, async () => [await import("./serviceEnquiryRoutes"), await import("@/pages/NotFound")] as const);
+    expect(serviceEnquiryRoutes()).toEqual([]);
+    for (const url of ["/contact", "/contact?from=site_footer", "/admin/enquiries", "/admin/enquiries?status=triage"]) {
+      const html = routed(serviceEnquiryRoutes(), url, NotFound);
+      expect(html, url).toContain("Page not found");
+      expect(html, url).not.toMatch(/<form|service-enquiry-form|Contact CFOClose|Enquiry queue|Loading/);
+    }
+  });
+
+  it("OFF: even a directly mounted Contact page renders not-found and never the form", async () => {
+    const { default: Contact } = await withGate(false, () => import("@/pages/Contact"));
+    const html = renderComponent(Contact, "/contact");
+    expect(html).toContain("Page not found");
+    expect(html).not.toMatch(/<form|service-enquiry-form|enquiry-submit|Contact CFOClose/);
+  });
+
+  it("OFF: even a directly mounted staff queue renders not-found, mounts no screen, and issues no staff query", async () => {
+    const { default: EnquiryQueue } = await withGate(false, () => import("@/pages/admin/EnquiryQueue"));
+    const html = renderComponent(EnquiryQueue, "/admin/enquiries");
+    expect(html).toContain("Page not found");
+    expect(html).not.toMatch(/queue-|Enquiry queue|Sign in required|permission/i);
+    expect(spies.rpc).not.toHaveBeenCalled();
+    expect(spies.from).not.toHaveBeenCalled();
+  });
+
+  it("OFF: no request ever reaches submit-service-enquiry — the single client choke point refuses before any network call", async () => {
+    const { submitServiceEnquiry } = await withGate(false, () => import("./client"));
+    const wire = { schema_version: 1 as const, idempotency_key: "0b2f3c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e", service_code: "general", source_context: "contact_page", name: "T", email: "t@example.test", subject: "Subject here", message: "Long enough message body", privacy_acknowledged: true };
+    expect(await submitServiceEnquiry(wire)).toEqual({ kind: "unavailable" });
+    expect(await submitServiceEnquiry({ ...wire, service_code: "donor_reporting", source_context: "workflow_donor" })).toEqual({ kind: "unavailable" });
+    expect(spies.invoke).not.toHaveBeenCalled();
+    expect(spies.rpc).not.toHaveBeenCalled();
+    expect(spies.from).not.toHaveBeenCalled();
+  });
+
+  it("the submit function is invoked from exactly one place, and that place is gated", () => {
+    const callers = walkSrc().filter((f) => /submit-service-enquiry/.test(code(f))).sort();
+    expect(callers).toEqual(["src/lib/serviceEnquiry/client.ts"]);
+    expect(code("src/lib/serviceEnquiry/client.ts")).toMatch(/if \(!SERVICE_ENQUIRY_SURFACES\.submissionAllowed\) return \{ kind: "unavailable" \};\s*try \{/);
+  });
+
+  it("App.tsx mounts the enquiry routes only through the gated factory and no longer imports the pages directly", () => {
+    const app = code("src/App.tsx");
+    expect(app).toMatch(/\{serviceEnquiryRoutes\(\)\}/);
+    expect(app).not.toMatch(/pages\/Contact|admin\/EnquiryQueue|path="\/contact"|path="\/admin\/enquiries"/);
+    const routes = code("src/lib/serviceEnquiry/serviceEnquiryRoutes.tsx");
+    expect(routes).toMatch(/const Contact = lazy\(\(\) => import\("@\/pages\/Contact"\)\)/);
+    expect(routes).toMatch(/const EnquiryQueue = lazy\(\(\) => import\("@\/pages\/admin\/EnquiryQueue"\)\)/);
+    expect(routes).toMatch(/if \(surfaces\.contactRoute\)/);
+    expect(routes).toMatch(/if \(surfaces\.staffQueueRoute\)/);
+  });
+});
+
+describe("10. ON: every PR #27 entry point and route is exposed — the same implementation, not a second one", () => {
+  it("all surfaces are on and every registered entry point is enabled", () => {
+    const on = surfacesFor(true);
+    expect(Object.values(on).every((v) => v === true)).toBe(true);
+    expect(Object.keys(on).sort()).toEqual(["contactRoute", "donorTile", "footerContactLink", "headerContactLink", "helpSupportLinks", "staffQueueRoute", "submissionAllowed", "taxExperience"]);
+  });
+
+  it("routes: /contact and /admin/enquiries match (they load their lazy chunk) instead of falling to not-found", async () => {
+    const [{ serviceEnquiryRoutes }, { default: NotFound }] = await withGate(true, async () => [await import("./serviceEnquiryRoutes"), await import("@/pages/NotFound")] as const);
+    const routes = serviceEnquiryRoutes();
+    expect(routes.map((r) => (r.props as { path: string }).path)).toEqual(["/contact", "/admin/enquiries"]);
+    for (const url of ["/contact", "/contact?from=help_support", "/admin/enquiries"]) {
+      const html = inRouter(createElement(Routes, null, ...routes, createElement(Route, { path: "*", element: createElement(NotFound) })), url);
+      expect(html, url).not.toContain("Page not found");
+      expect(html, url).toContain("Loading…");
+    }
+  });
+
+  it("ProductTour: donor tile at 03 (Expert-led) and the neutral tax tile at 04 replace the original tax card", async () => {
+    const { ProductTour } = await withGate(true, () => import("@/components/ProductTour"));
+    const html = renderComponent(ProductTour);
+    expect(html).toContain('data-testid="donor-tile"');
+    expect(html).toContain("Report to a donor or funder");
+    expect(html).toContain("Expert-led");
+    expect(html).toContain('data-testid="tax-tile"');
+    expect(html).toContain("Tax and jurisdictional compliance");
+    expect(html).toContain("Jurisdiction required");
+    expect(html).not.toContain("Assess tax and compliance");
+    expect([...html.matchAll(/data-testid="(donor|tax)-tile"[\s\S]*?<span class="text-\[10px\][^>]*>(0\d)</g)].map((m) => `${m[1]}:${m[2]}`)).toEqual(["donor:03", "tax:04"]);
+  });
+
+  it("Header and Footer show their Contact links, pointing at the canonical route with a validated source", async () => {
+    const { Header } = await withGate(true, () => import("@/components/Header"));
+    const { Footer } = await withGate(true, () => import("@/components/Footer"));
+    const header = renderComponent(Header, "/pricing");
+    expect(header).toContain('href="/contact?from=site_header"');
+    expect(header).toContain(">Contact<");
+    expect(renderComponent(Footer)).toContain('href="/contact?from=site_footer"');
+  });
+
+  it("the contact page renders the one form when ON, and the workspace and account help links are wired to the same route", async () => {
+    const { default: Contact } = await withGate(true, () => import("@/pages/Contact"));
+    const html = renderComponent(Contact, "/contact?from=site_footer");
+    expect(html).toContain('data-testid="service-enquiry-form"');
+    expect(html).toContain('data-source="site_footer"');
+    expect(html).not.toContain("Page not found");
+    for (const f of ["src/components/Header.tsx", "src/pages/workspace/WorkspaceLayout.tsx"]) expect(code(f)).toMatch(/SERVICE_ENQUIRY_SURFACES\.helpSupportLinks && \([\s\S]{0,400}contactHref\("help_support"\)/);
+  });
+
+  it("the client submits through the Edge Function when ON — the same code path, not a copy", async () => {
+    spies.invoke.mockResolvedValue({ data: { reference: "CFQ-AB12-CD34-EF56", submitted_at: "2026-09-21T08:00:00.000Z", status: "submitted", acknowledgement: "pending", replayed: false }, error: null });
+    const { submitServiceEnquiry } = await withGate(true, () => import("./client"));
+    const wire = { schema_version: 1 as const, idempotency_key: "0b2f3c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e", service_code: "general", source_context: "contact_page", name: "T", email: "t@example.test", subject: "Subject here", message: "Long enough message body", privacy_acknowledged: true };
+    expect((await submitServiceEnquiry(wire)).kind).toBe("receipt");
+    expect(spies.invoke).toHaveBeenCalledTimes(1);
+    expect(spies.invoke).toHaveBeenCalledWith("submit-service-enquiry", { body: wire });
+  });
+});
+
+describe("authorization is independent of the rollout gate", () => {
+  const dbAndFunctions = [
+    "supabase/migrations/20260921100000_service_enquiry_intake.sql",
+    "supabase/functions/_shared/serviceEnquiryContract.ts",
+    "supabase/functions/_shared/serviceEnquiryEmail.ts",
+    "supabase/functions/_shared/serviceEnquiryHandler.ts",
+    "supabase/functions/_shared/serviceEnquiryWiring.ts",
+    "supabase/functions/submit-service-enquiry/index.ts",
+    "supabase/functions/dispatch-enquiry-notifications/index.ts",
+    "scripts/db-proof/serviceEnquiries.mjs",
+  ];
+
+  it("the database migration and both Edge Functions know nothing about the gate, so they deploy and behave identically while it is OFF", () => {
+    for (const f of dbAndFunctions) expect(read(f), f).not.toMatch(/service_enquiry_phase1|SERVICE_ENQUIRY_PHASE1|SERVICE_ENQUIRY_SURFACES|serviceEnquiryGate/);
+  });
+
+  it("the staff queue's data layer carries no gate check: the database alone decides access (42501 for everyone but active platform staff)", () => {
+    expect(code("src/lib/serviceEnquiry/staffQueue.ts")).not.toMatch(/SERVICE_ENQUIRY|serviceEnquiryGate/);
+    expect(code("src/lib/serviceEnquiry/staffQueue.ts")).toMatch(/case "42501":\s*return "forbidden"/);
+    expect(read("supabase/migrations/20260921100000_service_enquiry_intake.sql")).toMatch(/public\.current_platform_staff_role\(\) IS NULL[\s\S]*?ERRCODE = '42501'/);
+  });
+
+  it("turning the gate ON grants nothing: no role, staff row or privilege is created or altered by the frontend gate", () => {
+    const gate = code("src/lib/serviceEnquiry/serviceEnquiryGate.ts");
+    expect(gate).not.toMatch(/platform_staff|supabase|rpc\(|grant|role/i);
+    expect(read("supabase/migrations/20260921100000_service_enquiry_intake.sql").replace(/--.*$/gm, "")).not.toMatch(/^INSERT INTO public\.platform_staff_members/im); // no top-level seed row
+  });
+
+  it("the gate and the Edge Function handlers do not share configuration: the gate is source-controlled, the functions read their own secrets", () => {
+    expect(code("supabase/functions/_shared/serviceEnquiryWiring.ts")).toMatch(/ENQUIRY_EMAIL_ENABLED/);
+    expect(code("src/lib/serviceEnquiry/serviceEnquiryGate.ts")).not.toMatch(/ENQUIRY_EMAIL_ENABLED|ENQUIRY_INTERNAL_NOTIFY_TO/);
+  });
+});
+
+function walkSrc(): string[] {
+  const out: string[] = [];
+  const visit = (dir: string) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) visit(p);
+      else if (/\.(ts|tsx)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) out.push(path.relative(ROOT, p).split(path.sep).join("/"));
+    }
+  };
+  visit(path.join(ROOT, "src"));
+  return out.filter((f) => f !== "src/integrations/supabase/types.ts");
+}

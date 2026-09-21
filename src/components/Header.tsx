@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { Button } from "@/components/ui/button";
-import { Menu, X, LogOut, Settings, LayoutDashboard } from "lucide-react";
+import { Menu, X, LogOut, Settings, LayoutDashboard, LifeBuoy } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
@@ -15,6 +15,8 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { NotificationBell } from "@/components/NotificationBell";
 import { NAV, CTA } from "@/constants/copy";
+import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
+import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -64,6 +66,14 @@ export function Header() {
               </a>
             )
           )}
+          {SERVICE_ENQUIRY_SURFACES.headerContactLink && (
+            <Link
+              to={contactHref("site_header")}
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Contact
+            </Link>
+          )}
           {user && (
             <Link
               to="/dashboard"
@@ -107,6 +117,14 @@ export function Header() {
                       Settings
                     </Link>
                   </DropdownMenuItem>
+                  {SERVICE_ENQUIRY_SURFACES.helpSupportLinks && (
+                    <DropdownMenuItem asChild>
+                      <Link to={contactHref("help_support")} className="cursor-pointer">
+                        <LifeBuoy className="mr-2 h-4 w-4" />
+                        Help &amp; support
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={handleSignOut}
@@ -154,6 +172,15 @@ export function Header() {
                 {item.label}
               </a>
             ))}
+            {SERVICE_ENQUIRY_SURFACES.headerContactLink && (
+              <Link
+                to={contactHref("site_header")}
+                onClick={() => setMobileOpen(false)}
+                className="block py-2.5 text-sm text-muted-foreground hover:text-foreground"
+              >
+                Contact
+              </Link>
+            )}
             {user && (
               <Link
                 to="/dashboard"
