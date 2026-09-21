@@ -44,7 +44,8 @@ export interface EnquiryFormContext {
 /** A syntactically valid placeholder used only to validate content; the real key is chosen at send time. */
 const PLACEHOLDER_KEY = "00000000-0000-4000-8000-000000000000";
 
-export function buildWireRequest(values: EnquiryFormValues, ctx: EnquiryFormContext, idempotencyKey: string): EnquiryWireRequest {
+/** `challengeToken` is the anti-abuse challenge response; it is sent only when one was required and completed, and is never validated into the enquiry. */
+export function buildWireRequest(values: EnquiryFormValues, ctx: EnquiryFormContext, idempotencyKey: string, challengeToken?: string | null): EnquiryWireRequest {
   const payload: Record<string, string> = {};
   for (const [k, v] of Object.entries(values.payload)) if (v.trim() !== "") payload[k] = v;
   return {
@@ -61,6 +62,7 @@ export function buildWireRequest(values: EnquiryFormValues, ctx: EnquiryFormCont
     privacy_acknowledged: values.privacy,
     payload,
     ...(values.honeypot !== "" ? { enquiry_hp: values.honeypot } : {}),
+    ...(challengeToken ? { challenge_token: challengeToken } : {}),
   };
 }
 

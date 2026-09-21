@@ -221,7 +221,7 @@ describe("receipt, double submission and refresh", () => {
     expect(view).toMatch(/ACKNOWLEDGEMENT_COPY\[receipt\.acknowledgement\]/);
     const copy = code("src/lib/serviceEnquiry/copy.ts");
     expect(copy).toMatch(/acknowledgement is not available right now/);
-    expect(copy).toMatch(/acknowledgement is pending/);
+    expect(copy).toMatch(/acknowledgement is queued and has not been sent yet/);
     expect(copy).toMatch(/not acceptance of an engagement/);
   });
 });

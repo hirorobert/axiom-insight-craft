@@ -61,12 +61,15 @@ describe("database inertness — schema and functions", () => {
   it.skipIf(!hasMain)("changes under supabase/ relative to origin/main are only ADDED migrations (no Edge Function, no config change, nothing modified or deleted)", () => {
     // The two financial-statements migrations are already on main; a later change may only append forward-only migrations.
     const changed = (gitOut("diff --name-status origin/main...HEAD -- supabase") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
-    // Reviewed additive artifacts: the Phase 1 service enquiry intake (PR #27) adds one forward-only migration and two NEW Edge
-    // Functions (with their shared modules). Nothing existing is modified or deleted — every status must still be "A".
-    const allowedAdditions = new Set([
+    // Reviewed artifacts. The Phase 1 service enquiry intake (PR #27) added one forward-only migration and two NEW Edge Functions
+    // with their shared modules; its pre-activation hardening adds one more forward-only migration and one new shared module and
+    // edits ONLY the enquiry's own shared modules. No pre-existing migration, function or config is modified or deleted.
+    const added = new Set([
       "supabase/migrations/20260920100000_workspace_setup_authority.sql",
       "supabase/migrations/20260921100000_service_enquiry_intake.sql",
+      "supabase/migrations/20260922100000_service_enquiry_activation_readiness.sql",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
+      "supabase/functions/_shared/serviceEnquiryChallenge.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
       "supabase/functions/_shared/serviceEnquiryEmailCorpus.json",
       "supabase/functions/_shared/serviceEnquiryHandler.ts",
@@ -74,10 +77,16 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/dispatch-enquiry-notifications/index.ts",
       "supabase/functions/submit-service-enquiry/index.ts",
     ]);
+    const modified = new Set([
+      "supabase/functions/_shared/serviceEnquiryContract.ts",
+      "supabase/functions/_shared/serviceEnquiryEmail.ts",
+      "supabase/functions/_shared/serviceEnquiryHandler.ts",
+      "supabase/functions/_shared/serviceEnquiryWiring.ts",
+    ]);
     for (const line of changed) {
-      const [status, file] = line.split("\t");
-      expect(status, line).toBe("A");
-      expect(allowedAdditions.has(file), `${file} is not a reviewed migration addition`).toBe(true);
+      const [status, file] = line.split("	");
+      expect(["A", "M"], line).toContain(status);
+      expect((status === "A" ? added : modified).has(file), `${file} is not a reviewed ${status === "A" ? "addition" : "modification"}`).toBe(true);
     }
   });
 

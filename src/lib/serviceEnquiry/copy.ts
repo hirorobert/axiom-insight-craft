@@ -39,6 +39,12 @@ export const ENQUIRY_FORM_COPY = {
   rateLimited: "Too many enquiries have been sent from this connection. Please try again in a few minutes.",
   conflict: "This enquiry key was already used with different content. Review the form and send it again.",
   unavailable: "We could not reach the enquiry service. Your details are still on this page — please try again.",
+  challengeIncomplete: "Please complete the security check before sending.",
+  challengeFailed: "The security check could not be confirmed. Please complete it again, then send.",
+  challengeUnavailable: "The security check is not available right now, so enquiries cannot be sent from this page. Please try again later.",
+  challengeLabel: "Security check",
+  challengeLoading: "Loading the security check…",
+  challengeLoadFailed: "The security check could not be loaded. Check your connection and reload the page.",
   receiptHeading: "Request received",
   receiptReference: "Your reference",
   receiptSubmitted: "Received",
@@ -48,8 +54,9 @@ export const ENQUIRY_FORM_COPY = {
 } as const;
 
 export const ACKNOWLEDGEMENT_COPY: Readonly<Record<AcknowledgementState, string>> = {
-  sent: "An acknowledgement email has been sent to the address you provided.",
-  pending: "Your email acknowledgement is pending. Please keep this reference.",
+  // "sent" means our email provider accepted the message. Delivery is not known, so it is never claimed.
+  sent: "Our email provider has accepted an acknowledgement message for the address you provided. Delivery is not guaranteed, so please keep this reference.",
+  pending: "Your email acknowledgement is queued and has not been sent yet. Please keep this reference.",
   unavailable: "Your request is recorded, but an email acknowledgement is not available right now. Please keep this reference.",
 };
 

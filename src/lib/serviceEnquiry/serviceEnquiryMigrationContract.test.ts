@@ -23,7 +23,8 @@ describe("migration hygiene", () => {
   it("is a timestamped, forward-only, additive file placed last in the chain", () => {
     expect(FILE).toMatch(/^\d{14}_[A-Za-z0-9._-]+\.sql$/);
     const all = fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
-    expect(all[all.length - 1]).toBe(FILE);
+    // Later migrations may only be the reviewed pre-activation hardening (20260922100000); nothing else follows it.
+    expect(all.slice(all.indexOf(FILE) + 1)).toEqual(["20260922100000_service_enquiry_activation_readiness.sql"]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);
   });

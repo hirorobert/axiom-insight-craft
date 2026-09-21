@@ -125,7 +125,7 @@ function readMigration(fileName: string): string {
 }
 
 describe("migration directory integrity", () => {
-  it("contains exactly 125 migration files", () => {
+  it("contains exactly 126 migration files", () => {
     // Bumped from 113 -> 114: 20260912100000_omega3_checkout_cfoclose_
     // offers_and_interval_authority.sql (Ω3-CHECKOUT), forward-only,
     // sorts after every prior file. Bumped from 114 -> 115:
@@ -155,8 +155,10 @@ describe("migration directory integrity", () => {
     // engagement-scoped append-only setup events, explicit filing jurisdiction) — forward-only, sorts last.
     // Bumped from 124 -> 125: 20260921100000_service_enquiry_intake.sql (Phase 1 service enquiry and expert intake:
     // canonical enquiry, append-only events, platform-staff authority, transactional outbox) — forward-only, sorts last.
+    // Bumped from 125 -> 126: 20260922100000_service_enquiry_activation_readiness.sql (honest outbox status model, reference
+    // search) — forward-only, sorts last.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(125);
+    expect(files.length).toBe(126);
   });
 });
 

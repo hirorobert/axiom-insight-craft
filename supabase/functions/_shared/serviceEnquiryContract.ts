@@ -39,6 +39,16 @@ export const MAX_REQUEST_BODY_BYTES = 16 * 1024;
 /** A field humans never see. Any value means an automated submission. It is an accepted key so bots are not told why they failed. */
 export const HONEYPOT_FIELD = "enquiry_hp" as const;
 
+/**
+ * The anti-abuse challenge response (Cloudflare Turnstile today; the field is provider-neutral). It is read from the request
+ * body but is NOT part of the enquiry: it is never validated into NormalizedEnquiry, never fingerprinted, never stored and
+ * never logged. Only anonymous submissions need one; a verified signed-in user is protected by rate limits and idempotency.
+ */
+export const CHALLENGE_FIELD = "challenge_token" as const;
+export const CHALLENGE_TOKEN_MAX_LENGTH = 2048; // Turnstile's documented maximum
+/** The widget `action` the browser sets; the provider echoes it back and the server refuses a token minted for a different action. */
+export const CHALLENGE_ACTION = "service_enquiry" as const;
+
 /** Fixed-window limits, applied to keyed hashes (never raw identifiers). Enforced atomically inside submit_service_enquiry. */
 export const RATE_POLICY = {
   ip: { limit: 8, windowSeconds: 600 },
@@ -54,6 +64,9 @@ export const ENQUIRY_ERROR_CODES = [
   "validation_failed",
   "idempotency_key_reuse",
   "rate_limited",
+  "challenge_required",
+  "challenge_failed",
+  "challenge_unavailable",
   "internal_error",
 ] as const;
 export type EnquiryErrorCode = (typeof ENQUIRY_ERROR_CODES)[number];
@@ -73,7 +86,50 @@ export interface FieldError {
   readonly code: FieldErrorCode;
 }
 
+/**
+ * What the REQUESTER is told about the acknowledgement email. Deliberately coarse and truthful:
+ *   sent        — the email provider ACCEPTED the message. This is not a claim of delivery.
+ *   pending     — queued or in flight.
+ *   unavailable — it will not be sent (not configured, failed, bounced, or a non-deliverable address).
+ */
 export type AcknowledgementState = "sent" | "pending" | "unavailable";
+
+/**
+ * The outbox's own vocabulary — six different facts that must never be blended:
+ *   queued / processing — not yet handed to the provider
+ *   accepted            — the provider accepted the message (all a send call can prove)
+ *   delivered / bounced — reported by a VERIFIED provider event; nothing writes these today
+ *   failed              — permanent failure, exhausted retries or a non-deliverable address
+ */
+export const NOTIFICATION_STATUSES = ["queued", "processing", "accepted", "delivered", "failed", "bounced"] as const;
+export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[number];
+
+export const NOTIFICATION_TRANSITIONS: Readonly<Record<NotificationStatus, readonly NotificationStatus[]>> = {
+  queued: ["processing"],
+  processing: ["accepted", "queued", "failed"], // queued again = a transient failure or "not configured"
+  accepted: ["delivered", "bounced"], // only ever on a verified provider event
+  delivered: [],
+  failed: [],
+  bounced: [],
+};
+
+export const isNotificationStatus = (v: unknown): v is NotificationStatus => typeof v === "string" && (NOTIFICATION_STATUSES as readonly string[]).includes(v);
+
+export const isValidNotificationTransition = (from: NotificationStatus, to: NotificationStatus): boolean => NOTIFICATION_TRANSITIONS[from].includes(to);
+
+/** The requester-facing acknowledgement state for an outbox status. Acceptance is reported as "sent", never as delivery. */
+export function acknowledgementFor(status: NotificationStatus | null): AcknowledgementState {
+  switch (status) {
+    case "queued":
+    case "processing":
+      return "pending";
+    case "accepted":
+    case "delivered":
+      return "sent";
+    default:
+      return "unavailable"; // failed, bounced, or no acknowledgement row at all
+  }
+}
 export interface EnquiryReceipt {
   readonly reference: string;
   readonly submitted_at: string;
@@ -149,7 +205,7 @@ const isRealDate = (s: string): boolean => {
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
 
-const TOP_LEVEL_KEYS = ["schema_version", "idempotency_key", "service_code", "source_context", "name", "email", "organization", "country", "subject", "message", "privacy_acknowledged", "payload", HONEYPOT_FIELD] as const;
+const TOP_LEVEL_KEYS = ["schema_version", "idempotency_key", "service_code", "source_context", "name", "email", "organization", "country", "subject", "message", "privacy_acknowledged", "payload", HONEYPOT_FIELD, CHALLENGE_FIELD] as const;
 
 const PAYLOAD_KEYS: Readonly<Record<ServiceCode, readonly string[]>> = {
   general: [],
@@ -213,6 +269,16 @@ const ENUMERATED_PAYLOAD_FIELDS: Readonly<Record<string, (v: string) => FieldErr
   currency: (v) => (/^[A-Z]{3}$/.test(v) ? null : "invalid_format"),
   deadline: (v) => (isRealDate(v) ? null : "invalid_format"),
 };
+
+/**
+ * The challenge response the browser supplied, or null. Never trusted on its own: it is only ever handed to the server-side
+ * verifier. A non-string or oversized value is reported by validateEnquiryRequest and reads as absent here.
+ */
+export function extractChallengeToken(input: unknown): string | null {
+  if (!isPlainObject(input)) return null;
+  const t = input[CHALLENGE_FIELD];
+  return typeof t === "string" && t.length > 0 && t.length <= CHALLENGE_TOKEN_MAX_LENGTH ? t : null;
+}
 
 /** True when the hidden field carries any value — read before validation, so a bot learns nothing from field errors. */
 export function hasHoneypot(input: unknown): boolean {
@@ -290,6 +356,12 @@ export function validateEnquiryRequest(input: unknown): ValidationResult {
   const trap = input[HONEYPOT_FIELD];
   if (trap !== undefined && trap !== null && typeof trap !== "string") errors.push({ field: HONEYPOT_FIELD, code: "invalid_type" });
   const honeypot = hasHoneypot(input);
+
+  const challenge = input[CHALLENGE_FIELD];
+  if (challenge !== undefined && challenge !== null) {
+    if (typeof challenge !== "string") errors.push({ field: CHALLENGE_FIELD, code: "invalid_type" });
+    else if (challenge.length > CHALLENGE_TOKEN_MAX_LENGTH) errors.push({ field: CHALLENGE_FIELD, code: "too_long" });
+  }
 
   if (errors.length > 0 || !service || !source || "error" in name || "error" in subject || "error" in message) return { kind: "invalid", errors };
 

@@ -22,6 +22,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
 const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
 const MIGRATION_FILE = "20260921100000_service_enquiry_intake.sql";
+const READINESS_FILE = "20260922100000_service_enquiry_activation_readiness.sql";
 const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const MODE = process.env.DB_PROOF_MODE ?? "embedded";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
@@ -230,7 +231,7 @@ async function main() {
 
   group("Replay from zero");
   let files;
-  await check(`every repository migration (including ${MIGRATION_FILE}) applies on an empty PostgreSQL`, async () => { files = await replay(); return files.includes(MIGRATION_FILE) && files[files.length - 1] === MIGRATION_FILE; });
+  await check(`every repository migration (including ${MIGRATION_FILE}) applies on an empty PostgreSQL`, async () => { files = await replay(); return files.includes(MIGRATION_FILE) && files[files.length - 1] === READINESS_FILE && files.indexOf(READINESS_FILE) === files.indexOf(MIGRATION_FILE) + 1; });
 
   for (const [k, id] of Object.entries(U)) await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [id, `${k}@example.test`]);
   const companyA = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Company A') RETURNING id", [U.owner])).rows[0].id;
@@ -266,12 +267,12 @@ async function main() {
     return first.outcome === "created" && first.status === "submitted" && first.acknowledgement === "pending" && /^CFQ-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/.test(first.reference) && !!first.submitted_at
       && after[0] === before[0] + 1 && after[1] === before[1] + 1 && after[2] === before[2] + 2;
   });
-  await check("the initial 'submitted' event names the verified requester; the outbox holds two pending rows", async () => {
+  await check("the initial 'submitted' event names the verified requester; the outbox holds two queued rows", async () => {
     const id = await idOf(first.reference);
     const ev = (await admin.query("SELECT * FROM public.service_enquiry_events WHERE enquiry_id=$1", [id])).rows;
     const nt = (await admin.query("SELECT kind,status FROM public.service_enquiry_notifications WHERE enquiry_id=$1 ORDER BY kind", [id])).rows;
     return ev.length === 1 && ev[0].event_kind === "submitted" && ev[0].actor_kind === "requester" && ev[0].actor_user_id === U.requester && ev[0].previous_status === null
-      && nt.length === 2 && nt.every((n) => n.status === "pending");
+      && nt.length === 2 && nt.every((n) => n.status === "queued");
   });
   await check("an anonymous submission records a 'system' actor and no user id", async () => {
     const e = await newEnquiry();
@@ -475,7 +476,7 @@ async function main() {
   await check("the list row carries triage fields but NOT the message body or the structured payload", async () => {
     const r = await listAs(agent, { search: seed.reference });
     const row = r.rows[0];
-    return r.total === 1 && row.public_reference === seed.reference && !("message" in row) && !("payload" in row) && row.acknowledgement === "pending" && row.staff_notification === "pending";
+    return r.total === 1 && row.public_reference === seed.reference && !("message" in row) && !("payload" in row) && row.acknowledgement === "queued" && row.staff_notification === "queued";
   });
   await check("search matches the public reference (case-insensitive), an organisation substring and an email substring", async () => {
     const byRef = await listAs(agent, { search: seed.reference.toLowerCase() });
@@ -484,7 +485,7 @@ async function main() {
     return byRef.total === 1 && byOrg.total === 1 && byEmail.total === 1;
   });
   await check("search is a literal substring match: '%' and '_' are ordinary characters, never wildcards", async () => {
-    const pct = await listAs(agent, { search: "%" });
+    const pct = await listAs(agent, { search: "100%_" });
     const usc = await listAs(agent, { search: "___________" });
     return pct.total === 1 && usc.total === 0;
   });
@@ -647,11 +648,18 @@ async function main() {
 
   // ── notification outbox ──────────────────────────────────────────────────────────────────────────────────────────
   group("Notification outbox — a failed or unconfigured email never loses or rolls back an enquiry");
-  await admin.query("UPDATE public.service_enquiry_notifications SET status='sent', sent_at=now() WHERE status='pending'");
+  // Test plumbing only: mark every existing row accepted so later claims see just the rows a check creates. The transition guard
+  // (which forbids queued -> accepted) is switched off for this one statement and back on immediately.
+  const clearOutbox = async () => {
+    await admin.query("ALTER TABLE public.service_enquiry_notifications DISABLE TRIGGER trg_service_enquiry_notification_transition");
+    await admin.query("UPDATE public.service_enquiry_notifications SET status='accepted', sent_at=now() WHERE status IN ('queued','processing')");
+    await admin.query("ALTER TABLE public.service_enquiry_notifications ENABLE TRIGGER trg_service_enquiry_notification_transition");
+  };
+  await clearOutbox();
   const claim = (limit = 10, id = null) => one(SERVICE, "SELECT public.enquiry_notification_claim($1,$2) r", [limit, id]).then((x) => x.r);
   const complete = (id, outcome, provider = null, code = null) => one(SERVICE, "SELECT public.enquiry_notification_complete($1,$2,$3,$4) r", [id, outcome, provider, code]).then((x) => x.r);
   await refused("authenticated callers cannot claim notifications (42501)", "42501", () => one(user(U.owner), "SELECT public.enquiry_notification_claim(5, NULL) r"));
-  await refused("authenticated callers cannot complete notifications (42501)", "42501", () => one(user(U.owner), "SELECT public.enquiry_notification_complete($1,'sent',NULL,NULL) r", [uuid()]));
+  await refused("authenticated callers cannot complete notifications (42501)", "42501", () => one(user(U.owner), "SELECT public.enquiry_notification_complete($1,'accepted',NULL,NULL) r", [uuid()]));
   const mail = await newEnquiry({ requester_name: "Grace Example", requester_email: "grace@example.test", subject: "Confidential subject XYZZY", message: "Confidential message body XYZZY that must never appear in a notification payload." });
   let claimed;
   await check("claiming returns what a message needs — the requester's address only for the acknowledgement — and NEVER the subject or message text", async () => {
@@ -663,37 +671,244 @@ async function main() {
   await check("an immediate second claim returns nothing (attempts are backed off for five minutes)", async () => (await claim(10, mail.id)).length === 0);
   const ackRow = () => claimed.find((c) => c.kind === "requester_acknowledgement");
   const staffRow = () => claimed.find((c) => c.kind === "staff_notification");
-  await check("'blocked' (delivery not configured) leaves the row pending, records a machine code, and does not charge an attempt", async () => {
+  await check("'blocked' (delivery not configured) returns the row to queued, records a machine code, and does not charge an attempt", async () => {
     const r = await complete(staffRow().id, "blocked");
     const row = (await admin.query("SELECT status, attempt_count, last_error_code FROM public.service_enquiry_notifications WHERE id=$1", [staffRow().id])).rows[0];
-    return r.status === "pending" && row.status === "pending" && row.attempt_count === 0 && row.last_error_code === "EMAIL_NOT_CONFIGURED";
+    return r.status === "queued" && row.status === "queued" && row.attempt_count === 0 && row.last_error_code === "EMAIL_NOT_CONFIGURED";
   });
   await check("the enquiry itself is intact and still 'submitted' while its notifications are undelivered", async () => (await statusOf(mail.id)) === "submitted" && (await count("SELECT count(*) n FROM public.service_enquiry_events WHERE enquiry_id=$1", [mail.id])) === 1);
-  await check("a transient failure ('retry') keeps the row pending; after five attempts it becomes 'failed' and the receipt state is 'unavailable'", async () => {
+  await check("a transient failure ('retry') returns the row to queued; after five attempts it becomes 'failed' and the receipt state is 'unavailable'", async () => {
     await complete(ackRow().id, "retry", null, "PROVIDER_TIMEOUT");
-    const stillPending = (await admin.query("SELECT status FROM public.service_enquiry_notifications WHERE id=$1", [ackRow().id])).rows[0].status === "pending";
-    await admin.query("UPDATE public.service_enquiry_notifications SET attempt_count=5 WHERE id=$1", [ackRow().id]);
+    const stillQueued = (await admin.query("SELECT status FROM public.service_enquiry_notifications WHERE id=$1", [ackRow().id])).rows[0].status === "queued";
+    await admin.query("UPDATE public.service_enquiry_notifications SET status='processing', attempt_count=5 WHERE id=$1", [ackRow().id]); // the fifth attempt is in flight
     const r = await complete(ackRow().id, "retry", null, "PROVIDER_TIMEOUT");
     const ack = (await admin.query("SELECT public.service_enquiry_ack_state($1) s", [mail.id])).rows[0].s;
-    return stillPending && r.status === "failed" && ack === "unavailable" && (await statusOf(mail.id)) === "submitted";
+    return stillQueued && r.status === "failed" && ack === "unavailable" && (await statusOf(mail.id)) === "submitted";
   });
-  await check("a terminal notification never moves again", async () => (await complete(ackRow().id, "sent", "late-provider-id")).changed === false);
+  await check("a terminal notification never moves again", async () => (await complete(ackRow().id, "accepted", "late-provider-id")).changed === false);
+  await admin.query("UPDATE public.service_enquiry_notifications SET status='processing' WHERE id=$1", [staffRow().id]); // in flight again, so the completion below reaches the constraint
   await refused("a provider error message (free text that could echo an address) cannot be stored — only a machine code", "23514", () => complete(staffRow().id, "failed", null, "boom for grace@example.test"));
-  await check("'sent' records the time and provider id; the requester's receipt then reports 'sent'; terminal rows do not change", async () => {
+  await check("'accepted' records the provider's acceptance time and id; the requester's receipt then reports 'sent' (acceptance, never delivery); terminal rows do not change", async () => {
     const m2 = await newEnquiry();
     const c2 = await claim(10, m2.id);
     const ack2 = c2.find((c) => c.kind === "requester_acknowledgement");
-    const r = await complete(ack2.id, "sent", "provider-msg-1");
+    const r = await complete(ack2.id, "accepted", "provider-msg-1");
     const row = (await admin.query("SELECT status, sent_at, provider_message_id FROM public.service_enquiry_notifications WHERE id=$1", [ack2.id])).rows[0];
     const replay = await submit(request({ idempotency_key: (await admin.query("SELECT idempotency_key FROM public.service_enquiries WHERE id=$1", [m2.id])).rows[0].idempotency_key, request_fingerprint: (await admin.query("SELECT request_fingerprint FROM public.service_enquiries WHERE id=$1", [m2.id])).rows[0].request_fingerprint }));
-    return r.status === "sent" && row.sent_at !== null && row.provider_message_id === "provider-msg-1" && replay.outcome === "replayed" && replay.acknowledgement === "sent";
+    return r.status === "accepted" && row.sent_at !== null && row.provider_message_id === "provider-msg-1" && replay.outcome === "replayed" && replay.acknowledgement === "sent";
   });
   await check("two concurrent dispatchers never claim the same row (FOR UPDATE SKIP LOCKED)", async () => {
-    await admin.query("UPDATE public.service_enquiry_notifications SET status='sent', sent_at=now() WHERE status='pending'");
+    await clearOutbox();
     for (let i = 0; i < 8; i++) await newEnquiry();
     const [a, b] = await Promise.all([claim(50), claim(50)]);
     const ids = [...a, ...b].map((c) => c.id);
     return new Set(ids).size === ids.length && ids.length === 16;
+  });
+
+  await clearOutbox();
+
+  // ── the honest status model (activation readiness) ─────────────────────────────────────────────────────────────────
+  group("Email status model — accepted is not delivered; transitions are enforced by the database");
+  const setStatus = (id, status, extra = "") => admin.query(`UPDATE public.service_enquiry_notifications SET status=$2${extra} WHERE id=$1`, [id, status]);
+  const statusRow = async (id) => (await admin.query("SELECT status, attempt_count, last_error_code, sent_at, provider_message_id FROM public.service_enquiry_notifications WHERE id=$1", [id])).rows[0];
+  const nrows = async (enquiryId) => (await admin.query("SELECT id, kind, status FROM public.service_enquiry_notifications WHERE enquiry_id=$1 ORDER BY kind", [enquiryId])).rows;
+  const sm = await newEnquiry();
+  const [smAck, smStaff] = await nrows(sm.id);
+
+  await check("the outbox accepts exactly queued, processing, accepted, delivered, failed and bounced — the legacy 'pending' and 'sent' are gone", async () => {
+    const legal = (await admin.query("SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conname='chk_service_enquiry_notification_status'")).rows[0].d;
+    return ["queued", "processing", "accepted", "delivered", "failed", "bounced"].every((w) => legal.includes(`'${w}'`)) && !legal.includes("'pending'") && !legal.includes("'sent'");
+  });
+  await check("a new enquiry creates exactly ONE requester acknowledgement and ONE internal notification, with different ids, both queued", async () => {
+    const rows = await nrows(sm.id);
+    return rows.length === 2 && rows[0].kind === "requester_acknowledgement" && rows[1].kind === "staff_notification" && rows[0].id !== rows[1].id && rows.every((r) => r.status === "queued");
+  });
+  await refused("a second acknowledgement row for the same enquiry cannot exist (unique per enquiry and kind, 23505)", "23505", () => admin.query("INSERT INTO public.service_enquiry_notifications (enquiry_id, kind) VALUES ($1,'requester_acknowledgement')", [sm.id]));
+  await refused("the legacy status 'sent' is rejected by the table (23514)", "23514", () => setStatus(smAck.id, "sent"));
+  await refused("the legacy status 'pending' is rejected by the table (23514)", "23514", () => setStatus(smAck.id, "pending"));
+  await refused("queued cannot jump straight to accepted (23514) — it must be claimed first", "23514", () => setStatus(smAck.id, "accepted", ", sent_at=now()"));
+  await refused("queued cannot jump to delivered (23514)", "23514", () => setStatus(smAck.id, "delivered", ", sent_at=now()"));
+  await refused("queued cannot jump to failed (23514) — only an in-flight row can fail", "23514", () => setStatus(smAck.id, "failed"));
+  await check("the requester-facing state of a queued acknowledgement is 'pending', never 'sent'", async () => (await admin.query("SELECT public.service_enquiry_ack_state($1) s", [sm.id])).rows[0].s === "pending");
+
+  const smClaim = await claim(10, sm.id);
+  await check("claiming moves both rows to processing and returns them; each is charged one attempt", async () => {
+    const rows = await nrows(sm.id);
+    return smClaim.length === 2 && rows.every((r) => r.status === "processing") && (await statusRow(smAck.id)).attempt_count === 1 && (await admin.query("SELECT public.service_enquiry_ack_state($1) s", [sm.id])).rows[0].s === "pending";
+  });
+  await refused("an in-flight row cannot jump to delivered without a verified provider event (23514)", "23514", () => setStatus(smAck.id, "delivered", ", sent_at=now()"));
+  await check("one recipient's permanent failure does not touch the other notification", async () => {
+    const f = await complete(smAck.id, "failed", null, "NON_DELIVERABLE_TEST_ADDRESS");
+    const a = await statusRow(smAck.id), s2 = await statusRow(smStaff.id);
+    return f.status === "failed" && a.last_error_code === "NON_DELIVERABLE_TEST_ADDRESS" && a.sent_at === null && s2.status === "processing" && s2.last_error_code === null;
+  });
+  await check("a failed acknowledgement reads as 'unavailable' to the requester", async () => (await admin.query("SELECT public.service_enquiry_ack_state($1) s", [sm.id])).rows[0].s === "unavailable");
+  await check("the internal notice is then ACCEPTED independently: it records the provider id and acceptance time, and is not 'delivered'", async () => {
+    const r = await complete(smStaff.id, "accepted", "provider-internal-1");
+    const s2 = await statusRow(smStaff.id);
+    return r.status === "accepted" && s2.status === "accepted" && s2.sent_at !== null && s2.provider_message_id === "provider-internal-1" && s2.status !== "delivered";
+  });
+  await check("a duplicate completion of the same notification changes nothing (no double acceptance, no overwrite)", async () => {
+    const again = await complete(smStaff.id, "accepted", "provider-internal-2");
+    const failedAgain = await complete(smStaff.id, "failed", null, "LATE");
+    const s2 = await statusRow(smStaff.id);
+    return again.changed === false && failedAgain.changed === false && s2.provider_message_id === "provider-internal-1" && s2.last_error_code === null;
+  });
+  await check("nothing already claimed can be claimed again: a second dispatcher receives no rows for the same enquiry", async () => (await claim(10, sm.id)).length === 0);
+  await check("ten concurrent completions of one in-flight row apply exactly once", async () => {
+    const e = await newEnquiry();
+    const [ack] = await nrows(e.id);
+    await claim(10, e.id);
+    const results = await Promise.all(Array.from({ length: 10 }, (_, i) => complete(ack.id, "accepted", `provider-${i}`)));
+    return results.filter((r) => r.changed === true).length === 1 && (await statusRow(ack.id)).status === "accepted";
+  });
+  await check("a processing lease that expired is claimed again (a crashed dispatcher cannot strand a row)", async () => {
+    const e = await newEnquiry();
+    const [ack] = await nrows(e.id);
+    await claim(10, e.id);
+    const held = (await claim(10, e.id)).length === 0;
+    await admin.query("UPDATE public.service_enquiry_notifications SET last_attempt_at = now() - interval '11 minutes' WHERE id=$1", [ack.id]);
+    const again = await claim(10, e.id);
+    return held && again.length === 1 && again[0].id === ack.id && again[0].attempt === 2 && (await statusRow(ack.id)).status === "processing";
+  });
+  await check("an expired lease on a row with no attempts left becomes 'failed' (LEASE_EXPIRED) rather than staying in limbo", async () => {
+    const e = await newEnquiry();
+    const [ack] = await nrows(e.id);
+    await claim(10, e.id);
+    await admin.query("UPDATE public.service_enquiry_notifications SET attempt_count=5, last_attempt_at = now() - interval '11 minutes' WHERE id=$1", [ack.id]);
+    await claim(10, e.id);
+    const a = await statusRow(ack.id);
+    return a.status === "failed" && a.last_error_code === "LEASE_EXPIRED";
+  });
+  await check("delivery is a VERIFIED-provider-event fact only: with the event marker set the guard permits accepted -> delivered / bounced, and nothing else does", async () => {
+    const e = await newEnquiry();
+    const [ack, staff] = await nrows(e.id);
+    await claim(10, e.id);
+    await complete(ack.id, "accepted", "p-a");
+    await complete(staff.id, "accepted", "p-s");
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("SELECT set_config('app.enquiry_provider_event','verified',true)");
+      await c.query("UPDATE public.service_enquiry_notifications SET status='delivered' WHERE id=$1", [ack.id]);
+      await c.query("UPDATE public.service_enquiry_notifications SET status='bounced' WHERE id=$1", [staff.id]);
+      await c.query("COMMIT");
+    } catch { await c.query("ROLLBACK"); return false; } finally { c.release(); }
+    const rows = await nrows(e.id);
+    return rows[0].status === "delivered" && rows[1].status === "bounced"
+      && (await admin.query("SELECT public.service_enquiry_ack_state($1) s", [e.id])).rows[0].s === "sent";
+  });
+  await refused("a terminal notification cannot move again, even with the event marker (23514)", "23514", async () => {
+    const e = await newEnquiry();
+    const [ack] = await nrows(e.id);
+    await claim(10, e.id);
+    await complete(ack.id, "failed", null, "X");
+    const c = await pool.connect();
+    try { await c.query("BEGIN"); await c.query("SELECT set_config('app.enquiry_provider_event','verified',true)"); await c.query("UPDATE public.service_enquiry_notifications SET status='delivered', sent_at=now() WHERE id=$1", [ack.id]); await c.query("COMMIT"); } catch (err) { await c.query("ROLLBACK"); throw err; } finally { c.release(); }
+  });
+  await check("no outbox function can set delivered or bounced: their bodies never name those states", async () => {
+    const bodies = (await admin.query("SELECT proname, prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND proname IN ('enquiry_notification_claim','enquiry_notification_complete','submit_service_enquiry')")).rows;
+    return bodies.length === 3 && bodies.every((b) => !/'delivered'|'bounced'/.test(b.prosrc));
+  });
+  await refused("the outbox outcome 'delivered' is not accepted by the completion function (22023)", "22023", () => complete(uuid(), "delivered"));
+  await refused("the outbox outcome 'sent' (the retired word) is not accepted by the completion function (22023)", "22023", () => complete(uuid(), "sent"));
+
+  // ── public-reference search ────────────────────────────────────────────────────────────────────────────────────────
+  group("Staff queue — public-reference search");
+  const agentS = user(U.agent);
+  const sRef = await newEnquiry({ organization: "Reference Search Holdings", requester_email: "reference.search@example.test" });
+  const other = await newEnquiry({ organization: "Another Holdings", requester_email: "another.person@example.test" });
+  const list = (caller, search, extra = {}) => one(caller, "SELECT public.staff_list_service_enquiries($1,$2,$3,$4,$5,$6,$7,$8) r", [extra.status ?? null, null, null, null, null, search, extra.limit ?? 25, 0]).then((x) => x.r);
+  const refs = (r) => r.rows.map((x) => x.public_reference);
+  const ref = sRef.reference; // CFQ-XXXX-XXXX-XXXX
+  const [, g1, g2, g3] = ref.split("-");
+
+  await check("the COMPLETE reference finds exactly that enquiry", async () => { const r = await list(agentS, ref); return r.total === 1 && refs(r)[0] === ref; });
+  await check("lower-case and mixed-case references find it", async () => (await list(agentS, ref.toLowerCase())).total === 1 && (await list(agentS, ref[0] + ref.slice(1).toLowerCase())).total === 1);
+  await check("surrounding, internal and repeated whitespace is normalised away", async () => {
+    const spaced = `   ${ref.replace(/-/g, "  -  ")}   `;
+    const tabbed = `\t${ref}\n`;
+    return (await list(agentS, spaced)).total === 1 && (await list(agentS, tabbed)).total === 1 && (await list(agentS, `CFQ ${g1} ${g2} ${g3}`)).total === 1;
+  });
+  await check("a PARTIAL reference (prefix, with or without dashes) finds it — including when typed without the CFQ- prefix", async () => {
+    const partials = [`CFQ-${g1}`, `CFQ-${g1}-${g2}`, `cfq-${g1.toLowerCase()}-${g2.toLowerCase().slice(0, 2)}`, `CFQ${g1}${g2}${g3}`, `${g1}-${g2}-${g3}`, `${g1} ${g2}`, `${g1}${g2}`];
+    for (const p of partials) { const r = await list(agentS, p); if (!refs(r).includes(ref)) return false; }
+    return true;
+  });
+  await check("a partial reference returns every enquiry that shares it, and only those", async () => {
+    const r = await list(agentS, `CFQ-${g1}`);
+    return r.rows.every((x) => x.public_reference.startsWith(`CFQ-${g1}`)) && refs(r).includes(ref);
+  });
+  await check("a reference that does not exist returns nothing (a well-formed miss is not an error)", async () => {
+    const missing = "CFQ-0000-0000-000F";
+    const r = await list(agentS, missing);
+    const s = await list(agentS, "ZZZZ-9999");
+    return r.total === 0 && r.rows.length === 0 && s.total === 0;
+  });
+  await check("the reference search does not disturb the existing organisation and email substring search", async () => {
+    const org = await list(agentS, "reference search hold");
+    const email = await list(agentS, "REFERENCE.SEARCH@");
+    const orgSpaced = await list(agentS, "  Reference   Search  ");
+    return org.total === 1 && refs(org)[0] === ref && email.total === 1 && refs(email)[0] === ref && orgSpaced.total === 1;
+  });
+  await check("wildcards are inert: %, _, [], *, regex and SQL metacharacters in a reference-shaped term match nothing and inject nothing", async () => {
+    const hostile = [`CFQ-%`, `CFQ-____-____-____`, `CFQ-${g1}%`, `CFQ-${g1}-%`, `%${g1}`, `CFQ-[0-9A-F]+`, `CFQ-.*`, `CFQ-${g1}'; DROP TABLE public.service_enquiries; --`, `CFQ-${g1}" OR 1=1`, `%%%`, `__`, "\\"];
+    for (const h of hostile) {
+      const r = await list(agentS, h);
+      if (r.total !== 0) return false; // none of these is a real reference, organisation or email fragment
+    }
+    return (await count("SELECT count(*) n FROM public.service_enquiries")) > 0;
+  });
+  await check("a term longer than the cap is bounded (100 characters) rather than scanned as given", async () => {
+    const r = await list(agentS, `${ref} ${"x".repeat(5000)}`);
+    return r.total === 0;
+  });
+  await check("search combines with the other filters (status) and pagination without leaking rows outside them", async () => {
+    const wrongStatus = await list(agentS, ref, { status: ["closed"] });
+    const rightStatus = await list(agentS, ref, { status: ["submitted"] });
+    return wrongStatus.total === 0 && rightStatus.total === 1;
+  });
+  await check("the queue rows carry the RAW outbox statuses (queued / processing / accepted …), never a blended 'sent'", async () => {
+    const r = await list(agentS, ref);
+    return r.rows[0].acknowledgement === "queued" && r.rows[0].staff_notification === "queued" && !("message" in r.rows[0]);
+  });
+  await check("the detail view reports notification statuses and acceptance time under 'accepted_at'", async () => {
+    const d = (await one(agentS, "SELECT public.staff_get_service_enquiry($1) r", [sm.id])).r;
+    const n = d.notifications;
+    return n.length === 2 && n.every((x) => "accepted_at" in x && !("sent_at" in x)) && n.some((x) => x.status === "failed") && n.some((x) => x.status === "accepted" && x.accepted_at !== null);
+  });
+  for (const [who, caller] of [["a company owner", user(U.owner)], ["a company administrator", user(U.admin)], ["an owner of another company", user(U.ownerB)], ["the requester", user(U.requester)], ["an authenticated non-staff account", user(U.notStaff)]]) {
+    await refused(`${who} cannot search by public reference (42501) — and learns nothing about whether it exists`, "42501", () => list(caller, ref));
+    await refused(`${who} cannot search by a partial or missing reference either (42501)`, "42501", () => list(caller, "CFQ-0000"));
+  }
+  await refused("anon cannot search by public reference (42501)", "42501", () => list(ANON, ref));
+  await check("an INACTIVE (revoked) staff member cannot search: the same refusal as a stranger, before any row is read", async () => {
+    const gone = uuid();
+    await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,'revoked.staff@example.test')", [gone]);
+    await one(SERVICE, "SELECT public.platform_staff_grant($1,'triage_agent','Search authorization proof enrolment','proof-operator') r", [gone]).catch(async () => one(SERVICE, "SELECT public.platform_staff_grant($1,'triage_agent','Search authorization proof enrolment','proof-operator','proof-operator') r", [gone]));
+    const before = await list(user(gone), ref); // active: allowed
+    await one(SERVICE, "SELECT public.platform_staff_revoke($1,'Search authorization proof revocation','proof-operator') r", [gone]);
+    let code = null;
+    try { await list(user(gone), ref); } catch (e) { code = e.code; }
+    return before.total === 1 && code === "42501";
+  });
+  await check("the compact-reference lookup is index-backed: with sequential scans disabled the planner uses idx_service_enquiries_reference_compact", async () => {
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("SET LOCAL enable_seqscan = off");
+      const plan = (await c.query("EXPLAIN SELECT id FROM public.service_enquiries r WHERE replace(r.public_reference, '-', '') COLLATE \"C\" >= 'CFQ1234' AND replace(r.public_reference, '-', '') COLLATE \"C\" < 'CFQ1234' || chr(127) LIMIT 200")).rows.map((x) => x["QUERY PLAN"]).join("\n");
+      await c.query("ROLLBACK");
+      return /idx_service_enquiries_reference_compact/.test(plan);
+    } finally { c.release(); }
+  });
+  await check("the search function builds no dynamic SQL and no LIKE on user input", async () => {
+    const src = (await admin.query("SELECT prosrc FROM pg_proc WHERE proname='staff_list_service_enquiries'")).rows[0].prosrc;
+    return !/EXECUTE\s/i.test(src) && !/\bLIKE\b|\bILIKE\b|~~/i.test(src.replace(/--.*$/gm, ""));
+  });
+  await check("the staff check is the function's FIRST statement, ahead of any table access", async () => {
+    const src = (await admin.query("SELECT prosrc FROM pg_proc WHERE proname='staff_list_service_enquiries'")).rows[0].prosrc;
+    return src.indexOf("current_platform_staff_role()") > -1 && src.indexOf("current_platform_staff_role()") < src.indexOf("FROM public.service_enquiries");
   });
 
   await finish();

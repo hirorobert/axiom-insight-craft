@@ -18,7 +18,9 @@ const REFERENCE = "CFQ-9F2A-71C0-3BDE";
 const SUBMITTED = "2026-09-21T08:00:00.000Z";
 const USER = "5c1d7e2a-3b4c-4d5e-8f60-71829a0b1c2d";
 const SECRET_MESSAGE = "Confidential message body ZEBRA-7781 that must never be logged.";
-const SECRET_EMAIL = "grace.hopper@example.test";
+// A NON-reserved domain on purpose: the dispatcher refuses to send to reserved test addresses (.test, example.*), and these tests
+// exercise the send path with a fake transport. Nothing here is ever sent.
+const SECRET_EMAIL = "grace.hopper@fixture-mail.dev";
 const SECRET_IP = "203.0.113.77";
 const SECRET_TOKEN = "eyJ.header.SECRET-TOKEN-SIGNATURE";
 
@@ -50,7 +52,7 @@ interface Harness {
   logs: unknown[];
 }
 
-function harness(opts: { submit?: RpcResult; claimed?: ClaimedNotification[]; verify?: (t: string) => Promise<string | null>; sendEmail?: EnquiryDeps["sendEmail"] | null; internalRecipient?: string | null } = {}): Harness {
+function harness(opts: { submit?: RpcResult; claimed?: ClaimedNotification[]; verify?: (t: string) => Promise<string | null>; sendEmail?: EnquiryDeps["sendEmail"] | null; internalRecipient?: string | null; challenge?: EnquiryDeps["challenge"] } = {}): Harness {
   const rpcCalls: Harness["rpcCalls"] = [];
   const logs: unknown[] = [];
   const claimed: ClaimedNotification[] = opts.claimed ?? [
@@ -61,7 +63,7 @@ function harness(opts: { submit?: RpcResult; claimed?: ClaimedNotification[]; ve
     rpcCalls.push({ fn, args });
     if (fn === "submit_service_enquiry") return opts.submit ?? { data: created, error: null };
     if (fn === "enquiry_notification_claim") return { data: claimed, error: null };
-    if (fn === "enquiry_notification_complete") return { data: { status: "sent", changed: true }, error: null };
+    if (fn === "enquiry_notification_complete") return { data: { status: "accepted", changed: true }, error: null };
     return { data: null, error: null };
   });
   const log = vi.fn((e: Record<string, unknown>) => void logs.push(e));
@@ -72,8 +74,10 @@ function harness(opts: { submit?: RpcResult; claimed?: ClaimedNotification[]; ve
     hmacHex: async (purpose: string, value: string) => `${purpose === "ip" ? "a" : "b"}${"0".repeat(31)}${value.length.toString(16).padStart(32, "0")}`.slice(0, 64),
     correlationId: () => "enq-test-1",
     sendEmail: opts.sendEmail === null ? undefined : (opts.sendEmail ?? (async () => ({ providerMessageId: "prov-1" }))),
-    internalRecipient: opts.internalRecipient === undefined ? "triage@example.test" : opts.internalRecipient,
+    internalRecipient: opts.internalRecipient === undefined ? "triage@fixture-mail.dev" : opts.internalRecipient,
     emailTimeoutMs: 200,
+    // Anonymous submissions need a server-verified challenge; the default fake passes so the existing behaviours stay under test.
+    challenge: opts.challenge ?? { provider: "test", verify: async () => ({ kind: "passed" }) },
   } as Harness["deps"];
   return { deps, rpcCalls, logs };
 }
@@ -122,7 +126,7 @@ describe("submit-service-enquiry — success paths", () => {
 
   it("sends the normalised content and a request fingerprint that is stable for the same content and different for changed content", async () => {
     const a = harness(); const b = harness(); const c = harness();
-    await handleSubmitEnquiry(post(body({ email: "  GRACE.HOPPER@Example.TEST " })), a.deps);
+    await handleSubmitEnquiry(post(body({ email: "  GRACE.HOPPER@Fixture-Mail.DEV " })), a.deps);
     await handleSubmitEnquiry(post(body({ idempotency_key: "11111111-2222-4333-8444-555555555555" })), b.deps);
     await handleSubmitEnquiry(post(body({ message: `${SECRET_MESSAGE} (edited)` })), c.deps);
     expect(submitArgs(a).requester_email).toBe(SECRET_EMAIL);
@@ -273,7 +277,7 @@ describe("submit-service-enquiry — notifications never lose or roll back the e
     const b = await jsonOf(await handleSubmitEnquiry(post(body()), h.deps));
     expect(b.acknowledgement).toBe("sent");
     expect(send).toHaveBeenCalledTimes(2);
-    expect(completes(h).map((c) => c.p_outcome)).toEqual(["sent", "sent"]);
+    expect(completes(h).map((c) => c.p_outcome)).toEqual(["accepted", "accepted"]);
   });
 
   it("the email provider FAILS: the enquiry is still recorded (201), the receipt says 'pending', the row is retried, and only a machine code is stored", async () => {
@@ -313,7 +317,7 @@ describe("submit-service-enquiry — notifications never lose or roll back the e
     const b = await jsonOf(await handleSubmitEnquiry(post(body()), h.deps));
     expect(b.acknowledgement).toBe("sent");
     expect(send).toHaveBeenCalledTimes(1);
-    expect(completes(h).map((c) => `${c.p_outcome}:${c.p_error_code ?? ""}`)).toEqual(["sent:", "blocked:INTERNAL_RECIPIENT_NOT_CONFIGURED"]);
+    expect(completes(h).map((c) => `${c.p_outcome}:${c.p_error_code ?? ""}`)).toEqual(["accepted:", "blocked:INTERNAL_RECIPIENT_NOT_CONFIGURED"]);
   });
 
   it("the claim RPC itself failing still returns the receipt", async () => {
@@ -331,7 +335,7 @@ describe("notification content", () => {
     expect(m.from).toBe("CFOClose <noreply@notify.cfoclose.com>");
     expect(m.senderDomain).toBe("notify.cfoclose.com");
     expect(m.purpose).toBe("transactional");
-    expect(m.idempotencyKey).toBe("n1");
+    expect(m.idempotencyKey).toBe("cfoclose-enquiry:requester_acknowledgement:n1");
     for (const part of [m.subject, m.text, m.html]) {
       expect(part).toContain(REFERENCE);
       expect(part).not.toMatch(/ZEBRA|Confidential|Question about reporting|Grace/);
@@ -379,7 +383,7 @@ describe("dispatch-enquiry-notifications (staff-triggered retry)", () => {
     const { h, deps } = dispatchDeps(true);
     const res = await handleDispatchNotifications(req({ authorization: "Bearer a.b.c" }), deps);
     expect(res.status).toBe(200);
-    expect(await jsonOf(res)).toEqual({ claimed: 2, sent: 2, retry: 0, failed: 0, blocked: 0 });
+    expect(await jsonOf(res)).toEqual({ claimed: 2, accepted: 2, retry: 0, failed: 0, blocked: 0 });
     expect(h.rpcCalls[0]).toMatchObject({ fn: "enquiry_notification_claim", args: { p_limit: 25, p_enquiry_id: null } });
   });
 
