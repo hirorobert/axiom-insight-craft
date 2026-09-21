@@ -25,6 +25,68 @@ export function challengeState(input: { signedIn: boolean; forced: boolean; site
   return input.siteKey ? "required" : "unavailable";
 }
 
+// ── widget failure reporting ────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Turnstile reports a client failure as a numeric code (110200 "domain not authorized", 110100/110110 "invalid sitekey",
+ * 200500 "iframe load error", 300xxx/600xxx "challenge failure", …). The code identifies the cause and is safe to keep and show:
+ * it carries no token, key, address or user data. Anything that is not a plain 3-6 digit code is dropped, never displayed.
+ */
+export function sanitizeChallengeErrorCode(raw: unknown): string | null {
+  const text = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : "";
+  return /^[0-9]{3,6}$/.test(text) ? text : null;
+}
+
+/** `render()` can throw a TurnstileError whose message carries the code, e.g. "[Cloudflare Turnstile] Error: 110200.". */
+export function challengeErrorCodeFromThrown(thrown: unknown): string | null {
+  const message = thrown instanceof Error ? thrown.message : typeof thrown === "string" ? thrown : "";
+  const m = /\b([0-9]{6})\b/.exec(message);
+  return m ? m[1] : null;
+}
+
+export type ChallengeFailureKind = "configuration" | "blocked" | "expired" | "challenge" | "unknown";
+
+/** Coarse, honest classification of a Turnstile code, so the message can say what KIND of problem it is. */
+export function classifyChallengeError(code: string | null): ChallengeFailureKind {
+  if (code === null) return "unknown";
+  if (["110100", "110110", "110200", "400020", "400070"].includes(code)) return "configuration";
+  if (["110600", "110620", "200100"].includes(code)) return "expired";
+  if (code.startsWith("2005")) return "blocked";
+  if (code.startsWith("3") || code.startsWith("6")) return "challenge";
+  return "unknown";
+}
+
+export type WidgetState =
+  | { readonly phase: "loading"; readonly errorCode: null }
+  | { readonly phase: "ready"; readonly errorCode: null }
+  | { readonly phase: "failed"; readonly errorCode: string | null };
+
+export type WidgetEvent =
+  | { readonly type: "loading" }
+  | { readonly type: "rendered" }
+  | { readonly type: "solved" }
+  | { readonly type: "error"; readonly code: string | null };
+
+export const WIDGET_INITIAL: WidgetState = { phase: "loading", errorCode: null };
+
+/**
+ * Pure state machine for the widget's visible state. The error CODE is preserved (never discarded), and a later successful
+ * solve clears an earlier error: Turnstile retries some failures itself, so a stale "could not be loaded" banner must not
+ * outlive a widget that then worked. Nothing here holds a token.
+ */
+export function widgetReducer(state: WidgetState, event: WidgetEvent): WidgetState {
+  switch (event.type) {
+    case "loading":
+      return WIDGET_INITIAL;
+    case "rendered":
+      return state.phase === "failed" ? state : { phase: "ready", errorCode: null };
+    case "solved":
+      return { phase: "ready", errorCode: null };
+    case "error":
+      return { phase: "failed", errorCode: event.code };
+  }
+}
+
 // ── script loader (only ever runs when a form that needs a challenge is on screen) ─────────────────────────────────────────
 
 export interface TurnstileApi {

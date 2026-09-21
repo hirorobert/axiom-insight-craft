@@ -45,6 +45,15 @@ export const ENQUIRY_FORM_COPY = {
   challengeLabel: "Security check",
   challengeLoading: "Loading the security check…",
   challengeLoadFailed: "The security check could not be loaded. Check your connection and reload the page.",
+  // Worded by the KIND of failure Cloudflare reports. The form still refuses to send in every case (fail closed).
+  challengeFailureByKind: {
+    configuration: "The security check is not set up for this page, so enquiries cannot be sent from here yet.",
+    blocked: "The security check could not load. A browser extension, privacy setting or network filter may be blocking challenges.cloudflare.com.",
+    expired: "The security check expired. Reload the page and complete it again.",
+    challenge: "The security check could not be completed in this browser. Reload the page, or try another browser or network.",
+    unknown: "The security check could not be loaded. Check your connection and reload the page.",
+  },
+  challengeReference: "Reference:",
   receiptHeading: "Request received",
   receiptReference: "Your reference",
   receiptSubmitted: "Received",
