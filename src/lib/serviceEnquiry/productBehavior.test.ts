@@ -30,7 +30,7 @@ const FEATURE_FILES = [
   ...walk(path.join(SRC, "pages/admin")),
   path.join(SRC, "pages/Contact.tsx"),
   path.join(SRC, "hooks/useStoredFilingJurisdiction.ts"),
-  ...["_shared/serviceEnquiryContract.ts", "_shared/serviceEnquiryEmail.ts", "_shared/serviceEnquiryHandler.ts", "_shared/serviceEnquiryWiring.ts", "submit-service-enquiry/index.ts", "dispatch-enquiry-notifications/index.ts"].map((f) => path.join(ROOT, "supabase/functions", f)),
+  ...["_shared/serviceEnquiryContract.ts", "_shared/serviceEnquiryEmail.ts", "_shared/serviceEnquiryHandler.ts", "_shared/serviceEnquiryWiring.ts", "_shared/enquiryAttestation.ts", "submit-service-enquiry/index.ts", "dispatch-enquiry-notifications/index.ts", "issue-enquiry-challenge/index.ts"].map((f) => path.join(ROOT, "supabase/functions", f)),
 ].map(rel);
 
 describe("one canonical backend, six entry points", () => {
@@ -180,9 +180,10 @@ describe("no file uploads and no attachment endpoint", () => {
     }
   });
 
-  it("no additional Edge Function exists for uploads, and only the two intended enquiry functions were added", () => {
+  it("no additional Edge Function exists for uploads, and only the three intended enquiry functions were added", () => {
     const fns = fs.readdirSync(path.join(ROOT, "supabase/functions"));
-    expect(fns.filter((f) => /enquir/.test(f)).sort()).toEqual(["dispatch-enquiry-notifications", "submit-service-enquiry"]);
+    // issue-enquiry-challenge mints the first-party security-check challenge only: it writes nothing and reads no identity.
+    expect(fns.filter((f) => /enquir/.test(f)).sort()).toEqual(["dispatch-enquiry-notifications", "issue-enquiry-challenge", "submit-service-enquiry"]);
     expect(fns.filter((f) => /upload|attach/.test(f))).toEqual([]);
   });
 

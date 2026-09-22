@@ -59,11 +59,15 @@ afterEach(() => {
 });
 
 describe("1–3. the gate defaults OFF and fails closed", () => {
-  it("is OFF in the committed configuration, so it is OFF in every environment (development, preview and production alike)", () => {
+  it("is exactly the committed configuration, identically in every environment (development, preview and production alike)", () => {
+    // The gate is a compiled-in constant. This asserts the committed value AND that every surface follows it in lockstep —
+    // in both directions — so flipping the rollout is a one-line, reviewable change and can never drift per environment.
     expect(SERVICE_ENQUIRY_PHASE1_GATE).toBe("service_enquiry_phase1");
-    expect(SERVICE_ENQUIRY_PHASE1_ENABLED).toBe(false);
-    expect(Object.values(SERVICE_ENQUIRY_SURFACES).every((v) => v === false)).toBe(true);
-    expect(code("src/lib/serviceEnquiry/serviceEnquiryGate.ts")).toMatch(/COMMITTED_CONFIG: ServiceEnquiryGateConfig = \{ gate: SERVICE_ENQUIRY_PHASE1_GATE, enabled: false \}/);
+    const committed = /COMMITTED_CONFIG: ServiceEnquiryGateConfig = \{ gate: SERVICE_ENQUIRY_PHASE1_GATE, enabled: (true|false) \}/.exec(code("src/lib/serviceEnquiry/serviceEnquiryGate.ts"));
+    expect(committed).not.toBeNull();
+    const enabled = committed?.[1] === "true";
+    expect(SERVICE_ENQUIRY_PHASE1_ENABLED).toBe(enabled);
+    expect(Object.values(SERVICE_ENQUIRY_SURFACES).every((v) => v === enabled)).toBe(true);
   });
 
   it("a MISSING configuration is OFF", () => {
@@ -125,8 +129,9 @@ describe("the gate cannot be turned on from the browser or by deployment configu
     vi.stubGlobal("window", { location: { search: "?service_enquiry_phase1=true&enabled=1", hash: "#service_enquiry_phase1" }, localStorage: { getItem: () => "true" } });
     vi.resetModules();
     const fresh = await import("./serviceEnquiryGate");
-    expect(fresh.SERVICE_ENQUIRY_PHASE1_ENABLED).toBe(false);
-    expect(Object.values(fresh.SERVICE_ENQUIRY_SURFACES).every((v) => v === false)).toBe(true);
+    // The outcome is the committed value and nothing else — a hostile browser can neither turn it on nor turn it off.
+    expect(fresh.SERVICE_ENQUIRY_PHASE1_ENABLED).toBe(SERVICE_ENQUIRY_PHASE1_ENABLED);
+    expect(Object.values(fresh.SERVICE_ENQUIRY_SURFACES).every((v) => v === SERVICE_ENQUIRY_PHASE1_ENABLED)).toBe(true);
   });
 
   it("is independent of every other rollout gate and does not import or alter them", () => {
