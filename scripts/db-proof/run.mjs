@@ -26,6 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { migrationExists, sortsImmediatelyAfter, sortsStrictlyAfter } from "./migrationOrderingChecks.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
@@ -268,11 +269,26 @@ async function proveReplay(info) {
   group("Replay from zero");
   await check(`all ${info.total} migrations apply in filename order on a fresh PostgreSQL 16`, () => info.applied === info.total);
   await check("server is PostgreSQL 16", async () => (await admin.query("SHOW server_version_num")).rows[0].server_version_num.startsWith("16"));
-  for (const f of ["20260919100000_financial_statements_rollout_control.sql", "20260919110000_financial_statements_persistence.sql"]) {
-    // 20260920100000_workspace_setup_authority.sql, 20260921100000_service_enquiry_intake.sql,
-    // 20260922100000_service_enquiry_activation_readiness.sql and 20260922180000_discard_trial_balance_authority.sql
-    // are later forward-only additions: the two FS migrations stay directly before them.
-    await check(`${f} is in the latest-ordered migration set (only forward-only later additions follow)`, () => info.files.slice(-6, -4).includes(f));
+
+  const FS_ROLLOUT = "20260919100000_financial_statements_rollout_control.sql";
+  const FS_PERSIST = "20260919110000_financial_statements_persistence.sql";
+  // Migrations known, at the time these two financial-statements migrations were authored, to have
+  // been added afterward (forward-only additions). This array only ever GROWS — appending an
+  // unrelated new migration to the repository without adding it here does not fail this check; it
+  // simply isn't asserted yet. Nothing below reads files.length, uses a negative index, or slices —
+  // see migrationOrderingChecks.mjs's own doc comment and
+  // src/lib/__tests__/migrationOrderingChecks.test.ts's append-regression proof.
+  const KNOWN_LATER_THAN_FS_PERSIST = [
+    "20260920100000_workspace_setup_authority.sql",
+    "20260921100000_service_enquiry_intake.sql",
+    "20260922100000_service_enquiry_activation_readiness.sql",
+    "20260922180000_discard_trial_balance_authority.sql",
+  ];
+  await check(`${FS_ROLLOUT} exists and ${FS_PERSIST} sorts immediately after it`, () =>
+    migrationExists(info.files, FS_ROLLOUT) && sortsImmediatelyAfter(info.files, FS_ROLLOUT, FS_PERSIST));
+  for (const later of KNOWN_LATER_THAN_FS_PERSIST) {
+    await check(`${FS_PERSIST} sorts strictly before the later, known forward-only addition ${later}`, () =>
+      sortsStrictlyAfter(info.files, FS_PERSIST, later));
   }
 }
 
