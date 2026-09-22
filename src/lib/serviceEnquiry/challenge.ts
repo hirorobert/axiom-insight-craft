@@ -40,6 +40,14 @@ declare global {
 
 export const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
+export const CHALLENGE_AUTO_RETRY_LIMIT = 2;
+export const CHALLENGE_AUTO_RETRY_DELAY_MS = 1_500;
+
+/** Retry only transient browser/provider failures. Submission remains blocked until Turnstile returns a fresh token. */
+export function shouldAutoRetryChallenge(attempt: number, online: boolean): boolean {
+  return online && Number.isInteger(attempt) && attempt >= 0 && attempt < CHALLENGE_AUTO_RETRY_LIMIT;
+}
+
 let loading: Promise<TurnstileApi> | null = null;
 
 export function loadTurnstile(): Promise<TurnstileApi> {
@@ -49,7 +57,15 @@ export function loadTurnstile(): Promise<TurnstileApi> {
     script.src = TURNSTILE_SCRIPT_URL;
     script.async = true;
     script.defer = true;
-    script.onload = () => (window.turnstile ? resolve(window.turnstile) : reject(new Error("turnstile_missing")));
+    script.onload = () => {
+      if (window.turnstile) {
+        resolve(window.turnstile);
+        return;
+      }
+      loading = null;
+      script.remove();
+      reject(new Error("turnstile_missing"));
+    };
     script.onerror = () => {
       loading = null; // a later attempt may succeed
       reject(new Error("turnstile_load_failed"));

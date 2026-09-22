@@ -20,7 +20,7 @@ import {
 } from "../../../supabase/functions/_shared/serviceEnquiryChallenge";
 import { handleSubmitEnquiry, type EnquiryDeps, type RpcResult } from "../../../supabase/functions/_shared/serviceEnquiryHandler";
 import { CHALLENGE_ACTION, CHALLENGE_FIELD, CHALLENGE_TOKEN_MAX_LENGTH, extractChallengeToken, requestFingerprint, validateEnquiryRequest } from "../../../supabase/functions/_shared/serviceEnquiryContract";
-import { challengeState, readSiteKey } from "./challenge";
+import { CHALLENGE_AUTO_RETRY_LIMIT, challengeState, readSiteKey, shouldAutoRetryChallenge } from "./challenge";
 import { buildWireRequest, EMPTY_FORM_VALUES } from "./formModel";
 import { interpretResponse } from "./client";
 
