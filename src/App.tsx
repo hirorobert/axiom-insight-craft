@@ -62,6 +62,13 @@ const ClassificationStatesAcceptance = import.meta.env.DEV
   ? lazy(() => import("@/pages/internal/ClassificationStatesAcceptance"))
   : null;
 
+// Same dev-only-forever boundary as ClassificationStatesAcceptance — extends its gallery to the
+// full canonical workflow (deriveWorkspaceState's 11 paths, including contradiction/missing-
+// certification/stale-processing/direct-route). Never present in a production build.
+const WorkspaceStatesAcceptance = import.meta.env.DEV
+  ? lazy(() => import("@/pages/internal/WorkspaceStatesAcceptance"))
+  : null;
+
 const App = () => (
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
@@ -134,6 +141,17 @@ const App = () => (
                     element={
                       <Suspense fallback={null}>
                         <ClassificationStatesAcceptance />
+                      </Suspense>
+                    }
+                  />
+                )}
+                {/* /internal/acceptance/workflow-states exists only in a dev build (import.meta.env.DEV). */}
+                {WorkspaceStatesAcceptance && (
+                  <Route
+                    path="/internal/acceptance/workflow-states"
+                    element={
+                      <Suspense fallback={null}>
+                        <WorkspaceStatesAcceptance />
                       </Suspense>
                     }
                   />

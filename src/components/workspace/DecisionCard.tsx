@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import type { ClassificationPresentation } from "@/lib/workspace/classificationPresentation";
+import type { WorkspaceState } from "@/lib/workspace/types";
 
 export interface Decision {
   readonly eyebrow: string;
@@ -166,4 +167,40 @@ export function buildClassificationDecision(classification: ClassificationPresen
         tone: "primary",
       };
   }
+}
+
+/**
+ * Maps `workspaceState.nextAction` (the real, pure output of deriveWorkspaceState() — the SAME
+ * single authority WorkspaceOverview.tsx's own PATH-6B-certification-blocked branch and its generic
+ * "else" branch both read) directly to the `Decision` this card renders. Used by the internal
+ * workflow-states acceptance page (src/pages/internal/WorkspaceStatesAcceptance.tsx) to demonstrate
+ * every one of deriveWorkspaceState's 11 paths through the real engine and the real card, without a
+ * live workspace or a mandate/localStorage dependency — WorkspaceOverview's own generic branch
+ * additionally consults the mandate-projected active stage and a remembered outcome to refine the
+ * eyebrow and button destination; this simpler builder reads nextAction.mission for the eyebrow
+ * instead, so it is not a byte-for-byte reproduction of that refinement, but headline, detail and
+ * the button's label/href/blocked state are unmodified nextAction fields in every case.
+ */
+export function buildNextActionDecision(workspaceState: WorkspaceState): Decision {
+  const { nextAction } = workspaceState;
+  const isCertificationBlocked = nextAction.id === "fix-certification-failure" || nextAction.id === "await-certification";
+
+  if (isCertificationBlocked) {
+    return {
+      eyebrow: STAGE_CONFIGS.prepare.label,
+      headline: nextAction.label,
+      detail: nextAction.description,
+      button: { label: nextAction.label, href: nextAction.href, icon: <ArrowRight className="w-4 h-4" /> },
+      tone: "warn",
+      offersFileReplacement: true,
+    };
+  }
+
+  return {
+    eyebrow: STAGE_CONFIGS[nextAction.mission].label,
+    headline: nextAction.description,
+    detail: nextAction.blocker ?? undefined,
+    button: { label: nextAction.label, href: nextAction.href, disabled: nextAction.blocked, icon: <ArrowRight className="w-4 h-4" /> },
+    tone: nextAction.blocked ? "muted" : "primary",
+  };
 }
