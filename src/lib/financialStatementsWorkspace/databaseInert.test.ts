@@ -76,6 +76,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/serviceEnquiryWiring.ts",
       "supabase/functions/dispatch-enquiry-notifications/index.ts",
       "supabase/functions/submit-service-enquiry/index.ts",
+      // First-party backup security check: a signed, proof-of-work challenge so the form never depends on one external
+      // provider being reachable. Reads no identity, writes nothing, and refuses when its secret is absent.
+      "supabase/functions/_shared/enquiryAttestation.ts",
+      "supabase/functions/issue-enquiry-challenge/index.ts",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
