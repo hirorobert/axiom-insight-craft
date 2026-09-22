@@ -7,35 +7,43 @@
  *  - A Certified run is evidence. Discarding it requires typing DISCARD so it
  *    can never happen by accident.
  *  - Storage object removal is best effort; the authoritative act is deleting
- *    the row (RLS scopes it to the uploader).
- *  - A discard is reversible for a short undo window: the row snapshot and the
- *    stored file are captured *before* deletion, so a mis-tap can be undone
+ *    the row, which happens entirely inside discard_trial_balance_upload() — a
+ *    SECURITY DEFINER RPC (20260922180000_discard_trial_balance_authority.sql), never a raw
+ *    client-side `.delete()`.
+ *  - A discard is reversible for a short undo window: the file is captured *before* the RPC call,
+ *    and the row snapshot the RPC itself returns is used for undo, so a mis-tap can be undone
  *    exactly (same id, same file, same results) from the toast.
  *
- * Release blocker 2.2 hardening — explicit phases, each with a proven failure outcome:
+ * Post-merge hardening (fix/post-merge-workspace-release-blockers) — explicit outcomes, each
+ * authoritatively decided server-side, never inferred client-side:
  *
- *   IDLE -> SNAPSHOTTING -> DELETING -> DISCARDED -> UNDO_AVAILABLE
+ *   IDLE -> (best-effort file capture) -> RPC DECIDES -> DISCARDED | UNDO_AVAILABLE | FAILED
  *
- * A failure at SNAPSHOTTING or DELETING always resolves to exactly one of FAILED_RETRYABLE or
- * FAILED_TERMINAL (DiscardError.retryable) — never a silent success and never an ambiguous state.
+ * The gap this closes (two layers):
  *
- * The gap this closes: `.delete().eq("id", target.id)` alone reports success with NO error even
- * when RLS filtered the row out of the WHERE clause (zero rows actually affected) or the row was
- * already gone — PostgREST does not treat "matched nothing" as an error. Silently trusting that
- * would let an authorization denial, or a stale/already-discarded upload, be reported as a genuine
- * discard — exactly the "database failure reported as success" class of bug this hardening exists
- * to remove. DELETING now always confirms the affected row via `.select("id")` on the delete
- * itself and branches three ways:
- *   - exactly one row affected      → genuine success, proceed to DISCARDED;
- *   - zero rows affected, row GONE  → someone/something already discarded it (a concurrent
- *                                      duplicate request, or a retry after a prior success whose
- *                                      response was lost) — idempotent: return the receipt from
- *                                      THIS call's own pre-delete snapshot, never a second physical
- *                                      delete, never an error;
- *   - zero rows affected, row STILL THERE → a genuine authorization denial or a stale target
- *                                      (something changed since the dialog opened) — FAILED_TERMINAL,
- *                                      never retryable, since retrying the identical request changes
- *                                      nothing about why it was refused.
+ *   1. `.delete().eq("id", target.id)` alone reports success with NO error even when RLS filtered
+ *      the row out of the WHERE clause (zero rows actually affected) or the row was already gone —
+ *      PostgREST does not treat "matched nothing" as an error.
+ *   2. Distinguishing WHY zero rows were affected by issuing a follow-up `.select()` from the
+ *      client is itself unreliable under RLS: RLS filters a row out of visibility rather than
+ *      raising a distinguishable error, so a row this caller is not authorized to see is
+ *      indistinguishable, from this caller's own RLS-scoped SELECT, from a row that genuinely does
+ *      not exist. A client-side "select after zero-row delete" check can misclassify a genuine
+ *      FORBIDDEN outcome as ALREADY_DISCARDED whenever the caller's SELECT visibility is narrower
+ *      than their (attempted) DELETE authority.
+ *
+ * discard_trial_balance_upload() resolves both: it reads and authorizes with full visibility
+ * (SECURITY DEFINER intentionally bypasses RLS — the function itself IS the authorization
+ * boundary, checked explicitly inside its own body) and returns exactly one of four outcomes:
+ *   - deleted_now          → this call performed the delete — genuine success;
+ *   - already_discarded    → the row genuinely does not exist, checked with full visibility —
+ *                             idempotent success, never a second delete, never an error;
+ *   - forbidden             → the row exists but this caller has no accepted membership in its
+ *                             company — FAILED_TERMINAL, never retryable;
+ *   - dependency_conflict   → a foreign key elsewhere in the schema refused the delete —
+ *                             FAILED_TERMINAL, never retryable.
+ * See the migration's own doc comment for the full root-cause analysis and scope notes (STALE_VERSION
+ * is deliberately not a distinct outcome — no optimistic-concurrency column exists on this table).
  */
 
 import { useEffect, useState } from "react";
@@ -147,91 +155,101 @@ export interface DiscardReceipt {
 }
 
 /**
+ * discard_trial_balance_upload(uuid) — the SECURITY DEFINER RPC in
+ * 20260922180000_discard_trial_balance_authority.sql. Narrow, single-purpose typed adapter
+ * following the same sole-cast-boundary pattern as src/lib/commercial/commercialRpc.ts: the
+ * migration is committed but not yet applied to any live database (CLAUDE.md §11 — `supabase db
+ * push` is the owner's own action), so the generated `Database["public"]["Functions"]` union does
+ * not know this function exists yet. The cast below is scoped to exactly this one call signature,
+ * hand-verified against the migration's RETURNS TABLE shape; nothing else in this module is
+ * untyped. Delete the cast once types.ts is regenerated after the migration is applied.
+ */
+type DiscardOutcome = "deleted_now" | "already_discarded" | "forbidden" | "dependency_conflict";
+interface DiscardRpcRow {
+  outcome: DiscardOutcome;
+  row_snapshot: Record<string, unknown> | null;
+  file_path: string | null;
+  detail: string | null;
+}
+interface DiscardRpcClient {
+  rpc: (
+    name: "discard_trial_balance_upload",
+    args: { p_upload_id: string },
+  ) => Promise<{ data: DiscardRpcRow[] | null; error: { message: string } | null }>;
+}
+
+/**
  * discardUpload — the single authoritative removal act, shared by the
  * confirmation dialog and the one-tap replace flow.
- * Storage cleanup is best effort; deleting the row is what counts.
- * Returns a receipt that makes the act reversible for the undo window.
+ *
+ * The authoritative existence + authorization decision is made entirely inside
+ * discard_trial_balance_upload(), a SECURITY DEFINER function that reads with full visibility
+ * (bypassing RLS deliberately, then checking authorization explicitly) — never inferred from what
+ * this caller's own RLS-scoped SELECT would or wouldn't return. That is the fix for the case a
+ * client-side "select after zero-row delete" check cannot safely resolve: RLS filters an
+ * unauthorized row out of visibility rather than raising a distinguishable error, so a caller-side
+ * existence check alone cannot tell "genuinely gone" apart from "exists, but I can't see it" — see
+ * the migration's own doc comment for the full analysis. Storage cleanup remains client-side and
+ * best-effort (Postgres has no access to Supabase Storage); deleting the row is the authoritative
+ * act and is never claimed to be atomic with the storage removal.
  */
 export async function discardUpload(target: DiscardTarget): Promise<DiscardReceipt> {
-  // Capture before destroying — this is what makes undo exact. Fail closed: if the snapshot read itself fails
-  // (network, a transient RLS/auth hiccup), nothing is deleted. Proceeding anyway would silently turn an
-  // "irreversible with a 15-second undo" discard into a PERMANENTLY irreversible one — restoreUpload() can only
-  // put a row back when receipt.row is present — without ever telling the person that happened.
-  const { data: row, error: readError } = await supabase
-    .from("trial_balance_uploads")
-    .select("*")
-    .eq("id", target.id)
-    .maybeSingle();
-  if (readError) {
-    throw new DiscardError("Could not read this trial balance before discarding it, so nothing was removed.", { retryable: true, cause: readError });
-  }
-
+  // Best-effort file capture BEFORE the authoritative delete — this is what makes undo exact for a
+  // genuine deleted_now. A download failure here does not block the discard and does not affect
+  // undo (undo re-uploads fileBlob only when present).
   let fileBlob: Blob | null = null;
   if (target.file_path) {
-    // Storage cleanup is genuinely best-effort (see module doc): a download/remove failure here does not block the
-    // discard, and does not affect undo (undo re-uploads fileBlob only when present).
-    const { data } = await supabase.storage
-      .from("trial-balance-files")
-      .download(target.file_path);
+    const { data } = await supabase.storage.from("trial-balance-files").download(target.file_path);
     fileBlob = data ?? null;
-    await supabase.storage.from("trial-balance-files").remove([target.file_path]);
   }
 
-  const receipt: DiscardReceipt = {
+  const rpcClient = supabase as unknown as DiscardRpcClient;
+  const { data: rpcRows, error: rpcError } = await rpcClient.rpc("discard_trial_balance_upload", {
+    p_upload_id: target.id,
+  });
+  if (rpcError) {
+    throw new DiscardError("Could not discard this trial balance.", { retryable: true, cause: rpcError });
+  }
+  const result = rpcRows?.[0];
+  if (!result) {
+    throw new DiscardError("Could not discard this trial balance.", {
+      retryable: true,
+      cause: new Error("discard_trial_balance_upload returned no result"),
+    });
+  }
+
+  if (result.outcome === "forbidden") {
+    throw new DiscardError(
+      result.detail ?? "You are not authorised to discard this trial balance.",
+      { retryable: false, cause: new Error(`discard forbidden for id=${target.id}`) },
+    );
+  }
+  if (result.outcome === "dependency_conflict") {
+    throw new DiscardError(
+      result.detail ?? "This trial balance could not be discarded because other records in this workspace still depend on it.",
+      { retryable: false, cause: new Error(`discard dependency_conflict for id=${target.id}`) },
+    );
+  }
+
+  // deleted_now or already_discarded: both mean the row is (now) gone under the authoritative
+  // server check — idempotent success either way (a concurrent duplicate request, or a retry after
+  // a prior success whose response never reached this client, resolves the same way).
+  const filePath = result.outcome === "deleted_now" ? result.file_path : (target.file_path ?? null);
+  if (filePath) {
+    // Best-effort — see module doc. Does not affect the outcome already decided above.
+    await supabase.storage.from("trial-balance-files").remove([filePath]);
+  }
+
+  return {
     id: target.id,
     fileName: target.file_name,
-    row: (row as Record<string, unknown> | null) ?? null,
-    filePath: target.file_path ?? null,
-    fileBlob,
+    // already_discarded never carries a snapshot from THIS call (the row was already gone before
+    // this call ever asked) — returning null here is correct: restoreUpload() refuses without one,
+    // and fabricating a receipt for a row this call never actually deleted would be dishonest.
+    row: result.outcome === "deleted_now" ? result.row_snapshot : null,
+    filePath,
+    fileBlob: result.outcome === "deleted_now" ? fileBlob : null,
   };
-
-  // DELETING — `.select("id")` on the delete itself is what makes the affected-row count provable;
-  // without it, PostgREST reports success on zero matched rows just as readily as on one.
-  const { data: deletedRows, error: deleteError } = await supabase
-    .from("trial_balance_uploads")
-    .delete()
-    .eq("id", target.id)
-    .select("id");
-
-  if (deleteError) {
-    // A specific, common, explainable cause: another record still references this upload and the database refused
-    // the delete (foreign-key constraint) rather than orphaning that record. Never surface the raw constraint/table
-    // name from the database — that is an internal detail, not something the person needs or should see.
-    const blockedByReference = deleteError.code === "23503";
-    throw new DiscardError(
-      blockedByReference
-        ? "This trial balance could not be discarded because other records in this workspace still depend on it."
-        : "This trial balance could not be discarded.",
-      { retryable: !blockedByReference, cause: deleteError },
-    );
-  }
-
-  if ((deletedRows?.length ?? 0) === 0) {
-    // No error, but nothing was actually deleted — PostgREST's silent "matched zero rows" case.
-    // Distinguish the two genuinely different causes rather than guessing at either:
-    const { data: stillThere } = await supabase
-      .from("trial_balance_uploads")
-      .select("id")
-      .eq("id", target.id)
-      .maybeSingle();
-
-    if (!stillThere) {
-      // Already gone — a concurrent duplicate request (double-click, two tabs) or a retry after a
-      // prior success whose response never reached this client. Idempotent: the end state this call
-      // wanted (the row is gone) already holds, so this is success, not a second delete attempt.
-      return receipt;
-    }
-
-    // The row still exists despite the delete matching nothing: RLS refused it (the caller is not
-    // its owner, or session/authorization has changed) or the target changed since the dialog
-    // opened. Never retryable — the identical request will be refused the identical way.
-    throw new DiscardError(
-      "This trial balance could not be discarded. You may not have permission, or it has changed since you opened this dialog.",
-      { retryable: false, cause: new Error(`delete matched 0 rows for id=${target.id} but the row still exists`) },
-    );
-  }
-
-  return receipt;
 }
 
 /**

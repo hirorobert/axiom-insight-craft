@@ -15,11 +15,14 @@ const ORIGINAL = fs.readFileSync(path.join(ROOT, "supabase/migrations/2026092110
 const bodyOf = (name: string) => new RegExp(`FUNCTION public\\.${name}\\([\\s\\S]*?\\n\\$\\$;`).exec(SQL)?.[0] ?? "";
 
 describe("readiness migration hygiene", () => {
-  it("is timestamped, sorts last, and leaves the original enquiry migration untouched", () => {
+  it("is timestamped, sorts before only the later, unrelated discard-authority migration, and leaves the original enquiry migration untouched", () => {
     expect(FILE).toMatch(/^\d{14}_[A-Za-z0-9._-]+\.sql$/);
     const all = fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
-    expect(all[all.length - 1]).toBe(FILE);
-    expect(all[all.length - 2]).toBe("20260921100000_service_enquiry_intake.sql");
+    // 20260922180000_discard_trial_balance_authority.sql is a later, unrelated migration (trial-balance discard
+    // authority) that now sorts after this one — it does not touch service_enquiry_* objects.
+    expect(all[all.length - 1]).toBe("20260922180000_discard_trial_balance_authority.sql");
+    expect(all[all.length - 2]).toBe(FILE);
+    expect(all[all.length - 3]).toBe("20260921100000_service_enquiry_intake.sql");
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);
   });

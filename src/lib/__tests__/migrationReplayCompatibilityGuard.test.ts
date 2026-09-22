@@ -157,8 +157,11 @@ describe("migration directory integrity", () => {
     // canonical enquiry, append-only events, platform-staff authority, transactional outbox) — forward-only, sorts last.
     // Bumped from 125 -> 126: 20260922100000_service_enquiry_activation_readiness.sql (honest outbox status model, reference
     // search) — forward-only, sorts last.
+    // Bumped from 126 -> 127: 20260922180000_discard_trial_balance_authority.sql (authoritative SECURITY DEFINER
+    // discard_trial_balance_upload() RPC + additive accepted-firm-member DELETE policy, fixing the uploader-only
+    // DELETE RLS gap) — forward-only, sorts last.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(126);
+    expect(files.length).toBe(127);
   });
 });
 
