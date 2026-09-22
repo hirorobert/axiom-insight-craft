@@ -15,7 +15,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendLovableEmail } from "npm:@lovable.dev/email-js@0.1.0";
 import type { DispatchDeps } from "./serviceEnquiryHandler.ts";
-import { createChallengeVerifier, resolveChallengeConfig, type FetchLike } from "./serviceEnquiryChallenge.ts";
+import { createChallengeVerifier, createUnconfiguredVerifier, resolveChallengeConfig, type FetchLike } from "./serviceEnquiryChallenge.ts";
+import { ENV_ATTESTATION_SECRET, createAttestationVerifier, createDualLegVerifier, readAttestationSecret } from "./enquiryAttestation.ts";
 
 export function buildEnquiryDeps(): DispatchDeps {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -25,7 +26,11 @@ export function buildEnquiryDeps(): DispatchDeps {
   const emailEnabled = Deno.env.get("ENQUIRY_EMAIL_ENABLED") === "true" && emailKey !== "";
 
   // Resolved once. Missing/unsafe configuration yields a verifier that refuses every anonymous submission (fail closed).
-  const challenge = createChallengeVerifier(resolveChallengeConfig({ get: (name) => Deno.env.get(name) }), fetch as unknown as FetchLike);
+  // TWO independent legs: the third-party widget, and a first-party signed attestation used when that widget cannot be reached.
+  // Each token is routed to the leg that minted it; an unconfigured leg refuses rather than letting anything through.
+  const turnstile = createChallengeVerifier(resolveChallengeConfig({ get: (name) => Deno.env.get(name) }), fetch as unknown as FetchLike);
+  const attestationSecret = readAttestationSecret(Deno.env.get(ENV_ATTESTATION_SECRET));
+  const challenge = createDualLegVerifier(turnstile, attestationSecret ? createAttestationVerifier(attestationSecret) : createUnconfiguredVerifier("not_configured"));
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
