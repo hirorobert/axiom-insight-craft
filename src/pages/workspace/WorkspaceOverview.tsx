@@ -24,8 +24,7 @@ import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { Link, useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { ArrowRight, AlertTriangle, FileText, RefreshCw } from "lucide-react";
+import { ArrowRight, AlertTriangle, FileText } from "lucide-react";
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -35,8 +34,8 @@ import PreviousEngagementWork from "@/components/workspace/PreviousEngagementWor
 import { useEngagement } from "@/contexts/EngagementContext";
 import { buildPrepareReviewRoute, buildPrepareUploadRoute } from "@/lib/workspace/resolveActiveUpload";
 import { capabilityTitle } from "@/lib/workspace/mandate";
-import { SurfaceCard } from "@/components/workspace/ui/Surface";
 import { readRememberedOutcome } from "@/lib/product/outcomes";
+import { DecisionCard, buildClassificationDecision, type Decision } from "@/components/workspace/DecisionCard";
 import ServiceLaunchpad from "@/components/workspace/ServiceLaunchpad";
 import DataChoiceCard from "@/components/workspace/DataChoiceCard";
 import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
@@ -263,22 +262,6 @@ export default function WorkspaceOverview() {
   const classification = deriveClassificationPresentation(upload?.status, upload?.processing_result);
 
   // ── The single decision on this screen ────────────────────────────────────
-  type Decision = {
-    eyebrow: string;
-    headline: string;
-    detail?: string;
-    button: {
-      label: string;
-      href?: string;
-      onClick?: () => void;
-      icon: React.ReactNode;
-      disabled?: boolean;
-    };
-    tone: "primary" | "warn" | "muted";
-    /** Set only by decisions about a file the preparer may need to swap out (failed processing, accounts needing review). */
-    offersFileReplacement?: boolean;
-  };
-
   let decision: Decision;
 
   // The four non-happy-path classification states each get their own branch below; the two count-bearing "done"
@@ -290,6 +273,11 @@ export default function WorkspaceOverview() {
   const needsReview = classification.state === "COMPLETE_WITH_REVIEW" || classification.state === "PARTIAL";
 
   const launchState = deriveLaunchState({ granted, hasUpload, dataStart: dataStart.choice });
+
+  // The two existing Prepare Data destinations classification decisions route to — unchanged route builders.
+  const prepareHref = `${basePath}/prepare`;
+  const reviewHref = buildPrepareReviewRoute(companyId, periodYear, upload?.id ?? null);
+  const classificationDecisionOptions = { retrying, onRetry: handleRetryProcessing, prepareHref, reviewHref };
 
   if (launchState === "IMPORT_PENDING") {
     decision = {
@@ -316,76 +304,21 @@ export default function WorkspaceOverview() {
       tone: "muted",
     };
   } else if (isFailed) {
-    decision = {
-      eyebrow: STAGE_CONFIGS.prepare.label,
-      headline: classification.headline,
-      detail: classification.detail,
-      button: {
-        label: retrying ? "Retrying…" : "Retry processing",
-        onClick: handleRetryProcessing,
-        disabled: retrying,
-        icon: <RefreshCw className={`w-4 h-4 ${retrying ? "animate-spin" : ""}`} />,
-      },
-      tone: "warn",
-      offersFileReplacement: true,
-    };
+    decision = buildClassificationDecision(classification, classificationDecisionOptions);
   } else if (isProcessing) {
-    decision = {
-      eyebrow: STAGE_CONFIGS.prepare.label,
-      headline: classification.headline,
-      detail: classification.detail,
-      button: {
-        label: "Open Prepare Data",
-        href: `${basePath}/prepare`,
-        icon: <ArrowRight className="w-4 h-4" />,
-      },
-      tone: "muted",
-    };
+    decision = buildClassificationDecision(classification, classificationDecisionOptions);
   } else if (isInconsistent) {
     // Impossible or self-contradictory values (see classificationPresentation.ts) — fail closed. Never guessed or
     // silently normalised, and never presented as a review item, since the review screen reads the same corrupt data.
-    decision = {
-      eyebrow: STAGE_CONFIGS.prepare.label,
-      headline: classification.headline,
-      detail: classification.detail,
-      button: {
-        label: "Open Prepare Data",
-        href: `${basePath}/prepare`,
-        icon: <ArrowRight className="w-4 h-4" />,
-      },
-      tone: "warn",
-      offersFileReplacement: true,
-    };
+    decision = buildClassificationDecision(classification, classificationDecisionOptions);
   } else if (needsReview) {
-    // classification.counts is guaranteed non-null for COMPLETE_WITH_REVIEW / PARTIAL.
-    const reviewCount = classification.counts?.reviewRequired ?? 0;
-    decision = {
-      eyebrow: STAGE_CONFIGS.prepare.label,
-      headline: classification.headline,
-      detail: classification.detail,
-      button: {
-        label: `Review ${num(reviewCount)} ${reviewCount === 1 ? "account" : "accounts"}`,
-        href: buildPrepareReviewRoute(companyId, periodYear, upload?.id ?? null),
-        icon: <ArrowRight className="w-4 h-4" />,
-      },
-      tone: "primary",
-      offersFileReplacement: true,
-    };
+    decision = buildClassificationDecision(classification, classificationDecisionOptions);
   } else if (!prepareDone) {
     // Surfaces the classification result immediately when it is authoritatively available (COMPLETE_NO_REVIEW).
     // NOT_COMPUTED and every other non-terminal state fall back to the plain "later stages open" line — never a
     // fabricated count, and never a claim that this stage is finished (prepareDone still governs that separately).
-    decision = {
-      eyebrow: STAGE_CONFIGS.prepare.label,
-      headline: "Finish preparing the trial balance.",
-      detail: classification.state === "COMPLETE_NO_REVIEW" ? classification.headline : "Later stages open as each one passes.",
-      button: {
-        label: "Open Prepare Data",
-        href: `${basePath}/prepare`,
-        icon: <ArrowRight className="w-4 h-4" />,
-      },
-      tone: "primary",
-    };
+    // Same mapping function the internal classification-states acceptance page uses — one semantic authority.
+    decision = buildClassificationDecision(classification, classificationDecisionOptions);
   } else {
     const activeSlug = activeIndex >= 0 ? pathStages[activeIndex] : null;
     const destination = resolveNextActionDestination({
@@ -412,13 +345,6 @@ export default function WorkspaceOverview() {
 
   // One route to the exact upload on screen, from the existing Prepare route builder.
   const manageUploadHref = buildPrepareUploadRoute(companyId, periodYear, upload?.id ?? null);
-
-  const eyebrowTone =
-    decision.tone === "warn"
-      ? "text-destructive"
-      : decision.tone === "muted"
-        ? "text-muted-foreground"
-        : "text-primary";
 
   return (
     <div className="max-w-3xl">
@@ -503,58 +429,7 @@ export default function WorkspaceOverview() {
               />
             )}
 
-            <SurfaceCard className="px-5 py-8 sm:px-8 sm:py-10">
-              <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-5 ${eyebrowTone}`}>
-                {decision.eyebrow}
-              </p>
-              <h2 className="text-2xl sm:text-[2rem] font-semibold tracking-tight text-foreground leading-[1.2] max-w-xl">
-                {decision.headline}
-              </h2>
-              {decision.detail && (
-                <p className="mt-4 text-[14px] text-muted-foreground leading-relaxed max-w-xl">
-                  {decision.detail}
-                </p>
-              )}
-
-              <div className="mt-8">
-                {decision.button.href && !decision.button.disabled ? (
-                  <Button
-                    asChild
-                    size="lg"
-                    data-testid="primary-cta"
-                    variant={decision.tone === "muted" ? "outline" : "default"}
-                    className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
-                  >
-                    <Link to={decision.button.href}>
-                      {decision.button.icon}
-                      <span className="mx-2">{decision.button.label}</span>
-                    </Link>
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={decision.button.onClick}
-                    disabled={decision.button.disabled}
-                    size="lg"
-                    data-testid="primary-cta"
-                    variant={decision.tone === "warn" ? "destructive" : "default"}
-                    className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
-                  >
-                    {decision.button.icon}
-                    <span className="mx-2">{decision.button.label}</span>
-                  </Button>
-                )}
-              </div>
-
-              {/* Quiet escape: replacing or removing the upload is Prepare Data's existing behaviour, not a second implementation. */}
-              {decision.offersFileReplacement && (
-                <p className="mt-6 border-t border-border pt-5 text-[12px] text-muted-foreground" data-testid="replace-file-escape">
-                  Need to replace this file?{" "}
-                  <Link to={manageUploadHref} className="underline underline-offset-4 hover:text-foreground">
-                    Upload a replacement or remove this upload in Prepare Data <span aria-hidden="true">→</span>
-                  </Link>
-                </p>
-              )}
-            </SurfaceCard>
+            <DecisionCard decision={decision} manageUploadHref={manageUploadHref} />
           </>
         )}
       </section>

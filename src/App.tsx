@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -52,6 +53,14 @@ function LegacySubRouteRedirect({ to }: { to: string }) {
   const { companyId, periodYear } = useParams<{ companyId: string; periodYear: string }>();
   return <Navigate to={`/workspace/${companyId}/${periodYear}/${to}`} replace />;
 }
+
+// Internal, development-only visual-acceptance page for the 7 classification states — never present in a
+// production build (see src/lib/workspace/classificationAcceptanceGate.ts). import.meta.env.DEV is a Vite
+// compile-time constant, statically false in every `vite build` output, so this ternary's lazy() call is dead
+// code there and the route below is never registered.
+const ClassificationStatesAcceptance = import.meta.env.DEV
+  ? lazy(() => import("@/pages/internal/ClassificationStatesAcceptance"))
+  : null;
 
 const App = () => (
   <ErrorBoundary>
@@ -118,6 +127,17 @@ const App = () => (
                 <Route path="/billing/payment/return" element={<PaymentReturn />} />
                 <Route path="/commercial/admin" element={<CommercialAdmin />} />
                 <Route path="/privacy" element={<Privacy />} />
+                {/* /internal/acceptance/classification-states exists only in a dev build (import.meta.env.DEV). */}
+                {ClassificationStatesAcceptance && (
+                  <Route
+                    path="/internal/acceptance/classification-states"
+                    element={
+                      <Suspense fallback={null}>
+                        <ClassificationStatesAcceptance />
+                      </Suspense>
+                    }
+                  />
+                )}
                 <Route
                   path="/uploads/status"
                   element={
