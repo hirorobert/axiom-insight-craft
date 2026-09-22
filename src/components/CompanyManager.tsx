@@ -24,6 +24,8 @@ import { Settings, Plus, Pencil, Trash2, Building2 } from "lucide-react";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { validateTin } from "@/components/workspace/CompanyTinDialog";
 import { FrameworkConfirmationBanner } from "@/components/FrameworkConfirmationBanner";
+import { Textarea } from "@/components/ui/textarea";
+import { deriveCompanyFieldLock, guardCompanyFieldChange } from "@/lib/accounting/companyFieldLock";
 
 const FRAMEWORK_LABELS: Record<string, string> = {
   ifrs_for_smes: "IFRS for SMEs",
@@ -94,6 +96,79 @@ const EMPTY_FORM_DATA: CompanyFormData = {
   reporting_framework: null,
 };
 
+/**
+ * FieldCorrectionAffordance — the one controlled path past a locked period/framework field.
+ * Requires a non-empty reason before the field itself becomes editable again; the reason is what
+ * confirmCorrection() stores and handleSubmit() later writes into the SAME audit_logs entry as the
+ * update, alongside the old and new values — never a silent, unexplained change.
+ */
+function FieldCorrectionAffordance({
+  reason,
+  active,
+  draftReason,
+  onDraftReasonChange,
+  onStart,
+  onCancel,
+  onConfirm,
+  testId,
+}: {
+  reason: string | null;
+  active: boolean;
+  draftReason: string;
+  onDraftReasonChange: (v: string) => void;
+  onStart: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  testId: string;
+}) {
+  if (active) {
+    return (
+      <div className="space-y-2 rounded-md border border-border p-2.5" data-testid={`${testId}-correction-panel`}>
+        <Label htmlFor={`${testId}-correction-reason`} className="text-xs">
+          Reason for this correction (recorded in the audit log)
+        </Label>
+        <Textarea
+          id={`${testId}-correction-reason`}
+          value={draftReason}
+          onChange={(e) => onDraftReasonChange(e.target.value)}
+          placeholder="e.g. The original selection was a data-entry mistake, confirmed with the client on…"
+          className="min-h-16 text-xs"
+          autoFocus
+        />
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={!draftReason.trim()}
+            onClick={onConfirm}
+            data-testid={`${testId}-confirm-correction`}
+          >
+            Confirm correction
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <p className="text-xs text-amber-600 dark:text-amber-500" data-testid={`${testId}-lock-reason`}>
+        {reason}
+      </p>
+      <button
+        type="button"
+        onClick={onStart}
+        className="shrink-0 whitespace-nowrap text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+        data-testid={`${testId}-start-correction`}
+      >
+        Correct instead
+      </button>
+    </div>
+  );
+}
+
 export const CompanyManager = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,6 +180,36 @@ export const CompanyManager = () => {
   const { logAction } = useAuditLog();
 
   const [formData, setFormData] = useState<CompanyFormData>(EMPTY_FORM_DATA);
+
+  // ── Period/framework contract (requirement #4): once ANY trial balance for this company has been
+  // processed, reporting_framework and fiscal_year_end lock — a plain form save can never silently
+  // reinterpret data that statements/tax output already depend on. "Correct instead" is the one
+  // controlled path past the lock: a mandatory reason, recorded atomically with the update in the
+  // SAME audit_logs entry (useAuditLog is already the approved write path for company edits — no
+  // second, competing mutation is introduced).
+  const [hasProcessedUpload, setHasProcessedUpload] = useState(false);
+  const [frameworkCorrectionReason, setFrameworkCorrectionReason] = useState<string | null>(null);
+  const [fiscalYearEndCorrectionReason, setFiscalYearEndCorrectionReason] = useState<string | null>(null);
+  const [correctingField, setCorrectingField] = useState<"reporting_framework" | "fiscal_year_end" | null>(null);
+  const [correctionDraftReason, setCorrectionDraftReason] = useState("");
+
+  const fieldLock = deriveCompanyFieldLock({ hasProcessedUpload });
+  const frameworkEditable = !fieldLock.locked || frameworkCorrectionReason !== null;
+  const fiscalYearEndEditable = !fieldLock.locked || fiscalYearEndCorrectionReason !== null;
+
+  const startCorrection = (field: "reporting_framework" | "fiscal_year_end") => {
+    setCorrectingField(field);
+    setCorrectionDraftReason("");
+  };
+
+  const confirmCorrection = () => {
+    const reason = correctionDraftReason.trim();
+    if (!reason || !correctingField) return;
+    if (correctingField === "reporting_framework") setFrameworkCorrectionReason(reason);
+    else setFiscalYearEndCorrectionReason(reason);
+    setCorrectingField(null);
+    setCorrectionDraftReason("");
+  };
 
   const fetchCompanies = async () => {
     if (!user) return;
@@ -131,6 +236,11 @@ export const CompanyManager = () => {
     setFormData(EMPTY_FORM_DATA);
     setEditingCompany(null);
     setTinTouched(false);
+    setHasProcessedUpload(false);
+    setFrameworkCorrectionReason(null);
+    setFiscalYearEndCorrectionReason(null);
+    setCorrectingField(null);
+    setCorrectionDraftReason("");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -159,6 +269,27 @@ export const CompanyManager = () => {
         ? `${yearPrefix}${formData.fiscal_year_end}`
         : formData.fiscal_year_end;
 
+    // Fail closed even if a disabled control were somehow bypassed: a locked field may only reach
+    // the database alongside its own recorded correction reason. This is the actual enforcement —
+    // the disabled Select above is the affordance, guardCompanyFieldChange is the guarantee.
+    const frameworkChanged = !!editingCompany && formData.reporting_framework !== editingCompany.reporting_framework;
+    const fiscalYearEndChanged = !!editingCompany && resolvedFiscalYearEnd !== editingCompany.fiscal_year_end;
+    const guard = guardCompanyFieldChange({
+      locked: !!editingCompany && fieldLock.locked,
+      frameworkChanged,
+      frameworkCorrectionReason,
+      fiscalYearEndChanged,
+      fiscalYearEndCorrectionReason,
+    });
+    if (!guard.allowed) {
+      toast.error(
+        guard.blockedField === "reporting_framework"
+          ? 'Reporting framework is locked because trial balance data has already been processed. Use "Correct instead" to change it.'
+          : 'Fiscal year end is locked because trial balance data has already been processed. Use "Correct instead" to change it.',
+      );
+      return;
+    }
+
     try {
       if (editingCompany) {
         const { error } = await supabase
@@ -186,7 +317,29 @@ export const CompanyManager = () => {
           action: "update_company",
           entityType: "company",
           entityId: editingCompany.id,
-          metadata: { name: formData.name },
+          metadata: {
+            name: formData.name,
+            // The atomic audited mutation the period/framework contract requires: old value, new
+            // value and the practitioner's own reason, in the SAME log entry as the update itself.
+            ...(frameworkChanged && frameworkCorrectionReason
+              ? {
+                  reporting_framework_correction: {
+                    from: editingCompany.reporting_framework,
+                    to: formData.reporting_framework,
+                    reason: frameworkCorrectionReason,
+                  },
+                }
+              : {}),
+            ...(fiscalYearEndChanged && fiscalYearEndCorrectionReason
+              ? {
+                  fiscal_year_end_correction: {
+                    from: editingCompany.fiscal_year_end,
+                    to: resolvedFiscalYearEnd,
+                    reason: fiscalYearEndCorrectionReason,
+                  },
+                }
+              : {}),
+          },
         });
 
         toast.success("Company updated successfully");
@@ -231,6 +384,21 @@ export const CompanyManager = () => {
 
   const handleEdit = (company: Company) => {
     setEditingCompany(company);
+    setHasProcessedUpload(false);
+    setFrameworkCorrectionReason(null);
+    setFiscalYearEndCorrectionReason(null);
+    setCorrectingField(null);
+    setCorrectionDraftReason("");
+    // Values originate from the persisted row (never fabricated); the lock check is a separate,
+    // best-effort read — a failed/slow read fails safe (stays unlocked → false) rather than ever
+    // blocking a genuinely-new company's setup on a transient error.
+    supabase
+      .from("trial_balance_uploads")
+      .select("id")
+      .eq("company_id", company.id)
+      .not("processed_at", "is", null)
+      .limit(1)
+      .then(({ data }) => setHasProcessedUpload(!!data && data.length > 0));
     setFormData({
       name: company.name,
       code: company.code || "",
@@ -452,8 +620,9 @@ export const CompanyManager = () => {
               <Select
                 value={formData.reporting_framework ?? undefined}
                 onValueChange={(value) => setFormData({ ...formData, reporting_framework: value })}
+                disabled={!frameworkEditable}
               >
-                <SelectTrigger>
+                <SelectTrigger data-testid="reporting-framework-select">
                   <SelectValue placeholder="Not determined — select a framework" />
                 </SelectTrigger>
                 <SelectContent>
@@ -463,9 +632,22 @@ export const CompanyManager = () => {
                   <SelectItem value="ipsas_cash" disabled>IPSAS Cash Basis — coming soon</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                Determines statement headers and output format. Cannot be changed after first report is generated.
-              </p>
+              {!frameworkEditable ? (
+                <FieldCorrectionAffordance
+                  reason={fieldLock.reason}
+                  active={correctingField === "reporting_framework"}
+                  draftReason={correctionDraftReason}
+                  onDraftReasonChange={setCorrectionDraftReason}
+                  onStart={() => startCorrection("reporting_framework")}
+                  onCancel={() => setCorrectingField(null)}
+                  onConfirm={confirmCorrection}
+                  testId="reporting-framework"
+                />
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Determines statement headers and output format. Cannot be changed after first report is generated.
+                </p>
+              )}
             </div>
 
             <div className={`grid gap-4 ${editingCompany ? "grid-cols-2" : "grid-cols-3"}`}>
@@ -492,8 +674,9 @@ export const CompanyManager = () => {
                 <Select
                   value={formData.fiscal_year_end}
                   onValueChange={(value) => setFormData({ ...formData, fiscal_year_end: value })}
+                  disabled={!fiscalYearEndEditable}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger data-testid="fiscal-year-end-select">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -503,6 +686,18 @@ export const CompanyManager = () => {
                     <SelectItem value="12-31">December 31</SelectItem>
                   </SelectContent>
                 </Select>
+                {!fiscalYearEndEditable && (
+                  <FieldCorrectionAffordance
+                    reason={fieldLock.reason}
+                    active={correctingField === "fiscal_year_end"}
+                    draftReason={correctionDraftReason}
+                    onDraftReasonChange={setCorrectionDraftReason}
+                    onStart={() => startCorrection("fiscal_year_end")}
+                    onCancel={() => setCorrectingField(null)}
+                    onConfirm={confirmCorrection}
+                    testId="fiscal-year-end"
+                  />
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="currency">Currency</Label>
