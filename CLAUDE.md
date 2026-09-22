@@ -268,6 +268,8 @@ src/
       stageMetadata.ts        ← CANONICAL stage slugs/labels/icons/sequence
       types.ts                ← WorkspaceMission, MissionStatus, WorkspaceState
       deriveWorkspaceState.ts ← Pure state engine (no async, no side effects)
+      fetchWorkspaceSnapshot.ts ← The one-shot async read pipeline (company → uploads → active upload → sign-offs → certification → deriveWorkspaceState) behind a single workspace's WorkspaceState. Used by both useWorkspaceData.ts (single workspace) and useActiveEngagements.ts (the returning-user hub) — single implementation, no second copy.
+      resolveReturningUserRoute.ts ← Pure returning-user routing decision (resume / chooser / start_single_company / first_run) behind Dashboard.tsx
       onboardingState.ts      ← Pure launch state machine (LAUNCHPAD/DATA_CHOICE/IMPORT_PENDING/EMPTY_WORKSPACE/ACTIVE) + LAUNCH_COPY
       navigation.ts           ← Navigation derived from the persisted engagement scope
       mandate.ts              ← Engagement capabilities registry (CAPABILITY_OUTCOMES) + mandate projection
@@ -317,6 +319,7 @@ src/
     workspace/
       WorkspaceLayout.tsx     ← Shell: top bar + derived stage nav + <Outlet>
       WorkspaceOverview.tsx   ← Command center: ONE dominant decision (launchpad / data choice / next action)
+      EngagementHub.tsx       ← Returning-user chooser, rendered by Dashboard.tsx when the routing decision is ambiguous (>1 open engagement, or 0 open + >1 company)
       PrepareWorkspace.tsx    ← Stage 1
       ReconcileWorkspace.tsx  ← Stage 2
       StatementsWorkspace.tsx ← Stage 3 (has known TS bug — see section 9)
@@ -345,6 +348,7 @@ src/
     WorkspaceContext.tsx      ← React context wrapping useWorkspaceData
   hooks/
     useWorkspaceData.ts       ← Authoritative DB reads for workspace state
+    useActiveEngagements.ts   ← Every open engagement across every company the member belongs to, each resolved via fetchWorkspaceSnapshot — the returning-user hub's data source
     useDataStart.ts           ← Engagement-scoped data-start decision (server-authoritative)
     useEngagementMandate.ts   ← Engagement scope; creation goes through open_engagement_with_scope
     useJurisdictionPack.ts    ← Loads the selected jurisdiction's pack through packLoader

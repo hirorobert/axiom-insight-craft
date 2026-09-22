@@ -1,12 +1,23 @@
 /**
- * Dashboard — Authenticated routing gateway.
+ * Dashboard — Authenticated routing gateway / product home.
  *
- * Does exactly three things:
- *   1. Guards against unauthenticated access → redirects to /auth
- *   2. Auto-accepts pending firm membership invitations
- *   3. Fetches companies and immediately routes to /workspace/:companyId/:year
- *      — even when no upload exists yet.
- *      — shows a minimal onboarding screen only when the firm has zero companies.
+ * Returning-user routing (never guesses) — the branch decision itself is the PURE function
+ * decideReturningUserRoute (resolveReturningUserRoute.ts), computed synchronously from
+ * useActiveEngagements' result on every render:
+ *   exactly 1 open engagement                        → auto-resume its authoritative overview
+ *                                                        (regardless of how many OTHER companies
+ *                                                        have no open engagement — one unambiguous
+ *                                                        active engagement is resumed directly;
+ *                                                        those companies stay reachable from
+ *                                                        "Start another service" inside the workspace)
+ *   >1 open engagements                               → EngagementHub, a deterministic chooser
+ *   0 open engagements, exactly 1 company             → auto-navigate in (ServiceLaunchpad shows there)
+ *   0 open engagements, >1 companies                  → EngagementHub, "start another service" list
+ *   0 companies                                        → FirstRunEngagement
+ *
+ * "Open engagement" is read via useActiveEngagements, which is the SAME authority
+ * (fetchWorkspaceSnapshot → deriveWorkspaceState) every workspace page itself uses — this page
+ * invents no second readiness computation, only a routing decision on top of it.
  *
  * Zero accounting panels. Zero upload management. Zero financial logic.
  * Those live in their respective workspace stage pages.
@@ -16,15 +27,14 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useActiveEngagements, type ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
+import { decideReturningUserRoute } from "@/lib/workspace/resolveReturningUserRoute";
+import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import FirstRunEngagement from "@/components/workspace/FirstRunEngagement";
+import EngagementHub from "@/pages/workspace/EngagementHub";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { Skeleton } from "@/components/ui/skeleton";
-
-interface Company {
-  id: string;
-  name: string;
-  fiscal_year_end: string | null;
-}
+import { Button } from "@/components/ui/button";
 
 /**
  * Return the most recently completed fiscal year for a company.
@@ -48,11 +58,25 @@ function resolvePeriodYear(fiscalYearEnd: string | null, uploadPeriodYear?: numb
   return currentYear - 1;
 }
 
+/** A company with no open engagement has no fiscal_period to derive a year from — resolve the same way the pre-hub Dashboard always did. */
+async function resolveEntryPeriodYear(company: WorkspaceCompany): Promise<number> {
+  const { data: recentUp } = await supabase
+    .from("trial_balance_uploads")
+    .select("period_year")
+    .eq("company_id", company.id)
+    .in("status", ["complete", "valid"])
+    .order("uploaded_at", { ascending: false })
+    .limit(1);
+
+  const uploadYear = (recentUp?.[0] as { period_year?: number | null } | undefined)?.period_year ?? null;
+  return resolvePeriodYear(company.fiscal_year_end, uploadYear);
+}
+
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [noCompanies, setNoCompanies] = useState(false);
+  const { loading: engagementsLoading, entries, companiesWithoutEngagement, fetchFailed, refresh } = useActiveEngagements();
+  const [routing, setRouting] = useState(false);
 
   // ── 1. Auth guard ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -76,54 +100,52 @@ export default function Dashboard() {
       });
   }, [user?.id]);
 
-  // ── 3. Fetch companies → route or show onboarding ─────────────────────────
+  // The routing branch itself is a pure, synchronous decision (resolveReturningUserRoute.test.ts
+  // covers it directly) — computed on every render, not stashed in state, so "chooser" and
+  // "first_run" show up on first paint rather than waiting on an effect.
+  const route =
+    !authLoading && !engagementsLoading && !fetchFailed
+      ? decideReturningUserRoute(entries, companiesWithoutEngagement)
+      : null;
+
+  // ── 3. Returning-user routing decision — only "resume" and "start_single_company" have a side
+  // effect (navigate); "chooser" and "first_run" are rendered directly below. ─────────────────────
   useEffect(() => {
-    if (!user) return;
+    if (!route) return;
 
     let cancelled = false;
 
-    const checkAndRoute = async () => {
-      setLoading(true);
-      setNoCompanies(false);
+    if (route.kind === "resume") {
+      navigate(`/workspace/${route.entry.companyId}/${route.entry.periodYear}`, { replace: true });
+    } else if (route.kind === "start_single_company") {
+      setRouting(true);
+      resolveEntryPeriodYear(route.company).then((year) => {
+        if (cancelled) return;
+        navigate(`/workspace/${route.company.id}/${year}`, { replace: true });
+      });
+    }
 
-      const { data } = await supabase
-        .from("companies")
-        .select("id, name, fiscal_year_end")
-        .eq("is_active", true)
-        .order("created_at", { ascending: false });
-
-      if (cancelled) return;
-
-      if (data && data.length > 0) {
-        const latest = data[0] as Company;
-
-        // Prefer period_year from the most recent complete/valid upload — avoids
-        // routing to a bad year derived from a mis-set fiscal_year_end date.
-        const { data: recentUp } = await supabase
-          .from("trial_balance_uploads")
-          .select("period_year")
-          .eq("company_id", latest.id)
-          .in("status", ["complete", "valid"])
-          .order("uploaded_at", { ascending: false })
-          .limit(1);
-
-        const uploadYear = (recentUp?.[0] as { period_year?: number | null } | undefined)?.period_year ?? null;
-        const year = resolvePeriodYear(latest.fiscal_year_end, uploadYear);
-        navigate(`/workspace/${latest.id}/${year}`, { replace: true });
-        // leave loading=true — route change unmounts this component
-      } else {
-        setNoCompanies(true);
-        setLoading(false);
-      }
+    return () => {
+      cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route?.kind, route?.kind === "resume" ? route.entry.companyId : null, route?.kind === "start_single_company" ? route.company.id : null]);
 
-    checkAndRoute();
+  const resumeEntry = (entry: ActiveEngagementEntry) => {
+    navigate(`/workspace/${entry.companyId}/${entry.periodYear}`);
+  };
 
-    return () => { cancelled = true; };
-  }, [user?.id]); // re-runs only when the authenticated user changes
+  // Starting a service for a DIFFERENT company (or one with no open engagement) never touches an
+  // existing engagement's data — it is a plain navigation into that company's own workspace, where
+  // ServiceLaunchpad (rendered there because that workspace itself has no mandate yet) collects the
+  // service selection.
+  const startService = async (company: WorkspaceCompany) => {
+    const year = await resolveEntryPeriodYear(company);
+    navigate(`/workspace/${company.id}/${year}`);
+  };
 
   // ── Loading / redirect in flight ──────────────────────────────────────────
-  if (authLoading || loading) {
+  if (authLoading || engagementsLoading || routing || route?.kind === "resume" || route?.kind === "start_single_company") {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3">
         <Skeleton className="h-8 w-32" />
@@ -133,22 +155,49 @@ export default function Dashboard() {
     );
   }
 
-  // ── First run: no companies yet ────────────────────────────────────────────
-  return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-border h-14 flex items-center px-6">
+  // ── The read itself failed — never conflated with "no companies"/"no engagements" ─────────────
+  if (fetchFailed) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-5 text-center">
         <CFOCloseWordmark className="text-lg" />
-      </header>
+        <p className="text-[13px] text-muted-foreground max-w-sm">
+          Could not load your engagements. This is a connection problem, not a sign that anything is missing.
+        </p>
+        <Button onClick={() => refresh()} className="h-10 px-5 text-[13px] font-semibold rounded-none shadow-none">
+          Try again
+        </Button>
+      </div>
+    );
+  }
 
-      <main className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-5 py-10">
-        {/* One inline form. On success we route straight into the workspace —
-            no nested dialogs, no "reload the page" dead end. */}
-        <FirstRunEngagement
-          onCreated={(companyId, year) =>
-            navigate(`/workspace/${companyId}/${year}`, { replace: true })
-          }
-        />
-      </main>
-    </div>
+  // ── First run: no companies yet ────────────────────────────────────────────
+  if (route?.kind === "first_run") {
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="border-b border-border h-14 flex items-center px-6">
+          <CFOCloseWordmark className="text-lg" />
+        </header>
+
+        <main className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-5 py-10">
+          {/* One inline form. On success we route straight into the workspace —
+              no nested dialogs, no "reload the page" dead end. */}
+          <FirstRunEngagement
+            onCreated={(companyId, year) =>
+              navigate(`/workspace/${companyId}/${year}`, { replace: true })
+            }
+          />
+        </main>
+      </div>
+    );
+  }
+
+  // ── Ambiguous: more than one open engagement, or more than one company with none open ──────────
+  return (
+    <EngagementHub
+      entries={entries}
+      companiesWithoutEngagement={companiesWithoutEngagement}
+      onResume={resumeEntry}
+      onStartService={startService}
+    />
   );
 }

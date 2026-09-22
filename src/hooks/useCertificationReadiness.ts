@@ -52,6 +52,64 @@ interface UseCertificationReadinessResult {
   refetch: () => void;
 }
 
+type CertClient = {
+  rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
+  from: (table: string) => {
+    select: (cols: string) => {
+      eq: (col: string, val: unknown) => {
+        eq: (col: string, val: unknown) => {
+          order: (col: string, opts: { ascending: boolean }) => {
+            limit: (n: number) => Promise<{ data: unknown; error: unknown }>;
+          };
+        };
+      };
+    };
+  };
+};
+
+export interface CertificationReadinessReads {
+  authoritative: TbCertificationRow | null;
+  latestForUpload: TbCertificationRow | null;
+}
+
+/**
+ * The two reads useCertificationReadiness performs, as a plain async function — no hook, so it can be called any
+ * number of times in a loop (e.g. one summary per engagement on a multi-engagement hub) without violating the
+ * rules of hooks. useCertificationReadiness below is a thin effect/state wrapper around this exact function; there
+ * is only one implementation of the reads themselves.
+ */
+export async function fetchCertificationReadiness(
+  companyId: string,
+  periodYear: number,
+  uploadId: string,
+): Promise<CertificationReadinessReads> {
+  const client = supabase as unknown as CertClient;
+
+  const { data: authRows, error: authError } = await client.rpc("get_authoritative_certification", {
+    p_company_id: companyId,
+    p_period_year: periodYear,
+  });
+  if (authError) throw authError;
+
+  const authoritative = (Array.isArray(authRows) ? authRows[0] : null) as TbCertificationRow | null;
+  const authoritativeBelongsElsewhere = !!authoritative && authoritative.upload_id !== uploadId;
+
+  let latestForUpload: TbCertificationRow | null = null;
+  if (!authoritative || authoritativeBelongsElsewhere) {
+    const { data: latestRows, error: latestError } = await client
+      .from("tb_certifications")
+      .select("*")
+      .eq("company_id", companyId)
+      .eq("upload_id", uploadId)
+      .order("sequence_no", { ascending: false })
+      .limit(1);
+    if (latestError) throw latestError;
+    latestForUpload = (Array.isArray(latestRows) ? latestRows[0] : null) as TbCertificationRow | null;
+  }
+
+  return { authoritative, latestForUpload };
+}
+
 export function useCertificationReadiness(
   companyId: string | null | undefined,
   periodYear: number | null | undefined,
@@ -84,45 +142,9 @@ export function useCertificationReadiness(
 
     (async () => {
       try {
-        const client = supabase as unknown as {
-          rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
-          from: (table: string) => {
-            select: (cols: string) => {
-              eq: (col: string, val: unknown) => {
-                eq: (col: string, val: unknown) => {
-                  order: (col: string, opts: { ascending: boolean }) => {
-                    limit: (n: number) => Promise<{ data: unknown; error: unknown }>;
-                  };
-                };
-              };
-            };
-          };
-        };
-
-        const { data: authRows, error: authError } = await client.rpc("get_authoritative_certification", {
-          p_company_id: companyId,
-          p_period_year: periodYear,
-        });
-        if (authError) throw authError;
-
-        const authoritative = (Array.isArray(authRows) ? authRows[0] : null) as TbCertificationRow | null;
-        const authoritativeBelongsElsewhere = !!authoritative && authoritative.upload_id !== uploadId;
-
-        let latestForUpload: TbCertificationRow | null = null;
-        if (!authoritative || authoritativeBelongsElsewhere) {
-          const { data: latestRows, error: latestError } = await client
-            .from("tb_certifications")
-            .select("*")
-            .eq("company_id", companyId)
-            .eq("upload_id", uploadId)
-            .order("sequence_no", { ascending: false })
-            .limit(1);
-          if (latestError) throw latestError;
-          latestForUpload = (Array.isArray(latestRows) ? latestRows[0] : null) as TbCertificationRow | null;
-        }
-
+        const reads = await fetchCertificationReadiness(companyId, periodYear, uploadId);
         if (!cancelled) {
-          setState({ authoritative, latestForUpload, fetchFailed: false, loading: false });
+          setState({ ...reads, fetchFailed: false, loading: false });
         }
       } catch {
         if (!cancelled) {
