@@ -20,7 +20,7 @@ import {
 } from "../../../supabase/functions/_shared/serviceEnquiryChallenge";
 import { handleSubmitEnquiry, type EnquiryDeps, type RpcResult } from "../../../supabase/functions/_shared/serviceEnquiryHandler";
 import { CHALLENGE_ACTION, CHALLENGE_FIELD, CHALLENGE_TOKEN_MAX_LENGTH, extractChallengeToken, requestFingerprint, validateEnquiryRequest } from "../../../supabase/functions/_shared/serviceEnquiryContract";
-import { challengeState, readSiteKey } from "./challenge";
+import { CHALLENGE_AUTO_RETRY_LIMIT, challengeState, readSiteKey, shouldAutoRetryChallenge } from "./challenge";
 import { buildWireRequest, EMPTY_FORM_VALUES } from "./formModel";
 import { interpretResponse } from "./client";
 
@@ -403,6 +403,14 @@ describe("the browser side: shows the widget, forwards the token, and cannot swi
     expect(readSiteKey("0x4AAAAAAAxxxxxxxxxxxxxx")).toBe("0x4AAAAAAAxxxxxxxxxxxxxx");
     expect(readSiteKey("1x00000000000000000000AA")).toBe("1x00000000000000000000AA");
     for (const bad of [undefined, null, "", "  ", "short", "has space in it 12345", "<script>alert(1)</script>", 42, {}]) expect(readSiteKey(bad), String(bad)).toBeNull();
+  });
+
+  it("retries transient failures only while online and stops at the bounded limit", () => {
+    expect(shouldAutoRetryChallenge(0, true)).toBe(true);
+    expect(shouldAutoRetryChallenge(CHALLENGE_AUTO_RETRY_LIMIT - 1, true)).toBe(true);
+    expect(shouldAutoRetryChallenge(CHALLENGE_AUTO_RETRY_LIMIT, true)).toBe(false);
+    expect(shouldAutoRetryChallenge(0, false)).toBe(false);
+    expect(shouldAutoRetryChallenge(-1, true)).toBe(false);
   });
 
   it("the token travels in the wire request only when supplied, and is never part of the validated enquiry", () => {
