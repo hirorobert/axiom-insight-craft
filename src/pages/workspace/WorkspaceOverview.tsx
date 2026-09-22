@@ -21,16 +21,17 @@
 
 import { useState, useEffect } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowRight, AlertTriangle, FileText } from "lucide-react";
+import { ArrowRight, AlertTriangle } from "lucide-react";
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
 import EngagementScopeDialog from "@/components/workspace/EngagementScopeDialog";
 import PreviousEngagementWork from "@/components/workspace/PreviousEngagementWork";
+import { ActiveFileProvenance } from "@/components/workspace/ActiveFileProvenance";
 import { useEngagement } from "@/contexts/EngagementContext";
 import { buildPrepareReviewRoute, buildPrepareUploadRoute } from "@/lib/workspace/resolveActiveUpload";
 import { capabilityTitle, ENGAGEMENT_CAPABILITIES } from "@/lib/workspace/mandate";
@@ -51,85 +52,6 @@ import { classifyConfirmationPosture } from "@/lib/accounting/confirmationPostur
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const num = (n: number) => n.toLocaleString("en-US");
-
-// ── File provenance ─────────────────────────────────────────────────────────
-// Pure formatting of the stored upload record. A value that is missing or not
-// a usable measurement returns null so the caller omits it — nothing is ever
-// substituted.
-
-function formatFileSize(bytes: number): string | null {
-  if (!Number.isFinite(bytes) || bytes <= 0) return null;
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-const RELATIVE_TIME = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-const RELATIVE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
-
-function describeUploadTime(uploadedAt: string, nowMs: number): { relative: string; exact: string } | null {
-  const uploaded = new Date(uploadedAt);
-  const uploadedMs = uploaded.getTime();
-  if (Number.isNaN(uploadedMs)) return null;
-
-  const exact = uploaded.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
-  const seconds = Math.round((nowMs - uploadedMs) / 1000);
-  // Older than a week (or in the future, from clock skew): a date is more honest than "412 days ago".
-  if (seconds < 0 || seconds > RELATIVE_WINDOW_SECONDS) {
-    return { relative: uploaded.toLocaleDateString("en-GB", { dateStyle: "medium" }), exact };
-  }
-  if (seconds < 60) return { relative: "just now", exact };
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return { relative: RELATIVE_TIME.format(-minutes, "minute"), exact };
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return { relative: RELATIVE_TIME.format(-hours, "hour"), exact };
-  return { relative: RELATIVE_TIME.format(-Math.floor(hours / 24), "day"), exact };
-}
-
-function ActiveFileProvenance({
-  fileName,
-  fileSize,
-  uploadedAt,
-  manageHref,
-}: {
-  fileName: string;
-  fileSize: number;
-  uploadedAt: string;
-  manageHref: string;
-}) {
-  const size = formatFileSize(fileSize);
-  const time = describeUploadTime(uploadedAt, Date.now());
-  return (
-    <div className="mb-3 flex items-center justify-between gap-4" data-testid="active-file-provenance">
-      <p className="flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
-        <FileText aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 truncate font-mono text-foreground/80" title={fileName}>
-          {fileName}
-        </span>
-        {size && (
-          <>
-            <span aria-hidden="true" className="text-muted-foreground/50">·</span>
-            <span className="shrink-0">{size}</span>
-          </>
-        )}
-        {time && (
-          <>
-            <span aria-hidden="true" className="text-muted-foreground/50">·</span>
-            <time className="shrink-0" dateTime={uploadedAt} title={time.exact}>
-              {time.relative}
-            </time>
-          </>
-        )}
-      </p>
-      <Link
-        to={manageHref}
-        className="shrink-0 whitespace-nowrap text-[12px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
-      >
-        Manage file <span aria-hidden="true">→</span>
-      </Link>
-    </div>
-  );
-}
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -475,6 +397,7 @@ export default function WorkspaceOverview() {
                 fileName={upload.file_name}
                 fileSize={upload.file_size}
                 uploadedAt={upload.uploaded_at}
+                status={upload.status}
                 manageHref={manageUploadHref}
               />
             )}

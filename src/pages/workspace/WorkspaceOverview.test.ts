@@ -165,6 +165,14 @@ describe("WorkspaceOverview — orientation strip (requirement: visibly identify
     expect(html).toContain("Resolve trial-balance difference");
   });
 
+  it("file management (requirement: show file name, size, upload time and state): the active file's identity is visible, not just its name", async () => {
+    const html = await renderOverview(contradictionSnapshot());
+
+    expect(html).toContain(upload.file_name);
+    expect(html).toContain("89 KB");
+    expect(html).toContain("Complete");
+  });
+
   it("a brand-new workspace with no completed stage shows no fabricated 'last completed' milestone", async () => {
     const html = await renderOverview(null);
     expect(html).not.toContain("last completed:");

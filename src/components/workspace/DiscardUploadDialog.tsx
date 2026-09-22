@@ -253,9 +253,15 @@ export function DiscardUploadDialog({
 }) {
   const [confirmText, setConfirmText] = useState("");
   const [busy, setBusy] = useState(false);
+  // Kept inline (not just a toast, which can be missed or dismissed) so the reason, whether it's
+  // safe to retry, and the reference id stay on screen for as long as the dialog does.
+  const [lastError, setLastError] = useState<DiscardError | string | null>(null);
 
   useEffect(() => {
-    if (open) setConfirmText("");
+    if (open) {
+      setConfirmText("");
+      setLastError(null);
+    }
   }, [open, target?.id]);
 
   const isCertified = isCertifiedRun(target);
@@ -264,6 +270,7 @@ export function DiscardUploadDialog({
   const handleDiscard = async () => {
     if (!target || busy || !gateSatisfied) return;
     setBusy(true);
+    setLastError(null);
     try {
       const receipt = await discardUpload(target);
       if (replacementFileName) {
@@ -272,11 +279,10 @@ export function DiscardUploadDialog({
       onDiscarded(target.id, receipt);
       onOpenChange(false);
     } catch (err) {
-      toast.error(
-        err instanceof DiscardError
-          ? err.safeMessage
-          : "Could not discard this trial balance. Please try again.",
-      );
+      const message =
+        err instanceof DiscardError ? err.safeMessage : "Could not discard this trial balance. Please try again.";
+      toast.error(message);
+      setLastError(err instanceof DiscardError ? err : message);
     } finally {
       setBusy(false);
     }
@@ -316,6 +322,25 @@ export function DiscardUploadDialog({
               className="h-9 font-mono tracking-widest"
               autoFocus
             />
+          </div>
+        )}
+
+        {lastError && (
+          <div
+            role="alert"
+            className="space-y-1 border border-destructive/30 bg-destructive/5 p-3 text-[12px] text-destructive"
+            data-testid="discard-error"
+          >
+            <p className="leading-snug">{lastError instanceof DiscardError ? lastError.message : lastError}</p>
+            {lastError instanceof DiscardError && (
+              <p className="text-[11px] text-destructive/80">
+                Reference <span className="font-mono" data-testid="discard-error-reference">{lastError.reference}</span>
+                {" · "}
+                <span data-testid="discard-error-retryable">
+                  {lastError.retryable ? "Safe to try again." : "Retrying will not change this outcome."}
+                </span>
+              </p>
+            )}
           </div>
         )}
 
