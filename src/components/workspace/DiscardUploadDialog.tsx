@@ -11,6 +11,31 @@
  *  - A discard is reversible for a short undo window: the row snapshot and the
  *    stored file are captured *before* deletion, so a mis-tap can be undone
  *    exactly (same id, same file, same results) from the toast.
+ *
+ * Release blocker 2.2 hardening — explicit phases, each with a proven failure outcome:
+ *
+ *   IDLE -> SNAPSHOTTING -> DELETING -> DISCARDED -> UNDO_AVAILABLE
+ *
+ * A failure at SNAPSHOTTING or DELETING always resolves to exactly one of FAILED_RETRYABLE or
+ * FAILED_TERMINAL (DiscardError.retryable) — never a silent success and never an ambiguous state.
+ *
+ * The gap this closes: `.delete().eq("id", target.id)` alone reports success with NO error even
+ * when RLS filtered the row out of the WHERE clause (zero rows actually affected) or the row was
+ * already gone — PostgREST does not treat "matched nothing" as an error. Silently trusting that
+ * would let an authorization denial, or a stale/already-discarded upload, be reported as a genuine
+ * discard — exactly the "database failure reported as success" class of bug this hardening exists
+ * to remove. DELETING now always confirms the affected row via `.select("id")` on the delete
+ * itself and branches three ways:
+ *   - exactly one row affected      → genuine success, proceed to DISCARDED;
+ *   - zero rows affected, row GONE  → someone/something already discarded it (a concurrent
+ *                                      duplicate request, or a retry after a prior success whose
+ *                                      response was lost) — idempotent: return the receipt from
+ *                                      THIS call's own pre-delete snapshot, never a second physical
+ *                                      delete, never an error;
+ *   - zero rows affected, row STILL THERE → a genuine authorization denial or a stale target
+ *                                      (something changed since the dialog opened) — FAILED_TERMINAL,
+ *                                      never retryable, since retrying the identical request changes
+ *                                      nothing about why it was refused.
  */
 
 import { useEffect, useState } from "react";
@@ -151,10 +176,23 @@ export async function discardUpload(target: DiscardTarget): Promise<DiscardRecei
     fileBlob = data ?? null;
     await supabase.storage.from("trial-balance-files").remove([target.file_path]);
   }
-  const { error: deleteError } = await supabase
+
+  const receipt: DiscardReceipt = {
+    id: target.id,
+    fileName: target.file_name,
+    row: (row as Record<string, unknown> | null) ?? null,
+    filePath: target.file_path ?? null,
+    fileBlob,
+  };
+
+  // DELETING — `.select("id")` on the delete itself is what makes the affected-row count provable;
+  // without it, PostgREST reports success on zero matched rows just as readily as on one.
+  const { data: deletedRows, error: deleteError } = await supabase
     .from("trial_balance_uploads")
     .delete()
-    .eq("id", target.id);
+    .eq("id", target.id)
+    .select("id");
+
   if (deleteError) {
     // A specific, common, explainable cause: another record still references this upload and the database refused
     // the delete (foreign-key constraint) rather than orphaning that record. Never surface the raw constraint/table
@@ -168,18 +206,42 @@ export async function discardUpload(target: DiscardTarget): Promise<DiscardRecei
     );
   }
 
-  return {
-    id: target.id,
-    fileName: target.file_name,
-    row: (row as Record<string, unknown> | null) ?? null,
-    filePath: target.file_path ?? null,
-    fileBlob,
-  };
+  if ((deletedRows?.length ?? 0) === 0) {
+    // No error, but nothing was actually deleted — PostgREST's silent "matched zero rows" case.
+    // Distinguish the two genuinely different causes rather than guessing at either:
+    const { data: stillThere } = await supabase
+      .from("trial_balance_uploads")
+      .select("id")
+      .eq("id", target.id)
+      .maybeSingle();
+
+    if (!stillThere) {
+      // Already gone — a concurrent duplicate request (double-click, two tabs) or a retry after a
+      // prior success whose response never reached this client. Idempotent: the end state this call
+      // wanted (the row is gone) already holds, so this is success, not a second delete attempt.
+      return receipt;
+    }
+
+    // The row still exists despite the delete matching nothing: RLS refused it (the caller is not
+    // its owner, or session/authorization has changed) or the target changed since the dialog
+    // opened. Never retryable — the identical request will be refused the identical way.
+    throw new DiscardError(
+      "This trial balance could not be discarded. You may not have permission, or it has changed since you opened this dialog.",
+      { retryable: false, cause: new Error(`delete matched 0 rows for id=${target.id} but the row still exists`) },
+    );
+  }
+
+  return receipt;
 }
 
 /**
  * restoreUpload — puts a discarded run back: the file first (so processing can
  * re-read it), then the row with its original id and results.
+ *
+ * Idempotent against a double-click on Undo: if the row already exists (a prior restore already
+ * succeeded, and this is a second, redundant invocation), a plain `.insert()` would fail on the
+ * primary-key/unique-id conflict — that failure is recognised here and treated as success, not
+ * surfaced as a restore error, since the end state the caller wanted already holds.
  */
 export async function restoreUpload(receipt: DiscardReceipt): Promise<void> {
   if (!receipt.row) {
@@ -194,7 +256,12 @@ export async function restoreUpload(receipt: DiscardReceipt): Promise<void> {
   const { error } = await supabase
     .from("trial_balance_uploads")
     .insert(receipt.row as never);
-  if (error) throw error;
+  if (error) {
+    // 23505 = unique_violation (Postgres). The row is already back — a redundant second Undo click,
+    // not a genuine failure.
+    if (error.code === "23505") return;
+    throw error;
+  }
 }
 
 /**

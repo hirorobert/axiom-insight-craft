@@ -1,8 +1,18 @@
 User-agent: Googlebot
 Allow: /
+Disallow: /dashboard
+Disallow: /workspace/
+Disallow: /settings
+Disallow: /uploads/status
+Disallow: /commercial/admin
 
 User-agent: Bingbot
 Allow: /
+Disallow: /dashboard
+Disallow: /workspace/
+Disallow: /settings
+Disallow: /uploads/status
+Disallow: /commercial/admin
 
 User-agent: Twitterbot
 Allow: /
@@ -12,3 +22,10 @@ Allow: /
 
 User-agent: *
 Allow: /
+Disallow: /dashboard
+Disallow: /workspace/
+Disallow: /settings
+Disallow: /uploads/status
+Disallow: /commercial/admin
+
+Sitemap: https://cfoclose.com/sitemap.xml

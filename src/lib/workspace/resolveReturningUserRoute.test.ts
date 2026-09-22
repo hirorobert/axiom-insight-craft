@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideReturningUserRoute } from "./resolveReturningUserRoute";
+import { decideReturningUserRoute, applyForceHub } from "./resolveReturningUserRoute";
 
 interface E { companyId: string; periodYear: number; tag: string }
 interface C { id: string; tag: string }
@@ -49,5 +49,33 @@ describe("decideReturningUserRoute — the returning-user routing invariant: nev
     const first = decideReturningUserRoute<E, C>(entries, companies);
     const second = decideReturningUserRoute<E, C>(entries, companies);
     expect(first).toEqual(second);
+  });
+});
+
+describe("applyForceHub — the logo's explicit 'take me to the hub' escape never silently re-lands in the same workspace", () => {
+  it("forceHub=false leaves every route untouched (ordinary sign-in landing keeps auto-resuming)", () => {
+    expect(applyForceHub<E, C>({ kind: "resume", entry: e("e1") }, false)).toEqual({ kind: "resume", entry: e("e1") });
+    expect(applyForceHub<E, C>({ kind: "start_single_company", company: c("c1") }, false)).toEqual({
+      kind: "start_single_company",
+      company: c("c1"),
+    });
+    expect(applyForceHub<E, C>({ kind: "chooser" }, false)).toEqual({ kind: "chooser" });
+    expect(applyForceHub<E, C>({ kind: "first_run" }, false)).toEqual({ kind: "first_run" });
+  });
+
+  it("forceHub=true downgrades 'resume' to 'chooser' — a single engagement is still shown, never silently re-entered", () => {
+    expect(applyForceHub<E, C>({ kind: "resume", entry: e("e1") }, true)).toEqual({ kind: "chooser" });
+  });
+
+  it("forceHub=true downgrades 'start_single_company' to 'chooser' for the exact same reason", () => {
+    expect(applyForceHub<E, C>({ kind: "start_single_company", company: c("c1") }, true)).toEqual({ kind: "chooser" });
+  });
+
+  it("forceHub=true leaves an already-ambiguous 'chooser' unchanged", () => {
+    expect(applyForceHub<E, C>({ kind: "chooser" }, true)).toEqual({ kind: "chooser" });
+  });
+
+  it("forceHub=true leaves 'first_run' unchanged — nothing to choose from, the hub cannot add anything", () => {
+    expect(applyForceHub<E, C>({ kind: "first_run" }, true)).toEqual({ kind: "first_run" });
   });
 });
