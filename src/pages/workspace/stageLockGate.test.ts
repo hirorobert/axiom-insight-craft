@@ -136,6 +136,17 @@ describe("direct URLs cannot bypass certification — the mission-locked gate bl
     expect(html).toContain("Prepare Outputs is locked");
   });
 
+  it("ReconcileWorkspace (release blocker 2.3): a direct /reconcile URL with certification not established shows the lock with the authoritative blocker and a dominant 'Go to Prepare Data' CTA — never the reconciliation panels", async () => {
+    const html = await renderStagePage("./ReconcileWorkspace", lockedSnapshot());
+
+    expect(html).toContain("Reconcile is locked");
+    expect(html).toContain("Debits != Credits");
+    expect(html).toContain("Go to Prepare Data");
+    // No irrelevant controls: the real panels never render.
+    expect(html).not.toContain("EFDMS");
+    expect(html).not.toContain("Adjusting Journal");
+  });
+
   it("the SAME workspaceState the stage page reads its lock from is what WorkspaceOverview's dominant CTA reads too — one canonical projection, not two", async () => {
     // Both pages are handed the exact same snapshot → the exact same deriveWorkspaceState() call.
     // If they ever disagreed, this test's other two assertions (mission.status and nextAction) would

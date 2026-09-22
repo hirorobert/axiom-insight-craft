@@ -22,8 +22,7 @@ export function ClosingCTA() {
               and a workspace that keeps the rest in order.
             </h2>
             <p className="mt-4 text-sm text-primary-foreground/55">
-              From {PRICING.CURRENCY_CODE} {PRICING.MONTHLY_USD}/month. No card required to start.
-              Cancel anytime.
+              From {PRICING.CURRENCY_CODE} {PRICING.MONTHLY_USD}/month. No card required to start free.
             </p>
           </div>
 

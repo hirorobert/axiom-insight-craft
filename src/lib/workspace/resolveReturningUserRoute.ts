@@ -51,3 +51,24 @@ export function decideReturningUserRoute<
   // Every remaining shape (>1 engagement, or 0 engagements + >1 companies) is ambiguous.
   return { kind: "chooser" };
 }
+
+/**
+ * applyForceHub — the logo's own routing contract, layered on top of decideReturningUserRoute
+ * without changing it. Sign-in landing (forceHub=false) keeps auto-resuming an unambiguous single
+ * engagement — that is the correct, low-friction default. But the CFOClose logo, clicked from
+ * INSIDE a workspace as an explicit "take me to the hub" escape, must never silently re-land the
+ * user back in the exact workspace they just tried to leave: a "resume"/"start_single_company"
+ * outcome is downgraded to "chooser" so the hub actually renders, even when it will only ever list
+ * one entry. "first_run" (nothing to choose from) and an already-ambiguous "chooser" are unaffected
+ * — there is nothing a forced hub view could usefully add to either.
+ */
+export function applyForceHub<
+  TEntry extends ReturningUserEngagementEntry,
+  TCompany extends ReturningUserCompany,
+>(route: ReturningUserRoute<TEntry, TCompany>, forceHub: boolean): ReturningUserRoute<TEntry, TCompany> {
+  if (!forceHub) return route;
+  if (route.kind === "resume" || route.kind === "start_single_company") {
+    return { kind: "chooser" };
+  }
+  return route;
+}

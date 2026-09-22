@@ -11,11 +11,16 @@ const CONTROLLED_PATH = [
 ] as const;
 
 // ─── Trust metrics — all factual product properties ────────────────────────
+// "WCAG AA" was replaced with "Keyboard accessible": the former implies a completed conformance
+// audit that does not exist in this repository (no axe-core/pa11y suite, no audit report) — see
+// src/content/publicClaimRegistry.ts. Keyboard operability is independently verifiable in the
+// source itself (every interactive control here is a real <a>/<button>/<Link> with a visible
+// focus-visible ring, never a div with an onClick-only handler).
 const TRUST_METRICS = [
   { value: "7-stage",  label: "accounting workflow" },
   { value: "IFRS",     label: "framework-aware"     },
   { value: "H-01–12",  label: "assurance checks"    },
-  { value: "WCAG AA",  label: "accessible"          },
+  { value: "Keyboard", label: "accessible"          },
 ] as const;
 
 export function Hero() {

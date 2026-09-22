@@ -19,6 +19,34 @@
     <meta name="twitter:title" content="CFOClose — From Trial Balance to Defensible Financial Outputs" />
     <meta name="twitter:description" content="Clean a trial balance, prepare statements, assess tax or analyse risk in one controlled financial close workspace." />
 
+    <!--
+      JSON-LD: factual fields only, per src/content/publicClaimRegistry.ts's discipline.
+      Deliberately NO "offers"/price field: checkout is real and server-authoritative
+      (src/components/commercial/CheckoutUpgradeButton.tsx) but this static file cannot verify
+      whether it is live-enabled in the current deployment (platform_state may be
+      PAYMENTS_DISABLED) — asserting a purchasable Offer here would risk exactly the
+      "Offer/pricing data... unless the displayed price is current and purchasable" violation
+      this file is required to avoid. No aggregateRating: no genuine eligible reviews exist.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "CFOClose",
+        "url": "https://cfoclose.com/"
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "CFOClose",
+        "applicationCategory": "FinanceApplication",
+        "operatingSystem": "Web",
+        "url": "https://cfoclose.com/",
+        "description": "Clean a trial balance, prepare financial statements, assess tax or analyse financial risk inside one controlled, evidence-led workspace."
+      }
+    </script>
   </head>
 
   <body>

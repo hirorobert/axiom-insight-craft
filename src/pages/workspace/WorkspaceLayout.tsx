@@ -244,6 +244,9 @@ export default function WorkspaceLayout() {
             <div className="flex items-center gap-3 min-w-0">
               <Link
                 to="/dashboard"
+                // Explicit escape to the hub — never silently re-lands back in this exact workspace.
+                // See Dashboard.tsx's forceHub / resolveReturningUserRoute.ts's applyForceHub.
+                state={{ forceHub: true }}
                 title="CFOClose — back to your workspaces"
                 aria-label="CFOClose home"
                 className="shrink-0 -ml-1 rounded px-1 py-1 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

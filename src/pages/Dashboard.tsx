@@ -24,11 +24,11 @@
  */
 
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useActiveEngagements, type ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
-import { decideReturningUserRoute } from "@/lib/workspace/resolveReturningUserRoute";
+import { decideReturningUserRoute, applyForceHub } from "@/lib/workspace/resolveReturningUserRoute";
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import FirstRunEngagement from "@/components/workspace/FirstRunEngagement";
 import EngagementHub from "@/pages/workspace/EngagementHub";
@@ -75,6 +75,11 @@ async function resolveEntryPeriodYear(company: WorkspaceCompany): Promise<number
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Set only by the authenticated header's logo (WorkspaceLayout.tsx) — an explicit "take me to the
+  // hub" escape, distinct from a bare sign-in landing at /dashboard. See applyForceHub's own doc
+  // comment for exactly what this does and does not change.
+  const forceHub = !!(location.state as { forceHub?: boolean } | null)?.forceHub;
   const { loading: engagementsLoading, entries, companiesWithoutEngagement, fetchFailed, refresh } = useActiveEngagements();
   const [routing, setRouting] = useState(false);
 
@@ -105,7 +110,7 @@ export default function Dashboard() {
   // "first_run" show up on first paint rather than waiting on an effect.
   const route =
     !authLoading && !engagementsLoading && !fetchFailed
-      ? decideReturningUserRoute(entries, companiesWithoutEngagement)
+      ? applyForceHub(decideReturningUserRoute(entries, companiesWithoutEngagement), forceHub)
       : null;
 
   // ── 3. Returning-user routing decision — only "resume" and "start_single_company" have a side
