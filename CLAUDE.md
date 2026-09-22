@@ -270,9 +270,11 @@ src/
       deriveWorkspaceState.ts ← Pure state engine (no async, no side effects)
       fetchWorkspaceSnapshot.ts ← The one-shot async read pipeline (company → uploads → active upload → sign-offs → certification → deriveWorkspaceState) behind a single workspace's WorkspaceState. Used by both useWorkspaceData.ts (single workspace) and useActiveEngagements.ts (the returning-user hub) — single implementation, no second copy.
       resolveReturningUserRoute.ts ← Pure returning-user routing decision (resume / chooser / start_single_company / first_run) behind Dashboard.tsx
+      deriveOrientationSummary.ts ← Pure projection of Service/Current stage/Current status/last completed milestone for the WorkspaceOverview orientation strip
       onboardingState.ts      ← Pure launch state machine (LAUNCHPAD/DATA_CHOICE/IMPORT_PENDING/EMPTY_WORKSPACE/ACTIVE) + LAUNCH_COPY
       navigation.ts           ← Navigation derived from the persisted engagement scope
       mandate.ts              ← Engagement capabilities registry (CAPABILITY_OUTCOMES) + mandate projection
+      engagementScopeChange.ts ← Pure decision behind EngagementScopeDialog's three modes (declare/add/amend): added/removed capabilities, and that only a withdrawal via "amend" requires a reason
       workspaceSetupClient.ts ← ONLY client path to workspace setup RPCs (open_engagement_with_scope, data start, jurisdiction)
       certificationRevalidationGuard.ts ← Certification revalidation guard
       computeCertificationReadiness.ts  ← Certification readiness (pure)

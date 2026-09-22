@@ -33,7 +33,7 @@ import EngagementScopeDialog from "@/components/workspace/EngagementScopeDialog"
 import PreviousEngagementWork from "@/components/workspace/PreviousEngagementWork";
 import { useEngagement } from "@/contexts/EngagementContext";
 import { buildPrepareReviewRoute, buildPrepareUploadRoute } from "@/lib/workspace/resolveActiveUpload";
-import { capabilityTitle } from "@/lib/workspace/mandate";
+import { capabilityTitle, ENGAGEMENT_CAPABILITIES } from "@/lib/workspace/mandate";
 import { readRememberedOutcome } from "@/lib/product/outcomes";
 import { DecisionCard, buildClassificationDecision, type Decision } from "@/components/workspace/DecisionCard";
 import ServiceLaunchpad from "@/components/workspace/ServiceLaunchpad";
@@ -150,7 +150,10 @@ export default function WorkspaceOverview() {
   const [retrying, setRetrying] = useState(false);
   const [tinDialogOpen, setTinDialogOpen] = useState(false);
   const [tinOverride, setTinOverride] = useState<string | null>(null);
-  const [scopeDialogOpen, setScopeDialogOpen] = useState(false);
+  // Two distinct entry points, one dialog: "add" (Start another service — pure addition, no
+  // friction) and "amend" (Amend this engagement — can withdraw a service, audited when it does).
+  // null = closed.
+  const [scopeDialogMode, setScopeDialogMode] = useState<"add" | "amend" | null>(null);
 
   const {
     engagement,
@@ -386,9 +389,9 @@ export default function WorkspaceOverview() {
       )}
 
       <EngagementScopeDialog
-        open={scopeDialogOpen && canAmend}
-        onOpenChange={setScopeDialogOpen}
-        mode={engagement ? "amend" : "declare"}
+        open={scopeDialogMode !== null && canAmend}
+        onOpenChange={(v) => setScopeDialogMode(v ? scopeDialogMode : null)}
+        mode={!engagement ? "declare" : (scopeDialogMode ?? "amend")}
       />
 
       {/* ── ZONE A · Engagement identity ─────────────────────────────────────
@@ -491,14 +494,28 @@ export default function WorkspaceOverview() {
             {mandate.granted.map((cap) => capabilityTitle(cap)).join(", ")}
           </p>
           {canAmend && (
-            <button
-              type="button"
-              onClick={() => setScopeDialogOpen(true)}
-              title={LAUNCH_COPY.scopeEditor}
-              className="shrink-0 whitespace-nowrap text-[12px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
-            >
-              Amend scope <span aria-hidden="true">→</span>
-            </button>
+            <div className="flex shrink-0 items-center gap-4">
+              {mandate.granted.length < ENGAGEMENT_CAPABILITIES.length && (
+                <button
+                  type="button"
+                  onClick={() => setScopeDialogMode("add")}
+                  title="Add a service — no reason needed, your existing services are unaffected"
+                  className="whitespace-nowrap text-[12px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                  data-testid="start-another-service"
+                >
+                  Start another service <span aria-hidden="true">→</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setScopeDialogMode("amend")}
+                title={LAUNCH_COPY.scopeEditor}
+                className="whitespace-nowrap text-[12px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                data-testid="amend-engagement"
+              >
+                Amend this engagement <span aria-hidden="true">→</span>
+              </button>
+            </div>
           )}
         </div>
       )}

@@ -48,7 +48,7 @@ export default function EngagementScopeBoundary({
         <div className="mt-8 flex flex-wrap gap-2">
           {canAmend && engagement && (
             <Button onClick={() => setOpen(true)} className="rounded-none h-11 px-5">
-              Manage services
+              Start another service
             </Button>
           )}
           <Button asChild variant="outline" className="rounded-none h-11 px-5">
@@ -63,7 +63,7 @@ export default function EngagementScopeBoundary({
         )}
       </SurfaceCard>
 
-      <EngagementScopeDialog open={open} onOpenChange={setOpen} mode="amend" />
+      <EngagementScopeDialog open={open} onOpenChange={setOpen} mode="add" />
     </div>
   );
 }
