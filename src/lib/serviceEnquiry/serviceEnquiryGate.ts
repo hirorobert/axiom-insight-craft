@@ -25,7 +25,7 @@ export interface ServiceEnquiryGateConfig {
  * is applied, the Edge Functions are deployed, platform staff are enrolled and application email is verified
  * (docs/operations/SERVICE_ENQUIRY_PHASE1.md).
  */
-const COMMITTED_CONFIG: ServiceEnquiryGateConfig = { gate: SERVICE_ENQUIRY_PHASE1_GATE, enabled: true };
+const COMMITTED_CONFIG: ServiceEnquiryGateConfig = { gate: SERVICE_ENQUIRY_PHASE1_GATE, enabled: false };
 
 /** Pure. true ONLY for exactly `{ gate: "service_enquiry_phase1", enabled: true }`; everything else — including no config at all — is false. */
 export function evaluateServiceEnquiryGate(config: unknown): boolean {
