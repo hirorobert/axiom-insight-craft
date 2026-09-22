@@ -8,7 +8,7 @@
 //   * a page refresh after success shows the stored receipt (never a blank form that could be resubmitted);
 //   * no file input exists anywhere in this component, and nothing is inferred (no country, no donor rule, no jurisdiction).
 
-import { useCallback, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -73,6 +73,16 @@ export function ServiceEnquiryForm({ formKey, variant, serviceCode, sourceContex
     email: user?.email ?? "",
     subject: defaultSubject ?? "",
   }));
+  // The session resolves asynchronously, so a cold load of this page mounts with no user. When it arrives, fill the identity
+// fields — but never overwrite anything the visitor has already typed.
+  const identityTouched = useRef(false);
+  useEffect(() => {
+    if (!user || identityTouched.current) return;
+    const name = readString(user.user_metadata?.full_name) || readString(user.user_metadata?.name);
+    const email = user.email ?? "";
+    setValues((prev) => ({ ...prev, name: prev.name === "" ? name : prev.name, email: prev.email === "" ? email : prev.email }));
+  }, [user]);
+
   const [choice, setChoice] = useState<ServiceCode>(serviceCode);
   const [errors, setErrors] = useState<readonly FieldError[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -87,7 +97,10 @@ export function ServiceEnquiryForm({ formKey, variant, serviceCode, sourceContex
   const challenge = challengeState({ signedIn: Boolean(user), forced: forceChallenge, siteKey: CHALLENGE_SITE_KEY });
 
   const activeService: ServiceCode = variant === "general" ? choice : serviceCode;
-  const set = useCallback(<K extends keyof EnquiryFormValues>(key: K, v: EnquiryFormValues[K]) => setValues((prev) => ({ ...prev, [key]: v })), []);
+  const set = useCallback(<K extends keyof EnquiryFormValues>(key: K, v: EnquiryFormValues[K]) => {
+    if (key === "name" || key === "email") identityTouched.current = true;
+    setValues((prev) => ({ ...prev, [key]: v }));
+  }, []);
   const setPayload = useCallback((key: string, v: string) => setValues((prev) => ({ ...prev, payload: { ...prev.payload, [key]: v } })), []);
 
   const errorFor = useMemo(() => {
