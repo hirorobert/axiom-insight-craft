@@ -97,7 +97,10 @@ export function ServiceEnquiryForm({ formKey, variant, serviceCode, sourceContex
   const challenge = challengeState({ signedIn: Boolean(user), forced: forceChallenge, siteKey: CHALLENGE_SITE_KEY });
 
   const activeService: ServiceCode = variant === "general" ? choice : serviceCode;
-  const set = useCallback(<K extends keyof EnquiryFormValues>(key: K, v: EnquiryFormValues[K]) => setValues((prev) => ({ ...prev, [key]: v })), []);
+  const set = useCallback(<K extends keyof EnquiryFormValues>(key: K, v: EnquiryFormValues[K]) => {
+    if (key === "name" || key === "email") identityTouched.current = true;
+    setValues((prev) => ({ ...prev, [key]: v }));
+  }, []);
   const setPayload = useCallback((key: string, v: string) => setValues((prev) => ({ ...prev, payload: { ...prev.payload, [key]: v } })), []);
 
   const errorFor = useMemo(() => {
