@@ -100,7 +100,8 @@ describe("first-party attestation", () => {
       expect(clientHasLeadingZeroBits(digest, bits)).toBe(hasLeadingZeroBits(digest, bits));
     }
     expect(hasLeadingZeroBits(new Uint8Array([0, 0, 0]), 17)).toBe(true);
-    expect(hasLeadingZeroBits(new Uint8Array([1, 0, 0]), 1)).toBe(false);
+    expect(hasLeadingZeroBits(new Uint8Array([1, 0, 0]), 8)).toBe(false);
+    expect(hasLeadingZeroBits(new Uint8Array([0b0000_0001, 0, 0]), 7)).toBe(true);
   });
 
   it("keeps the production difficulty and payload shape stable", async () => {
