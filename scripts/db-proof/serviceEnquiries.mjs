@@ -231,7 +231,9 @@ async function main() {
 
   group("Replay from zero");
   let files;
-  await check(`every repository migration (including ${MIGRATION_FILE}) applies on an empty PostgreSQL`, async () => { files = await replay(); return files.includes(MIGRATION_FILE) && files[files.length - 1] === READINESS_FILE && files.indexOf(READINESS_FILE) === files.indexOf(MIGRATION_FILE) + 1; });
+  // 20260922180000_discard_trial_balance_authority.sql is a later, unrelated migration (trial-balance
+  // discard authority) that now sorts after READINESS_FILE — it does not touch service_enquiry_* objects.
+  await check(`every repository migration (including ${MIGRATION_FILE}) applies on an empty PostgreSQL`, async () => { files = await replay(); return files.includes(MIGRATION_FILE) && files[files.length - 2] === READINESS_FILE && files.indexOf(READINESS_FILE) === files.indexOf(MIGRATION_FILE) + 1; });
 
   for (const [k, id] of Object.entries(U)) await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [id, `${k}@example.test`]);
   const companyA = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Company A') RETURNING id", [U.owner])).rows[0].id;
