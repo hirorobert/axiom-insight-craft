@@ -405,6 +405,14 @@ describe("the browser side: shows the widget, forwards the token, and cannot swi
     for (const bad of [undefined, null, "", "  ", "short", "has space in it 12345", "<script>alert(1)</script>", 42, {}]) expect(readSiteKey(bad), String(bad)).toBeNull();
   });
 
+  it("retries transient failures only while online and stops at the bounded limit", () => {
+    expect(shouldAutoRetryChallenge(0, true)).toBe(true);
+    expect(shouldAutoRetryChallenge(CHALLENGE_AUTO_RETRY_LIMIT - 1, true)).toBe(true);
+    expect(shouldAutoRetryChallenge(CHALLENGE_AUTO_RETRY_LIMIT, true)).toBe(false);
+    expect(shouldAutoRetryChallenge(0, false)).toBe(false);
+    expect(shouldAutoRetryChallenge(-1, true)).toBe(false);
+  });
+
   it("the token travels in the wire request only when supplied, and is never part of the validated enquiry", () => {
     const values = { ...EMPTY_FORM_VALUES, name: "Ada", email: EMAIL, subject: "A question about reporting", message: "A sufficiently long message body.", privacy: true };
     const ctx = { serviceCode: "general", sourceContext: "contact_page" } as const;
