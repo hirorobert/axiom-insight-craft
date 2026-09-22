@@ -44,6 +44,7 @@ import { deriveLaunchState, LAUNCH_COPY } from "@/lib/workspace/onboardingState"
 import { evaluateTaxProfile, TAX_PROFILE_COPY } from "@/lib/jurisdiction/taxProfile";
 import { resolveNextActionDestination } from "@/lib/workspace/resolveNextActionDestination";
 import { deriveClassificationPresentation } from "@/lib/workspace/classificationPresentation";
+import { deriveOrientationSummary } from "@/lib/workspace/deriveOrientationSummary";
 import { detectEntityAccountingContext } from "@/lib/accounting/detectEntityContext";
 import { classifyConfirmationPosture } from "@/lib/accounting/confirmationPosture";
 
@@ -235,6 +236,7 @@ export default function WorkspaceOverview() {
 
   const effectiveTin = tinOverride ?? company?.tin ?? null;
   const granted = mandate?.granted ?? null;
+  const orientation = deriveOrientationSummary(workspaceState, granted);
   // A tax-profile warning needs (1) an active tax/filing service, (2) a configured jurisdiction that requires the field
   // and (3) the field actually missing. No jurisdiction is configured for a workspace today, so it never fires by inference.
   const jurisdiction = company?.filing_jurisdiction ?? null;
@@ -395,15 +397,36 @@ export default function WorkspaceOverview() {
           Zone A therefore carries only what is actionable: a blocking TIN.
           TIN never appears merely because the record holds a value. */}
       {company && (
-        <div className="mb-6 flex flex-wrap items-center text-[12px] text-muted-foreground tracking-wide">
+        <div className="mb-2 flex flex-wrap items-center text-[12px] text-muted-foreground tracking-wide" data-testid="orientation-identity">
           <span className="text-foreground/80">{company.name}</span>
           <span className="px-1.5 text-muted-foreground/50">·</span>
           <span className="tabular-nums">FY{periodYear}</span>
+          {orientation.service && (
+            <>
+              <span className="px-1.5 text-muted-foreground/50">·</span>
+              <span>{orientation.service}</span>
+            </>
+          )}
           {!frameworkConfirmed && (
             <>
               <span className="px-1.5 text-muted-foreground/50">·</span>
               <EntityContextSuggestion reportingFrameworkDbValue={company.reporting_framework} companyCreatedAt={company.created_at} />
             </>
+          )}
+        </div>
+      )}
+
+      {company && (
+        <div className="mb-6 flex flex-wrap items-baseline gap-x-1.5 text-[12px] text-muted-foreground" data-testid="orientation-status">
+          <span>
+            <span className="font-medium text-foreground/70">{orientation.currentStageLabel}:</span> {orientation.currentStatusLabel}
+          </span>
+          {orientation.lastCompletedMilestone && (
+            <span className="text-muted-foreground/70" data-testid="orientation-last-milestone">
+              — last completed: {orientation.lastCompletedMilestone.stageLabel}
+              {orientation.lastCompletedMilestone.at &&
+                ` (${new Date(orientation.lastCompletedMilestone.at).toLocaleDateString("en-GB", { dateStyle: "medium" })})`}
+            </span>
           )}
         </div>
       )}

@@ -154,3 +154,32 @@ describe("WorkspaceOverview — certification is the single authority for whethe
     expect(html).not.toContain("undefined");
   });
 });
+
+describe("WorkspaceOverview — orientation strip (requirement: visibly identify Entity, Period, Current stage, Current status, last completed milestone)", () => {
+  it("shows entity, period, current stage and current status — sourced from the same workspaceState.nextAction the dominant CTA uses", async () => {
+    const html = await renderOverview(contradictionSnapshot());
+
+    expect(html).toContain(company.name);
+    expect(html).toContain("FY" + PY);
+    expect(html).toContain("Prepare Data:");
+    expect(html).toContain("Resolve trial-balance difference");
+  });
+
+  it("a brand-new workspace with no completed stage shows no fabricated 'last completed' milestone", async () => {
+    const html = await renderOverview(null);
+    expect(html).not.toContain("last completed:");
+  });
+
+  it("a workspace with a genuinely completed stage shows its last completed milestone", async () => {
+    const completed: UploadSnapshot = {
+      ...contradictionSnapshot(),
+      certificationVerdict: "certified",
+      certificationBlocker: null,
+      safishaStatus: "clean",
+      hesabuPassedAt: "2026-02-01T00:00:00.000Z",
+    };
+    const html = await renderOverview(completed);
+    expect(html).toContain("last completed:");
+    expect(html).toContain("Prepare Statements");
+  });
+});
