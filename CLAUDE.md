@@ -324,7 +324,7 @@ src/
       EngagementHub.tsx       ← Returning-user chooser, rendered by Dashboard.tsx when the routing decision is ambiguous (>1 open engagement, or 0 open + >1 company)
       PrepareWorkspace.tsx    ← Stage 1
       ReconcileWorkspace.tsx  ← Stage 2
-      StatementsWorkspace.tsx ← Stage 3 (has known TS bug — see section 9)
+      StatementsWorkspace.tsx ← Stage 3
       TaxWorkspace.tsx        ← Stage 4
       ComplianceWorkspace.tsx ← Stage 5
       FilingWorkspace.tsx     ← Stage 6
@@ -436,18 +436,16 @@ and ask the user to confirm before proceeding.
 
 ## 9. Known Pre-Existing TypeScript Errors (Do Not Fix Without Task)
 
-These errors exist in origin/main and are NOT caused by recent changes.
-Do not fix them as a side effect of other work — they need separate tasks.
-
-- `StatementsWorkspace.tsx`: destructures `{ upload, workspaceState }` but JSX
-  uses `company`, `companyId`, `periodYear` — compile blocker, needs its own task
-- `SaffLogo.tsx`: missing SVG asset imports (brand assets not committed)
-- `AvatarUpload.tsx`: CSS side-effect import
-- `ErrorBoundary.tsx`, `PageErrorBoundary.tsx`: `import.meta.env.DEV` type
-- `ExportStatements.tsx`: missing `xlsx` module types
-- `KingaFindingsPanel.tsx`, `SafishaGate.tsx`, etc.: `VITE_SUPABASE_URL` not in
-  `ImportMetaEnv` (needs vite-env.d.ts update)
-- `integrations/supabase/client.ts`: same env var types issue
+**Corrected 2026-09-22 (canonical-workflow remediation, PR #31 continuation).** Every item this
+section previously listed is STALE: `bunx tsc --noEmit -p tsconfig.app.json` returns zero errors
+against the live tree (verified repeatedly this session, including after touching
+`StatementsWorkspace.tsx`'s own sibling stage pages). Specifically checked and confirmed false:
+`StatementsWorkspace.tsx` destructures `{ upload, uploads, workspaceState, companyId, periodYear,
+company }` — every one of those is used in its JSX; there is no mismatch, and it compiles cleanly
+(and is now exercised directly by `src/pages/workspace/stageLockGate.test.ts`). `SaffLogo.tsx` does
+not exist in this repository (removed in the rebrand — see §7's file map). If a future session hits
+a genuine, currently-reproducible TypeScript error anywhere, it is NEW and should be triaged on its
+own merits — do not assume it matches an entry that used to be here.
 
 ### 9.1 Registered Live Defects (Do Not Fix Opportunistically)
 
@@ -762,7 +760,6 @@ Files changed:
   then deploy 7 edge functions (user must run these commands)
 - **Task #255**: Phase C — re-home panels by accounting stage inside each workspace page
 - **Task #256**: Phase D — acceptance tests + certification pass
-- **StatementsWorkspace.tsx TS bug**: destructuring mismatch (own task needed)
 
 ### WIP branch (`recover-wip-20260720`) — Integration Authority
 A recovery branch exists that is 3 commits ahead / 45 commits behind origin/main.
