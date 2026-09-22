@@ -270,6 +270,11 @@ export default function WorkspaceOverview() {
   const isFailed = classification.state === "FAILED";
   const isProcessing = classification.state === "PROCESSING";
   const isInconsistent = classification.state === "INCONSISTENT";
+  // deriveWorkspaceState's PATH 6B — the trial balance's own account classification may be entirely done
+  // (classification.state could read COMPLETE_NO_REVIEW here) while the SEPARATE, authoritative SAFISHA
+  // certification (tb_certifications) is not "certified" yet. Checked via workspaceState, not classification,
+  // because classification has no visibility into certification at all.
+  const isCertificationBlocked = nextAction.id === "fix-certification-failure" || nextAction.id === "await-certification";
   const needsReview = classification.state === "COMPLETE_WITH_REVIEW" || classification.state === "PARTIAL";
 
   const launchState = deriveLaunchState({ granted, hasUpload, dataStart: dataStart.choice });
@@ -311,6 +316,25 @@ export default function WorkspaceOverview() {
     // Impossible or self-contradictory values (see classificationPresentation.ts) — fail closed. Never guessed or
     // silently normalised, and never presented as a review item, since the review screen reads the same corrupt data.
     decision = buildClassificationDecision(classification, classificationDecisionOptions);
+  } else if (isCertificationBlocked) {
+    // workspaceState.missions.prepare.status is "blocked" for a reason classification alone cannot see — arithmetic
+    // or another tb_certifications failure (deriveWorkspaceState PATH 6B). classification itself may read
+    // COMPLETE_NO_REVIEW here (account mapping genuinely finished), which is exactly the contradiction this branch
+    // exists to prevent: without it, the generic "!prepareDone" branch below would show "No review required" while
+    // the trial balance has NOT actually been certified as safe to build statements on. workspaceState.nextAction
+    // is the single authority for this text — the same one PrepareWorkspace's own pre-flight panel is built from.
+    decision = {
+      eyebrow: STAGE_CONFIGS.prepare.label,
+      headline: nextAction.label,
+      detail: nextAction.description,
+      button: {
+        label: nextAction.label,
+        href: nextAction.href,
+        icon: <ArrowRight className="w-4 h-4" />,
+      },
+      tone: "warn",
+      offersFileReplacement: true,
+    };
   } else if (needsReview) {
     decision = buildClassificationDecision(classification, classificationDecisionOptions);
   } else if (!prepareDone) {

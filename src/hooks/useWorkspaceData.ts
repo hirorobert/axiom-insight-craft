@@ -13,6 +13,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { deriveWorkspaceState } from "@/lib/workspace/deriveWorkspaceState";
 import { resolveActiveUpload } from "@/lib/workspace/resolveActiveUpload";
+import { useCertificationReadiness } from "@/hooks/useCertificationReadiness";
+import { computeCertificationReadiness } from "@/lib/workspace/computeCertificationReadiness";
 import type { WorkspaceState, UploadSnapshot } from "@/lib/workspace/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -97,6 +99,8 @@ function toUploadSnapshot(
   hesabuPassedAt: string | null,
   kingaSignedAt: string | null,
   filingSubmittedAt: string | null,
+  certificationVerdict: UploadSnapshot["certificationVerdict"],
+  certificationBlocker: string | null,
 ): UploadSnapshot {
   const { periodYear } = deriveFiscalPeriod(upload, company);
   return {
@@ -114,6 +118,10 @@ function toUploadSnapshot(
     hesabuPassedAt,
     kingaSignedAt,
     filingSubmittedAt,
+    // Undefined while the certification read has not resolved yet — deriveWorkspaceState treats
+    // that identically to "not certified" (see its own PATH 6B doc comment).
+    certificationVerdict,
+    certificationBlocker,
   };
 }
 
@@ -277,12 +285,34 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     };
   }, [user, cId, pYear]);
 
+  // ── Certification readiness — the SAME authority PrepareWorkspace's own pre-flight panel
+  // uses (computeCertificationReadiness, sourced from the tb_certifications ledger). This is
+  // the single source deriveWorkspaceState consults to decide whether the trial balance is
+  // safe to build statements on; Overview, the tab bar and Prepare Statements must never
+  // disagree with Prepare Data about this.
+  const certReadiness = useCertificationReadiness(cId || null, pYear || null, upload?.id ?? null);
+  const readiness = upload
+    ? computeCertificationReadiness({
+        uploadExists: true,
+        currentUploadId: upload.id,
+        authoritative: certReadiness.authoritative,
+        latestForUpload: certReadiness.latestForUpload,
+        fetchFailed: certReadiness.fetchFailed,
+        revalidating: certReadiness.loading,
+      })
+    : undefined;
+
   // Derive workspace state
   const snapshot: UploadSnapshot | null = upload
-    ? toUploadSnapshot(upload, company, hesabuPassedAt, kingaSignedAt, filingSubmittedAt)
+    ? toUploadSnapshot(upload, company, hesabuPassedAt, kingaSignedAt, filingSubmittedAt, readiness?.verdict, readiness?.blocker ?? null)
     : null;
 
   const workspaceState = deriveWorkspaceState(cId, company?.name ?? "", pYear, snapshot);
+
+  const refreshUpload = useCallback(() => {
+    fetchData();
+    certReadiness.refetch();
+  }, [fetchData, certReadiness]);
 
   return {
     companyId: cId,
@@ -293,6 +323,6 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     workspaceState,
     loading,
     refreshing,
-    refreshUpload: fetchData,
+    refreshUpload,
   };
 }

@@ -44,6 +44,7 @@ import {
 import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
 import TrialBalanceTemplateGuide from "@/components/workspace/TrialBalanceTemplateGuide";
 import {
+  DiscardError,
   DiscardUploadDialog,
   discardUpload,
   isCertifiedRun,
@@ -155,9 +156,9 @@ export default function PrepareWorkspace() {
     } catch (err) {
       setPendingFile(null);
       toast.error(
-        err instanceof Error
-          ? `Could not discard the prior trial balance: ${err.message}`
-          : "Could not discard the prior trial balance.",
+        err instanceof DiscardError
+          ? err.safeMessage
+          : "Could not discard the prior trial balance. Please try again.",
       );
     } finally {
       setReplacing(false);

@@ -76,4 +76,15 @@ export interface UploadSnapshot {
   hesabuPassedAt?: string | null;
   kingaSignedAt?: string | null;
   filingSubmittedAt?: string | null;
+  /**
+   * The authoritative SAFISHA certification verdict for THIS upload — the same vocabulary
+   * computeCertificationReadiness() (src/lib/workspace/computeCertificationReadiness.ts) returns,
+   * sourced from the tb_certifications ledger. undefined means the caller has not (yet) resolved
+   * the certification read (e.g. still loading) — deriveWorkspaceState treats that identically to
+   * "not certified": the ABSENCE of a certification record is never evidence of certification.
+   * Only the literal value "certified" may unlock statement readiness.
+   */
+  certificationVerdict?: "certified" | "review" | "blocked" | "pending" | "stale" | "unknown" | "superseded";
+  /** Plain-language reason for the verdict, straight from computeCertificationReadiness — never re-derived here. */
+  certificationBlocker?: string | null;
 }

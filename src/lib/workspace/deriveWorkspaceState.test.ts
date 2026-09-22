@@ -1,7 +1,7 @@
 /**
  * deriveWorkspaceState.test.ts
  *
- * 14 behavioural test cases for the deterministic workspace engine.
+ * Behavioural test cases for the deterministic workspace engine.
  *
  * Invariants verified on every case:
  *   I-1  Exactly one nextAction exists in every result
@@ -11,6 +11,8 @@
  *   I-5  hesabuPassedAt=null cannot reach KINGA-ready or beyond
  *   I-6  kingaSignedAt=null cannot reach FILING-ready or beyond
  *   I-7  filingSubmittedAt=null cannot produce "Review Completed Engagement"
+ *   I-8  certificationVerdict !== "certified" NEVER produces "TB is valid" or statements="ready"/"passed"
+ *   I-9  certificationVerdict=undefined (not yet resolved) is treated identically to "not certified"
  */
 
 import { describe, it, expect } from "vitest";
@@ -22,7 +24,13 @@ import type { UploadSnapshot } from "./types";
 const CID = "company-abc";
 const PY  = 2025;
 
-/** Minimal valid upload — TB processed and clean, all sign-offs absent */
+/**
+ * Minimal valid upload — TB processed and clean, certification passed, all sign-offs absent.
+ * certificationVerdict defaults to "certified" here so every PRE-EXISTING path test below
+ * (7 through 13, all written before PATH 6B existed) keeps exercising exactly what it always
+ * exercised — the certification-gating behaviour itself gets its own dedicated tests instead
+ * of being folded silently into every other case.
+ */
 const base: UploadSnapshot = {
   id:              "upload-001",
   companyId:       CID,
@@ -37,6 +45,8 @@ const base: UploadSnapshot = {
   hesabuPassedAt:  null,
   kingaSignedAt:   null,
   filingSubmittedAt: null,
+  certificationVerdict: "certified",
+  certificationBlocker: null,
 };
 
 function snap(overrides: Partial<UploadSnapshot>): UploadSnapshot {
@@ -159,6 +169,90 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     expect(result.missions.tax.status).toBe("locked");
     expect(result.missions.tax.blocker).toContain("constitutional gate");
     assertInvariants(result);
+  });
+
+  // ── PATH 6B: Certification not yet established ──────────────────────────
+  // Root-cause coverage for the live contradiction observed 2026-09-22: Overview said
+  // "TB is valid — cross-validate the draft financial statements" while Prepare Data's own
+  // pre-flight panel showed CHECKS FAILED (Debits != Credits) for the SAME upload.
+
+  it("PATH 6B: certificationVerdict=blocked (arithmetic failure) → fix-certification-failure, statements+tax locked, never 'TB is valid'", () => {
+    const result = deriveWorkspaceState(
+      CID, "Acme Ltd", PY,
+      snap({
+        certificationVerdict: "blocked",
+        certificationBlocker: "Debits 185969447743.17 != Credits 185969172163.17 (difference: 275580.00)",
+      }),
+    );
+
+    expect(result.nextAction.id).toBe("fix-certification-failure");
+    expect(result.nextAction.label).toBe("Resolve trial-balance difference");
+    expect(result.nextAction.description).toContain("275580.00");
+    expect(result.nextAction.blocked).toBe(false);
+    expect(result.missions.prepare.status).toBe("blocked");
+    // I-8: statements must be LOCKED, never "ready" or "passed" — the exact defect being fixed.
+    expect(result.missions.statements.status).toBe("locked");
+    expect(result.missions.statements.blocker).toContain("Debits");
+    expect(result.missions.tax.status).toBe("locked");
+    expect(result.nextAction.description).not.toContain("TB is valid");
+    for (const [, mission] of Object.entries(result.missions)) expect(mission.summary).not.toContain("TB is valid");
+    assertInvariants(result);
+  });
+
+  it("PATH 6B fires BEFORE PATH 7/8 even when safishaStatus=clean would otherwise reach validate-draft-statements", () => {
+    const result = deriveWorkspaceState(
+      CID, "Acme Ltd", PY,
+      snap({ safishaStatus: "clean", certificationVerdict: "blocked", certificationBlocker: "Arithmetic failure." }),
+    );
+
+    expect(result.nextAction.id).toBe("fix-certification-failure");
+    expect(result.missions.statements.status).toBe("locked");
+    assertInvariants(result);
+  });
+
+  it("PATH 6B: certificationVerdict=review → not certified, statements locked, distinct CTA from arithmetic failure", () => {
+    const result = deriveWorkspaceState(
+      CID, "Acme Ltd", PY,
+      snap({ certificationVerdict: "review", certificationBlocker: "Some accounts still need a classification decision." }),
+    );
+
+    expect(result.missions.statements.status).toBe("locked");
+    expect(result.missions.prepare.status).toBe("blocked");
+    expect(result.nextAction.description).not.toContain("TB is valid");
+    assertInvariants(result);
+  });
+
+  it.each(["pending", "stale", "superseded", "unknown"] as const)(
+    "PATH 6B: certificationVerdict=%s (not a failure, just not certified) → await-certification, statements locked, prepare NOT claimed passed",
+    (verdict) => {
+      const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({ certificationVerdict: verdict }));
+
+      expect(result.nextAction.id).toBe("await-certification");
+      expect(result.nextAction.label).toBe("Certify the trial balance");
+      expect(result.missions.statements.status).toBe("locked");
+      expect(result.missions.prepare.status).not.toBe("passed");
+      expect(result.nextAction.description).not.toContain("TB is valid");
+      assertInvariants(result);
+    },
+  );
+
+  it("I-9: certificationVerdict=undefined (never resolved) is treated exactly like 'not certified' — never a silent pass", () => {
+    const { certificationVerdict, certificationBlocker, ...withoutCertification } = base;
+    void certificationVerdict;
+    void certificationBlocker;
+    const result = deriveWorkspaceState(CID, "Acme Ltd", PY, { ...withoutCertification });
+
+    expect(result.nextAction.id).toBe("await-certification");
+    expect(result.missions.statements.status).toBe("locked");
+    expect(result.missions.statements.status).not.toBe("ready");
+    assertInvariants(result);
+  });
+
+  it("PATH 6B blocker text is carried through verbatim from the authoritative source, never re-derived or replaced with a generic message when present", () => {
+    const specific = "Debits 100.00 != Credits 90.00 (difference: 10.00)";
+    const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({ certificationVerdict: "blocked", certificationBlocker: specific }));
+    expect(result.nextAction.description).toBe(specific);
+    expect(result.missions.statements.blocker).toBe(specific);
   });
 
   // ── PATH 7: Safisha clean, no HESABU ────────────────────────────────────

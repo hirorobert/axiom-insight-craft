@@ -78,6 +78,34 @@ export function isCertifiedRun(target: DiscardTarget | null | undefined): boolea
   return target?.status === "complete" || target?.is_valid === true;
 }
 
+/**
+ * DiscardError — thrown only in place of a raw Supabase/Postgres error. Carries a plain-language, privacy-safe
+ * reason (never a raw constraint/table name or SQL fragment) and a short reference id the person can quote to
+ * support; the original error is logged to the console (not the toast) for diagnosis. `retryable` distinguishes a
+ * transient problem (network, a lock held elsewhere — safe to try again) from one that will not resolve on its own.
+ */
+export class DiscardError extends Error {
+  readonly reference: string;
+  readonly retryable: boolean;
+  constructor(reason: string, opts: { retryable: boolean; cause?: unknown }) {
+    super(reason);
+    this.name = "DiscardError";
+    this.reference = generateDiscardReference();
+    this.retryable = opts.retryable;
+    if (opts.cause !== undefined) {
+      console.error(`[discardUpload ${this.reference}]`, opts.cause);
+    }
+  }
+  /** The full message: safe reason + reference id, ready to show verbatim in a toast. */
+  get safeMessage(): string {
+    return `${this.message} (reference ${this.reference})${this.retryable ? " — safe to try again." : ""}`;
+  }
+}
+
+function generateDiscardReference(): string {
+  return `DSC-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+
 /** How long a discard stays reversible. */
 export const UNDO_WINDOW_MS = 15000;
 
@@ -100,26 +128,45 @@ export interface DiscardReceipt {
  * Returns a receipt that makes the act reversible for the undo window.
  */
 export async function discardUpload(target: DiscardTarget): Promise<DiscardReceipt> {
-  // Capture before destroying — this is what makes undo exact.
-  const { data: row } = await supabase
+  // Capture before destroying — this is what makes undo exact. Fail closed: if the snapshot read itself fails
+  // (network, a transient RLS/auth hiccup), nothing is deleted. Proceeding anyway would silently turn an
+  // "irreversible with a 15-second undo" discard into a PERMANENTLY irreversible one — restoreUpload() can only
+  // put a row back when receipt.row is present — without ever telling the person that happened.
+  const { data: row, error: readError } = await supabase
     .from("trial_balance_uploads")
     .select("*")
     .eq("id", target.id)
     .maybeSingle();
+  if (readError) {
+    throw new DiscardError("Could not read this trial balance before discarding it, so nothing was removed.", { retryable: true, cause: readError });
+  }
 
   let fileBlob: Blob | null = null;
   if (target.file_path) {
+    // Storage cleanup is genuinely best-effort (see module doc): a download/remove failure here does not block the
+    // discard, and does not affect undo (undo re-uploads fileBlob only when present).
     const { data } = await supabase.storage
       .from("trial-balance-files")
       .download(target.file_path);
     fileBlob = data ?? null;
     await supabase.storage.from("trial-balance-files").remove([target.file_path]);
   }
-  const { error } = await supabase
+  const { error: deleteError } = await supabase
     .from("trial_balance_uploads")
     .delete()
     .eq("id", target.id);
-  if (error) throw error;
+  if (deleteError) {
+    // A specific, common, explainable cause: another record still references this upload and the database refused
+    // the delete (foreign-key constraint) rather than orphaning that record. Never surface the raw constraint/table
+    // name from the database — that is an internal detail, not something the person needs or should see.
+    const blockedByReference = deleteError.code === "23503";
+    throw new DiscardError(
+      blockedByReference
+        ? "This trial balance could not be discarded because other records in this workspace still depend on it."
+        : "This trial balance could not be discarded.",
+      { retryable: !blockedByReference, cause: deleteError },
+    );
+  }
 
   return {
     id: target.id,
@@ -226,9 +273,9 @@ export function DiscardUploadDialog({
       onOpenChange(false);
     } catch (err) {
       toast.error(
-        err instanceof Error
-          ? `Could not discard: ${err.message}`
-          : "Could not discard this trial balance.",
+        err instanceof DiscardError
+          ? err.safeMessage
+          : "Could not discard this trial balance. Please try again.",
       );
     } finally {
       setBusy(false);
