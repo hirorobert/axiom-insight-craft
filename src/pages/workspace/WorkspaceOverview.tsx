@@ -44,31 +44,11 @@ import { useDataStart } from "@/hooks/useDataStart";
 import { deriveLaunchState, LAUNCH_COPY } from "@/lib/workspace/onboardingState";
 import { evaluateTaxProfile, TAX_PROFILE_COPY } from "@/lib/jurisdiction/taxProfile";
 import { resolveNextActionDestination } from "@/lib/workspace/resolveNextActionDestination";
+import { deriveClassificationPresentation } from "@/lib/workspace/classificationPresentation";
 import { detectEntityAccountingContext } from "@/lib/accounting/detectEntityContext";
 import { classifyConfirmationPosture } from "@/lib/accounting/confirmationPosture";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-function countUnresolved(
-  processingResult: Record<string, unknown> | null | undefined,
-): { unresolved: number; total: number | null; classified: number | null } {
-  const pr = (processingResult ?? null) as
-    | { summary?: Record<string, unknown>; needs_review_accounts?: unknown }
-    | null;
-  const list = Array.isArray(pr?.needs_review_accounts) ? pr!.needs_review_accounts : null;
-  const summary = pr?.summary ?? null;
-  const total =
-    summary && typeof summary.total_accounts === "number" ? summary.total_accounts : null;
-  const classified =
-    summary && typeof summary.auto_classified === "number" ? summary.auto_classified : null;
-  const unresolved =
-    list !== null
-      ? list.length
-      : total !== null && classified !== null
-        ? Math.max(0, total - classified)
-        : 0;
-  return { unresolved, total, classified };
-}
 
 const num = (n: number) => n.toLocaleString("en-US");
 
@@ -276,9 +256,11 @@ export default function WorkspaceOverview() {
     return s !== "passed" && s !== "signed" && s !== "locked" && s !== "not_applicable";
   });
 
-  const { unresolved, total, classified } = countUnresolved(
-    upload?.processing_result as Record<string, unknown> | null,
-  );
+  // Classification outcome — deterministic, side-effect-free, exhaustively typed. The ONE place that interprets
+  // upload.status + upload.processing_result into a classification narrative; see classificationPresentation.ts for
+  // the proven data lineage (mapping_completeness.mapped_accounts is "classified" — never summary.auto_classified,
+  // which is proven to count Tier 4-5 only and excludes every professionally-approved mapping).
+  const classification = deriveClassificationPresentation(upload?.status, upload?.processing_result);
 
   // ── The single decision on this screen ────────────────────────────────────
   type Decision = {
@@ -299,10 +281,13 @@ export default function WorkspaceOverview() {
 
   let decision: Decision;
 
-  const s = upload?.status;
-  const isFailed = s === "blocked" || s === "error";
-  const isProcessing = s === "processing" || s === "pending" || s === "queued";
-  const needsReview = s === "needs_review" && unresolved > 0;
+  // The four non-happy-path classification states each get their own branch below; the two count-bearing "done"
+  // states (COMPLETE_WITH_REVIEW / PARTIAL) share the review branch, and COMPLETE_NO_REVIEW / NOT_COMPUTED fall
+  // through to the ordinary "finish preparing" branch, where COMPLETE_NO_REVIEW additionally supplies its own detail.
+  const isFailed = classification.state === "FAILED";
+  const isProcessing = classification.state === "PROCESSING";
+  const isInconsistent = classification.state === "INCONSISTENT";
+  const needsReview = classification.state === "COMPLETE_WITH_REVIEW" || classification.state === "PARTIAL";
 
   const launchState = deriveLaunchState({ granted, hasUpload, dataStart: dataStart.choice });
 
@@ -333,8 +318,8 @@ export default function WorkspaceOverview() {
   } else if (isFailed) {
     decision = {
       eyebrow: STAGE_CONFIGS.prepare.label,
-      headline: "The trial balance could not be processed.",
-      detail: "Re-run processing, or replace the file in Prepare Data.",
+      headline: classification.headline,
+      detail: classification.detail,
       button: {
         label: retrying ? "Retrying…" : "Retry processing",
         onClick: handleRetryProcessing,
@@ -347,9 +332,8 @@ export default function WorkspaceOverview() {
   } else if (isProcessing) {
     decision = {
       eyebrow: STAGE_CONFIGS.prepare.label,
-      headline: "Trial balance is processing.",
-      detail:
-        "This screen updates itself. The run continues on the server if you leave the page.",
+      headline: classification.headline,
+      detail: classification.detail,
       button: {
         label: "Open Prepare Data",
         href: `${basePath}/prepare`,
@@ -357,16 +341,30 @@ export default function WorkspaceOverview() {
       },
       tone: "muted",
     };
-  } else if (needsReview) {
+  } else if (isInconsistent) {
+    // Impossible or self-contradictory values (see classificationPresentation.ts) — fail closed. Never guessed or
+    // silently normalised, and never presented as a review item, since the review screen reads the same corrupt data.
     decision = {
       eyebrow: STAGE_CONFIGS.prepare.label,
-      headline: `${num(unresolved)} ${unresolved === 1 ? "account requires" : "accounts require"} review`,
-      detail:
-        total !== null && classified !== null
-          ? `${num(total)} accounts processed · ${num(classified)} classified · ${num(unresolved)} require professional review.`
-          : "These accounts have no reliable classification and need a professional decision.",
+      headline: classification.headline,
+      detail: classification.detail,
       button: {
-        label: `Review ${num(unresolved)} ${unresolved === 1 ? "account" : "accounts"}`,
+        label: "Open Prepare Data",
+        href: `${basePath}/prepare`,
+        icon: <ArrowRight className="w-4 h-4" />,
+      },
+      tone: "warn",
+      offersFileReplacement: true,
+    };
+  } else if (needsReview) {
+    // classification.counts is guaranteed non-null for COMPLETE_WITH_REVIEW / PARTIAL.
+    const reviewCount = classification.counts?.reviewRequired ?? 0;
+    decision = {
+      eyebrow: STAGE_CONFIGS.prepare.label,
+      headline: classification.headline,
+      detail: classification.detail,
+      button: {
+        label: `Review ${num(reviewCount)} ${reviewCount === 1 ? "account" : "accounts"}`,
         href: buildPrepareReviewRoute(companyId, periodYear, upload?.id ?? null),
         icon: <ArrowRight className="w-4 h-4" />,
       },
@@ -374,10 +372,13 @@ export default function WorkspaceOverview() {
       offersFileReplacement: true,
     };
   } else if (!prepareDone) {
+    // Surfaces the classification result immediately when it is authoritatively available (COMPLETE_NO_REVIEW).
+    // NOT_COMPUTED and every other non-terminal state fall back to the plain "later stages open" line — never a
+    // fabricated count, and never a claim that this stage is finished (prepareDone still governs that separately).
     decision = {
       eyebrow: STAGE_CONFIGS.prepare.label,
       headline: "Finish preparing the trial balance.",
-      detail: "Later stages open as each one passes.",
+      detail: classification.state === "COMPLETE_NO_REVIEW" ? classification.headline : "Later stages open as each one passes.",
       button: {
         label: "Open Prepare Data",
         href: `${basePath}/prepare`,
