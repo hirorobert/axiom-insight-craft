@@ -272,6 +272,7 @@ src/
       resolveReturningUserRoute.ts ← Pure returning-user routing decision (resume / chooser / start_single_company / first_run) behind Dashboard.tsx
       deriveOrientationSummary.ts ← Pure projection of Service/Current stage/Current status/last completed milestone for the WorkspaceOverview orientation strip
       workflowAcceptanceFixtures.ts ← Deterministic UploadSnapshot fixtures covering all 11 deriveWorkspaceState paths (incl. contradiction/missing-certification/stale-processing), fed to the internal WorkspaceStatesAcceptance gallery
+      concurrencyLimit.ts      ← Bounded-fan-out worker pool (mapWithConcurrencyLimit) + fail-closed-on-any-failure aggregation (aggregateSettledResults) — the returning-user hub's query-safety primitives
       onboardingState.ts      ← Pure launch state machine (LAUNCHPAD/DATA_CHOICE/IMPORT_PENDING/EMPTY_WORKSPACE/ACTIVE) + LAUNCH_COPY
       navigation.ts           ← Navigation derived from the persisted engagement scope
       mandate.ts              ← Engagement capabilities registry (CAPABILITY_OUTCOMES) + mandate projection

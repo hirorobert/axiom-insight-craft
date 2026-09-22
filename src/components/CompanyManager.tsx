@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -20,12 +21,11 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Settings, Plus, Pencil, Trash2, Building2 } from "lucide-react";
+import { Settings, Plus, Pencil, Trash2, Building2, ArrowRight } from "lucide-react";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { validateTin } from "@/components/workspace/CompanyTinDialog";
 import { FrameworkConfirmationBanner } from "@/components/FrameworkConfirmationBanner";
-import { Textarea } from "@/components/ui/textarea";
-import { deriveCompanyFieldLock, guardCompanyFieldChange } from "@/lib/accounting/companyFieldLock";
+import { deriveCompanyFieldLock, guardCompanyFieldChange, type ProcessingCertainty } from "@/lib/accounting/companyFieldLock";
 
 const FRAMEWORK_LABELS: Record<string, string> = {
   ifrs_for_smes: "IFRS for SMEs",
@@ -97,56 +97,58 @@ const EMPTY_FORM_DATA: CompanyFormData = {
 };
 
 /**
- * FieldCorrectionAffordance — the one controlled path past a locked period/framework field.
- * Requires a non-empty reason before the field itself becomes editable again; the reason is what
- * confirmCorrection() stores and handleSubmit() later writes into the SAME audit_logs entry as the
- * update, alongside the old and new values — never a silent, unexplained change.
+ * StartCorrectedEngagementAffordance — the one controlled path past locked period/framework fields.
+ * There is no in-place mutation of any kind here: opening the picker and confirming a year only
+ * ever calls `onStartCorrectedEngagement`, which navigates to the workspace for that company/year
+ * through the existing authoritative creation path (ServiceLaunchpad → open_engagement_with_scope)
+ * — the SAME idempotent, uniqueness-constrained entry point every other new engagement goes
+ * through. Nothing here writes to `companies.reporting_framework` or `companies.fiscal_year_end`,
+ * and nothing here copies the original engagement's certifications, drafts, reconciliations or
+ * processing status — a corrected engagement always starts genuinely empty.
  */
-function FieldCorrectionAffordance({
+function StartCorrectedEngagementAffordance({
   reason,
-  active,
-  draftReason,
-  onDraftReasonChange,
-  onStart,
-  onCancel,
-  onConfirm,
-  testId,
+  yearOptions,
+  onStartCorrectedEngagement,
 }: {
   reason: string | null;
-  active: boolean;
-  draftReason: string;
-  onDraftReasonChange: (v: string) => void;
-  onStart: () => void;
-  onCancel: () => void;
-  onConfirm: () => void;
-  testId: string;
+  yearOptions: number[];
+  onStartCorrectedEngagement: (year: number) => void;
 }) {
-  if (active) {
+  const [picking, setPicking] = useState(false);
+  const [year, setYear] = useState(String(yearOptions[0]));
+
+  if (picking) {
     return (
-      <div className="space-y-2 rounded-md border border-border p-2.5" data-testid={`${testId}-correction-panel`}>
-        <Label htmlFor={`${testId}-correction-reason`} className="text-xs">
-          Reason for this correction (recorded in the audit log)
+      <div className="space-y-2 rounded-md border border-border p-2.5" data-testid="corrected-engagement-panel">
+        <Label htmlFor="corrected-engagement-year" className="text-xs">
+          Period for the corrected engagement
         </Label>
-        <Textarea
-          id={`${testId}-correction-reason`}
-          value={draftReason}
-          onChange={(e) => onDraftReasonChange(e.target.value)}
-          placeholder="e.g. The original selection was a data-entry mistake, confirmed with the client on…"
-          className="min-h-16 text-xs"
-          autoFocus
-        />
+        <Select value={year} onValueChange={setYear}>
+          <SelectTrigger id="corrected-engagement-year" data-testid="corrected-engagement-year-select">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {yearOptions.map((y) => (
+              <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-[11px] text-muted-foreground">
+          This opens a new, separate engagement for the same entity. The original engagement and every
+          result already produced under it stay exactly as they are — nothing is copied or overwritten.
+        </p>
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPicking(false)}>
             Cancel
           </Button>
           <Button
             type="button"
             size="sm"
-            disabled={!draftReason.trim()}
-            onClick={onConfirm}
-            data-testid={`${testId}-confirm-correction`}
+            onClick={() => onStartCorrectedEngagement(Number(year))}
+            data-testid="confirm-corrected-engagement"
           >
-            Confirm correction
+            Continue <ArrowRight className="ml-1 h-3 w-3" />
           </Button>
         </div>
       </div>
@@ -154,16 +156,16 @@ function FieldCorrectionAffordance({
   }
   return (
     <div className="flex items-center justify-between gap-2">
-      <p className="text-xs text-amber-600 dark:text-amber-500" data-testid={`${testId}-lock-reason`}>
+      <p className="text-xs text-amber-600 dark:text-amber-500" data-testid="field-lock-reason">
         {reason}
       </p>
       <button
         type="button"
-        onClick={onStart}
+        onClick={() => setPicking(true)}
         className="shrink-0 whitespace-nowrap text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
-        data-testid={`${testId}-start-correction`}
+        data-testid="start-corrected-engagement"
       >
-        Correct instead
+        Start corrected engagement
       </button>
     </div>
   );
@@ -178,37 +180,41 @@ export const CompanyManager = () => {
   const [tinTouched, setTinTouched] = useState(false);
   const { user } = useAuth();
   const { logAction } = useAuditLog();
+  const navigate = useNavigate();
 
   const [formData, setFormData] = useState<CompanyFormData>(EMPTY_FORM_DATA);
 
-  // ── Period/framework contract (requirement #4): once ANY trial balance for this company has been
-  // processed, reporting_framework and fiscal_year_end lock — a plain form save can never silently
-  // reinterpret data that statements/tax output already depend on. "Correct instead" is the one
-  // controlled path past the lock: a mandatory reason, recorded atomically with the update in the
-  // SAME audit_logs entry (useAuditLog is already the approved write path for company edits — no
-  // second, competing mutation is introduced).
-  const [hasProcessedUpload, setHasProcessedUpload] = useState(false);
-  const [frameworkCorrectionReason, setFrameworkCorrectionReason] = useState<string | null>(null);
-  const [fiscalYearEndCorrectionReason, setFiscalYearEndCorrectionReason] = useState<string | null>(null);
-  const [correctingField, setCorrectingField] = useState<"reporting_framework" | "fiscal_year_end" | null>(null);
-  const [correctionDraftReason, setCorrectionDraftReason] = useState("");
+  // ── Period/framework contract: once ANY trial balance for this company has been processed,
+  // reporting_framework and fiscal_year_end are IMMUTABLE — there is no reason-based override of
+  // any kind (an audit log entry does not preserve financial consistency). "checking" is the
+  // default the instant the edit dialog opens: the read has not resolved yet, so the fields stay
+  // locked until a POSITIVE "not_processed" confirmation arrives — never optimistically unlocked
+  // while uncertain, and a failed read locks just as hard as a confirmed "processed" (fail closed).
+  const [processingCertainty, setProcessingCertainty] = useState<ProcessingCertainty>("checking");
 
-  const fieldLock = deriveCompanyFieldLock({ hasProcessedUpload });
-  const frameworkEditable = !fieldLock.locked || frameworkCorrectionReason !== null;
-  const fiscalYearEndEditable = !fieldLock.locked || fiscalYearEndCorrectionReason !== null;
+  const fieldLock = deriveCompanyFieldLock({ processingCertainty });
+  const frameworkEditable = !fieldLock.locked;
+  const fiscalYearEndEditable = !fieldLock.locked;
 
-  const startCorrection = (field: "reporting_framework" | "fiscal_year_end") => {
-    setCorrectingField(field);
-    setCorrectionDraftReason("");
-  };
+  const correctedEngagementYearOptions = (() => {
+    const stored = editingCompany?.fiscal_year_end;
+    const storedYear = stored && /^\d{4}-\d{2}-\d{2}$/.test(stored) ? Number(stored.slice(0, 4)) : new Date().getFullYear();
+    // Centred on the company's own stored year so the picker starts somewhere meaningful, never a
+    // fabricated default — the user still explicitly confirms the period before anything opens.
+    return Array.from({ length: 7 }, (_, i) => storedYear + 2 - i);
+  })();
 
-  const confirmCorrection = () => {
-    const reason = correctionDraftReason.trim();
-    if (!reason || !correctingField) return;
-    if (correctingField === "reporting_framework") setFrameworkCorrectionReason(reason);
-    else setFiscalYearEndCorrectionReason(reason);
-    setCorrectingField(null);
-    setCorrectionDraftReason("");
+  const startCorrectedEngagement = (year: number) => {
+    if (!editingCompany) return;
+    setFormDialogOpen(false);
+    setDialogOpen(false);
+    // Pure navigation — no Supabase call, no mutation of this company's row, no copy of any
+    // certification/draft/reconciliation/processing status from the original engagement. The
+    // destination is the existing authoritative creation path: WorkspaceLayout/WorkspaceOverview
+    // for this company+year, which renders ServiceLaunchpad (open_engagement_with_scope) when no
+    // engagement exists yet for that period, or safely resumes the existing one if it does — the
+    // DB's own uq_engagements_one_open_per_period constraint is what prevents a duplicate.
+    navigate(`/workspace/${editingCompany.id}/${year}`);
   };
 
   const fetchCompanies = async () => {
@@ -236,11 +242,9 @@ export const CompanyManager = () => {
     setFormData(EMPTY_FORM_DATA);
     setEditingCompany(null);
     setTinTouched(false);
-    setHasProcessedUpload(false);
-    setFrameworkCorrectionReason(null);
-    setFiscalYearEndCorrectionReason(null);
-    setCorrectingField(null);
-    setCorrectionDraftReason("");
+    // A brand-new company has nothing processed, but the very next handleEdit() sets this back to
+    // "checking" first — resetForm() only ever runs between edits, never mid-check.
+    setProcessingCertainty("not_processed");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -269,23 +273,22 @@ export const CompanyManager = () => {
         ? `${yearPrefix}${formData.fiscal_year_end}`
         : formData.fiscal_year_end;
 
-    // Fail closed even if a disabled control were somehow bypassed: a locked field may only reach
-    // the database alongside its own recorded correction reason. This is the actual enforcement —
-    // the disabled Select above is the affordance, guardCompanyFieldChange is the guarantee.
+    // Fail closed even if a disabled control were somehow bypassed (a direct handler invocation,
+    // a devtools edit): a locked field can NEVER reach the database, unconditionally — there is no
+    // reason parameter here through which that could be overridden. This is the actual enforcement;
+    // the disabled Select above is only the affordance.
     const frameworkChanged = !!editingCompany && formData.reporting_framework !== editingCompany.reporting_framework;
     const fiscalYearEndChanged = !!editingCompany && resolvedFiscalYearEnd !== editingCompany.fiscal_year_end;
     const guard = guardCompanyFieldChange({
       locked: !!editingCompany && fieldLock.locked,
       frameworkChanged,
-      frameworkCorrectionReason,
       fiscalYearEndChanged,
-      fiscalYearEndCorrectionReason,
     });
     if (!guard.allowed) {
       toast.error(
         guard.blockedField === "reporting_framework"
-          ? 'Reporting framework is locked because trial balance data has already been processed. Use "Correct instead" to change it.'
-          : 'Fiscal year end is locked because trial balance data has already been processed. Use "Correct instead" to change it.',
+          ? "Reporting framework is locked because trial balance data has already been processed. Start a corrected engagement instead."
+          : "Fiscal year end is locked because trial balance data has already been processed. Start a corrected engagement instead.",
       );
       return;
     }
@@ -317,29 +320,7 @@ export const CompanyManager = () => {
           action: "update_company",
           entityType: "company",
           entityId: editingCompany.id,
-          metadata: {
-            name: formData.name,
-            // The atomic audited mutation the period/framework contract requires: old value, new
-            // value and the practitioner's own reason, in the SAME log entry as the update itself.
-            ...(frameworkChanged && frameworkCorrectionReason
-              ? {
-                  reporting_framework_correction: {
-                    from: editingCompany.reporting_framework,
-                    to: formData.reporting_framework,
-                    reason: frameworkCorrectionReason,
-                  },
-                }
-              : {}),
-            ...(fiscalYearEndChanged && fiscalYearEndCorrectionReason
-              ? {
-                  fiscal_year_end_correction: {
-                    from: editingCompany.fiscal_year_end,
-                    to: resolvedFiscalYearEnd,
-                    reason: fiscalYearEndCorrectionReason,
-                  },
-                }
-              : {}),
-          },
+          metadata: { name: formData.name },
         });
 
         toast.success("Company updated successfully");
@@ -384,21 +365,28 @@ export const CompanyManager = () => {
 
   const handleEdit = (company: Company) => {
     setEditingCompany(company);
-    setHasProcessedUpload(false);
-    setFrameworkCorrectionReason(null);
-    setFiscalYearEndCorrectionReason(null);
-    setCorrectingField(null);
-    setCorrectionDraftReason("");
-    // Values originate from the persisted row (never fabricated); the lock check is a separate,
-    // best-effort read — a failed/slow read fails safe (stays unlocked → false) rather than ever
-    // blocking a genuinely-new company's setup on a transient error.
+    // Fields stay locked (see processingCertainty's default) until this read positively confirms
+    // "not_processed" — a slow or failed read must never be mistaken for "nothing has processed".
+    setProcessingCertainty("checking");
+    // Values originate from the persisted row (never fabricated). The lock check is a separate
+    // read; both its resolved outcome AND its failure path are handled explicitly — there is no
+    // implicit "unlocked" branch.
     supabase
       .from("trial_balance_uploads")
       .select("id")
       .eq("company_id", company.id)
       .not("processed_at", "is", null)
       .limit(1)
-      .then(({ data }) => setHasProcessedUpload(!!data && data.length > 0));
+      .then(
+        ({ data, error }) => {
+          if (error) {
+            setProcessingCertainty("check_failed");
+            return;
+          }
+          setProcessingCertainty(data && data.length > 0 ? "processed" : "not_processed");
+        },
+        () => setProcessingCertainty("check_failed"),
+      );
     setFormData({
       name: company.name,
       code: company.code || "",
@@ -633,16 +621,9 @@ export const CompanyManager = () => {
                 </SelectContent>
               </Select>
               {!frameworkEditable ? (
-                <FieldCorrectionAffordance
-                  reason={fieldLock.reason}
-                  active={correctingField === "reporting_framework"}
-                  draftReason={correctionDraftReason}
-                  onDraftReasonChange={setCorrectionDraftReason}
-                  onStart={() => startCorrection("reporting_framework")}
-                  onCancel={() => setCorrectingField(null)}
-                  onConfirm={confirmCorrection}
-                  testId="reporting-framework"
-                />
+                <p className="text-xs text-amber-600 dark:text-amber-500" data-testid="reporting-framework-lock-reason">
+                  {fieldLock.reason}
+                </p>
               ) : (
                 <p className="text-xs text-muted-foreground">
                   Determines statement headers and output format. Cannot be changed after first report is generated.
@@ -686,18 +667,6 @@ export const CompanyManager = () => {
                     <SelectItem value="12-31">December 31</SelectItem>
                   </SelectContent>
                 </Select>
-                {!fiscalYearEndEditable && (
-                  <FieldCorrectionAffordance
-                    reason={fieldLock.reason}
-                    active={correctingField === "fiscal_year_end"}
-                    draftReason={correctionDraftReason}
-                    onDraftReasonChange={setCorrectionDraftReason}
-                    onStart={() => startCorrection("fiscal_year_end")}
-                    onCancel={() => setCorrectingField(null)}
-                    onConfirm={confirmCorrection}
-                    testId="fiscal-year-end"
-                  />
-                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="currency">Currency</Label>
@@ -717,6 +686,15 @@ export const CompanyManager = () => {
                 </Select>
               </div>
             </div>
+
+            {fieldLock.locked && editingCompany && (
+              <StartCorrectedEngagementAffordance
+                reason={fieldLock.reason}
+                yearOptions={correctedEngagementYearOptions}
+                onStartCorrectedEngagement={startCorrectedEngagement}
+              />
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setFormDialogOpen(false)}>
                 Cancel

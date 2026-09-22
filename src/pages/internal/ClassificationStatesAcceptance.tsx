@@ -15,7 +15,8 @@
 import { isClassificationAcceptancePageRenderable } from "@/lib/workspace/classificationAcceptanceGate";
 import { deriveClassificationPresentation } from "@/lib/workspace/classificationPresentation";
 import { CLASSIFICATION_ACCEPTANCE_FIXTURES } from "@/lib/workspace/classificationAcceptanceFixtures";
-import { buildClassificationDecision, DecisionCard } from "@/components/workspace/DecisionCard";
+import { DecisionCard } from "@/components/workspace/DecisionCard";
+import { buildClassificationDecision } from "@/components/workspace/decisionBuilders";
 
 // Fixture-only stand-ins for the two real routes a Decision's button normally points at. This page never has a real
 // companyId/periodYear/uploadId, so it never calls buildPrepareReviewRoute/buildPrepareUploadRoute — those builders

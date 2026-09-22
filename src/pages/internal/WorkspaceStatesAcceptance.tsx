@@ -21,7 +21,8 @@
 import { isClassificationAcceptancePageRenderable } from "@/lib/workspace/classificationAcceptanceGate";
 import { deriveWorkspaceState } from "@/lib/workspace/deriveWorkspaceState";
 import { WORKFLOW_ACCEPTANCE_FIXTURES, WORKFLOW_FIXTURE_COMPANY_ID, WORKFLOW_FIXTURE_COMPANY_NAME, WORKFLOW_FIXTURE_PERIOD_YEAR } from "@/lib/workspace/workflowAcceptanceFixtures";
-import { DecisionCard, buildNextActionDecision } from "@/components/workspace/DecisionCard";
+import { DecisionCard } from "@/components/workspace/DecisionCard";
+import { buildNextActionDecision } from "@/components/workspace/decisionBuilders";
 import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
 
 const CONTRADICTION_FIXTURE_ID = "certification-contradiction";

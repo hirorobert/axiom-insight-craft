@@ -13,6 +13,22 @@
  * "Service" is read from the SAME fold_engagement_mandate authority useEngagementMandate uses
  * (granted capabilities), not the coarser engagements.engagement_type column — capabilityTitle()
  * is the one place that vocabulary is already translated into practitioner language.
+ *
+ * Query safety:
+ *   - bounded fan-out — per-engagement reads (fetchWorkspaceSnapshot + fold_engagement_mandate) run
+ *     through mapWithConcurrencyLimit, never more than HUB_FAN_OUT_CONCURRENCY in flight at once,
+ *     regardless of how many open engagements the firm has;
+ *   - deterministic ordering — the engagements query orders by opened_at desc, id asc as an
+ *     explicit tiebreak, and mapWithConcurrencyLimit preserves that order in its result array
+ *     regardless of which engagement's read actually resolves first;
+ *   - no cross-contamination — each engagement's read is its own independent promise with its own
+ *     result slot; one engagement's failure can never bleed into or relabel another's data;
+ *   - fail closed on ANY partial failure — if even one engagement's read fails, the WHOLE hub
+ *     result is treated as failed (fetchFailed=true, entries=[]) rather than silently showing only
+ *     the successful subset. Showing a partial picture as if it were complete is exactly how a
+ *     genuinely-ambiguous "2 open engagements, 1 failed to load" could wrongly collapse into
+ *     "1 engagement, auto-resume" — never acceptable per the single "never guess" invariant
+ *     (resolveReturningUserRoute.ts).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -22,6 +38,9 @@ import { fetchWorkspaceSnapshot } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { WorkspaceCompany, WorkspaceUpload } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { WorkspaceState } from "@/lib/workspace/types";
 import type { EngagementCapability } from "@/lib/workspace/mandate";
+import { mapWithConcurrencyLimit, aggregateSettledResults } from "@/lib/workspace/concurrencyLimit";
+
+const HUB_FAN_OUT_CONCURRENCY = 6;
 
 export interface ActiveEngagementEntry {
   engagementId: string;
@@ -106,7 +125,10 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
         .select("id, fiscal_period_id, company_id, engagement_type, status, opened_at")
         .in("company_id", companies.map((c) => c.id))
         .eq("status", "open")
-        .order("opened_at", { ascending: false });
+        // Explicit secondary tiebreak: opened_at ties (same instant) would otherwise leave the DB's
+        // own row order to chance — id asc makes hub ordering fully deterministic across reloads.
+        .order("opened_at", { ascending: false })
+        .order("id", { ascending: true });
       if (engagementsErr) throw engagementsErr;
       const openEngagements = (engagementsData ?? []) as EngagementRow[];
 
@@ -141,8 +163,10 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
         uploadsByCompany.set(u.company_id ?? "", list);
       }
 
-      const results = await Promise.all(
-        openEngagements.map(async (eng): Promise<ActiveEngagementEntry | null> => {
+      const settled = await mapWithConcurrencyLimit(
+        openEngagements,
+        HUB_FAN_OUT_CONCURRENCY,
+        async (eng): Promise<ActiveEngagementEntry | null> => {
           const period = periodById.get(eng.fiscal_period_id);
           const periodYear = yearOf(period?.reporting_end) ?? yearOf(period?.fiscal_year_end);
           if (!periodYear) return null; // Never guess a period year — skip rather than fabricate.
@@ -173,11 +197,15 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
             workspaceState: snapshot.workspaceState,
             openedAt: eng.opened_at,
           };
-        }),
+        },
       );
 
-      const resolvedEntries = results.filter((r): r is ActiveEngagementEntry => r !== null);
-      setEntries(resolvedEntries);
+      // Fail closed on ANY partial failure — see the module doc comment's "Query safety" section.
+      // A silently-dropped failed engagement could make a genuinely ambiguous set of engagements
+      // look unambiguous, which the returning-user routing decision must never be allowed to see.
+      const aggregated = aggregateSettledResults(settled);
+      if (aggregated.failed) throw new Error("one or more engagements failed to resolve");
+      setEntries(aggregated.values);
 
       const companyIdsWithEngagement = new Set(openEngagements.map((e) => e.company_id));
       setCompaniesWithoutEngagement(companies.filter((c) => !companyIdsWithEngagement.has(c.id)));
