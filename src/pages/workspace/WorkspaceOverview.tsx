@@ -21,21 +21,23 @@
 
 import { useState, useEffect } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowRight, AlertTriangle, FileText } from "lucide-react";
+import { ArrowRight, AlertTriangle } from "lucide-react";
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
 import EngagementScopeDialog from "@/components/workspace/EngagementScopeDialog";
 import PreviousEngagementWork from "@/components/workspace/PreviousEngagementWork";
+import { ActiveFileProvenance } from "@/components/workspace/ActiveFileProvenance";
 import { useEngagement } from "@/contexts/EngagementContext";
 import { buildPrepareReviewRoute, buildPrepareUploadRoute } from "@/lib/workspace/resolveActiveUpload";
-import { capabilityTitle } from "@/lib/workspace/mandate";
+import { capabilityTitle, ENGAGEMENT_CAPABILITIES } from "@/lib/workspace/mandate";
 import { readRememberedOutcome } from "@/lib/product/outcomes";
-import { DecisionCard, buildClassificationDecision, type Decision } from "@/components/workspace/DecisionCard";
+import { DecisionCard, type Decision } from "@/components/workspace/DecisionCard";
+import { buildClassificationDecision } from "@/components/workspace/decisionBuilders";
 import ServiceLaunchpad from "@/components/workspace/ServiceLaunchpad";
 import DataChoiceCard from "@/components/workspace/DataChoiceCard";
 import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
@@ -44,91 +46,13 @@ import { deriveLaunchState, LAUNCH_COPY } from "@/lib/workspace/onboardingState"
 import { evaluateTaxProfile, TAX_PROFILE_COPY } from "@/lib/jurisdiction/taxProfile";
 import { resolveNextActionDestination } from "@/lib/workspace/resolveNextActionDestination";
 import { deriveClassificationPresentation } from "@/lib/workspace/classificationPresentation";
+import { deriveOrientationSummary } from "@/lib/workspace/deriveOrientationSummary";
 import { detectEntityAccountingContext } from "@/lib/accounting/detectEntityContext";
 import { classifyConfirmationPosture } from "@/lib/accounting/confirmationPosture";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const num = (n: number) => n.toLocaleString("en-US");
-
-// ── File provenance ─────────────────────────────────────────────────────────
-// Pure formatting of the stored upload record. A value that is missing or not
-// a usable measurement returns null so the caller omits it — nothing is ever
-// substituted.
-
-function formatFileSize(bytes: number): string | null {
-  if (!Number.isFinite(bytes) || bytes <= 0) return null;
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-const RELATIVE_TIME = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-const RELATIVE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
-
-function describeUploadTime(uploadedAt: string, nowMs: number): { relative: string; exact: string } | null {
-  const uploaded = new Date(uploadedAt);
-  const uploadedMs = uploaded.getTime();
-  if (Number.isNaN(uploadedMs)) return null;
-
-  const exact = uploaded.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
-  const seconds = Math.round((nowMs - uploadedMs) / 1000);
-  // Older than a week (or in the future, from clock skew): a date is more honest than "412 days ago".
-  if (seconds < 0 || seconds > RELATIVE_WINDOW_SECONDS) {
-    return { relative: uploaded.toLocaleDateString("en-GB", { dateStyle: "medium" }), exact };
-  }
-  if (seconds < 60) return { relative: "just now", exact };
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return { relative: RELATIVE_TIME.format(-minutes, "minute"), exact };
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return { relative: RELATIVE_TIME.format(-hours, "hour"), exact };
-  return { relative: RELATIVE_TIME.format(-Math.floor(hours / 24), "day"), exact };
-}
-
-function ActiveFileProvenance({
-  fileName,
-  fileSize,
-  uploadedAt,
-  manageHref,
-}: {
-  fileName: string;
-  fileSize: number;
-  uploadedAt: string;
-  manageHref: string;
-}) {
-  const size = formatFileSize(fileSize);
-  const time = describeUploadTime(uploadedAt, Date.now());
-  return (
-    <div className="mb-3 flex items-center justify-between gap-4" data-testid="active-file-provenance">
-      <p className="flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
-        <FileText aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 truncate font-mono text-foreground/80" title={fileName}>
-          {fileName}
-        </span>
-        {size && (
-          <>
-            <span aria-hidden="true" className="text-muted-foreground/50">·</span>
-            <span className="shrink-0">{size}</span>
-          </>
-        )}
-        {time && (
-          <>
-            <span aria-hidden="true" className="text-muted-foreground/50">·</span>
-            <time className="shrink-0" dateTime={uploadedAt} title={time.exact}>
-              {time.relative}
-            </time>
-          </>
-        )}
-      </p>
-      <Link
-        to={manageHref}
-        className="shrink-0 whitespace-nowrap text-[12px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
-      >
-        Manage file <span aria-hidden="true">→</span>
-      </Link>
-    </div>
-  );
-}
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -149,7 +73,10 @@ export default function WorkspaceOverview() {
   const [retrying, setRetrying] = useState(false);
   const [tinDialogOpen, setTinDialogOpen] = useState(false);
   const [tinOverride, setTinOverride] = useState<string | null>(null);
-  const [scopeDialogOpen, setScopeDialogOpen] = useState(false);
+  // Two distinct entry points, one dialog: "add" (Start another service — pure addition, no
+  // friction) and "amend" (Amend this engagement — can withdraw a service, audited when it does).
+  // null = closed.
+  const [scopeDialogMode, setScopeDialogMode] = useState<"add" | "amend" | null>(null);
 
   const {
     engagement,
@@ -235,6 +162,7 @@ export default function WorkspaceOverview() {
 
   const effectiveTin = tinOverride ?? company?.tin ?? null;
   const granted = mandate?.granted ?? null;
+  const orientation = deriveOrientationSummary(workspaceState, granted);
   // A tax-profile warning needs (1) an active tax/filing service, (2) a configured jurisdiction that requires the field
   // and (3) the field actually missing. No jurisdiction is configured for a workspace today, so it never fires by inference.
   const jurisdiction = company?.filing_jurisdiction ?? null;
@@ -270,6 +198,11 @@ export default function WorkspaceOverview() {
   const isFailed = classification.state === "FAILED";
   const isProcessing = classification.state === "PROCESSING";
   const isInconsistent = classification.state === "INCONSISTENT";
+  // deriveWorkspaceState's PATH 6B — the trial balance's own account classification may be entirely done
+  // (classification.state could read COMPLETE_NO_REVIEW here) while the SEPARATE, authoritative SAFISHA
+  // certification (tb_certifications) is not "certified" yet. Checked via workspaceState, not classification,
+  // because classification has no visibility into certification at all.
+  const isCertificationBlocked = nextAction.id === "fix-certification-failure" || nextAction.id === "await-certification";
   const needsReview = classification.state === "COMPLETE_WITH_REVIEW" || classification.state === "PARTIAL";
 
   const launchState = deriveLaunchState({ granted, hasUpload, dataStart: dataStart.choice });
@@ -311,6 +244,25 @@ export default function WorkspaceOverview() {
     // Impossible or self-contradictory values (see classificationPresentation.ts) — fail closed. Never guessed or
     // silently normalised, and never presented as a review item, since the review screen reads the same corrupt data.
     decision = buildClassificationDecision(classification, classificationDecisionOptions);
+  } else if (isCertificationBlocked) {
+    // workspaceState.missions.prepare.status is "blocked" for a reason classification alone cannot see — arithmetic
+    // or another tb_certifications failure (deriveWorkspaceState PATH 6B). classification itself may read
+    // COMPLETE_NO_REVIEW here (account mapping genuinely finished), which is exactly the contradiction this branch
+    // exists to prevent: without it, the generic "!prepareDone" branch below would show "No review required" while
+    // the trial balance has NOT actually been certified as safe to build statements on. workspaceState.nextAction
+    // is the single authority for this text — the same one PrepareWorkspace's own pre-flight panel is built from.
+    decision = {
+      eyebrow: STAGE_CONFIGS.prepare.label,
+      headline: nextAction.label,
+      detail: nextAction.description,
+      button: {
+        label: nextAction.label,
+        href: nextAction.href,
+        icon: <ArrowRight className="w-4 h-4" />,
+      },
+      tone: "warn",
+      offersFileReplacement: true,
+    };
   } else if (needsReview) {
     decision = buildClassificationDecision(classification, classificationDecisionOptions);
   } else if (!prepareDone) {
@@ -360,9 +312,9 @@ export default function WorkspaceOverview() {
       )}
 
       <EngagementScopeDialog
-        open={scopeDialogOpen && canAmend}
-        onOpenChange={setScopeDialogOpen}
-        mode={engagement ? "amend" : "declare"}
+        open={scopeDialogMode !== null && canAmend}
+        onOpenChange={(v) => setScopeDialogMode(v ? scopeDialogMode : null)}
+        mode={!engagement ? "declare" : (scopeDialogMode ?? "amend")}
       />
 
       {/* ── ZONE A · Engagement identity ─────────────────────────────────────
@@ -371,15 +323,36 @@ export default function WorkspaceOverview() {
           Zone A therefore carries only what is actionable: a blocking TIN.
           TIN never appears merely because the record holds a value. */}
       {company && (
-        <div className="mb-6 flex flex-wrap items-center text-[12px] text-muted-foreground tracking-wide">
+        <div className="mb-2 flex flex-wrap items-center text-[12px] text-muted-foreground tracking-wide" data-testid="orientation-identity">
           <span className="text-foreground/80">{company.name}</span>
           <span className="px-1.5 text-muted-foreground/50">·</span>
           <span className="tabular-nums">FY{periodYear}</span>
+          {orientation.service && (
+            <>
+              <span className="px-1.5 text-muted-foreground/50">·</span>
+              <span>{orientation.service}</span>
+            </>
+          )}
           {!frameworkConfirmed && (
             <>
               <span className="px-1.5 text-muted-foreground/50">·</span>
               <EntityContextSuggestion reportingFrameworkDbValue={company.reporting_framework} companyCreatedAt={company.created_at} />
             </>
+          )}
+        </div>
+      )}
+
+      {company && (
+        <div className="mb-6 flex flex-wrap items-baseline gap-x-1.5 text-[12px] text-muted-foreground" data-testid="orientation-status">
+          <span>
+            <span className="font-medium text-foreground/70">{orientation.currentStageLabel}:</span> {orientation.currentStatusLabel}
+          </span>
+          {orientation.lastCompletedMilestone && (
+            <span className="text-muted-foreground/70" data-testid="orientation-last-milestone">
+              — last completed: {orientation.lastCompletedMilestone.stageLabel}
+              {orientation.lastCompletedMilestone.at &&
+                ` (${new Date(orientation.lastCompletedMilestone.at).toLocaleDateString("en-GB", { dateStyle: "medium" })})`}
+            </span>
           )}
         </div>
       )}
@@ -425,6 +398,7 @@ export default function WorkspaceOverview() {
                 fileName={upload.file_name}
                 fileSize={upload.file_size}
                 uploadedAt={upload.uploaded_at}
+                status={upload.status}
                 manageHref={manageUploadHref}
               />
             )}
@@ -444,14 +418,28 @@ export default function WorkspaceOverview() {
             {mandate.granted.map((cap) => capabilityTitle(cap)).join(", ")}
           </p>
           {canAmend && (
-            <button
-              type="button"
-              onClick={() => setScopeDialogOpen(true)}
-              title={LAUNCH_COPY.scopeEditor}
-              className="shrink-0 whitespace-nowrap text-[12px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
-            >
-              Amend scope <span aria-hidden="true">→</span>
-            </button>
+            <div className="flex shrink-0 items-center gap-4">
+              {mandate.granted.length < ENGAGEMENT_CAPABILITIES.length && (
+                <button
+                  type="button"
+                  onClick={() => setScopeDialogMode("add")}
+                  title="Add a service — no reason needed, your existing services are unaffected"
+                  className="whitespace-nowrap text-[12px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                  data-testid="start-another-service"
+                >
+                  Start another service <span aria-hidden="true">→</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setScopeDialogMode("amend")}
+                title={LAUNCH_COPY.scopeEditor}
+                className="whitespace-nowrap text-[12px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                data-testid="amend-engagement"
+              >
+                Amend this engagement <span aria-hidden="true">→</span>
+              </button>
+            </div>
           )}
         </div>
       )}

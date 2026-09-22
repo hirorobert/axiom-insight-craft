@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { isClassificationAcceptancePageRenderable } from "@/lib/workspace/classificationAcceptanceGate";
 import { CLASSIFICATION_ACCEPTANCE_FIXTURES } from "@/lib/workspace/classificationAcceptanceFixtures";
 import { deriveClassificationPresentation } from "@/lib/workspace/classificationPresentation";
-import { buildClassificationDecision } from "@/components/workspace/DecisionCard";
+import { buildClassificationDecision } from "@/components/workspace/decisionBuilders";
 
 const ROOT = path.resolve(__dirname, "../../..");
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");

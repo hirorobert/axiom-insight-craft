@@ -44,6 +44,7 @@ import {
 import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgressLedger";
 import TrialBalanceTemplateGuide from "@/components/workspace/TrialBalanceTemplateGuide";
 import {
+  DiscardError,
   DiscardUploadDialog,
   discardUpload,
   isCertifiedRun,
@@ -55,6 +56,7 @@ import {
   SurfaceCardHeader,
   SurfaceCardBody,
 } from "@/components/workspace/ui/Surface";
+import { ActiveFileProvenance } from "@/components/workspace/ActiveFileProvenance";
 import {
   Trash2,
   RefreshCw,
@@ -155,9 +157,9 @@ export default function PrepareWorkspace() {
     } catch (err) {
       setPendingFile(null);
       toast.error(
-        err instanceof Error
-          ? `Could not discard the prior trial balance: ${err.message}`
-          : "Could not discard the prior trial balance.",
+        err instanceof DiscardError
+          ? err.safeMessage
+          : "Could not discard the prior trial balance. Please try again.",
       );
     } finally {
       setReplacing(false);
@@ -398,7 +400,14 @@ export default function PrepareWorkspace() {
             </p>
             <h1 className="mt-1 text-xl font-semibold text-foreground">Trial balance preparation</h1>
             {upload && (
-              <p className="mt-1 truncate text-sm text-muted-foreground">{upload.file_name}</p>
+              <div className="mt-2">
+                <ActiveFileProvenance
+                  fileName={upload.file_name}
+                  fileSize={upload.file_size}
+                  uploadedAt={upload.uploaded_at}
+                  status={upload.status}
+                />
+              </div>
             )}
             <EntityContextSuggestion reportingFrameworkDbValue={company?.reporting_framework} companyCreatedAt={company?.created_at} />
           </div>

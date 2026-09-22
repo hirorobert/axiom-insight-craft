@@ -268,9 +268,15 @@ src/
       stageMetadata.ts        ← CANONICAL stage slugs/labels/icons/sequence
       types.ts                ← WorkspaceMission, MissionStatus, WorkspaceState
       deriveWorkspaceState.ts ← Pure state engine (no async, no side effects)
+      fetchWorkspaceSnapshot.ts ← The one-shot async read pipeline (company → uploads → active upload → sign-offs → certification → deriveWorkspaceState) behind a single workspace's WorkspaceState. Used by both useWorkspaceData.ts (single workspace) and useActiveEngagements.ts (the returning-user hub) — single implementation, no second copy.
+      resolveReturningUserRoute.ts ← Pure returning-user routing decision (resume / chooser / start_single_company / first_run) behind Dashboard.tsx
+      deriveOrientationSummary.ts ← Pure projection of Service/Current stage/Current status/last completed milestone for the WorkspaceOverview orientation strip
+      workflowAcceptanceFixtures.ts ← Deterministic UploadSnapshot fixtures covering all 11 deriveWorkspaceState paths (incl. contradiction/missing-certification/stale-processing), fed to the internal WorkspaceStatesAcceptance gallery
+      concurrencyLimit.ts      ← Bounded-fan-out worker pool (mapWithConcurrencyLimit) + fail-closed-on-any-failure aggregation (aggregateSettledResults) — the returning-user hub's query-safety primitives
       onboardingState.ts      ← Pure launch state machine (LAUNCHPAD/DATA_CHOICE/IMPORT_PENDING/EMPTY_WORKSPACE/ACTIVE) + LAUNCH_COPY
       navigation.ts           ← Navigation derived from the persisted engagement scope
       mandate.ts              ← Engagement capabilities registry (CAPABILITY_OUTCOMES) + mandate projection
+      engagementScopeChange.ts ← Pure decision behind EngagementScopeDialog's three modes (declare/add/amend): added/removed capabilities, and that only a withdrawal via "amend" requires a reason
       workspaceSetupClient.ts ← ONLY client path to workspace setup RPCs (open_engagement_with_scope, data start, jurisdiction)
       certificationRevalidationGuard.ts ← Certification revalidation guard
       computeCertificationReadiness.ts  ← Certification readiness (pure)
@@ -317,9 +323,10 @@ src/
     workspace/
       WorkspaceLayout.tsx     ← Shell: top bar + derived stage nav + <Outlet>
       WorkspaceOverview.tsx   ← Command center: ONE dominant decision (launchpad / data choice / next action)
+      EngagementHub.tsx       ← Returning-user chooser, rendered by Dashboard.tsx when the routing decision is ambiguous (>1 open engagement, or 0 open + >1 company)
       PrepareWorkspace.tsx    ← Stage 1
       ReconcileWorkspace.tsx  ← Stage 2
-      StatementsWorkspace.tsx ← Stage 3 (has known TS bug — see section 9)
+      StatementsWorkspace.tsx ← Stage 3
       TaxWorkspace.tsx        ← Stage 4
       ComplianceWorkspace.tsx ← Stage 5
       FilingWorkspace.tsx     ← Stage 6
@@ -345,6 +352,7 @@ src/
     WorkspaceContext.tsx      ← React context wrapping useWorkspaceData
   hooks/
     useWorkspaceData.ts       ← Authoritative DB reads for workspace state
+    useActiveEngagements.ts   ← Every open engagement across every company the member belongs to, each resolved via fetchWorkspaceSnapshot — the returning-user hub's data source
     useDataStart.ts           ← Engagement-scoped data-start decision (server-authoritative)
     useEngagementMandate.ts   ← Engagement scope; creation goes through open_engagement_with_scope
     useJurisdictionPack.ts    ← Loads the selected jurisdiction's pack through packLoader
@@ -430,18 +438,16 @@ and ask the user to confirm before proceeding.
 
 ## 9. Known Pre-Existing TypeScript Errors (Do Not Fix Without Task)
 
-These errors exist in origin/main and are NOT caused by recent changes.
-Do not fix them as a side effect of other work — they need separate tasks.
-
-- `StatementsWorkspace.tsx`: destructures `{ upload, workspaceState }` but JSX
-  uses `company`, `companyId`, `periodYear` — compile blocker, needs its own task
-- `SaffLogo.tsx`: missing SVG asset imports (brand assets not committed)
-- `AvatarUpload.tsx`: CSS side-effect import
-- `ErrorBoundary.tsx`, `PageErrorBoundary.tsx`: `import.meta.env.DEV` type
-- `ExportStatements.tsx`: missing `xlsx` module types
-- `KingaFindingsPanel.tsx`, `SafishaGate.tsx`, etc.: `VITE_SUPABASE_URL` not in
-  `ImportMetaEnv` (needs vite-env.d.ts update)
-- `integrations/supabase/client.ts`: same env var types issue
+**Corrected 2026-09-22 (canonical-workflow remediation, PR #31 continuation).** Every item this
+section previously listed is STALE: `bunx tsc --noEmit -p tsconfig.app.json` returns zero errors
+against the live tree (verified repeatedly this session, including after touching
+`StatementsWorkspace.tsx`'s own sibling stage pages). Specifically checked and confirmed false:
+`StatementsWorkspace.tsx` destructures `{ upload, uploads, workspaceState, companyId, periodYear,
+company }` — every one of those is used in its JSX; there is no mismatch, and it compiles cleanly
+(and is now exercised directly by `src/pages/workspace/stageLockGate.test.ts`). `SaffLogo.tsx` does
+not exist in this repository (removed in the rebrand — see §7's file map). If a future session hits
+a genuine, currently-reproducible TypeScript error anywhere, it is NEW and should be triaged on its
+own merits — do not assume it matches an entry that used to be here.
 
 ### 9.1 Registered Live Defects (Do Not Fix Opportunistically)
 
@@ -756,7 +762,6 @@ Files changed:
   then deploy 7 edge functions (user must run these commands)
 - **Task #255**: Phase C — re-home panels by accounting stage inside each workspace page
 - **Task #256**: Phase D — acceptance tests + certification pass
-- **StatementsWorkspace.tsx TS bug**: destructuring mismatch (own task needed)
 
 ### WIP branch (`recover-wip-20260720`) — Integration Authority
 A recovery branch exists that is 3 commits ahead / 45 commits behind origin/main.

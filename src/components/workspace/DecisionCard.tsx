@@ -3,23 +3,18 @@
  * optional detail line, a single dominant CTA, and an optional quiet file-replacement escape.
  *
  * Extracted verbatim from WorkspaceOverview.tsx (no markup or class name changed) so there is exactly one place that
- * turns a `Decision` into DOM — the production screen and the internal classification-states acceptance page
- * (src/pages/internal/ClassificationStatesAcceptance.tsx) both render through this same component. Presentation only:
- * no data fetching, no routing decisions, no side effects.
+ * turns a `Decision` into DOM — the production screen and the internal acceptance pages
+ * (ClassificationStatesAcceptance.tsx, WorkspaceStatesAcceptance.tsx) all render through this same component.
+ * Presentation only: no data fetching, no routing decisions, no side effects.
  *
- * `buildClassificationDecision` is the second half of the same "one semantic authority" discipline
- * classificationPresentation.ts established: it is the ONLY place that turns a `ClassificationPresentation` (the
- * pure, exhaustively-typed result of deriveClassificationPresentation()) into the eyebrow/headline/detail/button
- * shape this card renders, for every one of the 7 classification states. WorkspaceOverview and the acceptance page
- * both call it — neither re-derives or duplicates this mapping.
+ * The functions that BUILD a `Decision` (`buildClassificationDecision`, `buildNextActionDecision`) live in the
+ * sibling decisionBuilders.tsx, not here — this file exports only the component, so Fast Refresh boundaries stay
+ * clean and this stays the one place a `Decision` becomes DOM without also being the one place a `Decision` is made.
  */
 
 import { Link } from "react-router-dom";
-import { ArrowRight, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
-import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
-import type { ClassificationPresentation } from "@/lib/workspace/classificationPresentation";
 
 export interface Decision {
   readonly eyebrow: string;
@@ -80,90 +75,4 @@ export function DecisionCard({ decision, manageUploadHref }: { decision: Decisio
       )}
     </SurfaceCard>
   );
-}
-
-export interface ClassificationDecisionOptions {
-  readonly retrying: boolean;
-  readonly onRetry: () => void;
-  /** The existing Prepare Data route for this workspace (`${basePath}/prepare`). */
-  readonly prepareHref: string;
-  /** The existing Prepare Data review route for the active upload (buildPrepareReviewRoute(...)). */
-  readonly reviewHref: string;
-}
-
-const num = (n: number) => n.toLocaleString("en-US");
-
-/**
- * Maps a `ClassificationPresentation` (the real, pure output of deriveClassificationPresentation()) to the `Decision`
- * this card renders — the exact mapping WorkspaceOverview.tsx uses for its isFailed / isProcessing / isInconsistent /
- * needsReview / !prepareDone branches. Exhaustive over ClassificationState: every one of the 7 states produces a
- * Decision, so this function alone is enough to demonstrate the full state space without a live workspace.
- */
-export function buildClassificationDecision(classification: ClassificationPresentation, opts: ClassificationDecisionOptions): Decision {
-  const eyebrow = STAGE_CONFIGS.prepare.label;
-
-  switch (classification.state) {
-    case "FAILED":
-      return {
-        eyebrow,
-        headline: classification.headline,
-        detail: classification.detail,
-        button: {
-          label: opts.retrying ? "Retrying…" : "Retry processing",
-          onClick: opts.onRetry,
-          disabled: opts.retrying,
-          icon: <RefreshCw className={`w-4 h-4 ${opts.retrying ? "animate-spin" : ""}`} />,
-        },
-        tone: "warn",
-        offersFileReplacement: true,
-      };
-
-    case "PROCESSING":
-      return {
-        eyebrow,
-        headline: classification.headline,
-        detail: classification.detail,
-        button: { label: "Open Prepare Data", href: opts.prepareHref, icon: <ArrowRight className="w-4 h-4" /> },
-        tone: "muted",
-      };
-
-    case "INCONSISTENT":
-      // Impossible or self-contradictory values (see classificationPresentation.ts) — fail closed. Never guessed or
-      // silently normalised, and never presented as a review item, since the review screen reads the same corrupt data.
-      return {
-        eyebrow,
-        headline: classification.headline,
-        detail: classification.detail,
-        button: { label: "Open Prepare Data", href: opts.prepareHref, icon: <ArrowRight className="w-4 h-4" /> },
-        tone: "warn",
-        offersFileReplacement: true,
-      };
-
-    case "COMPLETE_WITH_REVIEW":
-    case "PARTIAL": {
-      // classification.counts is guaranteed non-null for these two states.
-      const reviewCount = classification.counts?.reviewRequired ?? 0;
-      return {
-        eyebrow,
-        headline: classification.headline,
-        detail: classification.detail,
-        button: { label: `Review ${num(reviewCount)} ${reviewCount === 1 ? "account" : "accounts"}`, href: opts.reviewHref, icon: <ArrowRight className="w-4 h-4" /> },
-        tone: "primary",
-        offersFileReplacement: true,
-      };
-    }
-
-    case "COMPLETE_NO_REVIEW":
-    case "NOT_COMPUTED":
-      // Surfaces the classification result immediately when it is authoritatively available (COMPLETE_NO_REVIEW).
-      // NOT_COMPUTED falls back to the plain "later stages open" line — never a fabricated count, and never a claim
-      // that this stage is finished (prepareDone governs that separately, outside classification's own domain).
-      return {
-        eyebrow,
-        headline: "Finish preparing the trial balance.",
-        detail: classification.state === "COMPLETE_NO_REVIEW" ? classification.headline : "Later stages open as each one passes.",
-        button: { label: "Open Prepare Data", href: opts.prepareHref, icon: <ArrowRight className="w-4 h-4" /> },
-        tone: "primary",
-      };
-  }
 }

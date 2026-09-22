@@ -5,50 +5,24 @@
  * finds the upload matching the period, and exposes WorkspaceState.
  *
  * Designed to be called once in WorkspaceLayout and shared via context.
+ *
+ * The actual read pipeline (company → uploads → active upload → sign-offs →
+ * certification → deriveWorkspaceState) lives in fetchWorkspaceSnapshot.ts so
+ * the returning-user hub (useActiveEngagements.ts) can run the exact same
+ * pipeline per engagement without a second, competing implementation. This
+ * hook adds the two things that are inherently single-workspace/stateful:
+ * the realtime subscription and the loading/refreshing lifecycle.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { deriveWorkspaceState } from "@/lib/workspace/deriveWorkspaceState";
-import { resolveActiveUpload } from "@/lib/workspace/resolveActiveUpload";
-import type { WorkspaceState, UploadSnapshot } from "@/lib/workspace/types";
+import { fetchWorkspaceSnapshot } from "@/lib/workspace/fetchWorkspaceSnapshot";
+import type { WorkspaceCompany, WorkspaceUpload } from "@/lib/workspace/fetchWorkspaceSnapshot";
+import type { WorkspaceState } from "@/lib/workspace/types";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type JsonCompatible = any;
-
-export interface WorkspaceUpload {
-  id: string;
-  file_name: string;
-  file_path: string;
-  file_size: number;
-  company_id: string | null;
-  company_name: string | null;
-  status: string;
-  uploaded_at: string;
-  processed_at: string | null;
-  is_valid: boolean | null;
-  validation_report: JsonCompatible;
-  accounting_errors: JsonCompatible;
-  processing_result: JsonCompatible;
-  fiscal_year_end?: string | null;
-  period_year?: number | null;
-  safisha_status?: string | null;
-}
-
-export interface WorkspaceCompany {
-  id: string;
-  name: string;
-  code: string | null;
-  tin: string | null;
-  reporting_framework: string | null;
-  fiscal_year_end: string | null;
-  currency: string | null;
-  created_at?: string | null;
-  /** Explicitly selected filing jurisdiction (ISO alpha-2), or null. Never inferred. */
-  filing_jurisdiction?: string | null;
-}
+export type { WorkspaceCompany, WorkspaceUpload };
 
 export interface UseWorkspaceDataReturn {
   companyId: string;
@@ -63,59 +37,29 @@ export interface UseWorkspaceDataReturn {
   refreshUpload: () => void;
 }
 
-// ── deriveFiscalPeriod — same logic as Dashboard.tsx (shared utility) ─────────
-function deriveFiscalPeriod(
-  upload: WorkspaceUpload,
-  company: WorkspaceCompany | null,
-): { periodYear: number; periodEndMonth: number } {
-  if (upload.period_year && upload.period_year > 2000) {
-    const fyeStr = upload.fiscal_year_end ?? company?.fiscal_year_end;
-    const month = fyeStr ? new Date(fyeStr).getMonth() + 1 : 12;
-    return { periodYear: upload.period_year, periodEndMonth: isNaN(month) ? 12 : month };
-  }
-  if (upload.fiscal_year_end) {
-    const d = new Date(upload.fiscal_year_end);
-    if (!isNaN(d.getTime())) return { periodYear: d.getFullYear(), periodEndMonth: d.getMonth() + 1 };
-  }
-  if (company?.fiscal_year_end) {
-    const d = new Date(company.fiscal_year_end);
-    if (!isNaN(d.getTime())) return { periodYear: d.getFullYear(), periodEndMonth: d.getMonth() + 1 };
-  }
-  const uploadDate = new Date(upload.uploaded_at);
-  const uploadMonth = uploadDate.getMonth() + 1;
-  const uploadYear = uploadDate.getFullYear();
-  return {
-    periodYear: uploadMonth <= 9 ? uploadYear - 1 : uploadYear,
-    periodEndMonth: 12,
-  };
-}
-
-// ── toUploadSnapshot — convert full upload to the snapshot deriveWorkspaceState needs ──
-function toUploadSnapshot(
-  upload: WorkspaceUpload,
-  company: WorkspaceCompany | null,
-  hesabuPassedAt: string | null,
-  kingaSignedAt: string | null,
-  filingSubmittedAt: string | null,
-): UploadSnapshot {
-  const { periodYear } = deriveFiscalPeriod(upload, company);
-  return {
-    id: upload.id,
-    companyId: upload.company_id ?? "",
-    companyName: upload.company_name ?? "",
-    periodYear,
-    status: upload.status,
-    isValid: upload.is_valid,
-    safishaStatus: upload.safisha_status ?? null,
-    uploadedAt: upload.uploaded_at,
-    processedAt: upload.processed_at,
-    hasMapping: !!upload.processing_result?.mapping,
-    // Authoritative DB reads — null = NOT_COMPUTED (not false, not inferred)
-    hesabuPassedAt,
-    kingaSignedAt,
-    filingSubmittedAt,
-  };
-}
+const EMPTY_STATE: WorkspaceState = {
+  companyId: "",
+  periodYear: 0,
+  companyName: "",
+  missions: {
+    prepare: { status: "not_started", label: "Prepare Data", summary: "", href: "" },
+    reconcile: { status: "not_applicable", label: "Reconcile", summary: "", href: "" },
+    statements: { status: "locked", label: "Prepare Statements", summary: "", href: "" },
+    tax: { status: "locked", label: "Compute Tax", summary: "", href: "" },
+    compliance: { status: "not_applicable", label: "Compliance Review", summary: "", href: "" },
+    filing: { status: "locked", label: "Prepare Outputs", summary: "", href: "" },
+    monitor: { status: "not_applicable", label: "Monitor", summary: "", href: "" },
+  },
+  nextAction: {
+    id: "loading",
+    label: "Loading…",
+    description: "",
+    href: "",
+    blocked: true,
+    mission: "prepare",
+    priority: 0,
+  },
+};
 
 export function useWorkspaceData(): UseWorkspaceDataReturn {
   const { companyId, periodYear: periodYearParam } = useParams<{
@@ -132,17 +76,12 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
   const [company, setCompany] = useState<WorkspaceCompany | null>(null);
   const [uploads, setUploads] = useState<WorkspaceUpload[]>([]);
   const [upload, setUpload] = useState<WorkspaceUpload | null>(null);
+  const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(EMPTY_STATE);
   // `loading` is the FIRST-PAINT gate only. Background polls set `refreshing`
   // so the screen never flashes back to skeletons (one book, one truth).
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const hasLoadedRef = useRef(false);
-  const companyRef = useRef<WorkspaceCompany | null>(null);
-
-  // Authoritative sign-off timestamps — null = NOT_COMPUTED, never default success
-  const [hesabuPassedAt, setHesabuPassedAt] = useState<string | null>(null);
-  const [kingaSignedAt, setKingaSignedAt] = useState<string | null>(null);
-  const [filingSubmittedAt, setFilingSubmittedAt] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!user || !cId || !pYear) {
@@ -153,88 +92,13 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     if (hasLoadedRef.current) setRefreshing(true);
     else setLoading(true);
 
-    // Fetch company
-    const { data: co } = await supabase
-      .from("companies")
-      .select("id, name, code, tin, reporting_framework, fiscal_year_end, currency, created_at, filing_jurisdiction")
-      .eq("id", cId)
-      .single();
+    const snapshot = await fetchWorkspaceSnapshot({ companyId: cId, periodYear: pYear, requestedUploadId });
 
-    const coData = co as WorkspaceCompany | null;
-    // Keep the last known company on a transient read failure — never blank
-    // the masthead mid-session.
-    if (coData) {
-      setCompany(coData);
-      companyRef.current = coData;
-    }
-
-    // Fetch uploads for this company, most recent first
-    const { data: ups } = await supabase
-      .from("trial_balance_uploads")
-      .select("*")
-      .eq("company_id", cId)
-      .order("uploaded_at", { ascending: false })
-      .limit(50);
-
-    const uploadsData = (ups ?? []) as WorkspaceUpload[];
-    setUploads(uploadsData);
-
-    // Find the active upload — pinned ?upload=<id> always wins so a clicked
-    // trial balance can never resolve to a different (or empty) record.
-    // Pure, regression-tested logic lives in resolveActiveUpload.ts.
-    const match: WorkspaceUpload | null = resolveActiveUpload<WorkspaceUpload>({
-      uploads: uploadsData,
-      requestedUploadId,
-      periodYear: pYear,
-      derivePeriodYear: (u) => deriveFiscalPeriod(u, coData ?? companyRef.current).periodYear,
-    });
-
-    setUpload(match);
-
-    // ── Authoritative sign-off reads (parallel) ────────────────────────────
-    // Rule: absent = null, stale = null, unsigned = null, no default success.
-    const [hesabuRes, kingaRes, filingRes] = await Promise.all([
-      // HESABU: latest validation where gate_satisfied = true for this upload.
-      // Querying by upload_id scopes to current upload; gate_satisfied=true
-      // means the run passed all assertions. If no such row exists → null.
-      match
-        ? supabase
-            .from("hesabu_validations")
-            .select("validated_at")
-            .eq("upload_id", match.id)
-            .eq("gate_satisfied", true)
-            .order("validated_at", { ascending: false })
-            .limit(1)
-            .maybeSingle()
-        : Promise.resolve({ data: null }),
-
-      // KINGA sign-off: authoritative approver signature on statement_sign_offs.
-      // Do NOT infer from tax_computations existence -- a computation is not a sign-off.
-      supabase
-        .from("statement_sign_offs")
-        .select("approver_signed_at")
-        .eq("company_id", cId)
-        .eq("period_year", pYear)
-        .not("approver_signed_at", "is", null)
-        .maybeSingle(),
-
-      // Filing: authoritative submission evidence from filing_obligations.
-      // status = 'filed' is the only accepted terminal state.
-      // Do NOT infer from XBRL generation, package download, or checklist completion.
-      supabase
-        .from("filing_obligations")
-        .select("updated_at")
-        .eq("company_id", cId)
-        .eq("period_year", pYear)
-        .eq("status", "filed")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
-
-    setHesabuPassedAt((hesabuRes.data as { validated_at: string } | null)?.validated_at ?? null);
-    setKingaSignedAt((kingaRes.data as { approver_signed_at: string } | null)?.approver_signed_at ?? null);
-    setFilingSubmittedAt((filingRes.data as { updated_at: string } | null)?.updated_at ?? null);
+    // Keep the last known company on a transient read failure — never blank the masthead mid-session.
+    if (snapshot.company) setCompany(snapshot.company);
+    setUploads(snapshot.uploads);
+    setUpload(snapshot.upload);
+    setWorkspaceState(snapshot.workspaceState);
 
     hasLoadedRef.current = true;
     setLoading(false);
@@ -277,12 +141,9 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     };
   }, [user, cId, pYear]);
 
-  // Derive workspace state
-  const snapshot: UploadSnapshot | null = upload
-    ? toUploadSnapshot(upload, company, hesabuPassedAt, kingaSignedAt, filingSubmittedAt)
-    : null;
-
-  const workspaceState = deriveWorkspaceState(cId, company?.name ?? "", pYear, snapshot);
+  const refreshUpload = useCallback(() => {
+    fetchData();
+  }, [fetchData]);
 
   return {
     companyId: cId,
@@ -293,6 +154,6 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     workspaceState,
     loading,
     refreshing,
-    refreshUpload: fetchData,
+    refreshUpload,
   };
 }

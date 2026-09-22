@@ -1,5 +1,5 @@
 /**
- * deriveWorkspaceState — Deterministic 14-path workflow engine.
+ * deriveWorkspaceState — Deterministic workflow engine.
  *
  * Pure function: given company + period + upload snapshot → WorkspaceState.
  * No DB access. No side effects. No async. Fully testable.
@@ -10,17 +10,24 @@
  * reconcile and compliance are na() in all paths until Phase B adds DB signals.
  *
  * Paths (ordered by priority — first match wins):
- *  1. No upload                   → Import Trial Balance
- *  2. Upload processing           → Wait / Refresh
- *  3. Upload needs_review         → Resolve Account Classifications
- *  4. Upload error/blocked        → Resolve Upload Error
- *  5. Upload invalid (is_valid=false)      → Fix Validation Errors
- *  6. Safisha blocked/exceptions           → Resolve Reconciliation Exceptions
- *  7. Safisha clean, HESABU not run        → Validate Draft Statements
- *  8. TB valid (pre-safisha), no HESABU    → Validate Draft Statements
- *  9. HESABU passed, KINGA not run         → Compute Corporate Tax
- * 10. KINGA signed, filing not submitted   → Prepare Filing Package
- * 11. Filing submitted                     → Review Completed Engagement
+ *  1.  No upload                            → Import Trial Balance
+ *  2.  Upload processing                    → Wait / Refresh
+ *  3.  Upload needs_review                  → Resolve Account Classifications
+ *  4.  Upload error/blocked                 → Resolve Upload Error
+ *  5.  Upload invalid (is_valid=false)      → Fix Validation Errors
+ *  6.  Safisha blocked/exceptions           → Resolve Reconciliation Exceptions
+ *  6B. Certification not "certified"        → Certify the trial balance / Resolve trial-balance difference
+ *  7.  Safisha clean, HESABU not run        → Validate Draft Statements
+ *  8.  TB valid (pre-safisha), no HESABU    → Validate Draft Statements
+ *  9.  HESABU passed, KINGA not run         → Compute Corporate Tax
+ * 10.  KINGA signed, filing not submitted   → Prepare Filing Package
+ * 11.  Filing submitted                     → Review Completed Engagement
+ *
+ * PATH 6B is the single authority for "is this trial balance safe to build statements on".
+ * It reads UploadSnapshot.certificationVerdict, which the caller (useWorkspaceData.ts) derives
+ * from the SAME computeCertificationReadiness()/tb_certifications ledger PrepareWorkspace's own
+ * pre-flight panel already uses — never a second, independently-derived signal. See that
+ * module's own doc comment for the six-layer (L1-L6) evidence model this verdict summarises.
  */
 
 import type {
@@ -241,6 +248,52 @@ export function deriveWorkspaceState(
         blocked: false,
         mission: "prepare",
         priority: 6,
+      },
+    };
+  }
+
+  // ── PATH 6B: Certification not yet established ────────────────────────────
+  // Iron Dome: the ABSENCE of a certification record is never evidence of certification.
+  // Only the literal verdict "certified" may unlock statement readiness — this is the SAME
+  // authority PrepareWorkspace's own six-layer pre-flight panel already uses
+  // (computeCertificationReadiness, sourced from the tb_certifications ledger), now the
+  // ONE place Overview, the tab bar and Prepare Statements all agree with it. Before this
+  // path existed, a trial balance whose classification completed (is_valid=true) but whose
+  // arithmetic certification failed or had not yet been read could reach PATH 7/8 below and
+  // wrongly announce "TB is valid — cross-validate the draft financial statements" while
+  // Prepare Data's own pre-flight panel simultaneously showed CHECKS FAILED for the same
+  // upload — a direct, live-observed contradiction (Debits != Credits, 2026-09-22).
+  //
+  // upload.certificationVerdict is undefined whenever the caller has not (yet) resolved the
+  // certification read — treated identically to "not certified", never as silent success.
+  if (upload.certificationVerdict !== "certified") {
+    const verdict = upload.certificationVerdict;
+    const isFailure = verdict === "blocked" || verdict === "review";
+    const blockerText =
+      upload.certificationBlocker ??
+      (isFailure ? "This trial balance failed certification." : "This trial balance is not yet certified.");
+
+    return {
+      ...uploadCommon,
+      missions: {
+        prepare: isFailure
+          ? { status: "blocked", label: "Prepare Data", summary: "Trial balance certification failed", href: `${b}/prepare`, blocker: blockerText }
+          : { status: "in_progress", label: "Prepare Data", summary: "Awaiting trial-balance certification", href: `${b}/prepare` },
+        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — reconciliation and journal review"),
+        statements: locked("Prepare Statements", "statements", companyId, periodYear, blockerText),
+        tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
+        compliance: na("Compliance Review",      "compliance", companyId, periodYear, "Available after tax computation"),
+        filing:     locked("Prepare Outputs",    "filing",     companyId, periodYear, "Complete Compute Tax first"),
+        monitor:    na("Monitor", "monitor", companyId, periodYear),
+      },
+      nextAction: {
+        id: isFailure ? "fix-certification-failure" : "await-certification",
+        label: isFailure ? "Resolve trial-balance difference" : "Certify the trial balance",
+        description: blockerText,
+        href: `${b}/prepare`,
+        blocked: false,
+        mission: "prepare",
+        priority: 4,
       },
     };
   }
