@@ -26,6 +26,7 @@ const supa = vi.hoisted(() => ({
   upload: vi.fn(),
   insert: vi.fn(),
   getUser: vi.fn(),
+  list: vi.fn(),
 }));
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
@@ -37,6 +38,7 @@ vi.mock("@/integrations/supabase/client", () => ({
         download: (p: string) => supa.download(p),
         remove: (p: string[]) => supa.remove(p),
         upload: (p: string, f: unknown, o: unknown) => supa.upload(p, f, o),
+        list: (d: string, o: unknown) => supa.list(d, o),
       }),
     },
   },
@@ -61,7 +63,7 @@ describe("discardUpload — the two-phase saga, restricted to genuinely unproces
   it("happy path: begin -> discard_pending, storage removed, complete -> deleted_now; receipt carries the operation id and snapshot", async () => {
     const blob = new Blob(["contents"]);
     supa.download.mockResolvedValueOnce({ data: blob });
-    supa.remove.mockResolvedValueOnce({ data: null, error: null });
+    supa.remove.mockResolvedValueOnce({ data: [{ name: "removed" }], error: null });
     supa.rpc
       .mockResolvedValueOnce(beginRow("discard_pending", { operation_id: "op1", row_snapshot: ROW_SNAPSHOT, file_path: "co/tb.xlsx" }))
       .mockResolvedValueOnce(completeRow("deleted_now"));
@@ -89,9 +91,49 @@ describe("discardUpload — the two-phase saga, restricted to genuinely unproces
     expect(supa.rpc).toHaveBeenNthCalledWith(2, "complete_trial_balance_discard", { p_operation_id: "op1", p_storage_removed: false });
   });
 
+  it("STAGING FINDING: Storage RLS silently refuses another member's file (no error, nothing deleted) — never reported as removed", async () => {
+    supa.download.mockResolvedValueOnce({ data: null });
+    supa.remove.mockResolvedValueOnce({ data: [], error: null });
+    supa.getUser.mockResolvedValueOnce({ data: { user: { id: "partner-1" } } });
+    supa.rpc
+      .mockResolvedValueOnce(beginRow("discard_pending", { operation_id: "op1", row_snapshot: ROW_SNAPSHOT, file_path: "owner-1/tb.xlsx" }))
+      .mockResolvedValueOnce(completeRow("discard_pending"));
+    const { discardUpload } = await import("./DiscardUploadDialog");
+    await expect(discardUpload({ ...TARGET, file_path: "owner-1/tb.xlsx" })).rejects.toMatchObject({ retryable: true });
+    expect(supa.rpc).toHaveBeenNthCalledWith(2, "complete_trial_balance_discard", { p_operation_id: "op1", p_storage_removed: false });
+    expect(supa.list).not.toHaveBeenCalled();
+  });
+
+  it("a retried removal of the caller's OWN file that is already gone is confirmed by listing the caller's folder", async () => {
+    supa.download.mockResolvedValueOnce({ data: null });
+    supa.remove.mockResolvedValueOnce({ data: [], error: null });
+    supa.getUser.mockResolvedValueOnce({ data: { user: { id: "owner-1" } } });
+    supa.list.mockResolvedValueOnce({ data: [{ name: "other.csv" }], error: null });
+    supa.rpc
+      .mockResolvedValueOnce(beginRow("discard_pending", { operation_id: "op1", row_snapshot: ROW_SNAPSHOT, file_path: "owner-1/tb.xlsx" }))
+      .mockResolvedValueOnce(completeRow("deleted_now"));
+    const { discardUpload } = await import("./DiscardUploadDialog");
+    await discardUpload({ ...TARGET, file_path: "owner-1/tb.xlsx" });
+    expect(supa.list).toHaveBeenCalledWith("owner-1", { search: "tb.xlsx" });
+    expect(supa.rpc).toHaveBeenNthCalledWith(2, "complete_trial_balance_discard", { p_operation_id: "op1", p_storage_removed: true });
+  });
+
+  it("the caller's own file still listed after a zero-delete remove is NOT confirmed", async () => {
+    supa.download.mockResolvedValueOnce({ data: null });
+    supa.remove.mockResolvedValueOnce({ data: [], error: null });
+    supa.getUser.mockResolvedValueOnce({ data: { user: { id: "owner-1" } } });
+    supa.list.mockResolvedValueOnce({ data: [{ name: "tb.xlsx" }], error: null });
+    supa.rpc
+      .mockResolvedValueOnce(beginRow("discard_pending", { operation_id: "op1", row_snapshot: ROW_SNAPSHOT, file_path: "owner-1/tb.xlsx" }))
+      .mockResolvedValueOnce(completeRow("discard_pending"));
+    const { discardUpload } = await import("./DiscardUploadDialog");
+    await expect(discardUpload({ ...TARGET, file_path: "owner-1/tb.xlsx" })).rejects.toMatchObject({ retryable: true });
+    expect(supa.rpc).toHaveBeenNthCalledWith(2, "complete_trial_balance_discard", { p_operation_id: "op1", p_storage_removed: false });
+  });
+
   it("resume: a retried begin call for an upload already discard_pending returns the SAME operation_id, never starts a second one", async () => {
     supa.download.mockResolvedValueOnce({ data: null });
-    supa.remove.mockResolvedValueOnce({ data: null, error: null });
+    supa.remove.mockResolvedValueOnce({ data: [{ name: "removed" }], error: null });
     supa.rpc
       .mockResolvedValueOnce(beginRow("discard_pending", { operation_id: "op-existing", row_snapshot: ROW_SNAPSHOT, file_path: "co/tb.xlsx", detail: "Resuming a previously started discard." }))
       .mockResolvedValueOnce(completeRow("deleted_now"));
@@ -138,7 +180,7 @@ describe("discardUpload — the two-phase saga, restricted to genuinely unproces
 
   it("evidence appearing during the saga (complete -> replacement_required) is surfaced as replacement_required", async () => {
     supa.download.mockResolvedValueOnce({ data: null });
-    supa.remove.mockResolvedValueOnce({ data: null, error: null });
+    supa.remove.mockResolvedValueOnce({ data: [{ name: "removed" }], error: null });
     supa.rpc
       .mockResolvedValueOnce(beginRow("discard_pending", { operation_id: "op1", row_snapshot: ROW_SNAPSHOT, file_path: "co/tb.xlsx" }))
       .mockResolvedValueOnce(completeRow("replacement_required"));
@@ -212,7 +254,7 @@ describe("retireUpload — the only path for processed/certified/dependent uploa
   it("forbidden: the orphaned uploaded file is cleaned up, error carries the forbidden code", async () => {
     supa.getUser.mockResolvedValueOnce({ data: { user: { id: "owner-1" } } });
     supa.upload.mockResolvedValueOnce({ data: {}, error: null });
-    supa.remove.mockResolvedValueOnce({ data: null, error: null });
+    supa.remove.mockResolvedValueOnce({ data: [{ name: "removed" }], error: null });
     supa.rpc.mockResolvedValueOnce(retireRow("forbidden"));
     const { retireUpload, DiscardError } = await import("./DiscardUploadDialog");
 
@@ -225,7 +267,7 @@ describe("retireUpload — the only path for processed/certified/dependent uploa
   it("stale_version (including a DIFFERENT file racing for an already-replaced upload): orphaned file cleaned up, retryable", async () => {
     supa.getUser.mockResolvedValueOnce({ data: { user: { id: "owner-1" } } });
     supa.upload.mockResolvedValueOnce({ data: {}, error: null });
-    supa.remove.mockResolvedValueOnce({ data: null, error: null });
+    supa.remove.mockResolvedValueOnce({ data: [{ name: "removed" }], error: null });
     supa.rpc.mockResolvedValueOnce(retireRow("stale_version"));
     const { retireUpload, DiscardError } = await import("./DiscardUploadDialog");
 
@@ -250,7 +292,7 @@ describe("retireUpload — the only path for processed/certified/dependent uploa
   it("any non-'replaced' outcome removes the just-uploaded object, so no orphan is left and no false success is reported", async () => {
     supa.getUser.mockResolvedValueOnce({ data: { user: { id: "owner-1" } } });
     supa.upload.mockResolvedValueOnce({ data: {}, error: null });
-    supa.remove.mockResolvedValueOnce({ data: null, error: null });
+    supa.remove.mockResolvedValueOnce({ data: [{ name: "removed" }], error: null });
     supa.rpc.mockResolvedValueOnce(retireRow("already_discarded"));
     const { retireUpload } = await import("./DiscardUploadDialog");
     await expect(retireUpload(TARGET, FILE)).rejects.toMatchObject({ retryable: false });
@@ -300,7 +342,7 @@ describe("restoreUpload — truthful Undo through restore_trial_balance_upload()
 
   it("EXACT SCENARIO: discard -> new active upload -> Undo = conflict_new_active_upload; the re-uploaded file is removed again; no success", async () => {
     supa.upload.mockResolvedValueOnce({ data: {}, error: null });
-    supa.remove.mockResolvedValueOnce({ data: null, error: null });
+    supa.remove.mockResolvedValueOnce({ data: [{ name: "removed" }], error: null });
     supa.rpc.mockResolvedValueOnce(restoreRow("conflict_new_active_upload"));
     const { restoreUpload } = await import("./DiscardUploadDialog");
     const r = await restoreUpload(receipt);
@@ -311,7 +353,7 @@ describe("restoreUpload — truthful Undo through restore_trial_balance_upload()
 
   it("a Postgres unique-violation is NEVER read as 'already restored' — only the server's named outcome counts", async () => {
     supa.upload.mockResolvedValueOnce({ data: {}, error: null });
-    supa.remove.mockResolvedValueOnce({ data: null, error: null });
+    supa.remove.mockResolvedValueOnce({ data: [{ name: "removed" }], error: null });
     supa.rpc.mockResolvedValueOnce({ data: null, error: { code: "23505", message: "duplicate key value violates unique constraint" } });
     const { restoreUpload } = await import("./DiscardUploadDialog");
     const r = await restoreUpload(receipt);
@@ -350,7 +392,7 @@ describe("offerUndo — a success toast only for restored / already_restored", (
     const error = vi.spyOn(toastMod.toast, "error").mockImplementation(() => "t2");
     const dismiss = vi.spyOn(toastMod.toast, "dismiss").mockImplementation(() => "t1");
     supa.upload.mockResolvedValueOnce({ data: {}, error: null });
-    supa.remove.mockResolvedValueOnce({ data: null, error: null });
+    supa.remove.mockResolvedValueOnce({ data: [{ name: "removed" }], error: null });
     supa.rpc.mockResolvedValueOnce({ data: [{ outcome: "conflict_new_active_upload", upload_id: null, detail: null }], error: null });
     const { offerUndo } = await import("./DiscardUploadDialog");
     const onRestored = vi.fn();
@@ -371,7 +413,7 @@ describe("cancelReplacement — restores the predecessor; Storage cleanup is rec
     ({ data: [{ outcome, operation_id: null, restored_upload_id: null, file_path: null, detail: null, ...extra }], error: null });
 
   it("cancelled (after Storage upload, before processing): removes the replacement file and confirms the cleanup", async () => {
-    supa.remove.mockResolvedValueOnce({ data: null, error: null });
+    supa.remove.mockResolvedValueOnce({ data: [{ name: "removed" }], error: null });
     supa.rpc
       .mockResolvedValueOnce(cancelRow("cancelled", { operation_id: "c1", restored_upload_id: "u0", file_path: "co/rep.csv" }))
       .mockResolvedValueOnce({ data: [{ outcome: "completed", detail: null }], error: null });
@@ -392,7 +434,7 @@ describe("cancelReplacement — restores the predecessor; Storage cleanup is rec
   });
 
   it("retry after a lost response: already_cancelled retries the cleanup and succeeds", async () => {
-    supa.remove.mockResolvedValueOnce({ data: null, error: null });
+    supa.remove.mockResolvedValueOnce({ data: [{ name: "removed" }], error: null });
     supa.rpc
       .mockResolvedValueOnce(cancelRow("already_cancelled", { operation_id: "c1", restored_upload_id: "u0", file_path: "co/rep.csv" }))
       .mockResolvedValueOnce({ data: [{ outcome: "already_completed", detail: null }], error: null });

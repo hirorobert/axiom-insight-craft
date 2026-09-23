@@ -216,6 +216,27 @@ interface LifecycleRpcClient {
 }
 const lifecycleRpc = () => supabase as unknown as LifecycleRpcClient;
 
+/**
+ * Removes one Storage object and reports whether it is CONFIRMED gone. Storage RLS refuses a delete it does
+ * not permit (another member's upload folder) silently: no error, zero objects deleted (observed on the
+ * hosted staging project). So "no error" is never treated as removal. If nothing was deleted, the object
+ * counts as gone only when it sits in the caller's own folder and a listing of that folder no longer shows
+ * it (a retried removal of the caller's own file). Every other case stays unconfirmed.
+ */
+async function removeAndConfirm(path: string): Promise<boolean> {
+  const bucket = supabase.storage.from("trial-balance-files");
+  const { data, error } = await bucket.remove([path]);
+  if (error) return false;
+  if ((data ?? []).length > 0) return true;
+  const uid = (await supabase.auth.getUser()).data.user?.id;
+  const slash = path.lastIndexOf("/");
+  const dir = path.slice(0, slash);
+  const name = path.slice(slash + 1);
+  if (!uid || dir !== uid) return false;
+  const { data: listed, error: listError } = await bucket.list(dir, { search: name });
+  return !listError && !(listed ?? []).some((o) => o.name === name);
+}
+
 function throwForBeginOutcome(target: DiscardTarget, outcome: DiscardOutcome, detail: string | null): never {
   if (outcome === "forbidden") {
     throw new DiscardError(detail ?? "Only an owner or partner of this company can remove a trial balance.", { retryable: false, code: "forbidden", cause: new Error(`discard forbidden for id=${target.id}`) });
@@ -277,12 +298,12 @@ export async function discardUpload(target: DiscardTarget): Promise<DiscardRecei
     const { data } = await supabase.storage.from("trial-balance-files").download(filePath);
     fileBlob = data ?? null;
     // Never report success while Storage cleanup is unknown: only call complete_trial_balance_discard
-    // (which deletes the row) AFTER this remove() call itself has returned, and only pass
-    // p_storage_removed=true when it did not error.
-    const { error: removeError } = await supabase.storage.from("trial-balance-files").remove([filePath]);
+    // (which deletes the row) AFTER removal has been CONFIRMED, and pass p_storage_removed=true only then.
+    const removed = await removeAndConfirm(filePath);
+    const removeError = removed ? null : new Error("storage removal not confirmed");
     const { data: completeRows, error: completeError } = await lifecycleRpc().rpc("complete_trial_balance_discard", {
       p_operation_id: begin.operation_id,
-      p_storage_removed: !removeError,
+      p_storage_removed: removed,
     });
     if (completeError) {
       throw new DiscardError("The file was removed but finishing the discard failed. Safe to try again — it will resume, not repeat.", { retryable: true, cause: completeError });
@@ -292,7 +313,7 @@ export async function discardUpload(target: DiscardTarget): Promise<DiscardRecei
       throw new DiscardError(complete.detail ?? "This trial balance acquired processing history during the discard. Upload a replacement instead.", { retryable: false, code: "replacement_required", cause: new Error(`complete replacement_required for id=${target.id}`) });
     }
     if (removeError || complete?.outcome === "discard_pending") {
-      throw new DiscardError("Could not confirm the file was removed. Safe to try again.", { retryable: true, cause: removeError ?? new Error("complete_trial_balance_discard reports storage not confirmed") });
+      throw new DiscardError("Could not confirm the file was removed from storage, so the trial balance was kept. If another member uploaded it, ask them (or an owner who can remove their files) to discard it.", { retryable: true, cause: removeError ?? new Error("complete_trial_balance_discard reports storage not confirmed") });
     }
   } else {
     // Defensive edge case: this upload has no file recorded at all, so there is nothing to remove. Finalize immediately.
@@ -397,13 +418,13 @@ export async function cancelReplacement(target: DiscardTarget): Promise<{ restor
 
   let storageCleanupPending = false;
   if (r.operation_id && r.file_path) {
-    const { error: removeError } = await supabase.storage.from("trial-balance-files").remove([r.file_path]);
+    const removed = await removeAndConfirm(r.file_path);
     const { data: cleanupRows, error: cleanupError } = await lifecycleRpc().rpc("confirm_trial_balance_storage_cleanup", {
       p_operation_id: r.operation_id,
-      p_storage_removed: !removeError,
+      p_storage_removed: removed,
     });
     const cleanup = cleanupRows?.[0]?.outcome;
-    storageCleanupPending = !!removeError || !!cleanupError || (cleanup !== "completed" && cleanup !== "already_completed");
+    storageCleanupPending = !removed || !!cleanupError || (cleanup !== "completed" && cleanup !== "already_completed");
   }
   return { restoredUploadId: r.restored_upload_id, storageCleanupPending };
 }
