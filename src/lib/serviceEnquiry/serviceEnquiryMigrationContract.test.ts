@@ -24,10 +24,12 @@ describe("migration hygiene", () => {
     expect(FILE).toMatch(/^\d{14}_[A-Za-z0-9._-]+\.sql$/);
     const all = fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
     // Later migrations may only be the reviewed pre-activation hardening (20260922100000) followed by the
-    // later, unrelated discard-authority migration (20260922180000, trial-balance discard); nothing else follows it.
+    // later, unrelated discard-authority and upload-lifecycle migrations (trial-balance discard/replace);
+    // nothing else follows it.
     expect(all.slice(all.indexOf(FILE) + 1)).toEqual([
       "20260922100000_service_enquiry_activation_readiness.sql",
       "20260922180000_discard_trial_balance_authority.sql",
+      "20260923100000_upload_lifecycle_retire_and_replace.sql",
     ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);

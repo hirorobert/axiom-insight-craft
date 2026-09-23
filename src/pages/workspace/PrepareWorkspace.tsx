@@ -47,6 +47,7 @@ import {
   DiscardError,
   DiscardUploadDialog,
   discardUpload,
+  retireUpload,
   isCertifiedRun,
   offerUndo,
 } from "@/components/workspace/DiscardUploadDialog";
@@ -125,15 +126,32 @@ export default function PrepareWorkspace() {
   const keepPendingFileRef = useRef(false);
 
   /**
-   * One tap: pick a file → the prior trial balance is discarded and the new
-   * file is uploaded immediately. Certified runs still pass the DISCARD gate.
+   * One tap: pick a file → for a genuinely unprocessed upload, the prior trial balance is
+   * discarded and the new file is uploaded immediately (hard delete — nothing to preserve). For a
+   * run with processing/certification history, the new file instead RETIRES the prior upload
+   * (retireUpload): the old row, its certifications and every derived result are preserved exactly
+   * as they are, never deleted — see DiscardUploadDialog.tsx's module doc comment.
    */
   const handleReplacePicked = async (file: File | undefined) => {
     if (!file || !upload) return;
     setPendingFile(file);
 
     if (isCertifiedRun(upload)) {
-      setDiscardTarget(upload);
+      setReplacing(true);
+      try {
+        await retireUpload(upload, file, "Replaced via Prepare Data");
+        toast.success(`${upload.file_name} retired — evidence preserved. Uploading ${file.name}…`);
+        setPendingFile(null);
+        navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
+        refreshUpload();
+      } catch (err) {
+        setPendingFile(null);
+        toast.error(
+          err instanceof DiscardError ? err.safeMessage : "Could not replace this trial balance. Please try again.",
+        );
+      } finally {
+        setReplacing(false);
+      }
       return;
     }
 
@@ -428,14 +446,20 @@ export default function PrepareWorkspace() {
                 {replacing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
                 {replacing ? "Replacing…" : "Replace trial balance"}
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setDiscardTarget(upload)}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remove
-              </Button>
+              {/* Discard is only ever offered for a genuinely unprocessed upload — one with
+                  processing/certification history has no standalone remove action at all, only
+                  Replace trial balance (above): discard_trial_balance_upload() would refuse it
+                  with 'replacement_required' regardless. */}
+              {!isCertifiedRun(upload) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setDiscardTarget(upload)}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Discard upload
+                </Button>
+              )}
             </div>
           )}
         </div>

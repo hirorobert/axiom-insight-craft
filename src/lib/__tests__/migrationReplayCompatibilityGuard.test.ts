@@ -160,8 +160,12 @@ describe("migration directory integrity", () => {
     // Bumped from 126 -> 127: 20260922180000_discard_trial_balance_authority.sql (authoritative SECURITY DEFINER
     // discard_trial_balance_upload() RPC + additive accepted-firm-member DELETE policy, fixing the uploader-only
     // DELETE RLS gap) — forward-only, sorts last.
+    // Bumped from 127 -> 128: 20260923100000_upload_lifecycle_retire_and_replace.sql (formal upload lifecycle —
+    // retire_trial_balance_upload for processed/certified uploads, a two-phase hard-discard saga for genuinely
+    // unprocessed ones; never weakens tb_certifications' append-only guard or the CASCADE FK, fixing the confirmed
+    // defect where any certified upload could never be discarded) — forward-only, sorts last.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(127);
+    expect(files.length).toBe(128);
   });
 });
 

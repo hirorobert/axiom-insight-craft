@@ -84,7 +84,18 @@ export function useEngagementMandate(
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!user || !companyId || !periodYear) {
+    // `!user` is NOT the same condition as `!companyId || !periodYear`: the route params are
+    // always synchronously available from useParams() the instant this component exists, so their
+    // absence is a genuine, immediate "nothing to resolve" state. `user` starts null on every fresh
+    // full-page load while Supabase's session restoration (async — reads and verifies a stored JWT)
+    // is still in flight, and becomes non-null moments later without this hook's own knowledge —
+    // this is "not yet known", not "resolved to no mandate". Setting loading=false here let
+    // StageScopeGate observe loading=false with mandate still at its initial null on that one
+    // stale tick and redirect away before the real fetch (triggered again once `user` populates,
+    // since `user` is a dependency of this callback) ever completed — confirmed as the exact
+    // mechanism behind the direct-URL-reload race to a locked stage bouncing to Overview.
+    if (!user) return; // stay in the loading state; the effect reruns once `user` resolves.
+    if (!companyId || !periodYear) {
       setLoading(false);
       return;
     }

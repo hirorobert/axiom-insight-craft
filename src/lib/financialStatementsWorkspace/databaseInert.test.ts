@@ -66,14 +66,18 @@ describe("database inertness — schema and functions", () => {
     // edits ONLY the enquiry's own shared modules. No pre-existing migration, function or config is modified or deleted.
     // The post-merge discard-authority fix (PR #32) adds one more forward-only migration: an additive accepted-firm-member
     // DELETE RLS policy on trial_balance_uploads, plus a SECURITY DEFINER discard_trial_balance_upload(uuid) RPC that resolves
-    // discard authorization with full visibility instead of relying on a client-side RLS-scoped SELECT. No pre-existing
-    // migration, function or config is modified or deleted; it is unrelated to and does not touch the financial-statements
-    // schema this file otherwise documents.
+    // discard authorization with full visibility instead of relying on a client-side RLS-scoped SELECT. Its own follow-up
+    // (the upload-lifecycle retire-and-replace migration) adds a formal lifecycle to trial_balance_uploads plus
+    // retire_trial_balance_upload()/complete_trial_balance_discard() — fixing the confirmed defect where the earlier
+    // discard RPC could never remove a certified upload (tb_certifications' append-only guard vs. its CASCADE FK).
+    // Neither migration modifies or deletes any pre-existing migration, function or config, and neither touches the
+    // financial-statements schema this file otherwise documents.
     const added = new Set([
       "supabase/migrations/20260920100000_workspace_setup_authority.sql",
       "supabase/migrations/20260921100000_service_enquiry_intake.sql",
       "supabase/migrations/20260922100000_service_enquiry_activation_readiness.sql",
       "supabase/migrations/20260922180000_discard_trial_balance_authority.sql",
+      "supabase/migrations/20260923100000_upload_lifecycle_retire_and_replace.sql",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryChallenge.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
