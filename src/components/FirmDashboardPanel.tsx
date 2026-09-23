@@ -26,6 +26,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
 import {
   fetchScoringDataBatch,
   scoreFromData,
@@ -109,10 +110,24 @@ export function FirmDashboardPanel() {
   const fetchAll = async () => {
     setLoading(true);
 
-    const { data: companies } = await supabase
+    // Authenticated-only reads: without a live session these queries are refused and
+    // the panel would render as "no companies". Sign out and return to sign-in instead.
+    if (!(await resolveActiveSession())) {
+      setLoading(false);
+      await endExpiredSession();
+      return;
+    }
+
+    const { data: companies, error: companiesErr } = await supabase
       .from("companies")
       .select("id, name, tin")
       .order("name");
+
+    if (companiesErr) {
+      setLoading(false);
+      if (!(await handleIfAuthorizationFailure(companiesErr))) setRows([]);
+      return;
+    }
 
     if (!companies || companies.length === 0) {
       setRows([]);
