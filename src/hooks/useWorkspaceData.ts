@@ -114,6 +114,13 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     fetchData();
   }, [fetchData]);
 
+  // Keep a live handle on the current fetch so the realtime subscription can re-derive
+  // workspaceState without re-subscribing every time fetchData's identity changes.
+  const fetchDataRef = useRef(fetchData);
+  useEffect(() => {
+    fetchDataRef.current = fetchData;
+  }, [fetchData]);
+
   // Real-time subscription for upload changes
   useEffect(() => {
     if (!user || !cId) return;
@@ -132,6 +139,16 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
           setUpload((prev) =>
             prev?.id === updated.id ? updated : prev,
           );
+
+          // workspaceState is DERIVED state held in React state — the pushed row alone does not
+          // update it. Without this re-read, stage locks, mission statuses and nextAction stay
+          // frozen at the pre-push values while the same screen already shows the fresh upload
+          // (a live self-contradiction, and later stages stay locked until a manual reload).
+          // Re-derive through the ONE pipeline (fetchWorkspaceSnapshot) — it also re-reads the
+          // sign-off and certification authorities the pushed row cannot carry. Unconditional:
+          // payload.old is not reliably populated, so "did anything material change" cannot be
+          // decided here; a background re-read sets `refreshing`, never blanks the screen.
+          void fetchDataRef.current();
         },
       )
       .subscribe();

@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
 
 interface PeriodSelectorProps {
   companyId: string;
@@ -37,12 +38,22 @@ export function PeriodSelector({ companyId, uploadId, onPeriodCreated }: PeriodS
 
   useEffect(() => {
     (async () => {
+      // Never query as an anonymous visitor: an unresolved/expired session is sent
+      // back to sign-in rather than rendering a silently empty prior-period list.
+      if (!(await resolveActiveSession())) {
+        await endExpiredSession();
+        return;
+      }
       const { data, error } = await supabase
         .from("fiscal_periods")
         .select("id, period_label, fiscal_year_end")
         .eq("company_id", companyId)
         .order("fiscal_year_end", { ascending: false });
-      if (!error && data) setPriorPeriods(data);
+      if (error) {
+        await handleIfAuthorizationFailure(error);
+        return;
+      }
+      if (data) setPriorPeriods(data);
     })();
   }, [companyId]);
 

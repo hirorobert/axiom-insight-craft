@@ -9,6 +9,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveActiveSession, endExpiredSession } from "@/lib/auth/sessionGuard";
 
 export interface NotificationCategory {
   key: string;
@@ -45,6 +46,15 @@ export function useNotifications(userId: string | undefined): NotificationState 
       setState({ totalCount: 0, categories: [], loading: false });
       return;
     }
+
+    // Every query below is authenticated-only. Without a live session they are refused
+    // and would silently render as "no alerts" — sign out and return to sign-in instead.
+    if (!(await resolveActiveSession())) {
+      setState({ totalCount: 0, categories: [], loading: false });
+      await endExpiredSession();
+      return;
+    }
+
 
     // ── 1. Open / in-progress findings ────────────────────────────────────
     const { data: findings } = await supabase
