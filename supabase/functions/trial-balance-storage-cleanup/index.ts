@@ -1,5 +1,6 @@
 // trial-balance-storage-cleanup: completes an AUTHORIZED source-file removal for a trial balance upload
-// operation (discard, or a cancelled replacement), whichever authorized user originally uploaded the file.
+// operation, whichever authorized user originally uploaded the file. That is a cancelled replacement (at once),
+// or a discarded source once the discard is terminal (undo window over, not restored), i.e. the purge.
 //
 // Storage RLS lets only the uploader delete from their own folder, so a workspace owner (or a collaborator
 // holding manage_source_files) cannot remove a file another authorized user uploaded. This function closes
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
       return error ? true : data === true; // an unreadable answer is treated as "still there"
     },
     completeAsCaller: async (kind, operationId) => {
-      const fn = kind === "discard" ? "complete_trial_balance_discard" : "confirm_trial_balance_storage_cleanup";
+      const fn = kind === "discard" ? "purge_trial_balance_discard" : "confirm_trial_balance_storage_cleanup";
       const { data, error } = await asCaller.rpc(fn, { p_operation_id: operationId });
       if (error) return null;
       const row = Array.isArray(data) ? data[0] : data;

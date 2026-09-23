@@ -11,7 +11,8 @@
 //     'manage_source_files'): the workspace owner or an explicit grant. No occupational title, and no
 //     firm membership.
 //   * Service-role Storage access is used only after authorization, and only on the operation-bound path.
-//   * Absence is verified before completion. Completion runs AS THE CALLER, so the database re-checks authority
+//   * A discarded source is never deleted while it can still be restored (the undo window). Absence is verified
+//     before completion. Completion runs AS THE CALLER, so the database re-checks authority
 //     and re-reads Storage itself. Every failure leaves a recoverable pending state, and a retry is idempotent.
 
 export const CLEANUP_CAPABILITY = "manage_source_files";
@@ -19,6 +20,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type CleanupOutcome =
   | "completed" | "already_completed" | "storage_cleanup_pending" | "replacement_required"
+  | "undo_window_open" | "not_purgeable"
   | "forbidden" | "stale_operation" | "unauthenticated" | "invalid_request" | "completion_failed";
 
 export interface CleanupTarget {
@@ -40,7 +42,8 @@ export interface CleanupDeps {
   removeObject(path: string): Promise<{ ok: boolean }>;
   /** The server's own view of Storage (storage.objects). */
   objectExists(path: string): Promise<boolean>;
-  /** The completion RPC, executed with the CALLER's JWT (the database re-authorizes and re-reads Storage). */
+  /** The completion RPC, executed with the CALLER's JWT (the database re-authorizes and re-reads Storage):
+   *  purge_trial_balance_discard for a discard, confirm_trial_balance_storage_cleanup for a cancelled replacement. */
   completeAsCaller(kind: CleanupTarget["kind"], operationId: string): Promise<{ outcome: string } | null>;
 }
 
@@ -63,6 +66,10 @@ const COMPLETION_MAP: Record<string, CleanupResult> = {
   discard_pending: { status: 409, outcome: "storage_cleanup_pending" },
   storage_cleanup_pending: { status: 409, outcome: "storage_cleanup_pending" },
   replacement_required: { status: 409, outcome: "replacement_required" },
+  purged: { status: 200, outcome: "completed" },
+  already_purged: { status: 200, outcome: "already_completed" },
+  undo_window_open: { status: 409, outcome: "undo_window_open" },
+  not_purgeable: { status: 409, outcome: "not_purgeable" },
   forbidden: { status: 403, outcome: "forbidden" },
   stale_operation: { status: 404, outcome: "stale_operation" },
 };
@@ -76,8 +83,9 @@ export async function runStorageCleanup(deps: CleanupDeps, operationId: string):
 
   if (!(await deps.canManage(userId, target.company_id))) return { status: 403, outcome: "forbidden" };
 
-  const open = target.kind === "discard" ? target.state === "pending" : target.state === "storage_cleanup_pending";
-  if (open && target.deletion_eligible && target.file_path) {
+  // deletion_eligible is decided by the server: a cancelled replacement at once; a discarded source only once the
+  // discard is terminal (undo window over, not restored). Before that the source must stay restorable.
+  if (target.deletion_eligible && target.file_path) {
     const removed = await deps.removeObject(target.file_path);
     if (!removed.ok || (await deps.objectExists(target.file_path))) {
       return { status: 502, outcome: "storage_cleanup_pending" };
@@ -85,7 +93,7 @@ export async function runStorageCleanup(deps: CleanupDeps, operationId: string):
   }
 
   // Always finish through the database as the caller. For an already-finished operation this is the idempotent
-  // answer; for an ineligible discard it is the abort.
+  // answer; for a discard still inside its undo window it is an explicit undo_window_open.
   const done = await deps.completeAsCaller(target.kind, operationId);
   if (!done) return { status: 500, outcome: "completion_failed" };
   return COMPLETION_MAP[done.outcome] ?? { status: 500, outcome: "completion_failed" };

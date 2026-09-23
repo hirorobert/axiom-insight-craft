@@ -8,7 +8,7 @@ import { parseCleanupRequest, runStorageCleanup, type CleanupDeps, type CleanupT
 
 const OP = "7a1e4d92-2f8b-4c3e-b056-f9a2d7e14b83";
 const target = (over: Partial<CleanupTarget> = {}): CleanupTarget =>
-  ({ kind: "discard", state: "pending", company_id: "co-1", file_path: "uploader/tb.csv", deletion_eligible: true, ...over });
+  ({ kind: "discard", state: "completed", company_id: "co-1", file_path: "workspaces/co-1/src/tb.csv", deletion_eligible: true, ...over });
 
 function deps(over: Partial<CleanupDeps> = {}) {
   const d = {
@@ -37,12 +37,24 @@ describe("request parsing: only an opaque operation id is accepted", () => {
 });
 
 describe("runStorageCleanup", () => {
-  it("authorized owner or grantee: deletes ONLY the server-resolved path, verifies absence, completes as the caller", async () => {
-    const d = deps();
+  it("terminal discard (undo window over): purges ONLY the server-resolved path, verifies absence, records the purge as the caller", async () => {
+    const d = deps({ completeAsCaller: vi.fn(async () => ({ outcome: "purged" })) });
     await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 200, outcome: "completed" });
     expect(d.canManage).toHaveBeenCalledWith("user-1", "co-1");
-    expect(d.removeObject).toHaveBeenCalledWith("uploader/tb.csv");
+    expect(d.removeObject).toHaveBeenCalledWith("workspaces/co-1/src/tb.csv");
     expect(d.completeAsCaller).toHaveBeenCalledWith("discard", OP);
+  });
+
+  it("a discard still inside its undo window is NOT deleted: the source stays restorable (409 undo_window_open)", async () => {
+    const d = deps({ resolveTarget: vi.fn(async () => target({ deletion_eligible: false })), completeAsCaller: vi.fn(async () => ({ outcome: "undo_window_open" })) });
+    await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 409, outcome: "undo_window_open" });
+    expect(d.removeObject).not.toHaveBeenCalled();
+  });
+
+  it("a restored discard is never purged (409 not_purgeable)", async () => {
+    const d = deps({ resolveTarget: vi.fn(async () => target({ state: "restored", deletion_eligible: false })), completeAsCaller: vi.fn(async () => ({ outcome: "not_purgeable" })) });
+    await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 409, outcome: "not_purgeable" });
+    expect(d.removeObject).not.toHaveBeenCalled();
   });
 
   it("unauthenticated: nothing is resolved or deleted", async () => {
@@ -82,33 +94,28 @@ describe("runStorageCleanup", () => {
     await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 500, outcome: "completion_failed" });
   });
 
-  it("missing object (already gone): removal is a no-op and completion proceeds", async () => {
-    const d = deps();
+  it("missing object (already gone): removal is a no-op and the purge is recorded", async () => {
+    const d = deps({ completeAsCaller: vi.fn(async () => ({ outcome: "purged" })) });
     await expect(runStorageCleanup(d, OP)).resolves.toMatchObject({ outcome: "completed" });
   });
 
-  it("repeated completion of a finished operation: no deletion, the database's idempotent answer", async () => {
-    const d = deps({ resolveTarget: vi.fn(async () => target({ state: "completed" })), completeAsCaller: vi.fn(async () => ({ outcome: "already_discarded" })) });
+  it("repeated purge: no deletion, the database's idempotent answer", async () => {
+    const d = deps({ resolveTarget: vi.fn(async () => target({ state: "purged", deletion_eligible: false })), completeAsCaller: vi.fn(async () => ({ outcome: "already_purged" })) });
     await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 200, outcome: "already_completed" });
     expect(d.removeObject).not.toHaveBeenCalled();
   });
 
-  it("evidence appeared mid-saga: the file is NOT deleted; the database aborts the discard", async () => {
-    const d = deps({ resolveTarget: vi.fn(async () => target({ deletion_eligible: false })), completeAsCaller: vi.fn(async () => ({ outcome: "replacement_required" })) });
-    await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 409, outcome: "replacement_required" });
-    expect(d.removeObject).not.toHaveBeenCalled();
-  });
-
   it("an operation with no bound path (e.g. a forged row pointing at someone else's file) never deletes anything", async () => {
-    const d = deps({ resolveTarget: vi.fn(async () => target({ file_path: null })) });
+    const d = deps({ resolveTarget: vi.fn(async () => target({ file_path: null })), completeAsCaller: vi.fn(async () => ({ outcome: "purged" })) });
     await runStorageCleanup(d, OP);
     expect(d.removeObject).not.toHaveBeenCalled();
     expect(d.completeAsCaller).toHaveBeenCalled();
   });
 
-  it("cancelled replacement: completes through confirm (kind cancel_replacement)", async () => {
+  it("cancelled replacement: deletes at once and completes through confirm (kind cancel_replacement)", async () => {
     const d = deps({ resolveTarget: vi.fn(async () => target({ kind: "cancel_replacement", state: "storage_cleanup_pending" })), completeAsCaller: vi.fn(async () => ({ outcome: "completed" })) });
     await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 200, outcome: "completed" });
+    expect(d.removeObject).toHaveBeenCalled();
     expect(d.completeAsCaller).toHaveBeenCalledWith("cancel_replacement", OP);
   });
 

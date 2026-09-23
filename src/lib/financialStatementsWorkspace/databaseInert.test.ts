@@ -95,6 +95,10 @@ describe("database inertness — schema and functions", () => {
       // only after authorization, completes as the caller). It touches no financial-statements schema.
       "supabase/functions/_shared/storageCleanup.ts",
       "supabase/functions/trial-balance-storage-cleanup/index.ts",
+      // ...and its companion that signs a single-object upload URL for a reserved WORKSPACE-scoped source, so an
+      // authorized collaborator can upload without any client Storage policy being widened.
+      "supabase/functions/_shared/sourceUpload.ts",
+      "supabase/functions/trial-balance-source-signer/index.ts",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
