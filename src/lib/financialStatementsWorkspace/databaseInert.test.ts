@@ -90,6 +90,11 @@ describe("database inertness — schema and functions", () => {
       // provider being reachable. Reads no identity, writes nothing, and refuses when its secret is absent.
       "supabase/functions/_shared/enquiryAttestation.ts",
       "supabase/functions/issue-enquiry-challenge/index.ts",
+      // PR #32 user-based upload lifecycle: the ONE new Edge Function that performs an authorized, server-verified
+      // removal of an upload operation's bound file (authorizes with can_user_act_on_workspace, service-role Storage
+      // only after authorization, completes as the caller). It touches no financial-statements schema.
+      "supabase/functions/_shared/storageCleanup.ts",
+      "supabase/functions/trial-balance-storage-cleanup/index.ts",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
