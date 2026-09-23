@@ -142,7 +142,7 @@ export default function PrepareWorkspace() {
         body: { uploadId, clientRequestId: crypto.randomUUID() },
       });
       if (error) throw error;
-      if (prepareOnly) toast.success(`${fileName} validated. Evidence verification (bank and EFDMS reconciliation) is completed by someone with Reconcile access. Later stages stay locked until it clears.`);
+      if (prepareOnly) toast.success(`${fileName} validated. Evidence verification is completed by someone with Reconcile access. Later stages stay locked until it clears.`);
       else setSafishaUpload({ uploadId, fileName });
     } catch (err) {
       console.error("[processReplacement]", err);

@@ -37,6 +37,9 @@ vi.mock("@/hooks/useWorkspaceData", () => ({
     loading: false,
     refreshing: false,
     refreshUpload: vi.fn(),
+    // The workspace owner (PR #32 access bridge): every stage, exactly the pre-bridge shell.
+    accessState: { status: "granted", access: { kind: "owner", capabilities: [], stages: ["prepare", "reconcile", "statements", "tax", "compliance", "filing", "monitor"], company: { id: CID, name: "Acme Ltd", fiscal_year_end: "2025-12-31", reporting_framework: "full_ifrs", currency: "TZS", created_at: null } } },
+    access: { kind: "owner", capabilities: [], stages: ["prepare", "reconcile", "statements", "tax", "compliance", "filing", "monitor"], company: { id: CID, name: "Acme Ltd", fiscal_year_end: "2025-12-31", reporting_framework: "full_ifrs", currency: "TZS", created_at: null } },
   }),
 }));
 vi.mock("@/hooks/useEngagementMandate", () => ({

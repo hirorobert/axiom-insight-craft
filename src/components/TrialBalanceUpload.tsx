@@ -260,7 +260,7 @@ export const TrialBalanceUpload = ({
       // SAFISHA GATE: open the evidence verification gate for this upload
       // The tax engine is locked until Safisha clears it (safisha_status = 'clean')
       if (evidenceByReconcileOnly) {
-        toast.success(`${file.name} validated. Evidence verification (bank and EFDMS reconciliation) is completed by someone with Reconcile access. Later stages stay locked until it clears.`);
+        toast.success(`${file.name} validated. Evidence verification is completed by someone with Reconcile access. Later stages stay locked until it clears.`);
       } else {
         setSafishaUpload({ uploadId: uploadRecord.id, fileName: file.name });
       }
