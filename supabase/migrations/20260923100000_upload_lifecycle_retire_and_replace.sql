@@ -1,6 +1,6 @@
 -- ════════════════════════════════════════════════════════════════════════════
 -- Trial balance upload lifecycle: retire-and-replace, database-authoritative transitions,
--- replacement cancellation and truthful restore.
+-- replacement cancellation, truthful restore, and USER-BASED workspace authority.
 --
 -- ROOT CAUSE: trial_balance_uploads -> tb_certifications is ON DELETE CASCADE (fk_tbc_upload), but
 -- tb_certifications is unconditionally append-only (trg_tbc_immutable), including against a cascaded
@@ -38,19 +38,32 @@
 -- role (anon/authenticated), so a client cannot forge it. A client INSERT must start at the defaults,
 -- and a client UPDATE of any lifecycle column is refused (42501).
 --
--- ── Who may perform destructive source operations ─────────────────────────────────────────────
--- tbu_source_manager_membership(company) is the single capability check: an ACCEPTED firm_members row
--- with role owner, partner or manager. That is the same management set used by open_engagement_with_scope
--- and set_company_filing_jurisdiction. preparer, viewer, cross-tenant and anonymous callers are refused.
+-- ── Who may perform source-file operations: USER-BASED workspace authority ───────────────────
+-- CFOClose is a user-based platform (solo users, businesses, teams). No firm, firm membership or
+-- occupational title (owner/partner/manager/...) is ever required or consulted here. There is ONE
+-- predicate, can_user_act_on_workspace(user, workspace, capability). It is true only when:
+--   * the user owns the workspace (companies.user_id = user; basis 'workspace_owner'), or
+--   * the user holds an active, unrevoked explicit grant of that capability in
+--     workspace_capability_grants (basis 'explicit_capability').
+-- Anonymous, unrelated, revoked and cross-workspace callers get false, and an unknown capability
+-- fails closed. The lifecycle RPCs and the trial-balance-storage-cleanup Edge Function use exactly
+-- this predicate. firm_members is NOT read by it. Existing firm_members rows remain for compatibility
+-- but confer no authority here.
+-- Only the workspace owner (companies.user_id) may grant or revoke capabilities in this release.
 --
--- ── Actor identity (CLAUDE.md §4.3) ───────────────────────────────────────────────────────────
--- Every lifecycle event and operation records BOTH actor_user_id (auth.uid()) and
--- actor_membership_id (firm_members.id), resolved server-side and never accepted from the client.
--- trial_balance_uploads.user_id on a replacement row keeps that column's existing meaning (the uploading
--- auth user, as TrialBalanceUpload.tsx sets it); the membership identity sits beside it in
--- retired_by_membership_id and in the events.
+-- ── Actor identity (user-based; a narrowly scoped exception to CLAUDE.md §4.3) ─────────────────
+-- actor_user_id = auth.uid() is THE actor identity for these operations. Every event also records
+-- authority_basis ('workspace_owner' | 'explicit_capability' | 'engine' | 'migration'),
+-- authority_capability and outcome. actor_membership_id is nullable compatibility metadata, recorded
+-- only when the actor happens to have an accepted firm_members row. It is never required and never
+-- replaces actor_user_id.
 --
--- Storage and Postgres are two systems; nothing here claims atomicity across them. See each RPC.
+-- ── Storage evidence is read by the server, never claimed by the client ───────────────────────
+-- Completion, cleanup confirmation and restore check storage.objects directly (object absent / present)
+-- instead of trusting a client boolean. The trial-balance-storage-cleanup Edge Function exists only to
+-- perform an AUTHORIZED service-role deletion of the operation-bound object, because Storage RLS lets
+-- only the uploader delete from their own folder. Storage and Postgres are still two systems, so nothing
+-- here claims atomicity across them: a failure leaves a recoverable pending state.
 --
 -- This migration is never applied to production from this repository: `supabase db push` is the owner's action.
 -- Pre-flight report for an existing database: scripts/db-preflight/uploadLifecyclePreflight.sql.
@@ -96,8 +109,200 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_tbu_superseded_by ON public.trial_balance_uploads (superseded_by_upload_id) WHERE superseded_by_upload_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tbu_replaces ON public.trial_balance_uploads (replaces_upload_id) WHERE replaces_upload_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tbu_file_path ON public.trial_balance_uploads (file_path);
 
--- ── 2. Append-only lifecycle audit trail ─────────────────────────────────────────────────────
+-- ── 2. Explicit workspace capabilities (user-based collaboration) ─────────────────────────────
+CREATE TABLE IF NOT EXISTS public.workspace_capability_grants (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  company_id uuid NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+  grantee_user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  capability text NOT NULL CHECK (capability IN ('manage_source_files', 'prepare_trial_balance', 'review_close', 'administer_workspace')),
+  granted_by_user_id uuid NOT NULL,
+  granted_at timestamptz NOT NULL DEFAULT now(),
+  revoked_by_user_id uuid,
+  revoked_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_wcg_revocation_pair CHECK ((revoked_at IS NULL) = (revoked_by_user_id IS NULL))
+);
+-- One effective active grant per (workspace, grantee, capability), enforced by the database.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_wcg_one_active_grant
+  ON public.workspace_capability_grants (company_id, grantee_user_id, capability) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_wcg_grantee ON public.workspace_capability_grants (grantee_user_id) WHERE revoked_at IS NULL;
+
+ALTER TABLE public.workspace_capability_grants ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.workspace_capability_grants FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.workspace_capability_grants TO authenticated;
+DROP POLICY IF EXISTS "Owner and grantee read capability grants" ON public.workspace_capability_grants;
+CREATE POLICY "Owner and grantee read capability grants"
+  ON public.workspace_capability_grants FOR SELECT
+  USING (grantee_user_id = auth.uid()
+         OR EXISTS (SELECT 1 FROM public.companies c WHERE c.id = workspace_capability_grants.company_id AND c.user_id = auth.uid()));
+
+-- A grant is revoked exactly once and is otherwise immutable. Clients never write it directly: only the
+-- grant/revoke RPCs below do.
+CREATE OR REPLACE FUNCTION public.workspace_capability_grants_guard()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF OLD.revoked_at IS NOT NULL
+     OR NEW.id IS DISTINCT FROM OLD.id OR NEW.company_id IS DISTINCT FROM OLD.company_id
+     OR NEW.grantee_user_id IS DISTINCT FROM OLD.grantee_user_id OR NEW.capability IS DISTINCT FROM OLD.capability
+     OR NEW.granted_by_user_id IS DISTINCT FROM OLD.granted_by_user_id OR NEW.granted_at IS DISTINCT FROM OLD.granted_at
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'Iron Dome: a capability grant is immutable except for a single revocation. [id=%]', OLD.id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_wcg_guard ON public.workspace_capability_grants;
+CREATE TRIGGER trg_wcg_guard BEFORE UPDATE ON public.workspace_capability_grants
+  FOR EACH ROW EXECUTE FUNCTION public.workspace_capability_grants_guard();
+
+CREATE TABLE IF NOT EXISTS public.workspace_capability_grant_events (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  company_id uuid,                 -- not an FK: the audit record outlives the workspace
+  grantee_user_id uuid,
+  capability text,
+  action text NOT NULL CHECK (action IN ('grant', 'revoke')),
+  outcome text NOT NULL CHECK (outcome IN ('applied', 'already_in_effect', 'denied', 'invalid')),
+  actor_user_id uuid,
+  grant_id uuid,
+  occurred_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.workspace_capability_grant_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.workspace_capability_grant_events FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.workspace_capability_grant_events TO authenticated;
+DROP POLICY IF EXISTS "Workspace owner reads capability grant events" ON public.workspace_capability_grant_events;
+CREATE POLICY "Workspace owner reads capability grant events"
+  ON public.workspace_capability_grant_events FOR SELECT
+  USING (EXISTS (SELECT 1 FROM public.companies c WHERE c.id = workspace_capability_grant_events.company_id AND c.user_id = auth.uid()));
+
+CREATE OR REPLACE FUNCTION public.tbu_append_only_guard()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+BEGIN
+  RAISE EXCEPTION 'Iron Dome: % is append-only. % is not permitted. [id=%]', TG_TABLE_NAME, TG_OP, OLD.id
+    USING ERRCODE = '23001';
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_wcge_append_only ON public.workspace_capability_grant_events;
+CREATE TRIGGER trg_wcge_append_only BEFORE UPDATE OR DELETE ON public.workspace_capability_grant_events
+  FOR EACH ROW EXECUTE FUNCTION public.tbu_append_only_guard();
+
+-- ── 3. THE authority predicate ────────────────────────────────────────────────────────────────
+-- Returns the basis on which p_user_id may exercise p_capability in workspace p_company_id, or NULL.
+-- Never reads firm_members or any occupational title. An unknown capability fails closed.
+CREATE OR REPLACE FUNCTION public.workspace_authority_basis(p_user_id uuid, p_company_id uuid, p_capability text)
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT CASE
+    WHEN p_user_id IS NULL OR p_company_id IS NULL OR p_capability IS NULL
+      OR p_capability NOT IN ('manage_source_files', 'prepare_trial_balance', 'review_close', 'administer_workspace') THEN NULL
+    WHEN EXISTS (SELECT 1 FROM public.companies c WHERE c.id = p_company_id AND c.user_id = p_user_id) THEN 'workspace_owner'
+    WHEN EXISTS (SELECT 1 FROM public.workspace_capability_grants g
+                  WHERE g.company_id = p_company_id AND g.grantee_user_id = p_user_id
+                    AND g.capability = p_capability AND g.revoked_at IS NULL) THEN 'explicit_capability'
+  END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_user_act_on_workspace(p_user_id uuid, p_company_id uuid, p_capability text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT public.workspace_authority_basis(p_user_id, p_company_id, p_capability) IS NOT NULL;
+$$;
+
+-- The caller's own authority for a source-file operation, plus nullable membership metadata.
+CREATE OR REPLACE FUNCTION public.tbu_authorize(p_company_id uuid, OUT basis text, OUT capability text, OUT membership_id uuid)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  basis := public.workspace_authority_basis(auth.uid(), p_company_id, 'manage_source_files');
+  capability := CASE WHEN basis = 'explicit_capability' THEN 'manage_source_files' END;
+  -- Compatibility metadata only. It is never consulted for authority.
+  SELECT fm.id INTO membership_id FROM public.firm_members fm
+   WHERE basis IS NOT NULL AND fm.user_id = auth.uid() AND fm.company_id = p_company_id AND fm.accepted_at IS NOT NULL
+   ORDER BY fm.id LIMIT 1;
+END;
+$$;
+
+-- Read access to the lifecycle audit trail: the workspace owner or any active capability holder.
+CREATE OR REPLACE FUNCTION public.tbu_can_view_workspace_audit(p_company_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT auth.uid() IS NOT NULL AND (
+    EXISTS (SELECT 1 FROM public.companies c WHERE c.id = p_company_id AND c.user_id = auth.uid())
+    OR EXISTS (SELECT 1 FROM public.workspace_capability_grants g
+                WHERE g.company_id = p_company_id AND g.grantee_user_id = auth.uid() AND g.revoked_at IS NULL));
+$$;
+
+-- ── 4. Grant / revoke (workspace owner only in this release) ──────────────────────────────────
+-- Outcomes: granted | already_granted | forbidden | invalid_capability | invalid_grantee.
+CREATE OR REPLACE FUNCTION public.grant_workspace_capability(p_company_id uuid, p_grantee_user_id uuid, p_capability text)
+RETURNS TABLE (outcome text, grant_id uuid)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_id uuid;
+  v_owner uuid;
+BEGIN
+  SELECT c.user_id INTO v_owner FROM public.companies c WHERE c.id = p_company_id FOR SHARE;
+  IF auth.uid() IS NULL OR v_owner IS NULL OR v_owner <> auth.uid() THEN
+    INSERT INTO public.workspace_capability_grant_events (company_id, grantee_user_id, capability, action, outcome, actor_user_id)
+    VALUES (p_company_id, p_grantee_user_id, p_capability, 'grant', 'denied', auth.uid());
+    RETURN QUERY SELECT 'forbidden'::text, NULL::uuid; RETURN;
+  END IF;
+  IF p_capability IS NULL OR p_capability NOT IN ('manage_source_files', 'prepare_trial_balance', 'review_close', 'administer_workspace') THEN
+    INSERT INTO public.workspace_capability_grant_events (company_id, grantee_user_id, capability, action, outcome, actor_user_id)
+    VALUES (p_company_id, p_grantee_user_id, left(p_capability, 64), 'grant', 'invalid', auth.uid());
+    RETURN QUERY SELECT 'invalid_capability'::text, NULL::uuid; RETURN;
+  END IF;
+  IF p_grantee_user_id IS NULL OR p_grantee_user_id = v_owner OR NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p_grantee_user_id) THEN
+    INSERT INTO public.workspace_capability_grant_events (company_id, grantee_user_id, capability, action, outcome, actor_user_id)
+    VALUES (p_company_id, p_grantee_user_id, p_capability, 'grant', 'invalid', auth.uid());
+    RETURN QUERY SELECT 'invalid_grantee'::text, NULL::uuid; RETURN;
+  END IF;
+
+  BEGIN
+    INSERT INTO public.workspace_capability_grants (company_id, grantee_user_id, capability, granted_by_user_id)
+    VALUES (p_company_id, p_grantee_user_id, p_capability, auth.uid())
+    RETURNING id INTO v_id;
+  EXCEPTION WHEN unique_violation THEN
+    SELECT g.id INTO v_id FROM public.workspace_capability_grants g
+     WHERE g.company_id = p_company_id AND g.grantee_user_id = p_grantee_user_id AND g.capability = p_capability AND g.revoked_at IS NULL;
+    INSERT INTO public.workspace_capability_grant_events (company_id, grantee_user_id, capability, action, outcome, actor_user_id, grant_id)
+    VALUES (p_company_id, p_grantee_user_id, p_capability, 'grant', 'already_in_effect', auth.uid(), v_id);
+    RETURN QUERY SELECT 'already_granted'::text, v_id; RETURN;
+  END;
+  INSERT INTO public.workspace_capability_grant_events (company_id, grantee_user_id, capability, action, outcome, actor_user_id, grant_id)
+  VALUES (p_company_id, p_grantee_user_id, p_capability, 'grant', 'applied', auth.uid(), v_id);
+  RETURN QUERY SELECT 'granted'::text, v_id;
+END;
+$$;
+
+-- Outcomes: revoked | not_granted | forbidden | invalid_capability. Revocation takes effect for the next
+-- statement anywhere: the predicate reads the grant table directly, and nothing caches it.
+CREATE OR REPLACE FUNCTION public.revoke_workspace_capability(p_company_id uuid, p_grantee_user_id uuid, p_capability text)
+RETURNS TABLE (outcome text, grant_id uuid)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_id uuid;
+  v_owner uuid;
+BEGIN
+  SELECT c.user_id INTO v_owner FROM public.companies c WHERE c.id = p_company_id FOR SHARE;
+  IF auth.uid() IS NULL OR v_owner IS NULL OR v_owner <> auth.uid() THEN
+    INSERT INTO public.workspace_capability_grant_events (company_id, grantee_user_id, capability, action, outcome, actor_user_id)
+    VALUES (p_company_id, p_grantee_user_id, left(p_capability, 64), 'revoke', 'denied', auth.uid());
+    RETURN QUERY SELECT 'forbidden'::text, NULL::uuid; RETURN;
+  END IF;
+  IF p_capability IS NULL OR p_capability NOT IN ('manage_source_files', 'prepare_trial_balance', 'review_close', 'administer_workspace') THEN
+    INSERT INTO public.workspace_capability_grant_events (company_id, grantee_user_id, capability, action, outcome, actor_user_id)
+    VALUES (p_company_id, p_grantee_user_id, left(p_capability, 64), 'revoke', 'invalid', auth.uid());
+    RETURN QUERY SELECT 'invalid_capability'::text, NULL::uuid; RETURN;
+  END IF;
+  UPDATE public.workspace_capability_grants g SET revoked_at = now(), revoked_by_user_id = auth.uid()
+   WHERE g.company_id = p_company_id AND g.grantee_user_id = p_grantee_user_id AND g.capability = p_capability AND g.revoked_at IS NULL
+  RETURNING g.id INTO v_id;
+  INSERT INTO public.workspace_capability_grant_events (company_id, grantee_user_id, capability, action, outcome, actor_user_id, grant_id)
+  VALUES (p_company_id, p_grantee_user_id, p_capability, 'revoke', CASE WHEN v_id IS NULL THEN 'already_in_effect' ELSE 'applied' END, auth.uid(), v_id);
+  RETURN QUERY SELECT CASE WHEN v_id IS NULL THEN 'not_granted' ELSE 'revoked' END, v_id;
+END;
+$$;
+
+-- ── 5. Append-only lifecycle audit trail ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.trial_balance_upload_lifecycle_events (
   id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   -- Not FKs, for the same reason as the actor columns: an event about a deleted upload must outlive it.
@@ -106,41 +311,37 @@ CREATE TABLE IF NOT EXISTS public.trial_balance_upload_lifecycle_events (
   engagement_id uuid,
   period_year integer,
   from_state text,
-  to_state text NOT NULL,
+  to_state text,
   actor_kind text NOT NULL CHECK (actor_kind IN ('user', 'engine', 'migration')),
   actor_user_id uuid,
-  actor_membership_id uuid,
+  actor_membership_id uuid,        -- nullable compatibility metadata; never the actor identity
+  authority_basis text CHECK (authority_basis IN ('workspace_owner', 'explicit_capability', 'engine', 'migration')),
+  authority_capability text,
+  outcome text NOT NULL DEFAULT 'applied' CHECK (outcome IN ('applied', 'denied')),
   operation_id uuid,
   reason text,
-  occurred_at timestamptz NOT NULL DEFAULT now()
+  occurred_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_tbule_applied_has_state CHECK (outcome = 'denied' OR to_state IS NOT NULL),
+  CONSTRAINT chk_tbule_applied_has_basis CHECK (outcome = 'denied' OR authority_basis IS NOT NULL)
 );
 CREATE INDEX IF NOT EXISTS idx_tbule_upload ON public.trial_balance_upload_lifecycle_events (upload_id, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_tbule_company ON public.trial_balance_upload_lifecycle_events (company_id, occurred_at);
 
 ALTER TABLE public.trial_balance_upload_lifecycle_events ENABLE ROW LEVEL SECURITY;
 
-CREATE OR REPLACE FUNCTION public.tbu_lifecycle_events_append_only()
-RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
-BEGIN
-  RAISE EXCEPTION 'Iron Dome: trial_balance_upload_lifecycle_events is append-only. % is not permitted. [id=%]', TG_OP, OLD.id
-    USING ERRCODE = '23001';
-END;
-$$;
 DROP TRIGGER IF EXISTS trg_tbu_lifecycle_events_append_only ON public.trial_balance_upload_lifecycle_events;
 CREATE TRIGGER trg_tbu_lifecycle_events_append_only
   BEFORE UPDATE OR DELETE ON public.trial_balance_upload_lifecycle_events
-  FOR EACH ROW EXECUTE FUNCTION public.tbu_lifecycle_events_append_only();
+  FOR EACH ROW EXECUTE FUNCTION public.tbu_append_only_guard();
 
-DROP POLICY IF EXISTS "Accepted workspace members can read lifecycle events" ON public.trial_balance_upload_lifecycle_events;
-CREATE POLICY "Accepted workspace members can read lifecycle events"
+DROP POLICY IF EXISTS "Workspace owner and capability holders read lifecycle events" ON public.trial_balance_upload_lifecycle_events;
+CREATE POLICY "Workspace owner and capability holders read lifecycle events"
   ON public.trial_balance_upload_lifecycle_events FOR SELECT
-  USING (EXISTS (SELECT 1 FROM public.firm_members fm
-                  WHERE fm.user_id = auth.uid() AND fm.company_id = trial_balance_upload_lifecycle_events.company_id
-                    AND fm.accepted_at IS NOT NULL));
+  USING (public.tbu_can_view_workspace_audit(trial_balance_upload_lifecycle_events.company_id));
 -- No client write policy exists; only the SECURITY DEFINER code below inserts.
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.trial_balance_upload_lifecycle_events FROM PUBLIC, anon, authenticated;
 
--- ── 3. Operation records (server saga state; never touched by clients) ────────────────────────
+-- ── 6. Operation records (server saga state; never touched by clients) ────────────────────────
 CREATE TABLE IF NOT EXISTS public.trial_balance_upload_operations (
   id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   kind text NOT NULL CHECK (kind IN ('discard', 'cancel_replacement')),
@@ -152,7 +353,11 @@ CREATE TABLE IF NOT EXISTS public.trial_balance_upload_operations (
   company_id uuid NOT NULL,
   period_year integer,
   actor_user_id uuid NOT NULL,
-  actor_membership_id uuid NOT NULL,
+  actor_membership_id uuid,         -- nullable compatibility metadata
+  authority_basis text NOT NULL CHECK (authority_basis IN ('workspace_owner', 'explicit_capability')),
+  authority_capability text,
+  -- The ONLY Storage object this operation may ever delete. It is resolved server-side from the upload row,
+  -- and only when bound to that upload (see tbu_bound_storage_path). NULL means there is no object to delete.
   file_path text,
   row_snapshot jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -170,37 +375,46 @@ CREATE INDEX IF NOT EXISTS idx_tbuo_upload ON public.trial_balance_upload_operat
 ALTER TABLE public.trial_balance_upload_operations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.trial_balance_upload_operations FROM PUBLIC, anon, authenticated;
 
--- ── 4. Internal helpers (no client role may execute them) ──────────────────────────────────────
--- The one capability check for destructive source-lifecycle operations. Returns the caller's
--- firm_members.id, or NULL when the caller is not permitted, including when auth.uid() IS NULL.
-CREATE OR REPLACE FUNCTION public.tbu_source_manager_membership(p_company_id uuid)
-RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-  SELECT fm.id
-    FROM public.firm_members fm
-   WHERE auth.uid() IS NOT NULL
-     AND p_company_id IS NOT NULL
-     AND fm.user_id = auth.uid()
-     AND fm.company_id = p_company_id
-     AND fm.accepted_at IS NOT NULL
-     AND fm.role IN ('owner', 'partner', 'manager')
-   ORDER BY CASE fm.role WHEN 'owner' THEN 0 WHEN 'partner' THEN 1 ELSE 2 END, fm.id
-   LIMIT 1;
-$$;
-
-CREATE OR REPLACE FUNCTION public.tbu_record_lifecycle_event(
-  p_upload public.trial_balance_uploads, p_from text, p_to text, p_actor_kind text,
-  p_actor_user uuid, p_actor_membership uuid, p_operation_id uuid, p_reason text)
+-- ── 7. Internal helpers (no client role may execute them) ──────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.tbu_log_event(
+  p_upload_id uuid, p_company_id uuid, p_engagement_id uuid, p_period_year integer,
+  p_from text, p_to text, p_actor_kind text, p_actor_user uuid, p_actor_membership uuid,
+  p_basis text, p_capability text, p_outcome text, p_operation_id uuid, p_reason text)
 RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   INSERT INTO public.trial_balance_upload_lifecycle_events
-    (upload_id, company_id, engagement_id, period_year, from_state, to_state, actor_kind,
-     actor_user_id, actor_membership_id, operation_id, reason)
-  VALUES (p_upload.id, p_upload.company_id, p_upload.engagement_id, p_upload.period_year, p_from, p_to, p_actor_kind,
-          p_actor_user, p_actor_membership, p_operation_id, p_reason);
+    (upload_id, company_id, engagement_id, period_year, from_state, to_state, actor_kind, actor_user_id,
+     actor_membership_id, authority_basis, authority_capability, outcome, operation_id, reason)
+  VALUES (p_upload_id, p_company_id, p_engagement_id, p_period_year, p_from, p_to, p_actor_kind, p_actor_user,
+          p_actor_membership, p_basis, p_capability, p_outcome, p_operation_id, p_reason);
+$$;
+
+-- Presence of a trial balance file in Storage, read by the server itself (storage.objects), never claimed
+-- by a client.
+CREATE OR REPLACE FUNCTION public.tbu_storage_object_exists(p_path text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT p_path IS NOT NULL AND EXISTS (SELECT 1 FROM storage.objects o WHERE o.bucket_id = 'trial-balance-files' AND o.name = p_path);
+$$;
+
+-- The Storage path an operation on p_upload_id may delete, or NULL. A path is bound to an upload only when:
+--   * it is well formed (no '..', no leading '/', exactly "<folder>/<name>");
+--   * its folder is that upload's own uploader (trial_balance_uploads.user_id). Browser uploads always
+--     write "<auth.uid()>/<name>", and RLS pins user_id to auth.uid() on insert;
+--   * no OTHER upload row references the same path.
+-- A row whose file_path points at someone else's object therefore can never make the server delete it.
+CREATE OR REPLACE FUNCTION public.tbu_bound_storage_path(p_upload public.trial_balance_uploads)
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT CASE
+    WHEN p_upload.file_path IS NULL OR p_upload.user_id IS NULL THEN NULL
+    WHEN p_upload.file_path LIKE '/%' OR position('..' IN p_upload.file_path) > 0
+      OR array_length(string_to_array(p_upload.file_path, '/'), 1) <> 2 THEN NULL
+    WHEN split_part(p_upload.file_path, '/', 1) <> p_upload.user_id::text THEN NULL
+    WHEN EXISTS (SELECT 1 FROM public.trial_balance_uploads t WHERE t.file_path = p_upload.file_path AND t.id <> p_upload.id) THEN NULL
+    ELSE p_upload.file_path
+  END;
 $$;
 
 -- Lifecycle state implied by the authoritative facts of one upload: its latest certification (by
--- sequence_no), otherwise any processing trace. Used by the backfill, by the discard-abort path, and when
--- cancel_trial_balance_replacement() restores a predecessor.
+-- sequence_no), otherwise any processing trace.
 CREATE OR REPLACE FUNCTION public.tbu_derived_active_state(p_upload public.trial_balance_uploads)
 RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT COALESCE(
@@ -258,7 +472,7 @@ BEGIN
 END;
 $$;
 
--- ── 5. Guard: lifecycle columns are server-authoritative ──────────────────────────────────────
+-- ── 8. Guard: lifecycle columns are server-authoritative ──────────────────────────────────────
 -- SECURITY INVOKER on purpose: current_user is the real calling role here (inside the RPCs it is the
 -- definer, which is exactly what makes those paths sanctioned).
 CREATE OR REPLACE FUNCTION public.trial_balance_upload_lifecycle_guard()
@@ -333,14 +547,9 @@ RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, 
 BEGIN
   IF NEW.lifecycle_state IS DISTINCT FROM OLD.lifecycle_state
      AND COALESCE(current_setting('axiom.tbu_lifecycle_op', true), '') = '' THEN
-    PERFORM public.tbu_record_lifecycle_event(
-      NEW, OLD.lifecycle_state, NEW.lifecycle_state,
-      CASE WHEN auth.uid() IS NULL THEN 'engine' ELSE 'user' END,
-      auth.uid(),
-      (SELECT fm.id FROM public.firm_members fm
-        WHERE auth.uid() IS NOT NULL AND fm.user_id = auth.uid() AND fm.company_id = NEW.company_id AND fm.accepted_at IS NOT NULL
-        ORDER BY fm.id LIMIT 1),
-      NULL, 'Processing started (status ' || COALESCE(NEW.status, 'NULL') || ')');
+    PERFORM public.tbu_log_event(NEW.id, NEW.company_id, NEW.engagement_id, NEW.period_year,
+      OLD.lifecycle_state, NEW.lifecycle_state, 'engine', auth.uid(), NULL, 'engine', NULL, 'applied', NULL,
+      'Processing started (status ' || COALESCE(NEW.status, 'NULL') || ')');
   END IF;
   RETURN NULL;
 END;
@@ -351,7 +560,7 @@ CREATE TRIGGER trg_tbu_lifecycle_audit
   AFTER UPDATE ON public.trial_balance_uploads
   FOR EACH ROW EXECUTE FUNCTION public.trial_balance_upload_lifecycle_audit();
 
--- ── 6. B2: certification drives lifecycle (database-authoritative) ────────────────────────────
+-- ── 9. B2: certification drives lifecycle (database-authoritative) ────────────────────────────
 -- Every certification enters through commit_tb_certification(). This AFTER INSERT trigger makes the
 -- upload's lifecycle follow it, whichever caller committed it. A certification for an upload that is no
 -- longer active (superseded, retired or discard_pending) changes nothing: complete_trial_balance_discard
@@ -371,13 +580,14 @@ BEGIN
     RETURN NULL;
   END IF;
 
+  -- The engine run's actor: its user is the actor identity; the membership id is metadata only.
   SELECT er.firm_member_id INTO v_member FROM public.engine_runs er WHERE er.id = NEW.engine_run_id;
   SELECT fm.user_id INTO v_member_user FROM public.firm_members fm WHERE fm.id = v_member;
 
   PERFORM set_config('axiom.tbu_lifecycle_op', 'certification', true);
   UPDATE public.trial_balance_uploads t SET lifecycle_state = v_target, version = t.version + 1 WHERE t.id = v_row.id;
-  PERFORM public.tbu_record_lifecycle_event(
-    v_row, v_row.lifecycle_state, v_target, 'engine', v_member_user, v_member, NULL,
+  PERFORM public.tbu_log_event(v_row.id, v_row.company_id, v_row.engagement_id, v_row.period_year,
+    v_row.lifecycle_state, v_target, 'engine', v_member_user, v_member, 'engine', NULL, 'applied', NULL,
     'Certification ' || NEW.id::text || ' (is_blocking=' || NEW.is_blocking::text || ', requires_review=' || NEW.requires_review::text || ')');
   PERFORM set_config('axiom.tbu_lifecycle_op', '', true);
   RETURN NULL;
@@ -389,7 +599,7 @@ CREATE TRIGGER trg_tbc_drives_upload_lifecycle
   AFTER INSERT ON public.tb_certifications
   FOR EACH ROW EXECUTE FUNCTION public.tb_certification_drives_upload_lifecycle();
 
--- ── 7. B1: backfill existing uploads, then enforce one active upload per period ─────────────────
+-- ── 10. B1: backfill existing uploads, then enforce one active upload per period ────────────────
 -- Pre-lifecycle authority rule (traced, not invented): get_authoritative_certification() treats the
 -- CURRENT upload for (company_id, period_year) as the one with the latest uploaded_at, ties broken by
 -- id DESC. uploaded_at is server-assigned (NOT NULL DEFAULT now()) and id is immutable. The client's
@@ -441,8 +651,8 @@ BEGIN
 
   -- (d) One migration event per upload, so every row's starting state is on the audit trail.
   INSERT INTO public.trial_balance_upload_lifecycle_events
-    (upload_id, company_id, engagement_id, period_year, from_state, to_state, actor_kind, reason)
-  SELECT u.id, u.company_id, u.engagement_id, u.period_year, NULL, u.lifecycle_state, 'migration',
+    (upload_id, company_id, engagement_id, period_year, from_state, to_state, actor_kind, authority_basis, reason)
+  SELECT u.id, u.company_id, u.engagement_id, u.period_year, NULL, u.lifecycle_state, 'migration', 'migration',
          'Lifecycle migration 20260923100000 backfill'
     FROM public.trial_balance_uploads u
    WHERE u.company_id IS NOT NULL;
@@ -466,7 +676,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_one_active_upload_per_period
   WHERE lifecycle_state IN ('active_unprocessed', 'active_processing', 'active_processed', 'blocked')
     AND company_id IS NOT NULL AND period_year IS NOT NULL;
 
--- ── 8. The current source for certification authority is the ACTIVE upload ────────────────────
+-- ── 11. The current source for certification authority is the ACTIVE upload ───────────────────
 -- Body identical to the latest definition (20260902150000, including its fail-closed rule for an unknown
 -- source_file_hash): same signature, ordering, search_path and grants. The only change is that
 -- a non-active row (retired, superseded or discard_pending) can no longer be "the latest upload".
@@ -505,7 +715,7 @@ $$;
 REVOKE ALL ON FUNCTION public.get_authoritative_certification(UUID, INTEGER) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_authoritative_certification(UUID, INTEGER) TO authenticated, service_role;
 
--- ── 9. Deletion only through the discard saga ────────────────────────────────────────────────
+-- ── 12. Deletion only through the discard saga ────────────────────────────────────────────────
 -- A direct client DELETE bypassed authorization, the evidence check and the audit trail. No client code
 -- issues one (grepped src/ and supabase/functions/), so the saga below is now the only path.
 DROP POLICY IF EXISTS "Accepted workspace members can delete company uploads" ON public.trial_balance_uploads;
@@ -514,7 +724,8 @@ DROP POLICY IF EXISTS "Users can delete their own uploads" ON public.trial_balan
 -- ════════════════════════════════════════════════════════════════════════════
 -- RPCs. Every one is SECURITY DEFINER, because each must see and change rows the caller's RLS hides and
 -- each IS the authorization boundary. search_path is pinned with pg_catalog first, every table reference
--- is schema-qualified, and EXECUTE is granted to authenticated only.
+-- is schema-qualified, and EXECUTE is granted to authenticated only. Authority is ALWAYS tbu_authorize():
+-- the workspace owner or an explicit manage_source_files grant. A refusal is itself audited (outcome 'denied').
 -- ════════════════════════════════════════════════════════════════════════════
 DO $$ BEGIN ALTER TYPE public.discard_outcome ADD VALUE IF NOT EXISTS 'replacement_required'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TYPE public.discard_outcome ADD VALUE IF NOT EXISTS 'stale_version'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -532,7 +743,7 @@ RETURNS TABLE (outcome public.discard_outcome, operation_id uuid, row_snapshot j
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
   v_row public.trial_balance_uploads%ROWTYPE;
-  v_member uuid;
+  v_auth record;
   v_evidence text;
   v_op uuid;
 BEGIN
@@ -545,10 +756,12 @@ BEGIN
     RETURN QUERY SELECT 'already_discarded'::public.discard_outcome, NULL::uuid, NULL::jsonb, NULL::text, 'This trial balance no longer exists.'::text; RETURN;
   END IF;
 
-  v_member := public.tbu_source_manager_membership(v_row.company_id);
-  IF v_member IS NULL THEN
+  SELECT * INTO v_auth FROM public.tbu_authorize(v_row.company_id);
+  IF v_auth.basis IS NULL THEN
+    PERFORM public.tbu_log_event(v_row.id, v_row.company_id, v_row.engagement_id, v_row.period_year, v_row.lifecycle_state, NULL,
+      'user', auth.uid(), NULL, NULL, 'manage_source_files', 'denied', NULL, 'discard refused: no workspace authority');
     RETURN QUERY SELECT 'forbidden'::public.discard_outcome, NULL::uuid, NULL::jsonb, NULL::text,
-      'Only an owner or partner of this company can remove a trial balance.'::text; RETURN;
+      'You don''t have permission to manage this workspace''s source files.'::text; RETURN;
   END IF;
 
   IF v_row.lifecycle_state = 'discard_pending' THEN
@@ -584,26 +797,30 @@ BEGIN
   PERFORM set_config('axiom.tbu_lifecycle_op', 'discard', true);
   UPDATE public.trial_balance_uploads t SET lifecycle_state = 'discard_pending', version = t.version + 1 WHERE t.id = p_upload_id;
   INSERT INTO public.trial_balance_upload_operations
-    (kind, state, upload_id, company_id, period_year, actor_user_id, actor_membership_id, file_path, row_snapshot)
-  VALUES ('discard', 'pending', p_upload_id, v_row.company_id, v_row.period_year, auth.uid(), v_member, v_row.file_path, to_jsonb(v_row))
+    (kind, state, upload_id, company_id, period_year, actor_user_id, actor_membership_id, authority_basis, authority_capability, file_path, row_snapshot)
+  VALUES ('discard', 'pending', p_upload_id, v_row.company_id, v_row.period_year, auth.uid(), v_auth.membership_id,
+          v_auth.basis, v_auth.capability, public.tbu_bound_storage_path(v_row), to_jsonb(v_row))
   RETURNING id INTO v_op;
-  PERFORM public.tbu_record_lifecycle_event(v_row, v_row.lifecycle_state, 'discard_pending', 'user', auth.uid(), v_member, v_op, 'Hard discard started');
+  PERFORM public.tbu_log_event(v_row.id, v_row.company_id, v_row.engagement_id, v_row.period_year, v_row.lifecycle_state, 'discard_pending',
+    'user', auth.uid(), v_auth.membership_id, v_auth.basis, v_auth.capability, 'applied', v_op, 'Hard discard started');
   PERFORM set_config('axiom.tbu_lifecycle_op', '', true);
 
-  RETURN QUERY SELECT 'discard_pending'::public.discard_outcome, v_op, to_jsonb(v_row), v_row.file_path, NULL::text;
+  RETURN QUERY SELECT 'discard_pending'::public.discard_outcome, v_op, to_jsonb(v_row), public.tbu_bound_storage_path(v_row), NULL::text;
 END;
 $$;
 
 -- ── discard (phase 2 of 2) ───────────────────────────────────────────────────────────────────
--- Deletes the row only after the caller reports that Storage removal succeeded. That report is the
--- client's own claim; the database cannot see Storage, so this guarantees ordering, not atomicity.
-CREATE OR REPLACE FUNCTION public.complete_trial_balance_discard(p_operation_id uuid, p_storage_removed boolean)
+-- Deletes the row only when the SERVER sees that the operation's bound object is gone from Storage
+-- (storage.objects). No client claim is accepted. Normally called by the trial-balance-storage-cleanup
+-- Edge Function with the caller's own JWT, after its authorized deletion.
+DROP FUNCTION IF EXISTS public.complete_trial_balance_discard(uuid, boolean);
+CREATE OR REPLACE FUNCTION public.complete_trial_balance_discard(p_operation_id uuid)
 RETURNS TABLE (outcome public.discard_outcome, detail text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
   v_op public.trial_balance_upload_operations%ROWTYPE;
   v_row public.trial_balance_uploads%ROWTYPE;
-  v_member uuid;
+  v_auth record;
   v_restore text;
 BEGIN
   SELECT * INTO v_op FROM public.trial_balance_upload_operations o WHERE o.id = p_operation_id AND o.kind = 'discard' FOR UPDATE;
@@ -611,17 +828,19 @@ BEGIN
     RETURN QUERY SELECT 'already_discarded'::public.discard_outcome, 'This discard has already completed or was never started.'::text; RETURN;
   END IF;
 
-  v_member := public.tbu_source_manager_membership(v_op.company_id);
-  IF v_member IS NULL THEN
-    RETURN QUERY SELECT 'forbidden'::public.discard_outcome, 'Only an owner or partner of this company can remove a trial balance.'::text; RETURN;
+  SELECT * INTO v_auth FROM public.tbu_authorize(v_op.company_id);
+  IF v_auth.basis IS NULL THEN
+    PERFORM public.tbu_log_event(v_op.upload_id, v_op.company_id, NULL, v_op.period_year, 'discard_pending', NULL,
+      'user', auth.uid(), NULL, NULL, 'manage_source_files', 'denied', v_op.id, 'discard completion refused: no workspace authority');
+    RETURN QUERY SELECT 'forbidden'::public.discard_outcome, 'You don''t have permission to manage this workspace''s source files.'::text; RETURN;
   END IF;
 
   IF v_op.state <> 'pending' THEN
     RETURN QUERY SELECT 'already_discarded'::public.discard_outcome, NULL::text; RETURN;
   END IF;
 
-  IF NOT COALESCE(p_storage_removed, false) THEN
-    RETURN QUERY SELECT 'discard_pending'::public.discard_outcome, 'Storage removal has not been confirmed yet. Retry once the file is removed.'::text; RETURN;
+  IF public.tbu_storage_object_exists(v_op.file_path) THEN
+    RETURN QUERY SELECT 'discard_pending'::public.discard_outcome, 'The file is still in storage. Retry once it has been removed.'::text; RETURN;
   END IF;
 
   SELECT * INTO v_row FROM public.trial_balance_uploads t WHERE t.id = v_op.upload_id FOR UPDATE;
@@ -634,7 +853,8 @@ BEGIN
     BEGIN
       UPDATE public.trial_balance_uploads t SET lifecycle_state = v_restore, version = t.version + 1 WHERE t.id = v_row.id;
       UPDATE public.trial_balance_upload_operations o SET state = 'aborted', completed_at = now() WHERE o.id = v_op.id;
-      PERFORM public.tbu_record_lifecycle_event(v_row, 'discard_pending', v_restore, 'user', auth.uid(), v_member, v_op.id, 'Discard aborted: evidence appeared during the saga');
+      PERFORM public.tbu_log_event(v_row.id, v_row.company_id, v_row.engagement_id, v_row.period_year, 'discard_pending', v_restore,
+        'user', auth.uid(), v_auth.membership_id, v_auth.basis, v_auth.capability, 'applied', v_op.id, 'Discard aborted: evidence appeared during the saga');
     EXCEPTION WHEN unique_violation THEN
       NULL; -- another upload took the period's active slot meanwhile; the row stays discard_pending, outside the active set
     END;
@@ -645,7 +865,8 @@ BEGIN
 
   IF v_row.id IS NOT NULL THEN
     DELETE FROM public.trial_balance_uploads t WHERE t.id = v_row.id AND t.lifecycle_state = 'discard_pending';
-    PERFORM public.tbu_record_lifecycle_event(v_row, 'discard_pending', 'discarded', 'user', auth.uid(), v_member, v_op.id, 'Hard discard completed');
+    PERFORM public.tbu_log_event(v_row.id, v_row.company_id, v_row.engagement_id, v_row.period_year, 'discard_pending', 'discarded',
+      'user', auth.uid(), v_auth.membership_id, v_auth.basis, v_auth.capability, 'applied', v_op.id, 'Hard discard completed');
   END IF;
   UPDATE public.trial_balance_upload_operations o SET state = 'completed', completed_at = now() WHERE o.id = v_op.id;
   PERFORM set_config('axiom.tbu_lifecycle_op', '', true);
@@ -658,13 +879,15 @@ $$;
 -- Outcomes: restored | already_restored | conflict_new_active_upload | expired | forbidden |
 --           stale_operation | storage_restore_required | terminal_failure.
 -- already_restored is returned ONLY after proving that the exact original row exists: id, company,
--- file_path and uploaded_at must match the operation's own snapshot. A unique_violation is never read as success.
-CREATE OR REPLACE FUNCTION public.restore_trial_balance_upload(p_operation_id uuid, p_storage_restored boolean)
+-- file_path and uploaded_at must match the operation's own snapshot. A unique_violation is never read as
+-- success. Whether the file is back in Storage is read by the server (storage.objects), not claimed.
+DROP FUNCTION IF EXISTS public.restore_trial_balance_upload(uuid, boolean);
+CREATE OR REPLACE FUNCTION public.restore_trial_balance_upload(p_operation_id uuid)
 RETURNS TABLE (outcome text, upload_id uuid, detail text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
   v_op public.trial_balance_upload_operations%ROWTYPE;
-  v_member uuid;
+  v_auth record;
   v_snap jsonb;
   v_existing public.trial_balance_uploads%ROWTYPE;
   v_new public.trial_balance_uploads%ROWTYPE;
@@ -676,9 +899,11 @@ BEGIN
     RETURN QUERY SELECT 'stale_operation'::text, NULL::uuid, 'This undo no longer refers to a discard.'::text; RETURN;
   END IF;
 
-  v_member := public.tbu_source_manager_membership(v_op.company_id);
-  IF v_member IS NULL THEN
-    RETURN QUERY SELECT 'forbidden'::text, NULL::uuid, 'Only an owner or partner of this company can restore a trial balance.'::text; RETURN;
+  SELECT * INTO v_auth FROM public.tbu_authorize(v_op.company_id);
+  IF v_auth.basis IS NULL THEN
+    PERFORM public.tbu_log_event(v_op.upload_id, v_op.company_id, NULL, v_op.period_year, NULL, NULL,
+      'user', auth.uid(), NULL, NULL, 'manage_source_files', 'denied', v_op.id, 'restore refused: no workspace authority');
+    RETURN QUERY SELECT 'forbidden'::text, NULL::uuid, 'You don''t have permission to manage this workspace''s source files.'::text; RETURN;
   END IF;
 
   v_snap := v_op.row_snapshot;
@@ -691,7 +916,7 @@ BEGIN
        AND v_existing.uploaded_at IS NOT DISTINCT FROM (v_snap->>'uploaded_at')::timestamptz THEN
       IF v_op.state <> 'restored' THEN
         UPDATE public.trial_balance_upload_operations o
-           SET state = 'restored', restored_at = now(), restored_by = auth.uid(), restored_by_membership_id = v_member
+           SET state = 'restored', restored_at = now(), restored_by = auth.uid(), restored_by_membership_id = v_auth.membership_id
          WHERE o.id = v_op.id;
       END IF;
       RETURN QUERY SELECT 'already_restored'::text, v_existing.id, NULL::text; RETURN;
@@ -715,7 +940,7 @@ BEGIN
       'Undo cannot proceed because a new trial balance is now active for this period.'::text; RETURN;
   END IF;
 
-  IF NOT COALESCE(p_storage_restored, false) THEN
+  IF (v_snap->>'file_path') IS NOT NULL AND NOT public.tbu_storage_object_exists(v_snap->>'file_path') THEN
     RETURN QUERY SELECT 'storage_restore_required'::text, NULL::uuid, 'The original file must be put back before the trial balance can be restored.'::text; RETURN;
   END IF;
 
@@ -739,9 +964,10 @@ BEGIN
       RETURN QUERY SELECT 'terminal_failure'::text, NULL::uuid, 'The trial balance could not be restored (for example, the period is now locked).'::text; RETURN;
   END;
   UPDATE public.trial_balance_upload_operations o
-     SET state = 'restored', restored_at = now(), restored_by = auth.uid(), restored_by_membership_id = v_member
+     SET state = 'restored', restored_at = now(), restored_by = auth.uid(), restored_by_membership_id = v_auth.membership_id
    WHERE o.id = v_op.id;
-  PERFORM public.tbu_record_lifecycle_event(v_new, 'discarded', 'active_unprocessed', 'user', auth.uid(), v_member, v_op.id, 'Discard undone');
+  PERFORM public.tbu_log_event(v_new.id, v_new.company_id, v_new.engagement_id, v_new.period_year, 'discarded', 'active_unprocessed',
+    'user', auth.uid(), v_auth.membership_id, v_auth.basis, v_auth.capability, 'applied', v_op.id, 'Discard undone');
   PERFORM set_config('axiom.tbu_lifecycle_op', '', true);
 
   RETURN QUERY SELECT 'restored'::text, v_new.id, NULL::text;
@@ -752,6 +978,8 @@ $$;
 -- The only path for an upload with any history. It deletes nothing and copies no results. It is
 -- idempotent per (old upload, new file path): a retried request with the SAME file returns the same new
 -- upload, while a DIFFERENT file racing for the same old upload gets stale_version, never a false success.
+-- The replacement file must sit in the caller's own Storage folder ("<auth.uid()>/<name>") and already
+-- exist there, so a replacement row can never point at somebody else's object.
 CREATE OR REPLACE FUNCTION public.retire_trial_balance_upload(
   p_old_upload_id uuid, p_expected_version bigint,
   p_new_file_name text, p_new_file_path text, p_new_file_size integer, p_reason text DEFAULT NULL)
@@ -760,7 +988,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
   v_old public.trial_balance_uploads%ROWTYPE;
   v_new public.trial_balance_uploads%ROWTYPE;
-  v_member uuid;
+  v_auth record;
   v_new_id uuid;
 BEGIN
   IF p_old_upload_id IS NULL OR p_new_file_name IS NULL OR p_new_file_path IS NULL OR p_new_file_size IS NULL THEN
@@ -772,10 +1000,12 @@ BEGIN
     RETURN QUERY SELECT 'already_discarded'::public.discard_outcome, NULL::uuid, NULL::uuid, 'The upload being replaced no longer exists.'::text; RETURN;
   END IF;
 
-  v_member := public.tbu_source_manager_membership(v_old.company_id);
-  IF v_member IS NULL THEN
+  SELECT * INTO v_auth FROM public.tbu_authorize(v_old.company_id);
+  IF v_auth.basis IS NULL THEN
+    PERFORM public.tbu_log_event(v_old.id, v_old.company_id, v_old.engagement_id, v_old.period_year, v_old.lifecycle_state, NULL,
+      'user', auth.uid(), NULL, NULL, 'manage_source_files', 'denied', NULL, 'replace refused: no workspace authority');
     RETURN QUERY SELECT 'forbidden'::public.discard_outcome, NULL::uuid, NULL::uuid,
-      'Only an owner or partner of this company can replace a trial balance.'::text; RETURN;
+      'You don''t have permission to manage this workspace''s source files.'::text; RETURN;
   END IF;
 
   IF v_old.lifecycle_state = 'superseded' THEN
@@ -795,11 +1025,20 @@ BEGIN
       'This trial balance changed since you last viewed it. Refresh and try again.'::text; RETURN;
   END IF;
 
+  IF p_new_file_path LIKE '/%' OR position('..' IN p_new_file_path) > 0
+     OR array_length(string_to_array(p_new_file_path, '/'), 1) <> 2
+     OR split_part(p_new_file_path, '/', 1) <> auth.uid()::text
+     OR EXISTS (SELECT 1 FROM public.trial_balance_uploads t WHERE t.file_path = p_new_file_path)
+     OR NOT public.tbu_storage_object_exists(p_new_file_path) THEN
+    RETURN QUERY SELECT 'forbidden'::public.discard_outcome, NULL::uuid, NULL::uuid,
+      'The replacement file must be a new upload in your own storage folder.'::text; RETURN;
+  END IF;
+
   v_new_id := gen_random_uuid();
   PERFORM set_config('axiom.tbu_lifecycle_op', 'retire', true);
   -- Demote first (see the superseded_by_upload_id DEFERRABLE note), then insert the new active row.
   UPDATE public.trial_balance_uploads t
-     SET lifecycle_state = 'superseded', retired_at = now(), retired_by = auth.uid(), retired_by_membership_id = v_member,
+     SET lifecycle_state = 'superseded', retired_at = now(), retired_by = auth.uid(), retired_by_membership_id = v_auth.membership_id,
          retired_reason = p_reason, superseded_by_upload_id = v_new_id, version = t.version + 1
    WHERE t.id = v_old.id;
   INSERT INTO public.trial_balance_uploads (
@@ -809,8 +1048,10 @@ BEGIN
     v_new_id, p_new_file_name, p_new_file_path, p_new_file_size, 'pending', auth.uid(), v_old.company_id, v_old.company_name,
     v_old.period_year, v_old.period_id, v_old.engagement_id, 'active_unprocessed', v_old.id
   ) RETURNING * INTO v_new;
-  PERFORM public.tbu_record_lifecycle_event(v_old, v_old.lifecycle_state, 'superseded', 'user', auth.uid(), v_member, NULL, COALESCE(p_reason, 'Replaced'));
-  PERFORM public.tbu_record_lifecycle_event(v_new, NULL, 'active_unprocessed', 'user', auth.uid(), v_member, NULL, 'Created as replacement for ' || v_old.id::text);
+  PERFORM public.tbu_log_event(v_old.id, v_old.company_id, v_old.engagement_id, v_old.period_year, v_old.lifecycle_state, 'superseded',
+    'user', auth.uid(), v_auth.membership_id, v_auth.basis, v_auth.capability, 'applied', NULL, COALESCE(p_reason, 'Replaced'));
+  PERFORM public.tbu_log_event(v_new.id, v_new.company_id, v_new.engagement_id, v_new.period_year, NULL, 'active_unprocessed',
+    'user', auth.uid(), v_auth.membership_id, v_auth.basis, v_auth.capability, 'applied', NULL, 'Created as replacement for ' || v_old.id::text);
   PERFORM set_config('axiom.tbu_lifecycle_op', '', true);
 
   RETURN QUERY SELECT 'replaced'::public.discard_outcome, v_new_id, v_old.id, NULL::text;
@@ -822,9 +1063,9 @@ $$;
 --           stale_version | lineage_conflict.
 -- Atomic in the database: in one transaction the replacement row is deleted, the predecessor's link is
 -- cleared, and the predecessor becomes the period's sole active upload again in its evidence-derived
--- state, with every certification untouched. The client removes the replacement's Storage object
--- afterwards and confirms through confirm_trial_balance_storage_cleanup(). Until then the operation stays
--- storage_cleanup_pending, so a failed cleanup is recorded rather than hidden.
+-- state, with every certification untouched. The replacement's Storage object is then removed by the
+-- trial-balance-storage-cleanup Edge Function and confirmed server-side through
+-- confirm_trial_balance_storage_cleanup(). Until then the operation stays storage_cleanup_pending.
 CREATE OR REPLACE FUNCTION public.cancel_trial_balance_replacement(p_replacement_upload_id uuid, p_expected_version bigint)
 RETURNS TABLE (outcome text, operation_id uuid, restored_upload_id uuid, file_path text, detail text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -832,7 +1073,7 @@ DECLARE
   v_rep public.trial_balance_uploads%ROWTYPE;
   v_prev public.trial_balance_uploads%ROWTYPE;
   v_prev_id uuid;
-  v_member uuid;
+  v_auth record;
   v_restore text;
   v_op uuid;
   v_done public.trial_balance_upload_operations%ROWTYPE;
@@ -844,8 +1085,8 @@ BEGIN
     IF v_done.id IS NULL THEN
       RETURN QUERY SELECT 'not_a_replacement'::text, NULL::uuid, NULL::uuid, NULL::text, 'This trial balance no longer exists.'::text; RETURN;
     END IF;
-    IF public.tbu_source_manager_membership(v_done.company_id) IS NULL THEN
-      RETURN QUERY SELECT 'forbidden'::text, NULL::uuid, NULL::uuid, NULL::text, 'Only an owner or partner of this company can cancel a replacement.'::text; RETURN;
+    IF (SELECT basis FROM public.tbu_authorize(v_done.company_id)) IS NULL THEN
+      RETURN QUERY SELECT 'forbidden'::text, NULL::uuid, NULL::uuid, NULL::text, 'You don''t have permission to manage this workspace''s source files.'::text; RETURN;
     END IF;
     RETURN QUERY SELECT 'already_cancelled'::text, v_done.id, v_done.related_upload_id, v_done.file_path, NULL::text; RETURN;
   END IF;
@@ -858,9 +1099,11 @@ BEGIN
     RETURN QUERY SELECT 'stale_version'::text, NULL::uuid, NULL::uuid, NULL::text, 'This trial balance changed. Refresh and try again.'::text; RETURN;
   END IF;
 
-  v_member := public.tbu_source_manager_membership(v_rep.company_id);
-  IF v_member IS NULL THEN
-    RETURN QUERY SELECT 'forbidden'::text, NULL::uuid, NULL::uuid, NULL::text, 'Only an owner or partner of this company can cancel a replacement.'::text; RETURN;
+  SELECT * INTO v_auth FROM public.tbu_authorize(v_rep.company_id);
+  IF v_auth.basis IS NULL THEN
+    PERFORM public.tbu_log_event(v_rep.id, v_rep.company_id, v_rep.engagement_id, v_rep.period_year, v_rep.lifecycle_state, NULL,
+      'user', auth.uid(), NULL, NULL, 'manage_source_files', 'denied', NULL, 'cancel replacement refused: no workspace authority');
+    RETURN QUERY SELECT 'forbidden'::text, NULL::uuid, NULL::uuid, NULL::text, 'You don''t have permission to manage this workspace''s source files.'::text; RETURN;
   END IF;
 
   IF v_rep.replaces_upload_id IS NULL THEN
@@ -885,6 +1128,12 @@ BEGIN
   v_restore := public.tbu_derived_active_state(v_prev);
 
   PERFORM set_config('axiom.tbu_lifecycle_op', 'cancel_replacement', true);
+  INSERT INTO public.trial_balance_upload_operations
+    (kind, state, upload_id, related_upload_id, company_id, period_year, actor_user_id, actor_membership_id,
+     authority_basis, authority_capability, file_path, row_snapshot)
+  VALUES ('cancel_replacement', 'storage_cleanup_pending', v_rep.id, v_prev.id, v_rep.company_id, v_rep.period_year,
+          auth.uid(), v_auth.membership_id, v_auth.basis, v_auth.capability, public.tbu_bound_storage_path(v_rep), to_jsonb(v_rep))
+  RETURNING id INTO v_op;
   -- Free the period's active slot first, then reactivate the predecessor. The deferred FK from
   -- v_prev.superseded_by_upload_id is satisfied at COMMIT because the link is cleared below.
   DELETE FROM public.trial_balance_uploads t WHERE t.id = v_rep.id;
@@ -892,22 +1141,20 @@ BEGIN
      SET superseded_by_upload_id = NULL, lifecycle_state = v_restore, retired_at = NULL, retired_by = NULL,
          retired_by_membership_id = NULL, retired_reason = NULL, version = t.version + 1
    WHERE t.id = v_prev.id;
-  INSERT INTO public.trial_balance_upload_operations
-    (kind, state, upload_id, related_upload_id, company_id, period_year, actor_user_id, actor_membership_id, file_path, row_snapshot)
-  VALUES ('cancel_replacement', 'storage_cleanup_pending', v_rep.id, v_prev.id, v_rep.company_id, v_rep.period_year,
-          auth.uid(), v_member, v_rep.file_path, to_jsonb(v_rep))
-  RETURNING id INTO v_op;
-  PERFORM public.tbu_record_lifecycle_event(v_rep, v_rep.lifecycle_state, 'discarded', 'user', auth.uid(), v_member, v_op, 'Replacement cancelled');
-  PERFORM public.tbu_record_lifecycle_event(v_prev, 'superseded', v_restore, 'user', auth.uid(), v_member, v_op, 'Restored: replacement ' || v_rep.id::text || ' cancelled');
+  PERFORM public.tbu_log_event(v_rep.id, v_rep.company_id, v_rep.engagement_id, v_rep.period_year, v_rep.lifecycle_state, 'discarded',
+    'user', auth.uid(), v_auth.membership_id, v_auth.basis, v_auth.capability, 'applied', v_op, 'Replacement cancelled');
+  PERFORM public.tbu_log_event(v_prev.id, v_prev.company_id, v_prev.engagement_id, v_prev.period_year, 'superseded', v_restore,
+    'user', auth.uid(), v_auth.membership_id, v_auth.basis, v_auth.capability, 'applied', v_op, 'Restored: replacement ' || v_rep.id::text || ' cancelled');
   PERFORM set_config('axiom.tbu_lifecycle_op', '', true);
 
-  RETURN QUERY SELECT 'cancelled'::text, v_op, v_prev.id, v_rep.file_path, NULL::text;
+  RETURN QUERY SELECT 'cancelled'::text, v_op, v_prev.id, (SELECT o.file_path FROM public.trial_balance_upload_operations o WHERE o.id = v_op), NULL::text;
 END;
 $$;
 
--- Records that a cancelled replacement's Storage object was removed. Idempotent.
--- Outcomes: completed | already_completed | storage_cleanup_pending | forbidden | stale_operation.
-CREATE OR REPLACE FUNCTION public.confirm_trial_balance_storage_cleanup(p_operation_id uuid, p_storage_removed boolean)
+-- Records that a cancelled replacement's Storage object is gone, as seen by the server (storage.objects).
+-- Idempotent. Outcomes: completed | already_completed | storage_cleanup_pending | forbidden | stale_operation.
+DROP FUNCTION IF EXISTS public.confirm_trial_balance_storage_cleanup(uuid, boolean);
+CREATE OR REPLACE FUNCTION public.confirm_trial_balance_storage_cleanup(p_operation_id uuid)
 RETURNS TABLE (outcome text, detail text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
@@ -917,13 +1164,15 @@ BEGIN
   IF v_op.id IS NULL THEN
     RETURN QUERY SELECT 'stale_operation'::text, 'Unknown cleanup operation.'::text; RETURN;
   END IF;
-  IF public.tbu_source_manager_membership(v_op.company_id) IS NULL THEN
+  IF (SELECT basis FROM public.tbu_authorize(v_op.company_id)) IS NULL THEN
+    PERFORM public.tbu_log_event(v_op.upload_id, v_op.company_id, NULL, v_op.period_year, NULL, NULL,
+      'user', auth.uid(), NULL, NULL, 'manage_source_files', 'denied', v_op.id, 'storage cleanup confirmation refused: no workspace authority');
     RETURN QUERY SELECT 'forbidden'::text, NULL::text; RETURN;
   END IF;
   IF v_op.state = 'completed' THEN
     RETURN QUERY SELECT 'already_completed'::text, NULL::text; RETURN;
   END IF;
-  IF NOT COALESCE(p_storage_removed, false) THEN
+  IF public.tbu_storage_object_exists(v_op.file_path) THEN
     RETURN QUERY SELECT 'storage_cleanup_pending'::text, 'The replacement file is still in storage; cleanup can be retried.'::text; RETURN;
   END IF;
   UPDATE public.trial_balance_upload_operations o SET state = 'completed', completed_at = now() WHERE o.id = v_op.id;
@@ -931,42 +1180,71 @@ BEGIN
 END;
 $$;
 
+-- The Edge Function's view of an operation: the minimum it needs, resolved server-side (service role only).
+-- deletion_eligible is false when a discard's upload acquired evidence mid-saga: its file must then NOT be
+-- deleted, and completion aborts the discard instead.
+CREATE OR REPLACE FUNCTION public.tbu_storage_cleanup_target(p_operation_id uuid)
+RETURNS TABLE (kind text, state text, company_id uuid, file_path text, deletion_eligible boolean)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT o.kind, o.state, o.company_id, o.file_path,
+         (o.kind = 'cancel_replacement' OR public.tbu_upload_evidence(o.upload_id) IS NULL)
+    FROM public.trial_balance_upload_operations o WHERE o.id = p_operation_id;
+$$;
+
 -- ── Privileges ───────────────────────────────────────────────────────────────────────────────
-REVOKE ALL ON FUNCTION public.tbu_source_manager_membership(uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.tbu_record_lifecycle_event(public.trial_balance_uploads, text, text, text, uuid, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
+-- Internal helpers: no client role.
+REVOKE ALL ON FUNCTION public.tbu_authorize(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.tbu_log_event(uuid, uuid, uuid, integer, text, text, text, uuid, uuid, text, text, text, uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.tbu_bound_storage_path(public.trial_balance_uploads) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.tbu_derived_active_state(public.trial_balance_uploads) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.tbu_upload_evidence(uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.trial_balance_upload_lifecycle_guard() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.trial_balance_upload_lifecycle_audit() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.tb_certification_drives_upload_lifecycle() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.tbu_lifecycle_events_append_only() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.tbu_append_only_guard() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.workspace_capability_grants_guard() FROM PUBLIC, anon, authenticated;
+-- The predicate takes an explicit user id, so it would disclose other users' permissions. Only the
+-- server-side Edge Function (service_role) calls it directly; RPCs use tbu_authorize() with auth.uid().
+REVOKE ALL ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.tbu_storage_object_exists(text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.tbu_storage_cleanup_target(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.tbu_storage_object_exists(text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.tbu_storage_cleanup_target(uuid) TO service_role;
+-- Used inside an RLS policy, so the querying role must be able to execute it (it only ever answers for auth.uid()).
+REVOKE ALL ON FUNCTION public.tbu_can_view_workspace_audit(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.tbu_can_view_workspace_audit(uuid) TO authenticated;
 
+-- Client RPCs: authenticated only.
 REVOKE ALL ON FUNCTION public.discard_trial_balance_upload(uuid, bigint) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.complete_trial_balance_discard(uuid, boolean) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.restore_trial_balance_upload(uuid, boolean) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.complete_trial_balance_discard(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.restore_trial_balance_upload(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.retire_trial_balance_upload(uuid, bigint, text, text, integer, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.cancel_trial_balance_replacement(uuid, bigint) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.confirm_trial_balance_storage_cleanup(uuid, boolean) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.confirm_trial_balance_storage_cleanup(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.grant_workspace_capability(uuid, uuid, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.revoke_workspace_capability(uuid, uuid, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.discard_trial_balance_upload(uuid, bigint) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.complete_trial_balance_discard(uuid, boolean) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.restore_trial_balance_upload(uuid, boolean) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_trial_balance_discard(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.restore_trial_balance_upload(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.retire_trial_balance_upload(uuid, bigint, text, text, integer, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cancel_trial_balance_replacement(uuid, bigint) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.confirm_trial_balance_storage_cleanup(uuid, boolean) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.confirm_trial_balance_storage_cleanup(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.grant_workspace_capability(uuid, uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.revoke_workspace_capability(uuid, uuid, text) TO authenticated;
 
 -- ── Rollback (NOT executed; for reference only; review before use) ──────────────────────────
--- Roll back the frontend first. Then:
--- DROP FUNCTION IF EXISTS public.confirm_trial_balance_storage_cleanup(uuid, boolean);
--- DROP FUNCTION IF EXISTS public.cancel_trial_balance_replacement(uuid, bigint);
--- DROP FUNCTION IF EXISTS public.retire_trial_balance_upload(uuid, bigint, text, text, integer, text);
--- DROP FUNCTION IF EXISTS public.restore_trial_balance_upload(uuid, boolean);
--- DROP FUNCTION IF EXISTS public.complete_trial_balance_discard(uuid, boolean);
--- DROP FUNCTION IF EXISTS public.discard_trial_balance_upload(uuid, bigint);
+-- Roll back the frontend and remove the trial-balance-storage-cleanup Edge Function first. Then:
+-- DROP FUNCTION IF EXISTS public.confirm_trial_balance_storage_cleanup(uuid), public.cancel_trial_balance_replacement(uuid, bigint),
+--   public.retire_trial_balance_upload(uuid, bigint, text, text, integer, text), public.restore_trial_balance_upload(uuid),
+--   public.complete_trial_balance_discard(uuid), public.discard_trial_balance_upload(uuid, bigint),
+--   public.grant_workspace_capability(uuid, uuid, text), public.revoke_workspace_capability(uuid, uuid, text);
 -- DROP TRIGGER IF EXISTS trg_tbc_drives_upload_lifecycle ON public.tb_certifications;
 -- DROP TRIGGER IF EXISTS trg_tbu_lifecycle_audit ON public.trial_balance_uploads;
 -- DROP TRIGGER IF EXISTS trg_tbu_lifecycle_guard ON public.trial_balance_uploads;
 -- DROP INDEX IF EXISTS public.uq_one_active_upload_per_period;
 -- Restore the 20260902150000 body of get_authoritative_certification (without the lifecycle filter).
 -- Re-create "Users can delete their own uploads" only if direct client deletes are wanted again.
--- Keep the lifecycle columns, trial_balance_upload_lifecycle_events and trial_balance_upload_operations.
+-- Keep the lifecycle columns, the event tables, trial_balance_upload_operations and workspace_capability_grants.
 -- Once the functions and triggers are gone they are inert, and dropping them destroys lineage and the audit trail.

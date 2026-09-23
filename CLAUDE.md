@@ -169,6 +169,28 @@ Never pass `userId` (auth UID) to an edge function as a substitute for
 `firmMemberId`. Never accept `firmMemberId` in the request body — derive it
 from the auth JWT server-side.
 
+**Scoped exception: trial balance upload lifecycle (PR #32).** CFOClose is a user-based platform, open to solo
+users, businesses and teams. A firm, a firm membership, or a title such as partner or manager must never be
+required to use it. For the upload lifecycle operations (discard, restore, replace, cancel replacement, Storage
+cleanup) and the capability grants of `20260923100000`:
+- the actor identity is `auth.uid()` (`actor_user_id`);
+- `actor_membership_id` is nullable compatibility metadata;
+- authority is the single predicate `can_user_act_on_workspace(user, workspace, capability)`. It holds for the
+  workspace owner (`companies.user_id`) or for an explicit, unrevoked `workspace_capability_grants` row. It never
+  holds because of a firm membership or a title.
+
+Everything else keeps this section's rule until the platform-wide migration below replaces it.
+**Deferred (separate mission, after PR #32):** move every remaining role-label predicate onto explicit workspace
+capabilities:
+- the 15 migrations with RLS/function checks on `fm.role`;
+- `get_member_company_ids`;
+- `assertCompanyMembership` and the 7 edge functions that read `firm_members`;
+- `engagements.created_by_member_id`;
+- this section's actor model.
+
+Do not do this as a side effect of other work. The sign-off, approval, reconciliation, statement and compliance
+boundaries (§4.6) change only in that mission, with their own review.
+
 ### 4.4 No Silent Defaults
 No default fiscal year. No default tax rate. No default exchange rate.
 If a required input is missing, the engine must return an error — not a guess.
@@ -252,8 +274,13 @@ server-authoritative: only the migration backfill, the `tb_certifications` AFTER
 derivation in `trg_tbu_lifecycle_guard` and the SECURITY DEFINER RPCs may change it (client roles get 42501).
 `uq_one_active_upload_per_period`; hard discard only for uploads with no evidence (every FK onto the table is checked
 at call time); `retire_trial_balance_upload` / `cancel_trial_balance_replacement` / `restore_trial_balance_upload`;
-destructive source operations need owner/partner/manager (`tbu_source_manager_membership`); every lifecycle event
-records `actor_user_id` and `actor_membership_id`. Proven by `scripts/db-proof/uploadLifecycle.mjs` (local PostgreSQL) and `scripts/upload_lifecycle_staging.mjs` (hosted staging, manual CI job); pre-flight
+source-file operations are authorized by `can_user_act_on_workspace`: the workspace owner (`companies.user_id`) or an
+explicit `manage_source_files` grant in `workspace_capability_grants` (owner-only `grant_/revoke_workspace_capability`;
+one active grant per workspace, grantee and capability). No firm membership or title is ever consulted (§4.3 scoped
+exception). Events record `actor_user_id`, `authority_basis`, `authority_capability` and `outcome` (denials
+included); `actor_membership_id` is nullable metadata. Storage evidence is read by the server from `storage.objects`;
+the `trial-balance-storage-cleanup` Edge Function does the authorized service-role deletion of the operation-bound
+object only (deployed to staging-replay `hplriydtdelehepgttul` only). Proven by `scripts/db-proof/uploadLifecycle.mjs` (local PostgreSQL) and `scripts/upload_lifecycle_staging.mjs` (hosted staging, manual CI job); pre-flight
 report for an existing database: `scripts/db-preflight/uploadLifecyclePreflight.sql`. Apply together with
 `20260922180000`. Only Lovable/the owner applies it.
 
@@ -388,6 +415,7 @@ supabase/
       auth.ts                 ← CANONICAL shared auth utilities (see section 5)
     kinga-tax-engine/         ← ITA Cap.332 engine. Has idempotency + engine_runs.
     process-trial-balance/    ← TB ingestion + classification
+    trial-balance-storage-cleanup/ ← Authorized, server-verified removal of an upload operation's bound file (PR #32)
     hesabu-validate/          ← H-01 to H-12 assurance assertions
     safisha-ingest/           ← Bank statement CSV/XLSX → safisha_transactions
     safisha-efdms-ingest/     ← EFDMS Z-Report → safisha_transactions (service role)
