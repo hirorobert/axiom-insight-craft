@@ -212,8 +212,6 @@ interface LifecycleRpcClient {
   rpc(name: "retire_trial_balance_upload", args: {
     p_old_upload_id: string; p_expected_version: number; p_reservation_id: string; p_new_file_size: number; p_reason?: string;
   }): Promise<{ data: RetireRpcRow[] | null; error: RpcError }>;
-  rpc(name: "list_purgeable_trial_balance_sources", args: { p_company_id: string }):
-    Promise<{ data: { operation_id: string }[] | null; error: RpcError }>;
   rpc(name: "restore_trial_balance_upload", args: { p_operation_id: string }):
     Promise<{ data: RestoreRpcRow[] | null; error: RpcError }>;
   rpc(name: "cancel_trial_balance_replacement", args: { p_replacement_upload_id: string; p_expected_version: number }):
@@ -267,7 +265,7 @@ function throwForBeginOutcome(target: DiscardTarget, outcome: DiscardOutcome, de
  *
  * complete_trial_balance_discard() then removes the row but RETAINS the source object for the whole undo window,
  * so any authorized user can restore the exact same file, whoever uploaded it. The source is purged only after
- * the discard is terminal (sweepPurgeableSources → trial-balance-storage-cleanup). A lost response resumes the
+ * the discard is terminal, by the scheduled server-side sweeper (trial-balance-source-sweeper). A lost response resumes the
  * SAME operation on retry.
  */
 export async function discardUpload(target: DiscardTarget): Promise<DiscardReceipt> {
@@ -305,22 +303,6 @@ export async function discardUpload(target: DiscardTarget): Promise<DiscardRecei
   }
 
   return { id: target.id, fileName: target.file_name, operationId: begin.operation_id, row: begin.row_snapshot, filePath: begin.file_path ?? null };
-}
-
-/**
- * sweepPurgeableSources — purges discarded sources whose undo window is over (terminal, not restored) through
- * the server-authoritative trial-balance-storage-cleanup Edge Function. Best effort: whatever is not purged now
- * stays listed and is purged on a later sweep. Never touches anything still restorable.
- */
-export async function sweepPurgeableSources(companyId: string): Promise<number> {
-  const { data, error } = await lifecycleRpc().rpc("list_purgeable_trial_balance_sources", { p_company_id: companyId });
-  if (error || !data?.length) return 0;
-  let purged = 0;
-  for (const { operation_id } of data) {
-    const outcome = await invokeStorageCleanup(operation_id).catch(() => null);
-    if (outcome === "completed" || outcome === "already_completed") purged++;
-  }
-  return purged;
 }
 
 /**

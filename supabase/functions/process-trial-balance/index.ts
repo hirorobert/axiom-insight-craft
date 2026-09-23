@@ -28,7 +28,7 @@ import {
   getAuditedAccountsMetadata,
 } from "./auditedAccountsAdapter.ts";
 import { classifyPublicSectorAccount } from "./publicSectorClassification.ts";
-import { resolveFirmMemberActor, type FirmMemberActor } from "../_shared/actor.ts";
+import { resolveProcessingActor, type ProcessingActor } from "../_shared/processingActor.ts";
 import { claimIdempotency, failIdempotency } from "../_shared/idempotency.ts";
 import { recordEngineRunFailed } from "../_shared/engine-run.ts";
 import { canonicalJson, sha256Hex, sha256HexBytes, type CanonicalValue } from "../_shared/hash.ts";
@@ -1428,8 +1428,12 @@ serve(async (req) => {
       .from("trial_balance_uploads").select("*").eq("id", uploadId).single();
     if (uploadError || !upload) throw new Error("Upload not found");
 
-    // ── Authorization: caller must be a firm_member of upload.company_id ──
-    // (or the original uploader for legacy uploads with no company_id).
+    // ── Authorization (user-based, PR #32 / 20260923120000) ──
+    // A company-scoped upload may be validated by an accepted firm member of upload.company_id (unchanged), or
+    // by the workspace owner / an explicit prepare_trial_balance or manage_source_files grant holder with no
+    // firm membership at all (actor_type 'workspace_user', actor_user_id = the JWT user). The database decides
+    // (tbu_resolve_processing_actor); nothing in the request body is read. Legacy uploads with no company_id
+    // keep the original-uploader rule.
     // Ω∞ Phase 0 Slice 2: company-scoped uploads now resolve the canonical
     // firmMemberId actor (Iron Dome §4.3) via the shared resolver instead of
     // an inline membership check that only proved membership, never derived
@@ -1437,11 +1441,17 @@ serve(async (req) => {
     // null) cannot be SAFISHA-certified — tb_certifications.company_id is
     // NOT NULL — so that branch is preserved exactly as-is and SAFISHA
     // wiring below is skipped entirely for them (resolvedActor stays null).
-    let resolvedActor: FirmMemberActor | null = null;
+    let resolvedActor: ProcessingActor | null = null;
     if (upload.company_id) {
-      const actor = await resolveFirmMemberActor(supabase as never, userId, upload.company_id, corsHeaders);
-      if (actor instanceof Response) return actor;
-      resolvedActor = actor;
+      resolvedActor = await resolveProcessingActor(
+        (name, args) => supabase.rpc(name, args), userId, upload.company_id,
+      );
+      if (!resolvedActor) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden", message: "You don't have permission to validate trial balances in this workspace." }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
     } else if (upload.uploaded_by && upload.uploaded_by !== userId) {
       return new Response(
         JSON.stringify({ error: "Forbidden", message: "You do not own this upload" }),
@@ -1593,7 +1603,7 @@ serve(async (req) => {
       const claim = await claimIdempotency(supabase as never, {
         companyId: upload.company_id,
         actor: resolvedActor,
-        actorType: "user",
+        actorType: resolvedActor.actorType,
         functionName: "process-trial-balance",
         engineVersion: SAFISHA_ENGINE_VERSION,
         clientRequestId,

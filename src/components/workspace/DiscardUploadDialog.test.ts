@@ -262,13 +262,10 @@ describe("cancelReplacement and the purge sweep — server-authoritative cleanup
     await expect(cancelReplacement(REPLACEMENT)).rejects.toMatchObject({ code: "stale_version", retryable: true });
   });
 
-  it("sweepPurgeableSources purges only what the server lists (terminal discards), through the Edge Function", async () => {
-    supa.rpc.mockResolvedValueOnce({ data: [{ operation_id: "p1" }, { operation_id: "p2" }], error: null });
-    supa.invoke.mockResolvedValueOnce(cleanupOk("completed")).mockResolvedValueOnce(cleanupHttpError("undo_window_open"));
-    const { sweepPurgeableSources } = await import("./DiscardUploadDialog");
-    await expect(sweepPurgeableSources("co-1")).resolves.toBe(1);
-    expect(supa.rpc).toHaveBeenCalledWith("list_purgeable_trial_balance_sources", { p_company_id: "co-1" });
-    expect(supa.invoke).toHaveBeenCalledTimes(2);
+  it("the browser never sweeps: purging is the scheduled server sweeper's job (trial-balance-source-sweeper)", async () => {
+    const mod = await import("./DiscardUploadDialog");
+    expect("sweepPurgeableSources" in mod).toBe(false);
+    expect(supa.rpc).not.toHaveBeenCalledWith("list_purgeable_trial_balance_sources", expect.anything());
   });
 
   it("isUnprocessedReplacement only for an unprocessed upload that replaced another", async () => {

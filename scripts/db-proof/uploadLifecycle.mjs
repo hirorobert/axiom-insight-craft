@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Real-PostgreSQL proof of the trial balance upload lifecycle migration (20260923100000).
+// Real-PostgreSQL proof of the trial balance upload lifecycle migrations (20260923100000, 20260923120000).
 //
 // 1. Upgrade (B1): replays every migration BEFORE 20260923100000, seeds legacy uploads (zero, one and
 //    several per period, certified and blocked history, an exact uploaded_at tie, NULL periods and derived
@@ -565,6 +565,170 @@ async function main() {
     return (await discard(user(U.owner), u.id, 1)).outcome === "replacement_required";
   });
 
+  group("VALIDATION — user-based processing authority (20260923120000); no firm membership required");
+  const actorOf = async (u, company) => (await admin.query("SELECT * FROM public.tbu_resolve_processing_actor($1,$2)", [u, company])).rows[0] ?? null;
+  await check("solo owner with NO firm membership may validate, as a workspace_user actor", async () => {
+    const a = await actorOf(U.solo, S);
+    return a?.actor_type === "workspace_user" && a.firm_member_id === null && a.authority_basis === "workspace_owner";
+  });
+  await check("a manage_source_files grant holder with NO firm membership may validate (explicit_capability)", async () => {
+    const a = await actorOf(U.collab, C);
+    return (await count("SELECT count(*) n FROM public.firm_members WHERE user_id=$1", [U.collab])) === 0
+      && a?.actor_type === "workspace_user" && a.firm_member_id === null && a.authority_basis === "explicit_capability" && a.authority_capability === "manage_source_files";
+  });
+  await check("a prepare_trial_balance grant alone also suffices", async () => {
+    await grant(user(U.owner), C, U.admin, "prepare_trial_balance");
+    const a = await actorOf(U.admin, C);
+    return a?.actor_type === "workspace_user" && a.authority_capability === "prepare_trial_balance";
+  });
+  await check("an accepted firm member keeps the firm-member actor exactly as before, with its real role", async () => {
+    const o = await actorOf(U.owner, C); const p = await actorOf(U.partnerTitle, C);
+    return o?.actor_type === "user" && o.firm_member_id === ownerMemberOf[C] && o.firm_member_role === "owner" && o.authority_basis === "workspace_owner"
+      && p?.actor_type === "user" && p.firm_member_role === "partner" && p.authority_basis === "firm_membership";
+  });
+  await check("unrelated, other-workspace owner, revoked and anonymous users may not validate", async () =>
+    (await actorOf(U.unrelated, C)) === null && (await actorOf(U.ownerB, C)) === null && (await actorOf(U.revoked, C)) === null && (await actorOf(null, C)) === null);
+  await check("the resolver never creates a firm membership", async () => (await count("SELECT count(*) n FROM public.firm_members WHERE user_id IN ($1,$2)", [U.collab, U.solo])) === 0);
+
+  group("ENGINE LEDGER — an attributable workspace_user actor; firm-member and system rows unchanged");
+  const runAs = (company, actorType, fm, au, period = 2100) => admin.query(
+    "INSERT INTO public.engine_runs (company_id, actor_type, firm_member_id, actor_user_id, function_name, engine_version, status, period_year) VALUES ($1,$2,$3,$4,'process-trial-balance','proof','running',$5) RETURNING id",
+    [company, actorType, fm, au, period]);
+  await check("a workspace_user engine run records the user and no membership", async () => (await runAs(S, "workspace_user", null, U.solo)).rows.length === 1);
+  await refused("a workspace_user run can never carry a firm membership (23514)", "23514", () => runAs(C, "workspace_user", ownerMemberOf[C], U.owner));
+  await refused("a workspace_user run must name its user (23514)", "23514", () => runAs(C, "workspace_user", null, null));
+  await refused("a firm-member 'user' run cannot also claim a user actor (23514)", "23514", () => runAs(C, "user", ownerMemberOf[C], U.owner));
+  await refused("a system run carries no actor at all (23514)", "23514", () => runAs(C, "system", null, U.owner));
+  await refused("actor_user_id is immutable (P0001)", "P0001", async () => {
+    const id = (await runAs(S, "workspace_user", null, U.solo)).rows[0].id;
+    await admin.query("UPDATE public.engine_runs SET actor_user_id=$2, status='failed', completed_at=now() WHERE id=$1", [id, U.owner]);
+  });
+  const claim = async (company, au, rid) => {
+    const run = (await runAs(company, "workspace_user", null, au)).rows[0].id;
+    return admin.query("INSERT INTO public.idempotency_keys (company_id, actor_type, actor_user_id, function_name, client_request_id, request_hash, engine_run_id) VALUES ($1,'workspace_user',$2,'process-trial-balance',$3,'h',$4)", [company, au, rid, run]);
+  };
+  await check("idempotency: one request id by two different workspace users is two separate claims", async () => { const rid = uuid(); await claim(C, U.collab, rid); await claim(C, U.admin, rid); return true; });
+  await refused("idempotency: the same workspace user and request id cannot claim twice (23505)", "23505", async () => { const rid = uuid(); await claim(C, U.collab, rid); await claim(C, U.collab, rid); });
+  await check("a certification from a workspace_user run drives the lifecycle and names that user, with no membership", async () => {
+    const u = await workspaceUpload(C, 2098, U.collab);
+    const svc = await pool.connect();
+    try { await svc.query("BEGIN; SET LOCAL ROLE service_role"); await svc.query("UPDATE public.trial_balance_uploads SET source_file_hash='h' WHERE id=$1", [u.id]); await svc.query("COMMIT"); }
+    catch (e) { await svc.query("ROLLBACK").catch(() => {}); throw e; } finally { svc.release(); }
+    const run = (await runAs(C, "workspace_user", null, U.collab, 2098)).rows[0].id;
+    await admin.query("SELECT public.commit_tb_certification($1,'process-trial-balance',$2,$3,2098,'h','n','o',false,false,'[]'::jsonb,'[]'::jsonb)", [run, u.id, C]);
+    const ev = (await admin.query("SELECT * FROM public.trial_balance_upload_lifecycle_events WHERE upload_id=$1 AND actor_kind='engine' ORDER BY occurred_at DESC LIMIT 1", [u.id])).rows[0];
+    return (await row(u.id)).lifecycle_state === "active_processed" && ev?.actor_user_id === U.collab && ev.actor_membership_id === null;
+  });
+
+  group("SWEEPER — scheduled and server-only: exactly the terminal or abandoned objects, nothing else");
+  const candidates = () => q(SERVICE, "SELECT * FROM public.tbu_sweeper_candidates(500)");
+  const sweepDone = async (kind, id) => (await one(SERVICE, "SELECT public.tbu_sweeper_complete($1,$2) AS o", [kind, id])).o;
+  const ageReservation = (id) => admin.query("UPDATE public.trial_balance_source_reservations SET expires_at = now() - interval '16 minutes' WHERE id=$1", [id]);
+  await check("a discard inside the undo window is not a candidate and cannot be completed; the source survives", async () => {
+    const u = await workspaceUpload(C, 2110, U.owner); const { b } = await discardFully(U.owner, u.id);
+    return !(await candidates()).some((c) => c.target_id === b.operation_id) && (await sweepDone("discard", b.operation_id)) === "not_eligible" && (await objectExists(u.path));
+  });
+  await check("after the window: listed for deletion; recorded only once the object is gone; Undo then expired; engine-attributed event", async () => {
+    const u = await workspaceUpload(C, 2111, U.collab); const { b } = await discardFully(U.collab, u.id); await expire(b.operation_id);
+    const c = (await candidates()).find((x) => x.target_id === b.operation_id);
+    const early = await sweepDone("discard", b.operation_id);
+    await deleteObject(u.path);
+    const done = await sweepDone("discard", b.operation_id);
+    const ev = (await admin.query("SELECT * FROM public.trial_balance_upload_lifecycle_events WHERE operation_id=$1 ORDER BY occurred_at DESC LIMIT 1", [b.operation_id])).rows[0];
+    return c?.kind === "discard" && c.delete_object === true && c.object_path === u.path && early === "storage_cleanup_pending" && done === "purged"
+      && (await sweepDone("discard", b.operation_id)) === "already_done" && (await restore(user(U.owner), b.operation_id)).outcome === "expired"
+      && ev?.actor_kind === "engine" && ev.authority_basis === "engine" && ev.actor_user_id === null;
+  });
+  await check("a restored discard is never a candidate, even after the window", async () => {
+    const u = await workspaceUpload(C, 2112, U.owner); const { b } = await discardFully(U.owner, u.id);
+    await restore(user(U.owner), b.operation_id); await expire(b.operation_id);
+    return !(await candidates()).some((c) => c.target_id === b.operation_id) && (await sweepDone("discard", b.operation_id)) === "not_eligible" && (await objectExists(u.path));
+  });
+  await check("an abandoned cancel-replacement cleanup is finished by the sweeper after the grace period only", async () => {
+    const u = await workspaceUpload(C, 2099, U.owner); await certify(C, u.id, 2099);
+    const r = await reservedReplacement(U.collab, C);
+    const rep = await retireWith(U.collab, u.id, Number((await row(u.id)).version), r.reservation_id);
+    const cx = await cancel(user(U.owner), rep.new_upload_id, Number((await row(rep.new_upload_id)).version));
+    const inGrace = (await candidates()).some((c) => c.target_id === cx.operation_id);
+    await admin.query("UPDATE public.trial_balance_upload_operations SET created_at = now() - interval '6 minutes' WHERE id=$1", [cx.operation_id]);
+    const c = (await candidates()).find((x) => x.target_id === cx.operation_id);
+    await deleteObject(r.object_path);
+    return !inGrace && c?.kind === "cancel_replacement" && c.delete_object === true && c.object_path === r.object_path
+      && (await sweepDone("cancel_replacement", cx.operation_id)) === "completed" && (await sweepDone("cancel_replacement", cx.operation_id)) === "already_done";
+  });
+  await check("an expired, unconsumed reservation's object is reclaimed; a live or a consumed one never is", async () => {
+    const live = await reserve(U.owner, C, "live.csv"); await putObject(live.object_path);
+    const dead = await reserve(U.collab, C, "abandoned.csv"); await putObject(dead.object_path); await ageReservation(dead.reservation_id);
+    const used = await workspaceUpload(C, 2114, U.owner); await ageReservation(used.reservation);
+    const cs = await candidates();
+    const cd = cs.find((x) => x.target_id === dead.reservation_id);
+    const early = await sweepDone("reservation", dead.reservation_id);
+    await deleteObject(dead.object_path);
+    return cd?.kind === "reservation" && cd.delete_object === true && cd.object_path === dead.object_path
+      && !cs.some((x) => x.target_id === live.reservation_id) && !cs.some((x) => x.target_id === used.reservation)
+      && early === "storage_cleanup_pending" && (await sweepDone("reservation", dead.reservation_id)) === "reclaimed"
+      && (await sweepDone("reservation", live.reservation_id)) === "not_eligible" && (await sweepDone("reservation", used.reservation)) === "not_eligible"
+      && (await register(U.collab, dead.reservation_id, 2115)).outcome === "expired"
+      && (await objectExists(live.object_path)) && (await objectExists(used.path));
+  });
+  await check("a late upload against an already-swept reservation (signed-URL tail) is listed and reclaimed again", async () => {
+    const dead = await reserve(U.owner, C, "late.csv"); await ageReservation(dead.reservation_id);
+    const first = await sweepDone("reservation", dead.reservation_id);
+    await putObject(dead.object_path);
+    const c = (await candidates()).find((x) => x.target_id === dead.reservation_id);
+    await deleteObject(dead.object_path);
+    return first === "reclaimed" && c?.delete_object === true && (await sweepDone("reservation", dead.reservation_id)) === "reclaimed";
+  });
+  await check("an object referenced by any upload row is never marked for deletion", async () => {
+    const dead = await reserve(U.owner, C, "shared.csv"); await putObject(dead.object_path); await ageReservation(dead.reservation_id);
+    await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('x',$1,1,'processing',$2,2116,$3)", [dead.object_path, C, U.owner]);
+    const c = (await candidates()).find((x) => x.target_id === dead.reservation_id);
+    return c?.delete_object === false && (await sweepDone("reservation", dead.reservation_id)) === "storage_cleanup_pending" && (await objectExists(dead.object_path));
+  });
+
+  group("SWEEPER invocation — single-use database tickets; no stored key; service_role only");
+  const mint = async () => (await one(SERVICE, "SELECT public.tbu_mint_source_sweeper_ticket() AS t")).t;
+  const redeem = async (t) => (await one(SERVICE, "SELECT public.tbu_redeem_source_sweeper_ticket($1) AS r", [t])).r;
+  await check("a minted ticket (256-bit hex) redeems exactly once", async () => { const t = await mint(); return /^[0-9a-f]{64}$/.test(t) && (await redeem(t)) === true && (await redeem(t)) === false; });
+  await check("forged, malformed and expired tickets never redeem; only the SHA-256 is stored", async () => {
+    const t = await mint();
+    const stored = await count("SELECT count(*) n FROM public.tbu_source_sweeper_tickets WHERE token_hash=$1", [t]);
+    await admin.query("UPDATE public.tbu_source_sweeper_tickets SET expires_at = now() - interval '1 second' WHERE token_hash = encode(sha256(convert_to($1,'UTF8')),'hex')", [t]);
+    return stored === 0 && (await redeem(t)) === false && (await redeem("f".repeat(64))) === false && (await redeem("not-a-ticket")) === false && (await redeem(null)) === false;
+  });
+  await check(`${CONCURRENCY} concurrent redemptions of one ticket: exactly one succeeds`, async () => {
+    const t = await mint();
+    const out = await Promise.all(Array.from({ length: CONCURRENCY }, () => redeem(t)));
+    return out.filter(Boolean).length === 1;
+  });
+  await check("configuration accepts only a trial-balance-source-sweeper function URL", async () => {
+    const cfg = async (u) => (await one(SERVICE, "SELECT public.tbu_configure_source_sweeper($1) AS o", [u])).o;
+    return (await cfg("https://evil.example/steal")) === "invalid_url" && (await cfg("http://evil.example/functions/v1/trial-balance-source-sweeper")) === "invalid_url"
+      && (await cfg(null)) === "invalid_url" && (await cfg("https://project.supabase.co/functions/v1/trial-balance-source-sweeper")) === "configured";
+  });
+  await check("the scheduled entry point never errors: dispatches only with work, configuration and pg_net (absent here)", async () => {
+    const run = async () => (await one(SERVICE, "SELECT public.tbu_run_source_sweeper() AS o")).o;
+    const u = await workspaceUpload(C, 2117, U.owner); const { b } = await discardFully(U.owner, u.id); await expire(b.operation_id);
+    const withConfig = await run();
+    await admin.query("DELETE FROM public.tbu_source_sweeper_config");
+    const noConfig = await run();
+    return withConfig === "scheduler_unavailable" && noConfig === "not_configured";
+  });
+  await check("sweeper functions: service_role only (never authenticated or anon); ticket and config tables unreadable by every client role", async () => {
+    for (const f of ["tbu_sweeper_candidates(integer)", "tbu_sweeper_complete(text,uuid)", "tbu_configure_source_sweeper(text)", "tbu_mint_source_sweeper_ticket()",
+      "tbu_redeem_source_sweeper_ticket(text)", "tbu_run_source_sweeper()", "tbu_resolve_processing_actor(uuid,uuid)"]) {
+      const r = (await admin.query(`SELECT has_function_privilege('authenticated','public.${f}','EXECUTE') a, has_function_privilege('anon','public.${f}','EXECUTE') n, has_function_privilege('service_role','public.${f}','EXECUTE') s`)).rows[0];
+      if (r.a || r.n || !r.s) return f;
+    }
+    for (const t of ["tbu_source_sweeper_tickets", "tbu_source_sweeper_config"]) {
+      const r = (await admin.query(`SELECT has_table_privilege('authenticated','public.${t}','SELECT') a, has_table_privilege('anon','public.${t}','SELECT') n, has_table_privilege('service_role','public.${t}','SELECT') s`)).rows[0];
+      if (r.a || r.n || r.s) return t;
+    }
+    return true;
+  });
+  await refused("authenticated cannot mint a ticket (42501)", "42501", () => q(user(U.owner), "SELECT public.tbu_mint_source_sweeper_ticket()"));
+  await refused("authenticated cannot complete a sweep (42501)", "42501", () => q(user(U.owner), "SELECT public.tbu_sweeper_complete('discard',$1)", [uuid()]));
+
   group(`Concurrency — ${CONCURRENCY} simultaneous requests on separate connections`);
   await check(`${CONCURRENCY} concurrent completions of one discard: exactly one deletes the row`, async () => {
     const u = await workspaceUpload(C, 2090, U.owner); const b = await discard(user(U.owner), u.id, 1);
@@ -608,7 +772,7 @@ async function main() {
   await refused("lifecycle events are append-only (23001)", "23001", () => admin.query("UPDATE public.trial_balance_upload_lifecycle_events SET reason='x' WHERE id=(SELECT id FROM public.trial_balance_upload_lifecycle_events LIMIT 1)"));
   await check("solo and collaborator events: actor_user_id is the actor, membership NULL, basis recorded", async () => {
     const solo = (await admin.query("SELECT * FROM public.trial_balance_upload_lifecycle_events WHERE company_id=$1 AND actor_kind='user'", [S])).rows;
-    const collab = (await admin.query("SELECT * FROM public.trial_balance_upload_lifecycle_events WHERE actor_user_id=$1 AND outcome='applied'", [U.collab])).rows;
+    const collab = (await admin.query("SELECT * FROM public.trial_balance_upload_lifecycle_events WHERE actor_user_id=$1 AND outcome='applied' AND actor_kind='user'", [U.collab])).rows;
     return solo.length >= 1 && solo.every((e) => e.authority_basis === "workspace_owner" && e.actor_membership_id === null)
       && collab.length >= 3 && collab.every((e) => e.authority_basis === "explicit_capability" && e.actor_membership_id === null);
   });

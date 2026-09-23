@@ -18,13 +18,14 @@ describe("readiness migration hygiene", () => {
   it("is timestamped, sorts before only the later, unrelated discard-authority migration, and leaves the original enquiry migration untouched", () => {
     expect(FILE).toMatch(/^\d{14}_[A-Za-z0-9._-]+\.sql$/);
     const all = fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
-    // 20260922180000_discard_trial_balance_authority.sql and 20260923100000_upload_lifecycle_retire_and_replace.sql
-    // are later, unrelated migrations (trial-balance discard/lifecycle authority) that now sort
-    // after this one — neither touches service_enquiry_* objects.
-    expect(all[all.length - 1]).toBe("20260923100000_upload_lifecycle_retire_and_replace.sql");
-    expect(all[all.length - 2]).toBe("20260922180000_discard_trial_balance_authority.sql");
-    expect(all[all.length - 3]).toBe(FILE);
-    expect(all[all.length - 4]).toBe("20260921100000_service_enquiry_intake.sql");
+    // 20260922180000_discard_trial_balance_authority.sql, 20260923100000_upload_lifecycle_retire_and_replace.sql and
+    // 20260923120000_workspace_user_engine_actor_and_source_sweeper.sql are later, unrelated migrations (trial-balance discard/lifecycle
+    // authority, user-based validation, source sweeper) that now sort after this one — none touches service_enquiry_* objects.
+    expect(all[all.length - 1]).toBe("20260923120000_workspace_user_engine_actor_and_source_sweeper.sql");
+    expect(all[all.length - 2]).toBe("20260923100000_upload_lifecycle_retire_and_replace.sql");
+    expect(all[all.length - 3]).toBe("20260922180000_discard_trial_balance_authority.sql");
+    expect(all[all.length - 4]).toBe(FILE);
+    expect(all[all.length - 5]).toBe("20260921100000_service_enquiry_intake.sql");
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);
   });

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Upload lifecycle — hosted staging proof (PR #32: 20260923100000 + trial-balance-source-signer +
- * trial-balance-storage-cleanup + the real process-trial-balance).
+ * Upload lifecycle — hosted staging proof (PR #32: 20260923100000 + 20260923120000 + trial-balance-source-signer +
+ * trial-balance-storage-cleanup + trial-balance-source-sweeper + the real process-trial-balance).
  *
  * scripts/db-proof/uploadLifecycle.mjs proves the SQL on a throwaway local PostgreSQL, including a workspace owner
  * with NO firm_members row, which cannot exist on a hosted project. This suite proves the same USER-BASED
@@ -198,9 +198,21 @@ async function main() {
     const { count } = await svc.from('tb_certifications').select('id', { count: 'exact', head: true }).eq('upload_id', o1.id)
     return p.status === 200 && p.body.status === 'valid' && count >= 1 && r.lifecycle_state === 'active_processed' || `http=${p.status} engine=${p.body.status} lifecycle=${r.lifecycle_state} certs=${count}`
   })
-  await check("collaborator validation is refused by the engine's PRE-EXISTING membership check (deferred migration), never silently", async () => {
-    const p = await process_(U.collab, c1.id)
-    return p.status === 403
+  await check('a GRANTED collaborator with NO firm membership validates through the real process-trial-balance (workspace_user actor)', async () => {
+    const cv = await workspaceUpload(U.collab, A, 2038)
+    const p = await process_(U.collab, cv.id)
+    const r = await row(cv.id)
+    const { data: runs } = await svc.from('engine_runs').select('actor_type, actor_user_id, firm_member_id').eq('source_record_id', cv.id)
+    const { count: fm } = await svc.from('firm_members').select('id', { count: 'exact', head: true }).eq('user_id', U.collab.id)
+    return p.status === 200 && p.body.status === 'valid' && r.lifecycle_state === 'active_processed' && fm === 0
+      && runs?.length >= 1 && runs.every((x) => x.actor_type === 'workspace_user' && x.actor_user_id === U.collab.id && x.firm_member_id === null)
+      || `http=${p.status} engine=${p.body.status} msg=${p.body.message} lifecycle=${r?.lifecycle_state} fm=${fm} runs=${JSON.stringify(runs)}`
+  })
+  await check('an unrelated user and another workspace owner are refused validation (403); the upload is untouched', async () => {
+    const u = await workspaceUpload(U.owner, A, 2034)
+    const a = await process_(U.unrelated, u.id)
+    const b2 = await process_(U.ownerB, u.id)
+    return a.status === 403 && b2.status === 403 && (await row(u.id)).lifecycle_state === 'active_unprocessed' || `unrelated=${a.status} ownerB=${b2.status}`
   })
   await check('a malformed file fails validation and is then REPLACED by the owner with a valid one', async () => {
     const bad = await workspaceUpload(U.owner, A, 2033, Buffer.from('not,a,trial,balance\n1,2\n'))
@@ -291,6 +303,45 @@ async function main() {
     return r.outcome === 'restored' && p.outcome === 'completed' && !(await objectId(path))
   })
 
+  section('Scheduled sweeper: server-only, ticketed; terminal discards and abandoned reservations, never a live source')
+  const sweeper = (body) => callFn(null, 'trial-balance-source-sweeper', body)
+  const svcRpc = async (name, args) => { const { data, error } = await svc.rpc(name, args); if (error) throw new Error(`${name}: ${error.message}`); return data }
+  await check('the sweeper refuses a forged ticket (403) and any body other than one ticket (400); nothing is deleted', async () => {
+    const u = await workspaceUpload(U.owner, A, 2060); const { b } = await discardFully(U.owner, u.id); await expireOp(b.operation_id)
+    const forged = await sweeper({ ticket: 'f'.repeat(64) })
+    const extra = await sweeper({ ticket: await svcRpc('tbu_mint_source_sweeper_ticket'), path: u.path })
+    const none = await sweeper({})
+    return forged.status === 403 && extra.status === 400 && none.status === 400 && !!(await objectId(u.path))
+      || `forged=${forged.status} extra=${extra.status} none=${none.status}`
+  })
+  await check('one database-minted ticket runs one sweep: terminal discard purged, abandoned reservation reclaimed; live and restorable sources untouched; ticket single-use', async () => {
+    const live = await workspaceUpload(U.collab, A, 2061)
+    const t = await workspaceUpload(U.owner, A, 2062); const { b } = await discardFully(U.owner, t.id); await expireOp(b.operation_id)
+    const w = await workspaceUpload(U.owner, A, 2063); const { b: bw } = await discardFully(U.owner, w.id)
+    const ab = await reserveAndUpload(U.collab, A, REAL_TB, 'abandoned.csv')
+    await svc.from('trial_balance_source_reservations').update({ expires_at: new Date(Date.now() - 16 * 60000).toISOString() }).eq('id', ab.reservation)
+    const ticket = await svcRpc('tbu_mint_source_sweeper_ticket')
+    const r = await sweeper({ ticket })
+    const again = await sweeper({ ticket })
+    const op = (await svc.from('trial_balance_upload_operations').select('state').eq('id', b.operation_id).single()).data
+    const res = (await svc.from('trial_balance_source_reservations').select('swept_at').eq('id', ab.reservation).single()).data
+    return r.status === 200 && r.outcome === 'swept' && again.status === 403
+      && op?.state === 'purged' && !(await objectId(t.path)) && !!res?.swept_at && !(await objectId(ab.path))
+      && !!(await objectId(live.path)) && !!(await objectId(w.path)) && (await restore(U.owner, bw.operation_id)).outcome === 'restored'
+      || `http=${r.status} tally=${JSON.stringify(r.tally)} again=${again.status} op=${op?.state} swept=${res?.swept_at}`
+  })
+  await check('the scheduled path end to end: tbu_run_source_sweeper() (the pg_cron entry point) dispatches through pg_net and the sweep happens', async () => {
+    const cfg = await svcRpc('tbu_configure_source_sweeper', { p_function_url: FN('trial-balance-source-sweeper') })
+    const t = await workspaceUpload(U.owner, A, 2064); const { b } = await discardFully(U.owner, t.id); await expireOp(b.operation_id)
+    const out = await svcRpc('tbu_run_source_sweeper')
+    let state = null
+    for (let i = 0; i < 45 && state !== 'purged'; i++) {
+      await new Promise((r) => setTimeout(r, 2000))
+      state = (await svc.from('trial_balance_upload_operations').select('state').eq('id', b.operation_id).single()).data?.state
+    }
+    return cfg === 'configured' && out === 'dispatched' && state === 'purged' && !(await objectId(t.path)) || `cfg=${cfg} run=${out} state=${state}`
+  })
+
   section('Invariants')
   await check('no company/period anywhere on staging has more than one active upload', async () => {
     const { data } = await svc.from('trial_balance_uploads').select('company_id, period_year').not('company_id', 'is', null).not('period_year', 'is', null)
@@ -299,7 +350,7 @@ async function main() {
     return true
   })
   await check('audit: collaborator events carry actor_user_id, basis explicit_capability, membership NULL', async () => {
-    const { data } = await svc.from('trial_balance_upload_lifecycle_events').select('*').eq('actor_user_id', U.collab.id).eq('outcome', 'applied')
+    const { data } = await svc.from('trial_balance_upload_lifecycle_events').select('*').eq('actor_user_id', U.collab.id).eq('outcome', 'applied').eq('actor_kind', 'user')
     return data?.length >= 3 && data.every((e) => e.authority_basis === 'explicit_capability' && e.actor_membership_id === null)
   })
   await check('lifecycle events are append-only even for the service role', async () => {

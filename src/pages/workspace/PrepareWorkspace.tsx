@@ -51,7 +51,6 @@ import {
   isCertifiedRun,
   isUnprocessedReplacement,
   offerUndo,
-  sweepPurgeableSources,
 } from "@/components/workspace/DiscardUploadDialog";
 import SafishaGate from "@/components/safisha/SafishaGate";
 import { Button } from "@/components/ui/button";
@@ -142,11 +141,10 @@ export default function PrepareWorkspace() {
       setSafishaUpload({ uploadId, fileName });
     } catch (err) {
       console.error("[processReplacement]", err);
-      // Validation still uses the platform's existing workspace-membership check (its move to capabilities is a
-      // separate, deferred migration). Say so plainly instead of offering a retry that cannot succeed.
+      // A 403 means the caller lacks validation authority (owner or explicit grant); a retry cannot succeed.
       const status = (err as { context?: { status?: number } })?.context?.status;
       if (status === 403) {
-        toast.error(`${fileName} was saved as the replacement, but you can't run validation in this workspace yet. Ask the workspace owner to validate it.`);
+        toast.error(`${fileName} was saved as the replacement, but you don't have permission to validate trial balances in this workspace.`);
       } else {
         toast.error(`${fileName} was saved as the replacement, but processing did not start.`, {
           action: { label: "Retry processing", onClick: () => void processReplacement(uploadId, fileName) },
@@ -156,14 +154,6 @@ export default function PrepareWorkspace() {
       refreshUpload();
     }
   };
-
-  // Purge discarded sources whose undo window is over. The server decides what is purgeable (terminal, never
-  // restorable) and does the deletion; this only triggers it. Best effort and silent: whatever is left is
-  // purged on a later visit.
-  useEffect(() => {
-    if (!companyId) return;
-    void sweepPurgeableSources(companyId).catch(() => {});
-  }, [companyId]);
 
   const retireAndProcess = async (current: WorkspaceUpload, file: File) => {
     const { newUploadId } = await retireUpload(current, file, "Replaced via Prepare Data");

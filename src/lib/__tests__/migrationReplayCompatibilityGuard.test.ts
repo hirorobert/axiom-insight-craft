@@ -125,7 +125,7 @@ function readMigration(fileName: string): string {
 }
 
 describe("migration directory integrity", () => {
-  it("contains exactly 126 migration files", () => {
+  it("contains exactly the expected migration files", () => {
     // Bumped from 113 -> 114: 20260912100000_omega3_checkout_cfoclose_
     // offers_and_interval_authority.sql (Ω3-CHECKOUT), forward-only,
     // sorts after every prior file. Bumped from 114 -> 115:
@@ -164,8 +164,10 @@ describe("migration directory integrity", () => {
     // retire_trial_balance_upload for processed/certified uploads, a two-phase hard-discard saga for genuinely
     // unprocessed ones; never weakens tb_certifications' append-only guard or the CASCADE FK, fixing the confirmed
     // defect where any certified upload could never be discarded) — forward-only, sorts last.
+    // Bumped from 128 -> 129: 20260923120000_workspace_user_engine_actor_and_source_sweeper.sql (user-based trial balance validation:
+    // a workspace_user engine actor with no firm membership; the scheduled, ticketed source sweeper) — forward-only, sorts last.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(128);
+    expect(files.length).toBe(129);
   });
 });
 

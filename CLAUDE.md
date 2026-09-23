@@ -172,12 +172,17 @@ from the auth JWT server-side.
 **Scoped exception: trial balance upload lifecycle (PR #32).** CFOClose is a user-based platform, open to solo
 users, businesses and teams. A firm, a firm membership, or a title such as partner or manager must never be
 required to use it. For the upload lifecycle operations (discard, restore, replace, cancel replacement, Storage
-cleanup) and the capability grants of `20260923100000`:
+cleanup), the capability grants of `20260923100000`, and trial balance VALIDATION (`process-trial-balance`,
+`20260923120000`):
 - the actor identity is `auth.uid()` (`actor_user_id`);
 - `actor_membership_id` is nullable compatibility metadata;
 - authority is the single predicate `can_user_act_on_workspace(user, workspace, capability)`. It holds for the
   workspace owner (`companies.user_id`) or for an explicit, unrevoked `workspace_capability_grants` row. It never
   holds because of a firm membership or a title.
+- `process-trial-balance` resolves its actor with `tbu_resolve_processing_actor`: an accepted firm member keeps the
+  firm-member actor exactly as before; otherwise the owner or a `prepare_trial_balance`/`manage_source_files` grant
+  holder runs as `actor_type = 'workspace_user'` with `engine_runs`/`idempotency_keys.actor_user_id` = the JWT user
+  and NO `firm_member_id`. No firm_members row is ever created for them.
 
 Everything else keeps this section's rule until the platform-wide migration below replaces it.
 **Deferred (separate mission, after PR #32):** move every remaining role-label predicate onto explicit workspace
@@ -284,7 +289,11 @@ object only. New sources are workspace-scoped (`workspaces/<workspace>/<source>/
 → `trial-balance-source-signer` (signed single-object URL) → `register_trial_balance_upload` / `retire_trial_balance_upload`,
 so a `manage_source_files` grantee can upload and replace; legacy `<uploader>/<name>` objects stay bound. Discard
 RETAINS the source for the undo window (any authorized user restores the exact object); purge happens only once the
-discard is terminal (`purge_trial_balance_discard`, swept from Prepare). Both functions are deployed to staging-replay
+discard is terminal. `20260923120000` adds the scheduled, server-only sweeper: pg_cron → `tbu_run_source_sweeper()` mints a
+single-use ticket → pg_net → `trial-balance-source-sweeper`, which deletes exactly what `tbu_sweeper_candidates()` lists
+(terminal discards, unfinished cancel cleanups, objects of expired unconsumed reservations), verifies absence, then records
+it (`tbu_sweeper_complete`). No key is stored; the function URL is set once per environment with
+`tbu_configure_source_sweeper(url)` (service_role). The browser never sweeps. The functions are deployed to staging-replay
 `hplriydtdelehepgttul` only. Proven by `scripts/db-proof/uploadLifecycle.mjs` (local PostgreSQL) and `scripts/upload_lifecycle_staging.mjs` (hosted staging, manual CI job); pre-flight
 report for an existing database: `scripts/db-preflight/uploadLifecyclePreflight.sql`. Apply together with
 `20260922180000`. Only Lovable/the owner applies it.
@@ -423,6 +432,7 @@ supabase/
     process-trial-balance/    ← TB ingestion + classification
     trial-balance-storage-cleanup/ ← Authorized, server-verified removal of an upload operation's bound file (PR #32)
     trial-balance-source-signer/   ← Single-object signed upload URL for a reserved workspace-scoped source (PR #32)
+    trial-balance-source-sweeper/  ← Scheduled, ticketed, server-only purge/reclaim of source objects (PR #32)
     hesabu-validate/          ← H-01 to H-12 assurance assertions
     safisha-ingest/           ← Bank statement CSV/XLSX → safisha_transactions
     safisha-efdms-ingest/     ← EFDMS Z-Report → safisha_transactions (service role)

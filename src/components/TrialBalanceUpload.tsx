@@ -232,12 +232,11 @@ export const TrialBalanceUpload = ({
       );
 
       if (processError) {
-        // The file is saved either way. Validation (process-trial-balance) still uses the platform's existing
-        // workspace-membership check, whose move to capabilities is a separate, deferred migration, so say
-        // exactly that rather than a generic failure.
+        // The file is saved either way. Validation uses the same user-based authority as uploading (workspace owner
+        // or an explicit grant), so a 403 means the caller genuinely lacks it.
         const status = (processError as { context?: { status?: number } }).context?.status;
         throw new Error(status === 403
-          ? "Your trial balance was saved, but you can't run validation in this workspace yet. Ask the workspace owner to validate it."
+          ? "Your trial balance was saved, but you don't have permission to validate trial balances in this workspace."
           : processError.message || "Validation could not start.");
       }
 
