@@ -253,7 +253,7 @@ derivation in `trg_tbu_lifecycle_guard` and the SECURITY DEFINER RPCs may change
 `uq_one_active_upload_per_period`; hard discard only for uploads with no evidence (every FK onto the table is checked
 at call time); `retire_trial_balance_upload` / `cancel_trial_balance_replacement` / `restore_trial_balance_upload`;
 destructive source operations need owner/partner/manager (`tbu_source_manager_membership`); every lifecycle event
-records `actor_user_id` and `actor_membership_id`. Proven by `scripts/db-proof/uploadLifecycle.mjs`; pre-flight
+records `actor_user_id` and `actor_membership_id`. Proven by `scripts/db-proof/uploadLifecycle.mjs` (local PostgreSQL) and `scripts/upload_lifecycle_staging.mjs` (hosted staging, manual CI job); pre-flight
 report for an existing database: `scripts/db-preflight/uploadLifecyclePreflight.sql`. Apply together with
 `20260922180000`. Only Lovable/the owner applies it.
 

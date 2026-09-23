@@ -192,6 +192,15 @@ jobs:
           STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
         run: bun run test:rls
 
+      - name: Upload lifecycle proof against staging (PR #32: real Auth, PostgREST, RLS and Storage)
+        # Same guard, same STAGING_* variables only; refuses production by construction.
+        env:
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
+        run: node scripts/upload_lifecycle_staging.mjs
+
   db-contract-tests:
     name: Disposable-DB Contract Tests (Ω∞ A+ closure)
     runs-on: ubuntu-latest
