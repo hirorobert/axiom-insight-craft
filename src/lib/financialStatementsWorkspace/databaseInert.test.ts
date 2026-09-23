@@ -99,12 +99,23 @@ describe("database inertness — schema and functions", () => {
       // authorized collaborator can upload without any client Storage policy being widened.
       "supabase/functions/_shared/sourceUpload.ts",
       "supabase/functions/trial-balance-source-signer/index.ts",
+      // ...user-based validation (20260923120000): the pure processing-actor resolver, and the scheduled, ticketed,
+      // server-only sweeper that purges terminal discards and reclaims abandoned reservations. No financial-statements schema.
+      "supabase/migrations/20260923120000_workspace_user_engine_actor_and_source_sweeper.sql",
+      "supabase/functions/_shared/processingActor.ts",
+      "supabase/functions/_shared/sourceSweeper.ts",
+      "supabase/functions/trial-balance-source-sweeper/index.ts",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
       "supabase/functions/_shared/serviceEnquiryHandler.ts",
       "supabase/functions/_shared/serviceEnquiryWiring.ts",
+      // PR #32 user-based validation: process-trial-balance resolves its actor with tbu_resolve_processing_actor, and the
+      // idempotency claim records a workspace_user actor (actor_user_id) with no firm membership.
+      "supabase/functions/process-trial-balance/index.ts",
+      "supabase/functions/_shared/actor.ts",
+      "supabase/functions/_shared/idempotency.ts",
     ]);
     for (const line of changed) {
       const [status, file] = line.split("	");
@@ -122,7 +133,10 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/migrationOrderingChecks.mjs",
       // PR #32 upload lifecycle: the loopback-only real-PostgreSQL proof, the read-only pre-flight report (SELECTs only),
       // and the hosted-staging proof behind the same stagingGuard (pinned by ciWorkflowSafety.test.ts).
-      "scripts/db-proof/uploadLifecycle.mjs", "scripts/db-preflight/uploadLifecyclePreflight.sql", "scripts/upload_lifecycle_staging.mjs"]);
+      "scripts/db-proof/uploadLifecycle.mjs", "scripts/db-preflight/uploadLifecyclePreflight.sql", "scripts/upload_lifecycle_staging.mjs",
+      // PR #32 sweeper: the ONE config entry, verify_jwt = false for trial-balance-source-sweeper (its single-use,
+      // database-minted ticket is the credential, redeemed before anything runs).
+      "supabase/config.toml"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 
