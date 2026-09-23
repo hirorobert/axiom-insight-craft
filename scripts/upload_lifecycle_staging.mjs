@@ -83,7 +83,8 @@ async function callFn(who, name, body) {
   if (who) headers.Authorization = `Bearer ${who.token}`
   const res = await fetch(FN(name), { method: 'POST', headers, body: JSON.stringify(body) })
   const json = await res.json().catch(() => ({}))
-  return { status: res.status, ...json }
+  // The HTTP status always wins: process-trial-balance also returns its own `status` field (e.g. "valid"), kept as `body`.
+  return { ...json, body: json, status: res.status }
 }
 const cleanup = (who, body) => callFn(who, 'trial-balance-storage-cleanup', body)
 
@@ -195,7 +196,7 @@ async function main() {
     const p = await process_(U.owner, o1.id)
     const r = await row(o1.id)
     const { count } = await svc.from('tb_certifications').select('id', { count: 'exact', head: true }).eq('upload_id', o1.id)
-    return p.status === 200 && count >= 1 && ['active_processed', 'blocked'].includes(r.lifecycle_state) || `status=${p.status} lifecycle=${r.lifecycle_state} certs=${count}`
+    return p.status === 200 && p.body.status === 'valid' && count >= 1 && r.lifecycle_state === 'active_processed' || `http=${p.status} engine=${p.body.status} lifecycle=${r.lifecycle_state} certs=${count}`
   })
   await check("collaborator validation is refused by the engine's PRE-EXISTING membership check (deferred migration), never silently", async () => {
     const p = await process_(U.collab, c1.id)
@@ -206,8 +207,8 @@ async function main() {
     const p = await process_(U.owner, bad.id)
     const after = await row(bad.id)
     const rep = await retireWith(U.owner, bad.id, await version(bad.id), A)
-    return p.status !== 500 && after.lifecycle_state !== 'active_unprocessed' && rep.outcome === 'replaced' && (await activeCount(A, 2033)) === 1
-      || `ptb=${p.status} lifecycle=${after?.lifecycle_state} replace=${rep.outcome}`
+    return p.status !== 500 && p.body.status !== 'valid' && after.lifecycle_state !== 'active_unprocessed' && rep.outcome === 'replaced' && (await activeCount(A, 2033)) === 1
+      || `ptb=${p.status} engine=${p.body.status} lifecycle=${after?.lifecycle_state} replace=${rep.outcome}`
   })
 
   section('Undo: the source is retained; any authorized user restores the exact object')
