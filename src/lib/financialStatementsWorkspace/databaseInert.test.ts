@@ -116,6 +116,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/process-trial-balance/index.ts",
       "supabase/functions/_shared/actor.ts",
       "supabase/functions/_shared/idempotency.ts",
+      // The sweeper's verify_jwt = false entry (see the automation-surface test below).
+      "supabase/config.toml",
     ]);
     for (const line of changed) {
       const [status, file] = line.split("	");
