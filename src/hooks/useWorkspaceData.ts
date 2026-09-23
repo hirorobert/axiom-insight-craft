@@ -114,6 +114,13 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     fetchData();
   }, [fetchData]);
 
+  // Keep a live handle on the current fetch so the realtime subscription can re-derive
+  // workspaceState without re-subscribing every time fetchData's identity changes.
+  const fetchDataRef = useRef(fetchData);
+  useEffect(() => {
+    fetchDataRef.current = fetchData;
+  }, [fetchData]);
+
   // Real-time subscription for upload changes
   useEffect(() => {
     if (!user || !cId) return;
@@ -125,6 +132,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
         { event: "UPDATE", schema: "public", table: "trial_balance_uploads" },
         (payload) => {
           const updated = payload.new as WorkspaceUpload;
+          const previous = payload.old as Partial<WorkspaceUpload> | null;
           if (updated.company_id !== cId) return;
           setUploads((prev) =>
             prev.map((u) => (u.id === updated.id ? updated : u)),
@@ -132,6 +140,18 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
           setUpload((prev) =>
             prev?.id === updated.id ? updated : prev,
           );
+
+          // workspaceState is derived state held in React state — the pushed row alone does
+          // not update it. Without this re-read, stage locks, mission statuses and nextAction
+          // stay frozen at the pre-push values while the same screen already shows the fresh
+          // upload (a live self-contradiction). Re-derive through the ONE pipeline.
+          const statusChanged = previous?.status !== undefined && previous.status !== updated.status;
+          const validityChanged = previous?.is_valid !== undefined && previous.is_valid !== updated.is_valid;
+          const resultChanged = previous?.processing_result !== undefined && previous.processing_result !== updated.processing_result;
+          const safishaChanged = previous?.safisha_status !== undefined && previous.safisha_status !== updated.safisha_status;
+          if (previous === null || statusChanged || validityChanged || resultChanged || safishaChanged) {
+            void fetchDataRef.current();
+          }
         },
       )
       .subscribe();

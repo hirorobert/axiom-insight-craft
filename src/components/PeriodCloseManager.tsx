@@ -48,6 +48,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { toast } from "sonner";
+import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
 import {
   Lock,
   LockOpen,
