@@ -265,3 +265,11 @@ jobs:
         run: |
           createdb enquiry_proof
           node scripts/db-proof/serviceEnquiries.mjs
+
+      - name: Trial balance upload lifecycle proof (legacy-data upgrade, certification-driven transitions, cancel/restore, capability matrix, concurrency, on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/lifecycle_proof
+        run: |
+          createdb lifecycle_proof
+          node scripts/db-proof/uploadLifecycle.mjs

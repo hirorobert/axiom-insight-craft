@@ -246,6 +246,17 @@ Edge Function and every status change is one locked, matrix-validated function. 
 `scripts/db-proof/serviceEnquiries.mjs`. Runbook, activation checklist and limitations:
 `docs/operations/SERVICE_ENQUIRY_PHASE1.md`. The staff queue is `/admin/enquiries` (not linked from public navigation).
 
+### trial_balance_uploads lifecycle (PR #32 — unapplied to the hosted backend until explicitly approved)
+`20260923100000_upload_lifecycle_retire_and_replace.sql` — `lifecycle_state` (8 CHECK-enforced states) is
+server-authoritative: only the migration backfill, the `tb_certifications` AFTER INSERT trigger, the processing-start
+derivation in `trg_tbu_lifecycle_guard` and the SECURITY DEFINER RPCs may change it (client roles get 42501).
+`uq_one_active_upload_per_period`; hard discard only for uploads with no evidence (every FK onto the table is checked
+at call time); `retire_trial_balance_upload` / `cancel_trial_balance_replacement` / `restore_trial_balance_upload`;
+destructive source operations need owner/partner/manager (`tbu_source_manager_membership`); every lifecycle event
+records `actor_user_id` and `actor_membership_id`. Proven by `scripts/db-proof/uploadLifecycle.mjs`; pre-flight
+report for an existing database: `scripts/db-preflight/uploadLifecyclePreflight.sql`. Apply together with
+`20260922180000`. Only Lovable/the owner applies it.
+
 ### five WIP migrations (NOT yet in origin/main)
 These must be applied in this exact order before any other WIP work:
 1. `20260720100000` — RLS hardening + segregation of duties
@@ -367,6 +378,9 @@ scripts/
   db-proof/
     run.mjs                   ← Financial-statements persistence proof (real PostgreSQL)
     setupAuthority.mjs        ← Workspace setup authority proof (25-way concurrency, role/RLS matrix)
+    uploadLifecycle.mjs       ← Upload lifecycle proof (legacy upgrade, B1–B4, capability matrix, concurrency)
+  db-preflight/
+    uploadLifecyclePreflight.sql ← Read-only report of what the lifecycle backfill would retire
 
 supabase/
   functions/
