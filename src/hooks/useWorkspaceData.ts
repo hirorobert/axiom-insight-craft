@@ -21,6 +21,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { fetchWorkspaceSnapshot } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { WorkspaceCompany, WorkspaceUpload } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { WorkspaceState } from "@/lib/workspace/types";
+import { fetchWorkspaceAccess, type WorkspaceAccess, type WorkspaceAccessState } from "@/lib/workspace/workspaceAccess";
 
 export type { WorkspaceCompany, WorkspaceUpload };
 
@@ -35,6 +36,10 @@ export interface UseWorkspaceDataReturn {
   /** True while a background re-read is in flight. Never blanks the UI. */
   refreshing: boolean;
   refreshUpload: () => void;
+  /** Server-decided access (get_workspace_access): owner, member, capability (Prepare only), denied or error. */
+  accessState: WorkspaceAccessState;
+  /** Shorthand for accessState.access when granted, else null. */
+  access: WorkspaceAccess | null;
 }
 
 const EMPTY_STATE: WorkspaceState = {
@@ -81,6 +86,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
   // so the screen never flashes back to skeletons (one book, one truth).
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [accessState, setAccessState] = useState<WorkspaceAccessState>({ status: "loading" });
   const hasLoadedRef = useRef(false);
 
   const fetchData = useCallback(async () => {
@@ -92,10 +98,29 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     if (hasLoadedRef.current) setRefreshing(true);
     else setLoading(true);
 
+    // Access first: a workspace the caller may not open is never read at all (fail closed, no partial render).
+    const nextAccess = await fetchWorkspaceAccess(cId).catch((): WorkspaceAccessState => ({ status: "error" }));
+    // A background re-read that fails transiently keeps the last known grant; a definitive answer always wins,
+    // so a revocation takes effect on the next read.
+    setAccessState((prev) => (nextAccess.status === "error" && prev.status === "granted" && hasLoadedRef.current ? prev : nextAccess));
+    if (nextAccess.status !== "granted") {
+      if (nextAccess.status === "denied") { setCompany(null); setUploads([]); setUpload(null); setWorkspaceState(EMPTY_STATE); }
+      hasLoadedRef.current = true;
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
     const snapshot = await fetchWorkspaceSnapshot({ companyId: cId, periodYear: pYear, requestedUploadId });
 
-    // Keep the last known company on a transient read failure — never blank the masthead mid-session.
-    if (snapshot.company) setCompany(snapshot.company);
+    // Keep the last known company on a transient read failure — never blank the masthead mid-session. The
+    // companies row is owner-only; anyone else gets the resolver's minimum metadata (never the TIN or code).
+    const meta = nextAccess.access.company;
+    const resolvedCompany: WorkspaceCompany | null = snapshot.company ?? {
+      id: meta.id, name: meta.name, code: null, tin: null, reporting_framework: meta.reporting_framework,
+      fiscal_year_end: meta.fiscal_year_end, currency: meta.currency, created_at: meta.created_at, filing_jurisdiction: null,
+    };
+    if (resolvedCompany) setCompany(resolvedCompany);
     setUploads(snapshot.uploads);
     setUpload(snapshot.upload);
     setWorkspaceState(snapshot.workspaceState);
@@ -108,6 +133,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
   // A different company/period is a genuinely new book — gate first paint again.
   useEffect(() => {
     hasLoadedRef.current = false;
+    setAccessState({ status: "loading" });
   }, [cId, pYear]);
 
   useEffect(() => {
@@ -172,5 +198,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     loading,
     refreshing,
     refreshUpload,
+    accessState,
+    access: accessState.status === "granted" ? accessState.access : null,
   };
 }

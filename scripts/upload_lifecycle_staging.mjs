@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Upload lifecycle — hosted staging proof (PR #32: 20260923100000 + 20260923120000 + trial-balance-source-signer +
+ * Upload lifecycle — hosted staging proof (PR #32: 20260923100000 + 20260923120000 + 20260923130000 + trial-balance-source-signer +
  * trial-balance-storage-cleanup + trial-balance-source-sweeper + the real process-trial-balance).
  *
  * scripts/db-proof/uploadLifecycle.mjs proves the SQL on a throwaway local PostgreSQL, including a workspace owner
@@ -222,6 +222,44 @@ async function main() {
     return p.status !== 500 && p.body.status !== 'valid' && after.lifecycle_state !== 'active_unprocessed' && rep.outcome === 'replaced' && (await activeCount(A, 2033)) === 1
       || `ptb=${p.status} engine=${p.body.status} lifecycle=${after?.lifecycle_state} replace=${rep.outcome}`
   })
+
+  section('Access bridge: a grant-only collaborator discovers and opens the granted workspace, Prepare only (their own JWT, RLS)')
+  const accessOf = async (who, company) => { const { data, error } = await who.c.rpc('get_workspace_access', { p_company_id: company }); if (error) throw new Error(error.message); return data?.[0] ?? null }
+  const sharedOf = async (who) => { const { data, error } = await who.c.rpc('list_shared_workspaces'); if (error) throw new Error(error.message); return (data ?? []).map((r) => r.company_id) }
+  const seen = async (who, table, col, company) => (await who.c.from(table).select(col).eq(col, company)).data?.length ?? 0
+  await check('the grant-only collaborator lists exactly the granted workspace and opens it with the Prepare stage only', async () => {
+    const a = await accessOf(U.collab, A); const shared = await sharedOf(U.collab)
+    return a?.access === 'capability' && JSON.stringify(a.stages) === '["prepare"]' && JSON.stringify(shared) === JSON.stringify([A])
+      && (await accessOf(U.collab, B)) === null || `access=${JSON.stringify(a)} shared=${JSON.stringify(shared)}`
+  })
+  await check('they read the Prepare data of the granted workspace (uploads, certifications) and none of another workspace', async () => {
+    const up = await seen(U.collab, 'trial_balance_uploads', 'company_id', A); const cert = await seen(U.collab, 'tb_certifications', 'company_id', A)
+    return up > 0 && cert > 0 && (await seen(U.collab, 'trial_balance_uploads', 'company_id', B)) === 0 || `uploads=${up} certs=${cert}`
+  })
+  await check('nothing outside Prepare becomes readable: the companies row, engagements, periods, sign-offs, reconciliations', async () => {
+    for (const [t, col] of [['companies', 'id'], ['engagements', 'company_id'], ['fiscal_periods', 'company_id'], ['statement_sign_offs', 'company_id']]) {
+      const n = await seen(U.collab, t, col, A); if (n !== 0) return `${t}=${n}`
+    }
+    const { data } = await U.collab.c.from('safisha_reconciliations').select('id')
+    return (data ?? []).length === 0
+  })
+  await check('the owner opens every stage; a partner TITLE without a grant gets nothing new; unrelated and anonymous get nothing', async () => {
+    const o = await accessOf(U.owner, A); const p = await accessOf(U.partnerTitle, A)
+    const anon = await createClient(URL_, ANON, opts).rpc('get_workspace_access', { p_company_id: A })
+    return o?.access === 'owner' && o.stages.length === 7 && p?.access === 'member' && (await sharedOf(U.partnerTitle)).length === 0
+      && (await accessOf(U.unrelated, A)) === null && (await sharedOf(U.unrelated)).length === 0 && !!anon.error
+      || `owner=${o?.access} partner=${p?.access} anon=${!!anon.error}`
+  })
+  await check('revoking a grant removes discovery, access and the Prepare reads on the very next read', async () => {
+    await grant(U.owner, A, U.unrelated.id, 'prepare_trial_balance')
+    const before = [(await accessOf(U.unrelated, A))?.access, (await sharedOf(U.unrelated)).length, await seen(U.unrelated, 'trial_balance_uploads', 'company_id', A)]
+    await revoke(U.owner, A, U.unrelated.id, 'prepare_trial_balance')
+    const after = [await accessOf(U.unrelated, A), (await sharedOf(U.unrelated)).length, await seen(U.unrelated, 'trial_balance_uploads', 'company_id', A)]
+    return before[0] === 'capability' && before[1] === 1 && before[2] > 0 && after[0] === null && after[1] === 0 && after[2] === 0
+      || `before=${JSON.stringify(before)} after=${JSON.stringify(after)}`
+  })
+  await check('still no firm_members row for the collaborator after all of the above', async () =>
+    (await svc.from('firm_members').select('id', { count: 'exact', head: true }).eq('user_id', U.collab.id)).count === 0)
 
   section('Undo: the source is retained; any authorized user restores the exact object')
   await check("owner Undo of the COLLABORATOR's upload: same storage object, same row", async () => {

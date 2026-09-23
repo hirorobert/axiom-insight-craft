@@ -68,6 +68,7 @@ import {
 } from "lucide-react";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
+import { isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 
 // ── deriveFiscalPeriod (local copy — same logic as Dashboard) ────────────────
 function deriveFiscalPeriod(
@@ -94,7 +95,10 @@ function deriveFiscalPeriod(
 }
 
 export default function PrepareWorkspace() {
-  const { upload: rawUpload, uploads: rawUploads, company, companyId, periodYear, refreshUpload } = useWorkspace();
+  const { upload: rawUpload, uploads: rawUploads, company, companyId, periodYear, refreshUpload, access } = useWorkspace();
+  // Prepare-only access (an explicit capability grant, PR #32): upload, replace, validate, discard and Undo. Account
+  // review, mapping, the framework prompt and evidence reconciliation belong to other authorities and are not shown.
+  const prepareOnly = isPrepareOnly(access);
   const { engagement } = useEngagement();
   // Discarded runs must vanish immediately — no residue while the refetch lands.
   const [discardedIds, setDiscardedIds] = useState<string[]>([]);
@@ -138,7 +142,8 @@ export default function PrepareWorkspace() {
         body: { uploadId, clientRequestId: crypto.randomUUID() },
       });
       if (error) throw error;
-      setSafishaUpload({ uploadId, fileName });
+      if (prepareOnly) toast.success(`${fileName} validated. Evidence verification (bank and EFDMS reconciliation) is completed by someone with Reconcile access. Later stages stay locked until it clears.`);
+      else setSafishaUpload({ uploadId, fileName });
     } catch (err) {
       console.error("[processReplacement]", err);
       // A 403 means the caller lacks validation authority (owner or explicit grant); a retry cannot succeed.
@@ -462,7 +467,7 @@ export default function PrepareWorkspace() {
                 />
               </div>
             )}
-            <EntityContextSuggestion reportingFrameworkDbValue={company?.reporting_framework} companyCreatedAt={company?.created_at} />
+            {!prepareOnly && <EntityContextSuggestion reportingFrameworkDbValue={company?.reporting_framework} companyCreatedAt={company?.created_at} />}
           </div>
           {upload && !showUploader && (
             <div className="flex flex-wrap gap-2">
@@ -541,6 +546,7 @@ export default function PrepareWorkspace() {
                   periodId={engagement?.fiscal_period_id ?? null}
                   initialFile={pendingFile}
                   autoProcess={!!pendingFile}
+                  evidenceByReconcileOnly={prepareOnly}
                   onUploaded={() => {
                     setShowUploader(false);
                     setPendingFile(null);
@@ -571,7 +577,12 @@ export default function PrepareWorkspace() {
               />
 
               {/* Account review — only when classifier has unresolved accounts */}
-              {showReviewPanel && upload.company_id && user && (
+              {prepareOnly && showReviewPanel && (
+                <p data-testid="prepare-only-review-note" className="text-[13px] text-muted-foreground">
+                  Some accounts need a classification decision. Account review is done by the workspace owner or a reviewer.
+                </p>
+              )}
+              {!prepareOnly && showReviewPanel && upload.company_id && user && (
                 <div ref={reviewRef}>
                   <AccountReviewPanel
                     key={upload.id}
@@ -665,7 +676,7 @@ export default function PrepareWorkspace() {
                       onUploadNew={() => navigate(`/workspace/${companyId}/${periodYear}/prepare`)}
                     />
                     {mapping && (
-                      <Button variant="outline" size="sm" onClick={() => setMappingModalOpen(true)}>
+                      <Button variant="outline" size="sm" disabled={prepareOnly} onClick={() => setMappingModalOpen(true)}>
                         View mapped accounts
                       </Button>
                     )}

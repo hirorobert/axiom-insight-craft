@@ -20,17 +20,23 @@ import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { capabilityTitle } from "@/lib/workspace/mandate";
 import type { ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
+import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
 
 export default function EngagementHub({
   entries,
   companiesWithoutEngagement,
   onResume,
   onStartService,
+  sharedWorkspaces = [],
+  onOpenShared,
 }: {
   entries: ActiveEngagementEntry[];
   companiesWithoutEngagement: WorkspaceCompany[];
   onResume: (entry: ActiveEngagementEntry) => void;
   onStartService: (company: WorkspaceCompany) => void;
+  /** Workspaces shared through an explicit Prepare grant (PR #32). They open into Prepare Data only. */
+  sharedWorkspaces?: SharedWorkspace[];
+  onOpenShared?: (workspace: SharedWorkspace) => void;
 }) {
   return (
     <div className="min-h-screen bg-background">
@@ -104,6 +110,30 @@ export default function EngagementHub({
                   >
                     <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
                     <span className="text-[13px] font-medium text-foreground flex-1 truncate">{company.name}</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {sharedWorkspaces.length > 0 && onOpenShared && (
+          <section className="mt-10">
+            <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-3">
+              Shared with you
+            </h2>
+            <ul className="grid gap-2" data-testid="shared-workspaces-list">
+              {sharedWorkspaces.map((workspace) => (
+                <li key={workspace.id}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenShared(workspace)}
+                    data-testid={`open-shared-${workspace.id}`}
+                    className="w-full text-left p-3.5 border border-border hover:border-primary/60 transition-colors flex items-center gap-3"
+                  >
+                    <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="text-[13px] font-medium text-foreground flex-1 truncate">{workspace.name}</span>
+                    <span className="text-[12px] text-muted-foreground shrink-0">Prepare Data</span>
                     <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                   </button>
                 </li>

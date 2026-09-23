@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Real-PostgreSQL proof of the trial balance upload lifecycle migrations (20260923100000, 20260923120000).
+// Real-PostgreSQL proof of the trial balance upload lifecycle migrations (20260923100000, 20260923120000, 20260923130000).
 //
 // 1. Upgrade (B1): replays every migration BEFORE 20260923100000, seeds legacy uploads (zero, one and
 //    several per period, certified and blocked history, an exact uploaded_at tie, NULL periods and derived
@@ -728,6 +728,82 @@ async function main() {
   });
   await refused("authenticated cannot mint a ticket (42501)", "42501", () => q(user(U.owner), "SELECT public.tbu_mint_source_sweeper_ticket()"));
   await refused("authenticated cannot complete a sweep (42501)", "42501", () => q(user(U.owner), "SELECT public.tbu_sweeper_complete('discard',$1)", [uuid()]));
+
+  group("ACCESS BRIDGE — discover and open a workspace by ownership or an explicit Prepare grant (20260923130000)");
+  const accessOf = async (u, company) => (await q(user(u), "SELECT * FROM public.get_workspace_access($1)", [company]))[0] ?? null;
+  const sharedOf = async (u) => (await q(user(u), "SELECT company_id FROM public.list_shared_workspaces()")).map((r) => r.company_id);
+  const visible = async (u, sql, params) => (await q(user(u), sql, params)).length;
+  const ALL_STAGES = ["prepare", "reconcile", "statements", "tax", "compliance", "filing", "monitor"];
+  await check("solo owner (no membership) opens their workspace with every stage; their own workspace is not 'shared'", async () => {
+    const a = await accessOf(U.solo, S);
+    return a?.access === "owner" && JSON.stringify(a.stages) === JSON.stringify(ALL_STAGES) && a.name === "Solo workspace" && (await sharedOf(U.solo)).length === 0;
+  });
+  await check("a manage_source_files grant holder with NO membership discovers and opens ONLY the granted workspace, Prepare only", async () => {
+    const a = await accessOf(U.collab, C);
+    const shared = await sharedOf(U.collab);
+    return (await count("SELECT count(*) n FROM public.firm_members WHERE user_id=$1", [U.collab])) === 0
+      && a?.access === "capability" && JSON.stringify(a.stages) === '["prepare"]' && a.capabilities.includes("manage_source_files")
+      && JSON.stringify(shared) === JSON.stringify([C]) && (await accessOf(U.collab, B)) === null && (await accessOf(U.collab, S)) === null;
+  });
+  await check("a prepare_trial_balance grant opens Prepare only", async () => {
+    const a = await accessOf(U.admin, C);
+    return a?.access === "capability" && JSON.stringify(a.stages) === '["prepare"]' && a.capabilities.includes("prepare_trial_balance");
+  });
+  await check("the resolver returns only minimum metadata: no TIN, code, owner or billing columns", async () => {
+    const a = await accessOf(U.collab, C);
+    return JSON.stringify(Object.keys(a).sort()) === JSON.stringify(["access", "capabilities", "company_id", "created_at", "currency", "fiscal_year_end", "name", "reporting_framework", "stages"]);
+  });
+  await check("the grant holder reads the Prepare data of the granted workspace (uploads, certifications) and nothing of any other", async () => {
+    const upC = await visible(U.collab, "SELECT id FROM public.trial_balance_uploads WHERE company_id=$1", [C]);
+    const allC = await count("SELECT count(*) n FROM public.trial_balance_uploads WHERE company_id=$1", [C]);
+    const certC = await visible(U.collab, "SELECT id FROM public.tb_certifications WHERE company_id=$1", [C]);
+    return upC === allC && upC > 0 && certC > 0
+      && (await visible(U.collab, "SELECT id FROM public.trial_balance_uploads WHERE company_id=$1", [B])) === 0
+      && (await visible(U.collab, "SELECT id FROM public.tb_certifications WHERE company_id=$1", [B])) === 0;
+  });
+  await check("the grant opens NOTHING outside Prepare: the companies row, engagements, periods, reconciliations, sign-offs, statements and tax stay unreadable", async () => {
+    for (const [t, col] of [["companies", "id"], ["engagements", "company_id"], ["fiscal_periods", "company_id"], ["statement_sign_offs", "company_id"],
+      ["hesabu_validations", "company_id"], ["tax_computations", "company_id"], ["safisha_reconciliations", null], ["upload_integrity_findings", "company_id"]]) {
+      if (!(await admin.query("SELECT to_regclass($1) r", [`public.${t}`])).rows[0].r) continue;
+      const n = col ? await visible(U.collab, `SELECT 1 FROM public.${t} WHERE ${col}=$1`, [C]) : await visible(U.collab, `SELECT 1 FROM public.${t}`);
+      if (n !== 0) return `${t} readable (${n})`;
+    }
+    return true;
+  });
+  await check("grant administration stays owner-only for a grant holder", async () =>
+    (await grant(user(U.collab), C, U.unrelated, "manage_source_files")).outcome === "forbidden");
+  await check("review_close / administer_workspace alone open nothing (no stage implements them here)", async () => {
+    await grant(user(U.owner), C, U.ownerB, "review_close");
+    const a = await accessOf(U.ownerB, C);
+    await revoke(user(U.owner), C, U.ownerB, "review_close");
+    return a === null && !(await sharedOf(U.ownerB)).includes(C);
+  });
+  await check("an occupational TITLE without a grant gives no new PR #32 access (existing membership only; nothing shared; no Prepare-grant read path)", async () => {
+    const a = await accessOf(U.partnerTitle, C);
+    const canRead = (await one(user(U.partnerTitle), "SELECT public.tbu_can_read_prepare($1) r", [C])).r;
+    return a?.access === "member" && (await sharedOf(U.partnerTitle)).length === 0 && canRead === false;
+  });
+  await check("unrelated users and other workspaces' owners cannot discover or open the workspace (cross-workspace URL denied)", async () =>
+    (await accessOf(U.unrelated, C)) === null && (await accessOf(U.ownerB, C)) === null && (await sharedOf(U.unrelated)).length === 0
+    && (await visible(U.unrelated, "SELECT id FROM public.trial_balance_uploads WHERE company_id=$1", [C])) === 0
+    && (await accessOf(U.owner, B)) === null);
+  await check("revoking the grant removes discovery, access and the Prepare reads on the very next read", async () => {
+    await grant(user(U.owner), C, U.unrelated, "manage_source_files");
+    const before = [await accessOf(U.unrelated, C), await sharedOf(U.unrelated), await visible(U.unrelated, "SELECT id FROM public.trial_balance_uploads WHERE company_id=$1", [C])];
+    await revoke(user(U.owner), C, U.unrelated, "manage_source_files");
+    const after = [await accessOf(U.unrelated, C), await sharedOf(U.unrelated), await visible(U.unrelated, "SELECT id FROM public.trial_balance_uploads WHERE company_id=$1", [C])];
+    return before[0]?.access === "capability" && before[1].includes(C) && before[2] > 0 && after[0] === null && after[1].length === 0 && after[2] === 0;
+  });
+  await refused("anonymous cannot resolve access (42501)", "42501", () => q(ANON, "SELECT * FROM public.get_workspace_access($1)", [C]));
+  await refused("anonymous cannot list shared workspaces (42501)", "42501", () => q(ANON, "SELECT * FROM public.list_shared_workspaces()"));
+  await check("no firm_members row was created in the granted workspace for any grant holder", async () =>
+    (await count("SELECT count(*) n FROM public.firm_members WHERE company_id=$1 AND user_id IN ($2,$3,$4)", [C, U.collab, U.admin, U.unrelated])) === 0
+    && (await count("SELECT count(*) n FROM public.firm_members WHERE user_id IN ($1,$2)", [U.collab, U.admin])) === 0);
+  await check("sweeper status is service_role only and reports what exists (here: no pg_net, no cron)", async () => {
+    const r = (await admin.query("SELECT has_function_privilege('authenticated','public.tbu_source_sweeper_status()','EXECUTE') a, has_function_privilege('service_role','public.tbu_source_sweeper_status()','EXECUTE') s")).rows[0];
+    const st = await one(SERVICE, "SELECT * FROM public.tbu_source_sweeper_status()");
+    return !r.a && r.s && st.pg_net_installed === false && st.cron_job_active === false;
+  });
 
   group(`Concurrency — ${CONCURRENCY} simultaneous requests on separate connections`);
   await check(`${CONCURRENCY} concurrent completions of one discard: exactly one deletes the row`, async () => {

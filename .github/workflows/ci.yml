@@ -201,6 +201,16 @@ jobs:
           STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
         run: node scripts/upload_lifecycle_staging.mjs
 
+      - name: Source sweeper readiness on staging (PR #32; fail-closed)
+        # Same guard, same STAGING_* variables only. NOT READY unless deployed, configured for this project,
+        # scheduled and answering a single-use ticket (the lifecycle proof above configures the staging URL).
+        env:
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
+        run: node scripts/sweeper_readiness.mjs
+
   db-contract-tests:
     name: Disposable-DB Contract Tests (Ω∞ A+ closure)
     runs-on: ubuntu-latest

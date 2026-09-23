@@ -166,8 +166,10 @@ describe("migration directory integrity", () => {
     // defect where any certified upload could never be discarded) — forward-only, sorts last.
     // Bumped from 128 -> 129: 20260923120000_workspace_user_engine_actor_and_source_sweeper.sql (user-based trial balance validation:
     // a workspace_user engine actor with no firm membership; the scheduled, ticketed source sweeper) — forward-only, sorts last.
+    // Bumped from 129 -> 130: 20260923130000_workspace_capability_access_bridge.sql (the narrow workspace access bridge for explicit
+    // Prepare grants: get_workspace_access, list_shared_workspaces, two Prepare read policies) — forward-only, sorts last.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(129);
+    expect(files.length).toBe(130);
   });
 });
 

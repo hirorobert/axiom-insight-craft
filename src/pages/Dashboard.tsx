@@ -30,6 +30,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useActiveEngagements, type ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
 import { decideReturningUserRoute, applyForceHub } from "@/lib/workspace/resolveReturningUserRoute";
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
+import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
 import FirstRunEngagement from "@/components/workspace/FirstRunEngagement";
 import EngagementHub from "@/pages/workspace/EngagementHub";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
@@ -59,7 +60,7 @@ function resolvePeriodYear(fiscalYearEnd: string | null, uploadPeriodYear?: numb
 }
 
 /** A company with no open engagement has no fiscal_period to derive a year from — resolve the same way the pre-hub Dashboard always did. */
-async function resolveEntryPeriodYear(company: WorkspaceCompany): Promise<number> {
+async function resolveEntryPeriodYear(company: Pick<WorkspaceCompany, "id" | "fiscal_year_end">): Promise<number> {
   const { data: recentUp } = await supabase
     .from("trial_balance_uploads")
     .select("period_year")
@@ -80,7 +81,7 @@ export default function Dashboard() {
   // hub" escape, distinct from a bare sign-in landing at /dashboard. See applyForceHub's own doc
   // comment for exactly what this does and does not change.
   const forceHub = !!(location.state as { forceHub?: boolean } | null)?.forceHub;
-  const { loading: engagementsLoading, entries, companiesWithoutEngagement, fetchFailed, refresh } = useActiveEngagements();
+  const { loading: engagementsLoading, entries, companiesWithoutEngagement, sharedWorkspaces, fetchFailed, refresh } = useActiveEngagements();
   const [routing, setRouting] = useState(false);
 
   // ── 1. Auth guard ─────────────────────────────────────────────────────────
@@ -110,7 +111,7 @@ export default function Dashboard() {
   // "first_run" show up on first paint rather than waiting on an effect.
   const route =
     !authLoading && !engagementsLoading && !fetchFailed
-      ? applyForceHub(decideReturningUserRoute(entries, companiesWithoutEngagement), forceHub)
+      ? applyForceHub(decideReturningUserRoute(entries, companiesWithoutEngagement, sharedWorkspaces), forceHub)
       : null;
 
   // ── 3. Returning-user routing decision — only "resume" and "start_single_company" have a side
@@ -122,6 +123,12 @@ export default function Dashboard() {
 
     if (route.kind === "resume") {
       navigate(`/workspace/${route.entry.companyId}/${route.entry.periodYear}`, { replace: true });
+    } else if (route.kind === "open_shared") {
+      setRouting(true);
+      resolveEntryPeriodYear(route.workspace).then((year) => {
+        if (cancelled) return;
+        navigate(`/workspace/${route.workspace.id}/${year}/prepare`, { replace: true });
+      });
     } else if (route.kind === "start_single_company") {
       setRouting(true);
       resolveEntryPeriodYear(route.company).then((year) => {
@@ -134,7 +141,7 @@ export default function Dashboard() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route?.kind, route?.kind === "resume" ? route.entry.companyId : null, route?.kind === "start_single_company" ? route.company.id : null]);
+  }, [route?.kind, route?.kind === "resume" ? route.entry.companyId : null, route?.kind === "start_single_company" ? route.company.id : null, route?.kind === "open_shared" ? route.workspace.id : null]);
 
   const resumeEntry = (entry: ActiveEngagementEntry) => {
     navigate(`/workspace/${entry.companyId}/${entry.periodYear}`);
@@ -144,13 +151,19 @@ export default function Dashboard() {
   // existing engagement's data — it is a plain navigation into that company's own workspace, where
   // ServiceLaunchpad (rendered there because that workspace itself has no mandate yet) collects the
   // service selection.
+  // A shared workspace opens straight into Prepare Data, the only stage its grant covers.
+  const openShared = async (workspace: SharedWorkspace) => {
+    const year = await resolveEntryPeriodYear(workspace);
+    navigate(`/workspace/${workspace.id}/${year}/prepare`);
+  };
+
   const startService = async (company: WorkspaceCompany) => {
     const year = await resolveEntryPeriodYear(company);
     navigate(`/workspace/${company.id}/${year}`);
   };
 
   // ── Loading / redirect in flight ──────────────────────────────────────────
-  if (authLoading || engagementsLoading || routing || route?.kind === "resume" || route?.kind === "start_single_company") {
+  if (authLoading || engagementsLoading || routing || route?.kind === "resume" || route?.kind === "start_single_company" || route?.kind === "open_shared") {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3">
         <Skeleton className="h-8 w-32" />
@@ -201,8 +214,10 @@ export default function Dashboard() {
     <EngagementHub
       entries={entries}
       companiesWithoutEngagement={companiesWithoutEngagement}
+      sharedWorkspaces={sharedWorkspaces}
       onResume={resumeEntry}
       onStartService={startService}
+      onOpenShared={openShared}
     />
   );
 }

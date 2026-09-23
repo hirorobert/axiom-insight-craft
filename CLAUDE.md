@@ -183,6 +183,13 @@ cleanup), the capability grants of `20260923100000`, and trial balance VALIDATIO
   firm-member actor exactly as before; otherwise the owner or a `prepare_trial_balance`/`manage_source_files` grant
   holder runs as `actor_type = 'workspace_user'` with `engine_runs`/`idempotency_keys.actor_user_id` = the JWT user
   and NO `firm_member_id`. No firm_members row is ever created for them.
+- Workspace ACCESS for those grants (`20260923130000`): `get_workspace_access(workspace)` is the one resolver the
+  workspace shell uses (owner → every stage; accepted member → every stage under the existing rules, unchanged;
+  an active `manage_source_files`/`prepare_trial_balance` grant → **Prepare only**), returning minimal metadata
+  (no TIN/code/owner/billing). `list_shared_workspaces()` is discovery. Grant holders read only
+  `trial_balance_uploads` and `tb_certifications` of the granted workspace. Nothing else (companies row,
+  engagements, reconciliation, statements, tax, sign-off, billing, grant administration) is opened by a grant.
+  The browser only narrows (`src/lib/workspace/workspaceAccess.ts`, `WorkspaceAccessGate`, `StageScopeGate`).
 
 Everything else keeps this section's rule until the platform-wide migration below replaces it.
 **Deferred (separate mission, after PR #32):** move every remaining role-label predicate onto explicit workspace
@@ -293,7 +300,12 @@ discard is terminal. `20260923120000` adds the scheduled, server-only sweeper: p
 single-use ticket → pg_net → `trial-balance-source-sweeper`, which deletes exactly what `tbu_sweeper_candidates()` lists
 (terminal discards, unfinished cancel cleanups, objects of expired unconsumed reservations), verifies absence, then records
 it (`tbu_sweeper_complete`). No key is stored; the function URL is set once per environment with
-`tbu_configure_source_sweeper(url)` (service_role). The browser never sweeps. The functions are deployed to staging-replay
+`tbu_configure_source_sweeper(url)` (service_role). The browser never sweeps. Release control:
+`scripts/sweeper_readiness.mjs` reports NOT READY unless the function is deployed, the project-specific URL is
+configured, the cron job is active and a ticketed health sweep succeeds (CI runs it on staging). Production, by the
+owner only, after the migrations are applied and `trial-balance-source-sweeper` is deployed:
+`SELECT public.tbu_configure_source_sweeper('https://<production-ref>.supabase.co/functions/v1/trial-balance-source-sweeper');`
+(as service_role), then `SWEEPER_SUPABASE_URL=… SWEEPER_SUPABASE_SERVICE_ROLE_KEY=… node scripts/sweeper_readiness.mjs --owner`. The functions are deployed to staging-replay
 `hplriydtdelehepgttul` only. Proven by `scripts/db-proof/uploadLifecycle.mjs` (local PostgreSQL) and `scripts/upload_lifecycle_staging.mjs` (hosted staging, manual CI job); pre-flight
 report for an existing database: `scripts/db-preflight/uploadLifecyclePreflight.sql`. Apply together with
 `20260922180000`. Only Lovable/the owner applies it.
@@ -330,6 +342,7 @@ src/
       mandate.ts              ← Engagement capabilities registry (CAPABILITY_OUTCOMES) + mandate projection
       engagementScopeChange.ts ← Pure decision behind EngagementScopeDialog's three modes (declare/add/amend): added/removed capabilities, and that only a withdrawal via "amend" requires a reason
       workspaceSetupClient.ts ← ONLY client path to workspace setup RPCs (open_engagement_with_scope, data start, jurisdiction)
+      workspaceAccess.ts      ← Server-decided workspace access (owner / member / Prepare-only grant) + shared-workspace discovery (PR #32)
       certificationRevalidationGuard.ts ← Certification revalidation guard
       computeCertificationReadiness.ts  ← Certification readiness (pure)
       computePreflight.ts     ← Preflight checks (pure)

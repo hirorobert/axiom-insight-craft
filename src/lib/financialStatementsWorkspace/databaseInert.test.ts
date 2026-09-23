@@ -102,6 +102,8 @@ describe("database inertness — schema and functions", () => {
       // ...user-based validation (20260923120000): the pure processing-actor resolver, and the scheduled, ticketed,
       // server-only sweeper that purges terminal discards and reclaims abandoned reservations. No financial-statements schema.
       "supabase/migrations/20260923120000_workspace_user_engine_actor_and_source_sweeper.sql",
+      // ...and the narrow access bridge that lets an explicit Prepare grant holder discover and open that workspace.
+      "supabase/migrations/20260923130000_workspace_capability_access_bridge.sql",
       "supabase/functions/_shared/processingActor.ts",
       "supabase/functions/_shared/sourceSweeper.ts",
       "supabase/functions/trial-balance-source-sweeper/index.ts",
@@ -138,7 +140,10 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/uploadLifecycle.mjs", "scripts/db-preflight/uploadLifecyclePreflight.sql", "scripts/upload_lifecycle_staging.mjs",
       // PR #32 sweeper: the ONE config entry, verify_jwt = false for trial-balance-source-sweeper (its single-use,
       // database-minted ticket is the credential, redeemed before anything runs).
-      "supabase/config.toml"]);
+      "supabase/config.toml",
+      // PR #32 sweeper release control: the fail-closed readiness check (staging by default, behind stagingGuard;
+      // an explicit --owner mode for the owner) and its pure evaluator.
+      "scripts/sweeper_readiness.mjs", "scripts/ci/sweeperReadiness.mjs"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

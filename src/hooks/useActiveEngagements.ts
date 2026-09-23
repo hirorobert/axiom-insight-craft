@@ -40,6 +40,7 @@ import type { WorkspaceState } from "@/lib/workspace/types";
 import type { EngagementCapability } from "@/lib/workspace/mandate";
 import { mapWithConcurrencyLimit, aggregateSettledResults } from "@/lib/workspace/concurrencyLimit";
 import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
+import { listSharedWorkspaces, type SharedWorkspace } from "@/lib/workspace/workspaceAccess";
 
 const HUB_FAN_OUT_CONCURRENCY = 6;
 
@@ -63,6 +64,8 @@ export interface UseActiveEngagementsReturn {
   entries: ActiveEngagementEntry[];
   /** Active companies with NO open engagement — candidates for "start a service", never auto-resumed into. */
   companiesWithoutEngagement: WorkspaceCompany[];
+  /** Workspaces shared with the user through an explicit Prepare grant (never their own). PR #32 access bridge. */
+  sharedWorkspaces: SharedWorkspace[];
   /** True only when the read itself failed — never conflated with "zero engagements". */
   fetchFailed: boolean;
   refresh: () => void;
@@ -95,6 +98,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
   const [entries, setEntries] = useState<ActiveEngagementEntry[]>([]);
   const [companiesWithoutEngagement, setCompaniesWithoutEngagement] = useState<WorkspaceCompany[]>([]);
   const [fetchFailed, setFetchFailed] = useState(false);
+  const [sharedWorkspaces, setSharedWorkspaces] = useState<SharedWorkspace[]>([]);
 
   const load = useCallback(async () => {
     if (!user) {
@@ -114,6 +118,8 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
     }
 
     try {
+      // Shared workspaces fail closed with everything else: a partial hub could mis-route the user.
+      setSharedWorkspaces(await listSharedWorkspaces());
       const { data: companiesData, error: companiesErr } = await supabase
         .from("companies")
         .select("id, name, code, tin, reporting_framework, fiscal_year_end, currency, created_at, filing_jurisdiction")
@@ -223,6 +229,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
       setFetchFailed(true);
       setEntries([]);
       setCompaniesWithoutEngagement([]);
+      setSharedWorkspaces([]);
       // A refused read (expired/missing JWT) is an auth problem, not "no engagements".
       await handleIfAuthorizationFailure(err);
     } finally {
@@ -234,5 +241,5 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
     load();
   }, [load]);
 
-  return { loading, entries, companiesWithoutEngagement, fetchFailed, refresh: load };
+  return { loading, entries, companiesWithoutEngagement, sharedWorkspaces, fetchFailed, refresh: load };
 }

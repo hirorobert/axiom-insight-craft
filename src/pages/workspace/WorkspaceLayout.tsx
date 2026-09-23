@@ -24,6 +24,8 @@ import { useWorkspaceData } from "@/hooks/useWorkspaceData";
 import { useEngagementMandate } from "@/hooks/useEngagementMandate";
 import { projectMandate } from "@/lib/workspace/mandate";
 import { deriveWorkspaceNavigation } from "@/lib/workspace/navigation";
+import { canOpenStage, isPrepareOnly } from "@/lib/workspace/workspaceAccess";
+import { WorkspaceAccessShell } from "@/components/workspace/WorkspaceAccessGate";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import type { CompanyReportingFrameworkDbValue } from "@/lib/accounting/frameworkAdapter";
 import { detectEntityAccountingContext } from "@/lib/accounting/detectEntityContext";
@@ -198,11 +200,14 @@ export default function WorkspaceLayout() {
   // undeclared, projectMandate returns every stage — nothing is ever hidden on
   // unknown scope.
   const scopeDeclared = !!engagementApi.mandate && engagementApi.mandate.granted.length > 0;
+  // Only what the server granted (PR #32 access bridge): a Prepare-only grant holder sees Prepare Data and nothing
+  // else; owners and members keep the navigation exactly as before.
+  const prepareOnly = isPrepareOnly(workspaceData.access);
   const navItems = deriveWorkspaceNavigation({
     basePath: `/workspace/${companyId}/${periodYear}`,
-    scopeDeclared,
-    missionViews: engagementApi.loading ? [] : missionViews,
-  });
+    scopeDeclared: prepareOnly || scopeDeclared,
+    missionViews: prepareOnly ? missionViews : engagementApi.loading ? [] : missionViews,
+  }).filter((item) => (item.id === "overview" ? !prepareOnly : canOpenStage(workspaceData.access, item.id as WorkspaceMission)));
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -233,6 +238,7 @@ export default function WorkspaceLayout() {
   return (
     <WorkspaceContext.Provider value={workspaceData}>
      <EngagementContext.Provider value={{ ...engagementApi, missionViews }}>
+      <WorkspaceAccessShell accessState={workspaceData.accessState} onRetry={workspaceData.refreshUpload}>
       <div className="min-h-screen bg-background flex flex-col">
 
         {/* ── Top bar ──────────────────────────────────────────────────────── */}
@@ -378,6 +384,7 @@ export default function WorkspaceLayout() {
         </main>
 
       </div>
+      </WorkspaceAccessShell>
      </EngagementContext.Provider>
     </WorkspaceContext.Provider>
   );

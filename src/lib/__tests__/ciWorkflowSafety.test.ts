@@ -79,7 +79,7 @@ describe("RLS regression workflow contract", () => {
   it("never logs a secret: no shell tracing, env dumps, echoes of variables, or debug logging", () => {
     expect(rls).not.toMatch(/set\s+-[a-z]*x|printenv|\benv\s*\||\bset\s*\||echo\s+[^\n]*(\$\{?STAGING|secrets\.)|ACTIONS_STEP_DEBUG|ACTIONS_RUNNER_DEBUG|cat\s+[^\n]*\.env/);
     const runs = [...rls.matchAll(/^\s+run: (.*)$/gm)].map((m) => m[1]);
-    expect(runs).toEqual(["node scripts/ci/stagingGuard.mjs", "bun install --frozen-lockfile", "bun run test:rls", "node scripts/upload_lifecycle_staging.mjs"]);
+    expect(runs).toEqual(["node scripts/ci/stagingGuard.mjs", "bun install --frozen-lockfile", "bun run test:rls", "node scripts/upload_lifecycle_staging.mjs", "node scripts/sweeper_readiness.mjs"]);
   });
 
   it("does not deploy, push or apply anything to a database", () => {
@@ -134,6 +134,38 @@ describe("Upload lifecycle staging proof (PR #32) — same guard, refuses before
     expect(r.stderr).toContain("TARGET_IS_PRODUCTION");
     expect(r.stdout + r.stderr).not.toContain(secret);
     expect(r.stdout).not.toMatch(/PASS|Fixtures/);
+  });
+});
+
+describe("Sweeper readiness (PR #32) — staging by default, same guard, refuses before any client exists", () => {
+  const script = read("scripts/sweeper_readiness.mjs");
+
+  it("runs the guard before createClient in staging mode; the owner mode is explicit (--owner) and never the default", () => {
+    expect(script).toMatch(/from '\.\/ci\/stagingGuard\.mjs'/);
+    expect(script.indexOf("assertStagingTargetFromEnv()")).toBeGreaterThan(-1);
+    expect(script.indexOf("assertStagingTargetFromEnv()")).toBeLessThan(script.indexOf("createClient("));
+    expect(script).not.toMatch(/process\.env\.SUPABASE_|process\.env\[['"]SUPABASE_/);
+    expect(script).toMatch(/process\.argv\.includes\('--owner'\)/);
+  });
+
+  it("exits 1 without touching the network when pointed at the production project, and never prints a secret", () => {
+    const secret = "sentinel-service-role-secret-value";
+    const r = spawnSync(process.execPath, ["scripts/sweeper_readiness.mjs"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      timeout: 20000,
+      env: {
+        PATH: process.env.PATH ?? "",
+        STAGING_SUPABASE_URL: `https://${PRODUCTION_PROJECT_REF}.supabase.co`,
+        STAGING_SUPABASE_ANON_KEY: "sentinel-anon-key",
+        STAGING_SUPABASE_SERVICE_ROLE_KEY: secret,
+        STAGING_SUPABASE_PROJECT_REF: STAGING_REF,
+      },
+    });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("TARGET_IS_PRODUCTION");
+    expect(r.stdout + r.stderr).not.toContain(secret);
+    expect(r.stdout).not.toMatch(/SWEEPER_READINESS: READY/);
   });
 });
 

@@ -13,6 +13,8 @@ import { useEngagement } from "@/contexts/EngagementContext";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { findMissionView, stageHasWork } from "@/lib/workspace/mandate";
 import EngagementScopeBoundary from "@/components/workspace/EngagementScopeBoundary";
+import { StageAccessBoundary } from "@/components/workspace/WorkspaceAccessGate";
+import { canOpenStage, isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 import type { WorkspaceMission } from "@/lib/workspace/types";
 
 export default function StageScopeGate({
@@ -23,7 +25,15 @@ export default function StageScopeGate({
   children: React.ReactNode;
 }) {
   const { missionViews, loading, mandate } = useEngagement();
-  const { companyId, periodYear, uploads } = useWorkspace();
+  const { companyId, periodYear, uploads, access } = useWorkspace();
+
+  // Access comes first (PR #32 access bridge): a stage outside what the server granted this user never renders,
+  // whatever the mandate says. A Prepare-only grant holder cannot read the engagement mandate, so Prepare is
+  // decided by their grant alone; every action inside it is authorized again by the server.
+  if (!canOpenStage(access, stage)) {
+    return <StageAccessBoundary stage={stage} prepareHref={`/workspace/${companyId}/${periodYear}/prepare`} />;
+  }
+  if (isPrepareOnly(access)) return <>{children}</>;
 
   // useEngagementMandate.ts's own `loading` now stays true until user/company/period AND the
   // actual mandate read have all genuinely settled (fixed there — it previously flipped loading
