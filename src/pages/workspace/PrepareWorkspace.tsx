@@ -49,8 +49,10 @@ import {
   discardUpload,
   retireUpload,
   isCertifiedRun,
+  isUnprocessedReplacement,
   offerUndo,
 } from "@/components/workspace/DiscardUploadDialog";
+import SafishaGate from "@/components/safisha/SafishaGate";
 import { Button } from "@/components/ui/button";
 import {
   SurfaceCard,
@@ -125,44 +127,71 @@ export default function PrepareWorkspace() {
   // replacement file that is about to be uploaded.
   const keepPendingFileRef = useRef(false);
 
+  // The replacement created by retireUpload() is processed exactly like a fresh upload and then goes
+  // through the same non-skippable SafishaGate that TrialBalanceUpload opens after processing.
+  const [safishaUpload, setSafishaUpload] = useState<{ uploadId: string; fileName: string } | null>(null);
+
+  const processReplacement = async (uploadId: string, fileName: string) => {
+    try {
+      await ensureFreshSession();
+      const { error } = await supabase.functions.invoke("process-trial-balance", {
+        body: { uploadId, clientRequestId: crypto.randomUUID() },
+      });
+      if (error) throw error;
+      setSafishaUpload({ uploadId, fileName });
+    } catch (err) {
+      console.error("[processReplacement]", err);
+      toast.error(`${fileName} was saved as the replacement, but processing did not start.`, {
+        action: { label: "Retry processing", onClick: () => void processReplacement(uploadId, fileName) },
+      });
+    } finally {
+      refreshUpload();
+    }
+  };
+
+  const retireAndProcess = async (current: WorkspaceUpload, file: File) => {
+    const { newUploadId } = await retireUpload(current, file, "Replaced via Prepare Data");
+    toast.success(`${current.file_name} retired — evidence preserved. Processing ${file.name}…`);
+    setPendingFile(null);
+    navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
+    refreshUpload();
+    await processReplacement(newUploadId, file.name);
+  };
+
   /**
-   * One tap: pick a file → for a genuinely unprocessed upload, the prior trial balance is
-   * discarded and the new file is uploaded immediately (hard delete — nothing to preserve). For a
-   * run with processing/certification history, the new file instead RETIRES the prior upload
-   * (retireUpload): the old row, its certifications and every derived result are preserved exactly
-   * as they are, never deleted — see DiscardUploadDialog.tsx's module doc comment.
+   * One tap: pick a file. For a genuinely unprocessed upload, the prior trial balance is discarded and
+   * the new file is uploaded immediately (hard delete; nothing to preserve). For a run with processing,
+   * certification or derived history, the new file instead RETIRES the prior upload (retireUpload): the
+   * old row, its certifications and every derived result are preserved exactly as they are and never
+   * deleted (see DiscardUploadDialog.tsx's module doc comment).
+   * The server is the authority on which case applies. If local state believed the upload was
+   * unprocessed but the server answers 'replacement_required', or 'replacement_cancel_required' for an
+   * unprocessed replacement, the same file is retired instead.
    */
   const handleReplacePicked = async (file: File | undefined) => {
     if (!file || !upload) return;
     setPendingFile(file);
-
-    if (isCertifiedRun(upload)) {
-      setReplacing(true);
-      try {
-        await retireUpload(upload, file, "Replaced via Prepare Data");
-        toast.success(`${upload.file_name} retired — evidence preserved. Uploading ${file.name}…`);
-        setPendingFile(null);
-        navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
-        refreshUpload();
-      } catch (err) {
-        setPendingFile(null);
-        toast.error(
-          err instanceof DiscardError ? err.safeMessage : "Could not replace this trial balance. Please try again.",
-        );
-      } finally {
-        setReplacing(false);
-      }
-      return;
-    }
-
     setReplacing(true);
     try {
-      const receipt = await discardUpload(upload);
+      if (isCertifiedRun(upload)) {
+        await retireAndProcess(upload, file);
+        return;
+      }
+      let receipt;
+      try {
+        receipt = await discardUpload(upload);
+      } catch (err) {
+        if (err instanceof DiscardError && (err.code === "replacement_required" || err.code === "replacement_cancel_required")) {
+          await retireAndProcess(upload, file);
+          return;
+        }
+        throw err;
+      }
       setDiscardedIds((prev) => suppressUpload(prev, upload.id));
       toast.success(`Prior trial balance discarded. Uploading ${file.name}…`);
       offerUndo(receipt, () => {
-        // Unsuppress first, then refetch — the restored run is on screen for
-        // the whole undo→refresh window, so no empty frame appears.
+        // Unsuppress first, then refetch, so the restored run stays on screen for the whole
+        // undo→refresh window and no empty frame appears.
         setDiscardedIds((prev) => restoreUploadId(prev, receipt.id));
         setPendingFile(null);
         setShowUploader(false);
@@ -177,7 +206,7 @@ export default function PrepareWorkspace() {
       toast.error(
         err instanceof DiscardError
           ? err.safeMessage
-          : "Could not discard the prior trial balance. Please try again.",
+          : "Could not replace the prior trial balance. Please try again.",
       );
     } finally {
       setReplacing(false);
@@ -457,7 +486,7 @@ export default function PrepareWorkspace() {
                   onClick={() => setDiscardTarget(upload)}
                   className="text-muted-foreground hover:text-destructive"
                 >
-                  <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Discard upload
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {isUnprocessedReplacement(upload) ? "Cancel replacement" : "Discard upload"}
                 </Button>
               )}
             </div>
@@ -466,6 +495,22 @@ export default function PrepareWorkspace() {
       </header>
 
       <div className="space-y-5">
+          {/* A replacement goes through the same evidence gate as a fresh upload (non-skippable). */}
+          {safishaUpload && (
+            <SafishaGate
+              uploadId={safishaUpload.uploadId}
+              fileName={safishaUpload.fileName}
+              onCleared={() => {
+                toast.success("TB verified — tax engine unlocked for " + safishaUpload.fileName);
+                refreshUpload();
+              }}
+              onBlocked={() => {
+                toast.error("Reconciliation blocked — re-upload a corrected TB to proceed.");
+                refreshUpload();
+              }}
+            />
+          )}
+
           {/* Upload surface — the one thing to do when nothing is here yet. */}
           {(!upload || showUploader) && (
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:items-start">
@@ -676,6 +721,13 @@ export default function PrepareWorkspace() {
               setPendingFile(null);
             }
           }
+        }}
+        onReplacementCancelled={(cancelledId) => {
+          setDiscardedIds((prev) => suppressUpload(prev, cancelledId));
+          setDiscardTarget(null);
+          setPendingFile(null);
+          navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
+          refreshUpload();
         }}
         onDiscarded={(_id, receipt) => {
           keepPendingFileRef.current = !!pendingFile;

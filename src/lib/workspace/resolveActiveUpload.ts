@@ -11,6 +11,19 @@
 export interface ResolvableUpload {
   id: string;
   period_year?: number | null;
+  /** 20260923100000 upload lifecycle. Absent on rows read before the migration was applied. */
+  lifecycle_state?: string | null;
+}
+
+/**
+ * Lifecycle states that can be "the current upload". Retired, superseded and discard_pending rows are
+ * history, so automatic resolution never lands on them (the database's uq_one_active_upload_per_period
+ * holds exactly one row in these states per company/period). A row without lifecycle_state predates the
+ * migration and stays eligible.
+ */
+const ACTIVE_LIFECYCLE_STATES = new Set(["active_unprocessed", "active_processing", "active_processed", "blocked"]);
+export function isActiveLifecycle(upload: ResolvableUpload): boolean {
+  return !upload.lifecycle_state || ACTIVE_LIFECYCLE_STATES.has(upload.lifecycle_state);
 }
 
 export interface ResolveActiveUploadArgs<T extends ResolvableUpload> {
@@ -29,22 +42,25 @@ export function resolveActiveUpload<T extends ResolvableUpload>(
 ): T | null {
   const { uploads, requestedUploadId, periodYear, derivePeriodYear } = args;
 
-  // 0. Explicit pin always wins.
+  // 0. Explicit pin always wins, including a historical (retired/superseded) upload the user chose to view.
   if (requestedUploadId) {
     const pinned = uploads.find((u) => u.id === requestedUploadId);
     if (pinned) return pinned;
   }
 
+  // Automatic resolution only ever considers uploads that can be current.
+  const candidates = uploads.filter(isActiveLifecycle);
+
   // 1. Exact period_year column match.
-  const exact = uploads.find((u) => u.period_year === periodYear);
+  const exact = candidates.find((u) => u.period_year === periodYear);
   if (exact) return exact;
 
   // 2. Derived fiscal period for legacy uploads.
-  const derived = uploads.find((u) => derivePeriodYear(u) === periodYear);
+  const derived = candidates.find((u) => derivePeriodYear(u) === periodYear);
   if (derived) return derived;
 
   // 3. Most recent upload.
-  return uploads.length > 0 ? uploads[0] : null;
+  return candidates.length > 0 ? candidates[0] : null;
 }
 
 /** Canonical route for a pinned upload inside the Prepare stage. */

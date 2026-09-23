@@ -226,7 +226,16 @@ export const TrialBalanceUpload = ({
         .select()
         .single();
 
-      if (dbError) throw new Error(dbError.message);
+      if (dbError) {
+        // Nothing references the object just uploaded, so remove it rather than leave it orphaned.
+        await supabase.storage.from("trial-balance-files").remove([filePath]).catch(() => {});
+        // uq_one_active_upload_per_period (20260923100000): this period already has its one active
+        // trial balance. That is a rule, not a transient failure, so tell the user what to do instead.
+        if (dbError.code === "23505" && /uq_one_active_upload_per_period/.test(dbError.message ?? "")) {
+          throw new Error("A trial balance is already active for this period. Use Replace trial balance to swap it.");
+        }
+        throw new Error(dbError.message);
+      }
 
       updateFileStatus(id, { status: "processing", progress: 60, uploadId: uploadRecord.id });
 

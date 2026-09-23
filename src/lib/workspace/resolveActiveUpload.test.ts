@@ -126,3 +126,28 @@ describe("buildPrepareUploadRoute — every click carries the pin", () => {
     }
   });
 });
+
+describe("upload lifecycle (20260923100000): automatic resolution never lands on history", () => {
+  const superseded: U = { id: "old", period_year: 2025, lifecycle_state: "superseded" };
+  const replacement: U = { id: "new", period_year: 2025, lifecycle_state: "active_unprocessed" };
+  const pending: U = { id: "pend", period_year: 2025, lifecycle_state: "discard_pending" };
+  const retired: U = { id: "ret", period_year: 2025, lifecycle_state: "retired" };
+
+  it("skips superseded, retired and discard_pending rows even when they are newest", () => {
+    const resolved = resolveActiveUpload<U>({ uploads: [pending, superseded, retired, replacement], periodYear: 2025, derivePeriodYear: derive });
+    expect(resolved?.id).toBe("new");
+  });
+
+  it("resolves to nothing rather than to history when no active upload exists", () => {
+    expect(resolveActiveUpload<U>({ uploads: [pending, superseded], periodYear: 2025, derivePeriodYear: derive })).toBeNull();
+  });
+
+  it("an explicit pin still opens exactly the upload clicked, including a historical one", () => {
+    const resolved = resolveActiveUpload<U>({ uploads: [replacement, superseded], requestedUploadId: "old", periodYear: 2025, derivePeriodYear: derive });
+    expect(resolved?.id).toBe("old");
+  });
+
+  it("rows read before the migration (no lifecycle_state) stay eligible", () => {
+    expect(resolveActiveUpload<U>({ uploads: [A], periodYear: 2025, derivePeriodYear: derive })?.id).toBe("a");
+  });
+});
