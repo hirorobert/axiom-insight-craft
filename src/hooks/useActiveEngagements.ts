@@ -219,10 +219,12 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
 
       const companyIdsWithEngagement = new Set(openEngagements.map((e) => e.company_id));
       setCompaniesWithoutEngagement(companies.filter((c) => !companyIdsWithEngagement.has(c.id)));
-    } catch {
+    } catch (err) {
       setFetchFailed(true);
       setEntries([]);
       setCompaniesWithoutEngagement([]);
+      // A refused read (expired/missing JWT) is an auth problem, not "no engagements".
+      await handleIfAuthorizationFailure(err);
     } finally {
       setLoading(false);
     }

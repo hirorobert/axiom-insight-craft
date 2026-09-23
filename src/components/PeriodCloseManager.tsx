@@ -175,10 +175,24 @@ export function PeriodCloseManager({ userId }: Props) {
   // ── Fetch data ────────────────────────────────────────────────────────────
   const fetchAll = async () => {
     setLoading(true);
-    const { data: companyList } = await supabase
+
+    // Authenticated-only reads (companies, sign-offs, memberships): never query as anonymous.
+    if (!(await resolveActiveSession())) {
+      setLoading(false);
+      await endExpiredSession();
+      return;
+    }
+
+    const { data: companyList, error: companyErr } = await supabase
       .from("companies")
       .select("id, name, tin")
       .order("name", { ascending: true });
+
+    if (companyErr) {
+      setLoading(false);
+      if (!(await handleIfAuthorizationFailure(companyErr))) setCompanies([]);
+      return;
+    }
 
     if (!companyList || companyList.length === 0) {
       setCompanies([]);
