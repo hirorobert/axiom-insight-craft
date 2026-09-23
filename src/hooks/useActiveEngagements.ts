@@ -39,6 +39,7 @@ import type { WorkspaceCompany, WorkspaceUpload } from "@/lib/workspace/fetchWor
 import type { WorkspaceState } from "@/lib/workspace/types";
 import type { EngagementCapability } from "@/lib/workspace/mandate";
 import { mapWithConcurrencyLimit, aggregateSettledResults } from "@/lib/workspace/concurrencyLimit";
+import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
 
 const HUB_FAN_OUT_CONCURRENCY = 6;
 
@@ -102,6 +103,15 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
     }
     setLoading(true);
     setFetchFailed(false);
+
+    // A signed-in-looking UI with an expired token would read every table as an anonymous
+    // visitor and be refused. Fail closed to sign-in instead of showing an empty hub.
+    if (!(await resolveActiveSession())) {
+      setFetchFailed(true);
+      setLoading(false);
+      await endExpiredSession();
+      return;
+    }
 
     try {
       const { data: companiesData, error: companiesErr } = await supabase
