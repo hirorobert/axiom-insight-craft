@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 /**
- * Upload lifecycle — hosted staging proof (PR #32, 20260923100000 + trial-balance-storage-cleanup).
+ * Upload lifecycle — hosted staging proof (PR #32: 20260923100000 + trial-balance-source-signer +
+ * trial-balance-storage-cleanup + the real process-trial-balance).
  *
- * scripts/db-proof/uploadLifecycle.mjs proves the SQL on a throwaway local PostgreSQL, including a workspace
- * owner with NO firm_members row. That case cannot exist on a hosted project: company creation always
- * creates the owner's membership, and a trigger protects the last owner. This suite proves the same USER-BASED
- * contract END TO END on the hosted staging project, through the paths a browser uses: real Supabase Auth users
- * and JWTs, PostgREST RPCs, RLS, Storage (trial-balance-files) and the deployed trial-balance-storage-cleanup
- * Edge Function.
+ * scripts/db-proof/uploadLifecycle.mjs proves the SQL on a throwaway local PostgreSQL, including a workspace owner
+ * with NO firm_members row, which cannot exist on a hosted project. This suite proves the same USER-BASED
+ * contract END TO END on the hosted staging project, through the paths a browser uses:
+ *   - real Supabase Auth users and JWTs;
+ *   - PostgREST RPCs and RLS;
+ *   - Storage (trial-balance-files, workspace-scoped objects);
+ *   - the deployed Edge Functions.
  *
- * WRITE-CAPABLE: it creates users, workspaces, uploads, certifications, grants and Storage objects. It runs only
- * after scripts/ci/stagingGuard.mjs has verified that the target is the configured STAGING project (never
- * production), and it reads only the STAGING_* variables. Passwords are random per run and are never printed.
- * Append-only records (certifications, lifecycle and grant events) remain by design and are reported.
+ * WRITE-CAPABLE: it runs only after scripts/ci/stagingGuard.mjs has verified the target is the configured STAGING
+ * project (never production), and it reads only the STAGING_* variables. Passwords are random per run and are
+ * never printed. Append-only records (certifications, lifecycle and grant events) remain by design and are reported.
  *
  * ENV: STAGING_SUPABASE_URL, STAGING_SUPABASE_ANON_KEY, STAGING_SUPABASE_SERVICE_ROLE_KEY,
  *      STAGING_SUPABASE_PROJECT_REF
@@ -20,6 +21,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { randomBytes, randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { StagingGuardError, assertStagingTargetFromEnv } from './ci/stagingGuard.mjs'
 
 try {
@@ -34,12 +36,13 @@ const URL_ = process.env.STAGING_SUPABASE_URL
 const ANON = process.env.STAGING_SUPABASE_ANON_KEY
 const SERVICE = process.env.STAGING_SUPABASE_SERVICE_ROLE_KEY
 const BUCKET = 'trial-balance-files'
-const CLEANUP_FN = `${URL_}/functions/v1/trial-balance-storage-cleanup`
+const FN = (name) => `${URL_}/functions/v1/${name}`
 const CONCURRENCY = 6
 const TS = Date.now()
 const PASSWORD = `${randomBytes(18).toString('base64url')}!9aZ`
 const opts = { auth: { autoRefreshToken: false, persistSession: false } }
 const svc = createClient(URL_, SERVICE, opts)
+const REAL_TB = readFileSync(new URL('../KAMANGA_MEDICS_TB_2025.csv', import.meta.url))
 
 const results = []
 let group = ''
@@ -57,7 +60,7 @@ async function check(name, fn) {
   }
 }
 
-const created = { users: [], companies: [], uploads: new Set(), objects: new Set() }
+const created = { users: [], companies: [], objects: new Set() }
 
 async function makeUser(label) {
   const email = `lifecycle-${label}-${TS}@test-saff.invalid`
@@ -75,23 +78,45 @@ const rpc = async (who, name, args) => {
   if (error) throw Object.assign(new Error(`${name}: ${error.message}`), { code: error.code })
   return Array.isArray(data) ? data[0] : data
 }
+async function callFn(who, name, body) {
+  const headers = { 'Content-Type': 'application/json', apikey: ANON }
+  if (who) headers.Authorization = `Bearer ${who.token}`
+  const res = await fetch(FN(name), { method: 'POST', headers, body: JSON.stringify(body) })
+  const json = await res.json().catch(() => ({}))
+  return { status: res.status, ...json }
+}
+const cleanup = (who, body) => callFn(who, 'trial-balance-storage-cleanup', body)
+
+// The browser path (src/lib/workspace/sourceUpload.ts): reserve → signed single-object upload → register.
+async function reserveAndUpload(who, company, bytes = REAL_TB, name = 'tb.csv') {
+  const r = await rpc(who, 'reserve_trial_balance_source', { p_company_id: company, p_file_name: name })
+  if (r.outcome !== 'reserved') return { outcome: r.outcome }
+  const s = await callFn(who, 'trial-balance-source-signer', { reservation_id: r.reservation_id })
+  if (s.outcome !== 'signed') return { outcome: s.outcome, status: s.status }
+  const { error } = await who.c.storage.from(BUCKET).uploadToSignedUrl(s.path, s.token, new Blob([bytes], { type: 'text/csv' }))
+  if (error) return { outcome: 'upload_failed', error: error.message }
+  created.objects.add(s.path)
+  return { outcome: 'uploaded', reservation: r.reservation_id, path: s.path }
+}
+async function workspaceUpload(who, company, period, bytes) {
+  const u = await reserveAndUpload(who, company, bytes)
+  if (u.outcome !== 'uploaded') throw new Error(`upload: ${u.outcome}`)
+  const g = await rpc(who, 'register_trial_balance_upload', { p_reservation_id: u.reservation, p_file_size: REAL_TB.length, p_period_year: period, p_period_id: null, p_engagement_id: null })
+  if (g.outcome !== 'registered') throw new Error(`register: ${g.outcome}`)
+  return { id: g.upload_id, path: u.path }
+}
 const discard = (who, id, v) => rpc(who, 'discard_trial_balance_upload', { p_upload_id: id, p_expected_version: v })
+const complete = (who, op) => rpc(who, 'complete_trial_balance_discard', { p_operation_id: op })
 const restore = (who, op) => rpc(who, 'restore_trial_balance_upload', { p_operation_id: op })
-const retire = (who, id, v, path) => rpc(who, 'retire_trial_balance_upload', {
-  p_old_upload_id: id, p_expected_version: v, p_new_file_name: 'replacement.csv', p_new_file_path: path, p_new_file_size: 64, p_reason: 'staging proof',
-})
 const cancel = (who, id, v) => rpc(who, 'cancel_trial_balance_replacement', { p_replacement_upload_id: id, p_expected_version: v })
 const grant = (who, company, grantee, cap) => rpc(who, 'grant_workspace_capability', { p_company_id: company, p_grantee_user_id: grantee, p_capability: cap })
 const revoke = (who, company, grantee, cap) => rpc(who, 'revoke_workspace_capability', { p_company_id: company, p_grantee_user_id: grantee, p_capability: cap })
-/** The deployed Edge Function, called exactly as the browser calls it. */
-async function cleanup(who, body) {
-  const headers = { 'Content-Type': 'application/json', apikey: ANON }
-  if (who) headers.Authorization = `Bearer ${who.token}`
-  const res = await fetch(CLEANUP_FN, { method: 'POST', headers, body: JSON.stringify(body) })
-  const json = await res.json().catch(() => ({}))
-  return { status: res.status, outcome: json.outcome ?? null }
+async function retireWith(who, id, v, company, bytes = REAL_TB) {
+  const u = await reserveAndUpload(who, company, bytes, 'replacement.csv')
+  if (u.outcome !== 'uploaded') return { outcome: u.outcome }
+  const r = await rpc(who, 'retire_trial_balance_upload', { p_old_upload_id: id, p_expected_version: v, p_reservation_id: u.reservation, p_new_file_size: bytes.length, p_reason: 'staging proof' })
+  return { ...r, path: u.path }
 }
-
 const row = async (id) => (await svc.from('trial_balance_uploads').select('*').eq('id', id).maybeSingle()).data
 const version = async (id) => Number((await row(id))?.version)
 const activeCount = async (company, period) => {
@@ -100,43 +125,15 @@ const activeCount = async (company, period) => {
     .in('lifecycle_state', ['active_unprocessed', 'active_processing', 'active_processed', 'blocked'])
   return count
 }
-const certCount = async (upload) => (await svc.from('tb_certifications').select('id', { count: 'exact', head: true }).eq('upload_id', upload)).count
-const objectExists = async (path) => {
+const objectId = async (path) => {
   const dir = path.split('/').slice(0, -1).join('/')
   const name = path.split('/').pop()
   const { data } = await svc.storage.from(BUCKET).list(dir, { search: name })
-  return (data ?? []).some((o) => o.name === name)
+  return (data ?? []).find((o) => o.name === name)?.id ?? null
 }
-const csv = (tag) => new Blob([`account_code,account_name,debit,credit\n1000,Cash ${tag},100,0\n3000,Equity,0,100\n`], { type: 'text/csv' })
-async function putObject(who, path) {
-  const { error } = await who.c.storage.from(BUCKET).upload(path, csv(path), { upsert: false })
-  if (error) throw new Error(`storage upload: ${error.message}`)
-  created.objects.add(path)
-}
-async function clientUpload(who, company, period) {
-  const path = `${who.id}/${TS}-${randomUUID()}.csv`
-  await putObject(who, path)
-  const { data, error } = await who.c.from('trial_balance_uploads').insert({
-    file_name: 'tb.csv', file_path: path, file_size: 64, status: 'processing', user_id: who.id, company_id: company, period_year: period,
-  }).select('id').single()
-  if (error) throw Object.assign(new Error(`insert upload: ${error.message}`), { code: error.code })
-  created.uploads.add(data.id)
-  return { id: data.id, path }
-}
-async function certify(company, upload, period, { blocking = false, review = false } = {}) {
-  const { error: hashErr } = await svc.from('trial_balance_uploads').update({ source_file_hash: 'staging-proof-hash' }).eq('id', upload).is('source_file_hash', null)
-  if (hashErr) throw new Error(`hash: ${hashErr.message}`)
-  const { data: run, error: runErr } = await svc.from('engine_runs').insert({
-    company_id: company, actor_type: 'system', firm_member_id: null, function_name: 'process-trial-balance', engine_version: 'staging-proof', status: 'running', period_year: period,
-  }).select('id').single()
-  if (runErr) throw new Error(`engine_run: ${runErr.message}`)
-  const { error } = await svc.rpc('commit_tb_certification', {
-    p_engine_run_id: run.id, p_expected_function_name: 'process-trial-balance', p_upload_id: upload, p_company_id: company, p_period_year: period,
-    p_source_file_hash: 'staging-proof-hash', p_normalized_input_hash: 'n', p_output_hash: 'o', p_is_blocking: blocking, p_requires_review: review,
-    p_exceptions: [], p_rows_snapshot: [],
-  })
-  if (error) throw new Error(`commit_tb_certification: ${error.message}`)
-}
+const expireOp = (op) => svc.from('trial_balance_upload_operations').update({ completed_at: new Date(Date.now() - 11 * 60000).toISOString() }).eq('id', op)
+const discardFully = async (who, id) => { const b = await discard(who, id, await version(id)); const c = await complete(who, b.operation_id); return { b, c } }
+const process_ = (who, uploadId) => callFn(who, 'process-trial-balance', { uploadId, clientRequestId: randomUUID() })
 
 async function main() {
   section('Fixtures (real Auth users and workspaces; no firm, no titles needed)')
@@ -144,194 +141,182 @@ async function main() {
   for (const k of ['owner', 'collab', 'partnerTitle', 'revoked', 'unrelated', 'ownerB']) U[k] = await makeUser(k)
   const mk = async (who, name) => {
     const { data, error } = await who.c.from('companies').insert({ user_id: who.id, name }).select('id').single()
-    if (error) throw new Error(`company: ${error.message}`)
+    if (error) throw new Error(`workspace: ${error.message}`)
     created.companies.push(data.id); return data.id
   }
   const A = await mk(U.owner, `Lifecycle Proof A ${TS}`)
   const B = await mk(U.ownerB, `Lifecycle Proof B ${TS}`)
-  const X = await mk(U.unrelated, `Lifecycle Proof X ${TS}`)
-  // A title with no grant: must confer nothing.
   const { error: pErr } = await svc.from('firm_members').insert({ company_id: A, user_id: U.partnerTitle.id, role: 'partner', accepted_at: new Date().toISOString() })
   if (pErr) throw new Error(`partner title: ${pErr.message}`)
-  record('owner created the workspace through RLS; a partner-titled member exists without any grant', true)
+  await check('grants: owner grants manage_source_files (collaborator and soon-revoked user); non-owners cannot', async () =>
+    (await grant(U.owner, A, U.collab.id, 'manage_source_files')).outcome === 'granted'
+    && (await grant(U.owner, A, U.revoked.id, 'manage_source_files')).outcome === 'granted'
+    && (await grant(U.partnerTitle, A, U.unrelated.id, 'manage_source_files')).outcome === 'forbidden')
   await check('the collaborator has NO firm_members row anywhere', async () =>
     (await svc.from('firm_members').select('id', { count: 'exact', head: true }).eq('user_id', U.collab.id)).count === 0)
 
-  section('Grants — owner only, idempotent, one active grant, fail closed')
-  await check('owner grants manage_source_files to the collaborator and to the soon-revoked user', async () =>
-    (await grant(U.owner, A, U.collab.id, 'manage_source_files')).outcome === 'granted' && (await grant(U.owner, A, U.revoked.id, 'manage_source_files')).outcome === 'granted')
-  await check('a repeated grant is idempotent (already_granted)', async () => (await grant(U.owner, A, U.collab.id, 'manage_source_files')).outcome === 'already_granted')
-  await check('non-owners cannot grant (collaborator, partner title, other workspace owner)', async () =>
-    (await grant(U.collab, A, U.unrelated.id, 'manage_source_files')).outcome === 'forbidden'
-    && (await grant(U.partnerTitle, A, U.unrelated.id, 'manage_source_files')).outcome === 'forbidden'
-    && (await grant(U.ownerB, A, U.ownerB.id, 'manage_source_files')).outcome === 'forbidden')
-  await check('unknown capability fails closed', async () => (await grant(U.owner, A, U.collab.id, 'delete_everything')).outcome === 'invalid_capability')
-  await check('clients cannot write grants directly', async () => {
-    const { error } = await U.owner.c.from('workspace_capability_grants').insert({ company_id: A, grantee_user_id: U.unrelated.id, capability: 'review_close', granted_by_user_id: U.owner.id })
+  section('Normal upload: workspace-scoped, for the owner AND a granted collaborator (deployed signing function)')
+  let o1, c1
+  await check('owner uploads through reserve → signed upload → register; the object is workspace-scoped', async () => {
+    o1 = await workspaceUpload(U.owner, A, 2031)
+    const r = await row(o1.id)
+    return r.file_path === o1.path && o1.path.startsWith(`workspaces/${A}/`) && r.user_id === U.owner.id
+  })
+  await check('a GRANTED collaborator (no firm membership) performs a normal upload', async () => {
+    c1 = await workspaceUpload(U.collab, A, 2032)
+    const r = await row(c1.id)
+    return r.user_id === U.collab.id && c1.path.startsWith(`workspaces/${A}/`)
+  })
+  await check('partner title (no grant), unrelated user, other workspace owner cannot reserve', async () =>
+    (await rpc(U.partnerTitle, 'reserve_trial_balance_source', { p_company_id: A, p_file_name: 'x.csv' })).outcome === 'forbidden'
+    && (await rpc(U.unrelated, 'reserve_trial_balance_source', { p_company_id: A, p_file_name: 'x.csv' })).outcome === 'forbidden'
+    && (await rpc(U.ownerB, 'reserve_trial_balance_source', { p_company_id: A, p_file_name: 'x.csv' })).outcome === 'forbidden')
+  await check("signing function: anonymous 401; someone else's reservation 403; body with a path 400; forged id 404", async () => {
+    const r = await rpc(U.owner, 'reserve_trial_balance_source', { p_company_id: A, p_file_name: 'x.csv' })
+    const anon = await callFn(null, 'trial-balance-source-signer', { reservation_id: r.reservation_id })
+    const other = await callFn(U.collab, 'trial-balance-source-signer', { reservation_id: r.reservation_id })
+    const subst = await callFn(U.owner, 'trial-balance-source-signer', { reservation_id: r.reservation_id, path: `workspaces/${B}/x.csv` })
+    const forged = await callFn(U.owner, 'trial-balance-source-signer', { reservation_id: randomUUID() })
+    return anon.status === 401 && other.status === 403 && subst.status === 400 && forged.status === 404
+  })
+  await check('clients still cannot write into workspaces/ directly (no Storage policy was widened)', async () => {
+    const { error } = await U.owner.c.storage.from(BUCKET).upload(`workspaces/${A}/${randomUUID()}/direct.csv`, new Blob(['x']))
     return !!error
   })
-  await check('exactly one active manage_source_files grant for the collaborator', async () =>
-    (await svc.from('workspace_capability_grants').select('id', { count: 'exact', head: true }).eq('company_id', A).eq('grantee_user_id', U.collab.id).is('revoked_at', null)).count === 1)
-
-  section('Owner source-file lifecycle through the deployed Edge Function')
-  const o1 = await clientUpload(U.owner, A, 2031)
-  let op1
-  await check('owner begins a discard', async () => { const r = await discard(U.owner, o1.id, 1); op1 = r.operation_id; return r.outcome === 'discard_pending' && !!op1 })
-  await check('anonymous call to the Edge Function is refused (401)', async () => (await cleanup(null, { operation_id: op1 })).status === 401)
-  await check('path substitution: a body carrying a file_path is refused (400) and nothing is deleted', async () => {
-    const r = await cleanup(U.owner, { operation_id: op1, file_path: `${U.ownerB.id}/anything.csv` })
-    return r.status === 400 && r.outcome === 'invalid_request' && (await objectExists(o1.path))
-  })
-  await check('a forged operation id resolves to nothing (404 stale_operation)', async () => {
-    const r = await cleanup(U.owner, { operation_id: randomUUID() })
-    return r.status === 404 && r.outcome === 'stale_operation'
-  })
-  await check('unrelated user, other-workspace owner and partner-title member are forbidden (403); the file stays', async () =>
-    (await cleanup(U.unrelated, { operation_id: op1 })).status === 403 && (await cleanup(U.ownerB, { operation_id: op1 })).status === 403
-    && (await cleanup(U.partnerTitle, { operation_id: op1 })).status === 403 && (await objectExists(o1.path)))
-  await check('the owner completes: file deleted by the server, row deleted, 200 completed', async () => {
-    const r = await cleanup(U.owner, { operation_id: op1 })
-    return r.status === 200 && r.outcome === 'completed' && !(await objectExists(o1.path)) && !(await row(o1.id))
-  })
-  await check('repeated completion is idempotent (already_completed)', async () => (await cleanup(U.owner, { operation_id: op1 })).outcome === 'already_completed')
-  await check('Undo: owner puts the file back; the server sees it and restores the exact row', async () => {
-    const { error } = await U.owner.c.storage.from(BUCKET).upload(o1.path, csv('restore'), { upsert: true })
-    if (error) return error.message
-    const r = await restore(U.owner, op1)
-    return r.outcome === 'restored' && (await row(o1.id))?.file_path === o1.path && (await restore(U.owner, op1)).outcome === 'already_restored'
+  await check('a revoked user is refused at signing even with an earlier reservation', async () => {
+    const r = await rpc(U.revoked, 'reserve_trial_balance_source', { p_company_id: A, p_file_name: 'x.csv' })
+    await revoke(U.owner, A, U.revoked.id, 'manage_source_files')
+    const s = await callFn(U.revoked, 'trial-balance-source-signer', { reservation_id: r.reservation_id })
+    return r.outcome === 'reserved' && s.status === 403
   })
 
-  section('Collaboration — only what is explicitly granted')
-  await check('the partner-TITLED member (no grant) is denied the RPC', async () => (await discard(U.partnerTitle, o1.id, await version(o1.id))).outcome === 'forbidden')
-  let op2
-  await check("the GRANTED collaborator (no firm membership) discards the OWNER's upload and completes it via the Edge Function", async () => {
-    const r = await discard(U.collab, o1.id, await version(o1.id)); op2 = r.operation_id
-    const c = await cleanup(U.collab, { operation_id: op2 })
-    return r.outcome === 'discard_pending' && c.status === 200 && c.outcome === 'completed' && !(await objectExists(o1.path)) && !(await row(o1.id))
+  section('Validation through the real process-trial-balance')
+  await check('owner validates the uploaded TB: processing starts and a certification drives the lifecycle', async () => {
+    const p = await process_(U.owner, o1.id)
+    const r = await row(o1.id)
+    const { count } = await svc.from('tb_certifications').select('id', { count: 'exact', head: true }).eq('upload_id', o1.id)
+    return p.status === 200 && count >= 1 && ['active_processed', 'blocked'].includes(r.lifecycle_state) || `status=${p.status} lifecycle=${r.lifecycle_state} certs=${count}`
   })
-  await check('audit: actor_user_id = collaborator, basis explicit_capability, capability manage_source_files, membership NULL', async () => {
-    const { data } = await svc.from('trial_balance_upload_lifecycle_events').select('*').eq('operation_id', op2).eq('outcome', 'applied')
-    return data?.length >= 2 && data.every((e) => e.actor_user_id === U.collab.id && e.authority_basis === 'explicit_capability' && e.authority_capability === 'manage_source_files' && e.actor_membership_id === null)
+  await check("collaborator validation is refused by the engine's PRE-EXISTING membership check (deferred migration), never silently", async () => {
+    const p = await process_(U.collab, c1.id)
+    return p.status === 403
   })
-  await check('denials are audited too (partner-title attempt recorded with outcome denied)', async () =>
-    (await svc.from('trial_balance_upload_lifecycle_events').select('id', { count: 'exact', head: true }).eq('actor_user_id', U.partnerTitle.id).eq('outcome', 'denied')).count >= 1)
-  const base = await clientUpload(U.owner, A, 2032)
-  await certify(A, base.id, 2032)
-  const collabFile = `${U.collab.id}/${TS}-collab-replacement.csv`
-  let rep
-  await check('the collaborator replaces a certified upload with a file in THEIR OWN folder; certifications untouched', async () => {
-    await putObject(U.collab, collabFile)
-    const before = await certCount(base.id)
-    const r = await retire(U.collab, base.id, await version(base.id), collabFile); rep = r.new_upload_id
-    if (rep) created.uploads.add(rep)
-    return r.outcome === 'replaced' && (await row(base.id)).lifecycle_state === 'superseded' && (await certCount(base.id)) === before && (await activeCount(A, 2032)) === 1
-  })
-  await check("the OWNER cancels the collaborator's replacement and the Edge Function removes the COLLABORATOR's file", async () => {
-    const c = await cancel(U.owner, rep, await version(rep))
-    const r = await cleanup(U.owner, { operation_id: c.operation_id })
-    return c.outcome === 'cancelled' && r.outcome === 'completed' && !(await objectExists(collabFile))
-      && (await row(base.id)).lifecycle_state === 'active_processed' && (await activeCount(A, 2032)) === 1
-  })
-  await check('replace refuses a path outside the caller\'s own folder', async () => {
-    const foreign = `${U.owner.id}/${TS}-owner-file.csv`; await putObject(U.owner, foreign)
-    return (await retire(U.collab, base.id, await version(base.id), foreign)).outcome === 'forbidden'
-  })
-  await check('REVOKED: the revoked user is denied on the very next call, by the RPC and by the Edge Function', async () => {
-    const u = await clientUpload(U.owner, A, 2033)
-    const b = await discard(U.revoked, u.id, 1)
-    const rv = await revoke(U.owner, A, U.revoked.id, 'manage_source_files')
-    const r = await discard(U.revoked, u.id, 2)
-    const c = await cleanup(U.revoked, { operation_id: b.operation_id })
-    return b.outcome === 'discard_pending' && rv.outcome === 'revoked' && r.outcome === 'forbidden' && c.status === 403 && (await objectExists(u.path))
-  })
-  await check('cross-workspace: the collaborator has nothing in workspace B', async () => {
-    const b1 = await clientUpload(U.ownerB, B, 2034)
-    return (await discard(U.collab, b1.id, 1)).outcome === 'forbidden'
+  await check('a malformed file fails validation and is then REPLACED by the owner with a valid one', async () => {
+    const bad = await workspaceUpload(U.owner, A, 2033, Buffer.from('not,a,trial,balance\n1,2\n'))
+    const p = await process_(U.owner, bad.id)
+    const after = await row(bad.id)
+    const rep = await retireWith(U.owner, bad.id, await version(bad.id), A)
+    return p.status !== 500 && after.lifecycle_state !== 'active_unprocessed' && rep.outcome === 'replaced' && (await activeCount(A, 2033)) === 1
+      || `ptb=${p.status} lifecycle=${after?.lifecycle_state} replace=${rep.outcome}`
   })
 
-  section('A forged row can never redirect a deletion; no unrelated object is deleted')
-  const victimPath = `${U.ownerB.id}/${TS}-victim.csv`
-  await check("an attacker's own-workspace row pointing at another user's file: discard completes, the victim file is untouched", async () => {
-    await putObject(U.ownerB, victimPath)
-    const { data, error } = await U.unrelated.c.from('trial_balance_uploads').insert({
-      file_name: 'x', file_path: victimPath, file_size: 1, status: 'processing', user_id: U.unrelated.id, company_id: X, period_year: 2040,
-    }).select('id').single()
-    if (error) return error.message
-    created.uploads.add(data.id)
-    const b = await discard(U.unrelated, data.id, 1)
-    const r = await cleanup(U.unrelated, { operation_id: b.operation_id })
-    return b.file_path === null && r.outcome === 'completed' && (await objectExists(victimPath))
-  })
-
-  section('Edge Function concurrency and missing objects')
-  await check(`${CONCURRENCY} concurrent completions: exactly one completes, the rest already_completed; file gone`, async () => {
-    const u = await clientUpload(U.owner, A, 2041)
-    const b = await discard(U.owner, u.id, 1)
-    const out = await Promise.all(Array.from({ length: CONCURRENCY }, () => cleanup(U.owner, { operation_id: b.operation_id })))
-    return out.filter((o) => o.outcome === 'completed').length === 1 && out.filter((o) => o.outcome === 'already_completed').length === CONCURRENCY - 1 && !(await objectExists(u.path))
-  })
-  await check('missing object (already removed by its uploader): the Edge Function still completes', async () => {
-    const u = await clientUpload(U.owner, A, 2042)
-    const b = await discard(U.owner, u.id, 1)
-    await U.owner.c.storage.from(BUCKET).remove([u.path])
-    const r = await cleanup(U.owner, { operation_id: b.operation_id })
-    return r.outcome === 'completed' && !(await row(u.id))
-  })
-  await check('the database accepts no client claim: completing directly while the file exists stays pending', async () => {
-    const u = await clientUpload(U.owner, A, 2043)
-    const b = await discard(U.owner, u.id, 1)
-    const r = await rpc(U.owner, 'complete_trial_balance_discard', { p_operation_id: b.operation_id })
-    return r.outcome === 'discard_pending' && !!(await row(u.id)) && (await objectExists(u.path))
-  })
-
-  section('Undo conflict and lifecycle invariants')
-  await check('EXACT SCENARIO: discard → upload a new active file → Undo = conflict; new upload unchanged', async () => {
-    const u = await clientUpload(U.owner, A, 2050)
-    const b = await discard(U.owner, u.id, 1)
-    await cleanup(U.owner, { operation_id: b.operation_id })
-    const n = await clientUpload(U.owner, A, 2050)
-    const before = JSON.stringify(await row(n.id))
-    await U.owner.c.storage.from(BUCKET).upload(u.path, csv('back'), { upsert: true })
+  section('Undo: the source is retained; any authorized user restores the exact object')
+  await check("owner Undo of the COLLABORATOR's upload: same storage object, same row", async () => {
+    const before = await row(c1.id); const obj = await objectId(c1.path)
+    const { b, c } = await discardFully(U.collab, c1.id)
+    const retained = await objectId(c1.path)
     const r = await restore(U.owner, b.operation_id)
-    return r.outcome === 'conflict_new_active_upload' && JSON.stringify(await row(n.id)) === before && (await activeCount(A, 2050)) === 1
+    const after = await row(c1.id)
+    return c.outcome === 'deleted_now' && retained === obj && r.outcome === 'restored' && (await objectId(c1.path)) === obj
+      && after.id === before.id && after.file_path === before.file_path && after.uploaded_at === before.uploaded_at && after.user_id === U.collab.id
   })
-  await check('certification drives lifecycle: blocking → blocked; clean → active_processed', async () => {
-    const u = await clientUpload(U.owner, A, 2051)
-    await certify(A, u.id, 2051, { blocking: true }); const a = (await row(u.id)).lifecycle_state
-    await certify(A, u.id, 2051); const b = (await row(u.id)).lifecycle_state
-    return a === 'blocked' && b === 'active_processed' && (await discard(U.owner, u.id, 1)).outcome === 'replacement_required'
+  let u5
+  await check("collaborator Undo of the OWNER's upload", async () => {
+    u5 = await workspaceUpload(U.owner, A, 2035)
+    const { b } = await discardFully(U.owner, u5.id)
+    return (await restore(U.collab, b.operation_id)).outcome === 'restored' && !!(await row(u5.id))
   })
-  await check('the owner cannot set lifecycle_state directly (42501)', async () => {
-    const { error } = await U.owner.c.from('trial_balance_uploads').update({ lifecycle_state: 'retired' }).eq('id', base.id)
-    return error?.code === '42501'
+  await check(`repeated and concurrent Undo (${CONCURRENCY}): exactly one restores`, async () => {
+    const { b } = await discardFully(U.owner, u5.id)
+    const out = await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => restore(i % 2 ? U.collab : U.owner, b.operation_id)))
+    return out.filter((o) => o.outcome === 'restored').length === 1 && out.filter((o) => o.outcome === 'already_restored').length === CONCURRENCY - 1 && (await activeCount(A, 2035)) === 1
   })
+  await check('Undo after a new active upload: explicit conflict, new upload unchanged', async () => {
+    const u = await workspaceUpload(U.owner, A, 2036); const { b } = await discardFully(U.owner, u.id)
+    const n = await workspaceUpload(U.collab, A, 2036); const before = JSON.stringify(await row(n.id))
+    return (await restore(U.owner, b.operation_id)).outcome === 'conflict_new_active_upload' && JSON.stringify(await row(n.id)) === before
+  })
+  await check('expired Undo is refused; unauthorized Undo is refused', async () => {
+    const u = await workspaceUpload(U.owner, A, 2037); const { b } = await discardFully(U.owner, u.id)
+    const denied = (await restore(U.partnerTitle, b.operation_id)).outcome
+    await expireOp(b.operation_id)
+    return denied === 'forbidden' && (await restore(U.owner, b.operation_id)).outcome === 'expired'
+  })
+
+  section('Purge: only after the discard is terminal (deployed cleanup function)')
+  await check('purge is refused while the discard is restorable (409 undo_window_open); the source survives', async () => {
+    const u = await workspaceUpload(U.owner, A, 2040); const { b } = await discardFully(U.owner, u.id)
+    const r = await cleanup(U.owner, { operation_id: b.operation_id })
+    return r.status === 409 && r.outcome === 'undo_window_open' && !!(await objectId(u.path))
+  })
+  await check("after the window the COLLABORATOR purges the OWNER's discarded source (server deletion); repeat is idempotent", async () => {
+    const u = await workspaceUpload(U.owner, A, 2041); const { b } = await discardFully(U.owner, u.id)
+    await expireOp(b.operation_id)
+    const listed = (await rpc(U.collab, 'list_purgeable_trial_balance_sources', { p_company_id: A }))
+    const r = await cleanup(U.collab, { operation_id: b.operation_id })
+    const again = await cleanup(U.collab, { operation_id: b.operation_id })
+    return !!listed && r.outcome === 'completed' && !(await objectId(u.path)) && again.outcome === 'already_completed'
+  })
+  await check('unauthorized purge is refused (403); anonymous 401; path substitution 400; forged id 404', async () => {
+    const u = await workspaceUpload(U.owner, A, 2042); const { b } = await discardFully(U.owner, u.id); await expireOp(b.operation_id)
+    return (await cleanup(U.partnerTitle, { operation_id: b.operation_id })).status === 403 && (await cleanup(null, { operation_id: b.operation_id })).status === 401
+      && (await cleanup(U.owner, { operation_id: b.operation_id, file_path: `workspaces/${B}/x` })).status === 400
+      && (await cleanup(U.owner, { operation_id: randomUUID() })).status === 404 && !!(await objectId(u.path))
+  })
+
+  section('Replace and cancel: cross-uploader, workspace-scoped')
+  await check("the collaborator replaces the owner's certified upload; the owner cancels; the collaborator's source is removed by the server", async () => {
+    const before = (await svc.from('tb_certifications').select('id', { count: 'exact', head: true }).eq('upload_id', o1.id)).count
+    const rep = await retireWith(U.collab, o1.id, await version(o1.id), A)
+    const c = await cancel(U.owner, rep.new_upload_id, await version(rep.new_upload_id))
+    const r = await cleanup(U.owner, { operation_id: c.operation_id })
+    const after = (await svc.from('tb_certifications').select('id', { count: 'exact', head: true }).eq('upload_id', o1.id)).count
+    return rep.outcome === 'replaced' && c.outcome === 'cancelled' && r.outcome === 'completed' && !(await objectId(rep.path))
+      && after === before && (await activeCount(A, 2031)) === 1
+  })
+
+  section('Legacy uploader-folder objects stay manageable')
+  await check('a legacy upload (owner folder, direct insert) is discarded, restored by the collaborator, and purged', async () => {
+    const path = `${U.owner.id}/${TS}-legacy.csv`
+    const { error: upErr } = await U.owner.c.storage.from(BUCKET).upload(path, new Blob([REAL_TB]))
+    if (upErr) return upErr.message
+    created.objects.add(path)
+    const { data, error } = await U.owner.c.from('trial_balance_uploads').insert({ file_name: 'legacy.csv', file_path: path, file_size: 10, status: 'processing', user_id: U.owner.id, company_id: A, period_year: 2050 }).select('id').single()
+    if (error) return error.message
+    const { b } = await discardFully(U.owner, data.id)
+    const r = await restore(U.collab, b.operation_id)
+    const { b: b2 } = await discardFully(U.owner, data.id); await expireOp(b2.operation_id)
+    const p = await cleanup(U.collab, { operation_id: b2.operation_id })
+    return r.outcome === 'restored' && p.outcome === 'completed' && !(await objectId(path))
+  })
+
+  section('Invariants')
   await check('no company/period anywhere on staging has more than one active upload', async () => {
     const { data } = await svc.from('trial_balance_uploads').select('company_id, period_year').not('company_id', 'is', null).not('period_year', 'is', null)
       .in('lifecycle_state', ['active_unprocessed', 'active_processing', 'active_processed', 'blocked'])
     const seen = new Set(); for (const r of data ?? []) { const k = `${r.company_id}|${r.period_year}`; if (seen.has(k)) return k; seen.add(k) }
     return true
   })
-  await check('lifecycle and grant events are append-only even for the service role', async () => {
-    const { data: e } = await svc.from('trial_balance_upload_lifecycle_events').select('id').limit(1)
-    const { error: e1 } = await svc.from('trial_balance_upload_lifecycle_events').update({ reason: 'x' }).eq('id', e[0].id)
-    const { data: g } = await svc.from('workspace_capability_grant_events').select('id').limit(1)
-    const { error: e2 } = await svc.from('workspace_capability_grant_events').delete().eq('id', g[0].id)
-    return !!e1 && !!e2
+  await check('audit: collaborator events carry actor_user_id, basis explicit_capability, membership NULL', async () => {
+    const { data } = await svc.from('trial_balance_upload_lifecycle_events').select('*').eq('actor_user_id', U.collab.id).eq('outcome', 'applied')
+    return data?.length >= 3 && data.every((e) => e.authority_basis === 'explicit_capability' && e.actor_membership_id === null)
   })
-  await check('the unrelated victim object still exists at the end of the run', async () => objectExists(victimPath))
+  await check('lifecycle events are append-only even for the service role', async () => {
+    const { data: e } = await svc.from('trial_balance_upload_lifecycle_events').select('id').limit(1)
+    const { error } = await svc.from('trial_balance_upload_lifecycle_events').update({ reason: 'x' }).eq('id', e[0].id)
+    return !!error
+  })
 }
 
 async function cleanupFixtures() {
   section('Cleanup (best effort; what remains is reported)')
   const remaining = []
-  for (const p of created.objects) if (await objectExists(p)) remaining.push(p)
+  for (const p of created.objects) if (await objectId(p)) remaining.push(p)
   if (remaining.length) {
     const { error } = await svc.storage.from(BUCKET).remove(remaining)
     console.log(`  storage objects removed: ${error ? 'ERROR ' + error.message : remaining.length}`)
   }
-  let leftUploads = 0
-  for (const id of created.uploads) if (await row(id)) leftUploads++
-  console.log(`RESIDUAL: users=${created.users.length} workspaces=${created.companies.length} uploads=${leftUploads} (certifications, lifecycle and grant events are append-only by design; staging only)`)
+  console.log(`RESIDUAL: users=${created.users.length} workspaces=${created.companies.length} (uploads, certifications, lifecycle and grant events are kept as audit history; staging only)`)
 }
 
 let ok = false

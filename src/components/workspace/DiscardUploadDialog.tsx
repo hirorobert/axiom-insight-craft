@@ -13,11 +13,13 @@
  *    which restores the upload it replaced.
  *  - Hard discard is a two-phase saga, not a single call, because Storage and Postgres are two separate
  *    systems this code cannot make atomic. discard_trial_balance_upload() marks the row 'discard_pending';
- *    the trial-balance-storage-cleanup Edge Function then removes the bound file with server authority and
- *    completes the discard. The database deletes the row only when it sees the file is gone; no client claim
- *    is accepted.
- *  - A hard discard is reversible for a short undo window through restore_trial_balance_upload(). A
- *    success toast is shown only when the server answers 'restored' or 'already_restored'.
+ *    complete_trial_balance_discard() removes the row but RETAINS the source for the undo window.
+ *  - A discard is reversible within the undo window through restore_trial_balance_upload(), by any authorized
+ *    user, whoever uploaded the file. A success toast is shown only when the server answers 'restored' or
+ *    'already_restored'. After the window the source is purged by the trial-balance-storage-cleanup Edge Function
+ *    (server authority, server-verified).
+ *  - New sources are workspace-scoped (src/lib/workspace/sourceUpload.ts): uploads and replacements go through a
+ *    server reservation and a single-object signed upload, so they never live in a personal folder.
  *  - Authority is user-based. The workspace owner, or a user explicitly granted manage_source_files for
  *    that workspace, may perform these operations. No firm, membership or job title is required or
  *    consulted. The server enforces this and records auth.uid() as the actor.
@@ -49,6 +51,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { uploadWorkspaceSource, SourceUploadError } from "@/lib/workspace/sourceUpload";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
@@ -166,7 +169,6 @@ export interface DiscardReceipt {
   operationId: string | null;
   row: Record<string, unknown> | null;
   filePath: string | null;
-  fileBlob: Blob | null;
 }
 
 /**
@@ -205,10 +207,13 @@ type RpcError = { message: string; code?: string } | null;
 interface LifecycleRpcClient {
   rpc(name: "discard_trial_balance_upload", args: { p_upload_id: string; p_expected_version: number }):
     Promise<{ data: BeginDiscardRpcRow[] | null; error: RpcError }>;
+  rpc(name: "complete_trial_balance_discard", args: { p_operation_id: string }):
+    Promise<{ data: { outcome: DiscardOutcome; detail: string | null }[] | null; error: RpcError }>;
   rpc(name: "retire_trial_balance_upload", args: {
-    p_old_upload_id: string; p_expected_version: number;
-    p_new_file_name: string; p_new_file_path: string; p_new_file_size: number; p_reason?: string;
+    p_old_upload_id: string; p_expected_version: number; p_reservation_id: string; p_new_file_size: number; p_reason?: string;
   }): Promise<{ data: RetireRpcRow[] | null; error: RpcError }>;
+  rpc(name: "list_purgeable_trial_balance_sources", args: { p_company_id: string }):
+    Promise<{ data: { operation_id: string }[] | null; error: RpcError }>;
   rpc(name: "restore_trial_balance_upload", args: { p_operation_id: string }):
     Promise<{ data: RestoreRpcRow[] | null; error: RpcError }>;
   rpc(name: "cancel_trial_balance_replacement", args: { p_replacement_upload_id: string; p_expected_version: number }):
@@ -254,20 +259,16 @@ function throwForBeginOutcome(target: DiscardTarget, outcome: DiscardOutcome, de
 }
 
 /**
- * discardUpload — hard-delete saga for a genuinely unprocessed upload with no dependent records ONLY.
- * discard_trial_balance_upload() is the sole eligibility authority; nothing is inferred client-side.
- * It authorizes the caller, locks the row, and checks the evidence tables and the optimistic-concurrency
- * version. It refuses with 'replacement_required' for anything that has ever been processed or certified,
- * or has a derived record; retireUpload() is the only path for those.
+ * discardUpload — discard of a genuinely unprocessed upload with no dependent records ONLY.
+ * discard_trial_balance_upload() is the sole eligibility authority; nothing is inferred client-side. It
+ * authorizes the caller (workspace owner or manage_source_files), locks the row, and checks the evidence tables
+ * and the optimistic-concurrency version. Anything that has ever been processed or certified, or has a derived
+ * record, is refused with 'replacement_required'; retireUpload() is the only path for those.
  *
- * This is a two-phase saga rather than a single call, because Storage and Postgres are two separate
- * systems this code cannot make atomic:
- *   1. discard_trial_balance_upload() marks the row 'discard_pending' and returns an operation id.
- *   2. The trial-balance-storage-cleanup Edge Function removes the bound file with server authority and
- *      completes the discard; the database deletes the row only when it sees the file is gone. "Success" is
- *      never reported while Storage cleanup is unknown.
- * If phase 2 is never reached (a crash, a lost response), the next discardUpload() call for the SAME
- * upload resumes the SAME pending operation rather than starting a new one.
+ * complete_trial_balance_discard() then removes the row but RETAINS the source object for the whole undo window,
+ * so any authorized user can restore the exact same file, whoever uploaded it. The source is purged only after
+ * the discard is terminal (sweepPurgeableSources → trial-balance-storage-cleanup). A lost response resumes the
+ * SAME operation on retry.
  */
 export async function discardUpload(target: DiscardTarget): Promise<DiscardReceipt> {
   const { data: beginRows, error: beginError } = await lifecycleRpc().rpc("discard_trial_balance_upload", {
@@ -282,39 +283,44 @@ export async function discardUpload(target: DiscardTarget): Promise<DiscardRecei
     throw new DiscardError("Could not discard this trial balance.", { retryable: true, cause: new Error("discard_trial_balance_upload returned no result") });
   }
   if (begin.outcome === "already_discarded") {
-    return { id: target.id, fileName: target.file_name, operationId: null, row: null, filePath: target.file_path ?? null, fileBlob: null };
+    return { id: target.id, fileName: target.file_name, operationId: null, row: null, filePath: target.file_path ?? null };
   }
   if (begin.outcome !== "discard_pending" || !begin.operation_id) {
     throwForBeginOutcome(target, begin.outcome, begin.detail);
   }
 
-  // Best-effort file capture for the undo receipt. It works for the caller's own files; for a file another
-  // user uploaded, Storage RLS refuses the download, and Undo then honestly reports 'storage_restore_required'.
-  let fileBlob: Blob | null = null;
-  const filePath = begin.file_path ?? null;
-  if (filePath) {
-    const { data } = await supabase.storage.from("trial-balance-files").download(filePath);
-    fileBlob = data ?? null;
+  const { data: completeRows, error: completeError } = await lifecycleRpc().rpc("complete_trial_balance_discard", { p_operation_id: begin.operation_id });
+  if (completeError) {
+    throw new DiscardError("Could not finish discarding this trial balance. Safe to try again — it resumes, not repeats.", { retryable: true, cause: completeError });
   }
-  const cleanup = await invokeStorageCleanup(begin.operation_id);
-  if (cleanup === "replacement_required") {
-    throw new DiscardError("This trial balance acquired processing history during the discard. Upload a replacement instead.", { retryable: false, code: "replacement_required", cause: new Error(`cleanup replacement_required for id=${target.id}`) });
+  const complete = completeRows?.[0];
+  if (complete?.outcome === "replacement_required") {
+    throw new DiscardError(complete.detail ?? "This trial balance acquired processing history during the discard. Upload a replacement instead.", { retryable: false, code: "replacement_required", cause: new Error(`complete replacement_required for id=${target.id}`) });
   }
-  if (cleanup === "forbidden") {
-    throw new DiscardError("You don't have permission to manage this workspace's source files.", { retryable: false, code: "forbidden", cause: new Error(`cleanup forbidden for id=${target.id}`) });
+  if (complete?.outcome === "forbidden") {
+    throw new DiscardError("You don't have permission to manage this workspace's source files.", { retryable: false, code: "forbidden", cause: new Error(`complete forbidden for id=${target.id}`) });
   }
-  if (cleanup !== "completed" && cleanup !== "already_completed") {
-    throw new DiscardError("The file could not be confirmed removed from storage, so the discard is still pending. Safe to try again — it resumes, not repeats.", { retryable: true, cause: new Error(`storage cleanup outcome: ${cleanup}`) });
+  if (complete?.outcome !== "deleted_now" && complete?.outcome !== "already_discarded") {
+    throw new DiscardError("Could not finish discarding this trial balance. Safe to try again — it resumes, not repeats.", { retryable: true, cause: new Error(`complete outcome: ${complete?.outcome}`) });
   }
 
-  return {
-    id: target.id,
-    fileName: target.file_name,
-    operationId: begin.operation_id,
-    row: begin.row_snapshot,
-    filePath,
-    fileBlob,
-  };
+  return { id: target.id, fileName: target.file_name, operationId: begin.operation_id, row: begin.row_snapshot, filePath: begin.file_path ?? null };
+}
+
+/**
+ * sweepPurgeableSources — purges discarded sources whose undo window is over (terminal, not restored) through
+ * the server-authoritative trial-balance-storage-cleanup Edge Function. Best effort: whatever is not purged now
+ * stays listed and is purged on a later sweep. Never touches anything still restorable.
+ */
+export async function sweepPurgeableSources(companyId: string): Promise<number> {
+  const { data, error } = await lifecycleRpc().rpc("list_purgeable_trial_balance_sources", { p_company_id: companyId });
+  if (error || !data?.length) return 0;
+  let purged = 0;
+  for (const { operation_id } of data) {
+    const outcome = await invokeStorageCleanup(operation_id).catch(() => null);
+    if (outcome === "completed" || outcome === "already_completed") purged++;
+  }
+  return purged;
 }
 
 /**
@@ -331,35 +337,34 @@ export async function retireUpload(
   file: File,
   reason?: string,
 ): Promise<{ newUploadId: string }> {
-  const ownerId = (await supabase.auth.getUser()).data.user?.id;
-  if (!ownerId) throw new DiscardError("You must be signed in to replace this trial balance.", { retryable: false, code: "forbidden", cause: new Error("no authenticated user") });
+  if (!target.company_id) throw new DiscardError("Could not replace this trial balance.", { retryable: false, cause: new Error("target has no workspace") });
 
-  const newFilePath = `${ownerId}/${Date.now()}-${file.name}`;
-  const { error: uploadError } = await supabase.storage.from("trial-balance-files").upload(newFilePath, file, { upsert: false });
-  if (uploadError) {
-    throw new DiscardError("Could not upload the replacement file. Nothing was changed.", { retryable: true, cause: uploadError });
+  // Workspace-scoped source through the server (reserve → signed upload); no client-chosen path exists.
+  let reservationId: string;
+  try {
+    ({ reservationId } = await uploadWorkspaceSource(target.company_id, file));
+  } catch (err) {
+    if (err instanceof SourceUploadError && err.code === "forbidden") {
+      throw new DiscardError("You don't have permission to manage this workspace's source files.", { retryable: false, code: "forbidden", cause: err });
+    }
+    throw new DiscardError("Could not upload the replacement file. Nothing was changed.", { retryable: true, cause: err });
   }
 
   const { data: rows, error: rpcError } = await lifecycleRpc().rpc("retire_trial_balance_upload", {
     p_old_upload_id: target.id,
     p_expected_version: target.version ?? 1,
-    p_new_file_name: file.name,
-    p_new_file_path: newFilePath,
+    p_reservation_id: reservationId,
     p_new_file_size: file.size,
     p_reason: reason,
   });
   if (rpcError) {
-    // The RPC failed after the file was already uploaded, so remove the orphaned object rather than
-    // leave it dangling with nothing pointing to it.
-    await supabase.storage.from("trial-balance-files").remove([newFilePath]).catch(() => {});
     throw new DiscardError("Could not replace this trial balance.", { retryable: true, cause: rpcError });
   }
   const result = rows?.[0];
   if (result?.outcome === "replaced" && result.new_upload_id) {
     return { newUploadId: result.new_upload_id };
   }
-  // No other outcome creates anything that points at the new object, so remove it.
-  await supabase.storage.from("trial-balance-files").remove([newFilePath]).catch(() => {});
+  // The reserved object stays tracked by its unconsumed reservation; nothing points at it.
   if (result?.outcome === "forbidden") {
     throw new DiscardError(result.detail ?? "You don't have permission to manage this workspace's source files.", { retryable: false, code: "forbidden", cause: new Error(`retire forbidden for id=${target.id}`) });
   }
@@ -418,7 +423,7 @@ export function restoreOutcomeMessage(outcome: RestoreOutcome, detail?: string |
     case "forbidden":
       return "You don't have permission to manage this workspace's source files.";
     case "storage_restore_required":
-      return "The original file could not be put back, so the trial balance was not restored.";
+      return "The original file is no longer in storage, so the trial balance was not restored.";
     case "stale_operation":
       return "This discard can no longer be undone.";
     case "terminal_failure":
@@ -429,32 +434,18 @@ export function restoreOutcomeMessage(outcome: RestoreOutcome, detail?: string |
 }
 
 /**
- * restoreUpload — asks the server to put a discarded run back (restore_trial_balance_upload) and
- * returns its explicit outcome. The file is re-uploaded first so the server can be told truthfully
- * whether Storage holds it again. If the server then refuses, that re-uploaded object is removed again,
- * because nothing references it. This function never interprets a SQLSTATE; it acts only on the server's
- * named outcome.
+ * restoreUpload — asks the server to put a discarded run back (restore_trial_balance_upload) and returns its
+ * explicit outcome. The discarded source was retained server-side, so there is nothing to re-upload: any
+ * authorized user can restore the exact same object, whoever uploaded it. This function never interprets a
+ * SQLSTATE; it acts only on the server's named outcome.
  */
 export async function restoreUpload(receipt: DiscardReceipt): Promise<{ outcome: RestoreOutcome; message: string | null }> {
   if (!receipt.operationId) {
     return { outcome: "stale_operation", message: restoreOutcomeMessage("stale_operation") };
   }
-  let reuploaded = false;
-  if (receipt.filePath && receipt.fileBlob) {
-    const { error: upErr } = await supabase.storage
-      .from("trial-balance-files")
-      .upload(receipt.filePath, receipt.fileBlob, { upsert: true });
-    reuploaded = !upErr;
-  }
-  // The server checks Storage itself; nothing about the upload above is claimed to it.
   const { data, error } = await lifecycleRpc().rpc("restore_trial_balance_upload", { p_operation_id: receipt.operationId });
   const outcome: RestoreOutcome = error ? "terminal_failure" : data?.[0]?.outcome ?? "terminal_failure";
-  if (outcome === "restored" || outcome === "already_restored") {
-    return { outcome, message: null };
-  }
-  if (reuploaded && receipt.filePath) {
-    await supabase.storage.from("trial-balance-files").remove([receipt.filePath]).catch(() => {});
-  }
+  if (outcome === "restored" || outcome === "already_restored") return { outcome, message: null };
   if (error) console.error("[restoreUpload]", error);
   return { outcome, message: restoreOutcomeMessage(outcome, data?.[0]?.detail ?? null) };
 }
