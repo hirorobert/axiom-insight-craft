@@ -280,7 +280,12 @@ one active grant per workspace, grantee and capability). No firm membership or t
 exception). Events record `actor_user_id`, `authority_basis`, `authority_capability` and `outcome` (denials
 included); `actor_membership_id` is nullable metadata. Storage evidence is read by the server from `storage.objects`;
 the `trial-balance-storage-cleanup` Edge Function does the authorized service-role deletion of the operation-bound
-object only (deployed to staging-replay `hplriydtdelehepgttul` only). Proven by `scripts/db-proof/uploadLifecycle.mjs` (local PostgreSQL) and `scripts/upload_lifecycle_staging.mjs` (hosted staging, manual CI job); pre-flight
+object only. New sources are workspace-scoped (`workspaces/<workspace>/<source>/<name>`): `reserve_trial_balance_source`
+→ `trial-balance-source-signer` (signed single-object URL) → `register_trial_balance_upload` / `retire_trial_balance_upload`,
+so a `manage_source_files` grantee can upload and replace; legacy `<uploader>/<name>` objects stay bound. Discard
+RETAINS the source for the undo window (any authorized user restores the exact object); purge happens only once the
+discard is terminal (`purge_trial_balance_discard`, swept from Prepare). Both functions are deployed to staging-replay
+`hplriydtdelehepgttul` only. Proven by `scripts/db-proof/uploadLifecycle.mjs` (local PostgreSQL) and `scripts/upload_lifecycle_staging.mjs` (hosted staging, manual CI job); pre-flight
 report for an existing database: `scripts/db-preflight/uploadLifecyclePreflight.sql`. Apply together with
 `20260922180000`. Only Lovable/the owner applies it.
 
@@ -322,6 +327,7 @@ src/
       discardSuppression.ts   ← Discarded-upload suppression rules
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing
+      sourceUpload.ts         ← ONLY browser path for a trial balance source: reserve → signed workspace-scoped upload → register
       classificationPresentation.ts   ← Pure deterministic 7-state classification presentation (FAILED/PROCESSING/INCONSISTENT/COMPLETE_WITH_REVIEW/PARTIAL/COMPLETE_NO_REVIEW/NOT_COMPUTED) for WorkspaceOverview. "Classified" means mapping_completeness.mapped_accounts (Tier 1-5) — never summary.auto_classified (Tier 4-5 only).
       classificationAcceptanceFixtures.ts ← Deterministic fixture inputs (one per classification state) for the internal /internal/acceptance/classification-states dev-only page. No Supabase, no randomness.
       classificationAcceptanceGate.ts ← Gate for that page: renderable only in a dev build (import.meta.env.DEV) — no flag, never enabled in production.
@@ -416,6 +422,7 @@ supabase/
     kinga-tax-engine/         ← ITA Cap.332 engine. Has idempotency + engine_runs.
     process-trial-balance/    ← TB ingestion + classification
     trial-balance-storage-cleanup/ ← Authorized, server-verified removal of an upload operation's bound file (PR #32)
+    trial-balance-source-signer/   ← Single-object signed upload URL for a reserved workspace-scoped source (PR #32)
     hesabu-validate/          ← H-01 to H-12 assurance assertions
     safisha-ingest/           ← Bank statement CSV/XLSX → safisha_transactions
     safisha-efdms-ingest/     ← EFDMS Z-Report → safisha_transactions (service role)

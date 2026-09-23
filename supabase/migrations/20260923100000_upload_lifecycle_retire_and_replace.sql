@@ -65,6 +65,17 @@
 -- only the uploader delete from their own folder. Storage and Postgres are still two systems, so nothing
 -- here claims atomicity across them: a failure leaves a recoverable pending state.
 --
+-- ── Source files belong to the workspace; a discarded source stays recoverable ───────────────
+-- New source objects live at workspaces/<workspace_id>/<source_id>/<name>. The path is derived by the server
+-- and written through a single-object signed upload URL (trial-balance-source-signer Edge Function) after
+-- reserve_trial_balance_source() authorizes the caller. That makes an upload by any authorized user, owner or
+-- collaborator holding manage_source_files, independent of who uploaded what before. Legacy objects in an
+-- uploader's personal folder (<uploader_id>/<name>) remain valid and cleanable.
+-- Discard no longer deletes the file. The row is removed, but the source is retained for the whole undo
+-- window, so any authorized user can restore the EXACT same object. The source is purged only after the
+-- operation is terminal (window over, not restored), through trial-balance-storage-cleanup and
+-- purge_trial_balance_discard().
+--
 -- This migration is never applied to production from this repository: `supabase db push` is the owner's action.
 -- Pre-flight report for an existing database: scripts/db-preflight/uploadLifecyclePreflight.sql.
 -- ════════════════════════════════════════════════════════════════════════════
@@ -345,9 +356,9 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.trial_balance_upload_lifecycle
 CREATE TABLE IF NOT EXISTS public.trial_balance_upload_operations (
   id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   kind text NOT NULL CHECK (kind IN ('discard', 'cancel_replacement')),
-  -- discard:            pending -> completed -> restored  (or pending -> aborted)
+  -- discard:            pending -> completed (row deleted, source retained) -> restored | purged  (or pending -> aborted)
   -- cancel_replacement: storage_cleanup_pending -> completed
-  state text NOT NULL CHECK (state IN ('pending', 'completed', 'restored', 'aborted', 'storage_cleanup_pending')),
+  state text NOT NULL CHECK (state IN ('pending', 'completed', 'restored', 'aborted', 'purged', 'storage_cleanup_pending')),
   upload_id uuid NOT NULL,          -- not an FK: must outlive the row it describes
   related_upload_id uuid,           -- cancel_replacement: the predecessor that was restored
   company_id uuid NOT NULL,
@@ -396,20 +407,26 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalo
 $$;
 
 -- The Storage path an operation on p_upload_id may delete, or NULL. A path is bound to an upload only when:
---   * it is well formed (no '..', no leading '/', exactly "<folder>/<name>");
---   * its folder is that upload's own uploader (trial_balance_uploads.user_id). Browser uploads always
---     write "<auth.uid()>/<name>", and RLS pins user_id to auth.uid() on insert;
+--   * it is well formed (no '..', no leading '/');
+--   * it is either the workspace-scoped shape workspaces/<the upload's own workspace>/<source_id>/<name>, or
+--     the legacy shape <the upload's own uploader>/<name> (browser uploads before workspace-scoped storage);
 --   * no OTHER upload row references the same path.
--- A row whose file_path points at someone else's object therefore can never make the server delete it.
+-- A row whose file_path points at another workspace's or another user's object therefore can never make the
+-- server delete it.
 CREATE OR REPLACE FUNCTION public.tbu_bound_storage_path(p_upload public.trial_balance_uploads)
 RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT CASE
-    WHEN p_upload.file_path IS NULL OR p_upload.user_id IS NULL THEN NULL
-    WHEN p_upload.file_path LIKE '/%' OR position('..' IN p_upload.file_path) > 0
-      OR array_length(string_to_array(p_upload.file_path, '/'), 1) <> 2 THEN NULL
-    WHEN split_part(p_upload.file_path, '/', 1) <> p_upload.user_id::text THEN NULL
+    WHEN p_upload.file_path IS NULL THEN NULL
+    WHEN p_upload.file_path LIKE '/%' OR position('..' IN p_upload.file_path) > 0 THEN NULL
     WHEN EXISTS (SELECT 1 FROM public.trial_balance_uploads t WHERE t.file_path = p_upload.file_path AND t.id <> p_upload.id) THEN NULL
-    ELSE p_upload.file_path
+    WHEN p_upload.company_id IS NOT NULL
+         AND array_length(string_to_array(p_upload.file_path, '/'), 1) = 4
+         AND split_part(p_upload.file_path, '/', 1) = 'workspaces'
+         AND split_part(p_upload.file_path, '/', 2) = p_upload.company_id::text THEN p_upload.file_path
+    WHEN p_upload.user_id IS NOT NULL
+         AND array_length(string_to_array(p_upload.file_path, '/'), 1) = 2
+         AND split_part(p_upload.file_path, '/', 1) = p_upload.user_id::text THEN p_upload.file_path
+    ELSE NULL
   END;
 $$;
 
@@ -810,9 +827,9 @@ END;
 $$;
 
 -- ── discard (phase 2 of 2) ───────────────────────────────────────────────────────────────────
--- Deletes the row only when the SERVER sees that the operation's bound object is gone from Storage
--- (storage.objects). No client claim is accepted. Normally called by the trial-balance-storage-cleanup
--- Edge Function with the caller's own JWT, after its authorized deletion.
+-- Re-checks evidence and deletes the row. The source object is deliberately RETAINED: during the undo window
+-- any authorized user can restore the exact same object, and it is purged only afterwards
+-- (purge_trial_balance_discard via trial-balance-storage-cleanup). No Storage claim is involved.
 DROP FUNCTION IF EXISTS public.complete_trial_balance_discard(uuid, boolean);
 CREATE OR REPLACE FUNCTION public.complete_trial_balance_discard(p_operation_id uuid)
 RETURNS TABLE (outcome public.discard_outcome, detail text)
@@ -837,10 +854,6 @@ BEGIN
 
   IF v_op.state <> 'pending' THEN
     RETURN QUERY SELECT 'already_discarded'::public.discard_outcome, NULL::text; RETURN;
-  END IF;
-
-  IF public.tbu_storage_object_exists(v_op.file_path) THEN
-    RETURN QUERY SELECT 'discard_pending'::public.discard_outcome, 'The file is still in storage. Retry once it has been removed.'::text; RETURN;
   END IF;
 
   SELECT * INTO v_row FROM public.trial_balance_uploads t WHERE t.id = v_op.upload_id FOR UPDATE;
@@ -892,7 +905,6 @@ DECLARE
   v_existing public.trial_balance_uploads%ROWTYPE;
   v_new public.trial_balance_uploads%ROWTYPE;
   v_constraint text;
-  c_window constant interval := interval '10 minutes';
 BEGIN
   SELECT * INTO v_op FROM public.trial_balance_upload_operations o WHERE o.id = p_operation_id FOR UPDATE;
   IF v_op.id IS NULL OR v_op.kind <> 'discard' THEN
@@ -924,11 +936,15 @@ BEGIN
     RETURN QUERY SELECT 'terminal_failure'::text, NULL::uuid, 'The restored record no longer matches the discarded trial balance.'::text; RETURN;
   END IF;
 
+  IF v_op.state = 'purged' THEN
+    RETURN QUERY SELECT 'expired'::text, NULL::uuid, 'The undo window for this discard has closed.'::text; RETURN;
+  END IF;
+
   IF v_op.state <> 'completed' THEN
     RETURN QUERY SELECT 'stale_operation'::text, NULL::uuid, 'The discard has not finished, so there is nothing to undo yet.'::text; RETURN;
   END IF;
 
-  IF v_op.completed_at < now() - c_window THEN
+  IF v_op.completed_at <= now() - public.tbu_undo_window() THEN
     RETURN QUERY SELECT 'expired'::text, NULL::uuid, 'The undo window for this discard has closed.'::text; RETURN;
   END IF;
 
@@ -974,24 +990,204 @@ BEGIN
 END;
 $$;
 
+-- ── 6b. Workspace-scoped source objects: reservations ────────────────────────────────────────
+-- New source files belong to the WORKSPACE, not to the uploader's personal folder:
+--   trial-balance-files / workspaces/<workspace_id>/<source_id>/<safe_name>
+-- The path is derived by the server only. The client asks reserve_trial_balance_source() for a
+-- reservation (authorized: workspace owner or manage_source_files). The trial-balance-source-signer Edge
+-- Function then issues a short-lived signed upload URL for exactly that one path, and
+-- register_trial_balance_upload() (or retire_trial_balance_upload()) consumes the reservation, but only
+-- after the server sees the object in storage.objects. No client Storage policy is widened; clients never
+-- write into workspaces/ directly.
+CREATE TABLE IF NOT EXISTS public.trial_balance_source_reservations (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  company_id uuid NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+  object_path text NOT NULL UNIQUE,
+  file_name text NOT NULL,
+  actor_user_id uuid NOT NULL,
+  authority_basis text NOT NULL CHECK (authority_basis IN ('workspace_owner', 'explicit_capability')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz,
+  consumed_by_upload_id uuid,
+  CONSTRAINT chk_tbsr_path_shape CHECK (object_path LIKE 'workspaces/' || company_id::text || '/%')
+);
+CREATE INDEX IF NOT EXISTS idx_tbsr_company ON public.trial_balance_source_reservations (company_id, created_at);
+ALTER TABLE public.trial_balance_source_reservations ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.trial_balance_source_reservations FROM PUBLIC, anon, authenticated;
+
+-- A conservative file name for the object key (the original name is kept on the reservation and the row).
+CREATE OR REPLACE FUNCTION public.tbu_safe_object_name(p_name text)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
+  -- Only [A-Za-z0-9._-]; runs of dots collapse and leading dots are stripped, so ".." never appears in a key.
+  SELECT COALESCE(NULLIF(left(ltrim(regexp_replace(regexp_replace(COALESCE(p_name, ''), '[^A-Za-z0-9._-]', '_', 'g'), '[.]{2,}', '.', 'g'), '.'), 120), ''), 'trial-balance');
+$$;
+
+-- Undo window: one definition, used by restore and by purge.
+CREATE OR REPLACE FUNCTION public.tbu_undo_window()
+RETURNS interval LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$ SELECT interval '10 minutes' $$;
+
+-- Outcomes: reserved | forbidden | invalid_request.
+CREATE OR REPLACE FUNCTION public.reserve_trial_balance_source(p_company_id uuid, p_file_name text)
+RETURNS TABLE (outcome text, reservation_id uuid, object_path text, expires_at timestamptz)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_auth record;
+  v_id uuid;
+  v_path text;
+  v_exp timestamptz := now() + interval '30 minutes';
+BEGIN
+  IF p_company_id IS NULL OR p_file_name IS NULL OR length(p_file_name) = 0 OR length(p_file_name) > 255 THEN
+    RETURN QUERY SELECT 'invalid_request'::text, NULL::uuid, NULL::text, NULL::timestamptz; RETURN;
+  END IF;
+  SELECT * INTO v_auth FROM public.tbu_authorize(p_company_id);
+  IF v_auth.basis IS NULL THEN
+    RETURN QUERY SELECT 'forbidden'::text, NULL::uuid, NULL::text, NULL::timestamptz; RETURN;
+  END IF;
+  v_id := gen_random_uuid();
+  v_path := 'workspaces/' || p_company_id::text || '/' || v_id::text || '/' || public.tbu_safe_object_name(p_file_name);
+  INSERT INTO public.trial_balance_source_reservations (id, company_id, object_path, file_name, actor_user_id, authority_basis, expires_at)
+  VALUES (v_id, p_company_id, v_path, p_file_name, auth.uid(), v_auth.basis, v_exp);
+  RETURN QUERY SELECT 'reserved'::text, v_id, v_path, v_exp;
+END;
+$$;
+
+-- For the trial-balance-source-signer Edge Function (service_role only): what may be signed, resolved server-side.
+CREATE OR REPLACE FUNCTION public.tbu_source_reservation_target(p_reservation_id uuid)
+RETURNS TABLE (company_id uuid, object_path text, actor_user_id uuid, expired boolean, consumed boolean)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT r.company_id, r.object_path, r.actor_user_id, r.expires_at <= now(), r.consumed_at IS NOT NULL
+    FROM public.trial_balance_source_reservations r WHERE r.id = p_reservation_id;
+$$;
+
+-- Initial upload. Outcomes: registered | already_registered | forbidden | stale_reservation | expired |
+-- object_missing | active_upload_exists | rejected | invalid_request.
+-- Replaces the browser's direct insert (whose RESTRICTIVE policy admits only the owner). Authority is the same
+-- predicate as every other source operation, so a collaborator holding manage_source_files can upload.
+CREATE OR REPLACE FUNCTION public.register_trial_balance_upload(
+  p_reservation_id uuid, p_file_size integer, p_period_year integer, p_period_id uuid DEFAULT NULL, p_engagement_id uuid DEFAULT NULL)
+RETURNS TABLE (outcome text, upload_id uuid, detail text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_res public.trial_balance_source_reservations%ROWTYPE;
+  v_auth record;
+  v_new public.trial_balance_uploads%ROWTYPE;
+  v_constraint text;
+  v_company_name text;
+BEGIN
+  IF p_reservation_id IS NULL OR p_file_size IS NULL OR p_file_size < 0 THEN
+    RETURN QUERY SELECT 'invalid_request'::text, NULL::uuid, NULL::text; RETURN;
+  END IF;
+  SELECT * INTO v_res FROM public.trial_balance_source_reservations r WHERE r.id = p_reservation_id FOR UPDATE;
+  IF v_res.id IS NULL THEN
+    RETURN QUERY SELECT 'stale_reservation'::text, NULL::uuid, 'This upload reservation does not exist.'::text; RETURN;
+  END IF;
+  -- A reservation is personal: it can only be consumed by the user it was issued to, who must still hold authority.
+  SELECT * INTO v_auth FROM public.tbu_authorize(v_res.company_id);
+  IF v_res.actor_user_id <> auth.uid() OR v_auth.basis IS NULL THEN
+    RETURN QUERY SELECT 'forbidden'::text, NULL::uuid, 'You don''t have permission to manage this workspace''s source files.'::text; RETURN;
+  END IF;
+  IF v_res.consumed_at IS NOT NULL THEN
+    RETURN QUERY SELECT 'already_registered'::text, v_res.consumed_by_upload_id, NULL::text; RETURN;
+  END IF;
+  IF v_res.expires_at <= now() THEN
+    RETURN QUERY SELECT 'expired'::text, NULL::uuid, 'The upload reservation expired. Start the upload again.'::text; RETURN;
+  END IF;
+  IF NOT public.tbu_storage_object_exists(v_res.object_path) THEN
+    RETURN QUERY SELECT 'object_missing'::text, NULL::uuid, 'The file has not reached storage yet.'::text; RETURN;
+  END IF;
+
+  SELECT c.name INTO v_company_name FROM public.companies c WHERE c.id = v_res.company_id;
+  BEGIN
+    INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, user_id, company_id, company_name, period_year, period_id, engagement_id)
+    VALUES (v_res.file_name, v_res.object_path, p_file_size, 'processing', auth.uid(), v_res.company_id, v_company_name, p_period_year, p_period_id, p_engagement_id)
+    RETURNING * INTO v_new;
+  EXCEPTION
+    WHEN unique_violation THEN
+      GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+      IF v_constraint = 'uq_one_active_upload_per_period' THEN
+        RETURN QUERY SELECT 'active_upload_exists'::text, NULL::uuid, 'A trial balance is already active for this period. Use Replace trial balance to swap it.'::text; RETURN;
+      END IF;
+      RETURN QUERY SELECT 'rejected'::text, NULL::uuid, 'The trial balance could not be registered.'::text; RETURN;
+    WHEN OTHERS THEN
+      -- e.g. the period is locked (trg_guard_upload_locked) or the engagement does not match (validate_upload_engagement).
+      RETURN QUERY SELECT 'rejected'::text, NULL::uuid, left(SQLERRM, 300); RETURN;
+  END;
+  UPDATE public.trial_balance_source_reservations r SET consumed_at = now(), consumed_by_upload_id = v_new.id WHERE r.id = v_res.id;
+  PERFORM public.tbu_log_event(v_new.id, v_new.company_id, v_new.engagement_id, v_new.period_year, NULL, 'active_unprocessed',
+    'user', auth.uid(), v_auth.membership_id, v_auth.basis, v_auth.capability, 'applied', NULL, 'Source uploaded');
+  RETURN QUERY SELECT 'registered'::text, v_new.id, NULL::text;
+END;
+$$;
+
+-- Discarded sources awaiting purge (terminal: undo window over, not restored). Used by the client's sweep.
+CREATE OR REPLACE FUNCTION public.list_purgeable_trial_balance_sources(p_company_id uuid)
+RETURNS TABLE (operation_id uuid)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF (SELECT basis FROM public.tbu_authorize(p_company_id)) IS NULL THEN RETURN; END IF;
+  RETURN QUERY SELECT o.id FROM public.trial_balance_upload_operations o
+   WHERE o.company_id = p_company_id AND o.kind = 'discard' AND o.state = 'completed'
+     AND o.completed_at <= now() - public.tbu_undo_window()
+   ORDER BY o.completed_at LIMIT 50;
+END;
+$$;
+
+-- Purge (after the undo window): records that the discarded source is gone, as seen by the server.
+-- Outcomes: purged | already_purged | undo_window_open | not_purgeable | storage_cleanup_pending | forbidden | stale_operation.
+CREATE OR REPLACE FUNCTION public.purge_trial_balance_discard(p_operation_id uuid)
+RETURNS TABLE (outcome text, detail text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_op public.trial_balance_upload_operations%ROWTYPE;
+  v_auth record;
+BEGIN
+  SELECT * INTO v_op FROM public.trial_balance_upload_operations o WHERE o.id = p_operation_id AND o.kind = 'discard' FOR UPDATE;
+  IF v_op.id IS NULL THEN
+    RETURN QUERY SELECT 'stale_operation'::text, NULL::text; RETURN;
+  END IF;
+  SELECT * INTO v_auth FROM public.tbu_authorize(v_op.company_id);
+  IF v_auth.basis IS NULL THEN
+    RETURN QUERY SELECT 'forbidden'::text, NULL::text; RETURN;
+  END IF;
+  IF v_op.state = 'purged' THEN
+    RETURN QUERY SELECT 'already_purged'::text, NULL::text; RETURN;
+  END IF;
+  IF v_op.state <> 'completed' THEN
+    RETURN QUERY SELECT 'not_purgeable'::text, 'Only a completed, unrestored discard is purged.'::text; RETURN;
+  END IF;
+  IF v_op.completed_at > now() - public.tbu_undo_window() THEN
+    RETURN QUERY SELECT 'undo_window_open'::text, 'The discard can still be undone.'::text; RETURN;
+  END IF;
+  IF public.tbu_storage_object_exists(v_op.file_path) THEN
+    RETURN QUERY SELECT 'storage_cleanup_pending'::text, 'The discarded file is still in storage.'::text; RETURN;
+  END IF;
+  UPDATE public.trial_balance_upload_operations o SET state = 'purged' WHERE o.id = v_op.id;
+  PERFORM public.tbu_log_event(v_op.upload_id, v_op.company_id, NULL, v_op.period_year, 'discarded', 'discarded',
+    'user', auth.uid(), v_auth.membership_id, v_auth.basis, v_auth.capability, 'applied', v_op.id, 'Discarded source purged after the undo window');
+  RETURN QUERY SELECT 'purged'::text, NULL::text;
+END;
+$$;
+
 -- ── Retire and replace ───────────────────────────────────────────────────────────────────────
--- The only path for an upload with any history. It deletes nothing and copies no results. It is
--- idempotent per (old upload, new file path): a retried request with the SAME file returns the same new
--- upload, while a DIFFERENT file racing for the same old upload gets stale_version, never a false success.
--- The replacement file must sit in the caller's own Storage folder ("<auth.uid()>/<name>") and already
--- exist there, so a replacement row can never point at somebody else's object.
+-- The only path for an upload with any history. It deletes nothing and copies no results. The replacement
+-- file is a workspace-scoped source reserved through reserve_trial_balance_source() and already present in
+-- Storage: there is no client-supplied path at all, so a replacement can never point at somebody else's
+-- object. Idempotent per (old upload, reservation): a retried request with the SAME reservation returns
+-- the same new upload, while a DIFFERENT reservation racing for the same old upload gets stale_version,
+-- never a false success.
 CREATE OR REPLACE FUNCTION public.retire_trial_balance_upload(
-  p_old_upload_id uuid, p_expected_version bigint,
-  p_new_file_name text, p_new_file_path text, p_new_file_size integer, p_reason text DEFAULT NULL)
+  p_old_upload_id uuid, p_expected_version bigint, p_reservation_id uuid, p_new_file_size integer, p_reason text DEFAULT NULL)
 RETURNS TABLE (outcome public.discard_outcome, new_upload_id uuid, retired_upload_id uuid, detail text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
   v_old public.trial_balance_uploads%ROWTYPE;
   v_new public.trial_balance_uploads%ROWTYPE;
+  v_res public.trial_balance_source_reservations%ROWTYPE;
   v_auth record;
   v_new_id uuid;
 BEGIN
-  IF p_old_upload_id IS NULL OR p_new_file_name IS NULL OR p_new_file_path IS NULL OR p_new_file_size IS NULL THEN
+  IF p_old_upload_id IS NULL OR p_reservation_id IS NULL OR p_new_file_size IS NULL THEN
     RETURN QUERY SELECT 'forbidden'::public.discard_outcome, NULL::uuid, NULL::uuid, 'Missing required fields.'::text; RETURN;
   END IF;
 
@@ -1008,8 +1204,14 @@ BEGIN
       'You don''t have permission to manage this workspace''s source files.'::text; RETURN;
   END IF;
 
+  SELECT * INTO v_res FROM public.trial_balance_source_reservations r WHERE r.id = p_reservation_id FOR UPDATE;
+  IF v_res.id IS NULL OR v_res.company_id <> v_old.company_id OR v_res.actor_user_id <> auth.uid() THEN
+    RETURN QUERY SELECT 'forbidden'::public.discard_outcome, NULL::uuid, NULL::uuid,
+      'The replacement file must be a source reserved by you for this workspace.'::text; RETURN;
+  END IF;
+
   IF v_old.lifecycle_state = 'superseded' THEN
-    IF EXISTS (SELECT 1 FROM public.trial_balance_uploads n WHERE n.id = v_old.superseded_by_upload_id AND n.file_path = p_new_file_path) THEN
+    IF EXISTS (SELECT 1 FROM public.trial_balance_uploads n WHERE n.id = v_old.superseded_by_upload_id AND n.file_path = v_res.object_path) THEN
       RETURN QUERY SELECT 'replaced'::public.discard_outcome, v_old.superseded_by_upload_id, v_old.id, 'Already replaced.'::text; RETURN;
     END IF;
     RETURN QUERY SELECT 'stale_version'::public.discard_outcome, NULL::uuid, NULL::uuid,
@@ -1025,13 +1227,9 @@ BEGIN
       'This trial balance changed since you last viewed it. Refresh and try again.'::text; RETURN;
   END IF;
 
-  IF p_new_file_path LIKE '/%' OR position('..' IN p_new_file_path) > 0
-     OR array_length(string_to_array(p_new_file_path, '/'), 1) <> 2
-     OR split_part(p_new_file_path, '/', 1) <> auth.uid()::text
-     OR EXISTS (SELECT 1 FROM public.trial_balance_uploads t WHERE t.file_path = p_new_file_path)
-     OR NOT public.tbu_storage_object_exists(p_new_file_path) THEN
+  IF v_res.consumed_at IS NOT NULL OR v_res.expires_at <= now() OR NOT public.tbu_storage_object_exists(v_res.object_path) THEN
     RETURN QUERY SELECT 'forbidden'::public.discard_outcome, NULL::uuid, NULL::uuid,
-      'The replacement file must be a new upload in your own storage folder.'::text; RETURN;
+      'The replacement file is not available (expired, already used, or not yet in storage). Upload it again.'::text; RETURN;
   END IF;
 
   v_new_id := gen_random_uuid();
@@ -1045,9 +1243,10 @@ BEGIN
     id, file_name, file_path, file_size, status, user_id, company_id, company_name, period_year,
     period_id, engagement_id, lifecycle_state, replaces_upload_id
   ) VALUES (
-    v_new_id, p_new_file_name, p_new_file_path, p_new_file_size, 'pending', auth.uid(), v_old.company_id, v_old.company_name,
+    v_new_id, v_res.file_name, v_res.object_path, p_new_file_size, 'pending', auth.uid(), v_old.company_id, v_old.company_name,
     v_old.period_year, v_old.period_id, v_old.engagement_id, 'active_unprocessed', v_old.id
   ) RETURNING * INTO v_new;
+  UPDATE public.trial_balance_source_reservations r SET consumed_at = now(), consumed_by_upload_id = v_new_id WHERE r.id = v_res.id;
   PERFORM public.tbu_log_event(v_old.id, v_old.company_id, v_old.engagement_id, v_old.period_year, v_old.lifecycle_state, 'superseded',
     'user', auth.uid(), v_auth.membership_id, v_auth.basis, v_auth.capability, 'applied', NULL, COALESCE(p_reason, 'Replaced'));
   PERFORM public.tbu_log_event(v_new.id, v_new.company_id, v_new.engagement_id, v_new.period_year, NULL, 'active_unprocessed',
@@ -1181,13 +1380,15 @@ END;
 $$;
 
 -- The Edge Function's view of an operation: the minimum it needs, resolved server-side (service role only).
--- deletion_eligible is false when a discard's upload acquired evidence mid-saga: its file must then NOT be
--- deleted, and completion aborts the discard instead.
+-- deletion_eligible: a cancelled replacement's source is deleted at once. A discarded source is deleted only
+-- when the discard is terminal (completed, undo window over, not restored); before that it must stay
+-- restorable.
 CREATE OR REPLACE FUNCTION public.tbu_storage_cleanup_target(p_operation_id uuid)
 RETURNS TABLE (kind text, state text, company_id uuid, file_path text, deletion_eligible boolean)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT o.kind, o.state, o.company_id, o.file_path,
-         (o.kind = 'cancel_replacement' OR public.tbu_upload_evidence(o.upload_id) IS NULL)
+         CASE WHEN o.kind = 'cancel_replacement' THEN o.state = 'storage_cleanup_pending'
+              ELSE o.state = 'completed' AND o.completed_at <= now() - public.tbu_undo_window() END
     FROM public.trial_balance_upload_operations o WHERE o.id = p_operation_id;
 $$;
 
@@ -1209,9 +1410,13 @@ REVOKE ALL ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) FROM P
 REVOKE ALL ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.tbu_storage_object_exists(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.tbu_storage_cleanup_target(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.tbu_source_reservation_target(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.tbu_safe_object_name(text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.tbu_undo_window() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.tbu_storage_object_exists(text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.tbu_storage_cleanup_target(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.tbu_source_reservation_target(uuid) TO service_role;
 -- Used inside an RLS policy, so the querying role must be able to execute it (it only ever answers for auth.uid()).
 REVOKE ALL ON FUNCTION public.tbu_can_view_workspace_audit(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.tbu_can_view_workspace_audit(uuid) TO authenticated;
@@ -1220,7 +1425,11 @@ GRANT EXECUTE ON FUNCTION public.tbu_can_view_workspace_audit(uuid) TO authentic
 REVOKE ALL ON FUNCTION public.discard_trial_balance_upload(uuid, bigint) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.complete_trial_balance_discard(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.restore_trial_balance_upload(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.retire_trial_balance_upload(uuid, bigint, text, text, integer, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.retire_trial_balance_upload(uuid, bigint, uuid, integer, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.reserve_trial_balance_source(uuid, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.register_trial_balance_upload(uuid, integer, integer, uuid, uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.list_purgeable_trial_balance_sources(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.purge_trial_balance_discard(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.cancel_trial_balance_replacement(uuid, bigint) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.confirm_trial_balance_storage_cleanup(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.grant_workspace_capability(uuid, uuid, text) FROM PUBLIC, anon;
@@ -1228,16 +1437,22 @@ REVOKE ALL ON FUNCTION public.revoke_workspace_capability(uuid, uuid, text) FROM
 GRANT EXECUTE ON FUNCTION public.discard_trial_balance_upload(uuid, bigint) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.complete_trial_balance_discard(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.restore_trial_balance_upload(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.retire_trial_balance_upload(uuid, bigint, text, text, integer, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.retire_trial_balance_upload(uuid, bigint, uuid, integer, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.reserve_trial_balance_source(uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.register_trial_balance_upload(uuid, integer, integer, uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.list_purgeable_trial_balance_sources(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.purge_trial_balance_discard(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cancel_trial_balance_replacement(uuid, bigint) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.confirm_trial_balance_storage_cleanup(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.grant_workspace_capability(uuid, uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.revoke_workspace_capability(uuid, uuid, text) TO authenticated;
 
 -- ── Rollback (NOT executed; for reference only; review before use) ──────────────────────────
--- Roll back the frontend and remove the trial-balance-storage-cleanup Edge Function first. Then:
+-- Roll back the frontend and remove the trial-balance-storage-cleanup and trial-balance-source-signer Edge Functions first. Then:
 -- DROP FUNCTION IF EXISTS public.confirm_trial_balance_storage_cleanup(uuid), public.cancel_trial_balance_replacement(uuid, bigint),
---   public.retire_trial_balance_upload(uuid, bigint, text, text, integer, text), public.restore_trial_balance_upload(uuid),
+--   public.retire_trial_balance_upload(uuid, bigint, uuid, integer, text), public.restore_trial_balance_upload(uuid),
+--   public.reserve_trial_balance_source(uuid, text), public.register_trial_balance_upload(uuid, integer, integer, uuid, uuid),
+--   public.list_purgeable_trial_balance_sources(uuid), public.purge_trial_balance_discard(uuid),
 --   public.complete_trial_balance_discard(uuid), public.discard_trial_balance_upload(uuid, bigint),
 --   public.grant_workspace_capability(uuid, uuid, text), public.revoke_workspace_capability(uuid, uuid, text);
 -- DROP TRIGGER IF EXISTS trg_tbc_drives_upload_lifecycle ON public.tb_certifications;
