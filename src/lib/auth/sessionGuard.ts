@@ -1,7 +1,9 @@
 /**
  * sessionGuard — the ONE place the authenticated read surfaces agree on whether a
  * usable session exists before they query the database, and what to do when the
- * database refuses a read because the JWT is missing or expired.
+ * database refuses a read. A refusal because the JWT is missing or expired ends the
+ * session. A refusal because a valid session lacks permission (42501 / 403) does not:
+ * that is reported as an authorization denial and the user stays signed in.
  *
  * Iron Dome: an unauthenticated read is never silently treated as "no data".
  * Every guarded caller either has a live session or is signed out and returned to
@@ -34,20 +36,43 @@ export async function resolveActiveSession(): Promise<string | null> {
   return session.access_token;
 }
 
-/** True when a PostgREST/Supabase error is an authorization failure rather than a data problem. */
-export function isAuthorizationFailure(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const e = error as { code?: string; status?: number; message?: string };
-  if (e.code === "42501" || e.code === "PGRST301") return true;
-  if (e.status === 401 || e.status === 403) return true;
+type ErrorShape = { code?: string; status?: number; message?: string; name?: string };
+const asShape = (error: unknown): ErrorShape | null => (error && typeof error === "object" ? (error as ErrorShape) : null);
+
+/**
+ * True only when the error PROVES the session itself is unusable: an expired, malformed or unknown JWT.
+ * PostgREST reports these as HTTP 401 / PGRST301-302; GoTrue as 401, session_not_found or bad_jwt.
+ * SQLSTATE 42501 is deliberately NOT here. It means "this valid session is not allowed to do that",
+ * which is a normal authorization answer and no reason to sign anyone out.
+ */
+export function isSessionInvalid(error: unknown): boolean {
+  const e = asShape(error);
+  if (!e) return false;
+  if (e.status === 401) return true;
+  if (e.code === "PGRST301" || e.code === "PGRST302" || e.code === "bad_jwt" || e.code === "session_not_found" || e.code === "refresh_token_not_found" || e.code === "user_not_found") return true;
+  if (e.name === "AuthSessionMissingError") return true;
   const msg = (e.message ?? "").toLowerCase();
   return (
-    msg.includes("permission denied") ||
     msg.includes("jwt expired") ||
+    msg.includes("invalid jwt") ||
     msg.includes("invalid claim") ||
     msg.includes("missing sub claim") ||
-    msg.includes("valid bearer token")
+    msg.includes("valid bearer token") ||
+    msg.includes("sub claim in jwt does not exist")
   );
+}
+
+/** True when the database or API refused the request for a session it accepted (SQLSTATE 42501 / HTTP 403). */
+export function isAuthorizationDenied(error: unknown): boolean {
+  const e = asShape(error);
+  if (!e || isSessionInvalid(e)) return false;
+  if (e.code === "42501" || e.status === 403) return true;
+  return (e.message ?? "").toLowerCase().includes("permission denied");
+}
+
+/** Either of the two above. Kept for callers that only need to know the error is auth-related. */
+export function isAuthorizationFailure(error: unknown): boolean {
+  return isSessionInvalid(error) || isAuthorizationDenied(error);
 }
 
 let endingSession = false;
@@ -73,9 +98,34 @@ export async function endExpiredSession(
   }
 }
 
-/** Convenience: sign out and redirect when the given error is an authorization failure. Returns true when handled. */
+let deniedToastShown = false;
+
+/**
+ * Handles an auth-related error without ever destroying a valid session:
+ *   - proven session invalidation -> one toast, local sign-out, back to sign-in;
+ *   - an authorization denial (42501 / 403) -> the session is confirmed with the auth server first.
+ *     If it is really gone, sign out as above; if it is still valid, say plainly that access was denied
+ *     and keep the user signed in. A network failure during that check is not proof of anything, so it
+ *     never signs anyone out.
+ * Returns true when the error was auth-related and has been handled, and false for anything else,
+ * which the caller then treats as an ordinary data error.
+ */
 export async function handleIfAuthorizationFailure(error: unknown): Promise<boolean> {
-  if (!isAuthorizationFailure(error)) return false;
-  await endExpiredSession();
+  if (isSessionInvalid(error)) {
+    await endExpiredSession();
+    return true;
+  }
+  if (!isAuthorizationDenied(error)) return false;
+
+  const { data, error: userError } = await supabase.auth.getUser();
+  if (!data?.user && (!userError || isSessionInvalid(userError))) {
+    await endExpiredSession();
+    return true;
+  }
+  if (!deniedToastShown) {
+    deniedToastShown = true;
+    toast.error("You don't have permission to view part of this workspace. You are still signed in.");
+    setTimeout(() => { deniedToastShown = false; }, 4000);
+  }
   return true;
 }
