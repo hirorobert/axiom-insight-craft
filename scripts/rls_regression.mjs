@@ -124,6 +124,7 @@ async function run() {
   let userA, userB, userV, cA, cB, cV
   let companyAId, companyBId, uploadAId, ajeAId, ssoAId
   let storagePathA
+  let completedAllChecks = false
 
   try {
     // ─── Setup ──────────────────────────────────────────────────────────────
@@ -161,23 +162,31 @@ async function run() {
     if (storErr) throw new Error(`seed storage: ${storErr.message}`)
     pass('seed storage file')
 
+    // user_id is required: it is the sole PERMISSIVE INSERT policy's WITH CHECK
+    // ("Users can insert their own uploads" — auth.uid() = user_id). The separate
+    // RESTRICTIVE company-ownership policy is ANDed on top, not a substitute for it.
+    // Matches the real upload path (src/components/TrialBalanceUpload.tsx: user_id: user!.id).
     const { data: up, error: upErr } = await cA.from('trial_balance_uploads').insert({
       file_name: 'rls.csv', file_path: storagePathA, file_size: csv.length,
-      status: 'pending', company_id: companyAId,
+      status: 'pending', company_id: companyAId, user_id: userA.id,
     }).select('id').single()
     if (upErr) throw new Error(`seed upload: ${upErr.message}`)
     uploadAId = up.id; pass(`seed upload ${uploadAId}`)
 
+    // Column set matches the live schema (information_schema.columns), not the table's original
+    // design — entry_date/reference/total_debit/total_credit do not exist on this table; the real
+    // columns are period_year/aje_number/aje_type/source/auto_generated (all NOT NULL).
     const { data: aje, error: ajeErr } = await cA.from('adjusting_journal_entries').insert({
-      company_id: companyAId, upload_id: uploadAId, entry_date: '2025-12-31',
-      reference: `RLS-${TS}`, description: 'regression', status: 'draft',
-      total_debit: 100, total_credit: 100, created_by: userA.id,
+      company_id: companyAId, upload_id: uploadAId, period_year: 2025,
+      aje_number: `RLS-${TS}`, description: 'regression', aje_type: 'correction',
+      source: 'cpa_manual', auto_generated: false, status: 'draft', created_by: userA.id,
     }).select('id').single()
     if (ajeErr) throw new Error(`seed aje: ${ajeErr.message}`)
     ajeAId = aje.id; pass(`seed aje ${ajeAId}`)
 
+    // statement_type does not exist on this table; upload_id is NOT NULL and was missing.
     const { data: sso, error: ssoErr } = await cA.from('statement_sign_offs').insert({
-      company_id: companyAId, period_year: 2025, statement_type: 'annual',
+      company_id: companyAId, period_year: 2025, upload_id: uploadAId, status: 'draft',
     }).select('id').single()
     if (ssoErr) throw new Error(`seed sso: ${ssoErr.message}`)
     ssoAId = sso.id; pass(`seed sso ${ssoAId}`)
@@ -210,24 +219,35 @@ async function run() {
 
     // ─── 2. Cross-tenant WRITE isolation ───────────────────────────────────
     section('Cross-tenant writes (B cannot target Co A)')
+    // user_id: userB.id makes this a self-consistent insert attempt (B genuinely acting as
+    // themselves) that is rejected ONLY because company_id targets A's company — isolating
+    // exactly the cross-tenant invariant this assertion's own label claims to test. Without it,
+    // this would pass for the wrong reason (the missing-user_id PERMISSIVE-policy gap fixed
+    // above), not because of the RESTRICTIVE company-ownership policy.
     await assertNoWrite(cB, 'trial_balance_uploads', {
       file_name: 'evil.csv', file_path: `${userB.id}/evil.csv`, file_size: 1,
-      status: 'pending', company_id: companyAId,
+      status: 'pending', company_id: companyAId, user_id: userB.id,
     }, 'B → tb_upload with A.company_id')
 
+    // Column set matches the live schema — see the seed insert above for why.
     await assertNoWrite(cB, 'adjusting_journal_entries', {
-      company_id: companyAId, entry_date: '2025-12-31', reference: 'X',
-      description: 'x', status: 'draft', total_debit: 0, total_credit: 0,
-      created_by: userB.id,
+      company_id: companyAId, period_year: 2024, aje_number: 'X',
+      description: 'x', aje_type: 'correction', source: 'cpa_manual',
+      auto_generated: false, status: 'draft', created_by: userB.id,
     }, 'B → aje with A.company_id')
 
+    // statement_type does not exist; upload_id is NOT NULL. Deliberately points at A's OWN upload
+    // (uploadAId) — B has no upload of their own here — so this still isolates the company_id
+    // dimension: the FK to trial_balance_uploads is satisfiable, only the company boundary is not.
     await assertNoWrite(cB, 'statement_sign_offs', {
-      company_id: companyAId, period_year: 2024, statement_type: 'annual',
+      company_id: companyAId, period_year: 2024, upload_id: uploadAId, status: 'draft',
     }, 'B → sign_off with A.company_id')
 
     await assertNoWrite(cB, 'findings', {
       company_id: companyAId, finding_type: 'manual', severity: 'low',
-      title: 'X', description: 'x',
+      title: 'X', period_start: '2025-01-01', period_end: '2025-12-31',
+      exposure_amount_tzs: 0, source_detail: 'rls regression', status: 'open',
+      response_pack_ready: false, created_by: userB.id,
     }, 'B → finding with A.company_id')
 
     // ─── 3. Storage isolation ───────────────────────────────────────────────
@@ -247,11 +267,11 @@ async function run() {
     await assertNoRead(cV, 'tax_losses',                { company_id: companyAId }, 'V → tax_losses')
     await assertNoRead(cV, 'capital_allowances',        { company_id: companyAId }, 'V → cap_allowances')
 
-    // Viewer cannot insert AJE
+    // Viewer cannot insert AJE — column set matches the live schema, see the seed insert above.
     await assertNoWrite(cV, 'adjusting_journal_entries', {
-      company_id: companyAId, entry_date: '2025-12-31', reference: 'V-X',
-      description: 'x', status: 'draft', total_debit: 0, total_credit: 0,
-      created_by: userV.id,
+      company_id: companyAId, upload_id: uploadAId, period_year: 2025, aje_number: 'V-X',
+      description: 'x', aje_type: 'correction', source: 'cpa_manual',
+      auto_generated: false, status: 'draft', created_by: userV.id,
     }, 'V → aje insert')
 
     // Viewer cannot sign off
@@ -285,41 +305,74 @@ async function run() {
     await check('statement_sign_offs',       { id: ssoAId },    'A → own sso')
     await check('companies',                 { id: companyAId },'A → own company')
 
+    completedAllChecks = true
   } finally {
     // ─── Cleanup ────────────────────────────────────────────────────────────
+    // Every step below checks its own error instead of relying on a single try/catch around the
+    // whole block — a swallowed error here previously let this section print "cleanup complete"
+    // while a company + its owner firm_member row were silently left behind (trg_prevent_last_owner_delete
+    // refuses to delete a company's sole owner row; hard-deleting companyA/B is therefore never
+    // possible while their auto-created owner membership exists — this is a genuine, permanent
+    // product invariant, not something this script bypasses). The correct removal path is the
+    // product's own soft-delete (companies.is_active = false), matching how a real company is
+    // retired; anything that CAN be hard-deleted (child financial rows, the viewer's non-owner
+    // membership, audit logs, the non-owning viewer's auth user) still is.
     section('Cleanup')
-    try {
-      if (storagePathA) await admin.storage.from('trial-balance-files').remove([storagePathA])
-      if (companyAId) {
-        await admin.from('statement_sign_offs').delete().eq('company_id', companyAId)
-        await admin.from('adjusting_journal_entries').delete().eq('company_id', companyAId)
-        await admin.from('trial_balance_uploads').delete().eq('company_id', companyAId)
-        await admin.from('firm_members').delete().eq('company_id', companyAId)
-        await admin.from('companies').delete().eq('id', companyAId)
+    const cleanupIssues = []
+    const noteIssue = (label, error) => { if (error) cleanupIssues.push(`${label}: ${error.message}`) }
+
+    if (storagePathA) {
+      const { error } = await admin.storage.from('trial-balance-files').remove([storagePathA])
+      noteIssue('remove storage object', error)
+    }
+    if (companyAId) {
+      noteIssue('delete sign_offs (Co A)', (await admin.from('statement_sign_offs').delete().eq('company_id', companyAId)).error)
+      noteIssue('delete aje (Co A)', (await admin.from('adjusting_journal_entries').delete().eq('company_id', companyAId)).error)
+      noteIssue('delete uploads (Co A)', (await admin.from('trial_balance_uploads').delete().eq('company_id', companyAId)).error)
+      // Only the non-owner membership can be hard-deleted; the owner row stays with the company.
+      noteIssue('delete viewer membership (Co A)', (await admin.from('firm_members').delete().eq('company_id', companyAId).neq('role', 'owner')).error)
+      noteIssue('deactivate Co A', (await admin.from('companies').update({ is_active: false }).eq('id', companyAId)).error)
+    }
+    if (companyBId) {
+      noteIssue('deactivate Co B', (await admin.from('companies').update({ is_active: false }).eq('id', companyBId)).error)
+    }
+    for (const [label, u] of [['A', userA], ['B', userB], ['V', userV]]) {
+      if (!u?.id) continue
+      noteIssue(`delete audit_logs (${label})`, (await admin.from('audit_logs').delete().eq('user_id', u.id)).error)
+      // A and B remain the sole owner of their (now inactive) company and cannot be deleted for
+      // the same reason the company cannot be hard-deleted — expected, not a cleanup failure.
+      if (label === 'V') {
+        const { error } = await admin.auth.admin.deleteUser(u.id)
+        noteIssue('delete user V', error)
       }
-      if (companyBId) {
-        await admin.from('firm_members').delete().eq('company_id', companyBId)
-        await admin.from('companies').delete().eq('id', companyBId)
-      }
-      for (const u of [userA, userB, userV]) {
-        if (u?.id) {
-          await admin.from('audit_logs').delete().eq('user_id', u.id)
-          await admin.auth.admin.deleteUser(u.id)
-        }
-      }
+    }
+
+    if (cleanupIssues.length === 0) {
       console.log('  cleanup complete')
-    } catch (e) {
-      console.warn('  cleanup warning:', e.message)
+    } else {
+      console.warn('  cleanup incomplete — retained by design (owner accounts A/B tied to their now-inactive companies) or genuine failures:')
+      for (const issue of cleanupIssues) console.warn(`    • ${issue}`)
     }
 
     console.log('\n═══════════════════════════════════════════════')
     console.log(`Results: ${passed} passed, ${failed} failed`)
-    if (failed > 0) {
+    if (!completedAllChecks) {
+      // A setup/assertion step threw before the suite reached its end. This finally block is
+      // running while that original exception is still in flight — neither process.exit() NOR
+      // return/throw may appear anywhere in this branch: in JavaScript, any completion of a
+      // finally block other than falling off its end (a return, a throw, or process.exit()
+      // terminating synchronously) silently DISCARDS a pending exception from the try block. Only
+      // a message is printed here; control must fall through so run().catch() below still receives
+      // and reports the real error and sets exit code 1. The partial pass count above is not a
+      // verdict, so no success/failure message is printed for it either.
+      console.error('\nSuite did not complete — a step threw before every check ran. See the error below.')
+    } else if (failed > 0) {
       console.error('\nFAILURES:')
       failures.forEach(f => console.error(`  • ${f}`))
-      process.exit(1)
+      process.exitCode = 1
+    } else {
+      console.log('All RLS regression checks passed.')
     }
-    console.log('All RLS regression checks passed.')
   }
 }
 
