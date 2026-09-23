@@ -132,7 +132,6 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
         { event: "UPDATE", schema: "public", table: "trial_balance_uploads" },
         (payload) => {
           const updated = payload.new as WorkspaceUpload;
-          const previous = payload.old as Partial<WorkspaceUpload> | null;
           if (updated.company_id !== cId) return;
           setUploads((prev) =>
             prev.map((u) => (u.id === updated.id ? updated : u)),
@@ -141,17 +140,15 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
             prev?.id === updated.id ? updated : prev,
           );
 
-          // workspaceState is derived state held in React state — the pushed row alone does
-          // not update it. Without this re-read, stage locks, mission statuses and nextAction
-          // stay frozen at the pre-push values while the same screen already shows the fresh
-          // upload (a live self-contradiction). Re-derive through the ONE pipeline.
-          const statusChanged = previous?.status !== undefined && previous.status !== updated.status;
-          const validityChanged = previous?.is_valid !== undefined && previous.is_valid !== updated.is_valid;
-          const resultChanged = previous?.processing_result !== undefined && previous.processing_result !== updated.processing_result;
-          const safishaChanged = previous?.safisha_status !== undefined && previous.safisha_status !== updated.safisha_status;
-          if (previous === null || statusChanged || validityChanged || resultChanged || safishaChanged) {
-            void fetchDataRef.current();
-          }
+          // workspaceState is DERIVED state held in React state — the pushed row alone does not
+          // update it. Without this re-read, stage locks, mission statuses and nextAction stay
+          // frozen at the pre-push values while the same screen already shows the fresh upload
+          // (a live self-contradiction, and later stages stay locked until a manual reload).
+          // Re-derive through the ONE pipeline (fetchWorkspaceSnapshot) — it also re-reads the
+          // sign-off and certification authorities the pushed row cannot carry. Unconditional:
+          // payload.old is not reliably populated, so "did anything material change" cannot be
+          // decided here; a background re-read sets `refreshing`, never blanks the screen.
+          void fetchDataRef.current();
         },
       )
       .subscribe();
