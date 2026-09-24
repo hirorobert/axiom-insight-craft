@@ -263,7 +263,9 @@ async function journeys(browser) {
     await op.goto(`${base}/prepare`)
     await openProcessingDetails(op)
     const text = await op.bodyText()
-    const diff = unbalanced.processing_result?.validation_report?.tb_balance_check?.difference
+    // Read AFTER the page shows the result: the row becomes blocked when the certification commits, a moment before the
+    // engine writes processing_result, so the earlier snapshot can predate it.
+    const diff = (await uploadRow(unbalanced.id))?.processing_result?.validation_report?.tb_balance_check?.difference
     return text.includes('Out of balance') && text.includes('12,345.00') && Math.abs(Number(diff)) === IMBALANCE
       || `lifecycle=${unbalanced.lifecycle_state} diff=${diff}`
   })
