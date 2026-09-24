@@ -5,6 +5,8 @@ Disallow: /workspace/
 Disallow: /settings
 Disallow: /uploads/status
 Disallow: /commercial/admin
+Disallow: /internal/
+Disallow: /admin/
 
 User-agent: Bingbot
 Allow: /
@@ -13,6 +15,8 @@ Disallow: /workspace/
 Disallow: /settings
 Disallow: /uploads/status
 Disallow: /commercial/admin
+Disallow: /internal/
+Disallow: /admin/
 
 User-agent: Twitterbot
 Allow: /
@@ -27,5 +31,7 @@ Disallow: /workspace/
 Disallow: /settings
 Disallow: /uploads/status
 Disallow: /commercial/admin
+Disallow: /internal/
+Disallow: /admin/
 
 Sitemap: https://cfoclose.com/sitemap.xml
