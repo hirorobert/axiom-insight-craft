@@ -198,7 +198,7 @@ export class Page {
       const r = el.getBoundingClientRect();
       const x = r.left + r.width / 2, y = r.top + r.height / 2;
       // What a person would actually press: the element must be on screen and the topmost thing at its centre.
-      const top = x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight ? document.elementFromPoint(x, y) : null;
+      const top = x >= 0 && y >= 0 && x <= document.documentElement.clientWidth && y <= document.documentElement.clientHeight ? document.elementFromPoint(x, y) : null;
       const hit = !!top && (top === el || el.contains(top));
       return { x, y, hit, disabled: !!(el.disabled || el.getAttribute("aria-disabled") === "true") };
     }, selector ?? null, text ?? null, within ?? null);

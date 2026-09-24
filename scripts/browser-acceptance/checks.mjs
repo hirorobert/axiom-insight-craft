@@ -22,7 +22,9 @@ export function classifyRequests(urls, stagingRef) {
  */
 export function layoutProblems() {
   const problems = [];
-  const vw = window.innerWidth;
+  // The LAYOUT width, never innerWidth: under mobile emulation innerWidth grows to fit overflowing content (a
+  // 320px page 141px too wide reported innerWidth 461), which silently hid exactly the overflow this checks for.
+  const vw = document.documentElement.clientWidth;
   const overflow = document.documentElement.scrollWidth - vw;
   if (overflow > 1) problems.push(`page overflows horizontally by ${overflow}px`);
   const visible = (el) => {
@@ -69,7 +71,7 @@ export function headerProblems() {
   const overlap = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
   const p = box(period), r = box(refresh);
   if (p.width < 2 || p.height < 2) problems.push("financial period is not visible");
-  if (p.left < -0.5 || p.right > innerWidth + 0.5) problems.push("financial period is cut off by the viewport");
+  if (p.left < -0.5 || p.right > document.documentElement.clientWidth + 0.5) problems.push("financial period is cut off by the viewport");
   if (period.scrollWidth > period.clientWidth + 1) problems.push("financial period text is truncated");
   if (overlap(p, r)) problems.push("financial period overlaps the refresh control");
   if (menu && overlap(p, box(menu))) problems.push("financial period overlaps the account menu");

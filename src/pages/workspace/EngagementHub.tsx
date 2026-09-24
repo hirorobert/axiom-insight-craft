@@ -122,7 +122,9 @@ export default function EngagementHub({
             <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-3">
               Shared with you
             </h2>
-            <ul className="grid gap-2" data-testid="shared-workspaces-list">
+            {/* grid-cols-1 = minmax(0, 1fr): an implicit auto column grows to a long unbreakable workspace name and
+                pushed this row off the screen at 320–375px. */}
+            <ul className="grid grid-cols-1 gap-2" data-testid="shared-workspaces-list">
               {sharedWorkspaces.map((workspace) => (
                 <li key={workspace.id}>
                   <button
@@ -132,7 +134,7 @@ export default function EngagementHub({
                     className="w-full text-left p-3.5 border border-border hover:border-primary/60 transition-colors flex items-center gap-3"
                   >
                     <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <span className="text-[13px] font-medium text-foreground flex-1 truncate">{workspace.name}</span>
+                    <span className="min-w-0 text-[13px] font-medium text-foreground flex-1 truncate">{workspace.name}</span>
                     <span className="text-[12px] text-muted-foreground shrink-0">Prepare Data</span>
                     <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                   </button>

@@ -181,7 +181,7 @@ function undoDiagnostics(page) {
     const undo = bs.find((b) => b.innerText.trim() === 'Undo')
     let hit = 'n/a'
     if (undo) { const r = undo.getBoundingClientRect(); const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); hit = el ? `${el.tagName} "${(el.innerText || '').slice(0, 20)}"` : 'none' }
-    return JSON.stringify({ buttons: info, hitAtUndo: hit, vw: innerWidth, vh: innerHeight })
+    return JSON.stringify({ buttons: info, hitAtUndo: hit, vw: document.documentElement.clientWidth, vh: document.documentElement.clientHeight })
   }).catch((e) => `diag failed: ${e.message}`)
 }
 
@@ -495,7 +495,7 @@ async function journeys(browser) {
       const tabToDiscard = await op.evaluate(() => document.activeElement?.innerText?.trim() === 'Discard upload')
       const inside = []
       for (let i = 0; i < 6; i++) { await op.press('Tab'); inside.push(await op.evaluate(() => !!document.activeElement?.closest('[role=alertdialog]'))) }
-      const fits = await op.evaluate(() => { const r = document.querySelector('[role=alertdialog]').getBoundingClientRect(); return r.left >= -1 && r.right <= innerWidth + 1 && r.top >= -1 })
+      const fits = await op.evaluate(() => { const r = document.querySelector('[role=alertdialog]').getBoundingClientRect(); return r.left >= -1 && r.right <= document.documentElement.clientWidth + 1 && r.top >= -1 })
       await op.screenshot(path.join(ART, `${w}px`, 'owner-discard-dialog.png'))
       await op.press('Escape')
       await op.waitFor(() => !document.querySelector('[role=alertdialog]'), [], { label: 'dialog closed' })
