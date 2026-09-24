@@ -165,19 +165,12 @@ export const PLATFORM_TABLE = [
   },
 ] as const;
 
-// ─────────────────────────────────────────────────────────────
-// Financial Integrity Guarantees
-// ─────────────────────────────────────────────────────────────
+// TRUST_GUARANTEES was removed with the landing-page rebuild: it was imported by nothing, and its
+// wording ("immutable", "always") is the absolute phrasing the public claim registry forbids.
+// Substantiated control wording now lives in src/content/landing/landingContent.ts, one claim per
+// row in src/content/publicClaimRegistry.ts.
 
-export const TRUST_GUARANTEES = [
-  "Controlled workflow transitions carry actor attribution wherever the server command boundary applies",
-  "Reviewer identity is always read from the authenticated server session — never trusted from the request",
-  "Commercial and computation transitions use explicit server-side operations rather than browser-supplied authority",
-  "Budget rows are immutable after approval — enforced at the database trigger level, not application code",
-  "AI-generated insights carry numeric citations — no unsourced claim is stored",
-  "Unavailable or unresolved inputs remain visible — the interface does not invent certainty",
-  "Management decision engine outputs require explicit human confirmation before any action executes",
-] as const;
+
 
 // ─────────────────────────────────────────────────────────────
 // Security Architecture Table
