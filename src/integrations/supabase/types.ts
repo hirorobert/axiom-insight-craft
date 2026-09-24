@@ -7281,6 +7281,15 @@ export type Database = {
       }
       tbu_run_source_sweeper: { Args: never; Returns: string }
       tbu_safe_object_name: { Args: { p_name: string }; Returns: string }
+      tbu_source_path_bound: {
+        Args: {
+          p_company_id: string
+          p_file_path: string
+          p_upload_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
       tbu_source_reservation_target: {
         Args: { p_reservation_id: string }
         Returns: {
@@ -7333,6 +7342,10 @@ export type Database = {
       tbu_upload_evidence: {
         Args: { p_expected_predecessor?: string; p_upload_id: string }
         Returns: string
+      }
+      tbu_upload_source_bound: {
+        Args: { p_upload_id: string }
+        Returns: boolean
       }
       workspace_authority_basis: {
         Args: { p_capability: string; p_company_id: string; p_user_id: string }
