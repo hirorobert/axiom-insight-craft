@@ -53,7 +53,7 @@ describe("PUBLIC_CLAIM_REGISTRY — every entry is well-formed", () => {
 
   it("every entry names a real repository path in its evidence", () => {
     for (const claim of PUBLIC_CLAIM_REGISTRY) {
-      const paths = claim.evidenceSource.match(/(?:src|supabase)\/[\w./-]+\.(?:ts|tsx|sql)/g) ?? [];
+      const paths = claim.evidenceSource.match(/(?:src|supabase)\/[\w./-]+\.(?:tsx|ts|sql)/g) ?? [];
       expect(paths.length, `${claim.id}: evidenceSource names no repository file`).toBeGreaterThan(0);
       for (const p of paths) {
         expect(fs.existsSync(path.join(ROOT, p)), `${claim.id}: ${p} does not exist`).toBe(true);
