@@ -100,10 +100,10 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
 
     // Access first: a workspace the caller may not open is never read at all (fail closed, no partial render).
     const nextAccess = await fetchWorkspaceAccess(cId).catch((): WorkspaceAccessState => ({ status: "error" }));
-    // A background re-read that fails transiently keeps the last known grant; a definitive answer always wins,
-    // so a revocation takes effect on the next read.
-    setAccessState((prev) => (nextAccess.status === "error" && prev.status === "granted" && hasLoadedRef.current ? prev : nextAccess));
     if (nextAccess.status !== "granted") {
+      // A background re-read that fails transiently keeps the last known grant; a definitive answer always wins,
+      // so a revocation takes effect on the next read.
+      setAccessState((prev) => (nextAccess.status === "error" && prev.status === "granted" && hasLoadedRef.current ? prev : nextAccess));
       if (nextAccess.status === "denied") { setCompany(null); setUploads([]); setUpload(null); setWorkspaceState(EMPTY_STATE); }
       hasLoadedRef.current = true;
       setLoading(false);
@@ -124,6 +124,9 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     setUploads(snapshot.uploads);
     setUpload(snapshot.upload);
     setWorkspaceState(snapshot.workspaceState);
+    // Revealed together with the data it authorizes: the shell never shows a granted workspace whose uploads have not
+    // arrived yet (a stage guard would otherwise decide on an empty upload list).
+    setAccessState(nextAccess);
 
     hasLoadedRef.current = true;
     setLoading(false);

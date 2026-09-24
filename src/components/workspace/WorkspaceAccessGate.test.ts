@@ -28,7 +28,7 @@ const access = (kind: WorkspaceAccess["kind"]): WorkspaceAccess => ({
   company: { id: CID, name: "Shared Co", fiscal_year_end: null, reporting_framework: null, currency: null, created_at: null },
 });
 
-const workspaceValue: { companyId: string; periodYear: number; uploads: { id: string }[]; access: WorkspaceAccess | null } =
+const workspaceValue: { companyId: string; periodYear: number; uploads: { id: string }[]; access: WorkspaceAccess | null; loading?: boolean } =
   { companyId: CID, periodYear: PY, uploads: [], access: null };
 const engagementValue = { missionViews: [], loading: false, mandate: null, canAmend: false, engagement: null };
 const REAL = "real-stage-content";
@@ -49,6 +49,7 @@ afterEach(() => {
   vi.doUnmock("@/contexts/EngagementContext");
   workspaceValue.access = null;
   workspaceValue.uploads = [];
+  workspaceValue.loading = false;
 });
 
 describe("WorkspaceAccessShell — nothing of the workspace renders without a server grant", () => {
@@ -96,6 +97,17 @@ describe("StageScopeGate — a Prepare grant opens Prepare ONLY", () => {
       expect(html).not.toContain(REAL);
       expect(html).not.toContain("stage-access-boundary");
     }
+  });
+});
+
+describe("StageScopeGate — never decides on a workspace that has not loaded (found by the staging browser suite)", () => {
+  it("owner, first read in flight, uploads not yet arrived: a checking state, never a redirect and never the stage", async () => {
+    workspaceValue.access = access("owner");
+    workspaceValue.loading = true;
+    const { StageScopeGate } = await load();
+    const html = render(createElement(StageScopeGate, { stage: "prepare" }, real()));
+    expect(html).toContain("Checking what&#x27;s in scope");
+    expect(html).not.toContain(REAL);
   });
 });
 

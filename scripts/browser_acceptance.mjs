@@ -279,7 +279,7 @@ async function journeys(browser) {
     eligible.objectId = await objectId(eligible.path)
     await op.goto(`${base.replace(`/${Y}`, `/${P2}`)}/prepare`)
     await op.click({ text: 'Discard upload' })
-    await op.waitForSelector('[role=alertdialog]')
+    await op.waitForSettled('[role=alertdialog]')
     await op.click({ text: 'Discard upload', within: '[role=alertdialog]' })
     await op.waitForText('Discarded')
     return !(await uploadRow(eligible.id))
@@ -299,10 +299,7 @@ async function journeys(browser) {
       || `outcomes=${again.map((a) => a.outcome)} count=${count}`
   })
   await check('14. direct stage routes fail closed while authorization is still loading', async () => {
-    const p = await (await browser.newContext()).newPage()
-    pages.push(p)
-    await p.goto(`${ORIGIN}/auth`); await p.fill('#email', O.email); await p.fill('#password', O.password); await p.click('button[type=submit]')
-    await p.waitFor(() => !location.pathname.startsWith('/auth'), [], { label: 'signed in' })
+    const p = op
     await p.throttle(2500)
     await p.send('Page.navigate', { url: `${base}/tax` })
     const early = await p.waitFor(() => document.body && /Checking your access|Checking what/.test(document.body.innerText) && document.body.innerText, [], { label: 'loading guard', timeout: 20000 })
@@ -363,6 +360,7 @@ async function journeys(browser) {
     const obj = await objectId(e.path)
     await kp.goto(`${ORIGIN}/workspace/${C}/${Pk2}/prepare`)
     await kp.click({ text: 'Discard upload' })
+    await kp.waitForSettled('[role=alertdialog]')
     await kp.click({ text: 'Discard upload', within: '[role=alertdialog]' })
     await kp.waitForText('Discarded')
     const gone = !(await uploadRow(e.id))
@@ -389,7 +387,7 @@ async function journeys(browser) {
   await check('12a. billing administration is denied (server refuses; nothing administrable renders)', async () => {
     await kp.goto(`${ORIGIN}/commercial/admin`)
     await kp.waitForText('NOT_A_COMMERCIAL_ADMIN', { timeout: 20000 })
-    const r = kp.responses.filter((x) => x.url.includes('/rpc/admin_list_commercial_offers'))
+    const r = kp.responses.filter((x) => x.url.includes('/rpc/admin_list_commercial_offers') && x.method !== 'OPTIONS')
     return r.length > 0 && r.every((x) => x.status >= 400)
   })
   await check('12b. grant administration is denied to the collaborator, and no scope/grant control is offered to them', async () => {
@@ -442,7 +440,7 @@ async function journeys(browser) {
       await op.waitForText('Discard upload')
       await op.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Discard upload')?.focus())
       await op.press('Enter')
-      await op.waitForSelector('[role=alertdialog]')
+      await op.waitForSettled('[role=alertdialog]')
       const inside = []
       for (let i = 0; i < 6; i++) { await op.press('Tab'); inside.push(await op.evaluate(() => !!document.activeElement?.closest('[role=alertdialog]'))) }
       const fits = await op.evaluate(() => { const r = document.querySelector('[role=alertdialog]').getBoundingClientRect(); return r.left >= -1 && r.right <= innerWidth + 1 && r.top >= -1 })

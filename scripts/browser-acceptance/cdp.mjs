@@ -109,15 +109,16 @@ export class Page {
     this.sessionId = sessionId;
     this.targetId = targetId;
     this.requests = [];   // every request URL this page issued (including WebSockets)
-    this.responses = [];  // { url, status }
+    this.responses = [];  // { url, status, method }
+    this.methods = new Map();
     this.consoleErrors = [];
     this.loadWaiters = [];
     browser.listeners.add((msg) => {
       if (msg.sessionId !== sessionId) return;
       const p = msg.params ?? {};
-      if (msg.method === "Network.requestWillBeSent") this.requests.push(p.request?.url ?? "");
+      if (msg.method === "Network.requestWillBeSent") { this.requests.push(p.request?.url ?? ""); this.methods.set(p.requestId, p.request?.method ?? ""); }
       else if (msg.method === "Network.webSocketCreated") this.requests.push(p.url ?? "");
-      else if (msg.method === "Network.responseReceived") this.responses.push({ url: p.response?.url ?? "", status: p.response?.status ?? 0 });
+      else if (msg.method === "Network.responseReceived") this.responses.push({ url: p.response?.url ?? "", status: p.response?.status ?? 0, method: this.methods.get(p.requestId) ?? "" });
       else if (msg.method === "Page.loadEventFired") { const w = this.loadWaiters; this.loadWaiters = []; w.forEach((r) => r()); }
       else if (msg.method === "Runtime.exceptionThrown") this.consoleErrors.push(p.exceptionDetails?.text ?? "exception");
     });
@@ -164,7 +165,8 @@ export class Page {
   }
 
   waitForText(text, opts = {}) {
-    return this.waitFor((t) => document.body && document.body.innerText.includes(t), [text], { label: `text "${text}"`, ...opts });
+    // Case-insensitive: CSS text-transform changes what innerText reports.
+    return this.waitFor((t) => document.body && document.body.innerText.toLowerCase().includes(t.toLowerCase()), [text], { label: `text "${text}"`, ...opts });
   }
 
   waitForUrl(re, opts = {}) {
@@ -172,6 +174,11 @@ export class Page {
   }
 
   bodyText() { return this.evaluate(() => document.body?.innerText ?? ""); }
+
+  /** An element that exists and has finished every CSS animation/transition (dialogs animate in). */
+  waitForSettled(selector, opts = {}) {
+    return this.waitFor((s) => { const el = document.querySelector(s); return !!el && el.getAnimations({ subtree: true }).every((a) => a.playState !== "running"); }, [selector], { label: `settled ${selector}`, ...opts });
+  }
 
   /** Center of the first visible element matching a selector, or a clickable element containing the text. */
   async locate({ selector, text, within }) {
@@ -183,7 +190,8 @@ export class Page {
       if (sel) el = [...root.querySelectorAll(sel)].find(visible) ?? null;
       else {
         const cands = [...root.querySelectorAll("button, a, [role=button], [role=option], [role=menuitem], [role=tab], label, summary")];
-        el = cands.find((c) => visible(c) && c.innerText.trim() === txt) ?? cands.find((c) => visible(c) && c.innerText.includes(txt)) ?? null;
+        const t = txt.toLowerCase();
+        el = cands.find((c) => visible(c) && c.innerText.trim().toLowerCase() === t) ?? cands.find((c) => visible(c) && c.innerText.toLowerCase().includes(t)) ?? null;
       }
       if (!el) return null;
       el.scrollIntoView({ block: "center", inline: "center" });
