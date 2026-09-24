@@ -577,9 +577,9 @@ export function DiscardUploadDialog({
               "This upload replaced an earlier trial balance and has not been processed. Cancelling it removes it and makes the earlier trial balance active again, with its validation history unchanged."
             ) : (
               <>
-                Permanently removes this unprocessed upload.
+                Removes this unprocessed upload from the workspace.
                 {replacementFileName ? ` Once removed, ${replacementFileName} is uploaded straight away.` : ""}
-                {" A short Undo window is available only after complete removal succeeds."}
+                {" A short Undo window becomes available after removal completes successfully."}
               </>
             )}
           </AlertDialogDescription>
@@ -610,8 +610,8 @@ export function DiscardUploadDialog({
           </div>
         )}
 
-        <AlertDialogFooter className="gap-2">
-          <AlertDialogCancel className="rounded-none" disabled={busy}>
+        <AlertDialogFooter data-testid="discard-dialog-actions" className="flex-col gap-2 sm:flex-row sm:justify-end sm:space-x-0">
+          <AlertDialogCancel className="mt-0 rounded-none" disabled={busy}>
             Keep current upload
           </AlertDialogCancel>
           {!isCertified && isReplacement && (

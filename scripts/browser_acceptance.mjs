@@ -34,7 +34,7 @@ try {
 
 const { Browser } = await import('./browser-acceptance/cdp.mjs')
 const { buildStagingFrontend, serveStagingFrontend } = await import('./browser-acceptance/stagingFrontend.mjs')
-const { classifyRequests, layoutProblems } = await import('./browser-acceptance/checks.mjs')
+const { classifyRequests, layoutProblems, headerProblems } = await import('./browser-acceptance/checks.mjs')
 
 const URL_ = process.env.STAGING_SUPABASE_URL
 const ANON = process.env.STAGING_SUPABASE_ANON_KEY
@@ -432,29 +432,44 @@ async function journeys(browser) {
   const anonPage = await openAs(browser, null)
   const xp = await openAs(browser, X)
   for (const [w, h] of VIEWPORTS) {
-    await check(`${w}px: no horizontal overflow, no clipped actions, labelled fields; screenshots captured`, async () => {
+    await check(`${w}px: no horizontal overflow, no clipped actions, labelled fields, a clear workspace header; screenshots captured`, async () => {
+      // Each screen is opened the way a person reaches it and captured only once its own proof is on screen.
       const shots = [
-        [anonPage, `${ORIGIN}/auth`, 'sign-in', '#email'],
-        [op, `${base}/prepare`, 'owner-prepare', null],
-        [kp, `${ORIGIN}/workspace/${C}/${Pk}/prepare`, 'collaborator-prepare', null],
-        [kp, `${ORIGIN}/workspace/${C}/${Y}/tax`, 'collaborator-stage-boundary', '[data-testid="stage-access-boundary"]'],
-        [kp, `${ORIGIN}/dashboard`, 'collaborator-hub', null],
-        [xp, `${ORIGIN}/workspace/${C}/${Y}/prepare`, 'unrelated-denied', '[data-testid="workspace-access-denied"]'],
+        { p: anonPage, name: 'sign-in', open: async (p) => { await p.goto(`${ORIGIN}/auth`); await p.waitForSelector('#email') } },
+        { p: op, name: 'owner-prepare', header: true, open: async (p) => { await p.goto(`${base}/prepare`); await p.waitForText('Trial balance preparation') } },
+        { p: kp, name: 'collaborator-prepare', header: true, open: async (p) => { await p.goto(`${ORIGIN}/workspace/${C}/${Pk}/prepare`); await p.waitForText('Trial balance preparation') } },
+        { p: kp, name: 'collaborator-stage-boundary', header: true, open: async (p) => { await p.goto(`${ORIGIN}/workspace/${C}/${Y}/tax`); await p.waitForSelector('[data-testid="stage-access-boundary"]') } },
+        // Signing in / landing with exactly one shared workspace and none of their own opens its Prepare stage directly
+        // (the hub's single-workspace auto-open) — this screenshot proves THAT, not the hub.
+        { p: kp, name: 'collaborator-sign-in-opens-shared-prepare', header: true, open: async (p) => {
+          await p.goto(`${ORIGIN}/dashboard`)
+          await p.waitForUrl(new RegExp(`/workspace/${C}/\\d{4}/prepare$`))
+          await p.waitForText('Trial balance preparation')
+        } },
+        // The hub itself, reached through the explicit hub escape (the logo): "Shared with you" lists the workspace.
+        { p: kp, name: 'collaborator-hub', open: async (p) => {
+          await p.goto(`${ORIGIN}/workspace/${C}/${Pk}/prepare`)
+          await p.waitForText('Trial balance preparation')
+          await p.click('a[aria-label="CFOClose home"]')
+          await p.waitForSelector('[data-testid="shared-workspaces-list"]')
+          const listed = await p.evaluate((n) => document.querySelector('[data-testid="shared-workspaces-list"]').innerText.includes(n), `Browser Acceptance ${TS}`)
+          if (!listed || !/\/dashboard$/.test(new URL(await p.url()).pathname)) throw new Error('the hub did not list the shared workspace')
+        } },
+        { p: xp, name: 'unrelated-denied', open: async (p) => { await p.goto(`${ORIGIN}/workspace/${C}/${Y}/prepare`); await p.waitForSelector('[data-testid="workspace-access-denied"]') } },
       ]
       const problems = []
-      for (const [p, url, name, ready] of shots) {
-        currentPage = p
-        await p.setViewport(w, h)
-        await p.goto(url)
-        if (ready) await p.waitForSelector(ready); else await sleep(2500)
+      for (const shot of shots) {
+        currentPage = shot.p
+        await shot.p.setViewport(w, h)
+        await shot.open(shot.p)
         await sleep(400)
-        const layout = await p.evaluate(layoutProblems)
-        for (const pr of layout) problems.push(`${name}: ${pr}`)
-        await p.screenshot(path.join(ART, `${w}px`, `${name}.png`))
+        for (const pr of await shot.p.evaluate(layoutProblems)) problems.push(`${shot.name}: ${pr}`)
+        if (shot.header) for (const pr of await shot.p.evaluate(headerProblems)) problems.push(`${shot.name} header: ${pr}`)
+        await shot.p.screenshot(path.join(ART, `${w}px`, `${shot.name}.png`))
       }
       return problems.length === 0 || problems.slice(0, 6).join(' | ')
     })
-    await check(`${w}px: the discard dialog is usable by keyboard — opens with Enter, keeps focus inside, closes with Escape`, async () => {
+    await check(`${w}px: the discard dialog puts the safe action first (DOM, screen, focus) and is usable by keyboard — opens with Enter, keeps focus inside, closes with Escape`, async () => {
       currentPage = op
       await op.setViewport(w, h)
       await op.goto(`${base.replace(`/${Y}`, `/${P2}`)}/prepare`)
@@ -462,6 +477,22 @@ async function journeys(browser) {
       await op.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Discard upload')?.focus())
       await op.press('Enter')
       await op.waitForSettled('[role=alertdialog]')
+      // The safe action comes first: in the DOM, on screen (on top when stacked, on the left in a row), and it
+      // holds the initial focus; Tab then reaches the destructive action.
+      const order = await op.evaluate(() => {
+        const bs = [...document.querySelectorAll('[data-testid="discard-dialog-actions"] button')]
+        const keep = bs.find((b) => b.innerText.trim() === 'Keep current upload')
+        const discard = bs.find((b) => b.innerText.trim() === 'Discard upload')
+        if (!keep || !discard) return { ok: false, why: 'actions missing' }
+        const k = keep.getBoundingClientRect(), d = discard.getBoundingClientRect()
+        const domFirst = !!(keep.compareDocumentPosition(discard) & Node.DOCUMENT_POSITION_FOLLOWING)
+        const stacked = Math.abs(k.left - d.left) < 2 && Math.abs(k.top - d.top) > 2
+        const visualFirst = stacked ? k.bottom <= d.top + 1 : k.right <= d.left + 1
+        const focusedKeep = document.activeElement === keep
+        return { ok: domFirst && visualFirst && focusedKeep, why: `dom=${domFirst} visual=${visualFirst} stacked=${stacked} focusKeep=${focusedKeep}` }
+      })
+      await op.press('Tab')
+      const tabToDiscard = await op.evaluate(() => document.activeElement?.innerText?.trim() === 'Discard upload')
       const inside = []
       for (let i = 0; i < 6; i++) { await op.press('Tab'); inside.push(await op.evaluate(() => !!document.activeElement?.closest('[role=alertdialog]'))) }
       const fits = await op.evaluate(() => { const r = document.querySelector('[role=alertdialog]').getBoundingClientRect(); return r.left >= -1 && r.right <= innerWidth + 1 && r.top >= -1 })
@@ -469,7 +500,8 @@ async function journeys(browser) {
       await op.press('Escape')
       await op.waitFor(() => !document.querySelector('[role=alertdialog]'), [], { label: 'dialog closed' })
       const stillThere = !!(await uploadRow(eligible.id))
-      return inside.every(Boolean) && fits && stillThere || `focusInside=${inside} fits=${fits} kept=${stillThere}`
+      return order.ok && tabToDiscard && inside.every(Boolean) && fits && stillThere
+        || `order=${order.why} tabToDiscard=${tabToDiscard} focusInside=${inside} fits=${fits} kept=${stillThere}`
     })
   }
   for (const p of [op, kp, xp]) await p.setViewport(1440, 900)
@@ -581,7 +613,7 @@ record('every Supabase request targeted the staging project', net.otherSupabase.
 record('cleanup left zero storage objects and no unexpected active grant', !!cleanupReport && cleanupReport.storageRemaining === 0
   && !cleanupReport.retained.some((r) => r.startsWith('active grant')), JSON.stringify(cleanupReport))
 const shots = fs.existsSync(ART) ? fs.readdirSync(ART, { recursive: true }).filter((f) => String(f).endsWith('.png') && !String(f).startsWith('failures')) : []
-record(`screenshots captured (${shots.length})`, shots.length >= VIEWPORTS.length * 7, `${shots.length} screenshot(s)`)
+record(`screenshots captured (${shots.length})`, shots.length >= VIEWPORTS.length * 8, `${shots.length} screenshot(s)`)
 
 const failed = results.filter((r) => !r.ok)
 fs.mkdirSync(ART, { recursive: true })

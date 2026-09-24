@@ -579,7 +579,7 @@ export default function PrepareWorkspace() {
               {/* Account review — only when classifier has unresolved accounts */}
               {prepareOnly && showReviewPanel && (
                 <p data-testid="prepare-only-review-note" className="text-[13px] text-muted-foreground">
-                  Some accounts need a classification decision. Account review is done by the workspace owner or a reviewer.
+                  Some accounts need a classification decision. Account review requires separate access to this workspace.
                 </p>
               )}
               {!prepareOnly && showReviewPanel && upload.company_id && user && (

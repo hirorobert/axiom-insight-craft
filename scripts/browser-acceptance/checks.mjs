@@ -50,3 +50,35 @@ export function layoutProblems() {
   }
   return problems;
 }
+
+/**
+ * Runs INSIDE the page. The workspace header at any width: the financial period is fully visible and inside the
+ * viewport, nothing in the header overlaps (identity, period, refresh, account menu), and the refresh control is a
+ * focusable button with a usable touch target. Returns problems; an absent header is a problem too.
+ */
+export function headerProblems() {
+  const problems = [];
+  const q = (s) => document.querySelector(s);
+  const period = q('[data-testid="workspace-period"]');
+  const refresh = q('[data-testid="workspace-refresh"]');
+  const header = q("header");
+  if (!header || !period || !refresh) return [`header parts missing (period=${!!period} refresh=${!!refresh})`];
+  // The account menu button carries the signed-in email as its title.
+  const menu = [...header.querySelectorAll("button")].find((b) => b !== refresh && (b.getAttribute("title") ?? "").includes("@"));
+  const box = (el) => el.getBoundingClientRect();
+  const overlap = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+  const p = box(period), r = box(refresh);
+  if (p.width < 2 || p.height < 2) problems.push("financial period is not visible");
+  if (p.left < -0.5 || p.right > innerWidth + 0.5) problems.push("financial period is cut off by the viewport");
+  if (period.scrollWidth > period.clientWidth + 1) problems.push("financial period text is truncated");
+  if (overlap(p, r)) problems.push("financial period overlaps the refresh control");
+  if (menu && overlap(p, box(menu))) problems.push("financial period overlaps the account menu");
+  const identity = q('[data-testid="workspace-identity"]');
+  if (identity && overlap(box(identity), r)) problems.push("workspace identity overlaps the refresh control");
+  if (r.width < 32 || r.height < 32) problems.push(`refresh touch target too small (${Math.round(r.width)}x${Math.round(r.height)})`);
+  if (refresh.tabIndex < 0 || refresh.disabled) problems.push("refresh is not keyboard reachable");
+  if (!refresh.getAttribute("aria-label")) problems.push("refresh has no accessible name");
+  const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  if (!top || !(top === refresh || refresh.contains(top))) problems.push("refresh is covered at its centre");
+  return problems;
+}

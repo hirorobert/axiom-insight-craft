@@ -76,7 +76,7 @@ export function StageAccessBoundary({ stage, prepareHref }: { stage: WorkspaceMi
       <Lock className="mx-auto h-5 w-5 text-muted-foreground" aria-hidden="true" />
       <h1 className="text-base font-semibold text-foreground">{STAGE_CONFIGS[stage].label} isn't shared with you</h1>
       <p className="text-[13px] text-muted-foreground">
-        Your access to this workspace covers Prepare Data only. The workspace owner decides who works on the other stages.
+        You have access to Prepare Data only. Additional stages require explicit access from a user authorized to administer this workspace.
       </p>
       <Button asChild className="h-10 px-5 text-[13px] font-semibold rounded-none shadow-none">
         <Link to={prepareHref}>Go to Prepare Data</Link>

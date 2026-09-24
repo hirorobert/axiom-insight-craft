@@ -89,6 +89,13 @@ describe("StageScopeGate — a Prepare grant opens Prepare ONLY", () => {
     expect(html).toContain('data-testid="stage-access-boundary"');
     expect(html).toContain(`href="/workspace/${CID}/${PY}/prepare"`);
   });
+  it("the boundary wording is user-based: no owner, firm or role decides, only explicit access from an authorized user", async () => {
+    workspaceValue.access = access("capability");
+    const { StageScopeGate } = await load();
+    const html = render(createElement(StageScopeGate, { stage: "tax" }, real()));
+    expect(html).toContain("You have access to Prepare Data only. Additional stages require explicit access from a user authorized to administer this workspace.");
+    expect(html).not.toMatch(/workspace owner decides|partner|manager|firm/i);
+  });
   it("owner and member keep the existing gates exactly (an undeclared scope with no work still redirects, not the boundary)", async () => {
     for (const kind of ["owner", "member"] as const) {
       workspaceValue.access = access(kind);
