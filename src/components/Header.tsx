@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,37 @@ export function Header() {
   const location = useLocation();
   const isLanding = location.pathname === "/";
 
+  // Mobile-navigation focus management: opening moves focus to the first item in the panel,
+  // Escape closes it, and closing returns focus to the toggle that opened it — so a keyboard or
+  // screen-reader user is never left focused on a control that is no longer visible.
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const mobilePanelRef = useRef<HTMLDivElement>(null);
+  const wasOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (mobileOpen) {
+      const first = mobilePanelRef.current?.querySelector<HTMLElement>(
+        'a[href], button:not([disabled])',
+      );
+      first?.focus();
+      wasOpenRef.current = true;
+      return;
+    }
+    if (wasOpenRef.current) {
+      wasOpenRef.current = false;
+      toggleRef.current?.focus();
+    }
+  }, [mobileOpen]);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [mobileOpen]);
+
   const handleSignOut = async () => {
     await signOut();
     toast.success("Signed out successfully");
@@ -35,6 +66,7 @@ export function Header() {
     if (!user?.email) return "U";
     return user.email.substring(0, 2).toUpperCase();
   };
+
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/60 bg-background/90 backdrop-blur-xl">
