@@ -211,7 +211,16 @@ export class Page {
       await sleep(200);
     }
     if (!pos) throw new Error(`click: nothing clickable for ${JSON.stringify(t)}`);
+    // Hover first, then re-locate once layout settles: hover can move the target (a toast stack expands under the
+    // pointer), and a press at the stale position would land on whatever moved there instead.
     await this.mouse("mouseMoved", pos);
+    await sleep(350);
+    const settled = await this.locate(t).catch(() => null);
+    if (settled && (Math.abs(settled.x - pos.x) > 1 || Math.abs(settled.y - pos.y) > 1)) {
+      pos = settled;
+      await this.mouse("mouseMoved", pos);
+      await sleep(350);
+    }
     await this.mouse("mousePressed", pos);
     await this.mouse("mouseReleased", pos);
   }
