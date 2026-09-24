@@ -224,12 +224,14 @@ describe("offerUndo — the Undo button is actually rendered", () => {
     const success = vi.spyOn(toastMod.toast, "success").mockImplementation(() => "t1");
     const { offerUndo } = await import("./DiscardUploadDialog");
     offerUndo({ id: "u1", fileName: "tb.xlsx", operationId: "op1", row: {}, filePath: TARGET.file_path });
-    const [title, opts] = success.mock.calls[0] as [unknown, { description?: unknown; action?: { label: string }; cancel?: { label: string } }];
+    const [title, opts] = success.mock.calls[0] as [unknown, { description?: unknown; action?: { label: string }; cancel?: { label: string }; classNames?: Record<string, string> }];
     expect(typeof title).toBe("string");
     expect(title).toBe("Discarded tb.xlsx");
     expect(opts.description).toBeTruthy();
     expect(opts.action?.label).toBe("Undo");
     expect(opts.cancel?.label).toBe("Dismiss");
+    // The buttons stay on screen: content can shrink, a long file name wraps, the buttons never shrink.
+    expect(opts.classNames).toMatchObject({ content: expect.stringContaining("min-w-0"), title: "break-all", actionButton: "shrink-0", cancelButton: "shrink-0" });
     success.mockRestore();
   });
 });

@@ -76,7 +76,7 @@ function CountdownUndoToast({ receipt }: { receipt: DiscardReceipt }) {
   const pct = (remaining / UNDO_WINDOW_MS) * 100;
 
   return (
-    <div className="w-full min-w-[16rem]">
+    <div className="w-full">
       <div className="flex items-center justify-between text-[13px]">
         <span className="text-muted-foreground">Undo window</span>
         <span className="tabular-nums font-medium">{seconds}s</span>
@@ -442,6 +442,9 @@ export function offerUndo(receipt: DiscardReceipt, onRestored?: () => void) {
   // staging browser suite). The countdown is the description, which sonner renders alongside the buttons.
   const toastId = toast.success(`Discarded ${receipt.fileName}`, {
       description: <CountdownUndoToast receipt={receipt} />,
+      // Undo must stay fully on screen: the content shrinks and a long file name wraps, so the Undo and Dismiss
+      // buttons never overflow the toast (they once did, off the right edge of the viewport).
+      classNames: { content: "min-w-0 flex-1", title: "break-all", actionButton: "shrink-0", cancelButton: "shrink-0" },
       duration: UNDO_WINDOW_MS,
       action: {
         label: "Undo",

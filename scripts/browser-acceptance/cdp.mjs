@@ -196,7 +196,11 @@ export class Page {
       if (!el) return null;
       el.scrollIntoView({ block: "center", inline: "center" });
       const r = el.getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2, disabled: !!(el.disabled || el.getAttribute("aria-disabled") === "true") };
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      // What a person would actually press: the element must be on screen and the topmost thing at its centre.
+      const top = x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight ? document.elementFromPoint(x, y) : null;
+      const hit = !!top && (top === el || el.contains(top));
+      return { x, y, hit, disabled: !!(el.disabled || el.getAttribute("aria-disabled") === "true") };
     }, selector ?? null, text ?? null, within ?? null);
   }
 
@@ -204,18 +208,22 @@ export class Page {
     const t = typeof target === "string" ? { selector: target } : target;
     const deadline = Date.now() + timeout;
     let pos = null;
+    let seen = null;
     while (Date.now() < deadline) {
       pos = await this.locate(t).catch(() => null);
-      if (pos && (allowDisabled || !pos.disabled)) break;
+      if (pos) seen = pos;
+      if (pos && pos.hit && (allowDisabled || !pos.disabled)) break;
       pos = null;
       await sleep(200);
     }
+    if (!pos && seen && !seen.hit) throw new Error(`click: ${JSON.stringify(t)} is covered or off-screen (not pressable at ${Math.round(seen.x)},${Math.round(seen.y)})`);
     if (!pos) throw new Error(`click: nothing clickable for ${JSON.stringify(t)}`);
     // Hover first, then re-locate once layout settles: hover can move the target (a toast stack expands under the
     // pointer), and a press at the stale position would land on whatever moved there instead.
     await this.mouse("mouseMoved", pos);
     await sleep(350);
     const settled = await this.locate(t).catch(() => null);
+    if (settled && !settled.hit) throw new Error(`click: ${JSON.stringify(t)} became covered or moved off-screen on hover`);
     if (settled && (Math.abs(settled.x - pos.x) > 1 || Math.abs(settled.y - pos.y) > 1)) {
       pos = settled;
       await this.mouse("mouseMoved", pos);
