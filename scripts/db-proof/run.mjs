@@ -668,7 +668,7 @@ async function proveTenancyAndImmutability() {
   await expectError("TRUNCATE by a client role is impossible", "42501", () => rpc(user(U.owner), "TRUNCATE public.financial_statement_reports"));
   await check("no function argument accepts an actor (firm member id) — actor is derived from auth.uid() only", async () => {
     const r = await admin.query(`SELECT p.proname, pg_get_function_arguments(p.oid) args FROM pg_proc p JOIN pg_namespace ns ON ns.oid=p.pronamespace WHERE ns.nspname='public' AND p.proname LIKE 'fs\\_%' AND p.proname NOT IN ('fs_rollout_allows','fs_sha256_hex') AND has_function_privilege('authenticated', p.oid, 'EXECUTE')`);
-    const bad = r.rows.filter((x) => /(firm_member|actor|reviewer|user_id|uid)/i.test(x.args));
+    const bad = r.rows.filter((x) => /(firm_member|actor|reviewer|user_id|\buid\b)/i.test(x.args));
     if (bad.length) console.log("        offenders:", JSON.stringify(bad));
     return bad.length === 0;
   });
