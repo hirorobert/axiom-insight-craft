@@ -437,12 +437,11 @@ export async function restoreUpload(receipt: DiscardReceipt): Promise<{ outcome:
  * reports 'restored' or 'already_restored'; every other outcome is shown as what it is.
  */
 export function offerUndo(receipt: DiscardReceipt, onRestored?: () => void) {
-  const toastId = toast.success(
-    <div className="flex flex-col gap-1">
-      <span className="font-medium">Discarded {receipt.fileName}</span>
-      <CountdownUndoToast receipt={receipt} />
-    </div>,
-    {
+  // The title MUST be text. sonner renders a React-element title raw and then omits the action and cancel buttons
+  // entirely, which is how this toast once showed its countdown with no Undo button at all (found by the PR #32
+  // staging browser suite). The countdown is the description, which sonner renders alongside the buttons.
+  const toastId = toast.success(`Discarded ${receipt.fileName}`, {
+      description: <CountdownUndoToast receipt={receipt} />,
       duration: UNDO_WINDOW_MS,
       action: {
         label: "Undo",

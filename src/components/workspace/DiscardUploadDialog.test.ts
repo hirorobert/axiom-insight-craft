@@ -218,6 +218,22 @@ describe("restoreUpload — Undo restores the retained source; nothing is re-upl
   });
 });
 
+describe("offerUndo — the Undo button is actually rendered", () => {
+  it("the toast title is TEXT: sonner omits action/cancel buttons for a React-element title (found by the staging browser suite)", async () => {
+    const toastMod = await import("sonner");
+    const success = vi.spyOn(toastMod.toast, "success").mockImplementation(() => "t1");
+    const { offerUndo } = await import("./DiscardUploadDialog");
+    offerUndo({ id: "u1", fileName: "tb.xlsx", operationId: "op1", row: {}, filePath: TARGET.file_path });
+    const [title, opts] = success.mock.calls[0] as [unknown, { description?: unknown; action?: { label: string }; cancel?: { label: string } }];
+    expect(typeof title).toBe("string");
+    expect(title).toBe("Discarded tb.xlsx");
+    expect(opts.description).toBeTruthy();
+    expect(opts.action?.label).toBe("Undo");
+    expect(opts.cancel?.label).toBe("Dismiss");
+    success.mockRestore();
+  });
+});
+
 describe("offerUndo — a success toast only for restored / already_restored", () => {
   it("conflict: shows the conflict as an error and never a 'restored' success", async () => {
     const toastMod = await import("sonner");
