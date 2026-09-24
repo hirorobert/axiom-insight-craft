@@ -36,6 +36,20 @@
       "when": 1790003829284,
       "tag": "0004_service_enquiry_activation_readiness",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790258373348,
+      "tag": "0005_pr32_01_discard_trial_balance_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790258942799,
+      "tag": "0006_pr32_02_upload_lifecycle_retire_and_replace",
+      "breakpoints": true
     }
   ]
 }
