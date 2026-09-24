@@ -87,13 +87,13 @@ describe("resolveActiveUpload — unpinned resolution order", () => {
     ).toBe("legacy");
   });
 
-  it("falls back to the most recent upload when nothing matches", () => {
-    expect(
-      resolveActiveUpload({ uploads: all, periodYear: 1990, derivePeriodYear: derive })?.id,
-    ).toBe("a");
+  it("never resolves to another period's upload: a period with none of its own resolves to null (its own empty state)", () => {
+    // PR #32: Replace and Discard act on the resolved upload, so a cross-period fallback let a user act on a different
+    // period's source. The staging browser suite caught exactly that (a discard on an empty FY2023 page removed FY2024's).
+    expect(resolveActiveUpload({ uploads: all, periodYear: 1990, derivePeriodYear: derive })).toBeNull();
   });
 
-  it("returns null only when there are no uploads at all", () => {
+  it("returns null when there are no uploads at all", () => {
     expect(
       resolveActiveUpload({ uploads: [], requestedUploadId: "a", periodYear: 2025, derivePeriodYear: derive }),
     ).toBeNull();

@@ -60,7 +60,11 @@ export function resolveActiveUpload<T extends ResolvableUpload>(
   if (derived) return derived;
 
   // 3. Most recent upload.
-  return candidates.length > 0 ? candidates[0] : null;
+  // Never another period's upload: a period with no upload of its own shows its own empty state (the uploader).
+  // Falling back to the most recent upload of ANY period let Prepare show, and Replace/Discard act on, a different
+  // period's source (found by the PR #32 staging browser suite: a discard on an empty FY2023 page removed FY2024's
+  // upload). An explicit ?upload= pin above still opens any upload the caller can read.
+  return null;
 }
 
 /** Canonical route for a pinned upload inside the Prepare stage. */

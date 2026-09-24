@@ -67,8 +67,9 @@ async function check(name, fn) {
       const slug = name.replace(/[^a-z0-9]+/gi, '-').slice(0, 60)
       await currentPage.screenshot(path.join(ART, 'failures', `${slug}.png`)).catch(() => {})
       const text = await currentPage.bodyText().catch(() => '')
+      const toasts = await currentPage.evaluate(() => document.querySelector('[data-sonner-toaster]')?.outerHTML ?? 'no toasts').catch(() => '')
       fs.mkdirSync(path.join(ART, 'failures'), { recursive: true })
-      fs.writeFileSync(path.join(ART, 'failures', `${slug}.txt`), `${await currentPage.url().catch(() => '')}\n\n${text.slice(0, 4000)}`)
+      fs.writeFileSync(path.join(ART, 'failures', `${slug}.txt`), `${await currentPage.url().catch(() => '')}\n\n${text.slice(0, 4000)}\n\n--- toasts ---\n${String(toasts).slice(0, 3000)}`)
     }
   }
 }
@@ -281,11 +282,11 @@ async function journeys(browser) {
     await op.click({ text: 'Discard upload' })
     await op.waitForSettled('[role=alertdialog]')
     await op.click({ text: 'Discard upload', within: '[role=alertdialog]' })
-    await op.waitForText('Discarded')
+    await op.waitFor(() => /discarded/i.test(document.querySelector('[data-sonner-toaster]')?.innerText ?? ''), [], { label: 'discard toast' })
     return !(await uploadRow(eligible.id))
   })
   await check('12. Undo (the toast action) restores the exact source: same row, same stored object', async () => {
-    await op.click({ text: 'Undo' })
+    await op.click({ text: 'Undo', within: '[data-sonner-toaster]' }, { timeout: 12000 })
     await op.waitForText('restored.')
     const row = await uploadRow(eligible.id)
     return row?.file_path === eligible.path && (await objectId(eligible.path)) === eligible.objectId || `row=${!!row}`
@@ -303,9 +304,10 @@ async function journeys(browser) {
     await p.throttle(2500)
     await p.send('Page.navigate', { url: `${base}/tax` })
     const early = await p.waitFor(() => document.body && /Checking your access|Checking what/.test(document.body.innerText) && document.body.innerText, [], { label: 'loading guard', timeout: 20000 })
-    const leaked = /Compute Tax is locked|isn.t shared with you/.test(early)
+    const leaked = /Compute Tax is locked|isn.t shared with you|not included in this engagement/i.test(early)
     await p.throttle(0)
-    await p.waitForText('is locked', { timeout: 30000 })
+    // The owner engaged Financial Statements only: once authorization settles, Tax is out of scope — never its content.
+    await p.waitForText('not included in this engagement', { timeout: 30000 })
     return !leaked
   })
 
@@ -362,9 +364,9 @@ async function journeys(browser) {
     await kp.click({ text: 'Discard upload' })
     await kp.waitForSettled('[role=alertdialog]')
     await kp.click({ text: 'Discard upload', within: '[role=alertdialog]' })
-    await kp.waitForText('Discarded')
+    await kp.waitFor(() => /discarded/i.test(document.querySelector('[data-sonner-toaster]')?.innerText ?? ''), [], { label: 'discard toast' })
     const gone = !(await uploadRow(e.id))
-    await kp.click({ text: 'Undo' })
+    await kp.click({ text: 'Undo', within: '[data-sonner-toaster]' }, { timeout: 12000 })
     await kp.waitForText('restored.')
     return gone && (await uploadRow(e.id))?.file_path === e.path && (await objectId(e.path)) === obj
   })
