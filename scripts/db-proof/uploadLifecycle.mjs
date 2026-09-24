@@ -1349,6 +1349,16 @@ async function main() {
     const personal = (await one(user(U.ownerB), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id) VALUES ('p.csv',$1,10,'processing',$2) RETURNING id", [`${U.ownerB}/${uuid()}.csv`, U.ownerB])).id;
     return (await bound(lg.id)) && (await bound(personal));
   });
+  await check("a personal (company-less) upload accepts exactly the engine's writes (validating → source hash → valid result)", async () => {
+    const id = (await one(user(U.ownerB), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id) VALUES ('p2.csv',$1,10,'processing',$2) RETURNING id", [`${U.ownerB}/${uuid()}.csv`, U.ownerB])).id;
+    const steps = [
+      ["validating", "UPDATE public.trial_balance_uploads SET status='validating' WHERE id=$1"],
+      ["source hash", "UPDATE public.trial_balance_uploads SET source_file_hash='abc' WHERE id=$1"],
+      ["result", "UPDATE public.trial_balance_uploads SET status='valid', is_valid=true, processing_result='{\"status\":\"valid\"}'::jsonb, validation_report='{}'::jsonb, accounting_errors='[]'::jsonb, processed_at=now() WHERE id=$1"],
+    ];
+    for (const [label, sql] of steps) { try { await q(SERVICE, sql, [id]); } catch (e) { return `${label}: ${e.code} ${e.message}`; } }
+    return (await row(id)).status === "valid" && (await bound(id));
+  });
   await check("owner B cannot create a row in B naming A's workspace object, A's folder, a made-up workspace path, or as another user (42501)", async () => {
     for (const [label, fn] of [
       ["A's workspace object", () => insertAs(U.ownerB, B, aUp.path)],

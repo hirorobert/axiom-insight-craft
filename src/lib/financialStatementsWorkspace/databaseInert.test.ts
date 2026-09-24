@@ -109,6 +109,7 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20260923140000_upload_lifecycle_hardening.sql",
       // ...and the final hardening (N-01 pointer follows the lifecycle, N-02 canonical source binding).
       "supabase/migrations/20260923150000_upload_pointer_and_source_binding.sql",
+      "supabase/migrations/20260923160000_personal_upload_lifecycle_audit.sql",
       "supabase/functions/_shared/uploadLifecycle.ts",
       "supabase/functions/_shared/processingActor.ts",
       "supabase/functions/_shared/sourceSweeper.ts",

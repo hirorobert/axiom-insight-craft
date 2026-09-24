@@ -324,6 +324,8 @@ A source path is bound only to its own consumed workspace reservation or its upl
 `source_not_bound` before touching storage, and only bound references hold objects from cleanup. Both it and
 20260923100000 refuse bad existing data as their FIRST statement (no DDL before it). Deployment order:
 `docs/release/PR32_UPLOAD_LIFECYCLE_DEPLOYMENT.md`.
+`20260923160000_personal_upload_lifecycle_audit.sql`: the workspace-scoped lifecycle ledger (company_id NOT NULL) gets no event
+for a company-less personal upload; before it, processing any personal upload failed (23502 → 500).
 
 ### five WIP migrations (NOT yet in origin/main)
 These must be applied in this exact order before any other WIP work:

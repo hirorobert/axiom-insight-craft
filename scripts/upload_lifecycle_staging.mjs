@@ -512,7 +512,7 @@ async function main() {
     const { data, error } = await U.ownerB.c.from('trial_balance_uploads').insert({ file_name: 'personal.csv', file_path: path, file_size: REAL_TB.length, status: 'processing', user_id: U.ownerB.id }).select('id').single()
     if (error) return `insert: ${error.message}`
     const p = await process_(U.ownerB, data.id)
-    return p.status === 200 && p.body.status === 'valid' || `ptb=${p.status}/${p.body.status} ${p.body.message ?? ''}`
+    return p.status === 200 && p.body.status === 'valid' || `ptb=${p.status}/${p.body.status} ${p.body.error ?? ''} ${p.body.message ?? ''}`
   })
   await check('N-02: no client can re-point an existing row\'s source path (42501)', async () => {
     const a = await workspaceUpload(U.owner, A, 2086)

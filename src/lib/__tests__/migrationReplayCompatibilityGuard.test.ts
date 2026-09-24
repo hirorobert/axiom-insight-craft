@@ -172,8 +172,10 @@ describe("migration directory integrity", () => {
     // uploads immutable, uploader policies limited to personal rows, claimed purges, stale-discard resolution) — forward-only, sorts last.
     // Bumped from 131 -> 132: 20260923150000_upload_pointer_and_source_binding.sql (PR #32 final hardening: the fiscal-period
     // pointer follows the upload lifecycle; source paths canonically bound) — forward-only, sorts last.
+    // Bumped from 132 -> 133: 20260923160000_personal_upload_lifecycle_audit.sql (the workspace lifecycle ledger no longer
+    // receives an event for a company-less personal upload, which had made processing them fail) — forward-only, sorts last.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(132);
+    expect(files.length).toBe(133);
   });
 });
 

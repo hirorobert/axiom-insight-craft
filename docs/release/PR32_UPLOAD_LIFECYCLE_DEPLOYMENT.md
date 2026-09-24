@@ -25,6 +25,8 @@ Record the output with the release.
 5. `20260923140000_upload_lifecycle_hardening.sql`
 6. `20260923150000_upload_pointer_and_source_binding.sql`. Its first statement refuses while any fiscal period
    names a non-active upload.
+7. `20260923160000_personal_upload_lifecycle_audit.sql`. The lifecycle audit trigger no longer writes a
+   workspace event for a company-less personal upload; without it, processing any personal upload fails.
 
 ## 2. Pause the sweeper cron (service role / SQL editor)
 
