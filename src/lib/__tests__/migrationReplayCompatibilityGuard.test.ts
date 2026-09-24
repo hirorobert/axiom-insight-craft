@@ -168,8 +168,10 @@ describe("migration directory integrity", () => {
     // a workspace_user engine actor with no firm membership; the scheduled, ticketed source sweeper) — forward-only, sorts last.
     // Bumped from 129 -> 130: 20260923130000_workspace_capability_access_bridge.sql (the narrow workspace access bridge for explicit
     // Prepare grants: get_workspace_access, list_shared_workspaces, two Prepare read policies) — forward-only, sorts last.
+    // Bumped from 130 -> 131: 20260923140000_upload_lifecycle_hardening.sql (PR #32 security-review hardening: historical
+    // uploads immutable, uploader policies limited to personal rows, claimed purges, stale-discard resolution) — forward-only, sorts last.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(130);
+    expect(files.length).toBe(131);
   });
 });
 

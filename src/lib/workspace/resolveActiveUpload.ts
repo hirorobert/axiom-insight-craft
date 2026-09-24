@@ -26,6 +26,15 @@ export function isActiveLifecycle(upload: ResolvableUpload): boolean {
   return !upload.lifecycle_state || ACTIVE_LIFECYCLE_STATES.has(upload.lifecycle_state);
 }
 
+/**
+ * Whether this upload may be processed again (Retry, Save & reprocess). Stricter than isActiveLifecycle: a missing or
+ * unknown lifecycle_state fails closed. Retired, superseded, discarded and discard_pending uploads are history — the
+ * engine refuses them with 409 and the database refuses the writes (20260923140000, PR #32 F-01).
+ */
+export function canReprocessUpload(upload: { lifecycle_state?: string | null } | null | undefined): boolean {
+  return !!upload?.lifecycle_state && ACTIVE_LIFECYCLE_STATES.has(upload.lifecycle_state);
+}
+
 export interface ResolveActiveUploadArgs<T extends ResolvableUpload> {
   /** Uploads for the company, most recent first. */
   uploads: T[];

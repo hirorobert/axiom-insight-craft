@@ -15,7 +15,8 @@
 const TICKET = /^[0-9a-f]{64}$/;
 export const SWEEP_BATCH = 100;
 
-export type SweepKind = "discard" | "cancel_replacement" | "reservation";
+// stale_discard (F-04): a discard left pending is resolved (back to active, or retired as history) — never deleted.
+export type SweepKind = "discard" | "cancel_replacement" | "reservation" | "stale_discard";
 
 export interface SweepCandidate {
   kind: SweepKind;
@@ -27,6 +28,8 @@ export interface SweepCandidate {
 export interface SweeperDeps {
   redeemTicket(ticket: string): Promise<boolean>;
   listCandidates(limit: number): Promise<SweepCandidate[]>;
+  /** F-05: tbu_sweeper_claim — the locked transition a restore respects; false means do not delete. */
+  claim(kind: SweepKind, targetId: string): Promise<boolean>;
   /** Service-role Storage removal of exactly this object. */
   removeObject(path: string): Promise<boolean>;
   /** Server-read presence in storage.objects; null when it could not be read. */
@@ -38,6 +41,7 @@ export interface SweepTally {
   purged: number;
   completed: number;
   reclaimed: number;
+  aborted: number;
   pending: number;
   skipped: number;
   failed: number;
@@ -69,11 +73,14 @@ export async function runSourceSweep(deps: SweeperDeps, ticket: string): Promise
     return { status: 500, outcome: "sweep_failed" };
   }
 
-  const tally: SweepTally = { purged: 0, completed: 0, reclaimed: 0, pending: 0, skipped: 0, failed: 0 };
+  const tally: SweepTally = { purged: 0, completed: 0, reclaimed: 0, aborted: 0, pending: 0, skipped: 0, failed: 0 };
   for (const c of candidates) {
     try {
-      if (c.delete_object) {
+      if (c.delete_object && c.kind !== "stale_discard") {
         if (!c.object_path || !safePath(c.object_path)) { tally.skipped++; continue; }
+        // Claim first (F-05): only a claimed discard/cleanup/reservation is ever deleted, never one a restore won or a
+        // live upload row references.
+        if (!(await deps.claim(c.kind, c.target_id))) { tally.skipped++; continue; }
         if (!(await deps.removeObject(c.object_path))) { tally.pending++; continue; }
         if ((await deps.objectExists(c.object_path)) !== false) { tally.pending++; continue; }
       }
@@ -81,6 +88,7 @@ export async function runSourceSweep(deps: SweeperDeps, ticket: string): Promise
       if (outcome === "purged") tally.purged++;
       else if (outcome === "completed") tally.completed++;
       else if (outcome === "reclaimed") tally.reclaimed++;
+      else if (outcome === "aborted") tally.aborted++;
       else if (outcome === "storage_cleanup_pending") tally.pending++;
       else if (outcome === "already_done" || outcome === "not_eligible" || outcome === "stale") tally.skipped++;
       else tally.failed++;

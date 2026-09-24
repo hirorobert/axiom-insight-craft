@@ -15,7 +15,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { buildPrepareUploadRoute, buildPrepareReviewRoute } from "@/lib/workspace/resolveActiveUpload";
+import { buildPrepareUploadRoute, buildPrepareReviewRoute, canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
 import { toast } from "sonner";
 
 import { UploadsStatusPanel } from "@/components/UploadsStatusPanel";
@@ -442,6 +442,8 @@ export default function PrepareWorkspace() {
   const reviewAccounts = suppressedReviewAccounts as any[];
   const showReviewPanel =
     upload?.status === "needs_review" &&
+    // Review ends in a reprocess; a historical upload (pinned via ?upload=) is never reprocessed (PR #32 F-01).
+    canReprocessUpload(upload) &&
     reviewAccounts.length > 0 &&
     !!upload?.company_id &&
     !!user;

@@ -45,6 +45,8 @@ export interface CleanupDeps {
   /** The completion RPC, executed with the CALLER's JWT (the database re-authorizes and re-reads Storage):
    *  purge_trial_balance_discard for a discard, confirm_trial_balance_storage_cleanup for a cancelled replacement. */
   completeAsCaller(kind: CleanupTarget["kind"], operationId: string): Promise<{ outcome: string } | null>;
+  /** F-05: claim_trial_balance_discard_purge as the CALLER — the locked completed→purging transition restore respects. */
+  claimAsCaller(operationId: string): Promise<{ outcome: string } | null>;
 }
 
 export interface CleanupResult { status: number; outcome: CleanupOutcome }
@@ -78,10 +80,22 @@ export async function runStorageCleanup(deps: CleanupDeps, operationId: string):
   const userId = await deps.authenticate();
   if (!userId) return { status: 401, outcome: "unauthenticated" };
 
-  const target = await deps.resolveTarget(operationId);
+  let target = await deps.resolveTarget(operationId);
   if (!target) return { status: 404, outcome: "stale_operation" };
 
   if (!(await deps.canManage(userId, target.company_id))) return { status: 403, outcome: "forbidden" };
+
+  // F-05: a discarded source is deleted only after the discard is CLAIMED (completed → purging) under the operation
+  // lock that restore_trial_balance_upload also takes, so an Undo and a purge can never both succeed. The claim also
+  // refuses an object a live upload row references. The target is re-read so deletion uses the claimed state.
+  if (target.kind === "discard" && target.state !== "purged") {
+    const claim = await deps.claimAsCaller(operationId);
+    if (!claim) return { status: 500, outcome: "completion_failed" };
+    if (claim.outcome !== "claimed") return COMPLETION_MAP[claim.outcome] ?? { status: 500, outcome: "completion_failed" };
+    const claimed = await deps.resolveTarget(operationId);
+    if (!claimed) return { status: 404, outcome: "stale_operation" };
+    target = claimed;
+  }
 
   // deletion_eligible is decided by the server: a cancelled replacement at once; a discarded source only once the
   // discard is terminal (undo window over, not restored). Before that the source must stay restorable.

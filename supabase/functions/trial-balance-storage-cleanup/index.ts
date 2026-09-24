@@ -67,6 +67,12 @@ Deno.serve(async (req) => {
       const row = Array.isArray(data) ? data[0] : data;
       return row?.outcome ? { outcome: String(row.outcome) } : null;
     },
+    claimAsCaller: async (operationId) => {
+      const { data, error } = await asCaller.rpc("claim_trial_balance_discard_purge", { p_operation_id: operationId });
+      if (error) return null;
+      const row = Array.isArray(data) ? data[0] : data;
+      return row?.outcome ? { outcome: String(row.outcome) } : null;
+    },
   }, parsed.operationId).catch(() => ({ status: 500, outcome: "completion_failed" as const }));
 
   console.log(JSON.stringify({ event: "trial_balance.storage_cleanup", operation_id: parsed.operationId, status: result.status, outcome: result.outcome }));

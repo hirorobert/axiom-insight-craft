@@ -309,6 +309,13 @@ owner only, after the migrations are applied and `trial-balance-source-sweeper` 
 `hplriydtdelehepgttul` only. Proven by `scripts/db-proof/uploadLifecycle.mjs` (local PostgreSQL) and `scripts/upload_lifecycle_staging.mjs` (hosted staging, manual CI job); pre-flight
 report for an existing database: `scripts/db-preflight/uploadLifecyclePreflight.sql`. Apply together with
 `20260922180000`. Only Lovable/the owner applies it.
+`20260923140000_upload_lifecycle_hardening.sql` (security-review F-01..F-05): a non-active upload is immutable outside a
+sanctioned lifecycle op (`trg_tbu_history_immutable`), cannot be certified, and can never be `fiscal_periods.active_upload_id`;
+`process-trial-balance` answers 409 for it (`_shared/uploadLifecycle.ts`) and the UI offers no Retry. Uploader-only
+policies cover personal (company-less) rows only, so a revoked grantee loses every workspace row. Purges CLAIM the
+discard (`purging`) under the op lock before any deletion; restore refuses a claimed discard; referenced objects are
+never deletable. A discard pending past 15 minutes is resolved by the sweeper (`stale_discard`: back to active, or
+retired). The 20260923100000 backfill refuses to run while a fiscal period names an upload it would retire (preflight §7–9).
 
 ### five WIP migrations (NOT yet in origin/main)
 These must be applied in this exact order before any other WIP work:

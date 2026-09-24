@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Real-PostgreSQL proof of the trial balance upload lifecycle migrations (20260923100000, 20260923120000, 20260923130000).
+// Real-PostgreSQL proof of the trial balance upload lifecycle migrations (20260923100000, 20260923120000, 20260923130000,
+// 20260923140000: the security-review hardening — F-01 history immutability, F-02 RLS, F-03 backfill refusal, F-04, F-05).
 //
 // 1. Upgrade (B1): replays every migration BEFORE 20260923100000, seeds legacy uploads (zero, one and
 //    several per period, certified and blocked history, an exact uploaded_at tie, NULL periods and derived
@@ -228,6 +229,42 @@ async function main() {
   const beforeAuth = {};
   for (const p of [2021, 2022, 2023, 2024, 2025]) beforeAuth[p] = await authoritative(L, p);
 
+  // ── F-03: the backfill never strands fiscal_periods.active_upload_id on a retired upload ──────
+  group("F-03 — mandatory preflight names the authoritative upload; the backfill refuses a stranded pointer");
+  const PREFLIGHT = fs.readFileSync(path.join(REPO, "scripts/db-preflight/uploadLifecyclePreflight.sql"), "utf8");
+  const preflight = async () => {
+    const res = [].concat(await admin.query(PREFLIGHT));
+    const by = (col, not) => res.find((r) => r.fields?.some((x) => x.name === col) && !(not && r.fields.some((x) => x.name === not)))?.rows ?? null;
+    return { blockers: by("would_keep_upload_id"), authority: by("pointer_status"), after: by("lifecycle_state", "file_name") };
+  };
+  const fp2023 = (await admin.query("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, active_upload_id) VALUES ($1,'2023-12-31','FY2023',$2,$3) RETURNING id", [L, U.legacy, old2023])).rows[0].id;
+  await check("the preflight is read-only (SELECT statements only)", async () =>
+    !/\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE|GRANT|REVOKE)\b/i.test(PREFLIGHT.replace(/--[^\n]*/g, "")));
+  await check("preflight §7 lists the blocker: FY2023 names an upload the backfill would retire, and which upload it keeps", async () => {
+    const { blockers } = await preflight();
+    return blockers?.length === 1 && blockers[0].fiscal_period_id === fp2023 && blockers[0].named_upload_id === old2023 && blockers[0].would_keep_upload_id === new2023;
+  });
+  await check("preflight §8 reports the authoritative upload per period and marks FY2023 names_retired", async () => {
+    const { authority } = await preflight();
+    const r = authority?.find((x) => x.company_id === L && Number(x.period_year) === 2023);
+    return r?.authoritative_upload_id === new2023 && r.pointer_status === "names_retired" && r.active_upload_id === old2023;
+  });
+  await check(`${LIFECYCLE_FILE} REFUSES to run (55000) while the pointer is stranded, and changes nothing`, async () => {
+    let code = null;
+    await admin.query("BEGIN");
+    try { await admin.query(fs.readFileSync(path.join(REPO, "supabase/migrations", LIFECYCLE_FILE), "utf8")); } catch (e) { code = e.code; }
+    await admin.query("ROLLBACK");
+    const col = await count("SELECT count(*) n FROM information_schema.columns WHERE table_name='trial_balance_uploads' AND column_name='lifecycle_state'");
+    const fp = (await admin.query("SELECT active_upload_id FROM public.fiscal_periods WHERE id=$1", [fp2023])).rows[0].active_upload_id;
+    return code === "55000" && col === 0 && fp === old2023;
+  });
+  // The operator decision the preflight asks for (made explicitly here, never by the migration).
+  await admin.query("UPDATE public.fiscal_periods SET active_upload_id=$1 WHERE id=$2", [new2023, fp2023]);
+  await check("after an explicit reconcile the preflight is clear (§7 empty, §8 matches)", async () => {
+    const { blockers, authority } = await preflight();
+    return blockers?.length === 0 && authority.find((x) => x.company_id === L && Number(x.period_year) === 2023)?.pointer_status === "matches";
+  });
+
   await check(`${LIFECYCLE_FILE} applies over the legacy data`, async () => { await applyMigration(LIFECYCLE_FILE); return true; });
   await check("every later migration also applies", async () => { for (const f of files.slice(cut + 1)) await applyMigration(f); return true; });
 
@@ -260,6 +297,11 @@ async function main() {
     && (await count("SELECT count(*) n FROM (SELECT 1 FROM public.trial_balance_uploads WHERE lifecycle_state IN ('active_unprocessed','active_processing','active_processed','blocked') AND company_id IS NOT NULL AND period_year IS NOT NULL GROUP BY company_id, period_year HAVING count(*)>1) d")) === 0);
   await check("every legacy upload has a migration event on the audit trail", async () =>
     (await count("SELECT count(*) n FROM public.trial_balance_upload_lifecycle_events WHERE actor_kind='migration' AND company_id=$1", [L])) === beforeUploads);
+  await check("F-03: after every migration the fiscal period still names the kept, ACTIVE upload; preflight §9 finds none stranded", async () => {
+    const fp = (await admin.query("SELECT active_upload_id FROM public.fiscal_periods WHERE id=$1", [fp2023])).rows[0].active_upload_id;
+    const { after } = await preflight();
+    return fp === new2023 && (await row(new2023)).lifecycle_state === "active_unprocessed" && after?.length === 0;
+  });
   await check("the fail-closed assertion is present before the index", async () => {
     const sql = fs.readFileSync(path.join(REPO, "supabase/migrations", LIFECYCLE_FILE), "utf8");
     return sql.indexOf("still have more than one active upload") > 0 && sql.indexOf("still have more than one active upload") < sql.indexOf("CREATE UNIQUE INDEX IF NOT EXISTS uq_one_active_upload_per_period");
@@ -475,12 +517,15 @@ async function main() {
     return listed.includes(b.operation_id) && early === "storage_cleanup_pending" && done === "purged"
       && (await purge(user(U.owner), b.operation_id)).outcome === "already_purged" && (await restore(user(U.owner), b.operation_id)).outcome === "expired";
   });
-  await check("the cleanup target marks a discard deletable ONLY when terminal", async () => {
+  await check("the cleanup target marks a discard deletable ONLY when terminal AND claimed", async () => {
     const u = await workspaceUpload(C, 2053, U.owner); const { b } = await discardFully(U.owner, u.id);
     const t1 = (await admin.query("SELECT deletion_eligible FROM public.tbu_storage_cleanup_target($1)", [b.operation_id])).rows[0].deletion_eligible;
     await expire(b.operation_id);
     const t2 = (await admin.query("SELECT deletion_eligible FROM public.tbu_storage_cleanup_target($1)", [b.operation_id])).rows[0].deletion_eligible;
-    return t1 === false && t2 === true;
+    // F-05: terminal is not enough; the discard must first be CLAIMED ('purging') under the operation lock.
+    const claimed = (await one(user(U.owner), "SELECT * FROM public.claim_trial_balance_discard_purge($1)", [b.operation_id])).outcome;
+    const t3 = (await admin.query("SELECT deletion_eligible FROM public.tbu_storage_cleanup_target($1)", [b.operation_id])).rows[0].deletion_eligible;
+    return t1 === false && t2 === false && claimed === "claimed" && t3 === true;
   });
   await check("unauthorized users cannot list or purge", async () => {
     const listed = await q(user(U.unrelated), "SELECT operation_id FROM public.list_purgeable_trial_balance_sources($1)", [C]);
@@ -820,6 +865,280 @@ async function main() {
   await check(`${CONCURRENCY} concurrent grants converge on ONE active grant`, async () => {
     const out = await Promise.all(Array.from({ length: CONCURRENCY }, () => grant(user(U.owner), C, U.unrelated, "review_close")));
     return out.filter((o) => o.outcome === "granted").length === 1;
+  });
+
+  // ── Independent security review of 1fd1275: F-01, F-02, F-04, F-05 (20260923140000) ─────────────
+  const ACTIVE_STATES = ["active_unprocessed", "active_processing", "active_processed", "blocked"];
+  const expectCode = async (code, fn) => { try { await fn(); return false; } catch (e) { return e.code === code; } };
+  const sanctioned = async (sql, params) => {
+    await admin.query("BEGIN");
+    try { await admin.query("SELECT set_config('axiom.tbu_lifecycle_op','proof',true)"); const r = await admin.query(sql, params); await admin.query("COMMIT"); return r; }
+    catch (e) { await admin.query("ROLLBACK"); throw e; }
+  };
+  const commitCert = async (company, upload, period) => {
+    const run = (await admin.query("INSERT INTO public.engine_runs (company_id, actor_type, firm_member_id, function_name, engine_version, status, period_year) VALUES ($1,'user',$2,'process-trial-balance','proof','running',$3) RETURNING id",
+      [company, ownerMemberOf[company], period])).rows[0].id;
+    return admin.query("SELECT public.commit_tb_certification($1,'process-trial-balance',$2,$3,$4,'h','n','o',false,false,'[]'::jsonb,'[]'::jsonb)", [run, upload, company, period]);
+  };
+  const newPeriod = async (company, year, pointer = null) => (await admin.query(
+    "INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, active_upload_id) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+    [company, `${year}-12-31`, `FY${year}`, U.owner, pointer])).rows[0].id;
+  const pointerOf = async (fp) => (await admin.query("SELECT active_upload_id FROM public.fiscal_periods WHERE id=$1", [fp])).rows[0].active_upload_id;
+
+  group("F-01 — a historical upload is never reprocessed, rewritten, certified or made the period's active upload");
+  const hBase = await workspaceUpload(C, 2001, U.owner); await certify(C, hBase.id, 2001);
+  const hRes = await reservedReplacement(U.owner, C);
+  const hRep = await retireWith(U.owner, hBase.id, Number((await row(hBase.id)).version), hRes.reservation_id);
+  const pend = await workspaceUpload(C, 2002, U.owner);
+  const pendOp = await discard(user(U.owner), pend.id, Number((await row(pend.id)).version));
+  const ret = await workspaceUpload(C, 2026, U.owner);
+  const retOp = await discard(user(U.owner), ret.id, Number((await row(ret.id)).version));
+  await workspaceUpload(C, 2026, U.collab);
+  await admin.query("UPDATE public.trial_balance_upload_operations SET created_at = now() - interval '16 minutes' WHERE id=$1", [retOp.operation_id]);
+  await sweepDone("stale_discard", retOp.operation_id);
+  const HIST = [["superseded", hBase.id, U.owner, C, 2001], ["retired", ret.id, U.owner, C, 2026], ["retired by the backfill", old2023, null, L, 2023], ["discard_pending", pend.id, U.owner, C, 2002]];
+  await check("fixtures: superseded (by replacement), retired (by the backfill) and discard_pending rows exist", async () =>
+    hRep.outcome === "replaced" && pendOp.outcome === "discard_pending"
+    && (await row(hBase.id)).lifecycle_state === "superseded" && (await row(old2023)).lifecycle_state === "retired" && (await row(ret.id)).lifecycle_state === "retired" && (await row(pend.id)).lifecycle_state === "discard_pending");
+  const snapshots = {};
+  for (const [, id] of HIST) snapshots[id] = JSON.stringify(await row(id));
+  for (const [state, id, uploader] of HIST) {
+    if (uploader) await refused(`${state}: the client Retry write (status/processing_result/accounting_errors/is_valid) by its own uploader is refused`, "55000", () =>
+      q(user(uploader), "UPDATE public.trial_balance_uploads SET status='processing', processing_result=NULL, accounting_errors=NULL, is_valid=NULL WHERE id=$1", [id]));
+    await check(`${state}: the engine (service_role) cannot rewrite status, results, validation, identity or source fields`, async () => {
+      const sets = ["status='validating'", "processing_result='{}'::jsonb", "validation_report='{}'::jsonb", "accounting_errors='[{\"forged\":true}]'::jsonb", "is_valid=true",
+        "processed_at=now()", "source_file_hash='forged'", "file_path='workspaces/forged.csv'", "file_name='forged.csv'", `company_id='${B}'`, "period_year=1999",
+        `user_id='${U.unrelated}'`, "uploaded_at=now()", "lifecycle_state='active_processed'"];
+      for (const s of sets) if (!(await expectCode("55000", () => q(SERVICE, `UPDATE public.trial_balance_uploads SET ${s} WHERE id=$1`, [id])))) return s;
+      return true;
+    });
+  }
+  await check("every refused attempt left each historical row byte-for-byte unchanged", async () => {
+    for (const [, id] of HIST) if (JSON.stringify(await row(id)) !== snapshots[id]) return id;
+    return true;
+  });
+  await check("a historical upload cannot be certified (55000); no certification row is added", async () => {
+    const before = await count("SELECT count(*) n FROM public.tb_certifications");
+    for (const [state, id, , company, period] of HIST) if (!(await expectCode("55000", () => commitCert(company, id, period)))) return state;
+    return (await count("SELECT count(*) n FROM public.tb_certifications")) === before;
+  });
+  const fpH = await newPeriod(C, 2001);
+  await check("fiscal_periods.active_upload_id refuses every historical upload (insert and update), accepts an active one and NULL", async () => {
+    for (const [state, id, , company] of HIST) {
+      if (!(await expectCode("55000", () => admin.query("UPDATE public.fiscal_periods SET active_upload_id=$1 WHERE id=$2", [id, fpH])))) return `update ${state}`;
+      if (!(await expectCode("55000", () => newPeriod(company, 2090 + HIST.findIndex((h) => h[1] === id), id)))) return `insert ${state}`;
+    }
+    if (!(await expectCode("55000", () => admin.query("UPDATE public.fiscal_periods SET active_upload_id=$1 WHERE id=$2", [uuid(), fpH])))) return "missing upload";
+    await admin.query("UPDATE public.fiscal_periods SET active_upload_id=$1 WHERE id=$2", [hRep.new_upload_id, fpH]);
+    const ok = (await pointerOf(fpH)) === hRep.new_upload_id;
+    await admin.query("UPDATE public.fiscal_periods SET active_upload_id=NULL WHERE id=$1", [fpH]);
+    return ok && (await pointerOf(fpH)) === null;
+  });
+  await check("the 'valid' promotion never promotes a historical upload, even inside a sanctioned lifecycle operation", async () => {
+    let outcome;
+    try { await sanctioned("UPDATE public.trial_balance_uploads SET period_id=$1, status='valid' WHERE id=$2", [fpH, hBase.id]); outcome = "updated"; }
+    catch (e) { outcome = e.code; }
+    return (await pointerOf(fpH)) === null ? true : `pointer moved (${outcome})`;
+  });
+  await check("an ACTIVE upload turning 'valid' is still promoted (existing behaviour preserved)", async () => {
+    const a = await workspaceUpload(C, 2003, U.owner); const fp = await newPeriod(C, 2003);
+    await q(SERVICE, "UPDATE public.trial_balance_uploads SET period_id=$1, status='valid' WHERE id=$2", [fp, a.id]);
+    return (await pointerOf(fp)) === a.id;
+  });
+  await check("the database's own ON DELETE SET NULL still reaches a historical row (and changes nothing else)", async () => {
+    const fp = await newPeriod(C, 2004);
+    await sanctioned("UPDATE public.trial_balance_uploads SET period_id=$1 WHERE id=$2", [fp, hBase.id]);
+    const before = await row(hBase.id);
+    await admin.query("DELETE FROM public.fiscal_periods WHERE id=$1", [fp]);
+    const after = await row(hBase.id);
+    return before.period_id === fp && after.period_id === null && after.lifecycle_state === "superseded"
+      && JSON.stringify(after.processing_result) === JSON.stringify(before.processing_result) && after.file_path === before.file_path && after.status === before.status;
+  });
+  await check("ACTIVE uploads keep processing normally: engine writes, certification, active_processed, client Retry write", async () => {
+    const a = await workspaceUpload(C, 2005, U.owner);
+    await q(SERVICE, "UPDATE public.trial_balance_uploads SET status='validating' WHERE id=$1", [a.id]);
+    await q(SERVICE, "UPDATE public.trial_balance_uploads SET status='processing', processing_result='{\"status\":\"valid\"}'::jsonb WHERE id=$1", [a.id]);
+    await certify(C, a.id, 2005);
+    const r = await row(a.id);
+    const retried = await q(user(U.owner), "UPDATE public.trial_balance_uploads SET status='processing', processing_result=NULL, accounting_errors=NULL, is_valid=NULL WHERE id=$1 RETURNING id", [a.id]);
+    return r.lifecycle_state === "active_processed" && (await authoritative(C, 2005)) === a.id && retried.length === 1 && ACTIVE_STATES.includes((await row(a.id)).lifecycle_state);
+  });
+  await check("authorized lifecycle operations on historical rows still work: complete + Undo of the pending discard", async () =>
+    (await complete(user(U.owner), pendOp.operation_id)).outcome === "deleted_now" && (await restore(user(U.owner), pendOp.operation_id)).outcome === "restored"
+    && (await row(pend.id)).lifecycle_state === "active_unprocessed");
+  await check("a discarded upload has no row left to reprocess or certify; only Undo brings it back", async () => {
+    const d = await workspaceUpload(C, 2006, U.owner); const { b } = await discardFully(U.owner, d.id);
+    let code = null; try { await commitCert(C, d.id, 2006); } catch (e) { code = e.code; }
+    return (await row(d.id)) === undefined && code !== null && (await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [d.id])) === 0
+      && (await restore(user(U.owner), b.operation_id)).outcome === "restored" ? true : `certification code ${code}`;
+  });
+
+  group("F-02 — upload visibility and updates follow CURRENT workspace authority (SELECT and UPDATE together)");
+  const G2 = uuid(), R2 = uuid(), N2 = uuid();
+  for (const [id, e] of [[G2, "grantee"], [R2, "revokee"], [N2, "nobody"]]) await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [id, `f02-${e}@example.test`]);
+  const W = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'F-02 workspace') RETURNING id", [U.owner])).rows[0].id;
+  await grant(user(U.owner), W, G2, "manage_source_files"); await grant(user(U.owner), W, R2, "manage_source_files");
+  const wOwner = await workspaceUpload(W, 2140, U.owner), wG = await workspaceUpload(W, 2141, G2), wR = await workspaceUpload(W, 2142, R2);
+  const personal = (await one(user(R2), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id) VALUES ('personal.csv',$1,10,'processing',$2) RETURNING id", [`${R2}/${uuid()}.csv`, R2])).id;
+  await revoke(user(U.owner), W, R2, "manage_source_files");
+  const W_IDS = [wOwner.id, wG.id, wR.id].sort();
+  const sees = async (caller) => (await q(caller, "SELECT id FROM public.trial_balance_uploads WHERE id = ANY($1::uuid[])", [W_IDS])).map((r) => r.id).sort();
+  const writes = async (caller, id) => (await q(caller, "UPDATE public.trial_balance_uploads SET file_name = file_name WHERE id=$1 RETURNING id", [id])).length;
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  await check("workspace creator: SELECT all three rows; UPDATE of their own active row still allowed", async () =>
+    same(await sees(user(U.owner)), W_IDS) && (await writes(user(U.owner), wOwner.id)) === 1);
+  await check("active grantee: SELECT all three rows (including others'); direct UPDATE of none, even their own (writes go through the lifecycle RPCs)", async () =>
+    same(await sees(user(G2)), W_IDS) && (await writes(user(G2), wG.id)) === 0 && (await writes(user(G2), wOwner.id)) === 0);
+  await check("REVOKED grantee: SELECT none, including the row they uploaded themselves; UPDATE none", async () =>
+    (await sees(user(R2))).length === 0 && (await writes(user(R2), wR.id)) === 0 && (await writes(user(R2), wOwner.id)) === 0
+    && (await one(user(R2), "SELECT public.tbu_can_read_prepare($1) r", [W])).r === false);
+  await check("REVOKED grantee: no lifecycle action on their former upload either (discard forbidden)", async () =>
+    (await discard(user(R2), wR.id, Number((await row(wR.id)).version))).outcome === "forbidden" && (await row(wR.id)).lifecycle_state === "active_unprocessed");
+  await check("unrelated user: SELECT none, UPDATE none", async () =>
+    (await sees(user(N2))).length === 0 && (await writes(user(N2), wOwner.id)) === 0 && (await writes(user(N2), wR.id)) === 0);
+  // anon holds no table privilege at all here (42501); where it does, RLS returns nothing. Either is a refusal.
+  const anonNone = async (fn) => { try { return (await fn()) === 0; } catch (e) { return e.code === "42501"; } };
+  await check("anonymous: SELECT none, UPDATE none", async () => (await anonNone(async () => (await sees(ANON)).length)) && (await anonNone(() => writes(ANON, wOwner.id))));
+  await check("an occupational title confers nothing here (partner-titled member of ANOTHER workspace sees none)", async () => (await sees(user(U.partnerTitle))).length === 0);
+  await check("accepted members keep their existing access to their own workspace's uploads (unchanged)", async () =>
+    (await visible(U.partnerTitle, "SELECT id FROM public.trial_balance_uploads WHERE company_id=$1", [C])) > 0);
+  await check("a personal (company-less) upload stays visible and updatable by its uploader, and by no one else", async () =>
+    (await visible(R2, "SELECT id FROM public.trial_balance_uploads WHERE id=$1", [personal])) === 1 && (await writes(user(R2), personal)) === 1
+    && (await visible(U.owner, "SELECT id FROM public.trial_balance_uploads WHERE id=$1", [personal])) === 0 && (await writes(user(N2), personal)) === 0);
+  await check("re-granting restores access immediately; revoking removes it immediately (evaluated live, no cache)", async () => {
+    await grant(user(U.owner), W, R2, "manage_source_files"); const back = await sees(user(R2));
+    await revoke(user(U.owner), W, R2, "manage_source_files"); const gone = await sees(user(R2));
+    return same(back, W_IDS) && gone.length === 0;
+  });
+  await check("the uploader SELECT and UPDATE policies both exclude workspace rows (checked together)", async () => {
+    const p = (await admin.query("SELECT policyname, cmd, qual, with_check FROM pg_policies WHERE tablename='trial_balance_uploads' AND policyname IN ('Users can view their own uploads','Users can update their own uploads')")).rows;
+    const sel = p.find((x) => x.cmd === "SELECT"), upd = p.find((x) => x.cmd === "UPDATE");
+    return /company_id IS NULL/.test(sel?.qual ?? "") && /company_id IS NULL/.test(upd?.qual ?? "") && /company_id IS NULL/.test(upd?.with_check ?? "");
+  });
+
+  group("F-04 — a pending discard never stays stuck");
+  const ageOp = (op) => admin.query("UPDATE public.trial_balance_upload_operations SET created_at = now() - interval '16 minutes' WHERE id=$1", [op]);
+  await check("inside the 15-minute grace a pending discard is left alone (not listed, not resolvable)", async () => {
+    const u = await workspaceUpload(C, 2007, U.owner); const b = await discard(user(U.owner), u.id, Number((await row(u.id)).version));
+    return !(await candidates()).some((c) => c.target_id === b.operation_id) && (await sweepDone("stale_discard", b.operation_id)) === "not_eligible"
+      && (await row(u.id)).lifecycle_state === "discard_pending";
+  });
+  await check("stale, period free → the sweeper returns it to its active state; nothing deleted; engine-attributed; late completion is refused", async () => {
+    const u = await workspaceUpload(C, 2008, U.owner); const b = await discard(user(U.owner), u.id, Number((await row(u.id)).version)); await ageOp(b.operation_id);
+    const c = (await candidates()).find((x) => x.target_id === b.operation_id);
+    const done = await sweepDone("stale_discard", b.operation_id);
+    const ev = (await admin.query("SELECT * FROM public.trial_balance_upload_lifecycle_events WHERE operation_id=$1 ORDER BY occurred_at DESC LIMIT 1", [b.operation_id])).rows[0];
+    const op = (await admin.query("SELECT state FROM public.trial_balance_upload_operations WHERE id=$1", [b.operation_id])).rows[0].state;
+    const late = (await complete(user(U.owner), b.operation_id)).outcome;
+    return c?.kind === "stale_discard" && c.delete_object === false && done === "aborted" && (await row(u.id)).lifecycle_state === "active_unprocessed"
+      && op === "aborted" && (await objectExists(u.path)) && ev?.actor_kind === "engine" && late === "stale_version"
+      && (await sweepDone("stale_discard", b.operation_id)) === "not_eligible" && !(await candidates()).some((x) => x.target_id === b.operation_id)
+      ? true : JSON.stringify({ c, done, op, late, ev: ev && { actor_kind: ev.actor_kind } });
+  });
+  await check("stale, period TAKEN by a newer upload → retired as history (never a second active upload), nothing deleted", async () => {
+    const u = await workspaceUpload(C, 2009, U.owner); const b = await discard(user(U.owner), u.id, Number((await row(u.id)).version));
+    const n = await workspaceUpload(C, 2009, U.collab); await ageOp(b.operation_id);
+    const done = await sweepDone("stale_discard", b.operation_id); const r = await row(u.id);
+    return done === "aborted" && r.lifecycle_state === "retired" && /another trial balance became active/.test(r.retired_reason ?? "")
+      && (await row(n.id)).lifecycle_state === "active_unprocessed" && (await activeCount(C, 2009)) === 1 && (await objectExists(u.path))
+      ? true : JSON.stringify({ done, state: r.lifecycle_state, reason: r.retired_reason });
+  });
+  await check("evidence appearing mid-saga while the period is TAKEN: the discard aborts to retired (previously stuck discard_pending)", async () => {
+    const u = await workspaceUpload(C, 2010, U.owner); const b = await discard(user(U.owner), u.id, Number((await row(u.id)).version));
+    const n = await workspaceUpload(C, 2010, U.collab);
+    await admin.query("INSERT INTO public.upload_integrity_findings (upload_id, company_id, issue_type) VALUES ($1, $2, 'ENGAGEMENT_COMPANY_MISMATCH')", [u.id, C]);
+    const c = await complete(user(U.owner), b.operation_id);
+    return c.outcome === "replacement_required" && (await row(u.id)).lifecycle_state === "retired" && (await row(n.id)).lifecycle_state === "active_unprocessed"
+      && (await activeCount(C, 2010)) === 1 ? true : JSON.stringify({ c, state: (await row(u.id)).lifecycle_state });
+  });
+  await check("evidence appearing mid-saga with the period free: back to active, exactly as before", async () => {
+    const u = await workspaceUpload(C, 2011, U.owner); const b = await discard(user(U.owner), u.id, Number((await row(u.id)).version));
+    await admin.query("INSERT INTO public.upload_integrity_findings (upload_id, company_id, issue_type) VALUES ($1, $2, 'ENGAGEMENT_COMPANY_MISMATCH')", [u.id, C]);
+    return (await complete(user(U.owner), b.operation_id)).outcome === "replacement_required" && ACTIVE_STATES.includes((await row(u.id)).lifecycle_state);
+  });
+  await check("no discard stays pending past the grace after one sweep", async () => {
+    for (const c of (await candidates()).filter((x) => x.kind === "stale_discard")) await sweepDone("stale_discard", c.target_id);
+    return (await count("SELECT count(*) n FROM public.trial_balance_upload_operations o WHERE o.kind='discard' AND o.state='pending' AND o.created_at <= now() - interval '15 minutes'")) === 0;
+  });
+
+  group("F-05 — restore-versus-purge is serialised; nothing a live row references is ever deleted");
+  const claimPurge = (caller, op) => one(caller, "SELECT * FROM public.claim_trial_balance_discard_purge($1)", [op]);
+  const sweepClaim = async (kind, id) => (await one(SERVICE, "SELECT public.tbu_sweeper_claim($1,$2) AS o", [kind, id])).o;
+  const opState = async (op) => (await admin.query("SELECT state FROM public.trial_balance_upload_operations WHERE id=$1", [op])).rows[0].state;
+  const eligible = async (op) => (await admin.query("SELECT deletion_eligible FROM public.tbu_storage_cleanup_target($1)", [op])).rows[0].deletion_eligible;
+  await check("inside the Undo window a claim is refused (undo_window_open) and Undo still works", async () => {
+    const u = await workspaceUpload(C, 2012, U.owner); const { b } = await discardFully(U.owner, u.id);
+    return (await claimPurge(user(U.owner), b.operation_id)).outcome === "undo_window_open" && (await sweepClaim("discard", b.operation_id)) === "not_eligible"
+      && (await eligible(b.operation_id)) === false && (await restore(user(U.owner), b.operation_id)).outcome === "restored";
+  });
+  await check("after the window: claim → 'purging' (deletes nothing); only then deletable; Undo is expired; purge completes once the object is gone", async () => {
+    const u = await workspaceUpload(C, 2013, U.owner); const { b } = await discardFully(U.owner, u.id); await expire(b.operation_id);
+    const before = await eligible(b.operation_id);
+    const cl = (await claimPurge(user(U.collab), b.operation_id)).outcome;
+    const st = await opState(b.operation_id); const after = await eligible(b.operation_id);
+    const r = (await restore(user(U.owner), b.operation_id)).outcome;
+    const exists = await objectExists(u.path);
+    await deleteObject(u.path);
+    return before === false && cl === "claimed" && st === "purging" && after === true && r === "expired" && exists
+      && (await claimPurge(user(U.owner), b.operation_id)).outcome === "claimed" && (await purge(user(U.owner), b.operation_id)).outcome === "purged"
+      && (await claimPurge(user(U.owner), b.operation_id)).outcome === "already_purged";
+  });
+  await check("a restored discard can never be claimed", async () => {
+    const u = await workspaceUpload(C, 2014, U.owner); const { b } = await discardFully(U.owner, u.id);
+    await restore(user(U.owner), b.operation_id); await expire(b.operation_id);
+    return (await claimPurge(user(U.owner), b.operation_id)).outcome === "not_purgeable" && (await sweepClaim("discard", b.operation_id)) === "not_eligible" && (await eligible(b.operation_id)) === false;
+  });
+  await check(`the boundary race: ${CONCURRENCY} concurrent restores and claims AT the window edge; exactly one side wins, never both`, async () => {
+    for (let round = 0; round < 4; round++) {
+      const u = await workspaceUpload(C, 2021 + round, U.owner); const { b } = await discardFully(U.owner, u.id);
+      await admin.query("UPDATE public.trial_balance_upload_operations SET completed_at = now() - public.tbu_undo_window() + interval '40 milliseconds' WHERE id=$1", [b.operation_id]);
+      const out = await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => i % 2
+        ? restore(user(U.owner), b.operation_id).then((x) => `r:${x.outcome}`)
+        : (i % 4 ? claimPurge(user(U.collab), b.operation_id).then((x) => `c:${x.outcome}`) : sweepClaim("discard", b.operation_id).then((x) => `s:${x}`))));
+      const restored = out.filter((o) => o === "r:restored").length;
+      const claimed = out.filter((o) => o === "c:claimed" || o === "s:claimed").length;
+      const st = await opState(b.operation_id);
+      if (restored > 1) return `round ${round}: ${restored} restores`;
+      if (restored === 1 && (claimed > 0 || st !== "restored" || (await row(u.id))?.lifecycle_state !== "active_unprocessed")) return `round ${round}: both won ${out}`;
+      if (claimed > 0 && (restored > 0 || st !== "purging" || (await row(u.id)) !== undefined)) return `round ${round}: both won ${out}`;
+      if (restored === 0 && claimed === 0 && st !== "completed") return `round ${round}: neither but state ${st}`;
+      if (!(await objectExists(u.path))) return `round ${round}: the object was deleted by a claim`;
+    }
+    return true;
+  });
+  await check("an object referenced by ANY live upload row is never claimed or deletable (discard, reservation)", async () => {
+    const u = await workspaceUpload(C, 2015, U.owner); const { b } = await discardFully(U.owner, u.id); await expire(b.operation_id);
+    await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('x',$1,1,'processing',$2,2016,$3)", [u.path, C, U.owner]);
+    const cand = (await candidates()).find((x) => x.target_id === b.operation_id);
+    const dead = await reserve(U.owner, C, "ref.csv"); await putObject(dead.object_path); await ageReservation(dead.reservation_id);
+    await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('y',$1,1,'processing',$2,2017,$3)", [dead.object_path, C, U.owner]);
+    return (await claimPurge(user(U.owner), b.operation_id)).outcome === "not_purgeable" && (await sweepClaim("discard", b.operation_id)) === "not_eligible"
+      && (await eligible(b.operation_id)) === false && cand?.delete_object === false && (await opState(b.operation_id)) === "completed"
+      && (await sweepClaim("reservation", dead.reservation_id)) === "not_eligible" && (await objectExists(u.path)) && (await objectExists(dead.object_path));
+  });
+  await check("a referenced cancel-replacement object is never claimed", async () => {
+    const u = await workspaceUpload(C, 2018, U.owner); await certify(C, u.id, 2018);
+    const r = await reservedReplacement(U.collab, C);
+    const rep = await retireWith(U.collab, u.id, Number((await row(u.id)).version), r.reservation_id);
+    const cx = await cancel(user(U.owner), rep.new_upload_id, Number((await row(rep.new_upload_id)).version));
+    const free = await sweepClaim("cancel_replacement", cx.operation_id);
+    await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('z',$1,1,'processing',$2,2019,$3)", [r.object_path, C, U.owner]);
+    return free === "claimed" && (await sweepClaim("cancel_replacement", cx.operation_id)) === "not_eligible" && (await eligible(cx.operation_id)) === false
+      ? true : JSON.stringify({ free, cx });
+  });
+  await check("the claim is authorized: unrelated / title-only / other-workspace / revoked users are forbidden and nothing changes", async () => {
+    const u = await workspaceUpload(C, 2020, U.owner); const { b } = await discardFully(U.owner, u.id); await expire(b.operation_id);
+    for (const who of [U.unrelated, U.partnerTitle, U.ownerB, R2]) if ((await claimPurge(user(who), b.operation_id)).outcome !== "forbidden") return who;
+    return (await opState(b.operation_id)) === "completed";
+  });
+  await refused("anonymous cannot claim (42501)", "42501", () => q(ANON, "SELECT * FROM public.claim_trial_balance_discard_purge($1)", [uuid()]));
+  await check("internal claim/abort helpers are never client-callable; the sweeper claim is service_role only", async () => {
+    for (const f of ["tbu_claim_discard_purge(uuid)", "tbu_abort_discard(uuid,text,uuid,text)", "tbu_sweeper_claim(text,uuid)", "tbu_object_referenced(text)", "tbu_stale_discard_grace()"]) {
+      const r = (await admin.query(`SELECT has_function_privilege('authenticated','public.${f}','EXECUTE') a, has_function_privilege('anon','public.${f}','EXECUTE') n`)).rows[0];
+      if (r.a || r.n) return f;
+    }
+    return (await admin.query("SELECT has_function_privilege('service_role','public.tbu_sweeper_claim(text,uuid)','EXECUTE') s")).rows[0].s === true
+      && (await admin.query("SELECT has_function_privilege('authenticated','public.claim_trial_balance_discard_purge(uuid)','EXECUTE') s")).rows[0].s === true;
   });
 
   group("Privileges and audit immutability");

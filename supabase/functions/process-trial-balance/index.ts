@@ -29,6 +29,7 @@ import {
 } from "./auditedAccountsAdapter.ts";
 import { classifyPublicSectorAccount } from "./publicSectorClassification.ts";
 import { resolveProcessingActor, type ProcessingActor } from "../_shared/processingActor.ts";
+import { processingRefusal } from "../_shared/uploadLifecycle.ts";
 import { claimIdempotency, failIdempotency } from "../_shared/idempotency.ts";
 import { recordEngineRunFailed } from "../_shared/engine-run.ts";
 import { canonicalJson, sha256Hex, sha256HexBytes, type CanonicalValue } from "../_shared/hash.ts";
@@ -1457,6 +1458,13 @@ serve(async (req) => {
         JSON.stringify({ error: "Forbidden", message: "You do not own this upload" }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
+    }
+
+    // F-01 (PR #32): only an ACTIVE upload is processed. A retired, superseded, discarded or discard_pending upload
+    // is history; the database refuses these writes too (trg_tbu_history_immutable). Refused before any mutation.
+    const notActive = processingRefusal((upload as { lifecycle_state?: unknown }).lifecycle_state);
+    if (notActive) {
+      return new Response(JSON.stringify(notActive), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // Only after ownership is confirmed do we mutate the upload row.

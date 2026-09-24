@@ -630,7 +630,22 @@ DO $$
 DECLARE
   v_ties integer;
   v_dupes integer;
+  v_pointers integer;
 BEGIN
+  -- (0) F-03: never retire an upload that a fiscal period currently names as its active upload. Which upload should
+  --     stay authoritative for such a period is the operator's decision (scripts/db-preflight/uploadLifecyclePreflight.sql,
+  --     sections 7-8), not one this migration may make silently. Abort before anything changes.
+  SELECT count(*) INTO v_pointers
+    FROM public.fiscal_periods fp
+    JOIN (SELECT id, row_number() OVER (PARTITION BY company_id, period_year ORDER BY uploaded_at DESC, id DESC) AS rn
+            FROM public.trial_balance_uploads WHERE company_id IS NOT NULL AND period_year IS NOT NULL) r
+      ON r.id = fp.active_upload_id
+   WHERE r.rn > 1;
+  IF v_pointers > 0 THEN
+    RAISE EXCEPTION 'upload lifecycle backfill: % fiscal period(s) name as their active upload an upload this backfill would retire (not the latest upload for its company and period). Nothing was changed. Run scripts/db-preflight/uploadLifecyclePreflight.sql (sections 7-8) and reconcile fiscal_periods.active_upload_id before applying.', v_pointers
+      USING ERRCODE = '55000';
+  END IF;
+
   PERFORM set_config('axiom.tbu_lifecycle_op', 'migration_backfill', true);
 
   -- (a) Processing state of every existing upload, derived from its authoritative facts.

@@ -380,6 +380,78 @@ async function main() {
     return cfg === 'configured' && out === 'dispatched' && state === 'purged' && !(await objectId(t.path)) || `cfg=${cfg} run=${out} state=${state}`
   })
 
+  section('Security review hardening (20260923140000): F-01 no reprocessing of history, F-02 current-authority visibility, F-04, F-05')
+  const opState = async (op) => (await svc.from('trial_balance_upload_operations').select('state').eq('id', op).single()).data?.state
+  const clientRetry = async (who, id) => who.c.from('trial_balance_uploads').update({ status: 'processing', processing_result: null, accounting_errors: null, is_valid: null }).eq('id', id).select('id')
+  await check('F-01 superseded: process-trial-balance answers 409 not_active; the client Retry write is refused (55000); the row is unchanged; the active replacement still processes', async () => {
+    const u = await workspaceUpload(U.owner, A, 2070)
+    const p0 = await process_(U.owner, u.id)
+    const rep = await retireWith(U.owner, u.id, await version(u.id), A)
+    const before = JSON.stringify(await row(u.id))
+    const p = await process_(U.owner, u.id)
+    const retry = await clientRetry(U.owner, u.id)
+    const after = JSON.stringify(await row(u.id))
+    const p2 = await process_(U.owner, rep.new_upload_id)
+    return p0.body.status === 'valid' && rep.outcome === 'replaced' && p.status === 409 && p.body.status === 'not_active' && p.body.lifecycle_state === 'superseded'
+      && retry.error?.code === '55000' && before === after && p2.status === 200 && (await row(rep.new_upload_id)).lifecycle_state === 'active_processed'
+      || `first=${p0.body.status} replace=${rep.outcome} ptb=${p.status}/${p.body.status}/${p.body.lifecycle_state} retry=${retry.error?.code} unchanged=${before === after} active=${p2.status}`
+  })
+  await check('F-01 discard_pending: process-trial-balance answers 409 and writes nothing; the discard then completes and is undone normally', async () => {
+    const u = await workspaceUpload(U.owner, A, 2071)
+    const b = await discard(U.owner, u.id, await version(u.id))
+    const before = JSON.stringify(await row(u.id))
+    const p = await process_(U.owner, u.id)
+    const same = before === JSON.stringify(await row(u.id))
+    const c = await complete(U.owner, b.operation_id)
+    const r = await restore(U.owner, b.operation_id)
+    return b.outcome === 'discard_pending' && p.status === 409 && p.body.lifecycle_state === 'discard_pending' && same && c.outcome === 'deleted_now' && r.outcome === 'restored'
+      || `discard=${b.outcome} ptb=${p.status}/${p.body.lifecycle_state} same=${same} complete=${c.outcome} restore=${r.outcome}`
+  })
+  await check('F-04 + F-01 retired: a stale pending discard whose period was taken is retired by the sweeper (never stuck), and cannot be processed (409)', async () => {
+    const u = await workspaceUpload(U.owner, A, 2072)
+    const b = await discard(U.owner, u.id, await version(u.id))
+    await workspaceUpload(U.collab, A, 2072)
+    await svc.from('trial_balance_upload_operations').update({ created_at: new Date(Date.now() - 16 * 60000).toISOString() }).eq('id', b.operation_id)
+    const done = await svcRpc('tbu_sweeper_complete', { p_kind: 'stale_discard', p_target_id: b.operation_id })
+    const r = await row(u.id)
+    const p = await process_(U.owner, u.id)
+    return done === 'aborted' && r.lifecycle_state === 'retired' && (await activeCount(A, 2072)) === 1 && !!(await objectId(u.path))
+      && p.status === 409 && p.body.lifecycle_state === 'retired' && (await complete(U.owner, b.operation_id)).outcome === 'stale_version'
+      || `sweep=${done} lifecycle=${r?.lifecycle_state} ptb=${p.status}/${p.body.lifecycle_state}`
+  })
+  await check('F-02: a revoked collaborator immediately loses every upload of the workspace, INCLUDING the one they uploaded; owner and active grantee keep access', async () => {
+    const g = await makeUser('f02revoked')
+    await grant(U.owner, A, g.id, 'manage_source_files')
+    const gu = await workspaceUpload(g, A, 2073)
+    const own = async (who) => (await who.c.from('trial_balance_uploads').select('id').eq('id', gu.id)).data?.length ?? 0
+    const anyA = async (who) => (await who.c.from('trial_balance_uploads').select('id').eq('company_id', A)).data?.length ?? 0
+    const before = [await own(g), await anyA(g)]
+    await revoke(U.owner, A, g.id, 'manage_source_files')
+    const after = [await own(g), await anyA(g)]
+    const upd = await g.c.from('trial_balance_uploads').update({ file_name: 'renamed.csv' }).eq('id', gu.id).select('id')
+    const unchanged = (await row(gu.id)).file_name !== 'renamed.csv'
+    const ownerSees = await own(U.owner), collabSees = await own(U.collab), unrelatedSees = await own(U.unrelated)
+    const anon = createClient(URL_, ANON, opts)
+    const anonSees = (await anon.from('trial_balance_uploads').select('id').eq('id', gu.id)).data?.length ?? 0
+    return before[0] === 1 && before[1] > 1 && after[0] === 0 && after[1] === 0 && (upd.data ?? []).length === 0 && unchanged
+      && ownerSees === 1 && collabSees === 1 && unrelatedSees === 0 && anonSees === 0
+      || JSON.stringify({ before, after, upd: upd.data?.length, unchanged, ownerSees, collabSees, unrelatedSees, anonSees })
+  })
+  await check('F-05: the cleanup function claims the discard first; once claimed, Undo is expired; the purge is recorded', async () => {
+    const u = await workspaceUpload(U.owner, A, 2074); const { b } = await discardFully(U.owner, u.id); await expireOp(b.operation_id)
+    const r = await cleanup(U.owner, { operation_id: b.operation_id })
+    const st = await opState(b.operation_id)
+    const undo = await restore(U.owner, b.operation_id)
+    return r.outcome === 'completed' && st === 'purged' && !(await objectId(u.path)) && undo.outcome === 'expired' || `cleanup=${r.status}/${r.outcome} state=${st} undo=${undo.outcome}`
+  })
+  await check('F-05: an object still referenced by a live upload row is never deleted (409 not_purgeable); the operation is not claimed', async () => {
+    const u = await workspaceUpload(U.owner, A, 2075); const { b } = await discardFully(U.owner, u.id); await expireOp(b.operation_id)
+    const { error } = await svc.from('trial_balance_uploads').insert({ file_name: 'ref.csv', file_path: u.path, file_size: 1, status: 'processing', company_id: A, period_year: 2076, user_id: U.owner.id })
+    const r = await cleanup(U.owner, { operation_id: b.operation_id })
+    return !error && r.status === 409 && r.outcome === 'not_purgeable' && !!(await objectId(u.path)) && (await opState(b.operation_id)) === 'completed'
+      || `insert=${error?.message} cleanup=${r.status}/${r.outcome} state=${await opState(b.operation_id)}`
+  })
+
   section('Invariants')
   await check('no company/period anywhere on staging has more than one active upload', async () => {
     const { data } = await svc.from('trial_balance_uploads').select('company_id, period_year').not('company_id', 'is', null).not('period_year', 'is', null)

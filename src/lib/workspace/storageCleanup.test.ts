@@ -18,6 +18,7 @@ function deps(over: Partial<CleanupDeps> = {}) {
     removeObject: vi.fn(async () => ({ ok: true })),
     objectExists: vi.fn(async () => false),
     completeAsCaller: vi.fn(async () => ({ outcome: "deleted_now" })),
+    claimAsCaller: vi.fn(async () => ({ outcome: "claimed" }) as { outcome: string } | null),
     ...over,
   };
   return d as typeof d & CleanupDeps;
@@ -127,5 +128,47 @@ describe("runStorageCleanup", () => {
   it("an unexpected completion answer never becomes a success", async () => {
     const d = deps({ completeAsCaller: vi.fn(async () => ({ outcome: "something_new" })) });
     await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 500, outcome: "completion_failed" });
+  });});
+
+describe("F-05: a discard is CLAIMED before its source is deleted (restore-versus-purge is serialised)", () => {
+  it("the claim precedes any deletion, and deletion uses the re-read (claimed) target", async () => {
+    const order: string[] = [];
+    const d = deps({
+      claimAsCaller: vi.fn(async () => { order.push("claim"); return { outcome: "claimed" }; }),
+      resolveTarget: vi.fn(async () => { order.push("resolve"); return target({ state: order.includes("claim") ? "purging" : "completed" }); }),
+      removeObject: vi.fn(async () => { order.push("remove"); return { ok: true }; }),
+      completeAsCaller: vi.fn(async () => { order.push("complete"); return { outcome: "purged" }; }),
+    });
+    await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 200, outcome: "completed" });
+    expect(order).toEqual(["resolve", "claim", "resolve", "remove", "complete"]);
+  });
+  it.each([
+    ["undo_window_open", 409],
+    ["not_purgeable", 409],
+    ["forbidden", 403],
+    ["stale_operation", 404],
+  ] as const)("a refused claim (%s) deletes nothing and completes nothing", async (outcome, status) => {
+    const d = deps({ claimAsCaller: vi.fn(async () => ({ outcome })) });
+    await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status, outcome });
+    expect(d.removeObject).not.toHaveBeenCalled();
+    expect(d.completeAsCaller).not.toHaveBeenCalled();
+  });
+  it("a failed claim (no answer) is completion_failed, nothing deleted", async () => {
+    const d = deps({ claimAsCaller: vi.fn(async () => null) });
+    await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 500, outcome: "completion_failed" });
+    expect(d.removeObject).not.toHaveBeenCalled();
+  });
+  it("an already-purged discard and a cancelled replacement are never claimed", async () => {
+    const purged = deps({ resolveTarget: vi.fn(async () => target({ state: "purged", deletion_eligible: false })), completeAsCaller: vi.fn(async () => ({ outcome: "already_purged" })) });
+    await runStorageCleanup(purged, OP);
+    expect(purged.claimAsCaller).not.toHaveBeenCalled();
+    const cancel = deps({ resolveTarget: vi.fn(async () => target({ kind: "cancel_replacement", state: "storage_cleanup_pending" })), completeAsCaller: vi.fn(async () => ({ outcome: "completed" })) });
+    await runStorageCleanup(cancel, OP);
+    expect(cancel.claimAsCaller).not.toHaveBeenCalled();
+  });
+  it("a claimed target the server still marks ineligible (a live row references the object) is not deleted", async () => {
+    const d = deps({ resolveTarget: vi.fn(async () => target({ state: "purging", deletion_eligible: false })), completeAsCaller: vi.fn(async () => ({ outcome: "storage_cleanup_pending" })) });
+    await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 409, outcome: "storage_cleanup_pending" });
+    expect(d.removeObject).not.toHaveBeenCalled();
   });
 });

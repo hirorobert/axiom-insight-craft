@@ -69,3 +69,55 @@ SELECT EXISTS (
   SELECT 1 FROM information_schema.columns
    WHERE table_schema = 'public' AND table_name = 'trial_balance_uploads' AND column_name = 'lifecycle_state'
 ) AS lifecycle_already_applied;
+
+-- 7. MIGRATION BLOCKERS (F-03). Fiscal periods whose active_upload_id names an upload the backfill would RETIRE
+--    (not the latest upload for its company and period). The migration refuses to run while any row is listed here:
+--    which upload stays authoritative for such a period is an operator decision, never a silent one. To proceed,
+--    point fiscal_periods.active_upload_id at the kept upload (section 8) or clear it, after human review.
+WITH ranked AS (
+  SELECT id, company_id, period_year, file_name, uploaded_at,
+         row_number() OVER (PARTITION BY company_id, period_year ORDER BY uploaded_at DESC, id DESC) AS rn
+    FROM public.trial_balance_uploads
+   WHERE company_id IS NOT NULL AND period_year IS NOT NULL
+)
+SELECT fp.id AS fiscal_period_id, fp.company_id, fp.period_label, fp.active_upload_id AS named_upload_id,
+       r.file_name AS named_file, r.uploaded_at AS named_uploaded_at,
+       (SELECT k.id FROM ranked k WHERE k.company_id = r.company_id AND k.period_year = r.period_year AND k.rn = 1) AS would_keep_upload_id
+  FROM public.fiscal_periods fp
+  JOIN ranked r ON r.id = fp.active_upload_id
+ WHERE r.rn > 1
+ ORDER BY fp.company_id, fp.period_label;
+
+-- 8. For every period holding uploads: the upload that would remain AUTHORITATIVE (active) after the backfill,
+--    beside what fiscal_periods.active_upload_id currently names. pointer_status:
+--      matches           the period already names the kept upload;
+--      names_retired     BLOCKER (section 7): it names an upload the backfill would retire;
+--      names_other_scope it names an upload of a different company or period (pre-existing inconsistency, review);
+--      unset             no fiscal period names an upload for this company/period.
+WITH ranked AS (
+  SELECT id, company_id, period_year, period_id, file_name, uploaded_at,
+         row_number() OVER (PARTITION BY company_id, period_year ORDER BY uploaded_at DESC, id DESC) AS rn
+    FROM public.trial_balance_uploads
+   WHERE company_id IS NOT NULL AND period_year IS NOT NULL
+), kept AS (SELECT * FROM ranked WHERE rn = 1)
+SELECT k.company_id, k.period_year, k.id AS authoritative_upload_id, k.file_name, k.uploaded_at,
+       fp.id AS fiscal_period_id, fp.active_upload_id,
+       CASE WHEN fp.id IS NULL OR fp.active_upload_id IS NULL THEN 'unset'
+            WHEN fp.active_upload_id = k.id THEN 'matches'
+            WHEN EXISTS (SELECT 1 FROM ranked r WHERE r.id = fp.active_upload_id AND r.company_id = k.company_id
+                          AND r.period_year = k.period_year AND r.rn > 1) THEN 'names_retired'
+            ELSE 'names_other_scope' END AS pointer_status
+  FROM kept k
+  -- A fiscal period belongs to this company/period when the kept upload names it, or when it names any upload of it.
+  LEFT JOIN public.fiscal_periods fp ON fp.company_id = k.company_id
+        AND (fp.id = k.period_id OR fp.active_upload_id IN (SELECT r.id FROM ranked r WHERE r.company_id = k.company_id AND r.period_year = k.period_year))
+ ORDER BY k.company_id, k.period_year;
+
+-- 9. After the lifecycle migration has been applied: any fiscal period still naming a NON-ACTIVE upload
+--    (should be none; 20260923140000 refuses to create such a pointer). Returns nothing before the migration.
+SELECT fp.id AS fiscal_period_id, fp.company_id, fp.active_upload_id, to_jsonb(t) ->> 'lifecycle_state' AS lifecycle_state
+  FROM public.fiscal_periods fp
+  JOIN public.trial_balance_uploads t ON t.id = fp.active_upload_id
+ WHERE EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'trial_balance_uploads' AND column_name = 'lifecycle_state')
+   AND (to_jsonb(t) ->> 'lifecycle_state') NOT IN ('active_unprocessed', 'active_processing', 'active_processed', 'blocked');

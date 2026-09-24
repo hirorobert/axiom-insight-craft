@@ -36,6 +36,10 @@ Deno.serve(async (req) => {
       if (error) throw error;
       return (data ?? []) as SweepCandidate[];
     },
+    claim: async (kind, targetId) => {
+      const { data, error } = await service.rpc("tbu_sweeper_claim", { p_kind: kind, p_target_id: targetId });
+      return !error && data === "claimed";
+    },
     removeObject: async (path) => {
       const { error } = await service.storage.from(BUCKET).remove([path]);
       return !error;

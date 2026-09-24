@@ -13,6 +13,7 @@ function deps(over: Partial<SweeperDeps> = {}) {
   const d = {
     redeemTicket: vi.fn(async () => true),
     listCandidates: vi.fn(async () => [cand()]),
+    claim: vi.fn(async () => true),
     removeObject: vi.fn(async () => true),
     objectExists: vi.fn(async () => false as boolean | null),
     complete: vi.fn(async () => "purged" as string | null),
@@ -39,12 +40,13 @@ describe("runSourceSweep", () => {
   it("deletes exactly the listed object, verifies absence, THEN records completion", async () => {
     const order: string[] = [];
     const d = deps({
+      claim: vi.fn(async (k: string, id: string) => { order.push(`claim:${k}:${id}`); return true; }),
       removeObject: vi.fn(async (p: string) => { order.push(`remove:${p}`); return true; }),
       objectExists: vi.fn(async (p: string) => { order.push(`exists:${p}`); return false; }),
       complete: vi.fn(async (k: string, id: string) => { order.push(`complete:${k}:${id}`); return "purged"; }),
     });
     await expect(runSourceSweep(d, TICKET)).resolves.toMatchObject({ status: 200, outcome: "swept", tally: { purged: 1, pending: 0 } });
-    expect(order).toEqual(["remove:workspaces/co/s/tb.csv", "exists:workspaces/co/s/tb.csv", "complete:discard:op-1"]);
+    expect(order).toEqual(["claim:discard:op-1", "remove:workspaces/co/s/tb.csv", "exists:workspaces/co/s/tb.csv", "complete:discard:op-1"]);
   });
   it("a failed or unverifiable deletion stays pending and is never recorded as done", async () => {
     for (const over of [{ removeObject: vi.fn(async () => false) }, { objectExists: vi.fn(async () => true) }, { objectExists: vi.fn(async () => null) }]) {
@@ -79,5 +81,37 @@ describe("runSourceSweep", () => {
     const d = deps({ listCandidates: vi.fn(async () => { throw new Error("db down"); }) });
     await expect(runSourceSweep(d, TICKET)).resolves.toEqual({ status: 500, outcome: "sweep_failed" });
     expect(d.removeObject).not.toHaveBeenCalled();
+  });
+});
+
+describe("F-05: claim before delete; F-04: stale discards resolved, never deleted", () => {
+  it("an unclaimed item (restore won the race, or a live upload references the object) is not deleted or completed", async () => {
+    for (const kind of ["discard", "cancel_replacement", "reservation"] as const) {
+      const d = deps({ listCandidates: vi.fn(async () => [cand({ kind })]), claim: vi.fn(async () => false) });
+      await expect(runSourceSweep(d, TICKET)).resolves.toMatchObject({ tally: { skipped: 1, purged: 0 } });
+      expect(d.claim).toHaveBeenCalledWith(kind, "op-1");
+      expect(d.removeObject).not.toHaveBeenCalled();
+      expect(d.complete).not.toHaveBeenCalled();
+    }
+  });
+  it("a claim that throws counts as failed and deletes nothing", async () => {
+    const d = deps({ claim: vi.fn(async () => { throw new Error("db"); }) });
+    await expect(runSourceSweep(d, TICKET)).resolves.toMatchObject({ tally: { failed: 1 } });
+    expect(d.removeObject).not.toHaveBeenCalled();
+  });
+  it("nothing is claimed when there is nothing to delete", async () => {
+    const d = deps({ listCandidates: vi.fn(async () => [cand({ delete_object: false })]) });
+    await runSourceSweep(d, TICKET);
+    expect(d.claim).not.toHaveBeenCalled();
+  });
+  it("stale_discard never claims or deletes (even if flagged), and aborted is tallied", async () => {
+    const d = deps({
+      listCandidates: vi.fn(async () => [cand({ kind: "stale_discard", delete_object: true })]),
+      complete: vi.fn(async () => "aborted"),
+    });
+    await expect(runSourceSweep(d, TICKET)).resolves.toMatchObject({ tally: { aborted: 1, purged: 0 } });
+    expect(d.claim).not.toHaveBeenCalled();
+    expect(d.removeObject).not.toHaveBeenCalled();
+    expect(d.complete).toHaveBeenCalledWith("stale_discard", "op-1");
   });
 });
