@@ -172,6 +172,19 @@ async function openAs(browser, who) {
   return page
 }
 const hasTestId = (page, id) => page.evaluate((t) => !!document.querySelector(`[data-testid="${t}"]`), id)
+// What is on screen around the toast action: every toast button with its box, and what element is actually hit at
+// the Undo button's centre (a covered button is exactly the defect this would reveal).
+function undoDiagnostics(page) {
+  return page.evaluate(() => {
+    const bs = [...document.querySelectorAll('[data-sonner-toaster] button')]
+    const info = bs.map((b) => { const r = b.getBoundingClientRect(); return `${b.innerText.trim() || b.getAttribute('aria-label')}@${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)}` })
+    const undo = bs.find((b) => b.innerText.trim() === 'Undo')
+    let hit = 'n/a'
+    if (undo) { const r = undo.getBoundingClientRect(); const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); hit = el ? `${el.tagName} "${(el.innerText || '').slice(0, 20)}"` : 'none' }
+    return JSON.stringify({ buttons: info, hitAtUndo: hit, vw: innerWidth, vh: innerHeight })
+  }).catch((e) => `diag failed: ${e.message}`)
+}
+
 async function openProcessingDetails(page) {
   await page.click({ text: 'Evidence and processing details' })
   await page.waitForText('Trial Balance Integrity', { timeout: 20000 })
@@ -286,8 +299,14 @@ async function journeys(browser) {
     return !(await uploadRow(eligible.id))
   })
   await check('12. Undo (the toast action) restores the exact source: same row, same stored object', async () => {
+    const before = await undoDiagnostics(op)
     await op.click({ text: 'Undo', within: '[data-sonner-toaster]' }, { timeout: 12000 })
-    await op.waitForText('restored.')
+    try {
+      await op.waitForText('restored.')
+    } catch (e) {
+      const sent = op.responses.filter((r) => r.url.includes('/rpc/restore_trial_balance_upload')).map((r) => `${r.method} ${r.status}`)
+      throw new Error(`${e.message}; before=${before}; restore requests=${JSON.stringify(sent)}; after=${await undoDiagnostics(op)}; errors=${JSON.stringify(op.consoleErrors.slice(-3))}`)
+    }
     const row = await uploadRow(eligible.id)
     return row?.file_path === eligible.path && (await objectId(eligible.path)) === eligible.objectId || `row=${!!row}`
   })
