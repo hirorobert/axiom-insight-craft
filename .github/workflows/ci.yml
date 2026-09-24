@@ -7,6 +7,11 @@ on:
     branches: [main]
   # Manual runs only: the write-capable staging RLS regression is reachable ONLY through this trigger.
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request whose head must equal the tested commit (browser acceptance fails otherwise)"
+        required: false
+        type: string
 
 jobs:
   migration-audit:
@@ -156,7 +161,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     environment: staging
-    timeout-minutes: 15
+    timeout-minutes: 45
     concurrency:
       group: rls-regression-staging
       cancel-in-progress: false
@@ -210,6 +215,30 @@ jobs:
           STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
           STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
         run: node scripts/sweeper_readiness.mjs
+
+      - name: Staging browser acceptance (PR #32; real frontend, headless Chrome, disposable identities)
+        # Same guard, same STAGING_* variables only. Builds the frontend with NO .env readable and verifies the bundle
+        # names staging and never production; fails on any failed journey, any production request, a forbidden stage,
+        # a cleanup failure, missing screenshots, or a tested commit that is not the requested PR head.
+        env:
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          ARTIFACT_DIR: artifacts/browser-acceptance
+        run: node scripts/browser_acceptance.mjs
+
+      - name: Upload browser acceptance screenshots for human review
+        # Runs after a failed suite too (never after a cancel), so failures can be reviewed. No secrets, no env; it
+        # uploads only the screenshots, results.json and cleanup.json the suite wrote. The job still fails.
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-acceptance-${{ github.sha }}
+          path: artifacts/browser-acceptance
+          if-no-files-found: error
+          retention-days: 14
 
   db-contract-tests:
     name: Disposable-DB Contract Tests (Ω∞ A+ closure)

@@ -143,7 +143,11 @@ describe("database inertness — schema and functions", () => {
       "supabase/config.toml",
       // PR #32 sweeper release control: the fail-closed readiness check (staging by default, behind stagingGuard;
       // an explicit --owner mode for the owner) and its pure evaluator.
-      "scripts/sweeper_readiness.mjs", "scripts/ci/sweeperReadiness.mjs"]);
+      "scripts/sweeper_readiness.mjs", "scripts/ci/sweeperReadiness.mjs",
+      // PR #32 staging browser acceptance: behind the same stagingGuard; a dependency-free CDP driver (no package.json
+      // change), a staging-only frontend build with no readable .env, and pure checks.
+      "scripts/browser_acceptance.mjs", "scripts/browser-acceptance/cdp.mjs", "scripts/browser-acceptance/stagingFrontend.mjs",
+      "scripts/browser-acceptance/checks.mjs"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

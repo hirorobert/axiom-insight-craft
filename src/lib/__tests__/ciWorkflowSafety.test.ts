@@ -79,7 +79,7 @@ describe("RLS regression workflow contract", () => {
   it("never logs a secret: no shell tracing, env dumps, echoes of variables, or debug logging", () => {
     expect(rls).not.toMatch(/set\s+-[a-z]*x|printenv|\benv\s*\||\bset\s*\||echo\s+[^\n]*(\$\{?STAGING|secrets\.)|ACTIONS_STEP_DEBUG|ACTIONS_RUNNER_DEBUG|cat\s+[^\n]*\.env/);
     const runs = [...rls.matchAll(/^\s+run: (.*)$/gm)].map((m) => m[1]);
-    expect(runs).toEqual(["node scripts/ci/stagingGuard.mjs", "bun install --frozen-lockfile", "bun run test:rls", "node scripts/upload_lifecycle_staging.mjs", "node scripts/sweeper_readiness.mjs"]);
+    expect(runs).toEqual(["node scripts/ci/stagingGuard.mjs", "bun install --frozen-lockfile", "bun run test:rls", "node scripts/upload_lifecycle_staging.mjs", "node scripts/sweeper_readiness.mjs", "node scripts/browser_acceptance.mjs"]);
   });
 
   it("does not deploy, push or apply anything to a database", () => {
@@ -134,6 +134,22 @@ describe("Upload lifecycle staging proof (PR #32) — same guard, refuses before
     expect(r.stderr).toContain("TARGET_IS_PRODUCTION");
     expect(r.stdout + r.stderr).not.toContain(secret);
     expect(r.stdout).not.toMatch(/PASS|Fixtures/);
+  });
+});
+
+describe("Browser acceptance (PR #32) — the only conditional step is the artifact upload", () => {
+  it("the single !cancelled() condition belongs to the screenshot upload step, which carries no secret and runs no command", () => {
+    const conditions = [...rls.matchAll(/^\s+if: (.*)$/gm)].map((m) => m[1]);
+    expect(conditions).toEqual(["${{ github.event_name == 'workflow_dispatch' }}", "${{ !cancelled() }}"]);
+    const upload = stepText(rls, "Upload browser acceptance screenshots");
+    expect(upload).toMatch(/if: \$\{\{ !cancelled\(\) \}\}/);
+    expect(upload).toMatch(/uses: actions\/upload-artifact@v4/);
+    expect(upload).toMatch(/if-no-files-found: error/);
+    expect(upload).not.toMatch(/secrets\.|vars\.|run:|env:/);
+    expect(rls.indexOf("node scripts/browser_acceptance.mjs")).toBeLessThan(rls.indexOf("actions/upload-artifact"));
+  });
+  it("the suite step passes the requested PR number so a stale head fails the run", () => {
+    expect(stepText(rls, "Staging browser acceptance")).toMatch(/PR_NUMBER: \$\{\{ inputs\.pr_number \}\}/);
   });
 });
 
