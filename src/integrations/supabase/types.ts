@@ -6018,6 +6018,15 @@ export type Database = {
         Returns: Json
       }
       current_platform_staff_role: { Args: never; Returns: string }
+      discard_trial_balance_upload: {
+        Args: { p_upload_id: string }
+        Returns: {
+          detail: string
+          file_path: string
+          outcome: Database["public"]["Enums"]["discard_outcome"]
+          row_snapshot: Json
+        }[]
+      }
       engagement_data_start_state: {
         Args: { p_engagement_id: string }
         Returns: string
@@ -6791,6 +6800,11 @@ export type Database = {
         | "firm_member_accepted"
         | "firm_member_removed"
         | "generate_management_letter"
+      discard_outcome:
+        | "deleted_now"
+        | "already_discarded"
+        | "forbidden"
+        | "dependency_conflict"
       financial_statement: "balance_sheet" | "income_statement" | "cash_flow"
       processing_status:
         | "pending"
@@ -6977,6 +6991,12 @@ export const Constants = {
         "firm_member_accepted",
         "firm_member_removed",
         "generate_management_letter",
+      ],
+      discard_outcome: [
+        "deleted_now",
+        "already_discarded",
+        "forbidden",
+        "dependency_conflict",
       ],
       financial_statement: ["balance_sheet", "income_statement", "cash_flow"],
       processing_status: [
