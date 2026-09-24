@@ -107,6 +107,8 @@ describe("database inertness — schema and functions", () => {
       // ...and the security-review hardening (F-01..F-05): history immutability, current-authority upload visibility,
       // claimed purges and stale-discard resolution, plus the shared engine rule that refuses a non-active upload.
       "supabase/migrations/20260923140000_upload_lifecycle_hardening.sql",
+      // ...and the final hardening (N-01 pointer follows the lifecycle, N-02 canonical source binding).
+      "supabase/migrations/20260923150000_upload_pointer_and_source_binding.sql",
       "supabase/functions/_shared/uploadLifecycle.ts",
       "supabase/functions/_shared/processingActor.ts",
       "supabase/functions/_shared/sourceSweeper.ts",
@@ -120,6 +122,8 @@ describe("database inertness — schema and functions", () => {
       // PR #32 user-based validation: process-trial-balance resolves its actor with tbu_resolve_processing_actor, and the
       // idempotency claim records a workspace_user actor (actor_user_id) with no firm membership.
       "supabase/functions/process-trial-balance/index.ts",
+      // PR #32 N-01: the comparative engine refuses a stale period pointer (non-active or foreign upload).
+      "supabase/functions/kinga-comparative-engine/index.ts",
       "supabase/functions/_shared/actor.ts",
       "supabase/functions/_shared/idempotency.ts",
       // The sweeper's verify_jwt = false entry (see the automation-surface test below).

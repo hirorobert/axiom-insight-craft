@@ -444,15 +444,96 @@ async function main() {
     const undo = await restore(U.owner, b.operation_id)
     return r.outcome === 'completed' && st === 'purged' && !(await objectId(u.path)) && undo.outcome === 'expired' || `cleanup=${r.status}/${r.outcome} state=${st} undo=${undo.outcome}`
   })
-  await check('F-05: an object still referenced by a live upload row is never deleted (409 not_purgeable); the operation is not claimed', async () => {
+  await check('N-02: rows forged below the client layer (in B and in A) naming A\'s discarded object do NOT block A\'s purge', async () => {
     const u = await workspaceUpload(U.owner, A, 2075); const { b } = await discardFully(U.owner, u.id); await expireOp(b.operation_id)
-    const { error } = await svc.from('trial_balance_uploads').insert({ file_name: 'ref.csv', file_path: u.path, file_size: 1, status: 'processing', company_id: A, period_year: 2076, user_id: U.owner.id })
+    const e1 = (await svc.from('trial_balance_uploads').insert({ file_name: 'forged.csv', file_path: u.path, file_size: 1, status: 'processing', company_id: B, period_year: 2076, user_id: U.ownerB.id })).error
+    const e2 = (await svc.from('trial_balance_uploads').insert({ file_name: 'forged.csv', file_path: u.path, file_size: 1, status: 'processing', company_id: A, period_year: 2077, user_id: U.ownerB.id })).error
     const r = await cleanup(U.owner, { operation_id: b.operation_id })
-    return !error && r.status === 409 && r.outcome === 'not_purgeable' && !!(await objectId(u.path)) && (await opState(b.operation_id)) === 'completed'
-      || `insert=${error?.message} cleanup=${r.status}/${r.outcome} state=${await opState(b.operation_id)}`
+    return !e1 && !e2 && r.outcome === 'completed' && !(await objectId(u.path)) && (await opState(b.operation_id)) === 'purged'
+      || `forge=${e1?.message}/${e2?.message} cleanup=${r.status}/${r.outcome} state=${await opState(b.operation_id)}`
   })
 
+  section('Final hardening (20260923150000): N-01 period pointer, N-02 source-path binding (owner A / owner B)')
+  const fpInsert = async (company, year, pointer) => {
+    const { data, error } = await svc.from('fiscal_periods').insert({ company_id: company, fiscal_year_end: `${year}-12-31`, period_label: `FY${year} proof`, created_by: U.owner.id, active_upload_id: pointer }).select('id').single()
+    if (error) throw new Error(`fiscal period: ${error.message}`); return data.id
+  }
+  const pointerOf = async (fp) => (await svc.from('fiscal_periods').select('active_upload_id').eq('id', fp).single()).data?.active_upload_id ?? null
+  await check('N-01: replacing a period\'s pointed upload clears the pointer in the same transaction; the replacement is not pointed at merely because it exists', async () => {
+    const u = await workspaceUpload(U.owner, A, 2080)
+    const p = await process_(U.owner, u.id)
+    const fp = await fpInsert(A, 2080, u.id)
+    const before = await pointerOf(fp)
+    const rep = await retireWith(U.owner, u.id, await version(u.id), A)
+    const after = await pointerOf(fp)
+    return p.status === 200 && before === u.id && rep.outcome === 'replaced' && (await row(u.id)).lifecycle_state === 'superseded' && after === null
+      || `ptb=${p.status} before=${before} replace=${rep.outcome} after=${after}`
+  })
+  await check('N-01: a pending discard clears the pointer; the stale discard\'s recovery does not re-point an unvalidated upload', async () => {
+    const u = await workspaceUpload(U.owner, A, 2081)
+    const fp = await fpInsert(A, 2081, u.id)
+    const b = await discard(U.owner, u.id, await version(u.id))
+    const mid = await pointerOf(fp)
+    await svc.from('trial_balance_upload_operations').update({ created_at: new Date(Date.now() - 16 * 60000).toISOString() }).eq('id', b.operation_id)
+    const done = await svcRpc('tbu_sweeper_complete', { p_kind: 'stale_discard', p_target_id: b.operation_id })
+    return b.outcome === 'discard_pending' && mid === null && done === 'aborted' && (await row(u.id)).lifecycle_state === 'active_unprocessed' && (await pointerOf(fp)) === null
+      || `discard=${b.outcome} mid=${mid} sweep=${done}`
+  })
+  await check('N-01: a fiscal period can never be pointed at a historical upload (refused)', async () => {
+    const u = await workspaceUpload(U.owner, A, 2082); await process_(U.owner, u.id)
+    await retireWith(U.owner, u.id, await version(u.id), A)
+    const { error } = await svc.from('fiscal_periods').insert({ company_id: A, fiscal_year_end: '2082-12-31', period_label: 'FY2082 proof', created_by: U.owner.id, active_upload_id: u.id })
+    return !!error || 'a pointer to a superseded upload was accepted'
+  })
+  const clientInsert = (who, company, filePath) => who.c.from('trial_balance_uploads')
+    .insert({ file_name: 'b.csv', file_path: filePath, file_size: 10, status: 'processing', company_id: company, user_id: who.id, period_year: 2090 }).select('id')
+  await check('N-02: owner B cannot create a row naming A\'s workspace object, A\'s folder or a made-up workspace path (42501, identical whether or not the object exists)', async () => {
+    const a = await workspaceUpload(U.owner, A, 2083)
+    const r1 = await clientInsert(U.ownerB, B, a.path)
+    const r2 = await clientInsert(U.ownerB, B, `${U.owner.id}/${randomUUID()}.csv`)
+    const r3 = await clientInsert(U.ownerB, B, `workspaces/${B}/${randomUUID()}/forged.csv`)
+    const r4 = await clientInsert(U.ownerB, B, `workspaces/${A}/${randomUUID()}/no-such-object.csv`)
+    return [r1, r2, r3, r4].every((r) => r.error?.code === '42501') && r1.error.message === r4.error.message
+      || JSON.stringify([r1, r2, r3, r4].map((r) => r.error?.code))
+  })
+  await check('N-02: B cannot process A\'s object: a row forged below the client layer naming it is refused (409 source_not_bound) before any storage read', async () => {
+    const a = await workspaceUpload(U.owner, A, 2084)
+    const { data, error } = await svc.from('trial_balance_uploads').insert({ file_name: 'forged.csv', file_path: a.path, file_size: 1, status: 'processing', company_id: B, period_year: 2085, user_id: U.ownerB.id }).select('id').single()
+    const p = await process_(U.ownerB, data?.id)
+    const pa = await process_(U.owner, a.id)
+    return !error && p.status === 409 && p.body.status === 'source_not_bound' && !/exist/i.test(JSON.stringify(p.body)) && pa.status === 200 && pa.body.status === 'valid'
+      || `forge=${error?.message} forged=${p.status}/${p.body.status} legit=${pa.status}/${pa.body.status}`
+  })
+  await check('N-02: a legitimate personal (own-folder) upload still inserts and processes', async () => {
+    const path = `${U.ownerB.id}/${randomUUID()}.csv`
+    const up = await U.ownerB.c.storage.from(BUCKET).upload(path, new Blob([REAL_TB], { type: 'text/csv' }))
+    if (up.error) return `storage: ${up.error.message}`
+    created.objects.add(path)
+    const { data, error } = await U.ownerB.c.from('trial_balance_uploads').insert({ file_name: 'personal.csv', file_path: path, file_size: REAL_TB.length, status: 'processing', user_id: U.ownerB.id }).select('id').single()
+    if (error) return `insert: ${error.message}`
+    const p = await process_(U.ownerB, data.id)
+    return p.status === 200 && p.body.status === 'valid' || `ptb=${p.status}/${p.body.status} ${p.body.message ?? ''}`
+  })
+  await check('N-02: no client can re-point an existing row\'s source path (42501)', async () => {
+    const a = await workspaceUpload(U.owner, A, 2086)
+    const r = await U.owner.c.from('trial_balance_uploads').update({ file_path: `${U.owner.id}/elsewhere.csv` }).eq('id', a.id).select('id')
+    return r.error?.code === '42501' && (await row(a.id)).file_path === a.path || `code=${r.error?.code}`
+  })
+
+
   section('Invariants')
+  await check('preflight §9 on staging: no fiscal period anywhere names a non-active upload', async () => {
+    const { data: fps, error } = await svc.from('fiscal_periods').select('id, active_upload_id').not('active_upload_id', 'is', null)
+    if (error) return `read: ${error.message}`
+    const ids = [...new Set(fps.map((r) => r.active_upload_id))]
+    const stale = []
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data } = await svc.from('trial_balance_uploads').select('id, lifecycle_state').in('id', ids.slice(i, i + 100))
+      for (const r of data ?? []) if (!['active_unprocessed', 'active_processing', 'active_processed', 'blocked'].includes(r.lifecycle_state)) stale.push(r.id)
+    }
+    console.log(`  §9: fiscal periods with a pointer: ${fps.length}; naming a non-active upload: ${stale.length}`)
+    return stale.length === 0 || `stale: ${stale.join(',')}`
+  })
   await check('no company/period anywhere on staging has more than one active upload', async () => {
     const { data } = await svc.from('trial_balance_uploads').select('company_id, period_year').not('company_id', 'is', null).not('period_year', 'is', null)
       .in('lifecycle_state', ['active_unprocessed', 'active_processing', 'active_processed', 'blocked'])

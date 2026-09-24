@@ -33,7 +33,7 @@ import EngagementScopeDialog from "@/components/workspace/EngagementScopeDialog"
 import PreviousEngagementWork from "@/components/workspace/PreviousEngagementWork";
 import { ActiveFileProvenance } from "@/components/workspace/ActiveFileProvenance";
 import { useEngagement } from "@/contexts/EngagementContext";
-import { buildPrepareReviewRoute, buildPrepareUploadRoute } from "@/lib/workspace/resolveActiveUpload";
+import { buildPrepareReviewRoute, buildPrepareUploadRoute, canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
 import { capabilityTitle, ENGAGEMENT_CAPABILITIES } from "@/lib/workspace/mandate";
 import { readRememberedOutcome } from "@/lib/product/outcomes";
 import { DecisionCard, type Decision } from "@/components/workspace/DecisionCard";
@@ -92,7 +92,8 @@ export default function WorkspaceOverview() {
 
   // Retry the ingest pipeline when the active upload failed.
   const handleRetryProcessing = async () => {
-    if (!upload?.id || retrying) return;
+    // Only an active upload is ever reprocessed (PR #32 N-04); the server refuses the rest (409) regardless.
+    if (!upload?.id || retrying || !canReprocessUpload(upload)) return;
     setRetrying(true);
     toast.info(`Retrying: ${upload.file_name ?? "Trial Balance"}…`);
     try {
@@ -210,7 +211,7 @@ export default function WorkspaceOverview() {
   // The two existing Prepare Data destinations classification decisions route to — unchanged route builders.
   const prepareHref = `${basePath}/prepare`;
   const reviewHref = buildPrepareReviewRoute(companyId, periodYear, upload?.id ?? null);
-  const classificationDecisionOptions = { retrying, onRetry: handleRetryProcessing, prepareHref, reviewHref };
+  const classificationDecisionOptions = { retrying, onRetry: canReprocessUpload(upload) ? handleRetryProcessing : undefined, prepareHref, reviewHref };
 
   if (launchState === "IMPORT_PENDING") {
     decision = {

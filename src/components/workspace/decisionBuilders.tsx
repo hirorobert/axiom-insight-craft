@@ -15,7 +15,8 @@ import type { Decision } from "./DecisionCard";
 
 export interface ClassificationDecisionOptions {
   readonly retrying: boolean;
-  readonly onRetry: () => void;
+  /** Omitted when the upload may not be reprocessed (not active, PR #32): no Retry control is offered at all. */
+  readonly onRetry?: () => void;
   /** The existing Prepare Data route for this workspace (`${basePath}/prepare`). */
   readonly prepareHref: string;
   /** The existing Prepare Data review route for the active upload (buildPrepareReviewRoute(...)). */
@@ -39,12 +40,14 @@ export function buildClassificationDecision(classification: ClassificationPresen
         eyebrow,
         headline: classification.headline,
         detail: classification.detail,
-        button: {
-          label: opts.retrying ? "Retrying…" : "Retry processing",
-          onClick: opts.onRetry,
-          disabled: opts.retrying,
-          icon: <RefreshCw className={`w-4 h-4 ${opts.retrying ? "animate-spin" : ""}`} />,
-        },
+        button: opts.onRetry
+          ? {
+              label: opts.retrying ? "Retrying…" : "Retry processing",
+              onClick: opts.onRetry,
+              disabled: opts.retrying,
+              icon: <RefreshCw className={`w-4 h-4 ${opts.retrying ? "animate-spin" : ""}`} />,
+            }
+          : { label: "Open Prepare Data", href: opts.prepareHref, icon: <ArrowRight className="w-4 h-4" /> },
         tone: "warn",
         offersFileReplacement: true,
       };

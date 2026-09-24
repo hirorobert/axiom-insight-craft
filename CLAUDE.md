@@ -316,6 +316,14 @@ policies cover personal (company-less) rows only, so a revoked grantee loses eve
 discard (`purging`) under the op lock before any deletion; restore refuses a claimed discard; referenced objects are
 never deletable. A discard pending past 15 minutes is resolved by the sweeper (`stale_discard`: back to active, or
 retired). The 20260923100000 backfill refuses to run while a fiscal period names an upload it would retire (preflight §7–9).
+`20260923150000_upload_pointer_and_source_binding.sql` (re-review N-01/N-02): `trg_tbu_sync_fiscal_period_pointer` clears
+every `fiscal_periods.active_upload_id` naming an upload the moment it leaves the active states (re-pointing on return
+only under the existing 'valid' promotion rule, into an empty slot); `kinga-comparative-engine` refuses a stale pointer.
+A source path is bound only to its own consumed workspace reservation or its uploader's `<user_id>/` folder
+(`tbu_source_path_bound`): clients cannot insert any other path or re-point one, `process-trial-balance` answers 409
+`source_not_bound` before touching storage, and only bound references hold objects from cleanup. Both it and
+20260923100000 refuse bad existing data as their FIRST statement (no DDL before it). Deployment order:
+`docs/release/PR32_UPLOAD_LIFECYCLE_DEPLOYMENT.md`.
 
 ### five WIP migrations (NOT yet in origin/main)
 These must be applied in this exact order before any other WIP work:

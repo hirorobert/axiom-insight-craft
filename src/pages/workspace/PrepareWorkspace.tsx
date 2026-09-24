@@ -269,7 +269,8 @@ export default function PrepareWorkspace() {
   };
 
   const handleProcessAsAuditedAccounts = async () => {
-    if (!upload) return;
+    // Only an active upload is ever reprocessed (PR #32 N-04); the server refuses the rest (409) regardless.
+    if (!upload || !canReprocessUpload(upload)) return;
     // Rapid second invocation: a reprocess is already in flight (from this
     // control or from AccountReviewPanel's own Save/Reprocess) — refuse a
     // second concurrent one rather than racing two polls against the same
@@ -680,7 +681,7 @@ export default function PrepareWorkspace() {
                       isValid={upload.is_valid}
                       status={upload.status}
                       fileName={upload.file_name}
-                      onProcessAsAuditedAccounts={handleProcessAsAuditedAccounts}
+                      onProcessAsAuditedAccounts={canReprocessUpload(upload) ? handleProcessAsAuditedAccounts : undefined}
                       onUploadNew={() => navigate(`/workspace/${companyId}/${periodYear}/prepare`)}
                     />
                     {mapping && (

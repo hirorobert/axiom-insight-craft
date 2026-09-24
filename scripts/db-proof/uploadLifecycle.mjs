@@ -96,6 +96,45 @@ async function stopDatabase() {
   if (embeddedDir) fs.rmSync(embeddedDir, { recursive: true, force: true });
 }
 
+// Splits a migration into top-level statements exactly as a statement-at-a-time runner would (psql in autocommit
+// with ON_ERROR_STOP): respects '...', "...", $tag$...$tag$, -- and /* */ comments.
+function splitStatements(sql) {
+  const out = []; let cur = ""; let i = 0;
+  while (i < sql.length) {
+    const c = sql[i], n = sql[i + 1];
+    if (c === "-" && n === "-") { const e = sql.indexOf("\n", i); const j = e < 0 ? sql.length : e; cur += sql.slice(i, j); i = j; continue; }
+    if (c === "/" && n === "*") { const e = sql.indexOf("*/", i + 2); const j = e < 0 ? sql.length : e + 2; cur += sql.slice(i, j); i = j; continue; }
+    if (c === "'" || c === '"') { let j = i + 1; while (j < sql.length) { if (sql[j] === c) { if (sql[j + 1] === c) { j += 2; continue; } break; } j++; } cur += sql.slice(i, j + 1); i = j + 1; continue; }
+    if (c === "$") { const m = /^\$[A-Za-z_]*\$/.exec(sql.slice(i)); if (m) { const e = sql.indexOf(m[0], i + m[0].length); const j = e < 0 ? sql.length : e + m[0].length; cur += sql.slice(i, j); i = j; continue; } }
+    if (c === ";") { if (cur.replace(/--[^\n]*|\/\*[\s\S]*?\*\//g, "").trim()) out.push(cur.trim()); cur = ""; i++; continue; }
+    cur += c; i++;
+  }
+  if (cur.replace(/--[^\n]*|\/\*[\s\S]*?\*\//g, "").trim()) out.push(cur.trim());
+  return out;
+}
+// Fingerprint of every public object (tables, columns, functions with bodies, triggers, policies, constraints,
+// indexes) plus the rows of the two tables the lifecycle migrations touch. Equal before/after == nothing changed.
+const FINGERPRINT_SQL = `SELECT md5(string_agg(x, '|' ORDER BY x)) AS fp FROM (
+  SELECT 'c:'||table_name||'.'||column_name||':'||data_type||':'||coalesce(column_default,'')||is_nullable AS x FROM information_schema.columns WHERE table_schema='public'
+  UNION ALL SELECT 'r:'||c.relname||c.relkind::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
+  UNION ALL SELECT 'f:'||p.oid::regprocedure::text||md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind='f'
+  UNION ALL SELECT 't:'||tgname||':'||tgrelid::regclass::text||':'||tgenabled::text FROM pg_trigger WHERE NOT tgisinternal
+  UNION ALL SELECT 'p:'||policyname||':'||tablename||':'||coalesce(qual,'')||':'||coalesce(with_check,'') FROM pg_policies
+  UNION ALL SELECT 'k:'||conname||':'||conrelid::regclass::text||':'||pg_get_constraintdef(oid) FROM pg_constraint WHERE connamespace='public'::regnamespace
+  UNION ALL SELECT 'u:'||md5(coalesce((SELECT string_agg(to_jsonb(t)::text, ',' ORDER BY t.id) FROM public.trial_balance_uploads t), ''))
+  UNION ALL SELECT 'v:'||md5(coalesce((SELECT string_agg(to_jsonb(p)::text, ',' ORDER BY p.id) FROM public.fiscal_periods p), ''))
+) s`;
+const fingerprint = async () => (await admin.query(FINGERPRINT_SQL)).rows[0].fp;
+// Least favourable supported execution: no wrapping transaction; each statement autocommits; stop at the first
+// error (psql ON_ERROR_STOP). Returns { index, code } of the failing statement, or null if everything applied.
+async function applyAutocommit(file) {
+  const stmts = splitStatements(fs.readFileSync(path.join(REPO, "supabase/migrations", file), "utf8"));
+  for (let k = 0; k < stmts.length; k++) {
+    try { await admin.query(stmts[k]); } catch (e) { return { index: k, code: e.code, count: stmts.length }; }
+  }
+  return null;
+}
+
 const migrationFiles = () => fs.readdirSync(path.join(REPO, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
 async function applyMigration(f) {
   let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
@@ -249,6 +288,22 @@ async function main() {
     const r = authority?.find((x) => x.company_id === L && Number(x.period_year) === 2023);
     return r?.authoritative_upload_id === new2023 && r.pointer_status === "names_retired" && r.active_upload_id === old2023;
   });
+  await check("N-03: the refusal is the file's FIRST statement, before any DDL", async () => {
+    const stmts = splitStatements(fs.readFileSync(path.join(REPO, "supabase/migrations", LIFECYCLE_FILE), "utf8"));
+    return /^DO \$refuse\$/.test(stmts[0].replace(/^(--[^\n]*\n|\s)+/, "")) && /fiscal_periods/.test(stmts[0]) && stmts.length > 50 ? true : stmts[0].slice(0, 80);
+  });
+  await check("N-03: applied statement by statement in AUTOCOMMIT (no wrapping transaction), it refuses at statement 1 and changes NOTHING", async () => {
+    const LIFECYCLE_OBJECTS = `SELECT count(*) n FROM (
+      SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='trial_balance_uploads' AND column_name IN ('lifecycle_state','version','superseded_by_upload_id','replaces_upload_id')
+      UNION ALL SELECT 1 FROM pg_class WHERE relname IN ('trial_balance_upload_operations','trial_balance_upload_lifecycle_events','workspace_capability_grants','trial_balance_source_reservations','uq_one_active_upload_per_period')
+      UNION ALL SELECT 1 FROM pg_proc WHERE proname IN ('retire_trial_balance_upload','tbu_authorize','can_user_act_on_workspace','reserve_trial_balance_source')) x`;
+    const baseline = await count(LIFECYCLE_OBJECTS);
+    const before = await fingerprint();
+    const r = await applyAutocommit(LIFECYCLE_FILE);
+    const after = await fingerprint();
+    const leftovers = await count(LIFECYCLE_OBJECTS);
+    return r?.index === 0 && r.code === "55000" && before === after && baseline === 0 && leftovers === 0 ? true : JSON.stringify({ r, same: before === after, baseline, leftovers });
+  });
   await check(`${LIFECYCLE_FILE} REFUSES to run (55000) while the pointer is stranded, and changes nothing`, async () => {
     let code = null;
     await admin.query("BEGIN");
@@ -266,7 +321,31 @@ async function main() {
   });
 
   await check(`${LIFECYCLE_FILE} applies over the legacy data`, async () => { await applyMigration(LIFECYCLE_FILE); return true; });
-  await check("every later migration also applies", async () => { for (const f of files.slice(cut + 1)) await applyMigration(f); return true; });
+  const HARDENING_FILE = "20260923140000_upload_lifecycle_hardening.sql";
+  const POINTER_FILE = "20260923150000_upload_pointer_and_source_binding.sql";
+  const hcut = files.indexOf(HARDENING_FILE), pcut = files.indexOf(POINTER_FILE);
+  await check(`every later migration before ${HARDENING_FILE} applies`, async () => {
+    if (hcut < 0 || pcut < 0) return "hardening/pointer migration not found";
+    for (const f of files.slice(cut + 1, hcut)) await applyMigration(f); return true;
+  });
+  // The state the pre-N-01 code could leave behind (possible before 20260923140000's pointer guard existed): a
+  // fiscal period naming an upload that is no longer active. Here: the tie loser the backfill retired.
+  const fp2025 = (await admin.query("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, active_upload_id) VALUES ($1,'2022-12-31','FY2022',$2,$3) RETURNING id", [L, U.legacy, tieLoser])).rows[0].id;
+  await check(`${HARDENING_FILE} applies`, async () => { for (const f of files.slice(hcut, pcut)) await applyMigration(f); return true; });
+  await check(`N-01/N-03: ${POINTER_FILE} refuses (statement 1, autocommit, 55000) while a fiscal period names a non-active upload, and changes nothing`, async () => {
+    const before = await fingerprint();
+    const r = await applyAutocommit(POINTER_FILE);
+    const after = await fingerprint();
+    const trig = await count("SELECT count(*) n FROM pg_trigger WHERE tgname IN ('trg_tbu_sync_fiscal_period_pointer','trg_tbu_client_source_guard')");
+    return r?.index === 0 && r.code === "55000" && before === after && trig === 0 ? true : JSON.stringify({ r, same: before === after, trig });
+  });
+  await check("preflight §9 names exactly that stranded pointer", async () => {
+    const { after } = await preflight();
+    return after?.length === 1 && after[0].fiscal_period_id === fp2025 && after[0].active_upload_id === tieLoser && after[0].lifecycle_state === "retired";
+  });
+  // The operator decision (explicit, here): clear the stale pointer. Then the migration applies.
+  await admin.query("UPDATE public.fiscal_periods SET active_upload_id = NULL WHERE id=$1", [fp2025]);
+  await check("every later migration also applies (after the explicit reconcile)", async () => { for (const f of files.slice(pcut)) await applyMigration(f); return true; });
 
   await check("nothing was deleted: uploads, certifications and derived evidence are all preserved", async () =>
     (await count("SELECT count(*) n FROM public.trial_balance_uploads")) === beforeUploads
@@ -535,12 +614,17 @@ async function main() {
   await check("a forged row pointing at another workspace's object is never bound, so nothing unrelated can be deleted or restored", async () => {
     const victim = await workspaceUpload(B, 2055, U.ownerB);
     const attacker = (await one(user(U.unrelated), "INSERT INTO public.companies (user_id,name) VALUES ($1,'Attacker') RETURNING id", [U.unrelated])).id;
-    const forged = (await one(user(U.unrelated),
-      "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id,company_id,period_year) VALUES ('x',$1,1,'processing',$2,$3,2055) RETURNING id",
-      [victim.path, U.unrelated, attacker])).id;
+    // N-02: a client can no longer even create such a row (42501)...
+    let clientCode = null;
+    try {
+      await q(user(U.unrelated), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id,company_id,period_year) VALUES ('x',$1,1,'processing',$2,$3,2055)", [victim.path, U.unrelated, attacker]);
+    } catch (e) { clientCode = e.code; }
+    // ...and a row forged below the client layer still binds nothing.
+    const forged = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id,company_id,period_year) VALUES ('x',$1,1,'processing',$2,$3,2055) RETURNING id",
+      [victim.path, U.unrelated, attacker])).rows[0].id;
     const b = await discard(user(U.unrelated), forged, 1);
     const op = (await admin.query("SELECT file_path FROM public.trial_balance_upload_operations WHERE id=$1", [b.operation_id])).rows[0];
-    return b.file_path === null && op.file_path === null && (await objectExists(victim.path));
+    return clientCode === "42501" && b.file_path === null && op.file_path === null && (await objectExists(victim.path));
   });
 
   group("LEGACY — uploader-folder objects stay fully manageable");
@@ -724,11 +808,13 @@ async function main() {
     await deleteObject(dead.object_path);
     return first === "reclaimed" && c?.delete_object === true && (await sweepDone("reservation", dead.reservation_id)) === "reclaimed";
   });
-  await check("an object referenced by any upload row is never marked for deletion", async () => {
+  await check("N-02: a FORGED row naming an abandoned reservation's object does not hold it back; the object is reclaimed", async () => {
     const dead = await reserve(U.owner, C, "shared.csv"); await putObject(dead.object_path); await ageReservation(dead.reservation_id);
     await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('x',$1,1,'processing',$2,2116,$3)", [dead.object_path, C, U.owner]);
     const c = (await candidates()).find((x) => x.target_id === dead.reservation_id);
-    return c?.delete_object === false && (await sweepDone("reservation", dead.reservation_id)) === "storage_cleanup_pending" && (await objectExists(dead.object_path));
+    const held = (await one(SERVICE, "SELECT public.tbu_object_referenced($1) AS r", [dead.object_path])).r;
+    await deleteObject(dead.object_path);
+    return c?.delete_object === true && held === false && (await sweepDone("reservation", dead.reservation_id)) === "reclaimed";
   });
 
   group("SWEEPER invocation — single-use database tickets; no stored key; service_role only");
@@ -1106,24 +1192,23 @@ async function main() {
     }
     return true;
   });
-  await check("an object referenced by ANY live upload row is never claimed or deletable (discard, reservation)", async () => {
-    const u = await workspaceUpload(C, 2015, U.owner); const { b } = await discardFully(U.owner, u.id); await expire(b.operation_id);
-    await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('x',$1,1,'processing',$2,2016,$3)", [u.path, C, U.owner]);
+  await check("an object still referenced by a canonically BOUND live row is never claimed or deletable (user claim, sweeper, candidates)", async () => {
+    // Legitimate shared reference: the same uploader's own-folder object, named by a second row of theirs.
+    const lg = await legacyUpload(C, 2015, U.owner); const { b } = await discardFully(U.owner, lg.id); await expire(b.operation_id);
+    await q(user(U.owner), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id,company_id,period_year) VALUES ('again.csv',$1,10,'processing',$2,$3,2016)", [lg.path, U.owner, C]);
     const cand = (await candidates()).find((x) => x.target_id === b.operation_id);
-    const dead = await reserve(U.owner, C, "ref.csv"); await putObject(dead.object_path); await ageReservation(dead.reservation_id);
-    await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('y',$1,1,'processing',$2,2017,$3)", [dead.object_path, C, U.owner]);
     return (await claimPurge(user(U.owner), b.operation_id)).outcome === "not_purgeable" && (await sweepClaim("discard", b.operation_id)) === "not_eligible"
-      && (await eligible(b.operation_id)) === false && cand?.delete_object === false && (await opState(b.operation_id)) === "completed"
-      && (await sweepClaim("reservation", dead.reservation_id)) === "not_eligible" && (await objectExists(u.path)) && (await objectExists(dead.object_path));
+      && (await eligible(b.operation_id)) === false && cand?.delete_object === false && (await opState(b.operation_id)) === "completed" && (await objectExists(lg.path))
+      ? true : JSON.stringify({ cand });
   });
-  await check("a referenced cancel-replacement object is never claimed", async () => {
+  await check("N-02: a FORGED row naming a cancelled replacement's object does not hold its cleanup", async () => {
     const u = await workspaceUpload(C, 2018, U.owner); await certify(C, u.id, 2018);
     const r = await reservedReplacement(U.collab, C);
     const rep = await retireWith(U.collab, u.id, Number((await row(u.id)).version), r.reservation_id);
     const cx = await cancel(user(U.owner), rep.new_upload_id, Number((await row(rep.new_upload_id)).version));
     const free = await sweepClaim("cancel_replacement", cx.operation_id);
     await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('z',$1,1,'processing',$2,2019,$3)", [r.object_path, C, U.owner]);
-    return free === "claimed" && (await sweepClaim("cancel_replacement", cx.operation_id)) === "not_eligible" && (await eligible(cx.operation_id)) === false
+    return free === "claimed" && (await sweepClaim("cancel_replacement", cx.operation_id)) === "claimed" && (await eligible(cx.operation_id)) === true
       ? true : JSON.stringify({ free, cx });
   });
   await check("the claim is authorized: unrelated / title-only / other-workspace / revoked users are forbidden and nothing changes", async () => {
@@ -1139,6 +1224,174 @@ async function main() {
     }
     return (await admin.query("SELECT has_function_privilege('service_role','public.tbu_sweeper_claim(text,uuid)','EXECUTE') s")).rows[0].s === true
       && (await admin.query("SELECT has_function_privilege('authenticated','public.claim_trial_balance_discard_purge(uuid)','EXECUTE') s")).rows[0].s === true;
+  });
+
+  // ── Re-review of fa56822: N-01 (fiscal-period pointer), N-02 (source-path binding) — 20260923150000 ──────────
+  group("N-01 — fiscal_periods.active_upload_id is NULL or the correct ACTIVE upload after every transition");
+  const P = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Pointer workspace') RETURNING id", [U.owner])).rows[0].id;
+  ownerMemberOf[P] = (await admin.query("SELECT id FROM public.firm_members WHERE company_id=$1 AND role='owner'", [P])).rows[0].id;
+  const stalePointers = () => count(`SELECT count(*) n FROM public.fiscal_periods fp JOIN public.trial_balance_uploads t ON t.id = fp.active_upload_id
+    WHERE t.lifecycle_state NOT IN ('active_unprocessed','active_processing','active_processed','blocked')`);
+  // NULL, or exactly `expected` and that upload is active. Also re-checks the global invariant every time.
+  const pointerIs = async (fp, expected) => {
+    const p = await pointerOf(fp);
+    if (p !== expected) return `pointer ${p} expected ${expected}`;
+    if (p !== null && !ACTIVE_STATES.includes((await row(p)).lifecycle_state)) return `pointer names ${(await row(p)).lifecycle_state}`;
+    const stale = await stalePointers();
+    return stale === 0 ? true : `${stale} stale pointer(s) in the database`;
+  };
+  const promote = async (id, fp) => q(SERVICE, "UPDATE public.trial_balance_uploads SET period_id=$1, status='valid' WHERE id=$2", [fp, id]);
+  const replaceIn = async (company, id) => {
+    const r = await reservedReplacement(U.owner, company);
+    return retireWith(U.owner, id, Number((await row(id)).version), r.reservation_id);
+  };
+  const steps = async (list) => { for (const [label, fn] of list) { const r = await fn(); if (r !== true) return `${label}: ${r}`; } return true; };
+  await check("replace: the pointer is cleared in the same transaction; the replacement is NOT pointed at merely because it exists; it is once it is validated", async () => {
+    const a = await workspaceUpload(P, 2001, U.owner); await certify(P, a.id, 2001); const fp = await newPeriod(P, 2001);
+    let rep;
+    return steps([
+      ["promoted", async () => { await promote(a.id, fp); return pointerIs(fp, a.id); }],
+      ["replaced", async () => { rep = await replaceIn(P, a.id); return rep.outcome === "replaced" && (await row(a.id)).lifecycle_state === "superseded" ? pointerIs(fp, null) : `replace ${rep.outcome}`; }],
+      ["replacement exists", async () => (await row(rep.new_upload_id)).lifecycle_state === "active_unprocessed" ? pointerIs(fp, null) : "replacement not active"],
+      ["replacement validated", async () => { await certify(P, rep.new_upload_id, 2001); await promote(rep.new_upload_id, fp); return pointerIs(fp, rep.new_upload_id); }],
+    ]);
+  });
+  await check("replace a period's upload that is NOT the pointed one: the pointer to another upload is untouched", async () => {
+    const a = await workspaceUpload(P, 2002, U.owner); await certify(P, a.id, 2002); const fp = await newPeriod(P, 2002);
+    await promote(a.id, fp);
+    const other = await workspaceUpload(P, 2003, U.owner); await certify(P, other.id, 2003);
+    const rep = await replaceIn(P, other.id);
+    return rep.outcome === "replaced" ? pointerIs(fp, a.id) : rep.outcome;
+  });
+  await check("cancel replacement: the previous upload returns to active and is pointed at again by the existing promotion rule", async () => {
+    const a = await workspaceUpload(P, 2004, U.owner); await certify(P, a.id, 2004); const fp = await newPeriod(P, 2004);
+    await promote(a.id, fp);
+    let rep;
+    return steps([
+      ["replaced", async () => { rep = await replaceIn(P, a.id); return pointerIs(fp, null); }],
+      ["cancelled", async () => {
+        const cx = await cancel(user(U.owner), rep.new_upload_id, Number((await row(rep.new_upload_id)).version));
+        return ["cancelled", "storage_cleanup_pending", "completed"].includes(cx.outcome) || cx.operation_id ? pointerIs(fp, a.id) : `cancel ${cx.outcome}`;
+      }],
+      ["restored state", async () => ACTIVE_STATES.includes((await row(a.id)).lifecycle_state) ? true : (await row(a.id)).lifecycle_state],
+    ]);
+  });
+  await check("cancel replacement of a never-validated upload: it returns to active but is NOT pointed at (it was never promoted)", async () => {
+    const a = await workspaceUpload(P, 2005, U.owner); await certify(P, a.id, 2005); const fp = await newPeriod(P, 2005);
+    const rep = await replaceIn(P, a.id);
+    await cancel(user(U.owner), rep.new_upload_id, Number((await row(rep.new_upload_id)).version));
+    return ACTIVE_STATES.includes((await row(a.id)).lifecycle_state) ? pointerIs(fp, null) : "not restored";
+  });
+  await check("discard: pending clears the pointer; completion deletes the row (NULL); Undo restores the row but not the pointer", async () => {
+    const u = await workspaceUpload(P, 2006, U.owner); const fp = await newPeriod(P, 2006, u.id);
+    let b;
+    return steps([
+      ["pointed", () => pointerIs(fp, u.id)],
+      ["pending", async () => { b = await discard(user(U.owner), u.id, Number((await row(u.id)).version)); return pointerIs(fp, null); }],
+      ["completed", async () => (await complete(user(U.owner), b.operation_id)).outcome === "deleted_now" ? pointerIs(fp, null) : "not deleted"],
+      ["undone", async () => (await restore(user(U.owner), b.operation_id)).outcome === "restored" ? pointerIs(fp, null) : "not restored"],
+    ]);
+  });
+  await check("discard recovery (stale pending, period free): the row returns to active; the pointer stays NULL (not validated)", async () => {
+    const u = await workspaceUpload(P, 2007, U.owner); const fp = await newPeriod(P, 2007, u.id);
+    const b = await discard(user(U.owner), u.id, Number((await row(u.id)).version)); const mid = await pointerIs(fp, null);
+    await admin.query("UPDATE public.trial_balance_upload_operations SET created_at = now() - interval '16 minutes' WHERE id=$1", [b.operation_id]);
+    const done = await sweepDone("stale_discard", b.operation_id);
+    return mid === true && done === "aborted" && (await row(u.id)).lifecycle_state === "active_unprocessed" ? pointerIs(fp, null) : JSON.stringify({ mid, done });
+  });
+  await check("abort's RETIRE branch (stale pending, period taken): the discarded row is retired, the pointer is NULL, the new upload is pointed at once validated", async () => {
+    const u = await workspaceUpload(P, 2008, U.owner); const fp = await newPeriod(P, 2008, u.id);
+    const b = await discard(user(U.owner), u.id, Number((await row(u.id)).version));
+    const n = await workspaceUpload(P, 2008, U.owner);
+    await admin.query("UPDATE public.trial_balance_upload_operations SET created_at = now() - interval '16 minutes' WHERE id=$1", [b.operation_id]);
+    const done = await sweepDone("stale_discard", b.operation_id);
+    const mid = await pointerIs(fp, null);
+    await certify(P, n.id, 2008); await promote(n.id, fp);
+    return done === "aborted" && (await row(u.id)).lifecycle_state === "retired" && mid === true ? pointerIs(fp, n.id) : JSON.stringify({ done, mid });
+  });
+  await check("abort's RETIRE branch via evidence mid-saga (period taken): retired, pointer NULL", async () => {
+    const u = await workspaceUpload(P, 2009, U.owner); const fp = await newPeriod(P, 2009, u.id);
+    const b = await discard(user(U.owner), u.id, Number((await row(u.id)).version));
+    await workspaceUpload(P, 2009, U.owner);
+    await admin.query("INSERT INTO public.upload_integrity_findings (upload_id, company_id, issue_type) VALUES ($1, $2, 'ENGAGEMENT_COMPANY_MISMATCH')", [u.id, P]);
+    const c = await complete(user(U.owner), b.operation_id);
+    return c.outcome === "replacement_required" && (await row(u.id)).lifecycle_state === "retired" ? pointerIs(fp, null) : c.outcome;
+  });
+  await check("certification to blocked keeps an active upload's pointer (blocked is still the period's active upload)", async () => {
+    const u = await workspaceUpload(P, 2010, U.owner); const fp = await newPeriod(P, 2010, u.id);
+    await certify(P, u.id, 2010, { blocking: true });
+    return (await row(u.id)).lifecycle_state === "blocked" ? pointerIs(fp, u.id) : (await row(u.id)).lifecycle_state;
+  });
+  await check("no fiscal period anywhere in the database names a non-active upload (preflight §9 empty)", async () => {
+    const { after } = await preflight();
+    return (await stalePointers()) === 0 && after?.length === 0;
+  });
+  await check("the pointer sync is internal: not callable by any client role", async () => {
+    const r = (await admin.query("SELECT has_function_privilege('authenticated','public.tbu_sync_fiscal_period_pointer()','EXECUTE') a, has_function_privilege('anon','public.tbu_sync_fiscal_period_pointer()','EXECUTE') n")).rows[0];
+    return !r.a && !r.n;
+  });
+
+  group("N-02 — a source path is bound to its own workspace reservation or its uploader's folder (owner-A / owner-B adversarial)");
+  const bound = async (id) => (await one(SERVICE, "SELECT public.tbu_upload_source_bound($1) AS b", [id])).b;
+  const held = async (p) => (await one(SERVICE, "SELECT public.tbu_object_referenced($1) AS r", [p])).r;
+  const insertAs = (who, company, filePath, uid = who) => q(user(who),
+    "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id,company_id,period_year) VALUES ('b.csv',$1,10,'processing',$2,$3,2040) RETURNING id", [filePath, uid, company]);
+  const errOf = async (fn) => { try { await fn(); return null; } catch (e) { return { code: e.code, message: e.message }; } };
+  const aUp = await workspaceUpload(C, 2027, U.owner);
+  await check("A's legitimate workspace upload is bound (processes); so are its replacement, its superseded original and an Undo-restored row", async () => {
+    const x = await workspaceUpload(C, 2028, U.owner); await certify(C, x.id, 2028);
+    const rep = await retireWith(U.owner, x.id, Number((await row(x.id)).version), (await reservedReplacement(U.owner, C)).reservation_id);
+    const y = await workspaceUpload(C, 2029, U.owner); const { b } = await discardFully(U.owner, y.id); await restore(user(U.owner), b.operation_id);
+    return (await bound(aUp.id)) && (await bound(rep.new_upload_id)) && (await bound(x.id)) && (await bound(y.id)) ? true : "unbound legitimate row";
+  });
+  await check("legitimate personal / legacy own-folder uploads still insert and are bound", async () => {
+    const lg = await legacyUpload(B, 2041, U.ownerB);
+    const personal = (await one(user(U.ownerB), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id) VALUES ('p.csv',$1,10,'processing',$2) RETURNING id", [`${U.ownerB}/${uuid()}.csv`, U.ownerB])).id;
+    return (await bound(lg.id)) && (await bound(personal));
+  });
+  await check("owner B cannot create a row in B naming A's workspace object, A's folder, a made-up workspace path, or as another user (42501)", async () => {
+    for (const [label, fn] of [
+      ["A's workspace object", () => insertAs(U.ownerB, B, aUp.path)],
+      ["A's own folder", () => insertAs(U.ownerB, B, `${U.owner}/${uuid()}.csv`)],
+      ["a workspace path in B", () => insertAs(U.ownerB, B, `workspaces/${B}/${uuid()}/forged.csv`)],
+      ["traversal", () => insertAs(U.ownerB, B, `${U.ownerB}/../${U.owner}/x.csv`)],
+      ["impersonating A", () => insertAs(U.ownerB, B, `${U.owner}/${uuid()}.csv`, U.owner)],
+    ]) { const e = await errOf(fn); if (e?.code !== "42501") return `${label}: ${JSON.stringify(e)}`; }
+    return true;
+  });
+  await check("the refusal never reveals whether a guessed foreign object exists (identical code and message)", async () => {
+    const real = await errOf(() => insertAs(U.ownerB, B, aUp.path));
+    const guessed = await errOf(() => insertAs(U.ownerB, B, `workspaces/${C}/${uuid()}/no-such-object.csv`));
+    return real?.code === "42501" && real.code === guessed?.code && real.message === guessed.message;
+  });
+  await check("no client can re-point an existing row's path or uploader (42501), even their own row", async () => {
+    const mine = (await one(user(U.ownerB), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id,company_id,period_year) VALUES ('m.csv',$1,10,'processing',$2,$3,2042) RETURNING id", [`${U.ownerB}/${uuid()}.csv`, U.ownerB, B])).id;
+    const e1 = await errOf(() => q(user(U.ownerB), "UPDATE public.trial_balance_uploads SET file_path=$1 WHERE id=$2", [aUp.path, mine]));
+    const e2 = await errOf(() => q(user(U.ownerB), "UPDATE public.trial_balance_uploads SET user_id=$1 WHERE id=$2", [U.owner, mine]));
+    return e1?.code === "42501" && e2?.code === "42501" ? true : JSON.stringify({ e1, e2 });
+  });
+  await check("B cannot process A's object: a server-forged row naming it (in B, or even in A) is NOT bound, so process-trial-balance refuses it", async () => {
+    const inB = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('f',$1,1,'processing',$2,2122,$3) RETURNING id", [aUp.path, B, U.ownerB])).rows[0].id;
+    const inA = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('f',$1,1,'processing',$2,2120,$3) RETURNING id", [aUp.path, C, U.ownerB])).rows[0].id;
+    return (await bound(inB)) === false && (await bound(inA)) === false && (await bound(aUp.id)) === true;
+  });
+  await check("B cannot block A's purge: forged rows naming A's discarded object never hold it; A's purge claims and completes", async () => {
+    const a2 = await workspaceUpload(C, 2123, U.owner); const { b } = await discardFully(U.owner, a2.id); await expire(b.operation_id);
+    await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('f',$1,1,'processing',$2,2124,$3)", [a2.path, B, U.ownerB]);
+    await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('f',$1,1,'processing',$2,2125,$3)", [a2.path, C, U.ownerB]);
+    const h = await held(a2.path);
+    const cl = (await one(user(U.owner), "SELECT * FROM public.claim_trial_balance_discard_purge($1)", [b.operation_id])).outcome;
+    const el = (await admin.query("SELECT deletion_eligible FROM public.tbu_storage_cleanup_target($1)", [b.operation_id])).rows[0].deletion_eligible;
+    await deleteObject(a2.path);
+    const pg = (await purge(user(U.owner), b.operation_id)).outcome;
+    return h === false && cl === "claimed" && el === true && pg === "purged" ? true : JSON.stringify({ h, cl, el, pg });
+  });
+  await check("the binding check and path predicate are server-only (service_role), never client-callable", async () => {
+    const r = (await admin.query(`SELECT has_function_privilege('authenticated','public.tbu_upload_source_bound(uuid)','EXECUTE') a,
+      has_function_privilege('anon','public.tbu_upload_source_bound(uuid)','EXECUTE') n,
+      has_function_privilege('authenticated','public.tbu_source_path_bound(text,uuid,uuid,uuid)','EXECUTE') pa,
+      has_function_privilege('service_role','public.tbu_upload_source_bound(uuid)','EXECUTE') s`)).rows[0];
+    return !r.a && !r.n && !r.pa && r.s;
   });
 
   group("Privileges and audit immutability");

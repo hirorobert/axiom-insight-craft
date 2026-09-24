@@ -80,6 +80,29 @@
 -- Pre-flight report for an existing database: scripts/db-preflight/uploadLifecyclePreflight.sql.
 -- ════════════════════════════════════════════════════════════════════════════
 
+-- ── 0. Existing-data refusal: the FIRST statement, before any DDL (PR #32 N-03) ──────────────────
+-- Never assume a runner wraps this file in one transaction. This check reads existing data only and runs before
+-- anything is created or altered, so a refusal leaves the database exactly as it was in any execution mode
+-- (one transaction, or statement by statement in autocommit). It refuses while a fiscal period names, as its
+-- active upload, an upload the backfill below would retire. Which upload stays authoritative for such a period is
+-- the operator's decision (scripts/db-preflight/uploadLifecyclePreflight.sql, sections 7-8), never this file's.
+DO $refuse$
+DECLARE
+  v_pointers integer;
+BEGIN
+  SELECT count(*) INTO v_pointers
+    FROM public.fiscal_periods fp
+    JOIN (SELECT t.id, row_number() OVER (PARTITION BY t.company_id, t.period_year ORDER BY t.uploaded_at DESC, t.id DESC) AS rn
+            FROM public.trial_balance_uploads t WHERE t.company_id IS NOT NULL AND t.period_year IS NOT NULL) r
+      ON r.id = fp.active_upload_id
+   WHERE r.rn > 1;
+  IF v_pointers > 0 THEN
+    RAISE EXCEPTION 'upload lifecycle migration refused: % fiscal period(s) name as their active upload an upload the backfill would retire (not the latest upload for its company and period). Nothing was changed. Run scripts/db-preflight/uploadLifecyclePreflight.sql (sections 7-8) and reconcile fiscal_periods.active_upload_id before applying.', v_pointers
+      USING ERRCODE = '55000';
+  END IF;
+END
+$refuse$;
+
 SET search_path TO public, pg_catalog;
 
 -- ── 1. Columns ─────────────────────────────────────────────────────────────────────────────────
@@ -632,7 +655,8 @@ DECLARE
   v_dupes integer;
   v_pointers integer;
 BEGIN
-  -- (0) F-03: never retire an upload that a fiscal period currently names as its active upload. Which upload should
+  -- (0) F-03 (defense in depth; the same check already ran as this file's first statement): never retire an upload
+  --     that a fiscal period currently names as its active upload. Which upload should
   --     stay authoritative for such a period is the operator's decision (scripts/db-preflight/uploadLifecyclePreflight.sql,
   --     sections 7-8), not one this migration may make silently. Abort before anything changes.
   SELECT count(*) INTO v_pointers

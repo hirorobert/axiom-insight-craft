@@ -29,7 +29,7 @@ import {
 } from "./auditedAccountsAdapter.ts";
 import { classifyPublicSectorAccount } from "./publicSectorClassification.ts";
 import { resolveProcessingActor, type ProcessingActor } from "../_shared/processingActor.ts";
-import { processingRefusal } from "../_shared/uploadLifecycle.ts";
+import { processingRefusal, sourceBindingRefusal } from "../_shared/uploadLifecycle.ts";
 import { claimIdempotency, failIdempotency } from "../_shared/idempotency.ts";
 import { recordEngineRunFailed } from "../_shared/engine-run.ts";
 import { canonicalJson, sha256Hex, sha256HexBytes, type CanonicalValue } from "../_shared/hash.ts";
@@ -1465,6 +1465,15 @@ serve(async (req) => {
     const notActive = processingRefusal((upload as { lifecycle_state?: unknown }).lifecycle_state);
     if (notActive) {
       return new Response(JSON.stringify(notActive), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // N-02 (PR #32): the source path must be canonically bound to THIS upload (its own consumed workspace
+    // reservation, or its uploader's own folder). Checked before storage is touched, so the answer never reveals
+    // whether some other object exists.
+    const { data: sourceBound, error: bindErr } = await supabase.rpc("tbu_upload_source_bound", { p_upload_id: uploadId });
+    const unbound = sourceBindingRefusal(bindErr ? null : sourceBound);
+    if (unbound) {
+      return new Response(JSON.stringify(unbound), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // Only after ownership is confirmed do we mutate the upload row.

@@ -22,3 +22,16 @@ export function processingRefusal(state: unknown): { status: "not_active"; error
     message: "This trial balance is no longer the active one for its period, so it cannot be processed again. Replace the active trial balance instead.",
   };
 }
+
+/**
+ * N-02: the 409 body for an upload whose source path is not canonically bound to it (tbu_upload_source_bound), or
+ * null when it is. Anything but an explicit `true` fails closed. The body never says whether any object exists.
+ */
+export function sourceBindingRefusal(bound: unknown): { status: "source_not_bound"; error: "Conflict"; message: string } | null {
+  if (bound === true) return null;
+  return {
+    status: "source_not_bound",
+    error: "Conflict",
+    message: "This trial balance's source file is not registered to it, so it cannot be processed. Upload the file again.",
+  };
+}
