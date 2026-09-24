@@ -100,9 +100,53 @@ describe("absolute prohibited claims never appear anywhere on the landing page, 
     "guaranteed", // outside code comments — checked against the landing surface only, which has none
     "cancel anytime",
     "money-back guarantee",
+    // Absolute / unverifiable assurance language.
+    "immutable",
+    "every action",
+    "all actions",
+    "audit assurance",
+    "integrity guarantee",
+    "encrypted storage",
+    "statutory compliance",
+    "complete financial statements",
+    "every balance is tied",
+    "100%",
+    "zero ai guesswork",
+    "audit-ready",
+    "audit ready",
+    "no credit card",
+    "in minutes",
+    "four-eye",
+    "four eyes",
   ];
 
   it.each(ABSOLUTE_PROHIBITED)("\"%s\" is absent from the live landing-page source", (phrase) => {
     expect(LANDING_SOURCE_NO_COMMENTS.toLowerCase()).not.toContain(phrase);
+  });
+
+  // Whole-word checks: these tokens are substrings of legitimate words ("tra" inside "traceable",
+  // "kinga" nowhere, "partner" inside nothing) so they are matched on word boundaries only.
+  const ABSOLUTE_PROHIBITED_WORDS = [
+    // Internal engine names must never reach a customer-facing surface (Iron Dome §8.4).
+    "safisha",
+    "hesabu",
+    "kinga",
+    "maono",
+    // Jurisdiction-specific terminology has no place on the neutral public page.
+    "tzs",
+    "tra",
+    // Occupational hierarchy the product does not implement.
+    "junior",
+    "juniors",
+    "manager",
+    "managers",
+    "partner",
+    "partners",
+    "preparer hierarchy",
+  ];
+
+  it.each(ABSOLUTE_PROHIBITED_WORDS)("the word \"%s\" is absent from the live landing-page source", (word) => {
+    const pattern = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    expect(pattern.test(LANDING_SOURCE_NO_COMMENTS)).toBe(false);
   });
 });
