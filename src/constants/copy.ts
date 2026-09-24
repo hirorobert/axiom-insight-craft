@@ -295,11 +295,15 @@ export const PRICING_SECTION = {
 // Navigation
 // ─────────────────────────────────────────────────────────────
 
+// Landing-page section anchors. Every href here must match a section id rendered by
+// src/pages/Index.tsx — asserted by src/content/landing/__tests__/landingCopyDiscipline.test.ts,
+// so a renamed section can never leave a dead navigation link behind.
 export const NAV = [
-  { label: "Outcomes",  href: "#outcomes"  },
-  { label: "Method",    href: "#method"  },
-  { label: "Controls",  href: "#security"  },
-  { label: "Pricing",   href: "/pricing"   },
+  { label: "Capabilities", href: "#capabilities" },
+  { label: "Process",      href: "#process"      },
+  { label: "Deliverables", href: "#deliverables" },
+  { label: "Commercial",   href: "#commercial"   },
+  { label: "Questions",    href: "#faq"          },
 ] as const;
 
 // ─────────────────────────────────────────────────────────────
