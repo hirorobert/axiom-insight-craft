@@ -182,9 +182,12 @@ export function Header() {
 
         {/* ── Mobile toggle ─────────────────────────────────────────── */}
         <button
-          className="lg:hidden p-2 text-foreground"
+          ref={toggleRef}
+          className="lg:hidden flex h-11 w-11 items-center justify-center text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           onClick={() => setMobileOpen(!mobileOpen)}
           aria-label={mobileOpen ? "Close menu" : "Open menu"}
+          aria-expanded={mobileOpen}
+          aria-controls="mobile-navigation"
         >
           {mobileOpen ? <X size={22} /> : <Menu size={22} />}
         </button>
@@ -192,7 +195,11 @@ export function Header() {
 
       {/* Mobile Menu */}
       {mobileOpen && (
-        <div className="lg:hidden bg-card border-t border-border px-6 py-4">
+        <div
+          id="mobile-navigation"
+          ref={mobilePanelRef}
+          className="lg:hidden bg-card border-t border-border px-6 py-4"
+        >
           <div className="space-y-1">
             {isLanding && NAV.map((item) => (
               <a
