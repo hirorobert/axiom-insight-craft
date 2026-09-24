@@ -6816,6 +6816,20 @@ export type Database = {
       }
       get_member_company_ids: { Args: never; Returns: string[] }
       get_my_billing_summary: { Args: never; Returns: Json }
+      get_workspace_access: {
+        Args: { p_company_id: string }
+        Returns: {
+          access: string
+          capabilities: string[]
+          company_id: string
+          created_at: string
+          currency: string
+          fiscal_year_end: string
+          name: string
+          reporting_framework: string
+          stages: string[]
+        }[]
+      }
       grant_engagement_authority: {
         Args: {
           p_authority_type: string
@@ -6873,6 +6887,18 @@ export type Database = {
         Args: { p_company_id: string }
         Returns: {
           operation_id: string
+        }[]
+      }
+      list_shared_workspaces: {
+        Args: never
+        Returns: {
+          capabilities: string[]
+          company_id: string
+          created_at: string
+          currency: string
+          fiscal_year_end: string
+          name: string
+          reporting_framework: string
         }[]
       }
       maono_check_safisha_gate: {
@@ -7181,6 +7207,7 @@ export type Database = {
         }
         Returns: string
       }
+      tbu_can_read_prepare: { Args: { p_company_id: string }; Returns: boolean }
       tbu_can_view_workspace_audit: {
         Args: { p_company_id: string }
         Returns: boolean
@@ -7216,6 +7243,7 @@ export type Database = {
         Returns: undefined
       }
       tbu_mint_source_sweeper_ticket: { Args: never; Returns: string }
+      tbu_prepare_capabilities: { Args: never; Returns: string[] }
       tbu_redeem_source_sweeper_ticket: {
         Args: { p_token: string }
         Returns: boolean
@@ -7241,6 +7269,15 @@ export type Database = {
           consumed: boolean
           expired: boolean
           object_path: string
+        }[]
+      }
+      tbu_source_sweeper_status: {
+        Args: never
+        Returns: {
+          cron_job_active: boolean
+          cron_schedule: string
+          function_url: string
+          pg_net_installed: boolean
         }[]
       }
       tbu_storage_cleanup_target: {
