@@ -12,6 +12,8 @@
 //     (tbu_sweeper_complete), which re-checks every rule and re-reads storage.objects itself. A failure leaves the
 //     item pending for the next sweep; every step is idempotent.
 
+import { isWellFormedSourcePath } from "./sourcePath.ts";
+
 const TICKET = /^[0-9a-f]{64}$/;
 export const SWEEP_BATCH = 100;
 
@@ -61,7 +63,8 @@ export function parseSweeperRequest(body: unknown): { ticket: string } | null {
   return typeof t === "string" && TICKET.test(t) ? { ticket: t } : null;
 }
 
-const safePath = (p: string) => p.length > 0 && !p.startsWith("/") && !p.includes("..");
+// Same shape rule as the database (N-05/N-06): traversal is a whole ".." segment, not ".." inside a name.
+const safePath = (p: string) => isWellFormedSourcePath(p);
 
 export async function runSourceSweep(deps: SweeperDeps, ticket: string): Promise<SweepResult> {
   if (!(await deps.redeemTicket(ticket))) return { status: 403, outcome: "forbidden" };

@@ -521,6 +521,58 @@ async function main() {
   })
 
 
+  section('Final correction (20260923170000 + process-trial-balance): P-01 personal-upload authority, P-02 binding immutability')
+  // A personal upload of U.ownerB with a real object in their own folder.
+  const personalOf = async (who) => {
+    const path = `${who.id}/${randomUUID()}.csv`
+    const up = await who.c.storage.from(BUCKET).upload(path, new Blob([REAL_TB], { type: 'text/csv' }))
+    if (up.error) throw new Error(`storage: ${up.error.message}`)
+    created.objects.add(path)
+    const { data, error } = await who.c.from('trial_balance_uploads').insert({ file_name: 'personal.csv', file_path: path, file_size: REAL_TB.length, status: 'processing', user_id: who.id }).select('id').single()
+    if (error) throw new Error(`insert: ${error.message}`)
+    return data.id
+  }
+  const untouched = (r) => r && r.source_file_hash === null && r.processing_result === null && r.processed_at === null && r.status === 'processing'
+  await check('P-01: user B is refused A\'s personal upload (403) before any storage read or write; the owner then processes it normally', async () => {
+    const id = await personalOf(U.ownerB)
+    const other = await process_(U.owner, id)
+    const r = await row(id)
+    const own = await process_(U.ownerB, id)
+    return other.status === 403 && other.body.error === 'Forbidden' && !JSON.stringify(other.body).includes(id) && untouched(r)
+      && own.status === 200 && own.body.status === 'valid'
+      || `other=${other.status}/${JSON.stringify(other.body)} untouched=${untouched(r)} own=${own.status}/${own.body.status} ${own.body.error ?? ''}`
+  })
+  await check('P-01: anonymous is refused (401) and a missing upload answers the SAME 403 as someone else\'s', async () => {
+    const id = await personalOf(U.ownerB)
+    const anon = await callFn(null, 'process-trial-balance', { uploadId: id, clientRequestId: randomUUID() })
+    const foreign = await process_(U.owner, id)
+    const missing = await process_(U.owner, randomUUID())
+    return anon.status === 401 && untouched(await row(id)) && foreign.status === 403 && missing.status === 403
+      && JSON.stringify(foreign.body) === JSON.stringify(missing.body)
+      || `anon=${anon.status} foreign=${foreign.status}/${JSON.stringify(foreign.body)} missing=${missing.status}/${JSON.stringify(missing.body)}`
+  })
+  await check('P-01: a personal upload with a NULL owner is refused (403) and left untouched', async () => {
+    const { data, error } = await svc.from('trial_balance_uploads').insert({ file_name: 'orphan.csv', file_path: `${U.ownerB.id}/${randomUUID()}.csv`, file_size: 1, status: 'processing', user_id: null }).select('id').single()
+    if (error) return `insert: ${error.message}`
+    const a = await process_(U.ownerB, data.id)
+    return a.status === 403 && untouched(await row(data.id)) || `ptb=${a.status}`
+  })
+  await check('P-02: the owner cannot detach, move or re-point a workspace upload; service_role cannot either (42501); nothing changes', async () => {
+    const a = await workspaceUpload(U.owner, A, 2087)
+    const before = JSON.stringify(await row(a.id))
+    const tries = []
+    for (const patch of [{ company_id: null }, { period_year: 2088 }, { company_id: B }]) {
+      tries.push((await U.owner.c.from('trial_balance_uploads').update(patch).eq('id', a.id).select('id')).error?.code ?? 'no-error')
+      tries.push((await svc.from('trial_balance_uploads').update(patch).eq('id', a.id).select('id')).error?.code ?? 'no-error')
+    }
+    return tries.every((c) => c === '42501') && JSON.stringify(await row(a.id)) === before || JSON.stringify(tries)
+  })
+  await check('P-02: a personal upload cannot be attached to a workspace (42501)', async () => {
+    const id = await personalOf(U.owner)
+    const r = await U.owner.c.from('trial_balance_uploads').update({ company_id: A, period_year: 2089 }).eq('id', id).select('id')
+    return r.error?.code === '42501' && (await row(id)).company_id === null || `code=${r.error?.code}`
+  })
+
   section('Invariants')
   await check('preflight §9 on staging: no fiscal period anywhere names a non-active upload', async () => {
     const { data: fps, error } = await svc.from('fiscal_periods').select('id, active_upload_id').not('active_upload_id', 'is', null)

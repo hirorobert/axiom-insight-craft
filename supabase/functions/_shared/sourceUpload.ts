@@ -13,6 +13,8 @@
 //   * The response is a signed upload URL for that exact object, which cannot overwrite an existing one. The
 //     service-role key never leaves the function, and no client Storage policy is widened.
 
+import { isWellFormedSourcePath } from "./sourcePath.ts";
+
 export const SOURCE_CAPABILITY = "manage_source_files";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -58,7 +60,7 @@ export async function runSourceUpload(deps: SourceUploadDeps, reservationId: str
   if (!(await deps.canManage(userId, r.company_id))) return { status: 403, outcome: "forbidden" };
 
   const expectedPrefix = `workspaces/${r.company_id}/`;
-  if (!r.object_path.startsWith(expectedPrefix) || r.object_path.includes("..")) return { status: 500, outcome: "signing_failed" };
+  if (!r.object_path.startsWith(expectedPrefix) || !isWellFormedSourcePath(r.object_path)) return { status: 500, outcome: "signing_failed" };
 
   const signed = await deps.signUpload(r.object_path);
   if (!signed || signed.path !== r.object_path) return { status: 502, outcome: "signing_failed" };

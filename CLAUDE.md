@@ -326,6 +326,12 @@ A source path is bound only to its own consumed workspace reservation or its upl
 `docs/release/PR32_UPLOAD_LIFECYCLE_DEPLOYMENT.md`.
 `20260923160000_personal_upload_lifecycle_audit.sql`: the workspace-scoped lifecycle ledger (company_id NOT NULL) gets no event
 for a company-less personal upload; before it, processing any personal upload failed (23502 → 500).
+`20260923170000_upload_binding_and_personal_authority.sql` (final correction): once `company_id` is set, NO caller role (incl.
+service_role) may change company_id/period_id/period_year/fiscal_year_end/user_id/file_path, and a personal row can never be
+attached (`trg_tbu_workspace_binding_immutable`; only sanctioned owner-run lifecycle ops and the real ON DELETE SET NULL pass).
+One path authority (`tbu_path_well_formed` → `tbu_source_path_bound` → `tbu_bound_storage_path`/`tbu_object_referenced`;
+TS mirror `_shared/sourcePath.ts`, shared corpus); `..` is refused only as a whole segment. `tbu_log_event` is a no-op without a
+workspace. `process-trial-balance` processes a personal upload only for its `user_id` (403, identical for missing rows).
 
 ### five WIP migrations (NOT yet in origin/main)
 These must be applied in this exact order before any other WIP work:

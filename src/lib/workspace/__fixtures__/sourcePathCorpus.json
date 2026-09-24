@@ -1,0 +1,27 @@
+{
+  "wellFormed": [
+    "u/a.csv",
+    "u/TB..final.csv",
+    "u/..hidden",
+    "u/name..",
+    "u/.env.csv",
+    "workspaces/c/s/tb.csv",
+    "workspaces/c/s/TB..v2.csv"
+  ],
+  "malformed": [
+    "",
+    "/abs/a.csv",
+    "u/../x.csv",
+    "../x.csv",
+    "u/..",
+    "..",
+    ".",
+    "u/./a.csv",
+    "u//a.csv",
+    "u/a.csv/",
+    "workspaces/c/../d/x.csv",
+    "u\\a.csv",
+    "u/a\u0000.csv",
+    "u/a\n.csv"
+  ]
+}

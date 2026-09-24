@@ -110,6 +110,9 @@ describe("database inertness — schema and functions", () => {
       // ...and the final hardening (N-01 pointer follows the lifecycle, N-02 canonical source binding).
       "supabase/migrations/20260923150000_upload_pointer_and_source_binding.sql",
       "supabase/migrations/20260923160000_personal_upload_lifecycle_audit.sql",
+      "supabase/migrations/20260923170000_upload_binding_and_personal_authority.sql",
+      // The Edge Functions' mirror of the database's one source-path rule (tbu_path_well_formed).
+      "supabase/functions/_shared/sourcePath.ts",
       "supabase/functions/_shared/uploadLifecycle.ts",
       "supabase/functions/_shared/processingActor.ts",
       "supabase/functions/_shared/sourceSweeper.ts",

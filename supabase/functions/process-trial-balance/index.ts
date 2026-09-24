@@ -29,7 +29,7 @@ import {
 } from "./auditedAccountsAdapter.ts";
 import { classifyPublicSectorAccount } from "./publicSectorClassification.ts";
 import { resolveProcessingActor, type ProcessingActor } from "../_shared/processingActor.ts";
-import { processingRefusal, sourceBindingRefusal } from "../_shared/uploadLifecycle.ts";
+import { PROCESSING_FORBIDDEN, personalUploadRefusal, processingRefusal, sourceBindingRefusal } from "../_shared/uploadLifecycle.ts";
 import { claimIdempotency, failIdempotency } from "../_shared/idempotency.ts";
 import { recordEngineRunFailed } from "../_shared/engine-run.ts";
 import { canonicalJson, sha256Hex, sha256HexBytes, type CanonicalValue } from "../_shared/hash.ts";
@@ -1427,7 +1427,10 @@ serve(async (req) => {
 
     const { data: upload, error: uploadError } = await supabase
       .from("trial_balance_uploads").select("*").eq("id", uploadId).single();
-    if (uploadError || !upload) throw new Error("Upload not found");
+    // A missing row answers exactly like someone else's upload: 403, same body (existence is never revealed).
+    if (uploadError || !upload) {
+      return new Response(JSON.stringify(PROCESSING_FORBIDDEN), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // ── Authorization (user-based, PR #32 / 20260923120000) ──
     // A company-scoped upload may be validated by an accepted firm member of upload.company_id (unchanged), or
@@ -1453,11 +1456,15 @@ serve(async (req) => {
           { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
-    } else if (upload.uploaded_by && upload.uploaded_by !== userId) {
-      return new Response(
-        JSON.stringify({ error: "Forbidden", message: "You do not own this upload" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    } else {
+      // P-01 (PR #32): a PERSONAL upload (no workspace) is processed only for its own uploader, trial_balance_uploads.user_id.
+      // A NULL or malformed owner, or any other caller, is refused here: before any actor lookup, storage read, parse,
+      // database write or disclosure of the row. (The table has no uploaded_by column; the previous check read it and
+      // therefore never refused anyone.)
+      const notOwner = personalUploadRefusal((upload as { user_id?: unknown }).user_id, userId);
+      if (notOwner) {
+        return new Response(JSON.stringify(notOwner), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
     // F-01 (PR #32): only an ACTIVE upload is processed. A retired, superseded, discarded or discard_pending upload

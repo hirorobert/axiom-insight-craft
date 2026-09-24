@@ -410,13 +410,13 @@ async function main() {
   const objectId = async (path) => (await admin.query("SELECT id FROM storage.objects WHERE bucket_id='trial-balance-files' AND name=$1", [path])).rows[0]?.id ?? null;
   const objectExists = async (path) => (await objectId(path)) !== null;
   const reserve = (who, company, name = "tb.csv") => one(user(who), "SELECT * FROM public.reserve_trial_balance_source($1,$2)", [company, name]);
-  const register = (who, reservation, period) => one(user(who), "SELECT * FROM public.register_trial_balance_upload($1,10,$2,NULL,NULL)", [reservation, period]);
+  const register = (who, reservation, period, periodId = null) => one(user(who), "SELECT * FROM public.register_trial_balance_upload($1,10,$2,$3,NULL)", [reservation, period, periodId]);
   // The workspace-scoped browser path: reserve → (signed upload of exactly that object) → register.
-  const workspaceUpload = async (company, period, who = U.owner) => {
+  const workspaceUpload = async (company, period, who = U.owner, periodId = null) => {
     const r = await reserve(who, company);
     if (r.outcome !== "reserved") throw Object.assign(new Error(`reserve ${r.outcome}`), { outcome: r.outcome });
     const objId = await putObject(r.object_path);
-    const g = await register(who, r.reservation_id, period);
+    const g = await register(who, r.reservation_id, period, periodId);
     if (g.outcome !== "registered") throw Object.assign(new Error(`register ${g.outcome}`), { outcome: g.outcome });
     return { id: g.upload_id, path: r.object_path, objectId: objId, reservation: r.reservation_id };
   };
@@ -1027,8 +1027,8 @@ async function main() {
     return (await pointerOf(fpH)) === null ? true : `pointer moved (${outcome})`;
   });
   await check("an ACTIVE upload turning 'valid' is still promoted (existing behaviour preserved)", async () => {
-    const a = await workspaceUpload(C, 2003, U.owner); const fp = await newPeriod(C, 2003);
-    await q(SERVICE, "UPDATE public.trial_balance_uploads SET period_id=$1, status='valid' WHERE id=$2", [fp, a.id]);
+    const fp = await newPeriod(C, 2003); const a = await workspaceUpload(C, 2003, U.owner, fp);
+    await q(SERVICE, "UPDATE public.trial_balance_uploads SET status='valid' WHERE id=$1", [a.id]);
     return (await pointerOf(fp)) === a.id;
   });
   await check("the database's own ON DELETE SET NULL still reaches a historical row (and changes nothing else)", async () => {
@@ -1240,14 +1240,17 @@ async function main() {
     const stale = await stalePointers();
     return stale === 0 ? true : `${stale} stale pointer(s) in the database`;
   };
-  const promote = async (id, fp) => q(SERVICE, "UPDATE public.trial_balance_uploads SET period_id=$1, status='valid' WHERE id=$2", [fp, id]);
+  const promote = async (id, fp) => {
+    if ((await row(id)).period_id !== fp) throw new Error("fixture: the upload was not registered in that fiscal period");
+    return q(SERVICE, "UPDATE public.trial_balance_uploads SET status='valid' WHERE id=$1", [id]);
+  };
   const replaceIn = async (company, id) => {
     const r = await reservedReplacement(U.owner, company);
     return retireWith(U.owner, id, Number((await row(id)).version), r.reservation_id);
   };
   const steps = async (list) => { for (const [label, fn] of list) { const r = await fn(); if (r !== true) return `${label}: ${r}`; } return true; };
   await check("replace: the pointer is cleared in the same transaction; the replacement is NOT pointed at merely because it exists; it is once it is validated", async () => {
-    const a = await workspaceUpload(P, 2001, U.owner); await certify(P, a.id, 2001); const fp = await newPeriod(P, 2001);
+    const fp = await newPeriod(P, 2001); const a = await workspaceUpload(P, 2001, U.owner, fp); await certify(P, a.id, 2001);
     let rep;
     return steps([
       ["promoted", async () => { await promote(a.id, fp); return pointerIs(fp, a.id); }],
@@ -1257,14 +1260,14 @@ async function main() {
     ]);
   });
   await check("replace a period's upload that is NOT the pointed one: the pointer to another upload is untouched", async () => {
-    const a = await workspaceUpload(P, 2002, U.owner); await certify(P, a.id, 2002); const fp = await newPeriod(P, 2002);
+    const fp = await newPeriod(P, 2002); const a = await workspaceUpload(P, 2002, U.owner, fp); await certify(P, a.id, 2002);
     await promote(a.id, fp);
     const other = await workspaceUpload(P, 2003, U.owner); await certify(P, other.id, 2003);
     const rep = await replaceIn(P, other.id);
     return rep.outcome === "replaced" ? pointerIs(fp, a.id) : rep.outcome;
   });
   await check("cancel replacement: the previous upload returns to active and is pointed at again by the existing promotion rule", async () => {
-    const a = await workspaceUpload(P, 2004, U.owner); await certify(P, a.id, 2004); const fp = await newPeriod(P, 2004);
+    const fp = await newPeriod(P, 2004); const a = await workspaceUpload(P, 2004, U.owner, fp); await certify(P, a.id, 2004);
     await promote(a.id, fp);
     let rep;
     return steps([
@@ -1277,7 +1280,7 @@ async function main() {
     ]);
   });
   await check("cancel replacement of a never-validated upload: it returns to active but is NOT pointed at (it was never promoted)", async () => {
-    const a = await workspaceUpload(P, 2005, U.owner); await certify(P, a.id, 2005); const fp = await newPeriod(P, 2005);
+    const fp = await newPeriod(P, 2005); const a = await workspaceUpload(P, 2005, U.owner, fp); await certify(P, a.id, 2005);
     const rep = await replaceIn(P, a.id);
     await cancel(user(U.owner), rep.new_upload_id, Number((await row(rep.new_upload_id)).version));
     return ACTIVE_STATES.includes((await row(a.id)).lifecycle_state) ? pointerIs(fp, null) : "not restored";
@@ -1300,9 +1303,11 @@ async function main() {
     return mid === true && done === "aborted" && (await row(u.id)).lifecycle_state === "active_unprocessed" ? pointerIs(fp, null) : JSON.stringify({ mid, done });
   });
   await check("abort's RETIRE branch (stale pending, period taken): the discarded row is retired, the pointer is NULL, the new upload is pointed at once validated", async () => {
-    const u = await workspaceUpload(P, 2008, U.owner); const fp = await newPeriod(P, 2008, u.id);
+    const fp0 = await newPeriod(P, 2008);
+    const u = await workspaceUpload(P, 2008, U.owner, fp0); const fp = fp0;
+    await admin.query("UPDATE public.fiscal_periods SET active_upload_id=$1 WHERE id=$2", [u.id, fp]);
     const b = await discard(user(U.owner), u.id, Number((await row(u.id)).version));
-    const n = await workspaceUpload(P, 2008, U.owner);
+    const n = await workspaceUpload(P, 2008, U.owner, fp);
     await admin.query("UPDATE public.trial_balance_upload_operations SET created_at = now() - interval '16 minutes' WHERE id=$1", [b.operation_id]);
     const done = await sweepDone("stale_discard", b.operation_id);
     const mid = await pointerIs(fp, null);
@@ -1402,6 +1407,166 @@ async function main() {
       has_function_privilege('authenticated','public.tbu_source_path_bound(text,uuid,uuid,uuid)','EXECUTE') pa,
       has_function_privilege('service_role','public.tbu_upload_source_bound(uuid)','EXECUTE') s`)).rows[0];
     return !r.a && !r.n && !r.pa && r.s;
+  });
+
+  // ── Final re-review of fc4cbd4: P-02 binding immutability, N-05/N-06 path rules, N-07, audit — 20260923170000 ──
+  group("P-02 — a workspace upload can never be detached, re-attached, moved or re-pointed (any caller role)");
+  const X = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Binding workspace') RETURNING id", [U.owner])).rows[0].id;
+  ownerMemberOf[X] = (await admin.query("SELECT id FROM public.firm_members WHERE company_id=$1 AND role='owner'", [X])).rows[0].id;
+  await grant(user(U.owner), X, U.collab, "manage_source_files");
+  const codeOf = async (fn) => { try { await fn(); return "ok"; } catch (e) { return e.code; } };
+  const upd = (caller, set, id, params = []) => q(caller, `UPDATE public.trial_balance_uploads SET ${set} WHERE id=$1 RETURNING id`, [id, ...params]);
+  const xUp = await workspaceUpload(X, 2001, U.owner);
+  const xSnap = JSON.stringify(await row(xUp.id));
+  const fpX = await newPeriod(X, 2002);
+  const BINDING_CHANGES = [
+    ["company_id → NULL (detach)", "company_id = NULL"],
+    ["company_id → another workspace the owner also owns", `company_id = '${C}'`],
+    ["period_id", `period_id = '${fpX}'`],
+    ["period_year", "period_year = 2002"],
+    ["fiscal_year_end", "fiscal_year_end = '2002-12-31'"],
+    ["user_id", `user_id = '${U.collab}'`],
+    ["file_path", `file_path = '${U.owner}/other.csv'`],
+  ];
+  await check("the OWNER cannot change any binding column of their active workspace upload (42501)", async () => {
+    for (const [label, set] of BINDING_CHANGES) { const c = await codeOf(() => upd(user(U.owner), set, xUp.id)); if (c !== "42501") return `${label}: ${c}`; }
+    return JSON.stringify(await row(xUp.id)) === xSnap;
+  });
+  await check("service_role (the engine's own key) cannot either: no role exemption (42501)", async () => {
+    for (const [label, set] of BINDING_CHANGES) { const c = await codeOf(() => upd(SERVICE, set, xUp.id)); if (c !== "42501") return `${label}: ${c}`; }
+    return JSON.stringify(await row(xUp.id)) === xSnap;
+  });
+  await check("a granted collaborator cannot either (the row is not updatable by them at all); nothing changes", async () => {
+    for (const [label, set] of BINDING_CHANGES) {
+      const c = await codeOf(async () => { const r = await upd(user(U.collab), set, xUp.id); if (r.length) throw Object.assign(new Error("updated"), { code: "UPDATED" }); });
+      if (!["ok", "42501"].includes(c)) return `${label}: ${c}`;
+    }
+    return JSON.stringify(await row(xUp.id)) === xSnap;
+  });
+  await check("historical rows too: a superseded upload's binding cannot be changed by owner or service_role", async () => {
+    const h = await workspaceUpload(X, 2003, U.owner); await certify(X, h.id, 2003);
+    const r = await retireWith(U.owner, h.id, Number((await row(h.id)).version), (await reservedReplacement(U.owner, X)).reservation_id);
+    const snap = JSON.stringify(await row(h.id));
+    for (const caller of [user(U.owner), SERVICE]) for (const [label, set] of BINDING_CHANGES) {
+      const c = await codeOf(() => upd(caller, set, h.id)); if (!["42501", "55000"].includes(c)) return `${label}: ${c}`;
+    }
+    return r.outcome === "replaced" && (await row(h.id)).lifecycle_state === "superseded" && JSON.stringify(await row(h.id)) === snap;
+  });
+  await check("a personal row can never be attached to a workspace (owner or service_role; 42501)", async () => {
+    const p = (await one(user(U.owner), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id) VALUES ('p.csv',$1,10,'processing',$2) RETURNING id", [`${U.owner}/${uuid()}.csv`, U.owner])).id;
+    const a = await codeOf(() => upd(user(U.owner), `company_id = '${X}', period_year = 2004`, p));
+    const b = await codeOf(() => upd(SERVICE, `company_id = '${X}'`, p));
+    return a === "42501" && b === "42501" && (await row(p)).company_id === null;
+  });
+  await check("the detach → process → re-attach attack is impossible, and the upload never leaves the one-active index", async () => {
+    const before = await activeCount(X, 2001);
+    const detach = await codeOf(() => upd(user(U.owner), "company_id = NULL", xUp.id));
+    const second = await codeOf(async () => { const r = await reserve(U.owner, X); await putObject(r.object_path); const g = await register(U.owner, r.reservation_id, 2001); if (g.outcome !== "registered") throw Object.assign(new Error(g.outcome), { code: g.outcome }); });
+    return detach === "42501" && before === 1 && (await activeCount(X, 2001)) === 1 && second === "active_upload_exists" ? true : JSON.stringify({ detach, before, second });
+  });
+  await check("personal rows keep their own freedoms (status, results) but never their path or uploader", async () => {
+    const p = (await one(user(U.owner), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id) VALUES ('p.csv',$1,10,'processing',$2) RETURNING id", [`${U.owner}/${uuid()}.csv`, U.owner])).id;
+    const ok = (await upd(user(U.owner), "status = 'pending'", p)).length === 1;
+    const path = await codeOf(() => upd(user(U.owner), `file_path = '${U.owner}/x.csv'`, p));
+    return ok && path === "42501";
+  });
+  await check("authorized lifecycle operations still work after P-02: replace, cancel, discard, Undo, sweep", async () => {
+    const a = await workspaceUpload(X, 2005, U.owner); await certify(X, a.id, 2005);
+    const r = await retireWith(U.owner, a.id, Number((await row(a.id)).version), (await reservedReplacement(U.owner, X)).reservation_id);
+    const cx = await cancel(user(U.owner), r.new_upload_id, Number((await row(r.new_upload_id)).version));
+    const d = await workspaceUpload(X, 2006, U.owner); const { b, c } = await discardFully(U.owner, d.id);
+    const u = await restore(user(U.owner), b.operation_id);
+    return r.outcome === "replaced" && !!cx.operation_id && ACTIVE_STATES.includes((await row(a.id)).lifecycle_state) && c.outcome === "deleted_now" && u.outcome === "restored"
+      ? true : JSON.stringify({ r: r.outcome, cx: cx.outcome, c: c.outcome, u: u.outcome });
+  });
+  await check("the database's own ON DELETE SET NULL of a deleted fiscal period still reaches a workspace row (period fields only)", async () => {
+    const fp = await newPeriod(X, 2007); const a = await workspaceUpload(X, 2007, U.owner, fp);
+    const before = await row(a.id);
+    await admin.query("DELETE FROM public.fiscal_periods WHERE id=$1", [fp]);
+    const after = await row(a.id);
+    return before.period_id === fp && after.period_id === null && after.company_id === X && after.file_path === before.file_path && after.user_id === before.user_id;
+  });
+  await check("deleting a workspace: either the FK detaches its uploads only because the workspace is really gone, or the delete is refused; never a live workspace with a detached row", async () => {
+    const K = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Doomed workspace') RETURNING id", [U.owner])).rows[0].id;
+    const k = await workspaceUpload(K, 2008, U.owner);
+    const del = await codeOf(() => admin.query("DELETE FROM public.companies WHERE id=$1", [K]));
+    const r = await row(k.id);
+    const companyGone = (await count("SELECT count(*) n FROM public.companies WHERE id=$1", [K])) === 0;
+    if (del === "ok") return companyGone && (r === undefined || r.company_id === null) ? true : JSON.stringify({ del, r: r?.company_id });
+    return !companyGone && r.company_id === K ? true : JSON.stringify({ del, companyGone, r: r?.company_id });
+  });
+  await check("a service_role request cannot imitate the FK path: NULLing company_id while the workspace exists is refused", async () =>
+    (await codeOf(() => upd(SERVICE, "company_id = NULL", xUp.id))) === "42501" && (await row(xUp.id)).company_id === X);
+  await check("every workspace processing transition still writes its audit event (engine, active_unprocessed → active_processing)", async () => {
+    const a = await workspaceUpload(X, 2009, U.owner);
+    await q(SERVICE, "UPDATE public.trial_balance_uploads SET status='validating' WHERE id=$1", [a.id]);
+    await q(SERVICE, "UPDATE public.trial_balance_uploads SET source_file_hash='h9' WHERE id=$1", [a.id]);
+    const ev = (await admin.query("SELECT * FROM public.trial_balance_upload_lifecycle_events WHERE upload_id=$1 AND actor_kind='engine' AND to_state='active_processing'", [a.id])).rows;
+    await certify(X, a.id, 2009);
+    const cert = (await admin.query("SELECT * FROM public.trial_balance_upload_lifecycle_events WHERE upload_id=$1 AND to_state='active_processed'", [a.id])).rows;
+    return (await row(a.id)).lifecycle_state === "active_processed" && ev.length === 1 && ev[0].company_id === X && cert.length === 1 && cert[0].company_id === X;
+  });
+
+  group("N-05 / N-06 — ONE source-path authority; '..' refused only as a whole segment");
+  const CORPUS = JSON.parse(fs.readFileSync(path.join(REPO, "src/lib/workspace/__fixtures__/sourcePathCorpus.json"), "utf8"));
+  await check("tbu_path_well_formed matches the shared corpus exactly (the Edge Functions' mirror is held to the same file)", async () => {
+    for (const p of CORPUS.wellFormed) if ((await one(SERVICE, "SELECT public.tbu_path_well_formed($1) AS ok", [p])).ok !== true) return `should accept ${JSON.stringify(p)}`;
+    for (const p of CORPUS.malformed) {
+      let ok; try { ok = (await one(SERVICE, "SELECT public.tbu_path_well_formed($1) AS ok", [p])).ok; } catch (e) { ok = e.code === "22021" ? false : `error ${e.code}`; } // NUL cannot even be sent
+      if (ok !== false) return `should refuse ${JSON.stringify(p)}: ${ok}`;
+    }
+    return true;
+  });
+  await check("a legitimate own-folder file named TB..final.csv is accepted, bound and processable; traversal is refused", async () => {
+    const good = (await one(user(U.owner), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id) VALUES ('TB..final.csv',$1,10,'processing',$2) RETURNING id", [`${U.owner}/TB..final.csv`, U.owner])).id;
+    const bad = await codeOf(() => q(user(U.owner), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id) VALUES ('x.csv',$1,10,'processing',$2)", [`${U.owner}/../${U.collab}/x.csv`, U.owner]));
+    const deeper = await codeOf(() => q(user(U.owner), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id) VALUES ('x.csv',$1,10,'processing',$2)", [`${U.owner}/sub/x.csv`, U.owner]));
+    return (await bound(good)) === true && bad === "42501" && deeper === "42501";
+  });
+  await check("processing (tbu_upload_source_bound), the discard binding (tbu_bound_storage_path) and the cleanup hold (tbu_object_referenced) AGREE on every row kind", async () => {
+    const legacy = await legacyUpload(X, 2010, U.owner);
+    const ws = await workspaceUpload(X, 2011, U.owner);
+    const dotted = (await one(user(U.owner), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id,company_id,period_year) VALUES ('d.csv',$1,10,'processing',$2,$3,2012) RETURNING id", [`${U.owner}/TB..v2.csv`, U.owner, X])).id;
+    const forgedA = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('f',$1,1,'processing',$2,2013,$3) RETURNING id", [`workspaces/${X}/${uuid()}/x.csv`, X, U.owner])).rows[0].id;
+    const forgedB = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('f',$1,1,'processing',$2,2014,$3) RETURNING id", [`${U.collab}/y.csv`, X, U.owner])).rows[0].id;
+    const deep = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ('f',$1,1,'processing',$2,2015,$3) RETURNING id", [`${U.owner}/a/b.csv`, X, U.owner])).rows[0].id;
+    const expected = { [legacy.id]: true, [ws.id]: true, [dotted]: true, [forgedA]: false, [forgedB]: false, [deep]: false };
+    for (const [id, want] of Object.entries(expected)) {
+      const r = await row(id);
+      const proc = await bound(id);
+      const disc = (await admin.query("SELECT public.tbu_bound_storage_path(t) AS p FROM public.trial_balance_uploads t WHERE t.id=$1", [id])).rows[0].p;
+      const hold = await held(r.file_path);
+      if (proc !== want || (disc !== null) !== want || hold !== want) return `${r.file_path}: processing=${proc} discard=${disc !== null} cleanupHold=${hold} expected ${want}`;
+    }
+    return true;
+  });
+  await check("there is ONE definition: tbu_bound_storage_path and tbu_object_referenced both delegate to tbu_source_path_bound", async () => {
+    const def = async (sig) => (await admin.query(`SELECT pg_get_functiondef('public.${sig}'::regprocedure) d`)).rows[0].d;
+    const [b, o, s] = [await def("tbu_bound_storage_path(public.trial_balance_uploads)"), await def("tbu_object_referenced(text)"), await def("tbu_source_path_bound(text,uuid,uuid,uuid)")];
+    return /tbu_source_path_bound/.test(b) && /tbu_source_path_bound/.test(o) && /tbu_workspace_source_path_shape/.test(s) && /tbu_personal_source_path/.test(s)
+      && !/position\('\.\.'/.test(b + o + s);
+  });
+
+  group("N-07 — lifecycle RPCs on a personal upload answer 'forbidden', never a raw 23502");
+  await check("discard / cancel / retire on a personal upload: canonical outcome, no exception, no workspace event", async () => {
+    const p = (await one(user(U.owner), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id) VALUES ('p.csv',$1,10,'processing',$2) RETURNING id", [`${U.owner}/${uuid()}.csv`, U.owner])).id;
+    const v = Number((await row(p)).version);
+    const outs = {};
+    for (const [label, fn] of [
+      ["discard", () => discard(user(U.owner), p, v)],
+      ["cancel", () => cancel(user(U.owner), p, v)],
+      ["retire", () => one(user(U.owner), "SELECT * FROM public.retire_trial_balance_upload($1,$2,$3,10,'proof')", [p, v, uuid()])],
+    ]) { try { outs[label] = (await fn()).outcome; } catch (e) { return `${label}: raw ${e.code} ${e.message}`; } }
+    const events = await count("SELECT count(*) n FROM public.trial_balance_upload_lifecycle_events WHERE upload_id=$1", [p]);
+    return outs.discard === "forbidden" && outs.cancel === "forbidden" && outs.retire !== "replaced" && events === 0 && ACTIVE_STATES.includes((await row(p)).lifecycle_state)
+      ? true : JSON.stringify({ outs, events });
+  });
+  await check("tbu_log_event writes nothing without a workspace, and writes normally with one", async () => {
+    const before = await count("SELECT count(*) n FROM public.trial_balance_upload_lifecycle_events");
+    await admin.query("SELECT public.tbu_log_event($1,NULL,NULL,NULL,'a','b','engine',NULL,NULL,'engine',NULL,'applied',NULL,'proof')", [uuid()]);
+    const mid = await count("SELECT count(*) n FROM public.trial_balance_upload_lifecycle_events");
+    await admin.query("SELECT public.tbu_log_event($1,$2,NULL,NULL,'a','b','engine',NULL,NULL,'engine',NULL,'applied',NULL,'proof')", [uuid(), X]);
+    return mid === before && (await count("SELECT count(*) n FROM public.trial_balance_upload_lifecycle_events")) === before + 1;
   });
 
   group("Privileges and audit immutability");

@@ -27,6 +27,9 @@ Record the output with the release.
    names a non-active upload.
 7. `20260923160000_personal_upload_lifecycle_audit.sql`. The lifecycle audit trigger no longer writes a
    workspace event for a company-less personal upload; without it, processing any personal upload fails.
+8. `20260923170000_upload_binding_and_personal_authority.sql`. A workspace upload's binding (workspace,
+   period, uploader, file) becomes immutable for every caller role. One source-path rule serves processing,
+   discard and cleanup. No workspace ledger event is written without a workspace.
 
 ## 2. Pause the sweeper cron (service role / SQL editor)
 

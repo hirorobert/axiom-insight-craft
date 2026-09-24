@@ -35,3 +35,23 @@ export function sourceBindingRefusal(bound: unknown): { status: "source_not_boun
     message: "This trial balance's source file is not registered to it, so it cannot be processed. Upload the file again.",
   };
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The single 403 body for "you may not process this upload": identical for a missing row and for someone else's
+ *  personal upload, so the answer never reveals whether an upload (or its file) exists or whose it is. */
+export const PROCESSING_FORBIDDEN = {
+  error: "Forbidden",
+  message: "You don't have permission to process this trial balance.",
+} as const;
+
+/**
+ * P-01: a PERSONAL upload (company_id NULL) is processed only for its own uploader. The owner is the row's
+ * `user_id`; both it and the caller must be well-formed UUIDs and equal. A NULL / malformed owner, a malformed
+ * caller, or any other user fails closed with PROCESSING_FORBIDDEN. Returns null when processing may continue.
+ */
+export function personalUploadRefusal(ownerUserId: unknown, callerUserId: unknown): typeof PROCESSING_FORBIDDEN | null {
+  if (typeof ownerUserId !== "string" || typeof callerUserId !== "string") return PROCESSING_FORBIDDEN;
+  if (!UUID_RE.test(ownerUserId) || !UUID_RE.test(callerUserId)) return PROCESSING_FORBIDDEN;
+  return ownerUserId.toLowerCase() === callerUserId.toLowerCase() ? null : PROCESSING_FORBIDDEN;
+}
