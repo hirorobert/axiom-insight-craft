@@ -7263,6 +7263,11 @@ export type Database = {
       }
       tbu_mint_source_sweeper_ticket: { Args: never; Returns: string }
       tbu_object_referenced: { Args: { p_path: string }; Returns: boolean }
+      tbu_path_well_formed: { Args: { p_path: string }; Returns: boolean }
+      tbu_personal_source_path: {
+        Args: { p_path: string; p_user_id: string }
+        Returns: boolean
+      }
       tbu_prepare_capabilities: { Args: never; Returns: string[] }
       tbu_redeem_source_sweeper_ticket: {
         Args: { p_token: string }
@@ -7345,6 +7350,10 @@ export type Database = {
       }
       tbu_upload_source_bound: {
         Args: { p_upload_id: string }
+        Returns: boolean
+      }
+      tbu_workspace_source_path_shape: {
+        Args: { p_company_id: string; p_path: string }
         Returns: boolean
       }
       workspace_authority_basis: {

@@ -78,6 +78,20 @@
       "when": 1790259849718,
       "tag": "0010_pr32_06_upload_pointer_and_source_binding",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790259866602,
+      "tag": "0011_pr32_07_personal_upload_lifecycle_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790259894399,
+      "tag": "0012_pr32_08_upload_binding_and_personal_authority",
+      "breakpoints": true
     }
   ]
 }
