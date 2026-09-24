@@ -299,15 +299,12 @@ export const NAV = [
   { label: "Questions",    href: "#faq"          },
 ] as const;
 
-// ─────────────────────────────────────────────────────────────
-// Upload section (legacy — kept for any residual reference)
-// ─────────────────────────────────────────────────────────────
+// UPLOAD_SECTION was removed with the landing-page rebuild: it was imported by nothing and claimed
+// "Encrypted storage" (unproven) and "statements in minutes" (a speed promise nothing establishes).
+// The public page no longer advertises an upload control at all — importing a trial balance happens
+// inside an authenticated workspace.
 
-export const UPLOAD_SECTION = {
-  headline: "Start with a trial balance",
-  subhead:  "CSV, XLS, and XLSX supported. IFRS-oriented statements in minutes.",
-  security: ["Encrypted storage", "Jurisdiction-aware output"],
-} as const;
+
 
 export const FOOTER = {
   description: BRAND.tagline,
