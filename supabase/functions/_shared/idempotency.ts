@@ -3,7 +3,7 @@
 // Answers "should this request execute again?" — deliberately separate from
 // engine-run.ts's "what executed?". Concurrency safety comes entirely from
 // idempotency_keys' database-enforced UNIQUE NULLS NOT DISTINCT
-// (company_id, firm_member_id, function_name, client_request_id)
+// (company_id, firm_member_id, actor_user_id, function_name, client_request_id)
 // constraint — never a SELECT-then-INSERT race, never an advisory lock.
 //
 // CORRECTED (Phase 0A-1R): the engine_runs row is created FIRST, and its id
@@ -19,7 +19,7 @@
 // for what was and was not verified).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import type { FirmMemberActor } from "./actor.ts";
+import type { FirmMemberActor, WorkspaceUserActor } from "./actor.ts";
 
 export type ReplayResult = {
   status: "completed" | "failed";
@@ -37,8 +37,10 @@ export type ClaimOutcome =
 
 interface ClaimParams {
   companyId: string;
-  actor: FirmMemberActor | null; // null for system-triggered runs
-  actorType: "user" | "system";
+  // "user": a firm member (firm_member_id). "workspace_user": the workspace owner or an explicit capability
+  // holder with no firm membership (actor_user_id, 20260923120000). null actor for system-triggered runs.
+  actor: FirmMemberActor | WorkspaceUserActor | null;
+  actorType: "user" | "workspace_user" | "system";
   functionName: string;
   engineVersion: string;
   ruleVersion?: string | null;
@@ -61,6 +63,7 @@ export async function claimIdempotency(
   params: ClaimParams,
 ): Promise<ClaimOutcome> {
   const firmMemberId = params.actorType === "user" ? (params.actor as FirmMemberActor).firmMemberId : null;
+  const actorUserId = params.actorType === "workspace_user" ? (params.actor as WorkspaceUserActor).userId : null;
 
   // Step 1: create the engine_runs row FIRST. This call becomes the
   // provisional executor; if it loses the idempotency race below, this row
@@ -79,6 +82,7 @@ export async function claimIdempotency(
     .insert({
       company_id: params.companyId,
       firm_member_id: firmMemberId,
+      actor_user_id: actorUserId,
       actor_type: params.actorType,
       function_name: params.functionName,
       engine_version: params.engineVersion,
@@ -104,6 +108,7 @@ export async function claimIdempotency(
     .insert({
       company_id: params.companyId,
       firm_member_id: firmMemberId,
+      actor_user_id: actorUserId,
       actor_type: params.actorType,
       function_name: params.functionName,
       client_request_id: params.clientRequestId,
@@ -143,6 +148,9 @@ export async function claimIdempotency(
   existingQuery = firmMemberId === null
     ? existingQuery.is("firm_member_id", null)
     : existingQuery.eq("firm_member_id", firmMemberId);
+  existingQuery = actorUserId === null
+    ? existingQuery.is("actor_user_id", null)
+    : existingQuery.eq("actor_user_id", actorUserId);
   const { data: existingData } = await existingQuery.maybeSingle();
 
   if (!existingData) {

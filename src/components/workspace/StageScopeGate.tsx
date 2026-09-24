@@ -13,6 +13,8 @@ import { useEngagement } from "@/contexts/EngagementContext";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { findMissionView, stageHasWork } from "@/lib/workspace/mandate";
 import EngagementScopeBoundary from "@/components/workspace/EngagementScopeBoundary";
+import { StageAccessBoundary } from "@/components/workspace/WorkspaceAccessGate";
+import { canOpenStage, isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 import type { WorkspaceMission } from "@/lib/workspace/types";
 
 export default function StageScopeGate({
@@ -23,9 +25,31 @@ export default function StageScopeGate({
   children: React.ReactNode;
 }) {
   const { missionViews, loading, mandate } = useEngagement();
-  const { companyId, periodYear, uploads } = useWorkspace();
+  const { companyId, periodYear, uploads, access, loading: workspaceLoading } = useWorkspace();
 
-  if (loading) return <>{children}</>;
+  // Access comes first (PR #32 access bridge): a stage outside what the server granted this user never renders,
+  // whatever the mandate says. A Prepare-only grant holder cannot read the engagement mandate, so Prepare is
+  // decided by their grant alone; every action inside it is authorized again by the server.
+  if (!canOpenStage(access, stage)) {
+    return <StageAccessBoundary stage={stage} prepareHref={`/workspace/${companyId}/${periodYear}/prepare`} />;
+  }
+  if (isPrepareOnly(access)) return <>{children}</>;
+
+  // useEngagementMandate.ts's own `loading` now stays true until user/company/period AND the
+  // actual mandate read have all genuinely settled (fixed there — it previously flipped loading
+  // false prematurely while auth session restoration was still in flight on a fresh full-page
+  // load, which is what let this guard observe loading=false with mandate still null and redirect
+  // to Overview before the real mandate ever arrived). A deterministic loading state here, never a
+  // redirect, while that resolution is in flight; the authoritative scope decision below only ever
+  // runs once loading is genuinely false. The workspace's own first read counts too: deciding on an upload list that
+  // has not arrived yet would redirect a stage that genuinely has work.
+  if (loading || workspaceLoading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-sm text-muted-foreground" role="status" aria-live="polite">
+        Checking what's in scope for this workspace…
+      </div>
+    );
+  }
 
   const view = findMissionView(missionViews, stage);
 

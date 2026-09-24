@@ -14,6 +14,9 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// The non-membership user actor (workspace owner or explicit capability holder); see processingActor.ts.
+export type { WorkspaceUserActor } from "./processingActor.ts";
+
 export interface FirmMemberActor {
   firmMemberId: string;
   userId: string;

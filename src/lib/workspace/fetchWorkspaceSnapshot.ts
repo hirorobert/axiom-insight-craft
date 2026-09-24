@@ -38,6 +38,14 @@ export interface WorkspaceUpload {
   fiscal_year_end?: string | null;
   period_year?: number | null;
   safisha_status?: string | null;
+  /** Upload lifecycle state (20260923100000_upload_lifecycle_retire_and_replace.sql). Optional on
+   * the type only because it predates the generated Supabase types snapshot, not because it is
+   * ever actually absent on a real row — every row has a DB-level default. */
+  lifecycle_state?: string | null;
+  /** Optimistic-concurrency counter for discard_trial_balance_upload / retire_trial_balance_upload. */
+  version?: number | null;
+  /** Set when this upload replaced an earlier one; an unprocessed replacement is removed by cancelling it. */
+  replaces_upload_id?: string | null;
 }
 
 export interface WorkspaceCompany {

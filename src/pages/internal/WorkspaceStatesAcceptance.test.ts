@@ -158,6 +158,16 @@ describe("runtime — every fixture renders through the real engine and the real
     expect(html).toContain("275580.00");
   });
 
+  it("release blocker 2.3: the reconcile-locked section renders the real WorkspaceGate with a dominant 'Go to Prepare Data' CTA", async () => {
+    vi.stubEnv("DEV", true);
+    const { default: WorkspaceStatesAcceptance } = await import("./WorkspaceStatesAcceptance");
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(WorkspaceStatesAcceptance)));
+
+    expect(html).toContain('data-testid="reconcile-locked-fixture"');
+    expect(html).toContain("Reconcile is locked");
+    expect(html).toContain("Go to Prepare Data");
+  });
+
   it("renders through the SAME buildNextActionDecision the acceptance page calls — not a second mapping, sourced from the real engine", async () => {
     for (const fixture of WORKFLOW_ACCEPTANCE_FIXTURES) {
       const workspaceState = deriveWorkspaceState("fixture-company", "Acceptance Fixture Ltd", 2025, fixture.snapshot);

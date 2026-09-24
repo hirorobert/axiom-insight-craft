@@ -5,15 +5,23 @@
  *   EFDMSReconciliationPanel (from PrepareWorkspace)
  *   AdjustingJournalPanel (from TaxWorkspace)
  *
- * Mission status is "not_applicable" (always available) — no WorkspaceGate.
- * Panels themselves require a validated trial balance to render meaningfully.
+ * Mission status is "not_applicable" (always available) at the ENGINE level — deriveWorkspaceState
+ * deliberately never gates this stage (see its own doc comment: "reconcile and compliance are na()
+ * in all paths"). That is a scope decision, not a licence to reconcile against an unproven trial
+ * balance: this page's OWN readiness check additionally requires the SAME certification authority
+ * PATH 6B established for Statements/Tax (workspaceState.nextAction) — reconciling figures that
+ * have not been certified would risk reconciling against numbers that are simply wrong.
+ *
+ * When not ready, this renders the SAME <WorkspaceGate> every other locked stage uses — one
+ * dominant "Go to Prepare Data" CTA, the exact authoritative blocker text, no irrelevant controls —
+ * rather than a bespoke, CTA-less message.
  */
 
-import { GitCompare } from "lucide-react";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
 import { AdjustingJournalPanel } from "@/components/AdjustingJournalPanel";
+import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
 function deriveFiscalPeriod(upload: WorkspaceUpload, fiscalYearEnd: string | null) {
@@ -37,23 +45,31 @@ function deriveFiscalPeriod(upload: WorkspaceUpload, fiscalYearEnd: string | nul
 }
 
 export default function ReconcileWorkspace() {
-  const { upload, company } = useWorkspace();
+  const { upload, company, workspaceState, companyId, periodYear } = useWorkspace();
   const { user } = useAuth();
 
+  // The same certification-blocked signal PATH 6B computes (workspaceState.nextAction) — never a
+  // second, independently-derived readiness check. See stageLockGate.test.ts for the identical
+  // pattern on Statements/Tax/Filing.
+  const certificationBlocked =
+    workspaceState.nextAction.id === "fix-certification-failure" || workspaceState.nextAction.id === "await-certification";
   const ready =
-    upload && upload.company_id && upload.status === "complete" && upload.is_valid === true;
+    upload && upload.company_id && upload.status === "complete" && upload.is_valid === true && !certificationBlocked;
 
   if (!ready) {
+    const prepareHref = workspaceState.missions.prepare.href || `/workspace/${companyId}/${periodYear}/prepare`;
+    const blocker = certificationBlocked
+      ? (workspaceState.missions.prepare.blocker ?? workspaceState.nextAction.description)
+      : !upload
+        ? "No trial balance found for this period."
+        : "Reconciliation and adjusting journal review require a validated, certified trial balance.";
     return (
-      <div className="flex flex-col items-center justify-center min-h-[40vh] text-center gap-4">
-        <GitCompare className="w-8 h-8 text-muted-foreground/40" />
-        <div>
-          <p className="text-sm font-medium text-foreground">Reconcile</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Reconciliation and adjusting journal review require a validated trial balance.
-          </p>
-        </div>
-      </div>
+      <WorkspaceGate
+        mission="Reconcile"
+        blocker={blocker}
+        prerequisiteHref={prepareHref}
+        prerequisiteLabel="Go to Prepare Data"
+      />
     );
   }
 

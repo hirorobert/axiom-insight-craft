@@ -15,7 +15,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { buildPrepareUploadRoute, buildPrepareReviewRoute } from "@/lib/workspace/resolveActiveUpload";
+import { buildPrepareUploadRoute, buildPrepareReviewRoute, canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
 import { toast } from "sonner";
 
 import { UploadsStatusPanel } from "@/components/UploadsStatusPanel";
@@ -37,6 +37,7 @@ import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePrefli
 import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
 import { useCertificationReadiness } from "@/hooks/useCertificationReadiness";
 import { computeCertificationReadiness } from "@/lib/workspace/computeCertificationReadiness";
+import { certificationRowForDisplay } from "@/lib/workspace/certificationCheckPresentation";
 import {
   reduceCertificationRevalidationGuard,
   canInitiateCertificationAffectingMutation,
@@ -47,9 +48,12 @@ import {
   DiscardError,
   DiscardUploadDialog,
   discardUpload,
+  retireUpload,
   isCertifiedRun,
+  isUnprocessedReplacement,
   offerUndo,
 } from "@/components/workspace/DiscardUploadDialog";
+import SafishaGate from "@/components/safisha/SafishaGate";
 import { Button } from "@/components/ui/button";
 import {
   SurfaceCard,
@@ -65,6 +69,7 @@ import {
 } from "lucide-react";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
+import { isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 
 // ── deriveFiscalPeriod (local copy — same logic as Dashboard) ────────────────
 function deriveFiscalPeriod(
@@ -91,7 +96,10 @@ function deriveFiscalPeriod(
 }
 
 export default function PrepareWorkspace() {
-  const { upload: rawUpload, uploads: rawUploads, company, companyId, periodYear, refreshUpload } = useWorkspace();
+  const { upload: rawUpload, uploads: rawUploads, company, companyId, periodYear, refreshUpload, access } = useWorkspace();
+  // Prepare-only access (an explicit capability grant, PR #32): upload, replace, validate, discard and Undo. Account
+  // review, mapping, the framework prompt and evidence reconciliation belong to other authorities and are not shown.
+  const prepareOnly = isPrepareOnly(access);
   const { engagement } = useEngagement();
   // Discarded runs must vanish immediately — no residue while the refetch lands.
   const [discardedIds, setDiscardedIds] = useState<string[]>([]);
@@ -124,27 +132,78 @@ export default function PrepareWorkspace() {
   // replacement file that is about to be uploaded.
   const keepPendingFileRef = useRef(false);
 
+  // The replacement created by retireUpload() is processed exactly like a fresh upload and then goes
+  // through the same non-skippable SafishaGate that TrialBalanceUpload opens after processing.
+  const [safishaUpload, setSafishaUpload] = useState<{ uploadId: string; fileName: string } | null>(null);
+
+  const processReplacement = async (uploadId: string, fileName: string) => {
+    try {
+      await ensureFreshSession();
+      const { error } = await supabase.functions.invoke("process-trial-balance", {
+        body: { uploadId, clientRequestId: crypto.randomUUID() },
+      });
+      if (error) throw error;
+      if (prepareOnly) toast.success(`${fileName} validated. Evidence verification is completed by someone with Reconcile access. Later stages stay locked until it clears.`);
+      else setSafishaUpload({ uploadId, fileName });
+    } catch (err) {
+      console.error("[processReplacement]", err);
+      // A 403 means the caller lacks validation authority (owner or explicit grant); a retry cannot succeed.
+      const status = (err as { context?: { status?: number } })?.context?.status;
+      if (status === 403) {
+        toast.error(`${fileName} was saved as the replacement, but you don't have permission to validate trial balances in this workspace.`);
+      } else {
+        toast.error(`${fileName} was saved as the replacement, but processing did not start.`, {
+          action: { label: "Retry processing", onClick: () => void processReplacement(uploadId, fileName) },
+        });
+      }
+    } finally {
+      refreshUpload();
+    }
+  };
+
+  const retireAndProcess = async (current: WorkspaceUpload, file: File) => {
+    const { newUploadId } = await retireUpload(current, file, "Replaced via Prepare Data");
+    toast.success(`${current.file_name} retired — evidence preserved. Processing ${file.name}…`);
+    setPendingFile(null);
+    navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
+    refreshUpload();
+    await processReplacement(newUploadId, file.name);
+  };
+
   /**
-   * One tap: pick a file → the prior trial balance is discarded and the new
-   * file is uploaded immediately. Certified runs still pass the DISCARD gate.
+   * One tap: pick a file. For a genuinely unprocessed upload, the prior trial balance is discarded and
+   * the new file is uploaded immediately (hard delete; nothing to preserve). For a run with processing,
+   * certification or derived history, the new file instead RETIRES the prior upload (retireUpload): the
+   * old row, its certifications and every derived result are preserved exactly as they are and never
+   * deleted (see DiscardUploadDialog.tsx's module doc comment).
+   * The server is the authority on which case applies. If local state believed the upload was
+   * unprocessed but the server answers 'replacement_required', or 'replacement_cancel_required' for an
+   * unprocessed replacement, the same file is retired instead.
    */
   const handleReplacePicked = async (file: File | undefined) => {
     if (!file || !upload) return;
     setPendingFile(file);
-
-    if (isCertifiedRun(upload)) {
-      setDiscardTarget(upload);
-      return;
-    }
-
     setReplacing(true);
     try {
-      const receipt = await discardUpload(upload);
+      if (isCertifiedRun(upload)) {
+        await retireAndProcess(upload, file);
+        return;
+      }
+      let receipt;
+      try {
+        receipt = await discardUpload(upload);
+      } catch (err) {
+        if (err instanceof DiscardError && (err.code === "replacement_required" || err.code === "replacement_cancel_required")) {
+          await retireAndProcess(upload, file);
+          return;
+        }
+        throw err;
+      }
       setDiscardedIds((prev) => suppressUpload(prev, upload.id));
       toast.success(`Prior trial balance discarded. Uploading ${file.name}…`);
       offerUndo(receipt, () => {
-        // Unsuppress first, then refetch — the restored run is on screen for
-        // the whole undo→refresh window, so no empty frame appears.
+        // Unsuppress first, then refetch, so the restored run stays on screen for the whole
+        // undo→refresh window and no empty frame appears.
         setDiscardedIds((prev) => restoreUploadId(prev, receipt.id));
         setPendingFile(null);
         setShowUploader(false);
@@ -159,7 +218,7 @@ export default function PrepareWorkspace() {
       toast.error(
         err instanceof DiscardError
           ? err.safeMessage
-          : "Could not discard the prior trial balance. Please try again.",
+          : "Could not replace the prior trial balance. Please try again.",
       );
     } finally {
       setReplacing(false);
@@ -210,7 +269,8 @@ export default function PrepareWorkspace() {
   };
 
   const handleProcessAsAuditedAccounts = async () => {
-    if (!upload) return;
+    // Only an active upload is ever reprocessed (PR #32 N-04); the server refuses the rest (409) regardless.
+    if (!upload || !canReprocessUpload(upload)) return;
     // Rapid second invocation: a reprocess is already in flight (from this
     // control or from AccountReviewPanel's own Save/Reprocess) — refuse a
     // second concurrent one rather than racing two polls against the same
@@ -305,16 +365,20 @@ export default function PrepareWorkspace() {
     }
   };
 
-  const readiness = upload
-    ? computeCertificationReadiness({
+  const readinessInput = upload
+    ? {
         uploadExists: true,
         currentUploadId: upload.id,
         authoritative: certReadiness.authoritative,
         latestForUpload: certReadiness.latestForUpload,
         fetchFailed: certReadiness.fetchFailed,
         revalidating: isRevalidatingCertification || certReadiness.loading,
-      })
-    : undefined;
+      }
+    : null;
+  const readiness = readinessInput ? computeCertificationReadiness(readinessInput) : undefined;
+  // Presentation only: the row those readiness layers were drawn from, so the card can draw informational layers
+  // neutrally from their structured severity (certificationCheckPresentation.ts).
+  const certificationRow = readinessInput ? certificationRowForDisplay(readinessInput) : null;
 
   // PPG-1 Finding 1 (defense in depth for the upload/replace path):
   // useWorkspaceData already holds a realtime `postgres_changes` UPDATE
@@ -379,6 +443,8 @@ export default function PrepareWorkspace() {
   const reviewAccounts = suppressedReviewAccounts as any[];
   const showReviewPanel =
     upload?.status === "needs_review" &&
+    // Review ends in a reprocess; a historical upload (pinned via ?upload=) is never reprocessed (PR #32 F-01).
+    canReprocessUpload(upload) &&
     reviewAccounts.length > 0 &&
     !!upload?.company_id &&
     !!user;
@@ -409,7 +475,7 @@ export default function PrepareWorkspace() {
                 />
               </div>
             )}
-            <EntityContextSuggestion reportingFrameworkDbValue={company?.reporting_framework} companyCreatedAt={company?.created_at} />
+            {!prepareOnly && <EntityContextSuggestion reportingFrameworkDbValue={company?.reporting_framework} companyCreatedAt={company?.created_at} />}
           </div>
           {upload && !showUploader && (
             <div className="flex flex-wrap gap-2">
@@ -428,20 +494,42 @@ export default function PrepareWorkspace() {
                 {replacing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
                 {replacing ? "Replacing…" : "Replace trial balance"}
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setDiscardTarget(upload)}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remove
-              </Button>
+              {/* Discard is only ever offered for a genuinely unprocessed upload — one with
+                  processing/certification history has no standalone remove action at all, only
+                  Replace trial balance (above): discard_trial_balance_upload() would refuse it
+                  with 'replacement_required' regardless. */}
+              {!isCertifiedRun(upload) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setDiscardTarget(upload)}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {isUnprocessedReplacement(upload) ? "Cancel replacement" : "Discard upload"}
+                </Button>
+              )}
             </div>
           )}
         </div>
       </header>
 
       <div className="space-y-5">
+          {/* A replacement goes through the same evidence gate as a fresh upload (non-skippable). */}
+          {safishaUpload && (
+            <SafishaGate
+              uploadId={safishaUpload.uploadId}
+              fileName={safishaUpload.fileName}
+              onCleared={() => {
+                toast.success("TB verified — tax engine unlocked for " + safishaUpload.fileName);
+                refreshUpload();
+              }}
+              onBlocked={() => {
+                toast.error("Reconciliation blocked — re-upload a corrected TB to proceed.");
+                refreshUpload();
+              }}
+            />
+          )}
+
           {/* Upload surface — the one thing to do when nothing is here yet. */}
           {(!upload || showUploader) && (
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:items-start">
@@ -466,6 +554,7 @@ export default function PrepareWorkspace() {
                   periodId={engagement?.fiscal_period_id ?? null}
                   initialFile={pendingFile}
                   autoProcess={!!pendingFile}
+                  evidenceByReconcileOnly={prepareOnly}
                   onUploaded={() => {
                     setShowUploader(false);
                     setPendingFile(null);
@@ -488,6 +577,7 @@ export default function PrepareWorkspace() {
               <TrialBalancePreflight
                 upload={upload}
                 readiness={readiness}
+                certificationRow={certificationRow}
                 resolveHref={
                   showReviewPanel
                     ? buildPrepareReviewRoute(companyId, periodYear, upload.id)
@@ -496,7 +586,12 @@ export default function PrepareWorkspace() {
               />
 
               {/* Account review — only when classifier has unresolved accounts */}
-              {showReviewPanel && upload.company_id && user && (
+              {prepareOnly && showReviewPanel && (
+                <p data-testid="prepare-only-review-note" className="text-[13px] text-muted-foreground">
+                  Some accounts need a classification decision. Account review requires separate access to this workspace.
+                </p>
+              )}
+              {!prepareOnly && showReviewPanel && upload.company_id && user && (
                 <div ref={reviewRef}>
                   <AccountReviewPanel
                     key={upload.id}
@@ -586,11 +681,11 @@ export default function PrepareWorkspace() {
                       isValid={upload.is_valid}
                       status={upload.status}
                       fileName={upload.file_name}
-                      onProcessAsAuditedAccounts={handleProcessAsAuditedAccounts}
+                      onProcessAsAuditedAccounts={canReprocessUpload(upload) ? handleProcessAsAuditedAccounts : undefined}
                       onUploadNew={() => navigate(`/workspace/${companyId}/${periodYear}/prepare`)}
                     />
                     {mapping && (
-                      <Button variant="outline" size="sm" onClick={() => setMappingModalOpen(true)}>
+                      <Button variant="outline" size="sm" disabled={prepareOnly} onClick={() => setMappingModalOpen(true)}>
                         View mapped accounts
                       </Button>
                     )}
@@ -652,6 +747,13 @@ export default function PrepareWorkspace() {
               setPendingFile(null);
             }
           }
+        }}
+        onReplacementCancelled={(cancelledId) => {
+          setDiscardedIds((prev) => suppressUpload(prev, cancelledId));
+          setDiscardTarget(null);
+          setPendingFile(null);
+          navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
+          refreshUpload();
         }}
         onDiscarded={(_id, receipt) => {
           keepPendingFileRef.current = !!pendingFile;

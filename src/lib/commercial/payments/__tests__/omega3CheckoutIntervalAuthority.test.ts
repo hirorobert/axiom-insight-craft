@@ -69,30 +69,40 @@ describe("Ω3-CHECKOUT migration — presence and ordering", () => {
     // unapplied — see supabase/migrations/20260915100000_financial_statement_documents.sql)
     // precede the two financial-statements migrations (20260919100000, 20260919110000).
     // 20260921100000 (service enquiry intake) and 20260922100000 (its activation-readiness hardening) are two more forward-only entries after the workspace setup authority migration.
-    expect(thisIndex).toBe(sorted.length - 13);
-    expect(sorted[sorted.length - 12]).toBe(
+    // 20260922180000 (discard-trial-balance authority), 20260923100000 (upload-lifecycle retire-and-replace) , 20260923120000 (user-based validation + source sweeper) and 20260923130000 (workspace access bridge) 20260923140000 (upload-lifecycle hardening) 20260923150000 (period pointer + source binding) 20260923160000 (personal-upload audit fix) and 20260923170000 (binding immutability + personal authority) are the eight newest entries, sorting after all of the above.
+    expect(thisIndex).toBe(sorted.length - 21);
+    expect(sorted[sorted.length - 20]).toBe(
       "20260913000000_omega4_checkout_acquisition_hardening.sql",
     );
-    expect(sorted[sorted.length - 11]).toBe(
+    expect(sorted[sorted.length - 19]).toBe(
       "20260913054040_56b232d3-6503-4586-8166-151c46a08f0e.sql",
     );
-    expect(sorted[sorted.length - 10]).toBe(
+    expect(sorted[sorted.length - 18]).toBe(
       "20260913165425_b9a0a379-313f-48ec-8878-e6f0aefff5a7.sql",
     );
-    expect(sorted[sorted.length - 9]).toBe(
+    expect(sorted[sorted.length - 17]).toBe(
       "20260914000000_omega3_checkout_provider_boundary_repair.sql",
     );
-    expect(sorted[sorted.length - 8]).toBe(
+    expect(sorted[sorted.length - 16]).toBe(
       "20260914120000_omega5_billing_projection_truth.sql",
     );
-    expect(sorted[sorted.length - 7]).toBe(
+    expect(sorted[sorted.length - 15]).toBe(
       "20260915045958_96cc735e-defd-4747-870d-2784030b6da6.sql",
     );
-    expect(sorted[sorted.length - 6]).toBe(
+    expect(sorted[sorted.length - 14]).toBe(
       "20260915100000_financial_statement_documents.sql",
     );
-    // The two forward-only, UNAPPLIED financial-statements migrations are the newest entries.
-    expect(sorted[sorted.length - 5]).toBe("20260919100000_financial_statements_rollout_control.sql");
+    // The two forward-only, UNAPPLIED financial-statements migrations, then the workspace setup
+    // authority, service enquiry intake and activation-readiness migrations, then the two newest entries.
+    expect(sorted[sorted.length - 13]).toBe("20260919100000_financial_statements_rollout_control.sql");
+    expect(sorted[sorted.length - 8]).toBe("20260922180000_discard_trial_balance_authority.sql");
+    expect(sorted[sorted.length - 7]).toBe("20260923100000_upload_lifecycle_retire_and_replace.sql");
+    expect(sorted[sorted.length - 6]).toBe("20260923120000_workspace_user_engine_actor_and_source_sweeper.sql");
+    expect(sorted[sorted.length - 5]).toBe("20260923130000_workspace_capability_access_bridge.sql");
+    expect(sorted[sorted.length - 4]).toBe("20260923140000_upload_lifecycle_hardening.sql");
+    expect(sorted[sorted.length - 3]).toBe("20260923150000_upload_pointer_and_source_binding.sql");
+    expect(sorted[sorted.length - 2]).toBe("20260923160000_personal_upload_lifecycle_audit.sql");
+    expect(sorted[sorted.length - 1]).toBe("20260923170000_upload_binding_and_personal_authority.sql");
 
   });
 

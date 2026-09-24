@@ -28,7 +28,8 @@ import {
   getAuditedAccountsMetadata,
 } from "./auditedAccountsAdapter.ts";
 import { classifyPublicSectorAccount } from "./publicSectorClassification.ts";
-import { resolveFirmMemberActor, type FirmMemberActor } from "../_shared/actor.ts";
+import { resolveProcessingActor, type ProcessingActor } from "../_shared/processingActor.ts";
+import { PROCESSING_FORBIDDEN, personalUploadRefusal, processingRefusal, sourceBindingRefusal } from "../_shared/uploadLifecycle.ts";
 import { claimIdempotency, failIdempotency } from "../_shared/idempotency.ts";
 import { recordEngineRunFailed } from "../_shared/engine-run.ts";
 import { canonicalJson, sha256Hex, sha256HexBytes, type CanonicalValue } from "../_shared/hash.ts";
@@ -1426,10 +1427,17 @@ serve(async (req) => {
 
     const { data: upload, error: uploadError } = await supabase
       .from("trial_balance_uploads").select("*").eq("id", uploadId).single();
-    if (uploadError || !upload) throw new Error("Upload not found");
+    // A missing row answers exactly like someone else's upload: 403, same body (existence is never revealed).
+    if (uploadError || !upload) {
+      return new Response(JSON.stringify(PROCESSING_FORBIDDEN), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
-    // ── Authorization: caller must be a firm_member of upload.company_id ──
-    // (or the original uploader for legacy uploads with no company_id).
+    // ── Authorization (user-based, PR #32 / 20260923120000) ──
+    // A company-scoped upload may be validated by an accepted firm member of upload.company_id (unchanged), or
+    // by the workspace owner / an explicit prepare_trial_balance or manage_source_files grant holder with no
+    // firm membership at all (actor_type 'workspace_user', actor_user_id = the JWT user). The database decides
+    // (tbu_resolve_processing_actor); nothing in the request body is read. Legacy uploads with no company_id
+    // keep the original-uploader rule.
     // Ω∞ Phase 0 Slice 2: company-scoped uploads now resolve the canonical
     // firmMemberId actor (Iron Dome §4.3) via the shared resolver instead of
     // an inline membership check that only proved membership, never derived
@@ -1437,16 +1445,42 @@ serve(async (req) => {
     // null) cannot be SAFISHA-certified — tb_certifications.company_id is
     // NOT NULL — so that branch is preserved exactly as-is and SAFISHA
     // wiring below is skipped entirely for them (resolvedActor stays null).
-    let resolvedActor: FirmMemberActor | null = null;
+    let resolvedActor: ProcessingActor | null = null;
     if (upload.company_id) {
-      const actor = await resolveFirmMemberActor(supabase as never, userId, upload.company_id, corsHeaders);
-      if (actor instanceof Response) return actor;
-      resolvedActor = actor;
-    } else if (upload.uploaded_by && upload.uploaded_by !== userId) {
-      return new Response(
-        JSON.stringify({ error: "Forbidden", message: "You do not own this upload" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      resolvedActor = await resolveProcessingActor(
+        (name, args) => supabase.rpc(name, args), userId, upload.company_id,
       );
+      if (!resolvedActor) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden", message: "You don't have permission to validate trial balances in this workspace." }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    } else {
+      // P-01 (PR #32): a PERSONAL upload (no workspace) is processed only for its own uploader, trial_balance_uploads.user_id.
+      // A NULL or malformed owner, or any other caller, is refused here: before any actor lookup, storage read, parse,
+      // database write or disclosure of the row. (The table has no uploaded_by column; the previous check read it and
+      // therefore never refused anyone.)
+      const notOwner = personalUploadRefusal((upload as { user_id?: unknown }).user_id, userId);
+      if (notOwner) {
+        return new Response(JSON.stringify(notOwner), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+
+    // F-01 (PR #32): only an ACTIVE upload is processed. A retired, superseded, discarded or discard_pending upload
+    // is history; the database refuses these writes too (trg_tbu_history_immutable). Refused before any mutation.
+    const notActive = processingRefusal((upload as { lifecycle_state?: unknown }).lifecycle_state);
+    if (notActive) {
+      return new Response(JSON.stringify(notActive), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // N-02 (PR #32): the source path must be canonically bound to THIS upload (its own consumed workspace
+    // reservation, or its uploader's own folder). Checked before storage is touched, so the answer never reveals
+    // whether some other object exists.
+    const { data: sourceBound, error: bindErr } = await supabase.rpc("tbu_upload_source_bound", { p_upload_id: uploadId });
+    const unbound = sourceBindingRefusal(bindErr ? null : sourceBound);
+    if (unbound) {
+      return new Response(JSON.stringify(unbound), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // Only after ownership is confirmed do we mutate the upload row.
@@ -1593,7 +1627,7 @@ serve(async (req) => {
       const claim = await claimIdempotency(supabase as never, {
         companyId: upload.company_id,
         actor: resolvedActor,
-        actorType: "user",
+        actorType: resolvedActor.actorType,
         functionName: "process-trial-balance",
         engineVersion: SAFISHA_ENGINE_VERSION,
         clientRequestId,

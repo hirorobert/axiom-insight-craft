@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { CertUpload, fmtNum } from "./certification/types";
 import { toast } from "sonner";
+import { canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type Tone = "valid" | "blocked" | "review" | "processing";
@@ -161,7 +162,7 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
   // ── Retry ────────────────────────────────────────────────────────────────
   const handleRetry = useCallback(async (u: CertUpload, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (retrying.has(u.id)) return;
+    if (retrying.has(u.id) || !canReprocessUpload(u)) return;
 
     setRetrying((prev) => new Set(prev).add(u.id));
     toast.info(`Retrying: ${u.file_name}…`);
@@ -481,7 +482,8 @@ function UploadRow({
   onToggleExpand,
 }: RowProps) {
   const { tone, label } = toneFor(u);
-  const canRetry = (tone === "blocked") && !isRetrying;
+  // Only an active upload may be retried: retired, superseded, discarded and discard_pending uploads are history.
+  const canRetry = (tone === "blocked") && canReprocessUpload(u) && !isRetrying;
 
   const vr      = u.processing_result?.validation_report;
   const tb      = vr?.tb_balance_check;
@@ -524,6 +526,7 @@ function UploadRow({
           {/* Retry button */}
           {canRetry && (
             <button
+              data-testid="upload-retry"
               onClick={(e) => onRetry(u, e)}
               title="Re-process this upload"
               className="flex items-center gap-0.5 text-[9.5px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 hover:bg-blue-100 transition-colors"

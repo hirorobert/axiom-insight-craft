@@ -11,3 +11,6 @@ project_id = "bvyivmmfjejbmqoydezk"
     verify_jwt = false
   [functions.process-trial-balance]
     verify_jwt = false
+  # Called by the database (pg_cron + pg_net) with a single-use, database-minted ticket; the ticket is the credential.
+  [functions.trial-balance-source-sweeper]
+    verify_jwt = false

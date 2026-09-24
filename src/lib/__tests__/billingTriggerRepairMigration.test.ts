@@ -78,7 +78,8 @@ describe("E — Static migration-contract: 20260915045958_96cc735e-defd-4747-870
     // 20260920100000 (workspace setup authority) is a later forward-only addition for the same reason.
     // 20260921100000 (service enquiry intake) is a later forward-only addition for the same reason.
     // 20260922100000 (its activation-readiness hardening) likewise.
-    const KNOWN_LATER_MIGRATIONS = ["20260915100000", "20260919100000", "20260919110000", "20260920100000", "20260921100000", "20260922100000"];
+    // 20260922180000 (discard-trial-balance authority) is a later forward-only addition for the same reason.
+    const KNOWN_LATER_MIGRATIONS = ["20260915100000", "20260919100000", "20260919110000", "20260920100000", "20260921100000", "20260922100000", "20260922180000", "20260923100000", "20260923120000", "20260923130000", "20260923140000", "20260923150000", "20260923160000", "20260923170000"];
     const timestamps = allMigrationTimestamps().filter(
       (t) => !KNOWN_LATER_MIGRATIONS.includes(String(t)),
     );

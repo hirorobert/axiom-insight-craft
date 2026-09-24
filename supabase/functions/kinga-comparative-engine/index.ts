@@ -26,6 +26,7 @@
 
 import { serve }        from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isActiveUploadLifecycle } from "../_shared/uploadLifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -326,15 +327,27 @@ serve(async (req) => {
     // ── STEP 2: Load processing_results for both periods ──────────────────────
     const { data: curUpload } = await supabase
       .from("trial_balance_uploads")
-      .select("processing_result, company_name")
+      .select("processing_result, company_name, company_id, lifecycle_state")
       .eq("id", pairRows.current_upload_id)
       .single();
 
     const { data: priUpload } = await supabase
       .from("trial_balance_uploads")
-      .select("processing_result, company_name")
+      .select("processing_result, company_name, company_id, lifecycle_state")
       .eq("id", pairRows.prior_upload_id)
       .single();
+
+    // PR #32 N-01: a period's active_upload_id must name an ACTIVE upload of THIS company. A stale pointer to a
+    // retired / superseded / discard_pending upload (or to another company's upload) is never compared: fail closed.
+    for (const [label, u] of [["current", curUpload], ["prior", priUpload]] as const) {
+      if (u && (!isActiveUploadLifecycle(u.lifecycle_state) || u.company_id !== company_id)) {
+        return new Response(
+          JSON.stringify({ error: "Conflict", status: "stale_period_upload", period: label,
+            message: `The ${label} period does not point at its active trial balance. Re-validate that period before comparing.` }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
 
     if (!curUpload?.processing_result || !priUpload?.processing_result) {
       return new Response(

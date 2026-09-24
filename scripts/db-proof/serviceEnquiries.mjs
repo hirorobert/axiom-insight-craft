@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { migrationExists, sortsImmediatelyAfter } from "./migrationOrderingChecks.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
@@ -231,7 +232,15 @@ async function main() {
 
   group("Replay from zero");
   let files;
-  await check(`every repository migration (including ${MIGRATION_FILE}) applies on an empty PostgreSQL`, async () => { files = await replay(); return files.includes(MIGRATION_FILE) && files[files.length - 1] === READINESS_FILE && files.indexOf(READINESS_FILE) === files.indexOf(MIGRATION_FILE) + 1; });
+  // Later, unrelated migrations (e.g. 20260922180000_discard_trial_balance_authority.sql, trial-
+  // balance discard authority) may exist after READINESS_FILE; they do not touch service_enquiry_*
+  // objects and this check does not need to know about them — it only asserts both named files exist
+  // and that READINESS_FILE sorts immediately after MIGRATION_FILE, never a position from the end of
+  // the directory. See migrationOrderingChecks.mjs and its append-regression test.
+  await check(`every repository migration (including ${MIGRATION_FILE}) applies on an empty PostgreSQL`, async () => {
+    files = await replay();
+    return migrationExists(files, MIGRATION_FILE) && migrationExists(files, READINESS_FILE) && sortsImmediatelyAfter(files, MIGRATION_FILE, READINESS_FILE);
+  });
 
   for (const [k, id] of Object.entries(U)) await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [id, `${k}@example.test`]);
   const companyA = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Company A') RETURNING id", [U.owner])).rows[0].id;

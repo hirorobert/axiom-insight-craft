@@ -73,11 +73,27 @@ afterEach(() => {
 });
 
 describe("StageScopeGate — a stage outside the engagement's declared mandate never renders its real content", () => {
-  it("mandate still loading: renders the stage as-is — a direct URL is never blocked on a read that simply hasn't resolved yet", async () => {
+  it("mandate still loading: renders a deterministic loading state — never the real content (would leak a stage that scope resolution might still lock) and never a premature redirect to Overview", async () => {
     engagementValue.loading = true;
     const html = await renderGate();
+    // Neither of the two authoritative outcomes fires while genuinely unresolved: this is
+    // deliberately a THIRD state, not an early guess at either one. useEngagementMandate.ts's own
+    // `loading` previously flipped false for one tick while `!user` during fresh-page-load auth
+    // session restoration — before this fix, that stale tick's mandate=null (not yet populated)
+    // read as "genuinely no scope", producing exactly the premature redirect this test now proves
+    // does not happen while loading is still true.
+    expect(html).not.toContain(REAL_CONTENT_TESTID);
+    expect(html).not.toContain("Real tax content");
+    expect(html).toContain("Checking what");
+  });
+
+  it("mandate resolved (loading=false) with real scope granted: renders the real content immediately, no lingering loading state", async () => {
+    engagementValue.loading = false;
+    engagementValue.mandate = { granted: ["TAX_COMPUTATION"] };
+    engagementValue.missionViews = [missionView({ visible: true })];
+    const html = await renderGate();
     expect(html).toContain(REAL_CONTENT_TESTID);
-    expect(html).toContain("Real tax content");
+    expect(html).not.toContain("Checking what");
   });
 
   it("mandate resolved to null (no engagement ever declared) and no prior work: redirects to Overview — a URL cannot bypass the launchpad", async () => {

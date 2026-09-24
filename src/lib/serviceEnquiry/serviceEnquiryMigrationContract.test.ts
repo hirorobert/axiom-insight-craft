@@ -23,8 +23,20 @@ describe("migration hygiene", () => {
   it("is a timestamped, forward-only, additive file placed last in the chain", () => {
     expect(FILE).toMatch(/^\d{14}_[A-Za-z0-9._-]+\.sql$/);
     const all = fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
-    // Later migrations may only be the reviewed pre-activation hardening (20260922100000); nothing else follows it.
-    expect(all.slice(all.indexOf(FILE) + 1)).toEqual(["20260922100000_service_enquiry_activation_readiness.sql"]);
+    // Later migrations may only be the reviewed pre-activation hardening (20260922100000) followed by the
+    // later, unrelated discard-authority and upload-lifecycle migrations (trial-balance discard/replace);
+    // nothing else follows it.
+    expect(all.slice(all.indexOf(FILE) + 1)).toEqual([
+      "20260922100000_service_enquiry_activation_readiness.sql",
+      "20260922180000_discard_trial_balance_authority.sql",
+      "20260923100000_upload_lifecycle_retire_and_replace.sql",
+      "20260923120000_workspace_user_engine_actor_and_source_sweeper.sql",
+      "20260923130000_workspace_capability_access_bridge.sql",
+      "20260923140000_upload_lifecycle_hardening.sql",
+      "20260923150000_upload_pointer_and_source_binding.sql",
+      "20260923160000_personal_upload_lifecycle_audit.sql",
+      "20260923170000_upload_binding_and_personal_authority.sql",
+    ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);
   });

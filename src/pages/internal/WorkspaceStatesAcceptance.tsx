@@ -82,6 +82,21 @@ export default function WorkspaceStatesAcceptance() {
           />
         </section>
       )}
+
+      {contradictionState && (
+        <section className="mt-14 border-t border-border pt-10" data-testid="reconcile-locked-fixture">
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            RECONCILE LOCKED (release blocker 2.3) — the same &lt;WorkspaceGate&gt; ReconcileWorkspace itself renders
+            when certification is blocked, with the authoritative blocker and one dominant "Go to Prepare Data" CTA
+          </p>
+          <WorkspaceGate
+            mission="Reconcile"
+            blocker={contradictionState.missions.prepare.blocker ?? "Complete prerequisites first"}
+            prerequisiteHref={contradictionState.missions.prepare.href}
+            prerequisiteLabel="Go to Prepare Data"
+          />
+        </section>
+      )}
     </div>
   );
 }

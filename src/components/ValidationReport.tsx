@@ -161,8 +161,10 @@ export function ValidationReport({
               How do you want to proceed?
             </p>
 
-            {/* Path A -- process as audited accounts */}
+            {/* Path A -- process as audited accounts (offered only for an active upload; see PrepareWorkspace) */}
+            {onProcessAsAuditedAccounts && (
             <button
+              data-testid="process-as-audited"
               onClick={onProcessAsAuditedAccounts}
               className="w-full flex items-center justify-between p-4 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors text-left group"
             >
@@ -176,6 +178,7 @@ export function ValidationReport({
               </div>
               <ArrowRight className="w-4 h-4 text-primary shrink-0 group-hover:translate-x-0.5 transition-transform" />
             </button>
+            )}
 
             {/* Path B -- upload correct file */}
             <button

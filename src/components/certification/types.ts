@@ -65,6 +65,8 @@ export interface CertUpload {
   status: string;
   is_valid: boolean | null;
   company_name: string | null;
+  /** Upload lifecycle (20260923100000). Only an active upload may be retried. */
+  lifecycle_state?: string | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   processing_result: any;
 }

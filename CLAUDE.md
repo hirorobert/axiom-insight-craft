@@ -169,6 +169,40 @@ Never pass `userId` (auth UID) to an edge function as a substitute for
 `firmMemberId`. Never accept `firmMemberId` in the request body — derive it
 from the auth JWT server-side.
 
+**Scoped exception: trial balance upload lifecycle (PR #32).** CFOClose is a user-based platform, open to solo
+users, businesses and teams. A firm, a firm membership, or a title such as partner or manager must never be
+required to use it. For the upload lifecycle operations (discard, restore, replace, cancel replacement, Storage
+cleanup), the capability grants of `20260923100000`, and trial balance VALIDATION (`process-trial-balance`,
+`20260923120000`):
+- the actor identity is `auth.uid()` (`actor_user_id`);
+- `actor_membership_id` is nullable compatibility metadata;
+- authority is the single predicate `can_user_act_on_workspace(user, workspace, capability)`. It holds for the
+  workspace owner (`companies.user_id`) or for an explicit, unrevoked `workspace_capability_grants` row. It never
+  holds because of a firm membership or a title.
+- `process-trial-balance` resolves its actor with `tbu_resolve_processing_actor`: an accepted firm member keeps the
+  firm-member actor exactly as before; otherwise the owner or a `prepare_trial_balance`/`manage_source_files` grant
+  holder runs as `actor_type = 'workspace_user'` with `engine_runs`/`idempotency_keys.actor_user_id` = the JWT user
+  and NO `firm_member_id`. No firm_members row is ever created for them.
+- Workspace ACCESS for those grants (`20260923130000`): `get_workspace_access(workspace)` is the one resolver the
+  workspace shell uses (owner → every stage; accepted member → every stage under the existing rules, unchanged;
+  an active `manage_source_files`/`prepare_trial_balance` grant → **Prepare only**), returning minimal metadata
+  (no TIN/code/owner/billing). `list_shared_workspaces()` is discovery. Grant holders read only
+  `trial_balance_uploads` and `tb_certifications` of the granted workspace. Nothing else (companies row,
+  engagements, reconciliation, statements, tax, sign-off, billing, grant administration) is opened by a grant.
+  The browser only narrows (`src/lib/workspace/workspaceAccess.ts`, `WorkspaceAccessGate`, `StageScopeGate`).
+
+Everything else keeps this section's rule until the platform-wide migration below replaces it.
+**Deferred (separate mission, after PR #32):** move every remaining role-label predicate onto explicit workspace
+capabilities:
+- the 15 migrations with RLS/function checks on `fm.role`;
+- `get_member_company_ids`;
+- `assertCompanyMembership` and the 7 edge functions that read `firm_members`;
+- `engagements.created_by_member_id`;
+- this section's actor model.
+
+Do not do this as a side effect of other work. The sign-off, approval, reconciliation, statement and compliance
+boundaries (§4.6) change only in that mission, with their own review.
+
 ### 4.4 No Silent Defaults
 No default fiscal year. No default tax rate. No default exchange rate.
 If a required input is missing, the engine must return an error — not a guess.
@@ -246,6 +280,59 @@ Edge Function and every status change is one locked, matrix-validated function. 
 `scripts/db-proof/serviceEnquiries.mjs`. Runbook, activation checklist and limitations:
 `docs/operations/SERVICE_ENQUIRY_PHASE1.md`. The staff queue is `/admin/enquiries` (not linked from public navigation).
 
+### trial_balance_uploads lifecycle (PR #32 — unapplied to the hosted backend until explicitly approved)
+`20260923100000_upload_lifecycle_retire_and_replace.sql` — `lifecycle_state` (8 CHECK-enforced states) is
+server-authoritative: only the migration backfill, the `tb_certifications` AFTER INSERT trigger, the processing-start
+derivation in `trg_tbu_lifecycle_guard` and the SECURITY DEFINER RPCs may change it (client roles get 42501).
+`uq_one_active_upload_per_period`; hard discard only for uploads with no evidence (every FK onto the table is checked
+at call time); `retire_trial_balance_upload` / `cancel_trial_balance_replacement` / `restore_trial_balance_upload`;
+source-file operations are authorized by `can_user_act_on_workspace`: the workspace owner (`companies.user_id`) or an
+explicit `manage_source_files` grant in `workspace_capability_grants` (owner-only `grant_/revoke_workspace_capability`;
+one active grant per workspace, grantee and capability). No firm membership or title is ever consulted (§4.3 scoped
+exception). Events record `actor_user_id`, `authority_basis`, `authority_capability` and `outcome` (denials
+included); `actor_membership_id` is nullable metadata. Storage evidence is read by the server from `storage.objects`;
+the `trial-balance-storage-cleanup` Edge Function does the authorized service-role deletion of the operation-bound
+object only. New sources are workspace-scoped (`workspaces/<workspace>/<source>/<name>`): `reserve_trial_balance_source`
+→ `trial-balance-source-signer` (signed single-object URL) → `register_trial_balance_upload` / `retire_trial_balance_upload`,
+so a `manage_source_files` grantee can upload and replace; legacy `<uploader>/<name>` objects stay bound. Discard
+RETAINS the source for the undo window (any authorized user restores the exact object); purge happens only once the
+discard is terminal. `20260923120000` adds the scheduled, server-only sweeper: pg_cron → `tbu_run_source_sweeper()` mints a
+single-use ticket → pg_net → `trial-balance-source-sweeper`, which deletes exactly what `tbu_sweeper_candidates()` lists
+(terminal discards, unfinished cancel cleanups, objects of expired unconsumed reservations), verifies absence, then records
+it (`tbu_sweeper_complete`). No key is stored; the function URL is set once per environment with
+`tbu_configure_source_sweeper(url)` (service_role). The browser never sweeps. Release control:
+`scripts/sweeper_readiness.mjs` reports NOT READY unless the function is deployed, the project-specific URL is
+configured, the cron job is active and a ticketed health sweep succeeds (CI runs it on staging). Production, by the
+owner only, after the migrations are applied and `trial-balance-source-sweeper` is deployed:
+`SELECT public.tbu_configure_source_sweeper('https://<production-ref>.supabase.co/functions/v1/trial-balance-source-sweeper');`
+(as service_role), then `SWEEPER_SUPABASE_URL=… SWEEPER_SUPABASE_SERVICE_ROLE_KEY=… node scripts/sweeper_readiness.mjs --owner`. The functions are deployed to staging-replay
+`hplriydtdelehepgttul` only. Proven by `scripts/db-proof/uploadLifecycle.mjs` (local PostgreSQL) and `scripts/upload_lifecycle_staging.mjs` (hosted staging, manual CI job); pre-flight
+report for an existing database: `scripts/db-preflight/uploadLifecyclePreflight.sql`. Apply together with
+`20260922180000`. Only Lovable/the owner applies it.
+`20260923140000_upload_lifecycle_hardening.sql` (security-review F-01..F-05): a non-active upload is immutable outside a
+sanctioned lifecycle op (`trg_tbu_history_immutable`), cannot be certified, and can never be `fiscal_periods.active_upload_id`;
+`process-trial-balance` answers 409 for it (`_shared/uploadLifecycle.ts`) and the UI offers no Retry. Uploader-only
+policies cover personal (company-less) rows only, so a revoked grantee loses every workspace row. Purges CLAIM the
+discard (`purging`) under the op lock before any deletion; restore refuses a claimed discard; referenced objects are
+never deletable. A discard pending past 15 minutes is resolved by the sweeper (`stale_discard`: back to active, or
+retired). The 20260923100000 backfill refuses to run while a fiscal period names an upload it would retire (preflight §7–9).
+`20260923150000_upload_pointer_and_source_binding.sql` (re-review N-01/N-02): `trg_tbu_sync_fiscal_period_pointer` clears
+every `fiscal_periods.active_upload_id` naming an upload the moment it leaves the active states (re-pointing on return
+only under the existing 'valid' promotion rule, into an empty slot); `kinga-comparative-engine` refuses a stale pointer.
+A source path is bound only to its own consumed workspace reservation or its uploader's `<user_id>/` folder
+(`tbu_source_path_bound`): clients cannot insert any other path or re-point one, `process-trial-balance` answers 409
+`source_not_bound` before touching storage, and only bound references hold objects from cleanup. Both it and
+20260923100000 refuse bad existing data as their FIRST statement (no DDL before it). Deployment order:
+`docs/release/PR32_UPLOAD_LIFECYCLE_DEPLOYMENT.md`.
+`20260923160000_personal_upload_lifecycle_audit.sql`: the workspace-scoped lifecycle ledger (company_id NOT NULL) gets no event
+for a company-less personal upload; before it, processing any personal upload failed (23502 → 500).
+`20260923170000_upload_binding_and_personal_authority.sql` (final correction): once `company_id` is set, NO caller role (incl.
+service_role) may change company_id/period_id/period_year/fiscal_year_end/user_id/file_path, and a personal row can never be
+attached (`trg_tbu_workspace_binding_immutable`; only sanctioned owner-run lifecycle ops and the real ON DELETE SET NULL pass).
+One path authority (`tbu_path_well_formed` → `tbu_source_path_bound` → `tbu_bound_storage_path`/`tbu_object_referenced`;
+TS mirror `_shared/sourcePath.ts`, shared corpus); `..` is refused only as a whole segment. `tbu_log_event` is a no-op without a
+workspace. `process-trial-balance` processes a personal upload only for its `user_id` (403, identical for missing rows).
+
 ### five WIP migrations (NOT yet in origin/main)
 These must be applied in this exact order before any other WIP work:
 1. `20260720100000` — RLS hardening + segregation of duties
@@ -278,12 +365,15 @@ src/
       mandate.ts              ← Engagement capabilities registry (CAPABILITY_OUTCOMES) + mandate projection
       engagementScopeChange.ts ← Pure decision behind EngagementScopeDialog's three modes (declare/add/amend): added/removed capabilities, and that only a withdrawal via "amend" requires a reason
       workspaceSetupClient.ts ← ONLY client path to workspace setup RPCs (open_engagement_with_scope, data start, jurisdiction)
+      workspaceAccess.ts      ← Server-decided workspace access (owner / member / Prepare-only grant) + shared-workspace discovery (PR #32)
+      certificationCheckPresentation.ts ← Presentation only: 4 required certification layers counted; L5/L6 shown as neutral informational assessments (never a pass)
       certificationRevalidationGuard.ts ← Certification revalidation guard
       computeCertificationReadiness.ts  ← Certification readiness (pure)
       computePreflight.ts     ← Preflight checks (pure)
       discardSuppression.ts   ← Discarded-upload suppression rules
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing
+      sourceUpload.ts         ← ONLY browser path for a trial balance source: reserve → signed workspace-scoped upload → register
       classificationPresentation.ts   ← Pure deterministic 7-state classification presentation (FAILED/PROCESSING/INCONSISTENT/COMPLETE_WITH_REVIEW/PARTIAL/COMPLETE_NO_REVIEW/NOT_COMPUTED) for WorkspaceOverview. "Classified" means mapping_completeness.mapped_accounts (Tier 1-5) — never summary.auto_classified (Tier 4-5 only).
       classificationAcceptanceFixtures.ts ← Deterministic fixture inputs (one per classification state) for the internal /internal/acceptance/classification-states dev-only page. No Supabase, no randomness.
       classificationAcceptanceGate.ts ← Gate for that page: renderable only in a dev build (import.meta.env.DEV) — no flag, never enabled in production.
@@ -367,6 +457,9 @@ scripts/
   db-proof/
     run.mjs                   ← Financial-statements persistence proof (real PostgreSQL)
     setupAuthority.mjs        ← Workspace setup authority proof (25-way concurrency, role/RLS matrix)
+    uploadLifecycle.mjs       ← Upload lifecycle proof (legacy upgrade, B1–B4, capability matrix, concurrency)
+  db-preflight/
+    uploadLifecyclePreflight.sql ← Read-only report of what the lifecycle backfill would retire
 
 supabase/
   functions/
@@ -374,6 +467,9 @@ supabase/
       auth.ts                 ← CANONICAL shared auth utilities (see section 5)
     kinga-tax-engine/         ← ITA Cap.332 engine. Has idempotency + engine_runs.
     process-trial-balance/    ← TB ingestion + classification
+    trial-balance-storage-cleanup/ ← Authorized, server-verified removal of an upload operation's bound file (PR #32)
+    trial-balance-source-signer/   ← Single-object signed upload URL for a reserved workspace-scoped source (PR #32)
+    trial-balance-source-sweeper/  ← Scheduled, ticketed, server-only purge/reclaim of source objects (PR #32)
     hesabu-validate/          ← H-01 to H-12 assurance assertions
     safisha-ingest/           ← Bank statement CSV/XLSX → safisha_transactions
     safisha-efdms-ingest/     ← EFDMS Z-Report → safisha_transactions (service role)

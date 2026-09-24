@@ -64,10 +64,20 @@ describe("database inertness — schema and functions", () => {
     // Reviewed artifacts. The Phase 1 service enquiry intake (PR #27) added one forward-only migration and two NEW Edge Functions
     // with their shared modules; its pre-activation hardening adds one more forward-only migration and one new shared module and
     // edits ONLY the enquiry's own shared modules. No pre-existing migration, function or config is modified or deleted.
+    // The post-merge discard-authority fix (PR #32) adds one more forward-only migration: an additive accepted-firm-member
+    // DELETE RLS policy on trial_balance_uploads, plus a SECURITY DEFINER discard_trial_balance_upload(uuid) RPC that resolves
+    // discard authorization with full visibility instead of relying on a client-side RLS-scoped SELECT. Its own follow-up
+    // (the upload-lifecycle retire-and-replace migration) adds a formal lifecycle to trial_balance_uploads plus
+    // retire_trial_balance_upload()/complete_trial_balance_discard() — fixing the confirmed defect where the earlier
+    // discard RPC could never remove a certified upload (tb_certifications' append-only guard vs. its CASCADE FK).
+    // Neither migration modifies or deletes any pre-existing migration, function or config, and neither touches the
+    // financial-statements schema this file otherwise documents.
     const added = new Set([
       "supabase/migrations/20260920100000_workspace_setup_authority.sql",
       "supabase/migrations/20260921100000_service_enquiry_intake.sql",
       "supabase/migrations/20260922100000_service_enquiry_activation_readiness.sql",
+      "supabase/migrations/20260922180000_discard_trial_balance_authority.sql",
+      "supabase/migrations/20260923100000_upload_lifecycle_retire_and_replace.sql",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryChallenge.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
@@ -80,12 +90,48 @@ describe("database inertness — schema and functions", () => {
       // provider being reachable. Reads no identity, writes nothing, and refuses when its secret is absent.
       "supabase/functions/_shared/enquiryAttestation.ts",
       "supabase/functions/issue-enquiry-challenge/index.ts",
+      // PR #32 user-based upload lifecycle: the ONE new Edge Function that performs an authorized, server-verified
+      // removal of an upload operation's bound file (authorizes with can_user_act_on_workspace, service-role Storage
+      // only after authorization, completes as the caller). It touches no financial-statements schema.
+      "supabase/functions/_shared/storageCleanup.ts",
+      "supabase/functions/trial-balance-storage-cleanup/index.ts",
+      // ...and its companion that signs a single-object upload URL for a reserved WORKSPACE-scoped source, so an
+      // authorized collaborator can upload without any client Storage policy being widened.
+      "supabase/functions/_shared/sourceUpload.ts",
+      "supabase/functions/trial-balance-source-signer/index.ts",
+      // ...user-based validation (20260923120000): the pure processing-actor resolver, and the scheduled, ticketed,
+      // server-only sweeper that purges terminal discards and reclaims abandoned reservations. No financial-statements schema.
+      "supabase/migrations/20260923120000_workspace_user_engine_actor_and_source_sweeper.sql",
+      // ...and the narrow access bridge that lets an explicit Prepare grant holder discover and open that workspace.
+      "supabase/migrations/20260923130000_workspace_capability_access_bridge.sql",
+      // ...and the security-review hardening (F-01..F-05): history immutability, current-authority upload visibility,
+      // claimed purges and stale-discard resolution, plus the shared engine rule that refuses a non-active upload.
+      "supabase/migrations/20260923140000_upload_lifecycle_hardening.sql",
+      // ...and the final hardening (N-01 pointer follows the lifecycle, N-02 canonical source binding).
+      "supabase/migrations/20260923150000_upload_pointer_and_source_binding.sql",
+      "supabase/migrations/20260923160000_personal_upload_lifecycle_audit.sql",
+      "supabase/migrations/20260923170000_upload_binding_and_personal_authority.sql",
+      // The Edge Functions' mirror of the database's one source-path rule (tbu_path_well_formed).
+      "supabase/functions/_shared/sourcePath.ts",
+      "supabase/functions/_shared/uploadLifecycle.ts",
+      "supabase/functions/_shared/processingActor.ts",
+      "supabase/functions/_shared/sourceSweeper.ts",
+      "supabase/functions/trial-balance-source-sweeper/index.ts",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
       "supabase/functions/_shared/serviceEnquiryHandler.ts",
       "supabase/functions/_shared/serviceEnquiryWiring.ts",
+      // PR #32 user-based validation: process-trial-balance resolves its actor with tbu_resolve_processing_actor, and the
+      // idempotency claim records a workspace_user actor (actor_user_id) with no firm membership.
+      "supabase/functions/process-trial-balance/index.ts",
+      // PR #32 N-01: the comparative engine refuses a stale period pointer (non-active or foreign upload).
+      "supabase/functions/kinga-comparative-engine/index.ts",
+      "supabase/functions/_shared/actor.ts",
+      "supabase/functions/_shared/idempotency.ts",
+      // The sweeper's verify_jwt = false entry (see the automation-surface test below).
+      "supabase/config.toml",
     ]);
     for (const line of changed) {
       const [status, file] = line.split("	");
@@ -97,7 +143,23 @@ describe("database inertness — schema and functions", () => {
   it.skipIf(!hasMain)("changes no automation-deploy surface other than the reviewed CI/RLS hardening, the disposable-database proof and the guarded hosted-staging acceptance script", () => {
     const changed = (gitOut("diff --name-only origin/main...HEAD -- .github package.json supabase/config.toml .lovable scripts") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
-    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serviceEnquiries.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/manifestLib.mjs", "scripts/release/scan-repo.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs", "scripts/db-proof/setupAuthority.mjs", "scripts/ci/assertPackIsolation.mjs", "scripts/ci/assertSingleLockfile.mjs", "scripts/ci/packageManagerAuthority.mjs", "package.json"]);
+    const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serviceEnquiries.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/manifestLib.mjs", "scripts/release/scan-repo.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs", "scripts/db-proof/setupAuthority.mjs", "scripts/ci/assertPackIsolation.mjs", "scripts/ci/assertSingleLockfile.mjs", "scripts/ci/packageManagerAuthority.mjs", "package.json",
+      // Pure, database-free migration-ordering predicates shared by run.mjs and serviceEnquiries.mjs (already reviewed above),
+      // replacing their prior files.length-N / slice(-N,-M) positional assumptions. No new dependency, no deploy behavior change.
+      "scripts/db-proof/migrationOrderingChecks.mjs",
+      // PR #32 upload lifecycle: the loopback-only real-PostgreSQL proof, the read-only pre-flight report (SELECTs only),
+      // and the hosted-staging proof behind the same stagingGuard (pinned by ciWorkflowSafety.test.ts).
+      "scripts/db-proof/uploadLifecycle.mjs", "scripts/db-preflight/uploadLifecyclePreflight.sql", "scripts/upload_lifecycle_staging.mjs",
+      // PR #32 sweeper: the ONE config entry, verify_jwt = false for trial-balance-source-sweeper (its single-use,
+      // database-minted ticket is the credential, redeemed before anything runs).
+      "supabase/config.toml",
+      // PR #32 sweeper release control: the fail-closed readiness check (staging by default, behind stagingGuard;
+      // an explicit --owner mode for the owner) and its pure evaluator.
+      "scripts/sweeper_readiness.mjs", "scripts/ci/sweeperReadiness.mjs",
+      // PR #32 staging browser acceptance: behind the same stagingGuard; a dependency-free CDP driver (no package.json
+      // change), a staging-only frontend build with no readable .env, and pure checks.
+      "scripts/browser_acceptance.mjs", "scripts/browser-acceptance/cdp.mjs", "scripts/browser-acceptance/stagingFrontend.mjs",
+      "scripts/browser-acceptance/checks.mjs"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

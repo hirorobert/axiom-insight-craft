@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
+import { registerWorkspaceUpload, uploadWorkspaceSource } from "@/lib/workspace/sourceUpload";
 import { Link, useNavigate } from "react-router-dom";
 import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, X, ArrowRight, Loader2, Trash2, Building2, ChevronDown, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,12 @@ export interface TrialBalanceUploadProps {
   autoProcess?: boolean;
   /** Called after a batch finishes so the parent can refresh. */
   onUploaded?: () => void;
+  /**
+   * Prepare-only access (an explicit capability grant, PR #32): the caller may upload and validate but has no
+   * Reconcile access, so the SafishaGate is not opened for them. The gate is NOT bypassed: the upload's
+   * safisha_status stays uncleared and every later stage stays locked until someone with Reconcile access clears it.
+   */
+  evidenceByReconcileOnly?: boolean;
 }
 
 export const TrialBalanceUpload = ({
@@ -69,6 +76,7 @@ export const TrialBalanceUpload = ({
   periodId = null,
   initialFile = null,
   autoProcess = false,
+  evidenceByReconcileOnly = false,
   onUploaded,
 }: TrialBalanceUploadProps = {}) => {
   const [files, setFiles] = useState<FileUpload[]>([]);
@@ -191,42 +199,23 @@ export const TrialBalanceUpload = ({
     try {
       updateFileStatus(id, { status: "uploading", progress: 10 });
 
-      // Generate unique file path
-      const timestamp = Date.now();
-      const filePath = `${user!.id}/${timestamp}_${file.name}`;
+      // Workspace-scoped source: the server authorizes (workspace owner or manage_source_files), derives the
+      // object path and signs a one-object upload; the row is registered once the server sees the object.
+      // See src/lib/workspace/sourceUpload.ts.
+      const targetCompanyId = lockedCompanyId ?? selectedCompanyId;
+      if (!targetCompanyId) throw new Error("Choose a workspace before uploading a trial balance.");
 
-      // Upload file to storage
-      const { error: uploadError } = await supabase.storage
-        .from("trial-balance-files")
-        .upload(filePath, file);
-
-      if (uploadError) throw new Error(uploadError.message);
-
+      const { reservationId } = await uploadWorkspaceSource(targetCompanyId, file);
       updateFileStatus(id, { progress: 40 });
 
-      // Get selected company name for the record
-      const targetCompanyId = lockedCompanyId ?? selectedCompanyId;
-      const selectedCompany = companies.find((c) => c.id === targetCompanyId);
-
-      // Create database record
-      const { data: uploadRecord, error: dbError } = await supabase
-        .from("trial_balance_uploads")
-        .insert({
-          file_name: file.name,
-          file_path: filePath,
-          file_size: file.size,
-          status: "processing",
-          user_id: user!.id,
-          company_id: targetCompanyId,
-          company_name: selectedCompany?.name || lockedCompanyName || null,
-          ...(periodYear ? { period_year: periodYear } : {}),
-          ...(periodId ? { period_id: periodId } : {}),
-          ...(engagementId ? { engagement_id: engagementId } : {}),
-        })
-        .select()
-        .single();
-
-      if (dbError) throw new Error(dbError.message);
+      const registeredId = await registerWorkspaceUpload({
+        reservationId,
+        fileSize: file.size,
+        periodYear: periodYear ?? null,
+        periodId: periodId ?? null,
+        engagementId: engagementId ?? null,
+      });
+      const uploadRecord = { id: registeredId };
 
       updateFileStatus(id, { status: "processing", progress: 60, uploadId: uploadRecord.id });
 
@@ -249,7 +238,14 @@ export const TrialBalanceUpload = ({
         { body: { uploadId: uploadRecord.id, clientRequestId } }
       );
 
-      if (processError) throw new Error(processError.message || "AI processing failed");
+      if (processError) {
+        // The file is saved either way. Validation uses the same user-based authority as uploading (workspace owner
+        // or an explicit grant), so a 403 means the caller genuinely lacks it.
+        const status = (processError as { context?: { status?: number } }).context?.status;
+        throw new Error(status === 403
+          ? "Your trial balance was saved, but you don't have permission to validate trial balances in this workspace."
+          : processError.message || "Validation could not start.");
+      }
 
       // Log the processing action
       logAction({
@@ -263,7 +259,11 @@ export const TrialBalanceUpload = ({
 
       // SAFISHA GATE: open the evidence verification gate for this upload
       // The tax engine is locked until Safisha clears it (safisha_status = 'clean')
-      setSafishaUpload({ uploadId: uploadRecord.id, fileName: file.name });
+      if (evidenceByReconcileOnly) {
+        toast.success(`${file.name} validated. Evidence verification is completed by someone with Reconcile access. Later stages stay locked until it clears.`);
+      } else {
+        setSafishaUpload({ uploadId: uploadRecord.id, fileName: file.name });
+      }
     } catch (error) {
       console.error("Upload error:", error);
       updateFileStatus(id, {

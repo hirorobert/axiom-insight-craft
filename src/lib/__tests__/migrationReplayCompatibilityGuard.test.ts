@@ -125,7 +125,7 @@ function readMigration(fileName: string): string {
 }
 
 describe("migration directory integrity", () => {
-  it("contains exactly 126 migration files", () => {
+  it("contains exactly the expected migration files", () => {
     // Bumped from 113 -> 114: 20260912100000_omega3_checkout_cfoclose_
     // offers_and_interval_authority.sql (Ω3-CHECKOUT), forward-only,
     // sorts after every prior file. Bumped from 114 -> 115:
@@ -157,8 +157,27 @@ describe("migration directory integrity", () => {
     // canonical enquiry, append-only events, platform-staff authority, transactional outbox) — forward-only, sorts last.
     // Bumped from 125 -> 126: 20260922100000_service_enquiry_activation_readiness.sql (honest outbox status model, reference
     // search) — forward-only, sorts last.
+    // Bumped from 126 -> 127: 20260922180000_discard_trial_balance_authority.sql (authoritative SECURITY DEFINER
+    // discard_trial_balance_upload() RPC + additive accepted-firm-member DELETE policy, fixing the uploader-only
+    // DELETE RLS gap) — forward-only, sorts last.
+    // Bumped from 127 -> 128: 20260923100000_upload_lifecycle_retire_and_replace.sql (formal upload lifecycle —
+    // retire_trial_balance_upload for processed/certified uploads, a two-phase hard-discard saga for genuinely
+    // unprocessed ones; never weakens tb_certifications' append-only guard or the CASCADE FK, fixing the confirmed
+    // defect where any certified upload could never be discarded) — forward-only, sorts last.
+    // Bumped from 128 -> 129: 20260923120000_workspace_user_engine_actor_and_source_sweeper.sql (user-based trial balance validation:
+    // a workspace_user engine actor with no firm membership; the scheduled, ticketed source sweeper) — forward-only, sorts last.
+    // Bumped from 129 -> 130: 20260923130000_workspace_capability_access_bridge.sql (the narrow workspace access bridge for explicit
+    // Prepare grants: get_workspace_access, list_shared_workspaces, two Prepare read policies) — forward-only, sorts last.
+    // Bumped from 130 -> 131: 20260923140000_upload_lifecycle_hardening.sql (PR #32 security-review hardening: historical
+    // uploads immutable, uploader policies limited to personal rows, claimed purges, stale-discard resolution) — forward-only, sorts last.
+    // Bumped from 131 -> 132: 20260923150000_upload_pointer_and_source_binding.sql (PR #32 final hardening: the fiscal-period
+    // pointer follows the upload lifecycle; source paths canonically bound) — forward-only, sorts last.
+    // Bumped from 132 -> 133: 20260923160000_personal_upload_lifecycle_audit.sql (the workspace lifecycle ledger no longer
+    // receives an event for a company-less personal upload, which had made processing them fail) — forward-only, sorts last.
+    // Bumped from 133 -> 134: 20260923170000_upload_binding_and_personal_authority.sql (PR #32 final correction: workspace
+    // upload binding immutable, one source-path authority, no workspace event without a workspace) — forward-only, sorts last.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(126);
+    expect(files.length).toBe(134);
   });
 });
 

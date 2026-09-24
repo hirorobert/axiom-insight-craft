@@ -15,11 +15,26 @@ const ORIGINAL = fs.readFileSync(path.join(ROOT, "supabase/migrations/2026092110
 const bodyOf = (name: string) => new RegExp(`FUNCTION public\\.${name}\\([\\s\\S]*?\\n\\$\\$;`).exec(SQL)?.[0] ?? "";
 
 describe("readiness migration hygiene", () => {
-  it("is timestamped, sorts last, and leaves the original enquiry migration untouched", () => {
+  it("is timestamped, sorts before only the later, unrelated discard-authority migration, and leaves the original enquiry migration untouched", () => {
     expect(FILE).toMatch(/^\d{14}_[A-Za-z0-9._-]+\.sql$/);
     const all = fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
-    expect(all[all.length - 1]).toBe(FILE);
-    expect(all[all.length - 2]).toBe("20260921100000_service_enquiry_intake.sql");
+    // 20260922180000_discard_trial_balance_authority.sql, 20260923100000_upload_lifecycle_retire_and_replace.sql and
+    // 20260923120000_workspace_user_engine_actor_and_source_sweeper.sql and 20260923130000_workspace_capability_access_bridge.sql are later, unrelated migrations (trial-balance discard/lifecycle
+    // authority, user-based validation, source sweeper) that now sort after this one — none touches service_enquiry_* objects.
+    // 20260923140000_upload_lifecycle_hardening.sql (PR #32 security-review hardening) is later still and equally unrelated.
+    // 20260923150000_upload_pointer_and_source_binding.sql (PR #32 final hardening) is later still and equally unrelated.
+    // 20260923160000_personal_upload_lifecycle_audit.sql (PR #32 personal-upload audit fix) is later still and equally unrelated.
+    // 20260923170000_upload_binding_and_personal_authority.sql (PR #32 final correction) is later still and equally unrelated.
+    expect(all[all.length - 1]).toBe("20260923170000_upload_binding_and_personal_authority.sql");
+    expect(all[all.length - 2]).toBe("20260923160000_personal_upload_lifecycle_audit.sql");
+    expect(all[all.length - 3]).toBe("20260923150000_upload_pointer_and_source_binding.sql");
+    expect(all[all.length - 4]).toBe("20260923140000_upload_lifecycle_hardening.sql");
+    expect(all[all.length - 5]).toBe("20260923130000_workspace_capability_access_bridge.sql");
+    expect(all[all.length - 6]).toBe("20260923120000_workspace_user_engine_actor_and_source_sweeper.sql");
+    expect(all[all.length - 7]).toBe("20260923100000_upload_lifecycle_retire_and_replace.sql");
+    expect(all[all.length - 8]).toBe("20260922180000_discard_trial_balance_authority.sql");
+    expect(all[all.length - 9]).toBe(FILE);
+    expect(all[all.length - 10]).toBe("20260921100000_service_enquiry_intake.sql");
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);
   });

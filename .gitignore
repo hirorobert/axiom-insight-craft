@@ -29,3 +29,6 @@ docs/internal/
 
 __pycache__/
 *.pyc
+
+# Browser acceptance screenshots and results (CI artifacts, never committed)
+artifacts/

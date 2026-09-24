@@ -35,6 +35,7 @@ import IssuesWorkspace from "./pages/workspace/IssuesWorkspace";
 
 // Engagement mandate — scope-aware route guard (routes always exist)
 import StageScopeGate from "./components/workspace/StageScopeGate";
+import { OverviewAccessGate } from "./components/workspace/WorkspaceAccessGate";
 
 // Command Center — partner-level cross-engagement view
 import CommandCenter from "./pages/command/CommandCenter";
@@ -94,7 +95,7 @@ const App = () => (
                     </PageErrorBoundary>
                   }
                 >
-                  <Route index element={<WorkspaceOverview />} />
+                  <Route index element={<OverviewAccessGate><WorkspaceOverview /></OverviewAccessGate>} />
 
                   {/* Architecture v3.1 canonical routes */}
                   <Route path="prepare"    element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />

@@ -24,6 +24,8 @@ import { useWorkspaceData } from "@/hooks/useWorkspaceData";
 import { useEngagementMandate } from "@/hooks/useEngagementMandate";
 import { projectMandate } from "@/lib/workspace/mandate";
 import { deriveWorkspaceNavigation } from "@/lib/workspace/navigation";
+import { canOpenStage, isPrepareOnly } from "@/lib/workspace/workspaceAccess";
+import { WorkspaceAccessShell } from "@/components/workspace/WorkspaceAccessGate";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import type { CompanyReportingFrameworkDbValue } from "@/lib/accounting/frameworkAdapter";
 import { detectEntityAccountingContext } from "@/lib/accounting/detectEntityContext";
@@ -198,11 +200,14 @@ export default function WorkspaceLayout() {
   // undeclared, projectMandate returns every stage — nothing is ever hidden on
   // unknown scope.
   const scopeDeclared = !!engagementApi.mandate && engagementApi.mandate.granted.length > 0;
+  // Only what the server granted (PR #32 access bridge): a Prepare-only grant holder sees Prepare Data and nothing
+  // else; owners and members keep the navigation exactly as before.
+  const prepareOnly = isPrepareOnly(workspaceData.access);
   const navItems = deriveWorkspaceNavigation({
     basePath: `/workspace/${companyId}/${periodYear}`,
-    scopeDeclared,
-    missionViews: engagementApi.loading ? [] : missionViews,
-  });
+    scopeDeclared: prepareOnly || scopeDeclared,
+    missionViews: prepareOnly ? missionViews : engagementApi.loading ? [] : missionViews,
+  }).filter((item) => (item.id === "overview" ? !prepareOnly : canOpenStage(workspaceData.access, item.id as WorkspaceMission)));
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -233,54 +238,59 @@ export default function WorkspaceLayout() {
   return (
     <WorkspaceContext.Provider value={workspaceData}>
      <EngagementContext.Provider value={{ ...engagementApi, missionViews }}>
+      <WorkspaceAccessShell accessState={workspaceData.accessState} onRetry={workspaceData.refreshUpload}>
       <div className="min-h-screen bg-background flex flex-col">
 
         {/* ── Top bar ──────────────────────────────────────────────────────── */}
         <header className="sticky top-0 z-50 bg-background border-b border-border">
-          <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+          <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-2 sm:gap-4">
 
             {/* Left: logo (home) + breadcrumb — the logo is the only way back,
                 so there is no competing back arrow. */}
-            <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <Link
                 to="/dashboard"
+                // Explicit escape to the hub — never silently re-lands back in this exact workspace.
+                // See Dashboard.tsx's forceHub / resolveReturningUserRoute.ts's applyForceHub.
+                state={{ forceHub: true }}
                 title="CFOClose — back to your workspaces"
                 aria-label="CFOClose home"
                 className="shrink-0 -ml-1 rounded px-1 py-1 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <CFOCloseWordmark className="text-base" />
+                <CFOCloseWordmark className="text-sm sm:text-base" />
               </Link>
               <div className="h-4 w-px bg-border shrink-0" />
               {loading ? (
                 <Skeleton className="h-4 w-36" />
               ) : (
-                // Two lines below sm (company · FY, then the framework), one line from sm up. The header keeps its h-14,
-                // so the sticky stage nav offset is unaffected; every part truncates instead of overflowing.
-                <div className="flex min-w-0 flex-col justify-center gap-0.5 text-sm leading-tight sm:flex-row sm:items-center sm:gap-2">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="font-semibold text-foreground truncate max-w-[140px] sm:max-w-xs">
-                      {company?.name ?? "Loading…"}
-                    </span>
-                    <span className="text-muted-foreground shrink-0">·</span>
-                    <span className="text-muted-foreground tabular-nums shrink-0 font-mono text-xs">
+                // Below sm: two lines — the company name (truncates), then the financial period with the framework.
+                // The period never shrinks away and never spills under the header controls (it once did at 320px).
+                // From sm up: one line, company · FY · framework, exactly as before. Same DOM order at every width.
+                <div data-testid="workspace-identity" className="flex min-w-0 flex-col justify-center gap-0.5 text-sm leading-tight sm:flex-row sm:items-center sm:gap-2">
+                  <span className="min-w-0 truncate font-semibold text-foreground sm:max-w-xs">
+                    {company?.name ?? "Loading…"}
+                  </span>
+                  <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground sm:gap-2 sm:text-sm">
+                    <span aria-hidden="true" className="hidden shrink-0 sm:inline">·</span>
+                    <span data-testid="workspace-period" className="shrink-0 font-mono text-[11px] tabular-nums sm:text-xs">
                       {periodLabel}
                     </span>
+                    {frameworkLabel && (
+                      <div
+                        data-testid="workspace-framework"
+                        data-confirmed={frameworkConfirmed}
+                        className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground sm:text-xs"
+                        title={`Reporting framework: ${frameworkLabel}${frameworkConfirmed ? "" : " (unconfirmed)"}`}
+                      >
+                        <span aria-hidden="true" className="shrink-0">·</span>
+                        <span className="min-w-0 truncate">
+                          <span className="sr-only">Reporting framework: </span>
+                          {frameworkLabel}
+                        </span>
+                        {!frameworkConfirmed && <span className="shrink-0 text-[10px] sm:text-xs">(unconfirmed)</span>}
+                      </div>
+                    )}
                   </div>
-                  {frameworkLabel && (
-                    <div
-                      data-testid="workspace-framework"
-                      data-confirmed={frameworkConfirmed}
-                      className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground sm:text-xs"
-                      title={`Reporting framework: ${frameworkLabel}${frameworkConfirmed ? "" : " (unconfirmed)"}`}
-                    >
-                      <span aria-hidden="true" className="hidden shrink-0 sm:block">·</span>
-                      <span className="min-w-0 truncate">
-                        <span className="sr-only">Reporting framework: </span>
-                        {frameworkLabel}
-                      </span>
-                      {!frameworkConfirmed && <span className="shrink-0 text-[10px] sm:text-xs">(unconfirmed)</span>}
-                    </div>
-                  )}
                   {/* TIN is an exception surface, not header chrome — the
                       Overview owns it and shows it only when it blocks. */}
                 </div>
@@ -294,7 +304,9 @@ export default function WorkspaceLayout() {
                 size="sm"
                 onClick={workspaceData.refreshUpload}
                 title="Refresh data"
-                className="p-1.5"
+                aria-label="Refresh data"
+                data-testid="workspace-refresh"
+                className="h-9 w-9 p-0"
               >
                 <RefreshCw className="w-4 h-4" />
               </Button>
@@ -375,6 +387,7 @@ export default function WorkspaceLayout() {
         </main>
 
       </div>
+      </WorkspaceAccessShell>
      </EngagementContext.Provider>
     </WorkspaceContext.Provider>
   );
