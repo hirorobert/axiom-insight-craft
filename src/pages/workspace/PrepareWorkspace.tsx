@@ -37,6 +37,7 @@ import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePrefli
 import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
 import { useCertificationReadiness } from "@/hooks/useCertificationReadiness";
 import { computeCertificationReadiness } from "@/lib/workspace/computeCertificationReadiness";
+import { certificationRowForDisplay } from "@/lib/workspace/certificationCheckPresentation";
 import {
   reduceCertificationRevalidationGuard,
   canInitiateCertificationAffectingMutation,
@@ -363,16 +364,20 @@ export default function PrepareWorkspace() {
     }
   };
 
-  const readiness = upload
-    ? computeCertificationReadiness({
+  const readinessInput = upload
+    ? {
         uploadExists: true,
         currentUploadId: upload.id,
         authoritative: certReadiness.authoritative,
         latestForUpload: certReadiness.latestForUpload,
         fetchFailed: certReadiness.fetchFailed,
         revalidating: isRevalidatingCertification || certReadiness.loading,
-      })
-    : undefined;
+      }
+    : null;
+  const readiness = readinessInput ? computeCertificationReadiness(readinessInput) : undefined;
+  // Presentation only: the row those readiness layers were drawn from, so the card can draw informational layers
+  // neutrally from their structured severity (certificationCheckPresentation.ts).
+  const certificationRow = readinessInput ? certificationRowForDisplay(readinessInput) : null;
 
   // PPG-1 Finding 1 (defense in depth for the upload/replace path):
   // useWorkspaceData already holds a realtime `postgres_changes` UPDATE
@@ -569,6 +574,7 @@ export default function PrepareWorkspace() {
               <TrialBalancePreflight
                 upload={upload}
                 readiness={readiness}
+                certificationRow={certificationRow}
                 resolveHref={
                   showReviewPanel
                     ? buildPrepareReviewRoute(companyId, periodYear, upload.id)

@@ -343,6 +343,7 @@ src/
       engagementScopeChange.ts ← Pure decision behind EngagementScopeDialog's three modes (declare/add/amend): added/removed capabilities, and that only a withdrawal via "amend" requires a reason
       workspaceSetupClient.ts ← ONLY client path to workspace setup RPCs (open_engagement_with_scope, data start, jurisdiction)
       workspaceAccess.ts      ← Server-decided workspace access (owner / member / Prepare-only grant) + shared-workspace discovery (PR #32)
+      certificationCheckPresentation.ts ← Presentation only: 4 required certification layers counted; L5/L6 shown as neutral informational assessments (never a pass)
       certificationRevalidationGuard.ts ← Certification revalidation guard
       computeCertificationReadiness.ts  ← Certification readiness (pure)
       computePreflight.ts     ← Preflight checks (pure)

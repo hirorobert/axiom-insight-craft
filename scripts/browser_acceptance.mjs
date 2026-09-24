@@ -252,7 +252,15 @@ async function journeys(browser) {
     await op.goto(`${base}/prepare`)
     await openProcessingDetails(op)
     const text = await op.bodyText()
-    return count >= 1 && text.includes('Debits equal credits') || `certs=${count}`
+    // The certification card counts the four REQUIRED layers only; supporting evidence and the prior-period signal are
+    // informational and never drawn as a pass.
+    const card = await op.evaluate(() => ({
+      count: document.querySelector('[data-testid="tb-preflight-count"]')?.textContent?.trim() ?? '',
+      informational: [...document.querySelectorAll('[data-testid="tb-informational-checks"] li')].map((li) => li.getAttribute('data-tone')),
+    }))
+    return count >= 1 && text.includes('Debits equal credits') && card.count === 'Required checks passed · 4/4'
+      && card.informational.length === 2 && card.informational.every((t) => t !== 'passed') && !text.includes('6/6')
+      || `certs=${count} card=${JSON.stringify(card)}`
   })
   let unbalanced = null
   await check('5-6. owner replaces it with an unbalanced file: "Out of balance" and the exact 12,345.00 difference appear', async () => {

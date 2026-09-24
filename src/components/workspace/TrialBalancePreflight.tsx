@@ -5,9 +5,11 @@
  * Read-only projection of computePreflight(). No writes.
  */
 
-import { Check, X, AlertTriangle, Clock3, ShieldCheck, ArrowRight } from "lucide-react";
+import { Check, X, AlertTriangle, Clock3, ShieldCheck, ArrowRight, Info, CircleHelp } from "lucide-react";
 import { Link } from "react-router-dom";
-import { computePreflight, type PreflightCheckState, type PreflightResult } from "@/lib/workspace/computePreflight";
+import { computePreflight, type PreflightResult } from "@/lib/workspace/computePreflight";
+import { presentReadiness, type CheckTone, type PresentedCheck } from "@/lib/workspace/certificationCheckPresentation";
+import type { TbCertificationRow } from "@/lib/workspace/computeCertificationReadiness";
 
 interface Props {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -22,6 +24,11 @@ interface Props {
    * so its call site is unaffected.
    */
   readiness?: PreflightResult;
+  /**
+   * The certification row the readiness layers were drawn from (certificationRowForDisplay). Presentation only: its
+   * structured layer and severity decide how rows are drawn; message text is never read as state.
+   */
+  certificationRow?: TbCertificationRow | null;
 }
 
 const VERDICT_LABEL = {
@@ -43,14 +50,31 @@ const VERDICT_HEADLINE: Partial<Record<keyof typeof VERDICT_LABEL, string>> = {
   blocked: "Checks failed — the trial balance does not hold",
 };
 
-function StateGlyph({ state }: { state: PreflightCheckState }) {
-  if (state === "passed") return <Check className="h-3.5 w-3.5 text-success" strokeWidth={3} />;
-  if (state === "failed") return <X className="h-3.5 w-3.5 text-destructive" strokeWidth={3} />;
-  if (state === "review") return <AlertTriangle className="h-3.5 w-3.5 text-gold" strokeWidth={2.5} />;
+// Only "passed" is drawn as a success. Informational assessments and anything unavailable are neutral.
+function StateGlyph({ tone }: { tone: CheckTone }) {
+  if (tone === "passed") return <Check className="h-3.5 w-3.5 text-success" strokeWidth={3} />;
+  if (tone === "failed") return <X className="h-3.5 w-3.5 text-destructive" strokeWidth={3} />;
+  if (tone === "review") return <AlertTriangle className="h-3.5 w-3.5 text-gold" strokeWidth={2.5} />;
+  if (tone === "informational") return <Info className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.5} />;
+  if (tone === "unavailable") return <CircleHelp className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.5} />;
   return <Clock3 className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.5} />;
 }
 
-export function TrialBalancePreflight({ upload, resolveHref, readiness }: Props) {
+function CheckRow({ check }: { check: PresentedCheck }) {
+  return (
+    <li data-testid={`tb-check-${check.id}`} data-tone={check.tone} className="flex items-start gap-3 py-2.5">
+      <span className="mt-0.5 shrink-0">
+        <StateGlyph tone={check.tone} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm text-foreground">{check.label}</span>
+        <span className="block text-[12px] leading-relaxed text-muted-foreground">{check.text}</span>
+      </span>
+    </li>
+  );
+}
+
+export function TrialBalancePreflight({ upload, resolveHref, readiness, certificationRow = null }: Props) {
   const result =
     readiness ??
     computePreflight(
@@ -76,6 +100,9 @@ export function TrialBalancePreflight({ upload, resolveHref, readiness }: Props)
           : "text-muted-foreground";
 
   const displayHeadline = VERDICT_HEADLINE[result.verdict] ?? result.headline;
+  // Six-layer readiness: four REQUIRED checks are counted; supporting evidence and the prior-period signal are shown
+  // separately as informational assessments and never counted as passed. The legacy five-check projection is unchanged.
+  const presented = presentReadiness(result, VERDICT_LABEL[result.verdict], certificationRow);
 
   return (
     <section
@@ -90,8 +117,8 @@ export function TrialBalancePreflight({ upload, resolveHref, readiness }: Props)
             Pre-flight status
           </h2>
         </div>
-        <span className={`font-mono text-[11px] uppercase tracking-[0.18em] ${accentText}`}>
-          {VERDICT_LABEL[result.verdict]} · {result.passedCount}/{result.totalCount}
+        <span data-testid="tb-preflight-count" className={`font-mono text-[11px] uppercase tracking-[0.18em] ${accentText}`}>
+          {presented.countLabel}
         </span>
       </header>
 
@@ -101,22 +128,21 @@ export function TrialBalancePreflight({ upload, resolveHref, readiness }: Props)
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{result.blocker}</p>
         )}
 
-        {result.checks.length > 0 && (
-          <ul className="mt-5 divide-y divide-border border-t border-border">
-            {result.checks.map((c) => (
-              <li key={c.id} className="flex items-start gap-3 py-2.5">
-                <span className="mt-0.5 shrink-0">
-                  <StateGlyph state={c.state} />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm text-foreground">{c.label}</span>
-                  <span className="block text-[12px] leading-relaxed text-muted-foreground">
-                    {c.detail}
-                  </span>
-                </span>
-              </li>
-            ))}
+        {presented.required.length > 0 && (
+          <ul data-testid="tb-required-checks" className="mt-5 divide-y divide-border border-t border-border">
+            {presented.required.map((c) => <CheckRow key={c.id} check={c} />)}
           </ul>
+        )}
+
+        {presented.informational.length > 0 && (
+          <div className="mt-5">
+            <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              Informational assessments · not counted
+            </h3>
+            <ul data-testid="tb-informational-checks" className="mt-2 divide-y divide-border border-t border-border">
+              {presented.informational.map((c) => <CheckRow key={c.id} check={c} />)}
+            </ul>
+          </div>
         )}
 
         {resolveHref && (result.verdict === "review" || result.verdict === "blocked") && (

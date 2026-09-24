@@ -58,6 +58,8 @@ describe("WorkspaceAccessShell — nothing of the workspace renders without a se
     const html = render(createElement(WorkspaceAccessShell, { accessState: { status: "denied" }, onRetry: () => {} }, real()));
     expect(html).toContain('data-testid="workspace-access-denied"');
     expect(html).toContain("You don&#x27;t have access to this workspace");
+    expect(html).toContain("Ask the user who created this workspace to grant you access.");
+    expect(html).not.toMatch(/workspace owner|partner|manager|firm/i);
     expect(html).not.toContain(REAL);
   });
   it("loading and a failed check render neither the workspace nor a refusal (never a guess)", async () => {

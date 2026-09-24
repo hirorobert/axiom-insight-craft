@@ -43,7 +43,7 @@ export function WorkspaceAccessShell({
         <ShieldAlert className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
         <h1 className="text-base font-semibold text-foreground">You don't have access to this workspace</h1>
         <p className="max-w-sm text-[13px] text-muted-foreground">
-          Ask the workspace owner to share it with you. If they already did, the access may have been removed.
+          Ask the user who created this workspace to grant you access. If they already did, the access may have been removed.
         </p>
         <Button asChild className="h-10 px-5 text-[13px] font-semibold rounded-none shadow-none">
           <Link to="/dashboard" state={{ forceHub: true }}>Go to your workspaces</Link>
