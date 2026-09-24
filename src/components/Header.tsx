@@ -255,9 +255,9 @@ export function Header() {
                   <Link to="/auth" onClick={() => setMobileOpen(false)}>Sign in</Link>
                 </Button>
                 <Button variant="hero" size="lg" className="w-full" asChild>
-                  <a href="/#outcomes" onClick={() => setMobileOpen(false)}>
-                    Choose outcome
-                  </a>
+                  <Link to={CTA.primaryHref} onClick={() => setMobileOpen(false)}>
+                    {CTA.primary}
+                  </Link>
                 </Button>
               </>
             )}
