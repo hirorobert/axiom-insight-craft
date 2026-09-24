@@ -5018,6 +5018,173 @@ export type Database = {
           },
         ]
       }
+      trial_balance_source_reservations: {
+        Row: {
+          actor_user_id: string
+          authority_basis: string
+          company_id: string
+          consumed_at: string | null
+          consumed_by_upload_id: string | null
+          created_at: string
+          expires_at: string
+          file_name: string
+          id: string
+          object_path: string
+        }
+        Insert: {
+          actor_user_id: string
+          authority_basis: string
+          company_id: string
+          consumed_at?: string | null
+          consumed_by_upload_id?: string | null
+          created_at?: string
+          expires_at: string
+          file_name: string
+          id?: string
+          object_path: string
+        }
+        Update: {
+          actor_user_id?: string
+          authority_basis?: string
+          company_id?: string
+          consumed_at?: string | null
+          consumed_by_upload_id?: string | null
+          created_at?: string
+          expires_at?: string
+          file_name?: string
+          id?: string
+          object_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trial_balance_source_reservations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trial_balance_upload_lifecycle_events: {
+        Row: {
+          actor_kind: string
+          actor_membership_id: string | null
+          actor_user_id: string | null
+          authority_basis: string | null
+          authority_capability: string | null
+          company_id: string
+          engagement_id: string | null
+          from_state: string | null
+          id: string
+          occurred_at: string
+          operation_id: string | null
+          outcome: string
+          period_year: number | null
+          reason: string | null
+          to_state: string | null
+          upload_id: string
+        }
+        Insert: {
+          actor_kind: string
+          actor_membership_id?: string | null
+          actor_user_id?: string | null
+          authority_basis?: string | null
+          authority_capability?: string | null
+          company_id: string
+          engagement_id?: string | null
+          from_state?: string | null
+          id?: string
+          occurred_at?: string
+          operation_id?: string | null
+          outcome?: string
+          period_year?: number | null
+          reason?: string | null
+          to_state?: string | null
+          upload_id: string
+        }
+        Update: {
+          actor_kind?: string
+          actor_membership_id?: string | null
+          actor_user_id?: string | null
+          authority_basis?: string | null
+          authority_capability?: string | null
+          company_id?: string
+          engagement_id?: string | null
+          from_state?: string | null
+          id?: string
+          occurred_at?: string
+          operation_id?: string | null
+          outcome?: string
+          period_year?: number | null
+          reason?: string | null
+          to_state?: string | null
+          upload_id?: string
+        }
+        Relationships: []
+      }
+      trial_balance_upload_operations: {
+        Row: {
+          actor_membership_id: string | null
+          actor_user_id: string
+          authority_basis: string
+          authority_capability: string | null
+          company_id: string
+          completed_at: string | null
+          created_at: string
+          file_path: string | null
+          id: string
+          kind: string
+          period_year: number | null
+          related_upload_id: string | null
+          restored_at: string | null
+          restored_by: string | null
+          restored_by_membership_id: string | null
+          row_snapshot: Json | null
+          state: string
+          upload_id: string
+        }
+        Insert: {
+          actor_membership_id?: string | null
+          actor_user_id: string
+          authority_basis: string
+          authority_capability?: string | null
+          company_id: string
+          completed_at?: string | null
+          created_at?: string
+          file_path?: string | null
+          id?: string
+          kind: string
+          period_year?: number | null
+          related_upload_id?: string | null
+          restored_at?: string | null
+          restored_by?: string | null
+          restored_by_membership_id?: string | null
+          row_snapshot?: Json | null
+          state: string
+          upload_id: string
+        }
+        Update: {
+          actor_membership_id?: string | null
+          actor_user_id?: string
+          authority_basis?: string
+          authority_capability?: string | null
+          company_id?: string
+          completed_at?: string | null
+          created_at?: string
+          file_path?: string | null
+          id?: string
+          kind?: string
+          period_year?: number | null
+          related_upload_id?: string | null
+          restored_at?: string | null
+          restored_by?: string | null
+          restored_by_membership_id?: string | null
+          row_snapshot?: Json | null
+          state?: string
+          upload_id?: string
+        }
+        Relationships: []
+      }
       trial_balance_uploads: {
         Row: {
           accounting_errors: Json | null
@@ -5030,16 +5197,24 @@ export type Database = {
           fiscal_year_end: string | null
           id: string
           is_valid: boolean | null
+          lifecycle_state: string
           period_id: string | null
           period_year: number | null
           processed_at: string | null
           processing_result: Json | null
+          replaces_upload_id: string | null
+          retired_at: string | null
+          retired_by: string | null
+          retired_by_membership_id: string | null
+          retired_reason: string | null
           safisha_status: string | null
           source_file_hash: string | null
           status: string
+          superseded_by_upload_id: string | null
           uploaded_at: string
           user_id: string | null
           validation_report: Json | null
+          version: number
         }
         Insert: {
           accounting_errors?: Json | null
@@ -5052,16 +5227,24 @@ export type Database = {
           fiscal_year_end?: string | null
           id?: string
           is_valid?: boolean | null
+          lifecycle_state?: string
           period_id?: string | null
           period_year?: number | null
           processed_at?: string | null
           processing_result?: Json | null
+          replaces_upload_id?: string | null
+          retired_at?: string | null
+          retired_by?: string | null
+          retired_by_membership_id?: string | null
+          retired_reason?: string | null
           safisha_status?: string | null
           source_file_hash?: string | null
           status?: string
+          superseded_by_upload_id?: string | null
           uploaded_at?: string
           user_id?: string | null
           validation_report?: Json | null
+          version?: number
         }
         Update: {
           accounting_errors?: Json | null
@@ -5074,16 +5257,24 @@ export type Database = {
           fiscal_year_end?: string | null
           id?: string
           is_valid?: boolean | null
+          lifecycle_state?: string
           period_id?: string | null
           period_year?: number | null
           processed_at?: string | null
           processing_result?: Json | null
+          replaces_upload_id?: string | null
+          retired_at?: string | null
+          retired_by?: string | null
+          retired_by_membership_id?: string | null
+          retired_reason?: string | null
           safisha_status?: string | null
           source_file_hash?: string | null
           status?: string
+          superseded_by_upload_id?: string | null
           uploaded_at?: string
           user_id?: string | null
           validation_report?: Json | null
+          version?: number
         }
         Relationships: [
           {
@@ -5120,6 +5311,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_period_pairs"
             referencedColumns: ["prior_period_id"]
+          },
+          {
+            foreignKeyName: "trial_balance_uploads_replaces_upload_id_fkey"
+            columns: ["replaces_upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_balance_uploads_superseded_by_upload_id_fkey"
+            columns: ["superseded_by_upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -5521,6 +5726,86 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "variance_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_capability_grant_events: {
+        Row: {
+          action: string
+          actor_user_id: string | null
+          capability: string | null
+          company_id: string | null
+          grant_id: string | null
+          grantee_user_id: string | null
+          id: string
+          occurred_at: string
+          outcome: string
+        }
+        Insert: {
+          action: string
+          actor_user_id?: string | null
+          capability?: string | null
+          company_id?: string | null
+          grant_id?: string | null
+          grantee_user_id?: string | null
+          id?: string
+          occurred_at?: string
+          outcome: string
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string | null
+          capability?: string | null
+          company_id?: string | null
+          grant_id?: string | null
+          grantee_user_id?: string | null
+          id?: string
+          occurred_at?: string
+          outcome?: string
+        }
+        Relationships: []
+      }
+      workspace_capability_grants: {
+        Row: {
+          capability: string
+          company_id: string
+          created_at: string
+          granted_at: string
+          granted_by_user_id: string
+          grantee_user_id: string
+          id: string
+          revoked_at: string | null
+          revoked_by_user_id: string | null
+        }
+        Insert: {
+          capability: string
+          company_id: string
+          created_at?: string
+          granted_at?: string
+          granted_by_user_id: string
+          grantee_user_id: string
+          id?: string
+          revoked_at?: string | null
+          revoked_by_user_id?: string | null
+        }
+        Update: {
+          capability?: string
+          company_id?: string
+          created_at?: string
+          granted_at?: string
+          granted_by_user_id?: string
+          grantee_user_id?: string
+          id?: string
+          revoked_at?: string | null
+          revoked_by_user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_capability_grants_company_id_fkey"
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
@@ -5956,9 +6241,23 @@ export type Database = {
         Args: { p_checkout_intent_id: string; p_creation_token: string }
         Returns: Json
       }
+      can_user_act_on_workspace: {
+        Args: { p_capability: string; p_company_id: string; p_user_id: string }
+        Returns: boolean
+      }
       cancel_checkout_attempt: {
         Args: { p_billing_customer_id: string; p_checkout_intent_id: string }
         Returns: Json
+      }
+      cancel_trial_balance_replacement: {
+        Args: { p_expected_version: number; p_replacement_upload_id: string }
+        Returns: {
+          detail: string
+          file_path: string
+          operation_id: string
+          outcome: string
+          restored_upload_id: string
+        }[]
       }
       capability_needs_jurisdiction: {
         Args: { p_capability: string }
@@ -6017,12 +6316,27 @@ export type Database = {
         }
         Returns: Json
       }
+      complete_trial_balance_discard: {
+        Args: { p_operation_id: string }
+        Returns: {
+          detail: string
+          outcome: Database["public"]["Enums"]["discard_outcome"]
+        }[]
+      }
+      confirm_trial_balance_storage_cleanup: {
+        Args: { p_operation_id: string }
+        Returns: {
+          detail: string
+          outcome: string
+        }[]
+      }
       current_platform_staff_role: { Args: never; Returns: string }
       discard_trial_balance_upload: {
-        Args: { p_upload_id: string }
+        Args: { p_expected_version: number; p_upload_id: string }
         Returns: {
           detail: string
           file_path: string
+          operation_id: string
           outcome: Database["public"]["Enums"]["discard_outcome"]
           row_snapshot: Json
         }[]
@@ -6475,6 +6789,17 @@ export type Database = {
         }
         Returns: string
       }
+      grant_workspace_capability: {
+        Args: {
+          p_capability: string
+          p_company_id: string
+          p_grantee_user_id: string
+        }
+        Returns: {
+          grant_id: string
+          outcome: string
+        }[]
+      }
       hesabu_write_validation: {
         Args: {
           p_assertions: Json
@@ -6496,6 +6821,12 @@ export type Database = {
       }
       is_commercial_admin: { Args: never; Returns: boolean }
       is_iso_3166_alpha2: { Args: { p_code: string }; Returns: boolean }
+      list_purgeable_trial_balance_sources: {
+        Args: { p_company_id: string }
+        Returns: {
+          operation_id: string
+        }[]
+      }
       maono_check_safisha_gate: {
         Args: { p_upload_ids: string[] }
         Returns: {
@@ -6588,6 +6919,13 @@ export type Database = {
         Args: { p_operator_label: string; p_reason: string; p_user_id: string }
         Returns: Json
       }
+      purge_trial_balance_discard: {
+        Args: { p_operation_id: string }
+        Returns: {
+          detail: string
+          outcome: string
+        }[]
+      }
       record_engagement_data_start: {
         Args: {
           p_choice: string
@@ -6609,6 +6947,29 @@ export type Database = {
         }
         Returns: Json
       }
+      register_trial_balance_upload: {
+        Args: {
+          p_engagement_id?: string
+          p_file_size: number
+          p_period_id?: string
+          p_period_year: number
+          p_reservation_id: string
+        }
+        Returns: {
+          detail: string
+          outcome: string
+          upload_id: string
+        }[]
+      }
+      reserve_trial_balance_source: {
+        Args: { p_company_id: string; p_file_name: string }
+        Returns: {
+          expires_at: string
+          object_path: string
+          outcome: string
+          reservation_id: string
+        }[]
+      }
       resolve_account_review_batch: {
         Args: {
           p_client_request_id: string
@@ -6626,6 +6987,29 @@ export type Database = {
         }
         Returns: Json
       }
+      restore_trial_balance_upload: {
+        Args: { p_operation_id: string }
+        Returns: {
+          detail: string
+          outcome: string
+          upload_id: string
+        }[]
+      }
+      retire_trial_balance_upload: {
+        Args: {
+          p_expected_version: number
+          p_new_file_size: number
+          p_old_upload_id: string
+          p_reason?: string
+          p_reservation_id: string
+        }
+        Returns: {
+          detail: string
+          new_upload_id: string
+          outcome: Database["public"]["Enums"]["discard_outcome"]
+          retired_upload_id: string
+        }[]
+      }
       revoke_engagement_authority: {
         Args: {
           p_authority_type: string
@@ -6641,6 +7025,17 @@ export type Database = {
           p_reason?: string
         }
         Returns: string
+      }
+      revoke_workspace_capability: {
+        Args: {
+          p_capability: string
+          p_company_id: string
+          p_grantee_user_id: string
+        }
+        Returns: {
+          grant_id: string
+          outcome: string
+        }[]
       }
       safisha_append_evidence_file: {
         Args: {
@@ -6728,6 +7123,76 @@ export type Database = {
         Returns: Json
       }
       submit_service_enquiry: { Args: { p_request: Json }; Returns: Json }
+      tbu_authorize: {
+        Args: { p_company_id: string }
+        Returns: Record<string, unknown>
+      }
+      tbu_bound_storage_path: {
+        Args: {
+          p_upload: Database["public"]["Tables"]["trial_balance_uploads"]["Row"]
+        }
+        Returns: string
+      }
+      tbu_can_view_workspace_audit: {
+        Args: { p_company_id: string }
+        Returns: boolean
+      }
+      tbu_derived_active_state: {
+        Args: {
+          p_upload: Database["public"]["Tables"]["trial_balance_uploads"]["Row"]
+        }
+        Returns: string
+      }
+      tbu_log_event: {
+        Args: {
+          p_actor_kind: string
+          p_actor_membership: string
+          p_actor_user: string
+          p_basis: string
+          p_capability: string
+          p_company_id: string
+          p_engagement_id: string
+          p_from: string
+          p_operation_id: string
+          p_outcome: string
+          p_period_year: number
+          p_reason: string
+          p_to: string
+          p_upload_id: string
+        }
+        Returns: undefined
+      }
+      tbu_safe_object_name: { Args: { p_name: string }; Returns: string }
+      tbu_source_reservation_target: {
+        Args: { p_reservation_id: string }
+        Returns: {
+          actor_user_id: string
+          company_id: string
+          consumed: boolean
+          expired: boolean
+          object_path: string
+        }[]
+      }
+      tbu_storage_cleanup_target: {
+        Args: { p_operation_id: string }
+        Returns: {
+          company_id: string
+          deletion_eligible: boolean
+          file_path: string
+          kind: string
+          state: string
+        }[]
+      }
+      tbu_storage_object_exists: { Args: { p_path: string }; Returns: boolean }
+      tbu_undo_window: { Args: never; Returns: string }
+      tbu_upload_evidence: {
+        Args: { p_expected_predecessor?: string; p_upload_id: string }
+        Returns: string
+      }
+      workspace_authority_basis: {
+        Args: { p_capability: string; p_company_id: string; p_user_id: string }
+        Returns: string
+      }
       xbrl_write_instance: {
         Args: {
           p_company_id: string
@@ -6805,6 +7270,11 @@ export type Database = {
         | "already_discarded"
         | "forbidden"
         | "dependency_conflict"
+        | "replacement_required"
+        | "stale_version"
+        | "discard_pending"
+        | "replacement_cancel_required"
+        | "replaced"
       financial_statement: "balance_sheet" | "income_statement" | "cash_flow"
       processing_status:
         | "pending"
@@ -6997,6 +7467,11 @@ export const Constants = {
         "already_discarded",
         "forbidden",
         "dependency_conflict",
+        "replacement_required",
+        "stale_version",
+        "discard_pending",
+        "replacement_cancel_required",
+        "replaced",
       ],
       financial_statement: ["balance_sheet", "income_statement", "cash_flow"],
       processing_status: [
