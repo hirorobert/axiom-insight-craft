@@ -113,6 +113,8 @@ export default function StatementsWorkspace() {
                 periodYearEnd={company?.fiscal_year_end ?? ""}
                 companyCurrency={company?.currency ?? "TZS"}
                 taxResult={null}
+                companyId={companyId}
+                periodYear={periodYear}
               />
             </div>
           </div>

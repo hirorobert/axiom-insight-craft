@@ -166,8 +166,8 @@ export function TRAAuditReadinessPanel({
       detail: latestComp?.is_committed
         ? "ITA Chapter 332 tax computation has been committed and locked."
         : latestComp
-        ? "Tax computation exists but has not been committed. Open Kinga Tax Panel and click Commit Computation."
-        : "No tax computation found for this period. Run the Kinga Tax Engine first.",
+        ? "Tax computation exists but has not been committed. Open Compute Tax and click Commit Computation."
+        : "No tax computation found for this period. Run the tax computation first.",
       actionHint: latestComp?.is_committed ? undefined : "Open the Corporate Tax (ITA) panel → Commit Computation",
     };
 
@@ -218,7 +218,7 @@ export function TRAAuditReadinessPanel({
       detail: staleCount === 0
         ? "No findings have been open for more than 30 days without action."
         : `${staleCount} finding${staleCount > 1 ? "s" : ""} have been open for over 30 days: ${(staleFindings ?? []).slice(0, 2).map(f => f.title).join("; ")}${staleCount > 2 ? "…" : ""}`,
-      actionHint: staleCount > 0 ? "Open Kinga Findings → mark each item in_progress or resolved with a note" : undefined,
+      actionHint: staleCount > 0 ? "Open Compliance findings → mark each item in_progress or resolved with a note" : undefined,
     };
 
     // G5 evaluation
@@ -244,7 +244,7 @@ export function TRAAuditReadinessPanel({
       detail: openEvCount === 0
         ? "No open evidence requests — all outstanding evidence has been collected or closed."
         : `${openEvCount} open evidence request${openEvCount > 1 ? "s" : ""} — response pending from client.`,
-      actionHint: openEvCount > 0 ? "Kinga Findings → Evidence Requests → follow up or close each item" : undefined,
+      actionHint: openEvCount > 0 ? "Compliance findings → Evidence Requests → follow up or close each item" : undefined,
     };
 
     setGates([g1, g2, g3, g4, g5, g6]);

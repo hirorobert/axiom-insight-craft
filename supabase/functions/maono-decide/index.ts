@@ -25,6 +25,7 @@
 import { serve }       from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Anthropic        from "https://esm.sh/@anthropic-ai/sdk@0.27.3";
+import { requirePaidActionAsCaller } from "../_shared/paidAction.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -216,6 +217,11 @@ serve(async (req: Request) => {
     if (!run) return json({ error: "Run not found" }, 404);
 
     const companyId = run.company_id;
+
+    // Close Insights is a paid capability (CFO Close, 20260925100000). Refused before any analysis starts; the
+    // database refuses the same writes (trg_close_insights_wall) whatever the caller.
+    const notEntitled = await requirePaidActionAsCaller((fn, args) => supabase.rpc(fn, args), companyId, "CLOSE_INSIGHTS", corsHeaders);
+    if (notEntitled) return notEntitled;
 
     // Load materiality thresholds (per-company, from DB — never hardcoded)
     const { data: mat } = await supabase

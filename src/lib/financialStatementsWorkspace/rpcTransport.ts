@@ -40,7 +40,7 @@ export type FsTable =
   | "financial_statement_correction_groups"
   | "financial_statement_publications";
 
-export type FsErrorKind = "FEATURE_DISABLED" | "FORBIDDEN" | "STALE_VERSION" | "REPLAY_CONFLICT" | "NOT_FOUND" | "INVALID" | "BLOCKED" | "NOT_EVALUATED" | "CONFLICT" | "UNKNOWN";
+export type FsErrorKind = "ENTITLEMENT_REQUIRED" | "FEATURE_DISABLED" | "FORBIDDEN" | "STALE_VERSION" | "REPLAY_CONFLICT" | "NOT_FOUND" | "INVALID" | "BLOCKED" | "NOT_EVALUATED" | "CONFLICT" | "UNKNOWN";
 
 export class FsTransportError extends Error {
   constructor(readonly kind: FsErrorKind, message: string, readonly code?: string) {
@@ -57,7 +57,9 @@ export class FsTransportError extends Error {
 export function mapRpcError(e: RpcError): FsTransportError {
   const m = e.message ?? "";
   const kind: FsErrorKind =
-    e.code === "PT403" || /^FEATURE_DISABLED/.test(m) ? "FEATURE_DISABLED"
+    // A paid-capability wall (20260925100000): structured SQLSTATE PT402, capability code in details. Checked first.
+    e.code === "PT402" ? "ENTITLEMENT_REQUIRED"
+    : e.code === "PT403" || /^FEATURE_DISABLED/.test(m) ? "FEATURE_DISABLED"
     : e.code === "42501" || /^FORBIDDEN|permission denied/i.test(m) ? "FORBIDDEN"
     : /^STALE_(REPORT_)?VERSION/.test(m) ? "STALE_VERSION"
     : /^REPLAY_CONFLICT/.test(m) ? "REPLAY_CONFLICT"

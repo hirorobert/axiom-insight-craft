@@ -16,6 +16,7 @@ import { PeriodCloseManager } from "@/components/PeriodCloseManager";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { useBillingSummary } from "@/hooks/useBillingSummary";
 import { PRICING } from "@/constants/copy";
+import { planByCode } from "@/lib/commercial/pricingCatalogue";
 import {
   displayPlanName,
   displayEntitlement,
@@ -100,10 +101,11 @@ export default function Settings() {
   }, [billing?.planCode, billing?.billingInterval]);
 
   function handleRenewalOfferResolved(data: ResolvedOfferData | null) {
-    const expectedAmountMinor = Math.round(
-      (billing?.billingInterval === "ANNUAL" ? PRICING.ANNUAL_USD : PRICING.MONTHLY_USD) * 100,
-    );
-    if (!billing?.billingInterval) {
+    // Expected amount comes from the one pricing catalogue for the plan actually held; a plan with no current
+    // catalogue price (Free, Enterprise, the grandfathered legacy plan) can never verify.
+    const cataloguePlan = planByCode(billing?.planCode);
+    const expectedAmountMinor = billing?.billingInterval === "ANNUAL" ? cataloguePlan?.annualMinor ?? null : cataloguePlan?.monthlyMinor ?? null;
+    if (!billing?.billingInterval || expectedAmountMinor === null) {
       setRenewalPricingVerification("UNAVAILABLE");
       return;
     }
@@ -379,9 +381,8 @@ export default function Settings() {
                       {/* Pricing reference */}
                       {billing.planCode === "PAID" && (
                         <p className="text-xs text-muted-foreground mb-4">
-                          {PRICING.PAID_NAME} — {PRICING.CURRENCY_CODE} {PRICING.ANNUAL_USD}/year or{" "}
-                          {PRICING.CURRENCY_CODE} {PRICING.MONTHLY_USD}/month.{" "}
-                          {PRICING.TAX_DISCLAIMER}
+                          {displayPlanName(billing.planCode)} — your existing access is unchanged. Current plans and
+                          prices are listed on the pricing page. {PRICING.TAX_DISCLAIMER}
                         </p>
                       )}
 

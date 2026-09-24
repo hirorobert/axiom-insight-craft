@@ -21,7 +21,7 @@
  * flattening it to false.
  */
 
-import { FEATURE_CODES, type FeatureCode, isFeatureCode } from "./featureRegistry";
+import { CAPABILITIES, FEATURE_CODES, type FeatureCode, canonicalCapability } from "./featureRegistry";
 
 export type EntitlementStatus = "ENTITLED" | "NOT_ENTITLED" | "UNKNOWN";
 
@@ -57,7 +57,7 @@ export interface EntitlementResult {
   reason: string;
   licenceStatus: LicenceStatus | null;
   planCode: string | null;
-  source: "ACTIVE_LICENCE" | "ADMIN_OVERRIDE" | null;
+  source: "ACTIVE_LICENCE" | "ADMIN_OVERRIDE" | "INCLUDED" | null;
 }
 
 export interface CurrentLicenceSnapshot {
@@ -81,12 +81,22 @@ export function classifyEntitlement(
   currentLicence: CurrentLicenceSnapshot | null,
   hasActiveOverride: boolean,
 ): EntitlementResult {
-  if (!isFeatureCode(featureCode)) {
+  // Legacy codes resolve through the compatibility aliases, exactly as commercial_canonical_capability() does.
+  const capability = canonicalCapability(featureCode);
+  if (!capability) {
     return { status: "UNKNOWN", reason: "UNKNOWN_FEATURE_CODE", licenceStatus: null, planCode: null, source: null };
+  }
+  const kind = CAPABILITIES[capability].kind;
+  if (kind === "included") {
+    return { status: "ENTITLED", reason: "INCLUDED_IN_EVERY_PLAN", licenceStatus: null, planCode: null, source: "INCLUDED" };
+  }
+  if (kind === "capacity") {
+    // Capacity is a number the server resolves (_entity_capacity_for_account); it is never a yes/no flag here.
+    return { status: "UNKNOWN", reason: "CAPACITY_RESOLVED_BY_SERVER", licenceStatus: null, planCode: null, source: null };
   }
 
   if (!hasBillingCustomer) {
-    return { status: "NOT_ENTITLED", reason: "NO_BILLING_CUSTOMER", licenceStatus: null, planCode: null, source: null };
+    return { status: "NOT_ENTITLED", reason: "NO_BILLING_CUSTOMER", licenceStatus: null, planCode: "FREE", source: null };
   }
 
   if (hasActiveOverride) {
@@ -94,7 +104,7 @@ export function classifyEntitlement(
   }
 
   if (!currentLicence) {
-    return { status: "NOT_ENTITLED", reason: "NO_CURRENT_LICENCE_PERIOD", licenceStatus: null, planCode: null, source: null };
+    return { status: "NOT_ENTITLED", reason: "NO_CURRENT_LICENCE_PERIOD", licenceStatus: null, planCode: "FREE", source: null };
   }
 
   if (!ENTITLING_LICENCE_STATUSES.includes(currentLicence.status)) {
@@ -107,7 +117,11 @@ export function classifyEntitlement(
     };
   }
 
-  if (currentLicence.featureCodes.includes(featureCode)) {
+  if (!KNOWN_PLAN_CODES.includes(currentLicence.planCode)) {
+    return { status: "NOT_ENTITLED", reason: "UNKNOWN_PLAN", licenceStatus: currentLicence.status, planCode: null, source: null };
+  }
+
+  if (currentLicence.featureCodes.some((c) => canonicalCapability(c) === capability)) {
     return {
       status: "ENTITLED",
       reason: "ACTIVE_LICENCE_INCLUDES_FEATURE",
@@ -125,6 +139,9 @@ export function classifyEntitlement(
     source: null,
   };
 }
+
+/** Plan codes the resolver recognises (commercial_plans.chk_cp_code, 20260925100000). Anything else is refused. */
+export const KNOWN_PLAN_CODES: readonly string[] = ["FREE", "PRACTICE", "FIRM", "ENTERPRISE", "PAID"];
 
 /** UNKNOWN and NOT_ENTITLED both fail closed for privileged use — ENTITLED is the only pass state. */
 export function isEntitledForPrivilegedUse(result: EntitlementResult): boolean {

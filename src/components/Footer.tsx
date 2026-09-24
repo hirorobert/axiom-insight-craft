@@ -31,7 +31,7 @@ export function Footer() {
               {FOOTER.description}
             </p>
             <p className="mt-4 text-[10px] font-mono text-muted-foreground/45">
-              {PRICING.CURRENCY_CODE} {PRICING.ANNUAL_USD}/yr · {PRICING.CURRENCY_CODE} {PRICING.MONTHLY_USD}/mo
+              Free plan · {PRICING.ENTRY_PLAN_NAME} from {PRICING.ENTRY_MONTHLY}/mo ({PRICING.CURRENCY_CODE})
             </p>
           </div>
 

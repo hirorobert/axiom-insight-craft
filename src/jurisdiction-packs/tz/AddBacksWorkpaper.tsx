@@ -317,7 +317,7 @@ export function AddBacksWorkpaper({ companyId, uploadId, periodYear, companyName
               </div>
             ) : !comp ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                No tax computation found for this period. Run the Kinga Tax Engine first.
+                No tax computation found for this period. Run the tax computation first.
               </div>
             ) : (
               <>
@@ -446,7 +446,7 @@ export function AddBacksWorkpaper({ companyId, uploadId, periodYear, companyName
                 {/* Footer */}
                 <p className="text-[10px] text-muted-foreground/70 border-t border-border/40 pt-2 flex items-center gap-1">
                   <Lock className="w-3 h-3 flex-shrink-0" />
-                  Auto-detected adjustments ({comp.add_backs.filter(i => i.auto_detected !== false).length + comp.deductions.filter(i => i.auto_detected !== false).length} lines) cannot be removed. Manual adjustments are appended and marked with user ID. Kinga engine re-runs will refresh auto-detected lines only.
+                  Auto-detected adjustments ({comp.add_backs.filter(i => i.auto_detected !== false).length + comp.deductions.filter(i => i.auto_detected !== false).length} lines) cannot be removed. Manual adjustments are appended and marked with user ID. Re-running the tax computation refreshes auto-detected lines only.
                 </p>
               </>
             )}

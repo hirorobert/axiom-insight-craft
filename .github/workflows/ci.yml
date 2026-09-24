@@ -321,3 +321,11 @@ jobs:
         run: |
           createdb lifecycle_proof
           node scripts/db-proof/uploadLifecycle.mjs
+
+      - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/entitlements_proof
+        run: |
+          createdb entitlements_proof
+          node scripts/db-proof/entitlements.mjs

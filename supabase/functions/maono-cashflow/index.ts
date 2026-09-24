@@ -28,6 +28,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readOptionalTaxAmount } from "../_shared/maonoAnalyticalContract.ts";
+import { requirePaidActionAsCaller } from "../_shared/paidAction.ts";
 import {
   loadCertifiedTb, loadCashPerimeter, resolveCashState, certifiedRowKey,
   type CertifiedTbClient,
@@ -133,6 +134,11 @@ serve(async (req: Request) => {
 
     const companyId = run.company_id;
 
+    // Close Insights is a paid capability (CFO Close, 20260925100000). Refused before any analysis starts; the
+    // database refuses the same writes (trg_close_insights_wall) whatever the caller.
+    const notEntitled = await requirePaidActionAsCaller((fn, args) => supabase.rpc(fn, args), companyId, "CLOSE_INSIGHTS", corsHeaders);
+    if (notEntitled) return notEntitled;
+
     // Load materiality thresholds (for cash warning days)
     const { data: mat } = await supabase
       .from("variance_materiality")
@@ -142,7 +148,7 @@ serve(async (req: Request) => {
     const warnDays     = mat?.cash_warn_days ?? 30;
     const criticalDays = mat?.cash_critical_days ?? 14;
 
-    // ── Authoritative balances: SAFISHA CertifiedTB ───────────────────────────
+    // ── Authoritative balances: Close Certification certified trial balance ───────────────────────────
     const certified = await loadCertifiedTb(
       supabase as unknown as CertifiedTbClient, companyId, run.fiscal_year);
     if (certified.state === "CANNOT_ASSESS") {
@@ -150,7 +156,7 @@ serve(async (req: Request) => {
         error:            "Cash flow forecast cannot be assessed",
         analytical_state: "CANNOT_ASSESS",
         reason:           certified.reason,
-        authority:        "SAFISHA CertifiedTB (get_authoritative_certification)",
+        authority:        "Close Certification certified trial balance (get_authoritative_certification)",
         iron_dome:        true,
       }, 409);
     }
@@ -457,7 +463,7 @@ serve(async (req: Request) => {
       ar_balance:        arBalance,
       ap_balance:        apBalance,
       balance_authority: {
-        source:           "SAFISHA CertifiedTB",
+        source:           "Close Certification certified trial balance",
         certification_id: certifiedTb.certificationId,
         upload_id:        certifiedTb.uploadId,
         source_file_hash: certifiedTb.sourceFileHash,

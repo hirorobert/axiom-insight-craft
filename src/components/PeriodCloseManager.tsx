@@ -48,6 +48,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { toast } from "sonner";
+import { entitlementRefusal, lockedCopy } from "@/lib/commercial/paidActions";
 import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
 import {
   Lock,
@@ -263,7 +264,13 @@ export function PeriodCloseManager({ userId }: Props) {
       .eq("id", signDialogCompany.signOff.id);
 
     if (error) {
-      toast.error("Sign-off failed: " + error.message);
+      // A structured Close Certification refusal (PT402 + capability code) gets the plan explanation, not the raw error.
+      if (entitlementRefusal(error) === "STATEMENT_CERTIFICATION") {
+        const copy = lockedCopy("STATEMENT_CERTIFICATION");
+        toast.error(copy.title, { description: `${copy.unavailable} ${copy.history}` });
+      } else {
+        toast.error("Sign-off failed: " + error.message);
+      }
     } else {
       const newStatus = payload.status as string;
       toast.success(newStatus === "locked"

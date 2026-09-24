@@ -22,7 +22,7 @@ export function ClosingCTA() {
               and a workspace that keeps the rest in order.
             </h2>
             <p className="mt-4 text-sm text-primary-foreground/55">
-              From {PRICING.CURRENCY_CODE} {PRICING.MONTHLY_USD}/month. No card required to start free.
+              Start free. Paid plans from {PRICING.ENTRY_MONTHLY}/month.
             </p>
           </div>
 
@@ -46,12 +46,12 @@ export function ClosingCTA() {
               className="w-full border border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/10 lg:w-auto"
             >
               <Link to="/pricing">
-                Review plan
+                Compare plans
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
             <p className="text-center text-[10px] text-primary-foreground/35 lg:text-right">
-              Professional plan · {PRICING.CURRENCY_CODE} {PRICING.ANNUAL_USD}/yr saves USD {PRICING.ANNUAL_SAVING_USD}
+              {PRICING.ENTRY_PLAN_NAME} · {PRICING.ENTRY_ANNUAL}/yr saves {PRICING.ENTRY_ANNUAL_SAVING}
             </p>
           </div>
 

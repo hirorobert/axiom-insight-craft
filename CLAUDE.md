@@ -803,6 +803,43 @@ existing user. Company creation is currently unrestricted (unchanged from
 pre-Ω1 behavior). Before wiring this policy, a product decision is needed;
 implementing it afterward is additive (one `BEFORE INSERT` trigger calling
 the already-built `_resolve_entitlement_for_owner()`), not a schema change.
+**Superseded in source (unapplied to hosted DBs):** the product decision now exists
+and `20260925100000` enforces it as `ENTITY_CAPACITY` (see §9.3). Until that
+migration is applied by the owner, hosted company creation stays unrestricted.
+
+### 9.3 CFO Close Capabilities, Walls and Pricing (`20260925100000`, unapplied to hosted DBs)
+
+- **Canonical capability codes** (`commercial_capabilities`; frontend mirror `src/lib/commercial/featureRegistry.ts`):
+  `CLOSE_ASSURANCE` and `COMPARATIVE_REPORTING` (included, always on, never chargeable), `STATEMENT_CERTIFICATION`
+  (Close Certification), `REPORTING_PACK_EXPORT` (Reporting Pack) and `CLOSE_INSIGHTS` (Close Insights), which are
+  paid, and `ENTITY_CAPACITY`. Legacy codes (`SAFISHA_*`, `HESABU_*`, `MAONO_INTELLIGENCE`, `MULTI_COMPANY`,
+  `MULTI_PERIOD`) resolve only through `commercial_capability_aliases` / `commercial_canonical_capability()`.
+- **One authority:** `_authorize_paid_action(user, company, capability)` = session ∧ workspace access
+  (`_workspace_access_basis`: creator, accepted member or capability grant; never an occupational title) ∧
+  entitlement. It returns stable codes (`ALLOWED`, `ENTITLEMENT_REQUIRED`, `WORKSPACE_ACCESS_DENIED`, …). DB walls raise
+  SQLSTATE `PT402` with the capability in `DETAIL`. Edge Functions use `_shared/paidAction.ts` (HTTP 402 JSON body
+  `{status: "entitlement_required", capability}`). The UI reads only these structured fields
+  (`src/lib/commercial/paidActions.ts`). Never parse message text.
+- **Walls:**
+  - Close Certification is enforced by the `statement_sign_offs` sign-off events and by FINAL publication inserts.
+  - Reporting Pack is enforced by `issue_reporting_pack` (an immutable, idempotent issuance record before any formal
+    export) plus `generate-xbrl` and `generate-management-letter`.
+  - Close Insights is enforced by the `maono-*` analysis functions and the triggers on their output tables.
+    `maono-monitor` skips non-entitled workspaces.
+  - Entity capacity is enforced by `trg_companies_entity_capacity` (advisory lock per account). Capacities: Free 1,
+    Practice 5, Firm 25, Enterprise by override, legacy PAID 25. Create through the idempotent `create_entity` RPC.
+  - Validation, readiness, the automated certification run, comparatives, previews and history are never gated.
+    Expiry or downgrade blocks only new paid actions. Billing never writes accounting data.
+- **Pricing catalogue:** `src/lib/commercial/pricingCatalogue.ts` is the only place prices live. It is mirrored exactly
+  by the migration (`pricingCatalogue.test.ts`): FREE $0, PRACTICE $99/$990, FIRM $299/$2,990, ENTERPRISE contact sales,
+  in USD. There is no public $49 plan. No checkout exists and no offer is purchasable.
+- **Comparative endpoint:** `comparative-assurance-engine` is canonical. `kinga-comparative-engine` is a thin adapter
+  that serves the same `_shared/comparativeAssurance.ts` handler, with no HTTP hop and no writes. Retire it only after
+  30 days with no requests following the frontend release.
+- **Customer-visible names:** SAFISHA/HESABU/MAONO/KINGA never appear in customer-visible strings. This is enforced by
+  `scripts/ci/legacyNameSweep.mjs` and `src/lib/__tests__/customerVisibleLegacyNames.test.ts`.
+- **Not enforced:** user seat capacity (1/3/10) is catalogue data only.
+- **Proof:** `scripts/db-proof/entitlements.mjs` runs on real PostgreSQL (CI disposable-DB job).
 
 **OBSERVABILITY_PROVIDER_WIRING_DEFERRED_TO_Ω2/PRE-GO-LIVE** —
 `src/lib/observability/correlationId.ts` (Wave Ω1) provides a genuine,

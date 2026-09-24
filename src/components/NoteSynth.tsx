@@ -327,7 +327,7 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated }: NoteSyn
                               day: "2-digit", month: "short", year: "numeric",
                               hour: "2-digit", minute: "2-digit",
                             })}
-                            {note.engineVersion ? ` · Kinga Engine ${note.engineVersion}` : ""}
+                            {note.engineVersion ? ` · Tax computation ${note.engineVersion}` : ""}
                           </span>
                         </div>
                       )}

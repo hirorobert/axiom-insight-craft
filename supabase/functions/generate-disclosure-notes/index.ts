@@ -199,7 +199,7 @@ Minimum tax @ 0.5% of turnover:      TZS ${fmt(minTax)}
 Tax payable (higher of CIT / Min):   TZS ${fmt(taxPayable)}
 Income tax provision (booked):        TZS ${fmt(provision)}${gapNote}${deferredSection}
 
-All computation performed by SAFF Kinga Tax Engine (${r.engine_version ?? "v2"}) in accordance with ITA Cap.332 R.E.2023 and Finance Act 2026.`,
+All computation performed by the CFO Close tax computation (${r.engine_version ?? "v2"}) in accordance with ITA Cap.332 R.E.2023 and Finance Act 2026.`,
     accountsReferenced: ["Income Tax Expense", "Income Tax Payable", "Deferred Tax Asset", "Deferred Tax Liability"],
   };
 }

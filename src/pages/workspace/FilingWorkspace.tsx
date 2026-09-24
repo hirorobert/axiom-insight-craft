@@ -86,6 +86,7 @@ export default function FilingWorkspace() {
       {mapping && (
         <MgmtLetterPanel
           uploadId={upload.id}
+          companyId={upload.company_id}
           existingLetter={result?.managementLetter ?? null}
           onLetterGenerated={refreshUpload}
         />

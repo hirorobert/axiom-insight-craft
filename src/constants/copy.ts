@@ -1,3 +1,11 @@
+import {
+  ENTRY_PAID_PLAN,
+  CATALOGUE_CURRENCY,
+  annualSavingMinor,
+  formatCatalogueAmount,
+  planByCode,
+} from "@/lib/commercial/pricingCatalogue";
+
 // ─────────────────────────────────────────────────────────────
 // CFOClose — Marketing Copy
 // Ω3-BRAND · LOCKED
@@ -248,45 +256,34 @@ export const JURISDICTION_SECTION = {
 // Pricing
 // ─────────────────────────────────────────────────────────────
 
-// Canonical pricing constants. Arithmetic is verified by regression tests.
-// Monthly: USD 49.  Annual: USD 499.  Annual saving vs 12×monthly: USD 89.
-// 49 × 12 = 588.  588 − 499 = 89.  These values match commercial_offers
-// amount_minor: 4900 (monthly) / 49900 (annual), exponent 2, currency USD.
+// Pricing copy is DERIVED from the one catalogue (src/lib/commercial/pricingCatalogue.ts), which mirrors the
+// plans and offers seeded by 20260925100000. No price is written here or in any component.
+const ENTRY_PLAN = planByCode(ENTRY_PAID_PLAN)!;
 export const PRICING = {
-  FREE_NAME:           "Free",
-  PAID_NAME:           "CFOClose Professional",
-  MONTHLY_USD:         49,
-  ANNUAL_USD:          499,
-  ANNUAL_FULL_USD:     588,   // 49 × 12
-  ANNUAL_SAVING_USD:   89,    // 588 − 499
-  CURRENCY_CODE:       "USD",
-  TAX_DISCLAIMER:      "Applicable taxes, if any, are shown before payment.",
-  CHECKOUT_DISABLED_MSG: "Secure self-service checkout is being activated.",
+  FREE_NAME:            "Free",
+  ENTRY_PLAN_NAME:      ENTRY_PLAN.name,
+  ENTRY_MONTHLY:        formatCatalogueAmount(ENTRY_PLAN.monthlyMinor!),
+  ENTRY_ANNUAL:         formatCatalogueAmount(ENTRY_PLAN.annualMinor!),
+  ENTRY_ANNUAL_SAVING:  formatCatalogueAmount(annualSavingMinor(ENTRY_PLAN)!),
+  CURRENCY_CODE:        CATALOGUE_CURRENCY.code,
+  TAX_DISCLAIMER:       "Applicable taxes, if any, are shown before payment.",
+  CHECKOUT_DISABLED_MSG: "Self-service upgrades are not open yet. Contact us to upgrade.",
 } as const;
 
-// Verify arithmetic at module load time (caught at build, not runtime).
-const _pricingArithmeticCheck = (() => {
-  if (PRICING.MONTHLY_USD * 12 !== PRICING.ANNUAL_FULL_USD)
-    throw new Error("PRICING: ANNUAL_FULL_USD must equal MONTHLY_USD × 12");
-  if (PRICING.ANNUAL_FULL_USD - PRICING.ANNUAL_USD !== PRICING.ANNUAL_SAVING_USD)
-    throw new Error("PRICING: ANNUAL_SAVING_USD must equal ANNUAL_FULL_USD − ANNUAL_USD");
-})();
-void _pricingArithmeticCheck;
-
 export const PRICING_TABLE = [
-  { term: "Licence",   value: "Firm-level access under the active commercial terms shown before purchase." },
-  { term: "Modules",   value: "All currently released Professional capabilities. No per-module pricing." },
-  { term: "Users",     value: "Role-based team access under the active plan terms." },
+  { term: "Plans",     value: "Free, Practice, Firm and Enterprise. Plans differ by entity capacity, users and paid actions." },
+  { term: "Included",  value: "Every plan includes preparation, validation, statement preview and comparative reporting." },
+  { term: "Paid",      value: "Close Certification, Reporting Pack and Close Insights from Practice upwards." },
+  { term: "History",   value: "Certified closes, packs and insights you created stay accessible if your plan changes." },
   { term: "Storage",   value: "Encrypted at rest. Hosted on enterprise-grade infrastructure." },
-  { term: "Updates",   value: "Jurisdiction pack updates deployed promptly after regulatory enactment." },
-  { term: "Support",   value: "Implementation support included." },
+  { term: "Support",   value: "Standard on Practice, priority on Firm, contractual on Enterprise." },
 ] as const;
 
 // Pricing section landing-page teaser (links to /pricing for full detail).
 export const PRICING_SECTION = {
   headline: "Simple, transparent pricing.",
   subhead:
-    "One professional plan, with monthly and annual terms. Current availability and the exact amount are verified before checkout.",
+    "Start free. Practice and Firm plans add certified closes, reporting packs and insights, monthly or annually. Enterprise on request.",
   cta:     "See plans",
   ctaHref: "/pricing",
 } as const;

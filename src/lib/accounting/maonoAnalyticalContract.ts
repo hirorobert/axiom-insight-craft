@@ -282,7 +282,7 @@ export function assessMaonoInputTrust(
   if (evidence.upstreamSource === "MAONO_DERIVED") {
     return {
       trustLevel: "ANALYTICAL_DERIVATION",
-      reason: "Value is MAONO's own computation, not an upstream accounting fact — never treated as trusted input regardless of what it was computed from.",
+      reason: "Value is Close Insights' own computation, not an upstream accounting fact — never treated as trusted input regardless of what it was computed from.",
     };
   }
   if (certificationRelationship !== "LINKED_TO_CERTIFIED_UPLOAD") {
@@ -298,8 +298,8 @@ export function assessMaonoInputTrust(
     };
   }
   return resultType === "OBSERVED_FACT"
-    ? { trustLevel: "TRUSTED_ACCOUNTING_INPUT", reason: "Directly observed, unmodified, from a certified SAFISHA/HESABU source." }
-    : { trustLevel: "ANALYTICAL_DERIVATION", reason: "Computed by MAONO over trusted inputs — the computation itself is not an accounting fact." };
+    ? { trustLevel: "TRUSTED_ACCOUNTING_INPUT", reason: "Directly observed, unmodified, from a certified Close Certification / statement validation source." }
+    : { trustLevel: "ANALYTICAL_DERIVATION", reason: "Computed by Close Insights over trusted inputs — the computation itself is not an accounting fact." };
 }
 
 export interface AnalyticalResult {

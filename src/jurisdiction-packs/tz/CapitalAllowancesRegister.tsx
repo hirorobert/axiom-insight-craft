@@ -381,7 +381,7 @@ export function CapitalAllowancesRegister({
                   </Button>
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
                     <Lock className="w-3 h-3" />
-                    W&T computed by Kinga Tax Engine — run engine after saving assets.
+                    W&T is computed by the tax computation — run it after saving assets.
                   </p>
                 </div>
               </div>
@@ -397,7 +397,7 @@ export function CapitalAllowancesRegister({
               <div className="text-center py-8">
                 <Calculator className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
                 <p className="text-sm text-muted-foreground">No assets in register for FY{periodYear}.</p>
-                <p className="text-xs text-muted-foreground/70 mt-1">Add assets manually or run the Kinga Tax Engine — it auto-populates Class 1–3 assets from the trial balance.</p>
+                <p className="text-xs text-muted-foreground/70 mt-1">Add assets manually or run the tax computation — it auto-populates Class 1–3 assets from the trial balance.</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -529,7 +529,7 @@ export function CapitalAllowancesRegister({
                         <tr className="border-t border-violet-200 text-xs">
                           <td colSpan={8} className="py-2 px-3 text-muted-foreground">
                             ITA add-back: accounting dep'n TZS {fmt(grand.accDep)} − tax W&T TZS {fmt(grand.wearTear)} = {addBackDiff >= 0 ? "add-back" : "extra deduction"} TZS {fmt(Math.abs(addBackDiff))} to accounting PBT.
-                            Verified by kinga-tax-engine on each run.
+                            Verified by the tax computation on each run.
                           </td>
                         </tr>
                       </tbody>

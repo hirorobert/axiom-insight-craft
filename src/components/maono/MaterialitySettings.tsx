@@ -264,7 +264,7 @@ Cash alerts trigger at ${row.cash_warn_days} days (warning) and ${row.cash_criti
 
         <div className="text-xs text-gray-400 border-t border-gray-100 pt-3">
           🛡 These thresholds are stored per-company in <code>variance_materiality</code> and
-          read by maono-compute, maono-cashflow, and maono-risk at runtime.
+          read by every Close Insights analysis (variance, cash outlook and risk) at runtime.
           No default values are hardcoded in the codebase.
         </div>
       </div>

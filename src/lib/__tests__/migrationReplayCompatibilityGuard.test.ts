@@ -176,8 +176,10 @@ describe("migration directory integrity", () => {
     // receives an event for a company-less personal upload, which had made processing them fail) — forward-only, sorts last.
     // Bumped from 133 -> 134: 20260923170000_upload_binding_and_personal_authority.sql (PR #32 final correction: workspace
     // upload binding immutable, one source-path authority, no workspace event without a workspace) — forward-only, sorts last.
+    // Bumped from 134 -> 135: 20260925100000_global_capabilities_entitlements_pricing.sql (CFO Close capability names, one entitlement authority,
+    // product walls and the pricing catalogue) — forward-only, sorts last.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(134);
+    expect(files.length).toBe(135);
   });
 });
 

@@ -114,7 +114,7 @@ describe("N-02: process-trial-balance refuses an unbound source before touching 
 });
 
 describe("N-01: the comparative engine fails closed on a stale period pointer", () => {
-  const src = readFileSync(resolve(__dirname, "../../../supabase/functions/kinga-comparative-engine/index.ts"), "utf8");
+  const src = readFileSync(resolve(__dirname, "../../../supabase/functions/_shared/comparativeAssurance.ts"), "utf8");
   it("reads lifecycle_state and company_id for both periods and refuses a non-active or foreign upload before comparing", () => {
     expect(src.match(/select\("processing_result, company_name, company_id, lifecycle_state"\)/g)?.length).toBe(2);
     const guard = src.indexOf("isActiveUploadLifecycle(u.lifecycle_state)");

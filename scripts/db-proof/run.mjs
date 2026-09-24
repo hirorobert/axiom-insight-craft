@@ -198,6 +198,13 @@ async function seed() {
   for (const [k, id] of Object.entries(U)) {
     await admin.query("INSERT INTO auth.users (id, email) VALUES ($1, $2)", [id, `${k}@example.test`]);
   }
+  // A certified close (FINAL) needs STATEMENT_CERTIFICATION (20260925100000): Company A is a Practice-plan workspace.
+  // The licence exists before the workspace, so the automatic Free licence is not provisioned beside it.
+  if ((await admin.query("SELECT to_regclass('public.commercial_capabilities') IS NOT NULL AS ok")).rows[0].ok) {
+    const prod = (await admin.query("SELECT id FROM public.commercial_products WHERE code='CFOCLOSE'")).rows[0].id;
+    const bc = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) RETURNING id", [U.owner, prod])).rows[0].id;
+    await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start) SELECT $1, id, 'ACTIVE', 'ADMIN_GRANT', now() - interval '1 day' FROM public.commercial_plans WHERE product_id=$2 AND code='PRACTICE'", [bc, prod]);
+  }
   COMPANY_A = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1, 'Company A') RETURNING id", [U.owner])).rows[0].id;
   COMPANY_B = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1, 'Company B') RETURNING id", [U.ownerB])).rows[0].id;
   for (const [k, role] of [["partner", "partner"], ["preparer", "preparer"], ["viewer", "viewer"]]) {

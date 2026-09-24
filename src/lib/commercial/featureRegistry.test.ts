@@ -1,67 +1,83 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { FEATURE_CODES, FEATURE_DESCRIPTIONS, isFeatureCode } from "./featureRegistry";
+import {
+  CAPABILITIES,
+  CAPABILITY_CODES,
+  FEATURE_CODES,
+  FEATURE_DESCRIPTIONS,
+  LEGACY_CAPABILITY_ALIASES,
+  PAID_CAPABILITY_CODES,
+  canonicalCapability,
+  isFeatureCode,
+} from "./featureRegistry";
 
-describe("FEATURE_CODES", () => {
-  it("contains exactly the seven Ω1 registry features, no duplicates", () => {
-    expect(FEATURE_CODES).toEqual([
-      "SAFISHA_PREVIEW",
-      "SAFISHA_CERTIFY",
-      "HESABU_REPORTING",
-      "HESABU_EXPORT",
-      "MAONO_INTELLIGENCE",
-      "MULTI_COMPANY",
-      "MULTI_PERIOD",
+const MIGRATION = fs.readFileSync(
+  path.join(__dirname, "../../../supabase/migrations/20260925100000_global_capabilities_entitlements_pricing.sql"),
+  "utf-8",
+);
+
+describe("canonical capability vocabulary", () => {
+  it("is exactly the six global capability codes, no duplicates, no engine names", () => {
+    expect([...CAPABILITY_CODES]).toEqual([
+      "CLOSE_ASSURANCE",
+      "COMPARATIVE_REPORTING",
+      "STATEMENT_CERTIFICATION",
+      "REPORTING_PACK_EXPORT",
+      "CLOSE_INSIGHTS",
+      "ENTITY_CAPACITY",
     ]);
-    expect(new Set(FEATURE_CODES).size).toBe(FEATURE_CODES.length);
+    expect(new Set(CAPABILITY_CODES).size).toBe(CAPABILITY_CODES.length);
+    for (const c of CAPABILITY_CODES) expect(c).not.toMatch(/SAFISHA|HESABU|MAONO|KINGA|MULTI_/);
+    expect(FEATURE_CODES).toBe(CAPABILITY_CODES);
   });
 
-  it("every code has a non-empty description and vice versa", () => {
-    for (const code of FEATURE_CODES) {
-      expect(FEATURE_DESCRIPTIONS[code]).toBeTruthy();
+  it("kinds: two included (never a wall), three paid, one capacity", () => {
+    expect(CAPABILITY_CODES.filter((c) => CAPABILITIES[c].kind === "included")).toEqual(["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING"]);
+    expect([...PAID_CAPABILITY_CODES]).toEqual(["STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS"]);
+    expect(CAPABILITIES.ENTITY_CAPACITY.kind).toBe("capacity");
+  });
+
+  it("customer names are the global product names", () => {
+    expect(CAPABILITY_CODES.map((c) => CAPABILITIES[c].name)).toEqual([
+      "Close Assurance", "Comparative Reporting", "Close Certification", "Reporting Pack", "Close Insights", "Entity Capacity",
+    ]);
+    for (const c of CAPABILITY_CODES) {
+      expect(FEATURE_DESCRIPTIONS[c]).toBeTruthy();
+      expect(FEATURE_DESCRIPTIONS[c]).not.toMatch(/Safisha|Hesabu|Maono|Kinga|SAFISHA|HESABU|MAONO|KINGA/);
     }
-    expect(Object.keys(FEATURE_DESCRIPTIONS).sort()).toEqual([...FEATURE_CODES].sort());
   });
 });
 
-describe("isFeatureCode", () => {
-  it("accepts every registered code", () => {
-    for (const code of FEATURE_CODES) {
-      expect(isFeatureCode(code)).toBe(true);
-    }
+describe("legacy identifiers resolve deterministically (compatibility lookup)", () => {
+  it.each(Object.entries(LEGACY_CAPABILITY_ALIASES))("%s → %s", (legacy, canonical) => {
+    expect(canonicalCapability(legacy)).toBe(canonical);
+    expect(isFeatureCode(legacy)).toBe(false); // a legacy code is never itself canonical
   });
-
-  it("rejects unknown strings, empty string, and casing variants", () => {
-    expect(isFeatureCode("UNKNOWN_THING")).toBe(false);
-    expect(isFeatureCode("")).toBe(false);
-    expect(isFeatureCode("safisha_preview")).toBe(false);
-    expect(isFeatureCode("MULTI-COMPANY")).toBe(false);
+  it("MULTI_PERIOD maps to an INCLUDED capability (comparatives are never a paywall)", () => {
+    expect(CAPABILITIES[canonicalCapability("MULTI_PERIOD")!].kind).toBe("included");
+  });
+  it("unknown, empty, casing variants and non-strings fail closed", () => {
+    for (const v of ["UNKNOWN_THING", "", "close_insights", "CLOSE-INSIGHTS", null, undefined, 3]) expect(canonicalCapability(v)).toBeNull();
   });
 });
 
-describe("registry stays in sync with the migration's DB-enforced CHECK constraints", () => {
-  it("the Ω1 migration's two feature-code CHECK constraints list exactly this registry", () => {
-    // PPG-1 (2026-09-06): reads the quarantined historical source file
-    // (supabase/migrations_historical/ — never independently live under
-    // its own filename; the live Lovable-applied identity is
-    // 20260905093408, which expresses the same 7-code vocabulary via a
-    // differently-formatted ARRAY[...] CHECK rather than this exact
-    // "IN ('SAFISHA_PREVIEW'..." shape — see migrationCollisionGuard.test.ts
-    // and docs/operations/PPG1_STABILIZATION_REPORT.md §Finding 3). The
-    // quarantined file's content is unchanged (only a non-executable
-    // notice was prepended above this constraint text), so it remains a
-    // valid, byte-accurate reference for this vocabulary-sync check.
-    const migrationPath = path.join(
-      __dirname,
-      "../../../supabase/migrations_historical/20260904180000_commercial_foundation_wave_omega1.sql.historical",
-    );
-    const sql = fs.readFileSync(migrationPath, "utf-8");
-    const checkBlocks = sql.match(/IN \(\s*'SAFISHA_PREVIEW'[\s\S]*?\)/g) ?? [];
-    expect(checkBlocks.length).toBeGreaterThanOrEqual(2);
-    for (const block of checkBlocks) {
-      const codesInBlock = [...block.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]);
-      expect(codesInBlock.sort()).toEqual([...FEATURE_CODES].sort());
+describe("registry stays in lockstep with 20260925100000", () => {
+  it("the migration seeds exactly these capabilities with the same kinds and names", () => {
+    const block = MIGRATION.slice(MIGRATION.indexOf("INSERT INTO public.commercial_capabilities"), MIGRATION.indexOf("CREATE TABLE public.commercial_capability_aliases"));
+    const rows = [...block.matchAll(/\('([A-Z_]+)',\s*'(included|paid|capacity)',\s*'([^']+)'/g)].map((m) => [m[1], m[2], m[3]]);
+    expect(rows).toEqual(CAPABILITY_CODES.map((c) => [c, CAPABILITIES[c].kind, CAPABILITIES[c].name]));
+  });
+  it("the migration seeds exactly these legacy aliases", () => {
+    const block = MIGRATION.slice(MIGRATION.indexOf("INSERT INTO public.commercial_capability_aliases"), MIGRATION.indexOf("-- Canonical code for a canonical or legacy input"));
+    const rows = Object.fromEntries([...block.matchAll(/\('([A-Z_]+)',\s*'([A-Z_]+)'\)/g)].map((m) => [m[1], m[2]]));
+    expect(rows).toEqual(LEGACY_CAPABILITY_ALIASES);
+  });
+  it("both database CHECK constraints (plans and overrides) list exactly the canonical codes", () => {
+    const planCheck = /chk_cp_feature_codes CHECK \(feature_codes <@ ARRAY\[([\s\S]*?)\]/.exec(MIGRATION)?.[1] ?? "";
+    const overrideCheck = /chk_eo_feature_code CHECK \(feature_code IN \(([\s\S]*?)\)\)/.exec(MIGRATION)?.[1] ?? "";
+    for (const block of [planCheck, overrideCheck]) {
+      expect([...block.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]).sort()).toEqual([...CAPABILITY_CODES].sort());
     }
   });
 });

@@ -392,6 +392,12 @@ async function main() {
   // (create_owner_firm_member) and trg_prevent_last_owner_delete protects it. In this throwaway database only,
   // the fixture removes that row with triggers suspended for the one statement, so the proof shows authority
   // never needs it.
+  // Entity Capacity (20260925100000): this fixture account runs several workspaces, as a Firm-plan account would.
+  if ((await count("SELECT count(*) n FROM information_schema.tables WHERE table_name='commercial_capabilities'")) === 1) {
+    const prod = (await admin.query("SELECT id FROM public.commercial_products WHERE code='CFOCLOSE'")).rows[0].id;
+    const bc = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) RETURNING id", [U.owner, prod])).rows[0].id;
+    await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start) SELECT $1, id, 'ACTIVE', 'ADMIN_GRANT', now() - interval '1 day' FROM public.commercial_plans WHERE product_id=$2 AND code='FIRM'", [bc, prod]);
+  }
   const S = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Solo workspace') RETURNING id", [U.solo])).rows[0].id;
   await admin.query("BEGIN");
   await admin.query("SET LOCAL session_replication_role = replica");

@@ -189,23 +189,23 @@ export function Features() {
             {/* Right — price card */}
             <div className="flex flex-col justify-center border-t border-border bg-background px-0 py-8 lg:col-span-5 lg:border-l lg:border-t-0 lg:px-10">
               <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">
-                From
+                {PRICING.ENTRY_PLAN_NAME} from
               </p>
               <div className="mt-2 flex items-baseline gap-1.5">
                 <p className="text-4xl font-semibold tracking-tight text-foreground">
-                  {PRICING.CURRENCY_CODE} {PRICING.ANNUAL_USD}
+                  {PRICING.ENTRY_ANNUAL}
                 </p>
                 <span className="text-sm text-muted-foreground">/ year</span>
                 <span className="ml-1 border border-success/30 bg-success/8 px-2 py-0.5 text-[10px] font-semibold text-success">
-                  SAVE USD {PRICING.ANNUAL_SAVING_USD}
+                  SAVE {PRICING.ENTRY_ANNUAL_SAVING}
                 </span>
               </div>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Monthly option: {PRICING.CURRENCY_CODE} {PRICING.MONTHLY_USD}. Exact availability verified before checkout.
+                Monthly option: {PRICING.ENTRY_MONTHLY}. Prices in {PRICING.CURRENCY_CODE}. Free plan available.
               </p>
               <Button variant="hero" className="mt-6 w-full sm:w-auto" asChild>
                 <Link to={PRICING_SECTION.ctaHref}>
-                  Review plan
+                  Compare plans
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>

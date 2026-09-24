@@ -51,6 +51,7 @@ import { ingestWorkbook, type WorkbookSheetInfo } from "@/lib/financialEvidence/
 import { correctEvidenceCell } from "@/lib/financialEvidence/correction";
 import type { EvidenceBatch, EvidenceDiagnostic, EvidenceType, PeriodRole, ReplayStatus } from "@/lib/financialEvidence/types";
 import { applyEvidence, evidenceOnlyReport, latestPerSeries, type ApplyEvidenceResult, type StoredEvidence } from "@/lib/financialGeneration/applyEvidence";
+import { lockedCopy } from "@/lib/commercial/paidActions";
 
 export interface WorkspaceUploadInput extends ComparativeCandidateUpload {
   readonly file_name: string;
@@ -682,6 +683,10 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
         void transport.listSavedVersions(inputs.companyId, inputs.periodYear).then(setVersions, () => undefined);
         return { ok: true, message: `Recorded as ${state}.` };
       } catch (e) {
+        if (e instanceof FsTransportError && e.kind === "ENTITLEMENT_REQUIRED") {
+          const copy = lockedCopy("STATEMENT_CERTIFICATION");
+          return { ok: false, message: `${copy.title}. ${copy.unavailable} ${copy.history}` };
+        }
         const message = e instanceof FsTransportError ? e.message : e instanceof Error ? e.message : String(e);
         return { ok: false, message };
       }

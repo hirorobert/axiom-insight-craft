@@ -1,4 +1,4 @@
-import { PRICING } from "@/constants/copy";
+import { displayCataloguePlanName } from "@/lib/commercial/pricingCatalogue";
 import type { LicenceStatus } from "@/lib/commercial/entitlementContract";
 import { isFeatureCode, FEATURE_DESCRIPTIONS } from "@/lib/commercial/featureRegistry";
 
@@ -8,8 +8,8 @@ import { isFeatureCode, FEATURE_DESCRIPTIONS } from "@/lib/commercial/featureReg
  * component itself would pull in React Router, the Supabase client, and
  * other module-scope side effects that have no place in a logic test).
  *
- * The authoritative plan-code vocabulary today is exactly "FREE" and
- * "PAID" (commercial_plans.code, Ω1 commercial foundation). Anything else
+ * The authoritative plan-code vocabulary is FREE, PRACTICE, FIRM, ENTERPRISE and
+ * the grandfathered legacy PAID (commercial_plans.code, 20260925100000). Anything else
  * — a future code the UI doesn't know about yet, or a data-integrity
  * issue — fails closed rather than being misrepresented as an active paid
  * plan (CFOClose Ω∞ Execution Charter, Phase 1, item 5).
@@ -24,9 +24,7 @@ import { isFeatureCode, FEATURE_DESCRIPTIONS } from "@/lib/commercial/featureReg
  * any other unrecognized code.
  */
 export function displayPlanName(planCode: string | null): string {
-  if (planCode === "FREE") return PRICING.FREE_NAME;
-  if (planCode === "PAID") return PRICING.PAID_NAME;
-  return "Plan unavailable";
+  return displayCataloguePlanName(planCode) ?? "Plan unavailable";
 }
 
 /**

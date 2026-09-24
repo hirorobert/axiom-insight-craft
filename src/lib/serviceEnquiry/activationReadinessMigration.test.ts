@@ -25,16 +25,18 @@ describe("readiness migration hygiene", () => {
     // 20260923150000_upload_pointer_and_source_binding.sql (PR #32 final hardening) is later still and equally unrelated.
     // 20260923160000_personal_upload_lifecycle_audit.sql (PR #32 personal-upload audit fix) is later still and equally unrelated.
     // 20260923170000_upload_binding_and_personal_authority.sql (PR #32 final correction) is later still and equally unrelated.
-    expect(all[all.length - 1]).toBe("20260923170000_upload_binding_and_personal_authority.sql");
-    expect(all[all.length - 2]).toBe("20260923160000_personal_upload_lifecycle_audit.sql");
-    expect(all[all.length - 3]).toBe("20260923150000_upload_pointer_and_source_binding.sql");
-    expect(all[all.length - 4]).toBe("20260923140000_upload_lifecycle_hardening.sql");
-    expect(all[all.length - 5]).toBe("20260923130000_workspace_capability_access_bridge.sql");
-    expect(all[all.length - 6]).toBe("20260923120000_workspace_user_engine_actor_and_source_sweeper.sql");
-    expect(all[all.length - 7]).toBe("20260923100000_upload_lifecycle_retire_and_replace.sql");
-    expect(all[all.length - 8]).toBe("20260922180000_discard_trial_balance_authority.sql");
-    expect(all[all.length - 9]).toBe(FILE);
-    expect(all[all.length - 10]).toBe("20260921100000_service_enquiry_intake.sql");
+    // 20260925100000_global_capabilities_entitlements_pricing.sql (CFO Close capabilities and pricing) is later still and equally unrelated.
+    expect(all[all.length - 1]).toBe("20260925100000_global_capabilities_entitlements_pricing.sql");
+    expect(all[all.length - 2]).toBe("20260923170000_upload_binding_and_personal_authority.sql");
+    expect(all[all.length - 3]).toBe("20260923160000_personal_upload_lifecycle_audit.sql");
+    expect(all[all.length - 4]).toBe("20260923150000_upload_pointer_and_source_binding.sql");
+    expect(all[all.length - 5]).toBe("20260923140000_upload_lifecycle_hardening.sql");
+    expect(all[all.length - 6]).toBe("20260923130000_workspace_capability_access_bridge.sql");
+    expect(all[all.length - 7]).toBe("20260923120000_workspace_user_engine_actor_and_source_sweeper.sql");
+    expect(all[all.length - 8]).toBe("20260923100000_upload_lifecycle_retire_and_replace.sql");
+    expect(all[all.length - 9]).toBe("20260922180000_discard_trial_balance_authority.sql");
+    expect(all[all.length - 10]).toBe(FILE);
+    expect(all[all.length - 11]).toBe("20260921100000_service_enquiry_intake.sql");
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);
   });

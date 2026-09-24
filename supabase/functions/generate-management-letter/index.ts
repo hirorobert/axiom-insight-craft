@@ -18,6 +18,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requirePaidAction } from "../_shared/paidAction.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -183,6 +184,11 @@ serve(async (req) => {
       }
     }
 
+    // A management letter is a Reporting Pack client deliverable (CFO Close, 20260925100000): the verified user
+    // (from the JWT) must be entitled through the workspace's account. Refused before anything is generated.
+    const notEntitled = await requirePaidAction((fn, args) => admin.rpc(fn, args), userId!, upload.company_id, "REPORTING_PACK_EXPORT", corsHeaders);
+    if (notEntitled) return notEntitled;
+
     // ── 1b. Company TIN (mandatory for all TRA-facing documents) ─
     const { data: companyRow } = await admin
       .from("companies")
@@ -333,7 +339,7 @@ All monetary amounts are stated in Tanzanian Shillings (TZS). Findings are ranke
       id: "section-a-tax",
       heading: "Section A — Income Tax Computation Summary (ITA Cap.332 R.E.2023)",
       type: hasTax ? "table" : "text",
-      content: hasTax ? undefined : "No committed tax computation found for this upload. Run and commit the tax computation in the Kinga Tax Engine before generating the management letter.",
+      content: hasTax ? undefined : "No committed tax computation found for this upload. Run and commit the tax computation in Compute Tax before generating the management letter.",
       rows: hasTax ? taxRows : undefined,
     };
 
@@ -414,7 +420,7 @@ It should not be distributed to or relied upon by any third party without prior 
 
 Engagement Reference: ${reference}
 Generated: ${fmtDate(generatedAt)}
-Engine: SAFF Kinga Engine ${engineVersion}
+Engine: CFO Close tax computation ${engineVersion}
 Framework: ${framework} / ITA Cap.332 R.E.2023 / Finance Act 2026
 
 _____________________________
