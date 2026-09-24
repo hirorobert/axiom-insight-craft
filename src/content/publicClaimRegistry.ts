@@ -170,7 +170,10 @@ export const PUBLIC_CLAIM_REGISTRY: readonly PublicClaim[] = [
     approvedWording:
       "It is not an external audit, an audit opinion, or any form of statutory assurance.",
     prohibitedWording: [
-      "audit opinion",
+      // NB: the bare phrase "audit opinion" is NOT listed — the approved disclaimer itself says
+      // certification "is not an external audit, an audit opinion, or any form of statutory
+      // assurance", and that negation must stay on the page.
+      "provides an audit opinion",
       "auditor-certified",
       "12 independent audit opinions",
       "integrity guarantee",
