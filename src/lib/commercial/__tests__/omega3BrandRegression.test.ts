@@ -97,10 +97,16 @@ describe("Ω3-BRAND · public brand", () => {
     expect(jurisdictionText).not.toMatch(/Tanzania|\bTRA\b|\bTIN\b/);
   });
 
-  it("09 · /pricing navigation entry exists in NAV", () => {
-    const pricingNav = NAV.find((n) => n.href === "/pricing");
-    expect(pricingNav).toBeDefined();
-    expect(pricingNav?.label).toBe("Pricing");
+  // 09 was rewritten with the landing-page rebuild. The header navigation is now a set of in-page
+  // section links rather than a route list, and commercial information lives in the landing page's
+  // own "Commercial" section — so a "/pricing" NAV entry no longer exists. The guarantee this test
+  // protects is unchanged and still asserted: commercial information stays reachable from the
+  // public navigation, and the /pricing route itself is untouched.
+  it("09 · commercial information is reachable from the public navigation", () => {
+    const commercialNav = NAV.find((n) => n.href === "#commercial");
+    expect(commercialNav, "the public navigation must reach the commercial section").toBeDefined();
+    expect(commercialNav?.label).toBe("Commercial");
+    expect(NAV.every((n) => n.href.startsWith("#")), "landing navigation is in-page only").toBe(true);
   });
 
   it("10 · Monthly price is USD 49", () => {
@@ -543,8 +549,10 @@ describe("Ω3-BRAND · Header responsive navigation — H-1 tablet collision fix
 
   it("64 · the mobile menu toggle button and mobile menu container collapse at lg, not md — the mobile presentation stays active for every width below 1024px", () => {
     expect(headerSrc).not.toMatch(/className="md:hidden/);
-    expect(headerSrc).toMatch(/className="lg:hidden p-2 text-foreground"/);
-    expect(headerSrc).toMatch(/<div className="lg:hidden bg-card/);
+    // The toggle gained an explicit 44px target and a visible focus ring in the landing rebuild, so
+    // the class list is matched by its meaning (lg:hidden on the toggle) rather than verbatim.
+    expect(headerSrc).toMatch(/className="lg:hidden flex h-11 w-11[^"]*"[\s\S]{0,200}aria-controls="mobile-navigation"/);
+    expect(headerSrc).toMatch(/id="mobile-navigation"[\s\S]{0,200}className="lg:hidden bg-card/);
   });
 
   it("65 · Header.tsx introduces no second/duplicated navigation implementation — exactly one <nav> element and one mobile-menu toggle handler", () => {
@@ -556,18 +564,18 @@ describe("Ω3-BRAND · Header responsive navigation — H-1 tablet collision fix
     const signInIndex = mobileMenuSrc.indexOf(
       '<Link to="/auth" onClick={() => setMobileOpen(false)}>Sign in</Link>',
     );
-    const chooseOutcomeIndex = mobileMenuSrc.indexOf("Choose outcome");
+    const primaryIndex = mobileMenuSrc.indexOf("{CTA.primary}");
     expect(signInIndex, "expected the mobile Sign in link in the signed-out menu").toBeGreaterThan(-1);
-    expect(chooseOutcomeIndex, "expected the mobile Choose outcome action").toBeGreaterThan(-1);
-    expect(signInIndex, "Sign in must be listed before Choose outcome").toBeLessThan(chooseOutcomeIndex);
+    expect(primaryIndex, "expected the mobile primary sign-up action").toBeGreaterThan(-1);
+    expect(signInIndex, "Sign in must be listed before the primary action").toBeLessThan(primaryIndex);
   });
 
   it("67 · M-1 — both signed-out mobile actions close the mobile menu when activated", () => {
     const signedOutBranch = mobileMenuSrc.slice(mobileMenuSrc.indexOf("Sign in") - 400);
     // Exactly two `setMobileOpen(false)` close-handlers in the signed-out
-    // branch: one on Sign in, one on Choose outcome.
+    // branch: one on Sign in, one on the primary sign-up action.
     const closeHandlers = signedOutBranch
-      .slice(0, signedOutBranch.indexOf("Choose outcome") + 200)
+      .slice(0, signedOutBranch.indexOf("{CTA.primary}") + 200)
       .match(/onClick=\{\(\) => setMobileOpen\(false\)\}/g) ?? [];
     expect(closeHandlers.length).toBeGreaterThanOrEqual(2);
   });
@@ -576,11 +584,11 @@ describe("Ω3-BRAND · Header responsive navigation — H-1 tablet collision fix
     const signInButtonMatch = mobileMenuSrc.match(
       /<Button variant="outline" size="lg"[^>]*>\s*<Link to="\/auth"/,
     );
-    const chooseOutcomeButtonMatch = mobileMenuSrc.match(
-      /<Button variant="hero" size="lg"[^>]*>\s*<a\b/,
+    const primaryButtonMatch = mobileMenuSrc.match(
+      /<Button variant="hero" size="lg"[^>]*>\s*<Link\b/,
     );
     expect(signInButtonMatch, "Sign in must render as an outline/restrained lg-sized button").toBeTruthy();
-    expect(chooseOutcomeButtonMatch, "Choose outcome must remain the sole hero/primary-styled action").toBeTruthy();
+    expect(primaryButtonMatch, "the sign-up action must remain the sole hero/primary-styled action").toBeTruthy();
     // Only one hero-variant (primary) button exists in the signed-out mobile menu.
     expect((mobileMenuSrc.match(/variant="hero"/g) ?? []).length).toBe(1);
   });
