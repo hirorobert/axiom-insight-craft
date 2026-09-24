@@ -1827,6 +1827,7 @@ export type Database = {
       engine_runs: {
         Row: {
           actor_type: string
+          actor_user_id: string | null
           company_id: string
           completed_at: string | null
           created_at: string
@@ -1849,6 +1850,7 @@ export type Database = {
         }
         Insert: {
           actor_type: string
+          actor_user_id?: string | null
           company_id: string
           completed_at?: string | null
           created_at?: string
@@ -1871,6 +1873,7 @@ export type Database = {
         }
         Update: {
           actor_type?: string
+          actor_user_id?: string | null
           company_id?: string
           completed_at?: string | null
           created_at?: string
@@ -3017,6 +3020,7 @@ export type Database = {
       idempotency_keys: {
         Row: {
           actor_type: string
+          actor_user_id: string | null
           client_request_id: string
           company_id: string
           created_at: string
@@ -3032,6 +3036,7 @@ export type Database = {
         }
         Insert: {
           actor_type: string
+          actor_user_id?: string | null
           client_request_id: string
           company_id: string
           created_at?: string
@@ -3047,6 +3052,7 @@ export type Database = {
         }
         Update: {
           actor_type?: string
+          actor_user_id?: string | null
           client_request_id?: string
           company_id?: string
           created_at?: string
@@ -5018,6 +5024,45 @@ export type Database = {
           },
         ]
       }
+      tbu_source_sweeper_config: {
+        Row: {
+          function_url: string
+          id: boolean
+          updated_at: string
+        }
+        Insert: {
+          function_url: string
+          id?: boolean
+          updated_at?: string
+        }
+        Update: {
+          function_url?: string
+          id?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      tbu_source_sweeper_tickets: {
+        Row: {
+          created_at: string
+          expires_at: string
+          redeemed_at: string | null
+          token_hash: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          redeemed_at?: string | null
+          token_hash: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          redeemed_at?: string | null
+          token_hash?: string
+        }
+        Relationships: []
+      }
       trial_balance_source_reservations: {
         Row: {
           actor_user_id: string
@@ -5030,6 +5075,7 @@ export type Database = {
           file_name: string
           id: string
           object_path: string
+          swept_at: string | null
         }
         Insert: {
           actor_user_id: string
@@ -5042,6 +5088,7 @@ export type Database = {
           file_name: string
           id?: string
           object_path: string
+          swept_at?: string | null
         }
         Update: {
           actor_user_id?: string
@@ -5054,6 +5101,7 @@ export type Database = {
           file_name?: string
           id?: string
           object_path?: string
+          swept_at?: string | null
         }
         Relationships: [
           {
@@ -7137,6 +7185,11 @@ export type Database = {
         Args: { p_company_id: string }
         Returns: boolean
       }
+      tbu_cleanup_sweep_grace: { Args: never; Returns: string }
+      tbu_configure_source_sweeper: {
+        Args: { p_function_url: string }
+        Returns: string
+      }
       tbu_derived_active_state: {
         Args: {
           p_upload: Database["public"]["Tables"]["trial_balance_uploads"]["Row"]
@@ -7162,6 +7215,23 @@ export type Database = {
         }
         Returns: undefined
       }
+      tbu_mint_source_sweeper_ticket: { Args: never; Returns: string }
+      tbu_redeem_source_sweeper_ticket: {
+        Args: { p_token: string }
+        Returns: boolean
+      }
+      tbu_reservation_sweep_grace: { Args: never; Returns: string }
+      tbu_resolve_processing_actor: {
+        Args: { p_company_id: string; p_user_id: string }
+        Returns: {
+          actor_type: string
+          authority_basis: string
+          authority_capability: string
+          firm_member_id: string
+          firm_member_role: string
+        }[]
+      }
+      tbu_run_source_sweeper: { Args: never; Returns: string }
       tbu_safe_object_name: { Args: { p_name: string }; Returns: string }
       tbu_source_reservation_target: {
         Args: { p_reservation_id: string }
@@ -7184,6 +7254,19 @@ export type Database = {
         }[]
       }
       tbu_storage_object_exists: { Args: { p_path: string }; Returns: boolean }
+      tbu_sweeper_candidates: {
+        Args: { p_limit?: number }
+        Returns: {
+          delete_object: boolean
+          kind: string
+          object_path: string
+          target_id: string
+        }[]
+      }
+      tbu_sweeper_complete: {
+        Args: { p_kind: string; p_target_id: string }
+        Returns: string
+      }
       tbu_undo_window: { Args: never; Returns: string }
       tbu_upload_evidence: {
         Args: { p_expected_predecessor?: string; p_upload_id: string }
