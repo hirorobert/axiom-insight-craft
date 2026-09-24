@@ -6321,6 +6321,12 @@ export type Database = {
           wdv_opening_new: number
         }[]
       }
+      claim_trial_balance_discard_purge: {
+        Args: { p_operation_id: string }
+        Returns: {
+          outcome: string
+        }[]
+      }
       claim_verification_attempt: {
         Args: {
           p_checkout_intent_id: string
@@ -7197,6 +7203,15 @@ export type Database = {
         Returns: Json
       }
       submit_service_enquiry: { Args: { p_request: Json }; Returns: Json }
+      tbu_abort_discard: {
+        Args: {
+          p_actor: string
+          p_actor_kind: string
+          p_operation_id: string
+          p_reason: string
+        }
+        Returns: string
+      }
       tbu_authorize: {
         Args: { p_company_id: string }
         Returns: Record<string, unknown>
@@ -7211,6 +7226,10 @@ export type Database = {
       tbu_can_view_workspace_audit: {
         Args: { p_company_id: string }
         Returns: boolean
+      }
+      tbu_claim_discard_purge: {
+        Args: { p_operation_id: string }
+        Returns: string
       }
       tbu_cleanup_sweep_grace: { Args: never; Returns: string }
       tbu_configure_source_sweeper: {
@@ -7243,6 +7262,7 @@ export type Database = {
         Returns: undefined
       }
       tbu_mint_source_sweeper_ticket: { Args: never; Returns: string }
+      tbu_object_referenced: { Args: { p_path: string }; Returns: boolean }
       tbu_prepare_capabilities: { Args: never; Returns: string[] }
       tbu_redeem_source_sweeper_ticket: {
         Args: { p_token: string }
@@ -7280,6 +7300,7 @@ export type Database = {
           pg_net_installed: boolean
         }[]
       }
+      tbu_stale_discard_grace: { Args: never; Returns: string }
       tbu_storage_cleanup_target: {
         Args: { p_operation_id: string }
         Returns: {
@@ -7299,6 +7320,10 @@ export type Database = {
           object_path: string
           target_id: string
         }[]
+      }
+      tbu_sweeper_claim: {
+        Args: { p_kind: string; p_target_id: string }
+        Returns: string
       }
       tbu_sweeper_complete: {
         Args: { p_kind: string; p_target_id: string }

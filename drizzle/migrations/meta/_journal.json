@@ -64,6 +64,13 @@
       "when": 1790259700319,
       "tag": "0008_pr32_04_workspace_capability_access_bridge",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790259808621,
+      "tag": "0009_pr32_05_upload_lifecycle_hardening",
+      "breakpoints": true
     }
   ]
 }
