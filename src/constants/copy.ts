@@ -4,6 +4,7 @@ import {
   annualSavingMinor,
   formatCatalogueAmount,
   planByCode,
+  ADDITIONAL_SEAT_PRICE,
 } from "@/lib/commercial/pricingCatalogue";
 
 // ─────────────────────────────────────────────────────────────
@@ -271,7 +272,9 @@ export const PRICING = {
 } as const;
 
 export const PRICING_TABLE = [
-  { term: "Plans",     value: "Free, Practice, Firm and Enterprise. Plans differ by entity capacity, users and paid actions." },
+  { term: "Plans",     value: "Free, Practice, Firm and Enterprise. Plans differ by entity capacity, named users and paid actions." },
+  { term: "Named users", value: `Every plan includes 1 named user. Practice and Firm can add named users at ${formatCatalogueAmount(ADDITIONAL_SEAT_PRICE.monthlyMinor)} per user per month or ${formatCatalogueAmount(ADDITIONAL_SEAT_PRICE.annualMinor)} per user per year. Free cannot add users; Enterprise is negotiated.` },
+  { term: "Sign-in",   value: "Each named user is one person with their own sign-in, so every action is attributed and audited. Accounts are never shared." },
   { term: "Included",  value: "Every plan includes preparation, validation, statement preview and comparative reporting." },
   { term: "Paid",      value: "Close Certification, Reporting Pack and Close Insights from Practice upwards." },
   { term: "History",   value: "Certified closes, packs and insights you created stay accessible if your plan changes." },

@@ -91,7 +91,7 @@ export function classifyEntitlement(
     return { status: "ENTITLED", reason: "INCLUDED_IN_EVERY_PLAN", licenceStatus: null, planCode: null, source: "INCLUDED" };
   }
   if (kind === "capacity") {
-    // Capacity is a number the server resolves (_entity_capacity_for_account); it is never a yes/no flag here.
+    // Capacity is a number the server resolves (_entity_capacity_for_account, _seat_capacity_for_account); it is never a yes/no flag here.
     return { status: "UNKNOWN", reason: "CAPACITY_RESOLVED_BY_SERVER", licenceStatus: null, planCode: null, source: null };
   }
 

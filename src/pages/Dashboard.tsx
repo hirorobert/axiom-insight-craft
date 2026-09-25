@@ -36,6 +36,8 @@ import EngagementHub from "@/pages/workspace/EngagementHub";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { parseAcceptInvitations } from "@/lib/commercial/paidActions";
 
 /**
  * Return the most recently completed fiscal year for a company.
@@ -91,19 +93,24 @@ export default function Dashboard() {
     }
   }, [user, authLoading, navigate]);
 
-  // ── 2. Auto-accept firm invitation ────────────────────────────────────────
-  // When an invited user logs in for the first time, accepted_at is null.
-  // We set it so the user becomes active in the firm without a separate step.
+  // ── 2. Auto-accept workspace invitations ──────────────────────────────────
+  // When an invited user signs in, their pending invitations are accepted one by one by the server
+  // (accept_workspace_invitations). The inviting account must have a named-user seat for each: an invitation it
+  // has no seat for stays pending (never deleted) and the person is told why, by structured code.
   useEffect(() => {
     if (!user) return;
-    supabase
-      .from("firm_members")
-      .update({ accepted_at: new Date().toISOString() })
-      .eq("user_id", user.id)
-      .is("accepted_at", null)
-      .then(({ error }) => {
-        if (error) console.warn("firm_members auto-accept:", error.message);
-      });
+    supabase.rpc("accept_workspace_invitations" as never).then(({ data, error }) => {
+      if (error) {
+        console.warn("accept_workspace_invitations:", error.code);
+        return;
+      }
+      const result = parseAcceptInvitations(data);
+      if (result && result.blocked.length > 0) {
+        toast.info("An invitation is waiting for a seat", {
+          description: "The account that invited you has no free named-user seat yet. Your invitation is kept and will work once a seat is available.",
+        });
+      }
+    });
   }, [user?.id]);
 
   // The routing branch itself is a pure, synchronous decision (resolveReturningUserRoute.test.ts

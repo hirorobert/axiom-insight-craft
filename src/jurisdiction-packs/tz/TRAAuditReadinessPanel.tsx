@@ -20,6 +20,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { requestReportingPack } from "@/lib/commercial/requestReportingPack";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -263,7 +264,9 @@ export function TRAAuditReadinessPanel({
   const partialOk = fails === 0 && warns > 0;
 
   // ── Print manifest ─────────────────────────────────────────────────────────
-  const handlePrintManifest = () => {
+  const handlePrintManifest = async () => {
+  // The audit manifest is a Reporting Pack deliverable: issued by the server first, or not produced.
+  if (!(await requestReportingPack(companyId, periodYear, "tax_workpaper"))) return;
     const lines = [
       `TRA AUDIT READINESS MANIFEST`,
       `Generated: ${new Date().toLocaleString("en-TZ", { timeZone: "Africa/Dar_es_Salaam" })} (EAT)`,
@@ -417,7 +420,7 @@ export function TRAAuditReadinessPanel({
                     size="sm"
                     variant="outline"
                     className="gap-1.5 text-xs"
-                    onClick={handlePrintManifest}
+                    onClick={() => void handlePrintManifest()}
                     disabled={loading}
                   >
                     <Printer className="w-3.5 h-3.5" />

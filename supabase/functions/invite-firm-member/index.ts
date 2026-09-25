@@ -15,6 +15,11 @@
 //
 // Callers: FirmManagementPanel → supabase.functions.invoke()
 //
+// Named-user seats (20260925100000): every plan includes one named user; Practice and Firm may add purchased
+// seats. The seat is checked (seat_check_for_invitation) BEFORE any email is sent or account created, and the
+// database seat wall refuses the membership row regardless. Refusals are HTTP 402 with a structured body
+// { status, capability: "NAMED_USER_SEATS" }. Each invited person gets their own account; nothing is shared.
+//
 // Security:
 //   • Admin client (service role) required for auth.admin.inviteUserByEmail
 //   • RLS on firm_members enforced by trigger (owner-only writes for
@@ -24,6 +29,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isSeatWallError, requireSeatForInvitation } from "../_shared/paidAction.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -124,6 +130,10 @@ serve(async (req) => {
       }
     }
 
+    // ── Named-user seat (before any email is sent or account created) ──
+    const noSeat = await requireSeatForInvitation((fn, args) => admin.rpc(fn, args), company_id, existingUser?.id ?? null, corsHeaders);
+    if (noSeat) return noSeat;
+
     // ── Send invitation ───────────────────────────────────────
     const appUrl = Deno.env.get("APP_URL") ?? supabaseUrl.replace(".supabase.co", ".app");
 
@@ -167,6 +177,14 @@ serve(async (req) => {
       accepted_at:   null,
     });
 
+    if (insertErr && isSeatWallError(insertErr)) {
+      // A concurrent invitation took the last seat between the check and this insert: the database refused it.
+      return new Response(
+        JSON.stringify({ status: "seat_limit_reached", error: "Seat Limit Reached", capability: "NAMED_USER_SEATS",
+          message: "The last named-user seat was taken while this invitation was being sent, so it was not recorded." }),
+        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     if (insertErr) {
       console.error("firm_members insert error:", insertErr);
       return new Response(

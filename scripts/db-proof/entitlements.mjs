@@ -8,7 +8,9 @@
 // 2. Authority: the paid-action authority across anonymous, unrelated, creator, member, grant, revoked grant,
 //    cross-user and cross-workspace callers, unknown capability / plan, expiry, grace, suspension and overrides.
 // 3. Walls: Close Certification (sign-offs, FINAL), Reporting Pack issuance, Close Insights, Entity Capacity
-//    (Free 1 / Practice 5 / Firm 25, concurrency, direct insert, RPC, idempotent retry, downgrade, reactivation).
+//    (Free 1 / Practice 5 / Firm 25, concurrency, direct insert, RPC, idempotent retry, downgrade, reactivation),
+//    Named-user seats (1 included; purchased seats; invitations, acceptance, grants, direct writes, concurrency,
+//    downgrade retention, fail-closed quantities, service identities never counted).
 // 4. Billing never touches accounting: licence transitions leave certifications, sign-offs and uploads byte-identical.
 //
 //   DB_PROOF_MODULES_DIR=<dir whose node_modules has pg + embedded-postgres> node scripts/db-proof/entitlements.mjs
@@ -183,14 +185,15 @@ async function main() {
   await check("every later migration also applies", async () => { for (const f of files.slice(cut + 1)) await applyMigration(f); return true; });
 
   await check("the catalogue is exactly Free / Practice / Firm / Enterprise (+ the hidden legacy PAID plan)", async () => {
-    const rows = (await admin.query("SELECT code, entity_capacity, user_capacity, is_public, sales_mode, display_order, feature_codes FROM public.commercial_plans WHERE product_id=$1 ORDER BY code", [product])).rows;
+    const rows = (await admin.query("SELECT code, entity_capacity, included_seats, additional_seats_purchasable AS buy, is_public, sales_mode, display_order, feature_codes FROM public.commercial_plans WHERE product_id=$1 ORDER BY code", [product])).rows;
     const by = Object.fromEntries(rows.map((r) => [r.code, r]));
-    const PAIDS = ["CLOSE_ASSURANCE", "CLOSE_INSIGHTS", "COMPARATIVE_REPORTING", "ENTITY_CAPACITY", "REPORTING_PACK_EXPORT", "STATEMENT_CERTIFICATION"];
+    const PAIDS = ["CLOSE_ASSURANCE", "CLOSE_INSIGHTS", "COMPARATIVE_REPORTING", "ENTITY_CAPACITY", "NAMED_USER_SEATS", "REPORTING_PACK_EXPORT", "STATEMENT_CERTIFICATION"];
     const eq = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
     return rows.length === 5
-      && by.FREE.entity_capacity === 1 && by.FREE.user_capacity === 1 && by.FREE.is_public && eq(by.FREE.feature_codes, ["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "ENTITY_CAPACITY"])
-      && by.PRACTICE.entity_capacity === 5 && by.PRACTICE.user_capacity === 3 && eq(by.PRACTICE.feature_codes, PAIDS)
-      && by.FIRM.entity_capacity === 25 && by.FIRM.user_capacity === 10 && eq(by.FIRM.feature_codes, PAIDS)
+      && by.FREE.entity_capacity === 1 && by.FREE.included_seats === 1 && by.FREE.buy === false && by.FREE.is_public && eq(by.FREE.feature_codes, ["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "ENTITY_CAPACITY", "NAMED_USER_SEATS"])
+      && by.PRACTICE.entity_capacity === 5 && by.PRACTICE.included_seats === 1 && by.PRACTICE.buy === true && eq(by.PRACTICE.feature_codes, PAIDS)
+      && by.FIRM.entity_capacity === 25 && by.FIRM.included_seats === 1 && by.FIRM.buy === true && eq(by.FIRM.feature_codes, PAIDS)
+      && by.ENTERPRISE.included_seats === null && by.ENTERPRISE.buy === false && by.PAID.included_seats === 1
       && by.ENTERPRISE.entity_capacity === null && by.ENTERPRISE.sales_mode === "contact_sales" && eq(by.ENTERPRISE.feature_codes, PAIDS)
       && by.PAID.is_public === false && by.PAID.sales_mode === "legacy" && by.PAID.entity_capacity === 25 && eq(by.PAID.feature_codes, PAIDS)
       ? true : JSON.stringify(rows);
@@ -200,6 +203,14 @@ async function main() {
       FROM public.commercial_offers o JOIN public.commercial_plans cp ON cp.id=o.plan_id WHERE o.is_active ORDER BY cp.code, o.billing_interval`)).rows;
     const got = rows.map((r) => `${r.code}:${r.billing_interval}:${r.amount_minor}:${r.currency_code}:${r.currency_exponent}:${r.is_purchasable}`);
     return JSON.stringify(got) === JSON.stringify(["FIRM:ANNUAL:299000:USD:2:false", "FIRM:MONTHLY:29900:USD:2:false", "PRACTICE:ANNUAL:99000:USD:2:false", "PRACTICE:MONTHLY:9900:USD:2:false"]) ? true : got;
+  });
+  await check("additional named-user seats: $20 / month and $200 / year per seat on Practice and Firm only, in a separate table, not purchasable; every existing licence carries 0 purchased seats", async () => {
+    const rows = (await admin.query(`SELECT cp.code, s.billing_interval, s.amount_minor, s.currency_code, s.is_purchasable FROM public.commercial_additional_seat_prices s
+      JOIN public.commercial_plans cp ON cp.id=s.plan_id WHERE s.is_active ORDER BY cp.code, s.billing_interval`)).rows;
+    const got = rows.map((r) => `${r.code}:${r.billing_interval}:${r.amount_minor}:${r.currency_code}:${r.is_purchasable}`);
+    const legacySeats = (await admin.query("SELECT additional_seats FROM public.commercial_licences WHERE id=$1", [legacyLicence])).rows[0].additional_seats;
+    return JSON.stringify(got) === JSON.stringify(["FIRM:ANNUAL:20000:USD:false", "FIRM:MONTHLY:2000:USD:false", "PRACTICE:ANNUAL:20000:USD:false", "PRACTICE:MONTHLY:2000:USD:false"])
+      && legacySeats === 0 ? true : JSON.stringify({ got, legacySeats });
   });
   await check("the $49 / $499 offers are retired, not deleted (same ids, inactive, non-purchasable, ended)", async () => {
     const rows = (await admin.query("SELECT id, is_active, is_purchasable, effective_end FROM public.commercial_offers WHERE id = ANY($1::uuid[])", [retiredOffers.map((r) => r.id)])).rows;
@@ -247,14 +258,15 @@ async function main() {
     await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [U[k], `${k}@example.test`]);
   }
   await admin.query("INSERT INTO public.commercial_admins (user_id) VALUES ($1)", [U.admin]);
-  const licence = async (uid, planCode, status = "ACTIVE", { start = "now() - interval '1 day'", end = null } = {}) => {
+  const licence = async (uid, planCode, status = "ACTIVE", { start = "now() - interval '1 day'", end = null, seats = 0 } = {}) => {
     let bc = (await admin.query("SELECT id FROM public.billing_customers WHERE owner_user_id=$1", [uid])).rows[0]?.id;
     if (!bc) bc = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) RETURNING id", [uid, product])).rows[0].id;
-    const id = (await admin.query(`INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, effective_end)
-      VALUES ($1,$2,$3,'ADMIN_GRANT',${start},${end ?? "NULL"}) RETURNING id`, [bc, await planId(planCode), status])).rows[0].id;
+    const id = (await admin.query(`INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, effective_end, additional_seats)
+      VALUES ($1,$2,$3,'ADMIN_GRANT',${start},${end ?? "NULL"},$4) RETURNING id`, [bc, await planId(planCode), status, seats])).rows[0].id;
     return { bc, id };
   };
-  const practice = await licence(U.practice, "PRACTICE");
+  // The Practice account has two other people (a member and a capability grantee): two purchased additional seats.
+  const practice = await licence(U.practice, "PRACTICE", "ACTIVE", { seats: 2 });
   await licence(U.firm, "FIRM");
   const enterprise = await licence(U.enterprise, "ENTERPRISE");
   await licence(U.expired, "PRACTICE", "ACTIVE", { start: "now() - interval '40 days'", end: "now() - interval '1 day'" });
@@ -267,9 +279,14 @@ async function main() {
     expired: await company(U.expired, "Expired Co"), grace: await company(U.grace, "Grace Co"), suspended: await company(U.suspended, "Suspended Co"),
     outsider: await company(U.paidOutsider, "Outsider Co"),
   };
-  await admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now()), ($3,$2,'preparer',now())", [W.practice, U.member, W.free]);
-  await admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'partner',now())", [W.free, U.partnerTitle]);
-  await admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now())", [W.free, U.paidOutsider]);
+  await admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now())", [W.practice, U.member]);
+  // The Free workspace's three members PREDATE the seat wall (as memberships in an existing database do when this
+  // migration is applied): inserted with triggers suspended for this one fixture statement only. The seat proofs
+  // below show they are kept, keep their access, and block any new person until the account is within its allowance.
+  await admin.query("BEGIN");
+  await admin.query("SET LOCAL session_replication_role = replica");
+  await admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now()), ($1,$3,'partner',now()), ($1,$4,'preparer',now())", [W.free, U.member, U.partnerTitle, U.paidOutsider]);
+  await admin.query("COMMIT");
   await admin.query("INSERT INTO public.workspace_capability_grants (company_id, grantee_user_id, capability, granted_by_user_id) VALUES ($1,$2,'prepare_trial_balance',$3)", [W.practice, U.grantee, U.practice]);
   await admin.query("INSERT INTO public.workspace_capability_grants (company_id, grantee_user_id, capability, granted_by_user_id, revoked_at, revoked_by_user_id) VALUES ($1,$2,'prepare_trial_balance',$3,now(),$3)", [W.practice, U.revoked, U.practice]);
 
@@ -537,6 +554,189 @@ async function main() {
       ? true : JSON.stringify({ first, nonAdmin, second, cap });
   });
 
+  group("Named-user seats — one included per plan; purchased seats on Practice/Firm; invitations, acceptance, grants, direct and concurrent writes; downgrade keeps everyone");
+  const people = [];
+  for (let i = 0; i < 120; i++) { const id = uuid(); people.push(id); await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [id, `person${i}@example.test`]); }
+  let nextPerson = 0;
+  const person = () => { if (nextPerson >= people.length) throw new Error("fixture people exhausted"); return people[nextPerson++]; };
+  const seatAccount = async (planCode, seats = 0) => {
+    const uid = uuid();
+    await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [uid, `seat-${uid}@example.test`]);
+    const lic = planCode ? await licence(uid, planCode, "ACTIVE", { seats }) : null;
+    // An Enterprise account needs its contract entity capacity recorded before it can hold a workspace.
+    if (planCode === "ENTERPRISE") await admin.query("INSERT INTO public.entitlement_overrides (billing_customer_id, feature_code, capacity_value, granted_by, reason) VALUES ($1,$2,5,$3,$4)", [lic.bc, "ENTITY_CAPACITY", U.admin, "contract entities"]);
+    const co = await company(uid, `Seat ${planCode ?? "FREE"}`);
+    return { uid, co, lic };
+  };
+  // An invitation is a pending membership written by the workspace's account (the path the invite function takes);
+  // accepting sets accepted_at; a grant goes through grant_workspace_capability. All three are walled.
+  const invite = (acct, co, who) => q(user(acct), "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',NULL) RETURNING id", [co, who]);
+  const addActive = (acct, co, who) => q(user(acct), "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now()) RETURNING id", [co, who]);
+  const grantTo = (acct, co, who) => one(user(acct), "SELECT * FROM public.grant_workspace_capability($1,$2,'manage_source_files')", [co, who]);
+  const accept = (who) => one(user(who), "SELECT public.accept_workspace_invitations() r").then((x) => x.r);
+  const seatState = (acct, co) => one(user(acct), "SELECT public.get_workspace_seat_capacity($1) r", [co]).then((x) => x.r);
+  const setSeats = (licenceId, n, reason = "seats purchased") => one(user(U.admin), "SELECT public.admin_set_licence_additional_seats($1,$2,$3) r", [licenceId, n, reason]).then((x) => x.r);
+
+  await check("Free: exactly one named user (the account holder), nothing purchasable; inviting, adding, granting and the service role are all refused with PT402 NAMED_USER_SEATS", async () => {
+    const a = await seatAccount(null);
+    const st = await seatState(a.uid, a.co);
+    const inv = await errOf(() => invite(a.uid, a.co, person()));
+    const add = await errOf(() => addActive(a.uid, a.co, person()));
+    const grant = await errOf(() => grantTo(a.uid, a.co, person()));
+    const svc = await codeOf(() => q(SERVICE, "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'viewer',now())", [a.co, person()]));
+    const pre = (await one(SERVICE, "SELECT public.seat_check_for_invitation($1,NULL) r", [a.co])).r;
+    return st.plan_code === "FREE" && st.allowed_named_users === 1 && st.included_seats === 1 && st.additional_seats === 0 && st.additional_seats_purchasable === false
+      && st.active_named_users === 1 && [inv, add, grant].every((e) => e?.code === "PT402" && e.detail === "NAMED_USER_SEATS") && svc === "PT402"
+      && pre.allowed === false && pre.code === "SEAT_LIMIT_REACHED"
+      && (await count("SELECT count(*) n FROM public.firm_members WHERE company_id=$1", [a.co])) === 1 ? true : JSON.stringify({ st, inv: inv?.code, add: add?.code, grant: grant?.code, svc, pre });
+  });
+  await check("Free can never buy seats: the admin RPC refuses a Free licence, and a quantity forced onto a Free licence is ignored (still 1)", async () => {
+    const a = await seatAccount(null);
+    const freeLicence = (await admin.query("SELECT cl.id FROM public.commercial_licences cl JOIN public.billing_customers bc ON bc.id=cl.billing_customer_id WHERE bc.owner_user_id=$1", [a.uid])).rows[0].id;
+    const refused = await codeOf(() => setSeats(freeLicence, 5));
+    await admin.query("UPDATE public.commercial_licences SET additional_seats = 5 WHERE id=$1", [freeLicence]);
+    const st = await seatState(a.uid, a.co);
+    const inv = await codeOf(() => invite(a.uid, a.co, person()));
+    return refused === "22023" && st.allowed_named_users === 1 && inv === "PT402" ? true : JSON.stringify({ refused, st, inv });
+  });
+  await check("Practice includes one named user; allowed = 1 + purchased seats recorded on the licence (audited, commercial admins only)", async () => {
+    const a = await seatAccount("PRACTICE");
+    const zero = await seatState(a.uid, a.co);
+    const blocked = await codeOf(() => invite(a.uid, a.co, person()));
+    const self = await codeOf(() => q(user(a.uid), "SELECT public.admin_set_licence_additional_seats($1,5,'self')", [a.lic.id]));
+    await setSeats(a.lic.id, 2);
+    const two = await seatState(a.uid, a.co);
+    const audited = await count("SELECT count(*) n FROM public.billing_audit_events WHERE billing_customer_id=$1 AND action='LICENCE_ADDITIONAL_SEATS_SET'", [a.lic.bc]);
+    const p1 = person(), p2 = person(), p3 = person();
+    const i1 = await codeOf(() => invite(a.uid, a.co, p1));
+    const g2 = (await grantTo(a.uid, a.co, p2)).outcome;
+    const i3 = await errOf(() => invite(a.uid, a.co, p3));
+    return zero.allowed_named_users === 1 && blocked === "PT402" && self === "42501" && two.allowed_named_users === 3 && two.additional_seats === 2 && audited === 1
+      && i1 === "ok" && g2 === "granted" && i3?.code === "PT402" && i3.hint === "PRACTICE" ? true : JSON.stringify({ zero, blocked, self, two, audited, i1, g2, i3: i3?.code });
+  });
+  await check("a named user is a person, not a membership row: the same person on a second workspace of the account needs no second seat", async () => {
+    const a = await seatAccount("FIRM", 1);
+    const second = (await createEntity(a.uid)).company_id;
+    const p = person();
+    const first = await codeOf(() => addActive(a.uid, a.co, p));
+    const again = await codeOf(() => addActive(a.uid, second, p));
+    const grant = (await grantTo(a.uid, second, p)).outcome;
+    const other = await codeOf(() => addActive(a.uid, second, person()));
+    const st = await seatState(a.uid, a.co);
+    return first === "ok" && again === "ok" && grant === "granted" && other === "PT402" && st.active_named_users === 2 && st.allowed_named_users === 2
+      ? true : JSON.stringify({ first, again, grant, other, st });
+  });
+  await check("pending invitations reserve seats; accepting within the allowance activates; re-pointing a membership swaps one person for another and never exceeds the allowance", async () => {
+    const a = await seatAccount("PRACTICE", 1);
+    const p = person(), q2 = person();
+    await invite(a.uid, a.co, p);
+    const reserved = await codeOf(() => invite(a.uid, a.co, q2));
+    const acc = await accept(p);
+    const moved = await codeOf(() => q(user(a.uid), "UPDATE public.firm_members SET user_id=$1 WHERE company_id=$2 AND user_id=$3", [q2, a.co, p]));
+    const st = await seatState(a.uid, a.co);
+    const second = (await createEntity(a.uid)).company_id;
+    const extra = await codeOf(() => addActive(a.uid, second, p));
+    await q(user(a.uid), "UPDATE public.firm_members SET user_id=$1 WHERE company_id=$2 AND user_id=$3", [p, a.co, q2]);
+    return reserved === "PT402" && acc.accepted.length === 1 && acc.blocked.length === 0 && moved === "ok" && st.active_named_users === 2 && extra === "PT402"
+      && (await count("SELECT count(*) n FROM public.firm_members WHERE company_id=$1 AND user_id=$2 AND accepted_at IS NOT NULL", [a.co, p])) === 1 ? true : JSON.stringify({ reserved, acc, moved, st, extra });
+  });
+  await check(`${CONCURRENCY} simultaneous invitations of different people (Practice + 2 seats): exactly 2 recorded`, async () => {
+    const a = await seatAccount("PRACTICE", 2);
+    const who = Array.from({ length: CONCURRENCY }, () => person());
+    const out = await Promise.all(who.map((p) => codeOf(() => invite(a.uid, a.co, p))));
+    const rows = await count("SELECT count(*) n FROM public.firm_members WHERE company_id=$1 AND user_id <> $2", [a.co, a.uid]);
+    return out.filter((c) => c === "ok").length === 2 && out.filter((c) => c === "PT402").length === CONCURRENCY - 2 && rows === 2 ? true : JSON.stringify({ out, rows });
+  });
+  await check(`${CONCURRENCY} simultaneous grants and direct inserts across two workspaces of one Firm account (+3 seats): exactly 3 people admitted`, async () => {
+    const a = await seatAccount("FIRM", 3);
+    const second = (await createEntity(a.uid)).company_id;
+    const who = Array.from({ length: CONCURRENCY }, () => person());
+    const out = await Promise.all(who.map((p, i) => (i % 2 === 0
+      ? grantTo(a.uid, a.co, p).then((r) => (r.outcome === "granted" ? "ok" : r.outcome)).catch((e) => e.code)
+      : codeOf(() => addActive(a.uid, second, p)))));
+    const st = await seatState(a.uid, a.co);
+    return out.filter((c) => c === "ok").length === 3 && st.active_named_users === 4 && st.allowed_named_users === 4 ? true : JSON.stringify({ out, st });
+  });
+  await check(`three pending invitations accepted simultaneously after seats were reduced to one extra: exactly one activates; the others stay pending (kept, not deleted)`, async () => {
+    const a = await seatAccount("PRACTICE", 3);
+    const who = [person(), person(), person()];
+    for (const p of who) await invite(a.uid, a.co, p);
+    await setSeats(a.lic.id, 1, "seats reduced");
+    const out = await Promise.all(who.map((p) => accept(p)));
+    const accepted = out.reduce((n, r) => n + r.accepted.length, 0);
+    const blocked = out.flatMap((r) => r.blocked);
+    const kept = await count("SELECT count(*) n FROM public.firm_members WHERE company_id=$1 AND user_id = ANY($2::uuid[])", [a.co, who]);
+    return accepted === 1 && blocked.length === 2 && blocked.every((b) => b.code === "SEAT_LIMIT_REACHED") && kept === 3 ? true : JSON.stringify({ accepted, blocked, kept });
+  });
+  await check("expiry / downgrade: every existing member is kept with the access they had; no new person, invitation acceptance or re-admission until within the allowance", async () => {
+    const a = await seatAccount("PRACTICE", 2);
+    const m1 = person(), m2 = person(), pending = person();
+    await addActive(a.uid, a.co, m1); await addActive(a.uid, a.co, m2);
+    await setSeats(a.lic.id, 3); await invite(a.uid, a.co, pending);
+    const before = (await admin.query("SELECT id, user_id, accepted_at FROM public.firm_members WHERE company_id=$1 ORDER BY id", [a.co])).rows;
+    await admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end = now() WHERE id=$1", [a.lic.id]);
+    const after = (await admin.query("SELECT id, user_id, accepted_at FROM public.firm_members WHERE company_id=$1 ORDER BY id", [a.co])).rows;
+    const stillIn = (await authz(user(m1), a.co, "COMPARATIVE_REPORTING")).allowed === true && (await authz(user(m2), a.co, "COMPARATIVE_REPORTING")).allowed === true;
+    const st = await seatState(a.uid, a.co);
+    const newPerson = await codeOf(() => invite(a.uid, a.co, person()));
+    const acc = await accept(pending);
+    await q(user(a.uid), "DELETE FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [a.co, m2]);
+    const readmit = await codeOf(() => addActive(a.uid, a.co, m2));
+    return JSON.stringify(before) === JSON.stringify(after) && stillIn && st.plan_code === "FREE" && st.allowed_named_users === 1 && st.active_named_users === 3
+      && newPerson === "PT402" && acc.accepted.length === 0 && acc.blocked.length === 1 && readmit === "PT402"
+      && (await count("SELECT count(*) n FROM public.firm_members WHERE company_id=$1 AND user_id=$2 AND accepted_at IS NULL", [a.co, pending])) === 1
+      ? true : JSON.stringify({ stillIn, st, newPerson, acc, readmit });
+  });
+  await check("the Free workspace's pre-existing members keep their access; the Free account still cannot add anyone", async () =>
+    (await authz(user(U.partnerTitle), W.free, "COMPARATIVE_REPORTING")).allowed === true
+    && (await count("SELECT count(*) n FROM public.firm_members WHERE company_id=$1 AND user_id <> $2", [W.free, U.free])) === 3
+    && (await codeOf(() => invite(U.free, W.free, person()))) === "PT402");
+  await check("unknown, negative, missing or malformed seat quantities fail closed: the licence refuses them; Enterprise without negotiated seats admits no one until an audited override records them", async () => {
+    const neg = await codeOf(() => admin.query("UPDATE public.commercial_licences SET additional_seats = -1 WHERE id=$1", [practice.id]));
+    const nul = await codeOf(() => admin.query("UPDATE public.commercial_licences SET additional_seats = NULL WHERE id=$1", [practice.id]));
+    const huge = await codeOf(() => admin.query("UPDATE public.commercial_licences SET additional_seats = 10001 WHERE id=$1", [practice.id]));
+    const rpcNeg = await codeOf(() => setSeats(practice.id, -1));
+    const e = await seatAccount("ENTERPRISE");
+    const und = await seatState(e.uid, e.co);
+    const refused = await errOf(() => invite(e.uid, e.co, person()));
+    const pre = (await one(SERVICE, "SELECT public.seat_check_for_invitation($1,NULL) r", [e.co])).r;
+    const wrongRpc = await codeOf(() => q(user(U.admin), "SELECT public.admin_grant_entitlement_override($1,'NAMED_USER_SEATS','x',NULL)", [e.lic.bc]));
+    await one(user(U.admin), "SELECT public.admin_grant_named_user_seats_override($1,10,'Enterprise contract',NULL) r", [e.lic.bc]);
+    const ok = await codeOf(() => invite(e.uid, e.co, person()));
+    const st = await seatState(e.uid, e.co);
+    return neg === "23514" && nul === "23502" && huge === "23514" && rpcNeg === "22023" && und.determined === false && und.allowed_named_users === null
+      && refused?.code === "PT402" && refused.hint === "UNDETERMINED" && pre.code === "SEAT_CAPACITY_UNDETERMINED" && wrongRpc === "22023"
+      && ok === "ok" && st.allowed_named_users === 10 && st.source === "ADMIN_OVERRIDE" ? true : JSON.stringify({ neg, nul, huge, rpcNeg, und, refused: refused?.code, pre, wrongRpc, ok, st });
+  });
+  await check("service identities and scheduled work are never counted: only human accounts with a place on the account's workspaces are named users", async () => {
+    const a = await seatAccount("PRACTICE", 1);
+    const before = await seatState(a.uid, a.co);
+    await one(SERVICE, "SELECT public.workspace_capability_entitled($1,'CLOSE_INSIGHTS') r", [a.co]);
+    await admin.query("INSERT INTO public.variance_alerts (company_id, alert_type, message) VALUES ($1,'variance_threshold','scheduled')", [a.co]);
+    const after = await seatState(a.uid, a.co);
+    const def = (await admin.query("SELECT pg_get_functiondef('public._account_named_users(uuid,boolean,uuid,uuid)'::regprocedure) d")).rows[0].d;
+    return before.active_named_users === 1 && after.active_named_users === 1 && after.reserved_named_users === 1
+      && !/service_role|\brole\b|'owner'|'partner'|'manager'/.test(def) ? true : JSON.stringify({ before, after });
+  });
+  await check("seat authority privileges: the invitation pre-check is service_role only; state and acceptance are for signed-in users; nothing for anon; every definer pins search_path", async () => {
+    const r = (await admin.query(`SELECT
+      has_function_privilege('authenticated','public.seat_check_for_invitation(uuid,uuid)','EXECUTE') a1,
+      has_function_privilege('service_role','public.seat_check_for_invitation(uuid,uuid)','EXECUTE') s1,
+      has_function_privilege('anon','public.get_workspace_seat_capacity(uuid)','EXECUTE') n2,
+      has_function_privilege('anon','public.accept_workspace_invitations()','EXECUTE') n3,
+      has_function_privilege('authenticated','public._seat_capacity_for_account(uuid)','EXECUTE') a4,
+      has_function_privilege('authenticated','public._account_named_users(uuid,boolean,uuid,uuid)','EXECUTE') a5,
+      (SELECT prosecdef FROM pg_proc WHERE oid='public.accept_workspace_invitations()'::regprocedure) invoker_is_definer`)).rows[0];
+    const unpinned = (await admin.query(`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN
+      ('_seat_capacity_for_account','_account_named_users','named_user_seat_wall','seat_check_for_invitation','get_workspace_seat_capacity','accept_workspace_invitations','admin_grant_named_user_seats_override','admin_set_licence_additional_seats')
+      AND NOT coalesce(p.proconfig, '{}') @> ARRAY['search_path=pg_catalog, public'] AND NOT coalesce(p.proconfig, '{}') @> ARRAY['search_path=public, pg_catalog']`)).rows;
+    return !r.a1 && r.s1 && !r.n2 && !r.n3 && !r.a4 && !r.a5 && r.invoker_is_definer === false && unpinned.length === 0 ? true : JSON.stringify({ r, unpinned });
+  });
+  await check("the seat wall writes nothing and never names an occupational title", async () => {
+    const d = (await admin.query("SELECT pg_get_functiondef('public.named_user_seat_wall()'::regprocedure) d")).rows[0].d;
+    return !/(INSERT INTO|UPDATE\s+public|DELETE FROM)/i.test(d) && !/'owner'|'partner'|'manager'|'accountant'|'reviewer'|\.role\b/i.test(d);
+  });
+
   group("Billing never changes accounting");
   await check("licence activation, expiry, suspension and plan changes leave certifications, sign-offs, uploads and FINAL publications byte-identical", async () => {
     const snap = async () => (await admin.query(`SELECT md5(coalesce((SELECT string_agg(to_jsonb(t)::text, ',' ORDER BY t.id) FROM public.tb_certifications t), '')
@@ -551,7 +751,7 @@ async function main() {
   });
   await check("no trigger on any commercial table writes an accounting, certification or lifecycle table", async () => {
     const defs = (await admin.query(`SELECT c.relname, pg_get_functiondef(t.tgfoid) d FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-      WHERE NOT t.tgisinternal AND c.relname IN ('commercial_plans','commercial_offers','commercial_licences','billing_customers','entitlement_overrides','payment_events','billing_audit_events','commercial_capabilities','commercial_capability_aliases','reporting_pack_issuances')`)).rows;
+      WHERE NOT t.tgisinternal AND c.relname IN ('commercial_plans','commercial_offers','commercial_licences','billing_customers','entitlement_overrides','payment_events','billing_audit_events','commercial_capabilities','commercial_capability_aliases','reporting_pack_issuances','commercial_additional_seat_prices')`)).rows;
     const bad = defs.filter((r) => /(INSERT INTO|UPDATE|DELETE FROM)\s+(public\.)?(tb_certifications|statement_sign_offs|trial_balance_uploads|financial_statement_|tax_computations|account_mappings|fiscal_periods)/i.test(r.d));
     return bad.length === 0 ? true : bad.map((b) => b.relname);
   });

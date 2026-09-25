@@ -9,9 +9,9 @@ import {
   type LicencePeriod,
 } from "./entitlementContract";
 
-const ALL_PAID = ["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "ENTITY_CAPACITY", "STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS"];
+const ALL_PAID = ["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "ENTITY_CAPACITY", "NAMED_USER_SEATS", "STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS"];
 const practiceLicence: CurrentLicenceSnapshot = { status: "ACTIVE", planCode: "PRACTICE", featureCodes: ALL_PAID };
-const freeLicence: CurrentLicenceSnapshot = { status: "ACTIVE", planCode: "FREE", featureCodes: ["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "ENTITY_CAPACITY"] };
+const freeLicence: CurrentLicenceSnapshot = { status: "ACTIVE", planCode: "FREE", featureCodes: ["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "ENTITY_CAPACITY", "NAMED_USER_SEATS"] };
 
 describe("classifyEntitlement — mirrors _resolve_entitlement_for_owner() (20260925100000)", () => {
   it("unknown feature code -> UNKNOWN, fails closed", () => {
@@ -30,6 +30,7 @@ describe("classifyEntitlement — mirrors _resolve_entitlement_for_owner() (2026
   it("capacity is never a yes/no flag in the mirror (the server resolves the number)", () => {
     expect(classifyEntitlement("ENTITY_CAPACITY", true, practiceLicence, false).status).toBe("UNKNOWN");
     expect(classifyEntitlement("MULTI_COMPANY", true, practiceLicence, false).status).toBe("UNKNOWN");
+    expect(classifyEntitlement("NAMED_USER_SEATS", true, practiceLicence, false).status).toBe("UNKNOWN");
   });
 
   it("no billing customer -> NOT_ENTITLED on the Free plan (a known fact, never UNKNOWN)", () => {

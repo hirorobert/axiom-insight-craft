@@ -33,6 +33,9 @@ vi.mock("@/components/workspace/WorkspaceGate", () => ({ WorkspaceGate: () => cr
 vi.mock("@/components/workspace/MappingSourcePreview", () => ({ MappingSourcePreview: () => createElement("div", null, "LEGACY-MAPPING-PREVIEW") }));
 vi.mock("@/components/workspace/TrialBalancePreflight", () => ({ TrialBalancePreflight: () => createElement("div", null, "LEGACY-PREFLIGHT") }));
 vi.mock("@/components/ExportStatements", () => ({ ExportStatements: () => createElement("div", null, "LEGACY-EXPORT") }));
+// The page supplies the Reporting Pack issuer and plan state to the workspace; no request is made while rendering.
+vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
+vi.mock("@/hooks/useWorkspaceCommercialState", () => ({ useWorkspaceCommercialState: () => ({ state: null, loading: false }) }));
 
 const ROOT = path.join(__dirname, "../../../");
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");

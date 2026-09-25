@@ -66,7 +66,19 @@ function PriceBlock({ plan, interval }: { plan: CataloguePlan; interval: Billing
             ? `Saves ${formatCatalogueAmount(saving)} against monthly billing`
             : `or ${formatCatalogueAmount(plan.monthlyMinor)} / month`}
       </p>
+      <SeatLine plan={plan} interval={interval} />
     </div>
+  );
+}
+
+// Included named users and the separately priced additional seat — never folded into the base price.
+function SeatLine({ plan, interval }: { plan: CataloguePlan; interval: BillingInterval }) {
+  if (!plan.additionalSeat) return null;
+  const amount = interval === "monthly" ? `${formatCatalogueAmount(plan.additionalSeat.monthlyMinor)} / month` : `${formatCatalogueAmount(plan.additionalSeat.annualMinor)} / year`;
+  return (
+    <p className="mt-2 text-xs text-foreground/80" data-testid={`seat-price-${plan.code}`}>
+      Includes {plan.includedSeats} named user. Additional named users {amount} each.
+    </p>
   );
 }
 
@@ -169,6 +181,10 @@ export default function Pricing() {
               Trial balance upload, classification, reconciliation, validation, statement preview, comparative
               reporting and readiness checks are never behind a paywall. If your plan changes, every certified close,
               reporting pack and insight you already created stays accessible; only new paid actions pause.
+            </p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground" data-testid="named-user-policy">
+              Every person who uses {BRAND.name} signs in with their own account. A named user is one person, so every
+              sign-off, export and change is attributed to the person who made it.
             </p>
           </section>
 

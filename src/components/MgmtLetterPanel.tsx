@@ -28,6 +28,7 @@ import { useAuditLog } from "@/hooks/useAuditLog";
 import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState";
 import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
 import { functionEntitlementRefusal, lockedCopy, paidActionState } from "@/lib/commercial/paidActions";
+import { requestReportingPack } from "@/lib/commercial/requestReportingPack";
 
 // ── Types (mirrors edge function output) ─────────────────────
 interface TableRow { label: string; value: string; highlight?: boolean; indent?: boolean }
@@ -409,7 +410,7 @@ export function MgmtLetterPanel({ uploadId, companyId = null, existingLetter, on
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <Button variant="outline" size="sm" onClick={() => exportToPDF(letter, editedSections)} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={async () => { if (await requestReportingPack(companyId, letter.metadata.periodYear, "management_letter")) exportToPDF(letter, editedSections); }} className="gap-1.5">
             <Download className="w-3.5 h-3.5" />Export PDF
           </Button>
           <Button variant="ghost" size="sm" onClick={generate} disabled={isGenerating || packLocked} className="gap-1.5">

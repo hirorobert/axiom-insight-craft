@@ -68,3 +68,46 @@ export async function requirePaidActionAsCaller(
   if (!refusal) return null;
   return new Response(JSON.stringify(refusal.body), { status: refusal.httpStatus, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
+
+// ── Named-user seats (NAMED_USER_SEATS) ────────────────────────────────────────────────────────────────────────
+// Every plan includes one named user; Practice and Firm may add purchased seats. The database seat wall
+// (named_user_seat_wall) is the authority; seat_check_for_invitation is asked BEFORE an invitation email is sent
+// or an account is created, so an invitation that could never be recorded is never sent.
+
+export interface SeatRefusal {
+  httpStatus: number;
+  body: { status: string; error: string; capability: "NAMED_USER_SEATS"; message: string };
+}
+
+/** Maps seat_check_for_invitation's structured answer to a refusal, or null when the invitation may proceed. */
+export function seatRefusal(answer: unknown): SeatRefusal | null {
+  const a = (answer && typeof answer === "object" ? answer : {}) as { allowed?: unknown; code?: unknown };
+  if (a.allowed === true && (a.code === "ALLOWED" || a.code === "ALREADY_A_NAMED_USER")) return null;
+  switch (a.code) {
+    case "SEAT_LIMIT_REACHED":
+      return { httpStatus: 402, body: { status: "seat_limit_reached", error: "Seat Limit Reached", capability: "NAMED_USER_SEATS",
+        message: "Every named-user seat on this plan is in use. Additional named users are available on Practice and Firm. Existing members are not affected." } };
+    case "SEAT_CAPACITY_UNDETERMINED":
+      return { httpStatus: 402, body: { status: "seat_capacity_undetermined", error: "Seat Capacity Undetermined", capability: "NAMED_USER_SEATS",
+        message: "This plan's named-user seats have not been recorded yet, so no one new can be invited. Existing members are not affected." } };
+    default:
+      return { httpStatus: 500, body: { status: "seat_check_unavailable", error: "Seat Check Unavailable", capability: "NAMED_USER_SEATS",
+        message: "Seat availability could not be confirmed right now, so no invitation was sent. Try again shortly." } };
+  }
+}
+
+/** Asks the database before inviting. Returns a Response to send back when refused, or null to proceed. */
+export async function requireSeatForInvitation(
+  rpc: Rpc, companyId: string, inviteeUserId: string | null, corsHeaders: Record<string, string>,
+): Promise<Response | null> {
+  const { data, error } = await rpc("seat_check_for_invitation", { p_company_id: companyId, p_invitee: inviteeUserId });
+  const refusal = seatRefusal(error ? null : data);
+  if (!refusal) return null;
+  return new Response(JSON.stringify(refusal.body), { status: refusal.httpStatus, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+
+/** A PostgREST error from the seat wall itself (SQLSTATE PT402, DETAIL NAMED_USER_SEATS). Reads structured fields only. */
+export function isSeatWallError(error: unknown): boolean {
+  const e = (error && typeof error === "object" ? error : {}) as { code?: unknown; details?: unknown };
+  return e.code === "PT402" && e.details === "NAMED_USER_SEATS";
+}

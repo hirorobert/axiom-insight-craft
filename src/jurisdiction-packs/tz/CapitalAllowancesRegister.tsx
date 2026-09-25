@@ -23,6 +23,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { requestReportingPack } from "@/lib/commercial/requestReportingPack";
 import {
   computeWearTear,
   formatWearTearPreview,
@@ -192,7 +193,9 @@ export function CapitalAllowancesRegister({
   };
 
   // ── CSV export ─────────────────────────────────────────────────────────────
-  const handleExport = () => {
+  const handleExport = async () => {
+  // The capital allowances schedule is a Reporting Pack deliverable: issued by the server first, or not produced.
+  if (!(await requestReportingPack(companyId, periodYear, "tax_workpaper"))) return;
     const header = "Asset,Class,Rate,Cost TZS,Opening WDV,Additions,Disposals,W&T,Closing WDV,Acc Dep'n,Notes";
     const rows = assets.map(a => {
       const cls = ITA_CLASSES.find(c => c.value === a.ita_class);
@@ -269,7 +272,7 @@ export function CapitalAllowancesRegister({
             </CollapsibleTrigger>
             <div className="flex items-center gap-2">
               {assets.length > 0 && (
-                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handleExport}>
+                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => void handleExport()}>
                   <Download className="w-3.5 h-3.5" />CSV
                 </Button>
               )}

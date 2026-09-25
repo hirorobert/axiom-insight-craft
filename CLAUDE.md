@@ -812,7 +812,7 @@ migration is applied by the owner, hosted company creation stays unrestricted.
 - **Canonical capability codes** (`commercial_capabilities`; frontend mirror `src/lib/commercial/featureRegistry.ts`):
   `CLOSE_ASSURANCE` and `COMPARATIVE_REPORTING` (included, always on, never chargeable), `STATEMENT_CERTIFICATION`
   (Close Certification), `REPORTING_PACK_EXPORT` (Reporting Pack) and `CLOSE_INSIGHTS` (Close Insights), which are
-  paid, and `ENTITY_CAPACITY`. Legacy codes (`SAFISHA_*`, `HESABU_*`, `MAONO_INTELLIGENCE`, `MULTI_COMPANY`,
+  paid, and the capacities `ENTITY_CAPACITY` and `NAMED_USER_SEATS`. Legacy codes (`SAFISHA_*`, `HESABU_*`, `MAONO_INTELLIGENCE`, `MULTI_COMPANY`,
   `MULTI_PERIOD`) resolve only through `commercial_capability_aliases` / `commercial_canonical_capability()`.
 - **One authority:** `_authorize_paid_action(user, company, capability)` = session ∧ workspace access
   (`_workspace_access_basis`: creator, accepted member or capability grant; never an occupational title) ∧
@@ -822,23 +822,41 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   (`src/lib/commercial/paidActions.ts`). Never parse message text.
 - **Walls:**
   - Close Certification is enforced by the `statement_sign_offs` sign-off events and by FINAL publication inserts.
-  - Reporting Pack is enforced by `issue_reporting_pack` (an immutable, idempotent issuance record before any formal
-    export) plus `generate-xbrl` and `generate-management-letter`.
+  - Reporting Pack: free users get the in-app preview only. Every downloadable reporting deliverable (statement JSON /
+    CSV / Excel / PDF, XBRL, board pack, management letter, disclosure notes, tax computation, tax workpaper
+    schedules) is issued by `issue_reporting_pack` (immutable, idempotent) before it is generated, via
+    `src/lib/commercial/requestReportingPack.ts`; `generate-xbrl` and `generate-management-letter` are gated
+    server-side. The financial-statements workspace stays database-inert: its host page supplies the issuer. Any free
+    printing carries `DRAFT — NOT CERTIFIED — NOT FOR FILING OR CLIENT ISSUE` on every printed page (the statements
+    print CSS and `DraftPrintMark` in `WorkspaceLayout`). Not deliverables (never gated): the blank TB template and
+    exports of the user's own inputs (account mappings, upload list).
   - Close Insights is enforced by the `maono-*` analysis functions and the triggers on their output tables.
     `maono-monitor` skips non-entitled workspaces.
   - Entity capacity is enforced by `trg_companies_entity_capacity` (advisory lock per account). Capacities: Free 1,
     Practice 5, Firm 25, Enterprise by override, legacy PAID 25. Create through the idempotent `create_entity` RPC.
+  - Named-user seats: every plan includes exactly ONE named user (Enterprise negotiated). Practice and Firm may add
+    purchased seats (`commercial_licences.additional_seats`, set by the audited `admin_set_licence_additional_seats`
+    until a payment provider exists; Enterprise's negotiated seats by `admin_grant_named_user_seats_override`).
+    `allowed_named_users = included_seats + additional_seats`; Free is always 1 and can buy nothing; unknown or
+    malformed quantities fail closed. `named_user_seat_wall` (on `firm_members` and
+    `workspace_capability_grants`, advisory lock per account) refuses a new person on invitation, direct insert,
+    grant, re-pointing and acceptance. Pending invitations hold a seat. Acceptance goes through
+    `accept_workspace_invitations` and `invite-firm-member` asks `seat_check_for_invitation` before any email is
+    sent. After expiry or downgrade existing members keep their access and nothing is deleted; no one new can join
+    until the account is within its allowance. Service identities and scheduled jobs never hold a seat. Each person
+    has their own sign-in; nothing designs or advertises shared credentials. No assignment or reviewer workflow.
   - Validation, readiness, the automated certification run, comparatives, previews and history are never gated.
     Expiry or downgrade blocks only new paid actions. Billing never writes accounting data.
 - **Pricing catalogue:** `src/lib/commercial/pricingCatalogue.ts` is the only place prices live. It is mirrored exactly
   by the migration (`pricingCatalogue.test.ts`): FREE $0, PRACTICE $99/$990, FIRM $299/$2,990, ENTERPRISE contact sales,
-  in USD. There is no public $49 plan. No checkout exists and no offer is purchasable.
+  in USD; one included named user each; additional named users $20/month or $200/year on Practice and Firm
+  (`commercial_additional_seat_prices`, separate from base-plan offers). There is no public $49 plan. No checkout
+  exists and nothing is purchasable.
 - **Comparative endpoint:** `comparative-assurance-engine` is canonical. `kinga-comparative-engine` is a thin adapter
   that serves the same `_shared/comparativeAssurance.ts` handler, with no HTTP hop and no writes. Retire it only after
   30 days with no requests following the frontend release.
 - **Customer-visible names:** SAFISHA/HESABU/MAONO/KINGA never appear in customer-visible strings. This is enforced by
   `scripts/ci/legacyNameSweep.mjs` and `src/lib/__tests__/customerVisibleLegacyNames.test.ts`.
-- **Not enforced:** user seat capacity (1/3/10) is catalogue data only.
 - **Proof:** `scripts/db-proof/entitlements.mjs` runs on real PostgreSQL (CI disposable-DB job).
 
 **OBSERVABILITY_PROVIDER_WIRING_DEFERRED_TO_Ω2/PRE-GO-LIVE** —

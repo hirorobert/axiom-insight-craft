@@ -107,7 +107,7 @@ describe("print output: no overflow, no blank pages, no chrome", () => {
     expect(PRINT_CSS).toMatch(/@page \{ size: A4 portrait/);
     expect(PRINT_CSS).toMatch(/@page fs-landscape \{ size: A4 landscape/);
     expect(PRINT_CSS).toMatch(/counter\(page\)/);
-    expect(PRINT_CSS).toMatch(/content: "DRAFT"/);
+    expect(PRINT_CSS).toContain('content: "DRAFT — NOT CERTIFIED — NOT FOR FILING OR CLIENT ISSUE"');
   });
 });
 

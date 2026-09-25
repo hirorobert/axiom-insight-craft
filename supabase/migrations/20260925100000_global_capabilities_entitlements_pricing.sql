@@ -11,11 +11,16 @@
 --      SAFISHA_PREVIEW, HESABU_REPORTING -> CLOSE_ASSURANCE (included) "Close Assurance" - the always-on
 --        integrity layer (preview, validation, readiness); it was never chargeable and is not now.
 --    Legacy codes stay resolvable through commercial_capability_aliases (compatibility lookup).
--- 2. Plans FREE / PRACTICE / FIRM / ENTERPRISE with entity and user capacity. The legacy PAID plan
+-- 2. Plans FREE / PRACTICE / FIRM / ENTERPRISE with entity capacity and named-user seats. The legacy PAID plan
 --    ("CFOClose Professional", never sold: payments were never enabled) is kept for any existing licence,
---    grandfathered with every paid capability and Firm capacity, and withdrawn from the public catalogue.
+--    grandfathered with every paid capability and Firm entity capacity, and withdrawn from the public catalogue.
 --    Its $49 / $499 offers are retired (never deleted). New USD offers are seeded non-purchasable:
 --    Practice $99 / $990, Firm $299 / $2,990. Enterprise is contact-sales (no offer).
+--    Seats: every plan includes exactly ONE named user (Enterprise: negotiated). Practice and Firm may add separately
+--    purchased named-user seats ($20 / month or $200 / year each; non-purchasable here, no checkout). The purchased
+--    quantity is commercial_licences.additional_seats (recorded by an audited admin RPC until a payment provider
+--    exists). allowed_named_users = included_seats + additional_seats. Free is always exactly one named user.
+--    Every human uses their own authenticated account; seats count distinct people, never shared sign-ins.
 -- 3. One authority: _authorize_paid_action(user, workspace, capability) =
 --      authenticated user AND workspace access (creator, accepted member or active capability grant - never an
 --      occupational title) AND capability known AND the WORKSPACE's billing account is entitled.
@@ -26,8 +31,10 @@
 --      Reporting Pack       issue_reporting_pack() is the only way to issue a formal pack (reporting_pack_issuances)
 --      Close Insights       new variance runs, insights, forecasts and alerts
 --      Entity Capacity      activating a workspace (insert, reactivation, re-assignment), serialised per account
+--      Named-user seats     a person newly invited, added, granted or activated on any of the account's workspaces
+--                           (firm_members, workspace_capability_grants), serialised per account
 --    Nothing here reads or writes accounting values, certifications, stage locks or audit evidence. Expiry or
---    downgrade only stops NEW paid actions; every existing record stays readable under its existing access rules.
+--    downgrade only stops NEW paid actions and new people; every existing record and membership is kept.
 -- 5. The statement sign-off gate's messages lose the internal engine name (logic unchanged).
 -- ════════════════════════════════════════════════════════════════════════════
 
@@ -76,7 +83,8 @@ INSERT INTO public.commercial_capabilities (code, kind, display_name, descriptio
   ('STATEMENT_CERTIFICATION', 'paid',     'Close Certification',   'Record a certified close: statement sign-offs and final report versions.'),
   ('REPORTING_PACK_EXPORT',   'paid',     'Reporting Pack',        'Issue formal deliverables: financial statement PDFs and spreadsheets, filing and client packs.'),
   ('CLOSE_INSIGHTS',          'paid',     'Close Insights',        'Advanced analysis: variance and trend interpretation, risk commentary, forecasts and recommendations.'),
-  ('ENTITY_CAPACITY',         'capacity', 'Entity Capacity',       'How many active entities (workspaces) the plan includes.');
+  ('ENTITY_CAPACITY',         'capacity', 'Entity Capacity',       'How many active entities (workspaces) the plan includes.'),
+  ('NAMED_USER_SEATS',        'capacity', 'Named Users',           'How many people may use the account, each with their own sign-in: one included in every plan, plus additional seats purchased on Practice and Firm.');
 
 CREATE TABLE public.commercial_capability_aliases (
   legacy_code     TEXT NOT NULL,
@@ -110,48 +118,61 @@ $$;
 -- ── 2. Plans: canonical codes, capacities, catalogue metadata ───────────────────────────────
 ALTER TABLE public.commercial_plans DROP CONSTRAINT chk_cp_feature_codes;
 ALTER TABLE public.commercial_plans
-  ADD COLUMN entity_capacity INTEGER NULL,
-  ADD COLUMN user_capacity   INTEGER NULL,
-  ADD COLUMN is_public       BOOLEAN NOT NULL DEFAULT false,
-  ADD COLUMN display_order   INTEGER NULL,
-  ADD COLUMN sales_mode      TEXT    NOT NULL DEFAULT 'legacy';
+  ADD COLUMN entity_capacity                INTEGER NULL,
+  ADD COLUMN included_seats                 INTEGER NULL,
+  ADD COLUMN additional_seats_purchasable   BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN is_public                      BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN display_order                  INTEGER NULL,
+  ADD COLUMN sales_mode                     TEXT    NOT NULL DEFAULT 'legacy';
 
 -- Legacy codes -> canonical (deterministic, de-duplicated, sorted). Every plan also carries the always-on
--- capabilities and the capacity marker.
+-- capabilities and the two capacity markers.
 UPDATE public.commercial_plans cp
    SET feature_codes = (
      SELECT array_agg(DISTINCT c ORDER BY c) FROM (
        SELECT a.canonical_code AS c FROM unnest(cp.feature_codes) f JOIN public.commercial_capability_aliases a ON a.legacy_code = f
-       UNION SELECT 'CLOSE_ASSURANCE' UNION SELECT 'COMPARATIVE_REPORTING' UNION SELECT 'ENTITY_CAPACITY') s);
+       UNION SELECT 'CLOSE_ASSURANCE' UNION SELECT 'COMPARATIVE_REPORTING' UNION SELECT 'ENTITY_CAPACITY' UNION SELECT 'NAMED_USER_SEATS') s);
 
-UPDATE public.commercial_plans cp SET entity_capacity = 1, user_capacity = 1, is_public = true, display_order = 1, sales_mode = 'free'
-  FROM public.commercial_products p WHERE p.id = cp.product_id AND p.code = 'CFOCLOSE' AND cp.code = 'FREE';
--- Legacy PAID: grandfathered (every paid capability, Firm capacity), no longer offered.
 UPDATE public.commercial_plans cp
-   SET feature_codes = ARRAY['CLOSE_ASSURANCE','CLOSE_INSIGHTS','COMPARATIVE_REPORTING','ENTITY_CAPACITY','REPORTING_PACK_EXPORT','STATEMENT_CERTIFICATION']::TEXT[],
-       entity_capacity = 25, user_capacity = 10, is_public = false, display_order = NULL, sales_mode = 'legacy'
+   SET entity_capacity = 1, included_seats = 1, additional_seats_purchasable = false, is_public = true, display_order = 1, sales_mode = 'free'
+  FROM public.commercial_products p WHERE p.id = cp.product_id AND p.code = 'CFOCLOSE' AND cp.code = 'FREE';
+-- Legacy PAID: grandfathered (every paid capability, Firm entity capacity), one included named user like every
+-- plan, no self-serve seat purchase; no longer offered.
+UPDATE public.commercial_plans cp
+   SET feature_codes = ARRAY['CLOSE_ASSURANCE','CLOSE_INSIGHTS','COMPARATIVE_REPORTING','ENTITY_CAPACITY','NAMED_USER_SEATS','REPORTING_PACK_EXPORT','STATEMENT_CERTIFICATION']::TEXT[],
+       entity_capacity = 25, included_seats = 1, additional_seats_purchasable = false, is_public = false, display_order = NULL, sales_mode = 'legacy'
   FROM public.commercial_products p WHERE p.id = cp.product_id AND p.code = 'CFOCLOSE' AND cp.code = 'PAID';
 
-INSERT INTO public.commercial_plans (product_id, code, name, feature_codes, entity_capacity, user_capacity, is_public, display_order, sales_mode)
+INSERT INTO public.commercial_plans (product_id, code, name, feature_codes, entity_capacity, included_seats, additional_seats_purchasable, is_public, display_order, sales_mode)
 SELECT p.id, v.code, v.name,
-       ARRAY['CLOSE_ASSURANCE','CLOSE_INSIGHTS','COMPARATIVE_REPORTING','ENTITY_CAPACITY','REPORTING_PACK_EXPORT','STATEMENT_CERTIFICATION']::TEXT[],
-       v.entities, v.users, true, v.ord, v.mode
+       ARRAY['CLOSE_ASSURANCE','CLOSE_INSIGHTS','COMPARATIVE_REPORTING','ENTITY_CAPACITY','NAMED_USER_SEATS','REPORTING_PACK_EXPORT','STATEMENT_CERTIFICATION']::TEXT[],
+       v.entities, v.seats, v.buy_seats, true, v.ord, v.mode
   FROM public.commercial_products p
- CROSS JOIN (VALUES ('PRACTICE',   'Practice',   5,    3,    2, 'self_serve'),
-                    ('FIRM',       'Firm',       25,   10,   3, 'self_serve'),
-                    ('ENTERPRISE', 'Enterprise', NULL, NULL, 4, 'contact_sales')) AS v(code, name, entities, users, ord, mode)
+ CROSS JOIN (VALUES ('PRACTICE',   'Practice',   5,    1,    true,  2, 'self_serve'),
+                    ('FIRM',       'Firm',       25,   1,    true,  3, 'self_serve'),
+                    ('ENTERPRISE', 'Enterprise', NULL, NULL, false, 4, 'contact_sales')) AS v(code, name, entities, seats, buy_seats, ord, mode)
  WHERE p.code = 'CFOCLOSE';
 
 ALTER TABLE public.commercial_plans
   ADD CONSTRAINT chk_cp_feature_codes CHECK (feature_codes <@ ARRAY[
-    'CLOSE_ASSURANCE','COMPARATIVE_REPORTING','STATEMENT_CERTIFICATION','REPORTING_PACK_EXPORT','CLOSE_INSIGHTS','ENTITY_CAPACITY'
+    'CLOSE_ASSURANCE','COMPARATIVE_REPORTING','STATEMENT_CERTIFICATION','REPORTING_PACK_EXPORT','CLOSE_INSIGHTS','ENTITY_CAPACITY','NAMED_USER_SEATS'
   ]::TEXT[]),
-  ADD CONSTRAINT chk_cp_always_on CHECK (feature_codes @> ARRAY['CLOSE_ASSURANCE','COMPARATIVE_REPORTING','ENTITY_CAPACITY']::TEXT[]),
+  ADD CONSTRAINT chk_cp_always_on CHECK (feature_codes @> ARRAY['CLOSE_ASSURANCE','COMPARATIVE_REPORTING','ENTITY_CAPACITY','NAMED_USER_SEATS']::TEXT[]),
   ADD CONSTRAINT chk_cp_code CHECK (code IN ('FREE','PRACTICE','FIRM','ENTERPRISE','PAID')),
   ADD CONSTRAINT chk_cp_entity_capacity CHECK (entity_capacity IS NULL OR entity_capacity > 0),
-  ADD CONSTRAINT chk_cp_user_capacity CHECK (user_capacity IS NULL OR user_capacity > 0),
+  -- Exactly one included named user on every plan; only a contact-sales plan negotiates it (recorded per account).
+  ADD CONSTRAINT chk_cp_included_seats CHECK (included_seats = 1 OR (included_seats IS NULL AND sales_mode = 'contact_sales')),
+  -- Free can never buy seats.
+  ADD CONSTRAINT chk_cp_free_seats CHECK (code <> 'FREE' OR (included_seats = 1 AND NOT additional_seats_purchasable)),
   ADD CONSTRAINT chk_cp_sales_mode CHECK (sales_mode IN ('free','self_serve','contact_sales','legacy')),
   ADD CONSTRAINT chk_cp_capacity_known CHECK (entity_capacity IS NOT NULL OR sales_mode = 'contact_sales');
+
+-- Purchased additional named-user seats: the quantity on the licence. Never missing, never negative (a licence
+-- that recorded nothing has 0). Free licences never carry seats (enforced where the quantity is set, and ignored
+-- by the resolver regardless).
+ALTER TABLE public.commercial_licences
+  ADD COLUMN additional_seats INTEGER NOT NULL DEFAULT 0,
+  ADD CONSTRAINT chk_cl_additional_seats CHECK (additional_seats BETWEEN 0 AND 10000);
 
 -- ── 3. Overrides: canonical codes; entity capacity carries its number ───────────────────────
 ALTER TABLE public.entitlement_overrides DROP CONSTRAINT chk_eo_feature_code;
@@ -164,10 +185,12 @@ UPDATE public.entitlement_overrides eo
  WHERE a.legacy_code = eo.feature_code;
 ALTER TABLE public.entitlement_overrides
   ADD CONSTRAINT chk_eo_feature_code CHECK (feature_code IN (
-    'CLOSE_ASSURANCE','COMPARATIVE_REPORTING','STATEMENT_CERTIFICATION','REPORTING_PACK_EXPORT','CLOSE_INSIGHTS','ENTITY_CAPACITY')),
+    'CLOSE_ASSURANCE','COMPARATIVE_REPORTING','STATEMENT_CERTIFICATION','REPORTING_PACK_EXPORT','CLOSE_INSIGHTS','ENTITY_CAPACITY','NAMED_USER_SEATS')),
+  -- A capacity override carries its number: ENTITY_CAPACITY (entities) or NAMED_USER_SEATS (the negotiated included
+  -- named users, e.g. an Enterprise contract).
   ADD CONSTRAINT chk_eo_capacity CHECK (
-    (feature_code = 'ENTITY_CAPACITY' AND capacity_value IS NOT NULL AND capacity_value > 0)
-    OR (feature_code <> 'ENTITY_CAPACITY' AND capacity_value IS NULL));
+    (feature_code IN ('ENTITY_CAPACITY','NAMED_USER_SEATS') AND capacity_value IS NOT NULL AND capacity_value > 0)
+    OR (feature_code NOT IN ('ENTITY_CAPACITY','NAMED_USER_SEATS') AND capacity_value IS NULL));
 
 -- ── 4. Offers: retire the $49 / $499 legacy offers; seed Practice and Firm (non-purchasable) ──
 UPDATE public.commercial_offers
@@ -182,6 +205,44 @@ SELECT v.offer_code, cp.id, 'GLOBAL', 'USD', v.amount, 2, v.billing_interval, 1
                ('PRACTICE', 'CFOCLOSE_PRACTICE_GLOBAL_USD_ANNUAL',  99000::bigint, 'ANNUAL'),
                ('FIRM',     'CFOCLOSE_FIRM_GLOBAL_USD_MONTHLY',     29900::bigint, 'MONTHLY'),
                ('FIRM',     'CFOCLOSE_FIRM_GLOBAL_USD_ANNUAL',     299000::bigint, 'ANNUAL')) AS v(plan_code, offer_code, amount, billing_interval)
+    ON v.plan_code = cp.code;
+
+-- Additional named-user seat prices: separate from the base-plan offers (a seat is never a plan). USD, per seat,
+-- per interval. Not purchasable: there is no checkout; the purchased quantity lives on the licence.
+CREATE TABLE public.commercial_additional_seat_prices (
+  id                 UUID        NOT NULL DEFAULT gen_random_uuid(),
+  price_code         TEXT        NOT NULL,
+  plan_id            UUID        NOT NULL,
+  market_code        TEXT        NOT NULL,
+  currency_code      TEXT        NOT NULL,
+  currency_exponent  SMALLINT    NOT NULL,
+  amount_minor       BIGINT      NOT NULL,
+  billing_interval   TEXT        NOT NULL,
+  is_active          BOOLEAN     NOT NULL DEFAULT true,
+  is_purchasable     BOOLEAN     NOT NULL DEFAULT false,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT commercial_additional_seat_prices_pk PRIMARY KEY (id),
+  CONSTRAINT uq_casp_price_code UNIQUE (price_code),
+  CONSTRAINT fk_casp_plan FOREIGN KEY (plan_id) REFERENCES public.commercial_plans(id) ON DELETE RESTRICT,
+  CONSTRAINT chk_casp_amount CHECK (amount_minor > 0),
+  CONSTRAINT chk_casp_interval CHECK (billing_interval IN ('MONTHLY', 'ANNUAL')),
+  CONSTRAINT chk_casp_currency CHECK (currency_code ~ '^[A-Z]{3}$' AND currency_exponent BETWEEN 0 AND 4)
+);
+CREATE UNIQUE INDEX uq_casp_active_price ON public.commercial_additional_seat_prices (plan_id, market_code, currency_code, billing_interval) WHERE is_active;
+ALTER TABLE public.commercial_additional_seat_prices ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "casp_select_public" ON public.commercial_additional_seat_prices FOR SELECT USING (true);
+REVOKE ALL ON public.commercial_additional_seat_prices FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.commercial_additional_seat_prices TO anon, authenticated;
+GRANT ALL ON public.commercial_additional_seat_prices TO service_role;
+
+INSERT INTO public.commercial_additional_seat_prices (price_code, plan_id, market_code, currency_code, currency_exponent, amount_minor, billing_interval)
+SELECT v.price_code, cp.id, 'GLOBAL', 'USD', 2, v.amount, v.billing_interval
+  FROM public.commercial_plans cp
+  JOIN public.commercial_products p ON p.id = cp.product_id AND p.code = 'CFOCLOSE'
+  JOIN (VALUES ('PRACTICE', 'CFOCLOSE_PRACTICE_SEAT_GLOBAL_USD_MONTHLY',  2000::bigint, 'MONTHLY'),
+               ('PRACTICE', 'CFOCLOSE_PRACTICE_SEAT_GLOBAL_USD_ANNUAL',  20000::bigint, 'ANNUAL'),
+               ('FIRM',     'CFOCLOSE_FIRM_SEAT_GLOBAL_USD_MONTHLY',      2000::bigint, 'MONTHLY'),
+               ('FIRM',     'CFOCLOSE_FIRM_SEAT_GLOBAL_USD_ANNUAL',      20000::bigint, 'ANNUAL')) AS v(plan_code, price_code, amount, billing_interval)
     ON v.plan_code = cp.code;
 
 -- ── 5. The entitlement resolver (supersedes 20260905093408) ─────────────────────────────────
@@ -207,11 +268,12 @@ BEGIN
     RETURN jsonb_build_object('status','UNKNOWN','reason','NO_OWNER_IDENTITY','capability',v_cap,'licence_status',NULL,'plan_code',NULL,'source',NULL);
   END IF;
   IF v_kind = 'capacity' THEN
-    v_result := public._entity_capacity_for_account(p_owner_user_id);
+    v_result := CASE v_cap WHEN 'ENTITY_CAPACITY' THEN public._entity_capacity_for_account(p_owner_user_id)
+                           ELSE public._seat_capacity_for_account(p_owner_user_id) END;
     RETURN jsonb_build_object('status', CASE WHEN (v_result->>'determined')::boolean THEN 'ENTITLED' ELSE 'UNKNOWN' END,
       'reason', CASE WHEN (v_result->>'determined')::boolean THEN 'CAPACITY_DETERMINED' ELSE 'CAPACITY_UNDETERMINED' END,
       'capability', v_cap, 'licence_status', NULL, 'plan_code', v_result->>'plan_code', 'source', v_result->>'source',
-      'capacity', v_result->'capacity');
+      'capacity', CASE v_cap WHEN 'ENTITY_CAPACITY' THEN v_result->'capacity' ELSE v_result->'allowed_named_users' END);
   END IF;
 
   SELECT id INTO v_bc FROM public.billing_customers WHERE owner_user_id = p_owner_user_id LIMIT 1;
@@ -283,6 +345,61 @@ BEGIN
     END IF;
   END IF;
   RETURN jsonb_build_object('capacity', v_plan_cap, 'determined', v_plan_cap IS NOT NULL, 'plan_code', v_plan_code, 'source', v_source);
+END;
+$$;
+
+-- Named-user seats of one billing account:
+--   allowed_named_users = included_seats + additional_seats
+-- Free (no billing record, no current licence, or a FREE licence) is ALWAYS one named user with no additional
+-- seats, whatever else is recorded. On a paid plan the included seat is the plan's one (or a larger active
+-- NAMED_USER_SEATS override: a negotiated contract) and additional_seats is the licence's purchased quantity.
+-- determined = false (and every new person refused) when any part is unknown, negative or malformed.
+CREATE OR REPLACE FUNCTION public._seat_capacity_for_account(p_account UUID)
+RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_bc        UUID;
+  v_lic       RECORD;
+  v_found     BOOLEAN := false;
+  v_included  INTEGER;
+  v_purchased INTEGER;
+  v_override  INTEGER;
+  v_source    TEXT := 'ACTIVE_LICENCE';
+  v_ok        BOOLEAN;
+BEGIN
+  IF p_account IS NULL THEN
+    RETURN jsonb_build_object('determined', false, 'plan_code', NULL, 'included_seats', NULL, 'additional_seats', NULL,
+      'allowed_named_users', NULL, 'additional_seats_purchasable', false, 'source', NULL);
+  END IF;
+  SELECT id INTO v_bc FROM public.billing_customers WHERE owner_user_id = p_account LIMIT 1;
+  IF v_bc IS NOT NULL THEN
+    SELECT cp.code AS plan_code, cp.included_seats, cp.additional_seats_purchasable, cl.additional_seats INTO v_lic
+      FROM public.commercial_licences cl JOIN public.commercial_plans cp ON cp.id = cl.plan_id
+     WHERE cl.billing_customer_id = v_bc AND cl.status IN ('ACTIVE','GRACE')
+       AND cl.effective_start <= now() AND (cl.effective_end IS NULL OR cl.effective_end > now())
+     ORDER BY cl.effective_start DESC LIMIT 1;
+    v_found := FOUND;
+  END IF;
+  IF NOT v_found OR v_lic.plan_code = 'FREE' THEN
+    RETURN jsonb_build_object('determined', true, 'plan_code', 'FREE', 'included_seats', 1, 'additional_seats', 0,
+      'allowed_named_users', 1, 'additional_seats_purchasable', false, 'source', 'FREE_PLAN');
+  END IF;
+  IF v_lic.plan_code NOT IN ('PRACTICE','FIRM','ENTERPRISE','PAID') THEN
+    RETURN jsonb_build_object('determined', false, 'plan_code', NULL, 'included_seats', NULL, 'additional_seats', NULL,
+      'allowed_named_users', NULL, 'additional_seats_purchasable', false, 'source', 'UNKNOWN_PLAN');
+  END IF;
+  v_included := v_lic.included_seats;
+  SELECT max(eo.capacity_value) INTO v_override FROM public.entitlement_overrides eo
+   WHERE eo.billing_customer_id = v_bc AND eo.feature_code = 'NAMED_USER_SEATS' AND eo.revoked_at IS NULL
+     AND eo.effective_start <= now() AND (eo.effective_end IS NULL OR eo.effective_end > now());
+  IF v_override IS NOT NULL AND v_override > COALESCE(v_included, 0) THEN
+    v_included := v_override; v_source := 'ADMIN_OVERRIDE';
+  END IF;
+  v_purchased := v_lic.additional_seats;
+  v_ok := v_included IS NOT NULL AND v_included >= 1 AND v_purchased IS NOT NULL AND v_purchased >= 0;
+  RETURN jsonb_build_object('determined', v_ok, 'plan_code', v_lic.plan_code,
+    'included_seats', v_included, 'additional_seats', v_purchased,
+    'allowed_named_users', CASE WHEN v_ok THEN v_included + v_purchased END,
+    'additional_seats_purchasable', v_lic.additional_seats_purchasable, 'source', v_source);
 END;
 $$;
 
@@ -458,7 +575,7 @@ CREATE TABLE public.reporting_pack_issuances (
   CONSTRAINT reporting_pack_issuances_pk PRIMARY KEY (id),
   CONSTRAINT fk_rpi_company FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT,
   CONSTRAINT chk_rpi_period CHECK (period_year BETWEEN 2000 AND 2100),
-  CONSTRAINT chk_rpi_kind CHECK (pack_kind IN ('financial_statements_pdf', 'financial_statements_spreadsheet', 'filing_pack', 'client_pack', 'board_pack', 'management_letter')),
+  CONSTRAINT chk_rpi_kind CHECK (pack_kind IN ('financial_statements_pdf', 'financial_statements_spreadsheet', 'financial_statements_data', 'filing_pack', 'client_pack', 'board_pack', 'management_letter', 'disclosure_notes', 'tax_computation', 'tax_workpaper')),
   CONSTRAINT uq_rpi_request UNIQUE (company_id, issued_by, request_id)
 );
 CREATE INDEX idx_rpi_company_period ON public.reporting_pack_issuances (company_id, period_year, issued_at DESC);
@@ -494,7 +611,7 @@ DECLARE
   v_id    UUID;
 BEGIN
   IF p_request_id IS NULL OR p_period_year IS NULL OR p_period_year NOT BETWEEN 2000 AND 2100
-     OR p_pack_kind IS NULL OR p_pack_kind NOT IN ('financial_statements_pdf', 'financial_statements_spreadsheet', 'filing_pack', 'client_pack', 'board_pack', 'management_letter') THEN
+     OR p_pack_kind IS NULL OR p_pack_kind NOT IN ('financial_statements_pdf', 'financial_statements_spreadsheet', 'financial_statements_data', 'filing_pack', 'client_pack', 'board_pack', 'management_letter', 'disclosure_notes', 'tax_computation', 'tax_workpaper') THEN
     RETURN jsonb_build_object('outcome', 'invalid_request');
   END IF;
   v_auth := public._authorize_paid_action(v_user, p_company_id, 'REPORTING_PACK_EXPORT');
@@ -612,6 +729,172 @@ BEGIN
 END;
 $$;
 
+-- ── 10b. Named-user seat wall ────────────────────────────────────────────────────────────────
+-- A named user is a distinct HUMAN account (auth.users) with a place on any of the billing account's workspaces:
+--   the account holder itself (always, the included seat) ∪ firm_members (pending invitations reserve a seat) ∪
+--   active workspace_capability_grants.
+-- Service identities, the service role, internal system actors and scheduled jobs never hold a membership or grant
+-- row, so they are never counted. Every human signs in with their own account; nothing here supports sharing one.
+--   reserved = every membership row (pending or accepted) + active grants   -> bounds invitations and additions
+--   active   = accepted memberships + active grants                          -> bounds activation (acceptance)
+CREATE OR REPLACE FUNCTION public._account_named_users(
+  p_account UUID, p_include_pending BOOLEAN, p_exclude_member UUID DEFAULT NULL, p_exclude_grant UUID DEFAULT NULL)
+RETURNS TABLE (named_user_id UUID) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT p_account WHERE p_account IS NOT NULL
+  UNION
+  SELECT fm.user_id FROM public.firm_members fm JOIN public.companies c ON c.id = fm.company_id
+   WHERE c.user_id = p_account AND (p_include_pending OR fm.accepted_at IS NOT NULL) AND fm.id IS DISTINCT FROM p_exclude_member
+  UNION
+  SELECT g.grantee_user_id FROM public.workspace_capability_grants g JOIN public.companies c ON c.id = g.company_id
+   WHERE c.user_id = p_account AND g.revoked_at IS NULL AND g.id IS DISTINCT FROM p_exclude_grant;
+$$;
+
+-- Fires when a person is newly invited, added, moved onto a workspace, granted access, or activated (an invitation
+-- accepted). Serialised per billing account with a transaction-scoped advisory lock, so simultaneous invitations,
+-- acceptances and grants cannot exceed the allowance. Removals, revocations, role changes and every other update
+-- are never blocked, and nothing is ever deleted: after an expiry or downgrade, existing members keep exactly the
+-- access they had; only NEW people (and pending invitations beyond the allowance) are refused.
+CREATE OR REPLACE FUNCTION public.named_user_seat_wall()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_account   UUID;
+  v_user      UUID;
+  v_member    UUID;
+  v_grant     UUID;
+  v_adds      BOOLEAN := false;
+  v_activates BOOLEAN := false;
+  v_cap       JSONB;
+  v_allowed   INTEGER;
+BEGIN
+  IF TG_TABLE_NAME = 'firm_members' THEN
+    v_user := NEW.user_id; v_member := NEW.id;
+    IF TG_OP = 'INSERT' OR NEW.user_id IS DISTINCT FROM OLD.user_id OR NEW.company_id IS DISTINCT FROM OLD.company_id THEN
+      v_adds := true; v_activates := NEW.accepted_at IS NOT NULL;
+    ELSIF OLD.accepted_at IS NULL AND NEW.accepted_at IS NOT NULL THEN
+      v_activates := true;
+    END IF;
+  ELSE
+    IF NEW.revoked_at IS NOT NULL THEN
+      RETURN NEW;
+    END IF;
+    v_user := NEW.grantee_user_id; v_grant := NEW.id;
+    IF TG_OP = 'INSERT' OR NEW.grantee_user_id IS DISTINCT FROM OLD.grantee_user_id
+       OR NEW.company_id IS DISTINCT FROM OLD.company_id OR OLD.revoked_at IS NOT NULL THEN
+      v_adds := true; v_activates := true;
+    END IF;
+  END IF;
+  IF NOT (v_adds OR v_activates) THEN
+    RETURN NEW;
+  END IF;
+  SELECT c.user_id INTO v_account FROM public.companies c WHERE c.id = NEW.company_id;
+  IF v_account IS NULL OR v_user IS NULL OR v_user = v_account THEN
+    RETURN NEW;  -- the account holder is the included seat (a missing workspace fails on its foreign key)
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose.named_user_seats:' || v_account::text, 0));
+  v_cap := public._seat_capacity_for_account(v_account);
+  IF NOT COALESCE((v_cap->>'determined')::boolean, false) THEN
+    RAISE EXCEPTION 'SEAT_CAPACITY_UNDETERMINED' USING ERRCODE = 'PT402', DETAIL = 'NAMED_USER_SEATS', HINT = 'UNDETERMINED';
+  END IF;
+  v_allowed := (v_cap->>'allowed_named_users')::integer;
+  IF v_adds
+     AND NOT EXISTS (SELECT 1 FROM public._account_named_users(v_account, true, v_member, v_grant) u WHERE u.named_user_id = v_user)
+     AND (SELECT count(*) FROM public._account_named_users(v_account, true, v_member, v_grant)) + 1 > v_allowed THEN
+    RAISE EXCEPTION 'SEAT_LIMIT_REACHED' USING ERRCODE = 'PT402', DETAIL = 'NAMED_USER_SEATS', HINT = v_cap->>'plan_code';
+  END IF;
+  IF v_activates
+     AND NOT EXISTS (SELECT 1 FROM public._account_named_users(v_account, false, v_member, v_grant) u WHERE u.named_user_id = v_user)
+     AND (SELECT count(*) FROM public._account_named_users(v_account, false, v_member, v_grant)) + 1 > v_allowed THEN
+    RAISE EXCEPTION 'SEAT_LIMIT_REACHED' USING ERRCODE = 'PT402', DETAIL = 'NAMED_USER_SEATS', HINT = v_cap->>'plan_code';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_firm_members_named_user_seats ON public.firm_members;
+CREATE TRIGGER trg_firm_members_named_user_seats
+  BEFORE INSERT OR UPDATE OF user_id, company_id, accepted_at ON public.firm_members
+  FOR EACH ROW EXECUTE FUNCTION public.named_user_seat_wall();
+DROP TRIGGER IF EXISTS trg_wcg_named_user_seats ON public.workspace_capability_grants;
+CREATE TRIGGER trg_wcg_named_user_seats
+  BEFORE INSERT OR UPDATE OF grantee_user_id, company_id, revoked_at ON public.workspace_capability_grants
+  FOR EACH ROW EXECUTE FUNCTION public.named_user_seat_wall();
+
+-- Seat state of a workspace's billing account, for anyone with access to that workspace (explanatory only).
+CREATE OR REPLACE FUNCTION public.get_workspace_seat_capacity(p_company_id UUID)
+RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_account UUID;
+BEGIN
+  IF auth.uid() IS NULL OR public._workspace_access_basis(auth.uid(), p_company_id) IS NULL THEN
+    RETURN jsonb_build_object('access', false);
+  END IF;
+  SELECT c.user_id INTO v_account FROM public.companies c WHERE c.id = p_company_id;
+  RETURN public._seat_capacity_for_account(v_account) || jsonb_build_object('access', true,
+    'active_named_users', (SELECT count(*) FROM public._account_named_users(v_account, false)),
+    'reserved_named_users', (SELECT count(*) FROM public._account_named_users(v_account, true)));
+END;
+$$;
+
+-- Pre-check for the invitation Edge Function (service_role), BEFORE any email is sent or account created. The seat
+-- wall above remains the authority; this only avoids sending an invitation that could never be recorded.
+-- p_invitee NULL = a person without an account yet (always a new named user).
+-- Codes: ALLOWED | ALREADY_A_NAMED_USER | SEAT_LIMIT_REACHED | SEAT_CAPACITY_UNDETERMINED | WORKSPACE_NOT_FOUND
+CREATE OR REPLACE FUNCTION public.seat_check_for_invitation(p_company_id UUID, p_invitee UUID)
+RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_account  UUID;
+  v_cap      JSONB;
+  v_reserved INTEGER;
+BEGIN
+  SELECT c.user_id INTO v_account FROM public.companies c WHERE c.id = p_company_id;
+  IF v_account IS NULL THEN
+    RETURN jsonb_build_object('allowed', false, 'code', 'WORKSPACE_NOT_FOUND');
+  END IF;
+  IF p_invitee IS NOT NULL AND EXISTS (SELECT 1 FROM public._account_named_users(v_account, true) u WHERE u.named_user_id = p_invitee) THEN
+    RETURN jsonb_build_object('allowed', true, 'code', 'ALREADY_A_NAMED_USER');
+  END IF;
+  v_cap := public._seat_capacity_for_account(v_account);
+  IF NOT COALESCE((v_cap->>'determined')::boolean, false) THEN
+    RETURN jsonb_build_object('allowed', false, 'code', 'SEAT_CAPACITY_UNDETERMINED', 'plan_code', v_cap->>'plan_code');
+  END IF;
+  v_reserved := (SELECT count(*) FROM public._account_named_users(v_account, true));
+  IF v_reserved + 1 > (v_cap->>'allowed_named_users')::integer THEN
+    RETURN jsonb_build_object('allowed', false, 'code', 'SEAT_LIMIT_REACHED', 'plan_code', v_cap->>'plan_code',
+      'allowed_named_users', v_cap->'allowed_named_users', 'reserved_named_users', v_reserved,
+      'additional_seats_purchasable', v_cap->'additional_seats_purchasable');
+  END IF;
+  RETURN jsonb_build_object('allowed', true, 'code', 'ALLOWED');
+END;
+$$;
+
+-- Accepts the signed-in user's pending invitations one by one (runs as the caller; RLS and the seat wall apply).
+-- An invitation the inviting account has no seat for stays pending (nothing is deleted) and is reported by code.
+CREATE OR REPLACE FUNCTION public.accept_workspace_invitations()
+RETURNS JSONB LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_user     UUID := auth.uid();
+  r          RECORD;
+  v_hint     TEXT;
+  v_accepted JSONB := '[]'::jsonb;
+  v_blocked  JSONB := '[]'::jsonb;
+BEGIN
+  IF v_user IS NULL THEN
+    RETURN jsonb_build_object('outcome', 'unauthenticated');
+  END IF;
+  FOR r IN SELECT fm.id, fm.company_id FROM public.firm_members fm
+            WHERE fm.user_id = v_user AND fm.accepted_at IS NULL ORDER BY fm.created_at, fm.id LOOP
+    BEGIN
+      UPDATE public.firm_members SET accepted_at = now() WHERE id = r.id AND user_id = v_user AND accepted_at IS NULL;
+      v_accepted := v_accepted || jsonb_build_array(r.company_id);
+    EXCEPTION WHEN SQLSTATE 'PT402' THEN
+      GET STACKED DIAGNOSTICS v_hint = PG_EXCEPTION_HINT;
+      v_blocked := v_blocked || jsonb_build_array(jsonb_build_object('company_id', r.company_id,
+        'code', CASE WHEN v_hint = 'UNDETERMINED' THEN 'SEAT_CAPACITY_UNDETERMINED' ELSE 'SEAT_LIMIT_REACHED' END));
+    END;
+  END LOOP;
+  RETURN jsonb_build_object('outcome', 'ok', 'accepted', v_accepted, 'blocked', v_blocked);
+END;
+$$;
+
 -- ── 11. Admin overrides: canonical codes; capacity through its own audited RPC ───────────────
 CREATE OR REPLACE FUNCTION public.admin_grant_entitlement_override(
   p_billing_customer_id UUID, p_feature_code TEXT, p_reason TEXT, p_effective_end TIMESTAMPTZ)
@@ -628,6 +911,7 @@ BEGIN
   IF p_reason IS NULL OR trim(p_reason) = '' THEN RAISE EXCEPTION 'REASON_REQUIRED' USING ERRCODE = '22023'; END IF;
   IF v_cap IS NULL THEN RAISE EXCEPTION 'UNKNOWN_FEATURE_CODE: %', p_feature_code USING ERRCODE = '22023'; END IF;
   IF v_cap = 'ENTITY_CAPACITY' THEN RAISE EXCEPTION 'USE_ADMIN_GRANT_ENTITY_CAPACITY_OVERRIDE' USING ERRCODE = '22023'; END IF;
+  IF v_cap = 'NAMED_USER_SEATS' THEN RAISE EXCEPTION 'USE_ADMIN_GRANT_NAMED_USER_SEATS_OVERRIDE' USING ERRCODE = '22023'; END IF;
   IF NOT EXISTS (SELECT 1 FROM public.billing_customers WHERE id = p_billing_customer_id) THEN
     RAISE EXCEPTION 'BILLING_CUSTOMER_NOT_FOUND' USING ERRCODE = '22023';
   END IF;
@@ -662,6 +946,60 @@ BEGIN
   VALUES (p_billing_customer_id, v_user_id, 'ENTITLEMENT_OVERRIDE_GRANTED', NULL,
           jsonb_build_object('override_id', v_override_id, 'feature_code', 'ENTITY_CAPACITY', 'capacity', p_capacity, 'effective_end', p_effective_end), p_reason);
   RETURN jsonb_build_object('override_id', v_override_id);
+END;
+$$;
+
+-- The negotiated included named users of an account (e.g. an Enterprise contract). Ignored on Free.
+CREATE OR REPLACE FUNCTION public.admin_grant_named_user_seats_override(
+  p_billing_customer_id UUID, p_included_seats INTEGER, p_reason TEXT, p_effective_end TIMESTAMPTZ)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog AS $$
+DECLARE
+  v_user_id     UUID := auth.uid();
+  v_override_id UUID;
+BEGIN
+  IF v_user_id IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.commercial_admins WHERE user_id = v_user_id AND active) THEN
+    RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
+  END IF;
+  IF p_reason IS NULL OR trim(p_reason) = '' THEN RAISE EXCEPTION 'REASON_REQUIRED' USING ERRCODE = '22023'; END IF;
+  IF p_included_seats IS NULL OR p_included_seats < 1 THEN RAISE EXCEPTION 'INVALID_SEAT_QUANTITY' USING ERRCODE = '22023'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.billing_customers WHERE id = p_billing_customer_id) THEN
+    RAISE EXCEPTION 'BILLING_CUSTOMER_NOT_FOUND' USING ERRCODE = '22023';
+  END IF;
+  INSERT INTO public.entitlement_overrides (billing_customer_id, feature_code, capacity_value, granted_by, reason, effective_start, effective_end)
+  VALUES (p_billing_customer_id, 'NAMED_USER_SEATS', p_included_seats, v_user_id, p_reason, now(), p_effective_end) RETURNING id INTO v_override_id;
+  INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
+  VALUES (p_billing_customer_id, v_user_id, 'ENTITLEMENT_OVERRIDE_GRANTED', NULL,
+          jsonb_build_object('override_id', v_override_id, 'feature_code', 'NAMED_USER_SEATS', 'included_seats', p_included_seats, 'effective_end', p_effective_end), p_reason);
+  RETURN jsonb_build_object('override_id', v_override_id);
+END;
+$$;
+
+-- Records the purchased additional named-user seats on a licence (until a payment provider records them). This does
+-- not take or pretend any payment. Refused on a Free licence; a reduction never removes anyone.
+CREATE OR REPLACE FUNCTION public.admin_set_licence_additional_seats(p_licence_id UUID, p_quantity INTEGER, p_reason TEXT)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog AS $$
+DECLARE
+  v_user_id UUID := auth.uid();
+  v_lic     RECORD;
+BEGIN
+  IF v_user_id IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.commercial_admins WHERE user_id = v_user_id AND active) THEN
+    RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
+  END IF;
+  IF p_reason IS NULL OR trim(p_reason) = '' THEN RAISE EXCEPTION 'REASON_REQUIRED' USING ERRCODE = '22023'; END IF;
+  IF p_quantity IS NULL OR p_quantity < 0 OR p_quantity > 10000 THEN RAISE EXCEPTION 'INVALID_SEAT_QUANTITY' USING ERRCODE = '22023'; END IF;
+  SELECT cl.id, cl.billing_customer_id, cl.additional_seats, cp.code AS plan_code INTO v_lic
+    FROM public.commercial_licences cl JOIN public.commercial_plans cp ON cp.id = cl.plan_id
+   WHERE cl.id = p_licence_id FOR UPDATE OF cl;
+  IF NOT FOUND THEN RAISE EXCEPTION 'LICENCE_NOT_FOUND' USING ERRCODE = '22023'; END IF;
+  IF v_lic.plan_code = 'FREE' THEN RAISE EXCEPTION 'FREE_PLAN_HAS_NO_ADDITIONAL_SEATS' USING ERRCODE = '22023'; END IF;
+  UPDATE public.commercial_licences SET additional_seats = p_quantity, updated_at = now() WHERE id = p_licence_id;
+  INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
+  VALUES (v_lic.billing_customer_id, v_user_id, 'LICENCE_ADDITIONAL_SEATS_SET',
+          jsonb_build_object('licence_id', p_licence_id, 'additional_seats', v_lic.additional_seats),
+          jsonb_build_object('licence_id', p_licence_id, 'additional_seats', p_quantity), p_reason);
+  RETURN jsonb_build_object('licence_id', p_licence_id, 'additional_seats', p_quantity);
 END;
 $$;
 
@@ -752,6 +1090,19 @@ REVOKE ALL ON FUNCTION public.admin_grant_entity_capacity_override(UUID, INTEGER
 GRANT EXECUTE ON FUNCTION public.admin_grant_entity_capacity_override(UUID, INTEGER, TEXT, TIMESTAMPTZ) TO authenticated;
 REVOKE ALL ON FUNCTION public.get_effective_entitlement(UUID, TEXT) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_effective_entitlement(UUID, TEXT) TO authenticated;
+REVOKE ALL ON FUNCTION public._seat_capacity_for_account(UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public._account_named_users(UUID, BOOLEAN, UUID, UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.named_user_seat_wall() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.seat_check_for_invitation(UUID, UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.seat_check_for_invitation(UUID, UUID) TO service_role;
+REVOKE ALL ON FUNCTION public.get_workspace_seat_capacity(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_workspace_seat_capacity(UUID) TO authenticated;
+REVOKE ALL ON FUNCTION public.accept_workspace_invitations() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.accept_workspace_invitations() TO authenticated;
+REVOKE ALL ON FUNCTION public.admin_grant_named_user_seats_override(UUID, INTEGER, TEXT, TIMESTAMPTZ) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_grant_named_user_seats_override(UUID, INTEGER, TEXT, TIMESTAMPTZ) TO authenticated;
+REVOKE ALL ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) TO authenticated;
 REVOKE ALL ON FUNCTION public.hesabu_block_signoff() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.hesabu_block_signoff() TO authenticated;
 
@@ -761,19 +1112,29 @@ DECLARE
   v RECORD;
 BEGIN
   FOR v IN SELECT * FROM (VALUES
-      ('FREE',       1,    1,    'free',          false),
-      ('PRACTICE',   5,    3,    'self_serve',    true),
-      ('FIRM',       25,   10,   'self_serve',    true),
-      ('ENTERPRISE', NULL, NULL, 'contact_sales', true)) AS e(code, entities, users, mode, paid) LOOP
+      ('FREE',       1,    1,    false, 'free',          false),
+      ('PRACTICE',   5,    1,    true,  'self_serve',    true),
+      ('FIRM',       25,   1,    true,  'self_serve',    true),
+      ('ENTERPRISE', NULL, NULL, false, 'contact_sales', true)) AS e(code, entities, seats, buy_seats, mode, paid) LOOP
     IF NOT EXISTS (
       SELECT 1 FROM public.commercial_plans cp JOIN public.commercial_products p ON p.id = cp.product_id AND p.code = 'CFOCLOSE'
-       WHERE cp.code = v.code AND cp.entity_capacity IS NOT DISTINCT FROM v.entities AND cp.user_capacity IS NOT DISTINCT FROM v.users
-         AND cp.sales_mode = v.mode AND cp.is_public
+       WHERE cp.code = v.code AND cp.entity_capacity IS NOT DISTINCT FROM v.entities AND cp.included_seats IS NOT DISTINCT FROM v.seats
+         AND cp.additional_seats_purchasable = v.buy_seats AND cp.sales_mode = v.mode AND cp.is_public
          AND (cp.feature_codes @> ARRAY['STATEMENT_CERTIFICATION','REPORTING_PACK_EXPORT','CLOSE_INSIGHTS']::TEXT[]) = v.paid
-         AND cp.feature_codes @> ARRAY['CLOSE_ASSURANCE','COMPARATIVE_REPORTING','ENTITY_CAPACITY']::TEXT[]) THEN
+         AND cp.feature_codes @> ARRAY['CLOSE_ASSURANCE','COMPARATIVE_REPORTING','ENTITY_CAPACITY','NAMED_USER_SEATS']::TEXT[]) THEN
       RAISE EXCEPTION 'CATALOGUE_ASSERTION_FAILED: plan %', v.code;
     END IF;
   END LOOP;
+  IF (SELECT count(*) FROM public.commercial_additional_seat_prices s JOIN public.commercial_plans cp ON cp.id = s.plan_id
+       WHERE s.is_active AND NOT s.is_purchasable AND s.currency_code = 'USD' AND s.market_code = 'GLOBAL'
+         AND ((cp.code, s.billing_interval, s.amount_minor) IN (('PRACTICE','MONTHLY',2000), ('PRACTICE','ANNUAL',20000), ('FIRM','MONTHLY',2000), ('FIRM','ANNUAL',20000))))
+     <> 4
+     OR EXISTS (SELECT 1 FROM public.commercial_additional_seat_prices s JOIN public.commercial_plans cp ON cp.id = s.plan_id WHERE cp.code NOT IN ('PRACTICE','FIRM')) THEN
+    RAISE EXCEPTION 'CATALOGUE_ASSERTION_FAILED: additional seat prices';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.commercial_licences WHERE additional_seats <> 0) THEN
+    RAISE EXCEPTION 'CATALOGUE_ASSERTION_FAILED: no additional seat was ever sold, so every existing licence must carry 0';
+  END IF;
   IF (SELECT count(*) FROM public.commercial_offers o JOIN public.commercial_plans cp ON cp.id = o.plan_id
        WHERE o.is_active AND o.currency_code = 'USD' AND o.market_code = 'GLOBAL'
          AND ((cp.code, o.billing_interval, o.amount_minor) IN (('PRACTICE','MONTHLY',9900), ('PRACTICE','ANNUAL',99000), ('FIRM','MONTHLY',29900), ('FIRM','ANNUAL',299000))))
@@ -794,7 +1155,8 @@ $assert$;
 
 -- ── Rollback (NOT executed; for reference only; review before use) ──────────────────────────
 -- Drop the walls (trg_sso_statement_certification_wall, trg_fsp_statement_certification_wall, trg_close_insights_wall
--- on four tables, trg_companies_entity_capacity), issue_reporting_pack / create_entity / the authority functions and
--- the two new tables; restore the 20260905093408 resolver and override CHECKs (mapping canonical codes back through
+-- on four tables, trg_companies_entity_capacity, trg_firm_members_named_user_seats, trg_wcg_named_user_seats),
+-- issue_reporting_pack / create_entity / accept_workspace_invitations / the seat and authority functions, the four
+-- new tables and commercial_licences.additional_seats (only while no seat has been recorded); restore the 20260905093408 resolver and override CHECKs (mapping canonical codes back through
 -- commercial_capability_aliases), the 20260713090437 sign-off gate, and re-activate the retired offers only after a
 -- product decision. Plans and offers added here are data: deactivate, never delete, once referenced.

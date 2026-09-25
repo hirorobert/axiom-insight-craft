@@ -8,11 +8,21 @@ import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// DraftPrintMark reaches the Supabase client through its commercial-state hook; nothing here calls it.
+vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
+import { DraftPrintMarkView } from "@/components/commercial/DraftPrintMark";
+import { DRAFT_PRINT_MARK, REPORTING_PACK_KINDS, parseIssueOutcome } from "./reportingPack";
 import { parseCreateEntityOutcome } from "./entityCreation";
 import {
+  canInviteAnother,
   capacityCopy,
+  functionSeatRefusal,
+  parseAcceptInvitations,
+  parseSeatCapacity,
+  seatCopy,
   entitlementRefusal,
   functionEntitlementRefusal,
   lockedCopy,
@@ -139,5 +149,101 @@ describe("UI call sites defer to the server", () => {
     expect(read("src/components/PeriodCloseManager.tsx")).toMatch(/entitlementRefusal\(error\) === "STATEMENT_CERTIFICATION"/);
     expect(read("src/lib/financialStatementsWorkspace/rpcTransport.ts")).toMatch(/e\.code === "PT402" \? "ENTITLEMENT_REQUIRED"/);
     expect(read("src/components/MgmtLetterPanel.tsx")).toMatch(/functionEntitlementRefusal\(error\)\)\s*===\s*"REPORTING_PACK_EXPORT"/);
+  });
+});
+
+describe("named-user seats in the UI (structured state only)", () => {
+  const raw = (o: Record<string, unknown>) => ({ access: true, determined: true, plan_code: "PRACTICE", included_seats: 1, additional_seats: 2, allowed_named_users: 3, additional_seats_purchasable: true, active_named_users: 2, reserved_named_users: 2, ...o });
+  it("parses the seat state; no access, malformed or undetermined fails closed", () => {
+    const s = parseSeatCapacity(raw({}))!;
+    expect(s).toMatchObject({ determined: true, allowedNamedUsers: 3, activeNamedUsers: 2, reservedNamedUsers: 2, additionalSeatsPurchasable: true });
+    expect(canInviteAnother(s)).toBe(true);
+    for (const bad of [null, { access: false }, raw({ active_named_users: -1 }), raw({ determined: "yes" }), raw({ reserved_named_users: 1.5 })]) expect(parseSeatCapacity(bad)).toBeNull();
+    const und = parseSeatCapacity(raw({ determined: false, allowed_named_users: null }))!;
+    expect(canInviteAnother(und)).toBe(false);
+    expect(canInviteAnother(null)).toBe(false);
+    expect(seatCopy(und)!.title).toBe("Named-user seats need confirming");
+  });
+  it("a pending invitation holds a seat: reserved = allowed means no further invitation", () => {
+    expect(canInviteAnother(parseSeatCapacity(raw({ active_named_users: 2, reserved_named_users: 3 })))).toBe(false);
+    expect(seatCopy(parseSeatCapacity(raw({})))).toBeNull();
+  });
+  it("Free: one named user, inviting is available with Practice, seat price from the catalogue, nobody removed", () => {
+    const c = seatCopy(parseSeatCapacity(raw({ plan_code: "FREE", included_seats: 1, additional_seats: 0, allowed_named_users: 1, additional_seats_purchasable: false, active_named_users: 1, reserved_named_users: 1 })))!;
+    expect(c.title).toBe("Available with Practice");
+    expect(c.unavailable).toMatch(/one named user: you/);
+    expect(c.remains).toContain("$20 / month or $200 / year");
+    expect(c.history).toMatch(/nobody is removed/);
+  });
+  it("Practice at its allowance: states the formula and how to add seats; no checkout, no hostile wording", () => {
+    const c = seatCopy(parseSeatCapacity(raw({ active_named_users: 3, reserved_named_users: 3 })))!;
+    expect(c.title).toBe("All named-user seats are in use");
+    expect(c.unavailable).toBe("Your Practice plan has 3 named users (1 included + 2 additional), and every seat is in use or held by a pending invitation.");
+    expect(c.remains).toMatch(/Contact us to add seats/);
+    const text = Object.values(c).join(" ");
+    expect(text).not.toMatch(/payment required|pay now|checkout|shared (login|account|password)|owner|partner|manager/i);
+  });
+  it("accept_workspace_invitations and the invitation function's 402 body are read by structured fields", async () => {
+    const id = "0b7e3f0a-7c1e-4a51-9a2e-3f7e1c2d4b5a";
+    expect(parseAcceptInvitations({ outcome: "ok", accepted: [id], blocked: [{ company_id: id, code: "SEAT_LIMIT_REACHED" }, { company_id: 1, code: "X" }] }))
+      .toEqual({ accepted: [id], blocked: [{ companyId: id, code: "SEAT_LIMIT_REACHED" }] });
+    expect(parseAcceptInvitations({ outcome: "unauthenticated" })).toBeNull();
+    const ctx = new Response(JSON.stringify({ status: "seat_limit_reached", capability: "NAMED_USER_SEATS" }), { status: 402 });
+    expect(await functionSeatRefusal({ context: ctx })).toBe("seat_limit_reached");
+    expect(await functionSeatRefusal({ context: new Response(JSON.stringify({ status: "seat_limit_reached", capability: "CLOSE_INSIGHTS" })) })).toBeNull();
+    expect(await functionSeatRefusal({ message: "seat_limit_reached" })).toBeNull();
+  });
+  it("acceptance goes through the per-invitation RPC (never a bulk client update); the team panel never offers an invitation the server would refuse", () => {
+    const dash = read("src/pages/Dashboard.tsx");
+    expect(dash).toMatch(/supabase\.rpc\("accept_workspace_invitations"/);
+    expect(dash).not.toMatch(/\.from\("firm_members"\)\s*\.update\(/);
+    const panel = read("src/components/FirmManagementPanel.tsx");
+    expect(panel).toMatch(/supabase\.rpc\("get_workspace_seat_capacity"/);
+    expect(panel).toMatch(/disabled=\{!seatsLoaded \|\| !canInviteAnother\(seats\)\}/);
+    expect(panel).toMatch(/functionSeatRefusal\(error\)/);
+    expect(panel).toMatch(/Each person signs in with their own account/);
+  });
+});
+
+describe("Reporting Pack: downloads are issued by the server first; free printing is marked on every page", () => {
+  it("parseIssueOutcome: only issued / already_issued with an id allows a download", () => {
+    expect(parseIssueOutcome({ outcome: "issued", issuance_id: "abc" })).toEqual({ status: "issued", issuanceId: "abc" });
+    expect(parseIssueOutcome({ outcome: "already_issued", issuance_id: "abc" })).toEqual({ status: "issued", issuanceId: "abc" });
+    expect(parseIssueOutcome({ outcome: "entitlement_required" })).toEqual({ status: "locked" });
+    for (const bad of [null, {}, { outcome: "issued" }, { outcome: "issued", issuance_id: "" }, { outcome: "workspace_access_denied" }]) expect(parseIssueOutcome(bad).status).toBe("failed");
+  });
+  it("the client kinds are exactly the database's issuance kinds", () => {
+    const migration = read("supabase/migrations/20260925100000_global_capabilities_entitlements_pricing.sql");
+    const check = /chk_rpi_kind CHECK \(pack_kind IN \(([^)]*)\)\)/.exec(migration)?.[1] ?? "";
+    expect([...check.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()).toEqual([...REPORTING_PACK_KINDS].sort());
+  });
+  it.each([
+    ["src/pages/workspace/StatementsWorkspace.tsx", /issueReportingPack\([^;]*"financial_statements_data"\)/, /issueDownload=\{issueStatementsDownload\}/],
+    ["src/components/financialStatements/OutputsStage.tsx", /const outcome = await issueDownload\(\);/, /if \(outcome\.status === "issued"\) download\(file\)/],
+    ["src/components/MgmtLetterPanel.tsx", /requestReportingPack\(companyId, letter\.metadata\.periodYear, "management_letter"\)\) exportToPDF/, null],
+    ["src/components/NoteSynth.tsx", /if \(!\(await requestReportingPack\(companyId, periodYear, "disclosure_notes"\)\)\) return;/, null],
+    ["src/jurisdiction-packs/tz/CapitalAllowancesRegister.tsx", /if \(!\(await requestReportingPack\(companyId, periodYear, "tax_workpaper"\)\)\) return;/, null],
+    ["src/jurisdiction-packs/tz/TRAAuditReadinessPanel.tsx", /if \(!\(await requestReportingPack\(companyId, periodYear, "tax_workpaper"\)\)\) return;/, null],
+    ["src/components/maono/BoardPackGenerator.tsx", /requestReportingPack\(companyId, periodYear, "board_pack"\)\)\) return;/, /requestReportingPack\(companyId, periodYear, "board_pack"\)\) exportToExcel\(pack\)/],
+  ] as const)("%s issues before it generates", (file, gate, second) => {
+    const src = read(file);
+    expect(src).toMatch(gate);
+    if (second) expect(src).toMatch(second);
+  });
+  it("the tax computation PDF is issued first at both entry points", () => {
+    const src = read("src/jurisdiction-packs/tz/KingaTaxPanel.tsx").replace(/\r\n/g, "\n");
+    const gates = [...src.matchAll(/if \(!\(await requestReportingPack\(companyId, periodYear, "tax_computation"\)\)\) return;\n\s*generateTaxComputationPDF\(\{/g)];
+    expect(gates.length).toBe(2);
+    expect([...src.matchAll(/generateTaxComputationPDF\(\{/g)].length).toBe(2);
+  });
+  it("the workspace print mark carries the exact required marking on every printed page (the statements print: honestDraft.test.ts)", () => {
+    expect(DRAFT_PRINT_MARK).toBe("DRAFT — NOT CERTIFIED — NOT FOR FILING OR CLIENT ISSUE");
+    const html = renderToStaticMarkup(createElement(DraftPrintMarkView));
+    expect(html.split(DRAFT_PRINT_MARK).length - 1).toBe(2);
+    expect(html).toMatch(/@media print[\s\S]*position: fixed/);
+    expect(html).toMatch(/\.cfo-draft-print-mark \{ display: none; \}/);
+    expect(read("src/pages/workspace/WorkspaceLayout.tsx")).toMatch(/<DraftPrintMark companyId=\{companyId\} \/>/);
+    const mark = read("src/components/commercial/DraftPrintMark.tsx");
+    expect(mark).toMatch(/paidActionState\(state, "REPORTING_PACK_EXPORT", loading\)\.status === "allowed"\) return null;/);
   });
 });

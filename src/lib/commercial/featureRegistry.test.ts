@@ -18,7 +18,7 @@ const MIGRATION = fs.readFileSync(
 );
 
 describe("canonical capability vocabulary", () => {
-  it("is exactly the six global capability codes, no duplicates, no engine names", () => {
+  it("is exactly the seven global capability codes, no duplicates, no engine names", () => {
     expect([...CAPABILITY_CODES]).toEqual([
       "CLOSE_ASSURANCE",
       "COMPARATIVE_REPORTING",
@@ -26,21 +26,23 @@ describe("canonical capability vocabulary", () => {
       "REPORTING_PACK_EXPORT",
       "CLOSE_INSIGHTS",
       "ENTITY_CAPACITY",
+      "NAMED_USER_SEATS",
     ]);
     expect(new Set(CAPABILITY_CODES).size).toBe(CAPABILITY_CODES.length);
     for (const c of CAPABILITY_CODES) expect(c).not.toMatch(/SAFISHA|HESABU|MAONO|KINGA|MULTI_/);
     expect(FEATURE_CODES).toBe(CAPABILITY_CODES);
   });
 
-  it("kinds: two included (never a wall), three paid, one capacity", () => {
+  it("kinds: two included (never a wall), three paid, two capacities", () => {
     expect(CAPABILITY_CODES.filter((c) => CAPABILITIES[c].kind === "included")).toEqual(["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING"]);
     expect([...PAID_CAPABILITY_CODES]).toEqual(["STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS"]);
     expect(CAPABILITIES.ENTITY_CAPACITY.kind).toBe("capacity");
+    expect(CAPABILITIES.NAMED_USER_SEATS.kind).toBe("capacity");
   });
 
   it("customer names are the global product names", () => {
     expect(CAPABILITY_CODES.map((c) => CAPABILITIES[c].name)).toEqual([
-      "Close Assurance", "Comparative Reporting", "Close Certification", "Reporting Pack", "Close Insights", "Entity Capacity",
+      "Close Assurance", "Comparative Reporting", "Close Certification", "Reporting Pack", "Close Insights", "Entity Capacity", "Named Users",
     ]);
     for (const c of CAPABILITY_CODES) {
       expect(FEATURE_DESCRIPTIONS[c]).toBeTruthy();

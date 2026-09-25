@@ -28,6 +28,7 @@ import React, { useState, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 // @ts-expect-error - runtime ESM URL import (loaded via esm.sh at runtime)
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
+import { requestReportingPack } from "@/lib/commercial/requestReportingPack";
 
 interface BoardPackData {
   company_name:    string;
@@ -50,6 +51,8 @@ interface BoardPackGeneratorProps {
   runId:           string;
   supabaseUrl:     string;
   supabaseAnonKey: string;
+  /** Fiscal year the board pack is issued for (issue_reporting_pack). */
+  periodYear?:     number;
 }
 
 function fmt(n: number): string {
@@ -204,6 +207,7 @@ function PrintablePackSection({ title, children }: { title: string; children: Re
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function BoardPackGenerator({
+  periodYear,
   companyId,
   companyName,
   runId,
@@ -321,8 +325,10 @@ export function BoardPackGenerator({
     setSaving(false);
   };
 
-  const handlePrint = () => {
+  // A board pack (print or spreadsheet) is a Reporting Pack deliverable: issued by the server first, or not produced.
+  const handlePrint = async () => {
     if (!printRef.current) return;
+    if (!(await requestReportingPack(companyId, periodYear, "board_pack"))) return;
     const printRoot = document.getElementById("maono-board-pack-print-root");
     if (printRoot) printRoot.innerHTML = printRef.current.outerHTML;
     window.print();
@@ -376,13 +382,13 @@ export function BoardPackGenerator({
             {/* Action bar */}
             <div className="flex gap-2 mb-5 flex-wrap">
               <button
-                onClick={handlePrint}
+                onClick={() => void handlePrint()}
                 className="flex items-center gap-2 bg-gray-800 hover:bg-gray-900 text-white text-xs font-medium rounded-lg px-4 py-2 transition-colors"
               >
                 🖨 Export PDF (Print)
               </button>
               <button
-                onClick={() => exportToExcel(pack)}
+                onClick={async () => { if (await requestReportingPack(companyId, periodYear, "board_pack")) exportToExcel(pack); }}
                 className="flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white text-xs font-medium rounded-lg px-4 py-2 transition-colors"
               >
                 📊 Export Excel

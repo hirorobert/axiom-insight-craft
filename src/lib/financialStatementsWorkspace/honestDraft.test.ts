@@ -152,10 +152,31 @@ describe("honest draft — final outputs are draft-only; no approval or final st
     const t = text(html);
     expect(t).toContain("Draft — not reviewed or approved");
     expect(t).toContain("Everything below is a draft");
-    expect(PRINT_CSS).toMatch(/content: "DRAFT"/);
+    expect(PRINT_CSS).toContain('content: "DRAFT — NOT CERTIFIED — NOT FOR FILING OR CLIENT ISSUE"');
     expect(t).not.toMatch(/\b(Approved by|Approved on|Signed off|Final version|Final statements|Issued|Authorised for issue|Status: (Final|Approved))\b/i);
     expect(html).not.toContain("signature-blocks"); // only when explicitly configured
     expect(t).toContain("Not available — no reliable DOCX generator exists yet");
+  });
+
+  it("every printed page carries the exact draft marking, in the top margin box and as a repeating watermark", () => {
+    const mark = "DRAFT — NOT CERTIFIED — NOT FOR FILING OR CLIENT ISSUE";
+    expect(PRINT_CSS).toContain(`@page { size: A4 portrait; margin: 15mm; @top-center { content: "${mark}"`);
+    expect(PRINT_CSS).toContain(`@page fs-landscape { size: A4 landscape; margin: 15mm; @top-center { content: "${mark}"`);
+    expect(PRINT_CSS).toContain(`#fs-print-document::before { content: "${mark}"; position: fixed;`);
+  });
+
+  it("Reporting Pack: downloads exist only with a host-supplied issuer; a locked workspace sees the plan explanation, never a file button", async () => {
+    const model = await makeModel();
+    const bare = renderToStaticMarkup(createElement(OutputsStage, { model }));
+    expect(bare).not.toContain('data-testid="export-buttons"');
+    const issuer = async () => ({ status: "issued" as const, issuanceId: "x" });
+    const withIssuer = renderToStaticMarkup(createElement(OutputsStage, { model, issueDownload: issuer }));
+    expect(withIssuer).toContain('data-testid="export-buttons"');
+    const locked = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(OutputsStage, { model, issueDownload: issuer, downloadsLocked: true })));
+    expect(locked).not.toContain('data-testid="export-buttons"');
+    expect(locked).toContain('data-testid="outputs-downloads-locked"');
+    expect(text(locked)).toContain("Preview remains available.");
+    expect(text(locked)).toContain("Draft — not reviewed or approved"); // the web preview stays available whatever the plan
   });
 
   it("signature placeholders appear only when explicitly configured, and still carry the draft stamp", async () => {

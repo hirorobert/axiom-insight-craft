@@ -9,7 +9,13 @@
 //
 // Acceptance flow:
 //   Pending members have accepted_at = null. When an invited user
-//   logs in, Dashboard.tsx auto-updates their accepted_at.
+//   signs in, Dashboard.tsx accepts through accept_workspace_invitations.
+//
+// Named-user seats (20260925100000): every plan includes one named user;
+// Practice and Firm add purchased seats. A pending invitation holds a seat.
+// The database seat wall decides; this panel shows the structured state
+// (get_workspace_seat_capacity) and never offers an invitation that the
+// server would refuse. Each person has their own sign-in.
 //
 // Role definitions:
 //   owner   — full access, cannot be removed via UI (DB trigger enforces)
@@ -49,6 +55,14 @@ import {
   Trash2, Building2, Crown, Shield,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
+import {
+  canInviteAnother,
+  functionSeatRefusal,
+  parseSeatCapacity,
+  seatCopy,
+  type SeatCapacityState,
+} from "@/lib/commercial/paidActions";
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -108,6 +122,17 @@ export function FirmManagementPanel() {
   const [inviting, setInviting]         = useState(false);
   const [removing, setRemoving]         = useState<string | null>(null);
   const [inviteForm, setInviteForm]     = useState({ email: "", role: "preparer" as MemberRole });
+  const [seats, setSeats]               = useState<SeatCapacityState | null>(null);
+  const [seatsLoaded, setSeatsLoaded]   = useState(false);
+
+  // Named-user seats of the selected workspace's account (explanatory; the server decides).
+  const fetchSeats = async (companyId: string) => {
+    if (!companyId) return;
+    setSeatsLoaded(false);
+    const { data, error } = await supabase.rpc("get_workspace_seat_capacity" as never, { p_company_id: companyId } as never);
+    setSeats(error ? null : parseSeatCapacity(data));
+    setSeatsLoaded(true);
+  };
 
   // Fetch companies the user owns
   const fetchOwned = async () => {
@@ -191,7 +216,7 @@ export function FirmManagementPanel() {
   };
 
   useEffect(() => { fetchOwned(); }, [user]);
-  useEffect(() => { if (selectedCompany) fetchMembers(selectedCompany); }, [selectedCompany]);
+  useEffect(() => { if (selectedCompany) { fetchMembers(selectedCompany); fetchSeats(selectedCompany); } }, [selectedCompany]);
 
   // ── Invite ────────────────────────────────────────────────────
 
@@ -207,7 +232,16 @@ export function FirmManagementPanel() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        const seatRefusal = await functionSeatRefusal(error);
+        if (seatRefusal) {
+          toast("No named-user seat is free", { description: "The invitation was not sent. See the seat details on this page." });
+          await fetchSeats(selectedCompany);
+          setShowInvite(false);
+          return;
+        }
+        throw error;
+      }
 
       if (data?.ok === false && data?.alreadyMember) {
         toast.warning(data.message);
@@ -216,6 +250,7 @@ export function FirmManagementPanel() {
         setShowInvite(false);
         setInviteForm({ email: "", role: "preparer" });
         await fetchMembers(selectedCompany);
+        await fetchSeats(selectedCompany);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -254,6 +289,7 @@ export function FirmManagementPanel() {
       if (error) throw error;
       toast.success("Member removed");
       await fetchMembers(selectedCompany);
+      await fetchSeats(selectedCompany);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Remove failed: ${msg}`);
@@ -295,6 +331,8 @@ export function FirmManagementPanel() {
                 size="sm"
                 onClick={() => setShowInvite(true)}
                 className="gap-1.5"
+                disabled={!seatsLoaded || !canInviteAnother(seats)}
+                data-testid="invite-member"
               >
                 <UserPlus className="w-3.5 h-3.5" />
                 Invite Member
@@ -326,6 +364,18 @@ export function FirmManagementPanel() {
       </CardHeader>
 
       <CardContent className="pt-0">
+        {selectedCompany && seatsLoaded && (
+          <div className="mb-3 space-y-2" data-testid="named-user-seats">
+            {seats && (
+              <p className="text-xs text-muted-foreground">
+                Named users: {seats.activeNamedUsers} active
+                {seats.reservedNamedUsers > seats.activeNamedUsers ? `, ${seats.reservedNamedUsers - seats.activeNamedUsers} invited` : ""}
+                {seats.allowedNamedUsers !== null ? ` of ${seats.allowedNamedUsers}` : ""}. Each person signs in with their own account.
+              </p>
+            )}
+            {seatCopy(seats) && <PaidActionNotice copy={seatCopy(seats)!} testId="named-user-seats-locked" />}
+          </div>
+        )}
         {loading ? (
           <div className="text-center py-8 text-sm text-muted-foreground">
             <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />

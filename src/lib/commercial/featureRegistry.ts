@@ -20,6 +20,7 @@ export const CAPABILITY_CODES = [
   "REPORTING_PACK_EXPORT",
   "CLOSE_INSIGHTS",
   "ENTITY_CAPACITY",
+  "NAMED_USER_SEATS",
 ] as const;
 
 export type CapabilityCode = (typeof CAPABILITY_CODES)[number];
@@ -57,6 +58,10 @@ export const CAPABILITIES: Readonly<Record<CapabilityCode, CapabilityDefinition>
   ENTITY_CAPACITY: {
     code: "ENTITY_CAPACITY", kind: "capacity", name: "Entity Capacity",
     description: "How many active entities your plan includes.",
+  },
+  NAMED_USER_SEATS: {
+    code: "NAMED_USER_SEATS", kind: "capacity", name: "Named Users",
+    description: "How many people may use the account, each with their own sign-in: one included in every plan, plus additional seats on Practice and Firm.",
   },
 };
 

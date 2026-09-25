@@ -24,6 +24,7 @@ import {
   Clock,
 } from "lucide-react";
 import jsPDF from "jspdf";
+import { requestReportingPack } from "@/lib/commercial/requestReportingPack";
 import { useAuditLog } from "@/hooks/useAuditLog";
 
 interface DisclosureNote {
@@ -51,9 +52,12 @@ interface NoteSynthProps {
     };
   } | null;
   onNotesGenerated?: () => void;
+/** Workspace and fiscal year the notes PDF is issued for (issue_reporting_pack). */
+companyId?: string;
+periodYear?: number;
 }
 
-export function NoteSynth({ uploadId, existingNotes, onNotesGenerated }: NoteSynthProps) {
+export function NoteSynth({ uploadId, existingNotes, onNotesGenerated, companyId, periodYear }: NoteSynthProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [notes, setNotes] = useState<DisclosureNote[]>(existingNotes?.notes || []);
   const [metadata, setMetadata] = useState(existingNotes?.metadata || null);
@@ -106,8 +110,10 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated }: NoteSyn
     }
   };
 
-  const exportNotesToPDF = () => {
+  const exportNotesToPDF = async () => {
     if (notes.length === 0) return;
+// A disclosure-notes PDF is a Reporting Pack deliverable: issued by the server first, or not produced.
+if (!(await requestReportingPack(companyId, periodYear, "disclosure_notes"))) return;
 
     const doc = new jsPDF();
     let yPosition = 20;
@@ -232,7 +238,7 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated }: NoteSyn
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={exportNotesToPDF} className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => void exportNotesToPDF()} className="gap-2">
             <Download className="w-4 h-4" />
             Export PDF
           </Button>

@@ -7,7 +7,7 @@
  * never parsed.
  */
 import { CAPABILITIES, canonicalCapability, type CapabilityCode } from "./featureRegistry";
-import { ENTRY_PAID_PLAN, displayCataloguePlanName, planByCode } from "./pricingCatalogue";
+import { ADDITIONAL_SEAT_PRICE, ENTRY_PAID_PLAN, displayCataloguePlanName, formatCatalogueAmount, planByCode } from "./pricingCatalogue";
 
 export type PaidCapabilityCode = "STATEMENT_CERTIFICATION" | "REPORTING_PACK_EXPORT" | "CLOSE_INSIGHTS";
 export const PAID_ACTIONS: readonly PaidCapabilityCode[] = ["STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS"];
@@ -150,4 +150,115 @@ export async function functionEntitlementRefusal(error: unknown): Promise<Capabi
     }
   }
   return entitlementRefusal(error);
+}
+
+// ── Named-user seats ──────────────────────────────────────────────────────────────────────────────────────────
+// Every plan includes one named user; Practice and Firm add purchased seats. The database seat wall decides
+// (named_user_seat_wall); these helpers only explain its structured state (get_workspace_seat_capacity,
+// accept_workspace_invitations, the invitation function's 402 body). No message text is read.
+
+export interface SeatCapacityState {
+  readonly determined: boolean;
+  readonly planCode: string | null;
+  readonly includedSeats: number | null;
+  readonly additionalSeats: number | null;
+  readonly allowedNamedUsers: number | null;
+  readonly activeNamedUsers: number;
+  readonly reservedNamedUsers: number;
+  readonly additionalSeatsPurchasable: boolean;
+}
+
+const nonNegInt = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
+
+/** Strict parse of get_workspace_seat_capacity(); anything malformed or without access → null (fail closed). */
+export function parseSeatCapacity(raw: unknown): SeatCapacityState | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (r.access !== true || typeof r.determined !== "boolean") return null;
+  const active = nonNegInt(r.active_named_users);
+  const reserved = nonNegInt(r.reserved_named_users);
+  if (active === null || reserved === null) return null;
+  const allowed = nonNegInt(r.allowed_named_users);
+  return {
+    determined: r.determined && allowed !== null,
+    planCode: typeof r.plan_code === "string" ? r.plan_code : null,
+    includedSeats: nonNegInt(r.included_seats),
+    additionalSeats: nonNegInt(r.additional_seats),
+    allowedNamedUsers: r.determined ? allowed : null,
+    activeNamedUsers: active,
+    reservedNamedUsers: reserved,
+    additionalSeatsPurchasable: r.additional_seats_purchasable === true,
+  };
+}
+
+/** Whether one more person could be invited now. Unknown → false. */
+export function canInviteAnother(state: SeatCapacityState | null): boolean {
+  return !!state && state.determined && state.allowedNamedUsers !== null && state.reservedNamedUsers < state.allowedNamedUsers;
+}
+
+/** Customer copy when no one else can be invited (null when an invitation is possible). */
+export function seatCopy(state: SeatCapacityState | null): LockedCopy | null {
+  if (canInviteAnother(state)) return null;
+  const seat = ADDITIONAL_SEAT_PRICE;
+  const seatPrice = `${formatCatalogueAmount(seat.monthlyMinor)} / month or ${formatCatalogueAmount(seat.annualMinor)} / year`;
+  if (!state || !state.determined) {
+    return {
+      title: "Named-user seats need confirming",
+      unavailable: "Your plan's named-user seats have not been recorded yet, so no one new can be invited.",
+      remains: "Everyone who already has access keeps it.",
+      history: "Contact us to confirm the named users in your agreement.",
+    };
+  }
+  if (state.planCode === "FREE") {
+    return {
+      title: `Available with ${planName(ENTRY_PAID_PLAN)}`,
+      unavailable: "The Free plan includes one named user: you. Inviting other people is available with Practice or Firm.",
+      remains: `On Practice and Firm, each additional named user is ${seatPrice}.`,
+      history: "Everyone who already has access keeps it, and nobody is removed when a plan changes.",
+    };
+  }
+  const plan = displayCataloguePlanName(state.planCode) ?? "current";
+  const n = state.allowedNamedUsers ?? 0;
+  return {
+    title: "All named-user seats are in use",
+    unavailable: `Your ${plan} plan has ${n} named ${n === 1 ? "user" : "users"}${
+      state.includedSeats !== null && state.additionalSeats !== null ? ` (${state.includedSeats} included + ${state.additionalSeats} additional)` : ""
+    }, and every seat is in use or held by a pending invitation.`,
+    remains: state.additionalSeatsPurchasable
+      ? `Additional named users are ${seatPrice} each. Contact us to add seats.`
+      : "Contact us to change the named users in your agreement.",
+    history: "Existing members keep their access. Removing a member or a pending invitation frees a seat.",
+  };
+}
+
+export interface AcceptInvitationsResult {
+  readonly accepted: readonly string[];
+  readonly blocked: readonly { readonly companyId: string; readonly code: "SEAT_LIMIT_REACHED" | "SEAT_CAPACITY_UNDETERMINED" }[];
+}
+
+/** Strict parse of accept_workspace_invitations(); malformed → null. */
+export function parseAcceptInvitations(raw: unknown): AcceptInvitationsResult | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (r.outcome !== "ok" || !Array.isArray(r.accepted) || !Array.isArray(r.blocked)) return null;
+  const accepted = r.accepted.filter((x): x is string => typeof x === "string");
+  const blocked: { companyId: string; code: "SEAT_LIMIT_REACHED" | "SEAT_CAPACITY_UNDETERMINED" }[] = [];
+  for (const b of r.blocked) {
+    const o = (b && typeof b === "object" ? b : {}) as Record<string, unknown>;
+    if (typeof o.company_id === "string" && (o.code === "SEAT_LIMIT_REACHED" || o.code === "SEAT_CAPACITY_UNDETERMINED")) blocked.push({ companyId: o.company_id, code: o.code });
+  }
+  return { accepted, blocked };
+}
+
+/** The invitation function's structured seat refusal (HTTP 402 body), or null for any other failure. */
+export async function functionSeatRefusal(error: unknown): Promise<"seat_limit_reached" | "seat_capacity_undetermined" | null> {
+  const ctx = error && typeof error === "object" ? (error as { context?: unknown }).context : undefined;
+  if (!ctx || typeof (ctx as { clone?: unknown }).clone !== "function") return null;
+  try {
+    const body = (await (ctx as Response).clone().json()) as Record<string, unknown>;
+    if (body?.capability !== "NAMED_USER_SEATS") return null;
+    return body.status === "seat_limit_reached" || body.status === "seat_capacity_undetermined" ? body.status : null;
+  } catch {
+    return null;
+  }
 }

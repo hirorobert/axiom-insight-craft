@@ -11,7 +11,16 @@
  *
  * Signature / approval placeholders appear only when the caller explicitly
  * configures them.
+ *
+ * Reporting Pack (REPORTING_PACK_EXPORT, 20260925100000): the web preview is
+ * free; every downloadable file (JSON / CSV) is a Reporting Pack deliverable.
+ * This stage stays database-inert: the HOST PAGE supplies `issueDownload`
+ * (which asks the server, issue_reporting_pack) and `downloadsLocked`. A file
+ * is written only after issueDownload answers "issued"; without an issuer no
+ * download is offered at all. The print is always a draft and carries
+ * DRAFT_PRINT_MARK on every printed page.
  */
+import { useState } from "react";
 import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +30,9 @@ import { StatementRenderer } from "./StatementRenderer";
 import { StatusBadge } from "./SourcesStructureStatements";
 import { BudgetActualTable, DisclosureChecklist, PublicationControls } from "./EvidenceUi";
 import { auditExport, budgetCsv, canonicalJsonExport, checklistCsv, evidenceExport, findingsCsv, outputStatus, type ExportFile } from "@/lib/financialStatementsWorkspace/exports";
+import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
+import { lockedCopy } from "@/lib/commercial/paidActions";
+import { DRAFT_PRINT_MARK, type IssueOutcome } from "@/lib/commercial/reportingPack";
 
 function download(file: ExportFile) {
   const url = URL.createObjectURL(new Blob([file.content], { type: `${file.mimeType};charset=utf-8` }));
@@ -41,10 +53,12 @@ const STAMP = {
 
 export const PRINT_DOCUMENT_ID = "fs-print-document";
 
-// Print isolates ONLY the report document, on A4 portrait, repeats table headers, avoids row splits, and draws a diagonal DRAFT watermark.
+// Print isolates ONLY the report document, on A4 portrait, repeats table headers, avoids row splits, and marks EVERY
+// printed page twice with DRAFT_PRINT_MARK: in the page's top margin box and as a diagonal watermark (a fixed-position
+// element repeats on each printed page).
 export const PRINT_CSS = `@media print {
-  @page { size: A4 portrait; margin: 15mm; @bottom-center { content: "Page " counter(page) " of " counter(pages); font-size: 9pt; } }
-  @page fs-landscape { size: A4 landscape; margin: 15mm; @bottom-center { content: "Page " counter(page) " of " counter(pages); font-size: 9pt; } }
+  @page { size: A4 portrait; margin: 15mm; @top-center { content: "${DRAFT_PRINT_MARK}"; font-size: 8pt; font-weight: 700; } @bottom-center { content: "Page " counter(page) " of " counter(pages); font-size: 9pt; } }
+  @page fs-landscape { size: A4 landscape; margin: 15mm; @top-center { content: "${DRAFT_PRINT_MARK}"; font-size: 8pt; font-weight: 700; } @bottom-center { content: "Page " counter(page) " of " counter(pages); font-size: 9pt; } }
   #${PRINT_DOCUMENT_ID} .fs-landscape { page: fs-landscape; break-before: page; }
   #${PRINT_DOCUMENT_ID} .fs-toc a { text-decoration: none; color: inherit; }
   #${PRINT_DOCUMENT_ID} table { max-width: 100%; }
@@ -58,16 +72,31 @@ export const PRINT_CSS = `@media print {
   #${PRINT_DOCUMENT_ID} thead { display: table-header-group; }
   #${PRINT_DOCUMENT_ID} tr { break-inside: avoid; }
   #${PRINT_DOCUMENT_ID} .fs-no-print { display: none !important; }
-  #${PRINT_DOCUMENT_ID}::before { content: "DRAFT"; position: fixed; top: 40%; left: 10%; width: 80%; text-align: center; font-size: 8rem; font-weight: 700; letter-spacing: 0.2em; color: rgba(0,0,0,0.07); transform: rotate(-30deg); z-index: 0; pointer-events: none; }
+  #${PRINT_DOCUMENT_ID}::before { content: "${DRAFT_PRINT_MARK}"; position: fixed; top: 45%; left: 5%; width: 90%; text-align: center; font-size: 1.6rem; font-weight: 700; letter-spacing: 0.05em; color: rgba(0,0,0,0.12); transform: rotate(-30deg); z-index: 0; pointer-events: none; }
 }`;
 
 export interface OutputsStageProps {
   readonly model: FinancialStatementsWorkspaceModel;
+  /** Issues ONE downloadable file as a Reporting Pack deliverable (supplied by the host page). Absent → no downloads. */
+  readonly issueDownload?: () => Promise<IssueOutcome>;
+  /** The host page knows the workspace cannot issue a Reporting Pack: show the plan explanation instead. */
+  readonly downloadsLocked?: boolean;
   /** Explicit signature/approval blocks to print. Omit (default) to print none. */
   readonly signatureBlocks?: readonly string[];
 }
 
-export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
+export function OutputsStage({ model, signatureBlocks, issueDownload, downloadsLocked = false }: OutputsStageProps) {
+  const [refused, setRefused] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const packLocked = refused || downloadsLocked;
+  // A downloadable file is a Reporting Pack deliverable: issued first, or nothing is downloaded.
+  const issueAndDownload = async (file: ExportFile) => {
+    if (!issueDownload) return;
+    const outcome = await issueDownload();
+    setFailed(outcome.status === "failed");
+    if (outcome.status === "issued") download(file);
+    else if (outcome.status === "locked") setRefused(true);
+  };
   const { snapshot, profile, composition, numbering, structure } = model;
   const blockers: string[] = [];
   for (const d of structure.diagnostics) if (d.severity === "BLOCKING") blockers.push(d.message);
@@ -108,13 +137,22 @@ export function OutputsStage({ model, signatureBlocks }: OutputsStageProps) {
         </Button>
       </div>
 
-      <div className="flex flex-wrap gap-2 fs-no-print" data-testid="export-buttons">
-        {bundle.map((f) => (
-          <Button key={f.fileName} type="button" variant="outline" size="sm" onClick={() => download(f)} data-export-file={f.fileName}>
-            {f.fileName.replace(/^.*?-(v\d+|unsaved-draft)\./, "").replace(/\./g, " ")} ({f.mimeType === "text/csv" ? "CSV" : "JSON"})
-          </Button>
-        ))}
-      </div>
+      {packLocked ? (
+        <div className="fs-no-print">
+          <PaidActionNotice copy={lockedCopy("REPORTING_PACK_EXPORT")} testId="outputs-downloads-locked" />
+        </div>
+      ) : !issueDownload ? null : (
+        <div className="flex flex-wrap gap-2 fs-no-print" data-testid="export-buttons">
+          {bundle.map((f) => (
+            <Button key={f.fileName} type="button" variant="outline" size="sm" onClick={() => void issueAndDownload(f)} data-export-file={f.fileName}>
+              {f.fileName.replace(/^.*?-(v\d+|unsaved-draft)\./, "").replace(/\./g, " ")} ({f.mimeType === "text/csv" ? "CSV" : "JSON"})
+            </Button>
+          ))}
+        </div>
+      )}
+      {failed && !packLocked && (
+        <p className="text-xs text-destructive fs-no-print" role="alert">The file could not be issued. Try again.</p>
+      )}
 
       <PublicationControls model={model} blockers={blockers} />
 

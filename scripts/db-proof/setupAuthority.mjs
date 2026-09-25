@@ -147,6 +147,13 @@ async function main() {
   await check("every repository migration (including 20260920100000) applies on an empty PostgreSQL 16", async () => { files = await replay(); return files.includes("20260920100000_workspace_setup_authority.sql"); });
 
   for (const [k, id] of Object.entries(U)) await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [id, `${k}@example.test`]);
+  // Named-user seats (20260925100000): Company A has four other people, so the account holds a Practice licence with 4 purchased
+  // additional named-user seats, recorded on the licence exactly as a real account's would be.
+  if ((await admin.query("SELECT to_regclass('public.commercial_capabilities') IS NOT NULL AS ok")).rows[0].ok) {
+    const prod = (await admin.query("SELECT id FROM public.commercial_products WHERE code='CFOCLOSE'")).rows[0].id;
+    const bc = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) RETURNING id", [U.owner, prod])).rows[0].id;
+    await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats) SELECT $1, id, 'ACTIVE', 'ADMIN_GRANT', now() - interval '1 day', 4 FROM public.commercial_plans WHERE product_id=$2 AND code='PRACTICE'", [bc, prod]);
+  }
   A = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Company A') RETURNING id", [U.owner])).rows[0].id;
   B = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Company B') RETURNING id", [U.ownerB])).rows[0].id;
   for (const [k, role] of [["partner", "partner"], ["partner2", "partner"], ["preparer", "preparer"], ["viewer", "viewer"]]) await admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,$3,now())", [A, U[k], role]);

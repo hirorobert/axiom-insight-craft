@@ -7,9 +7,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  isSeatWallError,
   paidActionRefusal,
   requirePaidAction,
   requirePaidActionAsCaller,
+  requireSeatForInvitation,
+  seatRefusal,
   workspaceEntitled,
 } from "../../../supabase/functions/_shared/paidAction";
 
@@ -115,5 +118,43 @@ describe("Close Assurance comparative endpoint transition", () => {
     const panel = read("src/jurisdiction-packs/tz/KingaComparativePanel.tsx");
     expect(panel).toMatch(/"comparative-assurance-engine"/);
     expect(panel).not.toMatch(/"kinga-comparative-engine"/);
+  });
+});
+
+describe("named-user seats at the invitation boundary", () => {
+  it("seatRefusal: only an explicit allowed answer passes; limits and unknowns refuse with a structured NAMED_USER_SEATS body", () => {
+    expect(seatRefusal({ allowed: true, code: "ALLOWED" })).toBeNull();
+    expect(seatRefusal({ allowed: true, code: "ALREADY_A_NAMED_USER" })).toBeNull();
+    const full = seatRefusal({ allowed: false, code: "SEAT_LIMIT_REACHED", plan_code: "PRACTICE" })!;
+    expect(full.httpStatus).toBe(402);
+    expect(full.body).toMatchObject({ status: "seat_limit_reached", capability: "NAMED_USER_SEATS" });
+    expect(seatRefusal({ allowed: false, code: "SEAT_CAPACITY_UNDETERMINED" })!.body.status).toBe("seat_capacity_undetermined");
+    for (const bad of [null, undefined, { allowed: true }, { code: "ALLOWED" }, { allowed: "true", code: "ALLOWED" }, "ALLOWED"]) {
+      expect(seatRefusal(bad)!.httpStatus, JSON.stringify(bad)).toBe(500);
+    }
+    for (const r of [full, seatRefusal({ allowed: false, code: "SEAT_CAPACITY_UNDETERMINED" })!]) {
+      expect(JSON.stringify(r.body)).not.toMatch(/owner|partner|manager|shared (login|account|credential)/i);
+    }
+  });
+  it("requireSeatForInvitation passes the invitee (or null for a new person) and fails closed on an RPC error", async () => {
+    const ok = vi.fn(async () => ({ data: { allowed: true, code: "ALLOWED" }, error: null }));
+    expect(await requireSeatForInvitation(ok, "co", null, CORS)).toBeNull();
+    expect(ok).toHaveBeenCalledWith("seat_check_for_invitation", { p_company_id: "co", p_invitee: null });
+    const broken = vi.fn(async () => ({ data: { allowed: true, code: "ALLOWED" }, error: { message: "x" } }));
+    expect((await requireSeatForInvitation(broken, "co", "u", CORS))?.status).toBe(500);
+  });
+  it("isSeatWallError reads the structured SQLSTATE and DETAIL only", () => {
+    expect(isSeatWallError({ code: "PT402", details: "NAMED_USER_SEATS" })).toBe(true);
+    expect(isSeatWallError({ code: "PT402", details: "CLOSE_INSIGHTS" })).toBe(false);
+    expect(isSeatWallError({ message: "PT402 NAMED_USER_SEATS" })).toBe(false);
+  });
+  it("invite-firm-member checks the seat BEFORE sending any email or creating any account, and maps the wall's race refusal to 402", () => {
+    const src = read("supabase/functions/invite-firm-member/index.ts").replace(/\r\n/g, "\n");
+    const seat = src.indexOf("requireSeatForInvitation(");
+    const email = src.indexOf("inviteUserByEmail(\n");
+    expect(seat).toBeGreaterThan(-1);
+    expect(email === -1 ? src.indexOf("inviteUserByEmail(") : email).toBeGreaterThan(seat);
+    expect(src.slice(seat, seat + 200)).toMatch(/if \(noSeat\) return noSeat;/);
+    expect(src).toMatch(/isSeatWallError\(insertErr\)/);
   });
 });
