@@ -122,6 +122,35 @@ serve(async (req) => {
           { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
+
+      // Existing account, not yet a member of this company: link them
+      // directly. inviteUserByEmail would reject with email_exists (422) → 500.
+      const { error: linkErr } = await admin.from("firm_members").insert({
+        company_id,
+        user_id:       existingUser.id,
+        role,
+        invited_by:    callerUser.id,
+        invited_email: email,
+        accepted_at:   new Date().toISOString(),
+      });
+
+      if (linkErr) {
+        console.error("firm_members link error:", linkErr);
+        return new Response(
+          JSON.stringify({ error: `Could not add existing user to this company: ${linkErr.message}` }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          userId: existingUser.id,
+          alreadyMember: false,
+          message: `${email} already has an account and has been added to this company.`,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     // ── Send invitation ───────────────────────────────────────
