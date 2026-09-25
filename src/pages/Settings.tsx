@@ -16,7 +16,7 @@ import { PeriodCloseManager } from "@/components/PeriodCloseManager";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { useBillingSummary } from "@/hooks/useBillingSummary";
 import { PRICING } from "@/constants/copy";
-import { planByCode } from "@/lib/commercial/pricingCatalogue";
+import { CHECKOUT_AVAILABLE, planByCode } from "@/lib/commercial/pricingCatalogue";
 import {
   displayPlanName,
   displayEntitlement,
@@ -396,7 +396,7 @@ export default function Settings() {
                           available precisely then. commit_verified_
                           commercial_payment extends from the current
                           licence's effective_end automatically. */}
-                      {billing.planCode === "PAID" && billing.billingInterval && (
+                      {CHECKOUT_AVAILABLE && billing.planCode === "PAID" && billing.billingInterval && (
                         <div className="max-w-xs mb-2">
                           {/* Ω∞ A+ closure HIGH-3: identical discipline to
                               Pricing.tsx — CheckoutUpgradeButton stays

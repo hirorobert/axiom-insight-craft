@@ -34,6 +34,18 @@ BEGIN
                   WHERE p.code = 'CFOCLOSE' AND cp.code = 'FREE') THEN
     RAISE EXCEPTION 'plan catalogue migration refused: the FREE plan is missing. Nothing was changed.' USING ERRCODE = '55000';
   END IF;
+  -- PRODUCTION DEPLOYMENT INTERLOCK. Applying this to a database that holds open Free licences turns every such account
+  -- read-only (FREE -> EXPIRED_READ_ONLY). It is refused unless the operator, in the SAME session, records that the
+  -- release sequence in docs/release/PR34_STAGING_DEPLOYMENT_PLAN.md ("Production deployment interlock") is complete:
+  -- Free accounts inventoried, intended paid / manual status recorded, affected users notified, and either checkout
+  -- activated or the manual activation path (admin_ensure_billing_customer + admin_grant_commercial_licence) confirmed:
+  --   SET cfoclose.free_retirement_approval = 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED';
+  IF EXISTS (SELECT 1 FROM public.commercial_licences cl JOIN public.commercial_plans cp ON cp.id = cl.plan_id
+              WHERE cp.code = 'FREE' AND cl.status IN ('PENDING', 'ACTIVE', 'GRACE'))
+     AND COALESCE(current_setting('cfoclose.free_retirement_approval', true), '') <> 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED' THEN
+    RAISE EXCEPTION 'plan catalogue migration refused (production interlock): open Free licences exist and the Free-retirement release sequence has not been confirmed in this session. Nothing was changed.'
+      USING ERRCODE = '55000', HINT = 'See docs/release/PR34_STAGING_DEPLOYMENT_PLAN.md, Production deployment interlock.';
+  END IF;
 END
 $refuse$;
 

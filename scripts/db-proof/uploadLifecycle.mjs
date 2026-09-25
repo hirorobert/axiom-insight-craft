@@ -235,6 +235,9 @@ async function main() {
     return true;
   });
 
+  // This fixture is a legacy (Free-licensed) account created mid-history. Retiring the Free plan (20260925130000) is
+  // interlocked for production; this disposable database confirms the release sequence the way an operator would.
+  await admin.query("SET cfoclose.free_retirement_approval = 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED'");
   await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,'legacy@example.test')", [U.legacy]);
   const L = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Legacy Co') RETURNING id", [U.legacy])).rows[0].id;
   ownerMemberOf[L] = (await admin.query("SELECT id FROM public.firm_members WHERE company_id=$1 AND role='owner'", [L])).rows[0].id;

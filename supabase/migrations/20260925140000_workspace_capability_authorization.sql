@@ -31,6 +31,8 @@
 --   fs_set_publication_state, financial_statements_workspace_access (+ can_prepare), resolve_account_review_batch,
 --   workspace_authority_basis (+ current plan), issue_reporting_pack and consume_reporting_pack_issuance (+ the
 --   format's feature and issue_reporting_pack).
+-- New reconciliation write wall (section 5c): every reconciliation / EFDMS mutation needs a current plan and
+-- prepare_close; safisha_resolve_exception checks the reviewer the same way.
 -- New Close Assurance wall: a new upload, reconciliation, validation, tax computation, closing balance or finding
 -- needs the workspace account to hold CLOSE_ASSURANCE (i.e. a current plan).
 -- Not changed: the integrity guards on the 'owner' title (only company creation assigns it; the last owner cannot be
@@ -1141,6 +1143,201 @@ CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.period_closing_b
 DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.findings;
 CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.findings FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall();
 
+-- ── 5c. Reconciliation write wall: every reconciliation mutation needs a current plan and the capability ─────────
+-- Inventory (every write path to reconciliation state; nothing else writes these tables):
+--   safisha_reconciliations  INSERT (safisha-ingest, client RLS), UPDATE (safisha-match / -categorize / -score, client
+--                            RLS; safisha_append_evidence_file; safisha_resolve_exception), DELETE (no policy; service)
+--   safisha_transactions     INSERT (safisha-ingest, client RLS); UPDATE / DELETE already refused (immutable)
+--   safisha_exceptions       INSERT (safisha-categorize, client RLS); UPDATE only through safisha_resolve_exception
+--                            (safisha-resolve); DELETE already refused
+--   safisha_audit_log        INSERT only through safisha_resolve_exception; UPDATE / DELETE already refused
+--   efdms_reconciliation, efdms_records, efdms_z_reports  INSERT (safisha-efdms-ingest, client RLS / service role)
+-- The wall runs BEFORE every INSERT, UPDATE and DELETE on all seven tables, on every path (client, RPC, service role):
+--   the reconciliation's account (the workspace owner; for a personal upload, its owner) must have a current plan,
+--   else PT402 (DETAIL CLOSE_ASSURANCE, HINT NO_PLAN); and a signed-in actor must hold prepare_close in the workspace
+--   (a personal reconciliation: be its owner), else 42501. A refused statement writes nothing. Reads are untouched:
+--   history stays readable to whoever could read it. A row whose parent is already gone (a cascade) is not blocked.
+-- safisha_client_mappings is the signed-in person's own column-mapping preference (no workspace, no reconciliation
+-- state) and is deliberately outside the wall.
+CREATE OR REPLACE FUNCTION public.reconciliation_write_wall()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_row     JSONB := to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END);
+  v_recon   UUID;
+  v_upload  UUID;
+  v_company UUID;
+  v_account UUID;
+  v_found   BOOLEAN := false;
+  v_actor   UUID := auth.uid();
+BEGIN
+  IF TG_TABLE_NAME LIKE 'efdms%' THEN
+    v_company := (v_row->>'company_id')::uuid;
+    SELECT c.user_id INTO v_account FROM public.companies c WHERE c.id = v_company;
+    v_found := FOUND;
+  ELSE
+    IF TG_TABLE_NAME = 'safisha_reconciliations' THEN
+      v_upload := (v_row->>'tb_upload_id')::uuid;
+      SELECT u.company_id, COALESCE(c.user_id, u.user_id, (v_row->>'client_id')::uuid) INTO v_company, v_account
+        FROM public.trial_balance_uploads u LEFT JOIN public.companies c ON c.id = u.company_id WHERE u.id = v_upload;
+      v_found := FOUND;
+    ELSE
+      v_recon := (v_row->>'reconciliation_id')::uuid;
+      SELECT u.company_id, COALESCE(c.user_id, u.user_id, r.client_id) INTO v_company, v_account
+        FROM public.safisha_reconciliations r
+        JOIN public.trial_balance_uploads u ON u.id = r.tb_upload_id
+        LEFT JOIN public.companies c ON c.id = u.company_id
+       WHERE r.id = v_recon;
+      v_found := FOUND;
+    END IF;
+  END IF;
+  IF NOT v_found THEN
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;              -- the parent is already gone: a cascade
+    RAISE EXCEPTION 'RECONCILIATION_SCOPE_UNKNOWN' USING ERRCODE = '42501';
+  END IF;
+  IF NOT public._account_has_current_plan(v_account) THEN
+    RAISE EXCEPTION 'RECONCILIATION_READ_ONLY: this account has no current plan' USING ERRCODE = 'PT402', DETAIL = 'CLOSE_ASSURANCE', HINT = 'NO_PLAN';
+  END IF;
+  IF v_actor IS NOT NULL AND (
+       (v_company IS NOT NULL AND NOT public.workspace_capability_allowed(v_company, v_actor, 'prepare_close'))
+       OR (v_company IS NULL AND v_actor IS DISTINCT FROM v_account)) THEN
+    RAISE EXCEPTION 'CAPABILITY_REQUIRED: reconciliation changes need prepare_close in this workspace' USING ERRCODE = '42501';
+  END IF;
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.safisha_reconciliations;
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.safisha_reconciliations FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall();
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.safisha_transactions;
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.safisha_transactions FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall();
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.safisha_exceptions;
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.safisha_exceptions FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall();
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.safisha_audit_log;
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.safisha_audit_log FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall();
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.efdms_reconciliation;
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.efdms_reconciliation FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall();
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.efdms_records;
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.efdms_records FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall();
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.efdms_z_reports;
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.efdms_z_reports FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall();
+
+-- The exception resolver (safisha-resolve, service role, reviewer id from the verified JWT): identical to its previous
+-- definition except the plan and capability check before any write.
+CREATE OR REPLACE FUNCTION public.safisha_resolve_exception(p_exception_id uuid, p_reviewer_id uuid, p_action text, p_note text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_exception  safisha_exceptions%ROWTYPE;
+  v_recon      safisha_reconciliations%ROWTYPE;
+  v_remaining  INTEGER;
+  v_member_id  UUID;
+  v_company    UUID;
+  v_account    UUID;
+BEGIN
+  IF p_action NOT IN ('approved','rejected','escalated') THEN
+    RAISE EXCEPTION 'Invalid reviewer_action: %. Must be approved|rejected|escalated', p_action;
+  END IF;
+
+  SELECT * INTO v_exception FROM safisha_exceptions WHERE id = p_exception_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Exception % not found', p_exception_id;
+  END IF;
+  -- 20260925140000: the reviewer must hold prepare_close in this workspace and its account must have a current plan
+  -- (a personal, company-less reconciliation: the reviewer must be its owner). Checked before anything is written.
+  SELECT u.company_id, COALESCE(c.user_id, u.user_id, r.client_id) INTO v_company, v_account
+    FROM public.safisha_reconciliations r
+    JOIN public.trial_balance_uploads u ON u.id = r.tb_upload_id
+    LEFT JOIN public.companies c ON c.id = u.company_id
+   WHERE r.id = v_exception.reconciliation_id;
+  IF NOT public._account_has_current_plan(v_account) THEN
+    RAISE EXCEPTION 'RECONCILIATION_READ_ONLY' USING ERRCODE = 'PT402', DETAIL = 'CLOSE_ASSURANCE', HINT = 'NO_PLAN';
+  END IF;
+  IF (v_company IS NOT NULL AND NOT public.workspace_capability_allowed(v_company, p_reviewer_id, 'prepare_close'))
+     OR (v_company IS NULL AND p_reviewer_id IS DISTINCT FROM v_account) THEN
+    RAISE EXCEPTION 'CAPABILITY_REQUIRED: resolving a reconciliation exception needs prepare_close in this workspace' USING ERRCODE = '42501';
+  END IF;
+  IF v_exception.reviewer_action <> 'pending' THEN
+    RAISE EXCEPTION 'Exception % is already resolved (%)', p_exception_id, v_exception.reviewer_action;
+  END IF;
+
+  -- v2.3 Phase 1: resolve firm_members.id via reconciliation → upload → company
+  SELECT fm.id INTO v_member_id
+  FROM public.firm_members fm
+  JOIN public.trial_balance_uploads tbu ON tbu.company_id = fm.company_id
+  JOIN public.safisha_reconciliations sr
+    ON sr.tb_upload_id = tbu.id AND sr.id = v_exception.reconciliation_id
+  WHERE fm.user_id = p_reviewer_id
+  LIMIT 1;
+  -- v_member_id may be NULL if reviewer has no firm membership for this company
+  -- (e.g. service_role pipeline call). This is intentional — NULL is acceptable.
+
+  PERFORM set_config('safisha.resolve_authorized', 'true', TRUE);
+
+  UPDATE safisha_exceptions SET
+    reviewer_action    = p_action,
+    reviewer_id        = p_reviewer_id,   -- legacy: auth.users.id
+    reviewer_member_id = v_member_id,     -- v2.3: firm_members.id (nullable)
+    reviewer_note      = p_note,
+    resolved_at        = now()
+  WHERE id = p_exception_id;
+
+  PERFORM set_config('safisha.resolve_authorized', 'false', TRUE);
+
+  SELECT COUNT(*) INTO v_remaining
+  FROM safisha_exceptions
+  WHERE reconciliation_id = v_exception.reconciliation_id
+    AND reviewer_action = 'pending';
+
+  IF v_remaining = 0 THEN
+    DECLARE
+      v_blocked INTEGER;
+    BEGIN
+      SELECT COUNT(*) INTO v_blocked
+      FROM safisha_exceptions
+      WHERE reconciliation_id = v_exception.reconciliation_id
+        AND category = 'investigate'
+        AND reviewer_action = 'rejected';
+      IF v_blocked > 0 THEN
+        UPDATE safisha_reconciliations SET status = 'blocked' WHERE id = v_exception.reconciliation_id;
+        UPDATE trial_balance_uploads SET safisha_status = 'blocked' WHERE id = (
+          SELECT tb_upload_id FROM safisha_reconciliations WHERE id = v_exception.reconciliation_id
+        );
+      ELSE
+        UPDATE safisha_reconciliations SET
+          status       = 'clean',
+          completed_at = now()
+        WHERE id = v_exception.reconciliation_id;
+        UPDATE trial_balance_uploads SET safisha_status = 'clean' WHERE id = (
+          SELECT tb_upload_id FROM safisha_reconciliations WHERE id = v_exception.reconciliation_id
+        );
+      END IF;
+    END;
+  END IF;
+
+  -- Append-only audit log write (INSERT only — trigger blocks UPDATE/DELETE)
+  INSERT INTO safisha_audit_log (
+    exception_id, reconciliation_id,
+    reviewer_id,         -- legacy: auth.users.id
+    reviewer_member_id,  -- v2.3: firm_members.id
+    action, note
+  ) VALUES (
+    p_exception_id, v_exception.reconciliation_id,
+    p_reviewer_id,
+    v_member_id,
+    p_action, p_note
+  );
+
+  RETURN jsonb_build_object(
+    'exception_id',   p_exception_id,
+    'action',         p_action,
+    'remaining',      v_remaining,
+    'recon_status',   (SELECT status FROM safisha_reconciliations WHERE id = v_exception.reconciliation_id)
+  );
+END;
+$function$;
+
 -- ── 6. Privileges ────────────────────────────────────────────────────────────────────────────
 -- RLS policies call the two predicates as the signed-in user, so authenticated needs EXECUTE; neither discloses
 -- anything about another person (see has_workspace_capability).
@@ -1164,6 +1361,9 @@ REVOKE ALL ON FUNCTION public.firm_members_capability_template_sync() FROM PUBLI
 REVOKE ALL ON FUNCTION public.workspace_member_capabilities_guard() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.workspace_member_capabilities_no_truncate() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.close_assurance_wall() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.reconciliation_write_wall() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.safisha_resolve_exception(uuid, uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.safisha_resolve_exception(uuid, uuid, text, text) TO service_role;
 
 -- Rollback (forward-fix only): restore the previous definitions of the functions and policies above (the proof keeps
 -- both). Capability rows are records and are never deleted.

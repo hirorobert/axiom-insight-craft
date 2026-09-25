@@ -1,4 +1,5 @@
 import {
+  NO_CHECKOUT_NOTICE,
   ENTRY_PAID_PLAN,
   CATALOGUE_CURRENCY,
   annualSavingMinor,
@@ -33,7 +34,7 @@ export const BRAND = {
 } as const;
 
 export const CTA = {
-  primary:     "Get started",
+  primary:     "Request access",
   secondary:   "See how it works",
   primaryHref: "/auth",
 } as const;
@@ -262,7 +263,7 @@ export const PRICING = {
   ENTRY_ANNUAL_SAVING:  formatCatalogueAmount(annualSavingMinor(ENTRY_PLAN)!),
   CURRENCY_CODE:        CATALOGUE_CURRENCY.code,
   TAX_DISCLAIMER:       "Applicable taxes, if any, are shown before payment.",
-  CHECKOUT_DISABLED_MSG: "Self-service upgrades are not open yet. Contact us to upgrade.",
+  CHECKOUT_DISABLED_MSG: NO_CHECKOUT_NOTICE,
 } as const;
 
 export const PRICING_TABLE = [

@@ -7,6 +7,7 @@ import { Footer } from "@/components/Footer";
 import { BRAND, PRICING, PRICING_TABLE } from "@/constants/copy";
 import {
   MATRIX_CAPABILITIES,
+  NO_CHECKOUT_NOTICE,
   PRICING_CATALOGUE,
   annualSavingMinor,
   formatCatalogueAmount,
@@ -29,8 +30,8 @@ import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGat
 
 type BillingInterval = "monthly" | "annual";
 
-// The same honest wording the upgrade button uses while no checkout is live (no provider named, no invented contact).
-const CHECKOUT_UNAVAILABLE = "Online checkout is temporarily unavailable. Contact support for billing assistance.";
+// The same honest wording the upgrade button uses: there is no checkout (no provider named, no invented contact).
+const CHECKOUT_UNAVAILABLE = NO_CHECKOUT_NOTICE;
 
 function PriceBlock({ plan, interval }: { plan: CataloguePlan; interval: BillingInterval }) {
   if (plan.salesMode === "contact_sales" || plan.monthlyMinor === null || plan.annualMinor === null) {
@@ -88,7 +89,7 @@ function PlanAction({ plan, contactAvailable }: { plan: CataloguePlan; contactAv
         </Button>
       ) : (
         <p className="border border-dashed border-border px-3 py-2 text-center text-xs font-medium text-foreground">
-          {plan.salesMode === "contact_sales" ? "Contact sales through your CFO Close account team" : `Upgrade to ${plan.name} with our team`}
+          {plan.salesMode === "contact_sales" ? "Contact sales through your CFO Close account team" : `Request ${plan.name} from our team`}
         </p>
       )}
       <p className="mt-2 text-[11px] leading-4 text-muted-foreground">{CHECKOUT_UNAVAILABLE}</p>

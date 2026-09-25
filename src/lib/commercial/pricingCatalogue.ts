@@ -25,6 +25,17 @@ import { CAPABILITIES, PLAN_FEATURES } from "./featureRegistry";
 
 export const CATALOGUE_CURRENCY = { code: "USD", exponent: 2 } as const;
 
+/**
+ * There is no online checkout or payment provider in this build. Every customer-facing action is non-transactional
+ * ("Request access", "Contact sales"); plans are activated by the commercial team (admin_grant_commercial_licence).
+ * Nothing may render Buy, Subscribe, Start free, Start trial or any payment step while this is false
+ * (src/lib/commercial/__tests__/noCheckoutClaims.test.ts).
+ */
+export const CHECKOUT_AVAILABLE = false as const;
+
+/** The one truthful sentence shown wherever a payment step would otherwise be. */
+export const NO_CHECKOUT_NOTICE = "There is no online checkout. Plans are activated by our team: contact sales to request one.";
+
 export type PlanCode = "SOLO" | "PRACTICE" | "FIRM" | "ENTERPRISE";
 export type SalesMode = "self_serve" | "contact_sales";
 

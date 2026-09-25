@@ -130,6 +130,12 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
       "supabase/migrations/20260925120000_reporting_pack_issuance_binding.sql",
       "supabase/functions/_shared/namedUserAccess.ts",
+      // No free plan / Solo / plan x capability matrix (20260925130000), capability authorization with the Close
+      // Assurance and reconciliation write walls (20260925140000), and the minimum predicate grant (20260925150000).
+      // No financial-statements schema.
+      "supabase/migrations/20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
+      "supabase/migrations/20260925140000_workspace_capability_authorization.sql",
+      "supabase/migrations/20260925150000_can_user_act_on_workspace_minimum_grant.sql",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
@@ -201,7 +207,9 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/billingSuspension.mjs", "scripts/ci/assertMigrationAuthority.mjs",
       // Disposable-database contract harness, section E only: asserts the CURRENT catalogue (the original offers kept but
       // retired by 20260925100000, the four current offers non-purchasable) instead of the retired offers being active.
-      "scripts/db-contract-tests/10_static_contract_assertions.sql"]);
+      "scripts/db-contract-tests/10_static_contract_assertions.sql",
+      // The plan catalogue / capability authorization / minimum-grant proof (disposable PostgreSQL only).
+      "scripts/db-proof/planCapabilities.mjs"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

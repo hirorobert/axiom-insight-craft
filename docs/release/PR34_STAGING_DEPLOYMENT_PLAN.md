@@ -29,6 +29,30 @@ Hosted apply goes through Lovable's apply journal (`drizzle/migrations`). `scrip
 lists these six as `PENDING_HOSTED_APPLY` and fails CI if a journal entry later diverges from its source. The one
 historical divergence (MIGRATION-AUTHORITY-DRIFT-0006) is resolved forward by 20260925150000 (see §10).
 
+## 0. Production deployment interlock (20260925130000–20260925150000)
+
+These three migrations must NOT be applied to production until EITHER (A) checkout / payment activation exists, OR (B) an
+approved manual activation procedure and the customer communication are ready. The transition they perform is
+**FREE -> EXPIRED_READ_ONLY**: every open Free licence is ended and the account becomes read-only. **No plan (Solo or
+any other) is granted by the migration**; a plan is only ever recorded by an explicit, audited administrator action.
+
+Enforced, not only documented: `20260925130000` refuses (SQLSTATE 55000, before any change) on any database holding open
+Free licences unless the operator sets, in the same session,
+`SET cfoclose.free_retirement_approval = 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED';`
+Setting it is the operator's attestation that steps 1–4 below are complete. Proven by `scripts/db-proof/planCapabilities.mjs`.
+
+Production sequence (in order, each step recorded):
+1. **Inventory** existing Free accounts (read-only): every account whose current licence is on the FREE plan, with its
+   workspaces, members and last activity.
+2. **Record the intended status** of each: paid plan to activate (which plan, seats, effective dates) or read-only.
+3. **Notify affected users** of the change and its date (the owner's approved communication).
+4. **Confirm the administrative activation path**: `admin_ensure_billing_customer` then `admin_grant_commercial_licence`
+   (and `admin_set_licence_additional_seats`) by a commercial administrator, tested on staging; or checkout, if activated.
+5. **Apply** 20260925100000 → 20260925150000 in order, setting the approval above for 20260925130000.
+6. **Verify**: every former Free account is EXPIRED_READ_ONLY (no current licence, data intact, reads work, writes
+   refused); every intended paid account is activated by its audited `LICENCE_GRANTED` event and operates.
+7. **Run the RLS / capability regressions** (§8) and the invariant queries (§12) against the migrated database.
+
 ## 1. Read-only preflight (no writes)
 
 ```sql
@@ -131,6 +155,13 @@ Run with twelve parallel callers each, using dedicated staging fixtures only:
 - simultaneous reactivation selections from the same roster → exactly one applied, the rest stale;
 - simultaneous seals of one issuance → exactly one sealed;
 - simultaneous entity creations at capacity.
+
+## 7b. Reconciliation write wall (staging)
+
+For a workspace whose plan has ended: matching, categorizing, scoring and resolving an existing reconciliation, direct
+table writes (client and service role), `safisha_append_evidence_file`, `safisha_resolve_exception` and EFDMS inserts
+are all refused (PT402 CLOSE_ASSURANCE / 42501), and the reconciliation, exception, audit, upload and finding rows are
+unchanged. History remains readable.
 
 ## 8. RLS regression (staging)
 

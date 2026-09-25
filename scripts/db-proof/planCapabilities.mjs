@@ -2,8 +2,11 @@
 // Real-PostgreSQL proof of the plan catalogue, the plan x capability matrix, capability authorization and the minimum
 // grant on the workspace-authority predicates (20260925130000, 20260925140000, 20260925150000).
 //
-//   no permanent free plan    the legacy Free state converts to "no current plan" (read-only, nothing deleted); Free
-//                             is retired and cannot be offered or granted again; Free -> Solo restores operation
+//   no permanent free plan    FREE -> EXPIRED_READ_ONLY: the legacy Free licence ends and the account becomes read-only;
+//                             nothing is deleted and NO plan is granted; Free cannot be offered or granted again; only an
+//                             explicit, audited administrator action records a plan afterwards
+//   reconciliation            every reconciliation / EFDMS mutation (match, categorize, score, resolve, ingest, direct
+//                             table, service role, RPC) is refused without a current plan and the capability
 //   limits                    Solo 1 entity / 1 user, Practice 5, Firm 25; seats; invitation expiry and
 //                             accept/cancel concurrency; downgrade suspension and explicit restoration
 //   capabilities              stored per person, never a job title: grant / withdraw / re-title, append-only,
@@ -178,7 +181,11 @@ async function main() {
       (SELECT coalesce(jsonb_agg(to_jsonb(f) ORDER BY f.id), '[]') FROM public.firm_members f WHERE f.company_id=$1) fm,
       (SELECT coalesce(jsonb_agg(to_jsonb(u) - 'updated_at' ORDER BY u.id), '[]') FROM public.trial_balance_uploads u WHERE u.company_id=$1) tb,
       (SELECT coalesce(jsonb_agg(to_jsonb(g) ORDER BY g.id), '[]') FROM public.workspace_capability_grants g WHERE g.company_id=$1) gr,
-      (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.id), '[]') FROM public.tax_losses t WHERE t.company_id=$1) tl`, [company])).rows[0];
+      (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.id), '[]') FROM public.tax_losses t WHERE t.company_id=$1) tl,
+      (SELECT coalesce(jsonb_agg(to_jsonb(i) ORDER BY i.id), '[]') FROM public.reporting_pack_issuances i WHERE i.company_id=$1) iss,
+      (SELECT coalesce(jsonb_agg(to_jsonb(e) ORDER BY e.id), '[]') FROM public.reporting_pack_issuance_events e WHERE e.company_id=$1) iev,
+      (SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY a.id), '[]') FROM public.billing_audit_events a JOIN public.billing_customers b ON b.id=a.billing_customer_id
+         JOIN public.companies c ON c.user_id=b.owner_user_id WHERE c.id=$1) aud`, [company])).rows[0];
 
   group("Migration replay — clean and already-upgraded; the legacy Free state is converted, never deleted");
   await check(`every migration before ${M130} applies`, async () => {
@@ -195,12 +202,22 @@ async function main() {
   await admin.query("COMMIT");
   await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,2025)", [`${L.holder}/legacy.csv`, L.co, L.holder]);
   await admin.query("INSERT INTO public.tax_losses (company_id, created_by, period_year) VALUES ($1,$2,2025)", [L.co, L.holder]);
+  const legacyIssuance = (await admin.query(`INSERT INTO public.reporting_pack_issuances (company_id, period_year, pack_kind, request_id, issued_by, plan_code, output_ref, expires_at, consumed_at, content_sha256, consumed_plan_code)
+    VALUES ($1,2025,'financial_statements_pdf',gen_random_uuid(),$2,'PAID','upload:legacy',now() + interval '10 minutes',now(),$3,'PAID') RETURNING id`, [L.co, L.holder, "c".repeat(64)])).rows[0].id;
+  await admin.query("INSERT INTO public.reporting_pack_issuance_events (issuance_id, company_id, actor_user_id, event, detail) VALUES ($1,$2,$3,'SEALED','{}'::jsonb)", [legacyIssuance, L.co, L.holder]);
   const legacyFreeLicence = (await admin.query(`SELECT cl.id, cl.status FROM public.commercial_licences cl JOIN public.billing_customers b ON b.id=cl.billing_customer_id
       JOIN public.commercial_plans cp ON cp.id=cl.plan_id WHERE b.owner_user_id=$1 AND cp.code='FREE'`, [L.holder])).rows[0];
   const legacyBefore = await snapshot(L.co);
   const preCapabilityDefs = {};
-  await check(`${M130} applies over the legacy Free state (an ACTIVE auto-provisioned FREE licence existed)`, async () => {
+  await check("production interlock: over open Free licences, ${M130} is refused at statement 1 (55000, nothing changed) until the release sequence is confirmed in the session", async () => {
+    const before = await fingerprint();
+    const e = await errOf(() => applyMigration(M130));
+    const wrong = await (async () => { await admin.query("SET cfoclose.free_retirement_approval = 'yes'"); try { return (await errOf(() => applyMigration(M130)))?.message ?? "applied"; } finally { await admin.query("RESET cfoclose.free_retirement_approval"); } })();
+    return /production interlock/.test(e?.message ?? "") && /production interlock/.test(wrong) && (await fingerprint()) === before ? true : JSON.stringify({ e: e?.message, wrong });
+  });
+  await check(`${M130} applies over the legacy Free state once the operator confirms the release sequence (an ACTIVE auto-provisioned FREE licence existed)`, async () => {
     if (legacyFreeLicence?.status !== "ACTIVE") return `no legacy FREE licence: ${JSON.stringify(legacyFreeLicence)}`;
+    await admin.query("SET cfoclose.free_retirement_approval = 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED'");
     await applyMigration(M130);
     for (const p of (await admin.query("SELECT tablename, policyname, qual, with_check FROM pg_policies WHERE schemaname='public'")).rows) preCapabilityDefs[`${p.tablename}.${p.policyname}`] = p;
     return true;
@@ -215,9 +232,19 @@ async function main() {
     }
     return JSON.stringify(out) === '["55000","55000"]' && (await fingerprint()) === before ? true : JSON.stringify(out);
   });
-  await check("conversion from Free deleted nothing: the company, memberships, upload, grants and tax records are byte-identical", async () => {
+  await check("FREE -> EXPIRED_READ_ONLY deletes nothing: company, memberships, uploads, grants, tax records, issued outputs and their events are byte-identical; audit history is only appended to", async () => {
     const after = await snapshot(L.co);
-    return JSON.stringify(after) === JSON.stringify(legacyBefore) ? true : "customer data changed";
+    const same = ["co", "fm", "tb", "gr", "tl", "iss", "iev"].every((k) => JSON.stringify(after[k]) === JSON.stringify(legacyBefore[k]));
+    const auditKept = legacyBefore.aud.every((row) => after.aud.some((x) => JSON.stringify(x) === JSON.stringify(row)));
+    const appended = after.aud.filter((x) => !legacyBefore.aud.some((row) => JSON.stringify(row) === JSON.stringify(x))).map((x) => x.action);
+    return same && auditKept && JSON.stringify(appended) === '["FREE_PLAN_RETIRED"]' ? true : JSON.stringify({ same, auditKept, appended });
+  });
+  await check("the migration grants NO plan: the converted account has no current licence and no paid (Solo or other) licence was created", async () => {
+    const lic = (await admin.query(`SELECT cp.code, cl.status FROM public.commercial_licences cl JOIN public.billing_customers b ON b.id=cl.billing_customer_id
+      JOIN public.commercial_plans cp ON cp.id=cl.plan_id WHERE b.owner_user_id=$1`, [L.holder])).rows;
+    const current = (await admin.query("SELECT public._account_current_plan_code($1) c", [L.holder])).rows[0].c;
+    const anyGranted = await count("SELECT count(*) n FROM public.commercial_licences cl JOIN public.commercial_plans cp ON cp.id=cl.plan_id WHERE cp.code <> 'FREE'");
+    return JSON.stringify(lic) === '[{"code":"FREE","status":"EXPIRED"}]' && current === null && anyGranted === 0 ? true : JSON.stringify({ lic, current, anyGranted });
   });
   await check("the Free licence row is kept (same id), ended as EXPIRED, with exactly one FREE_PLAN_RETIRED audit event", async () => {
     const l = (await admin.query("SELECT status, effective_end FROM public.commercial_licences WHERE id=$1", [legacyFreeLicence.id])).rows[0];
@@ -320,10 +347,12 @@ async function main() {
     return refused === "PT402" && licences === 0 ? true : JSON.stringify({ refused, licences });
   });
 
-  group("Free → Solo — safe conversion");
+  group("After FREE -> EXPIRED_READ_ONLY: only an explicit, audited administrator action records a plan");
   let soloLicence;
-  await check("recording Solo restores operation on the same entity with every record intact; members beyond one named user stay suspended, never removed", async () => {
+  await check("an administrator explicitly recording a plan (here Solo, audited LICENCE_GRANTED by that administrator) restores operation on the same entity with every record intact; members beyond one named user stay suspended", async () => {
     soloLicence = await grantPlan(L.holder, "SOLO");
+    const granted = await count("SELECT count(*) n FROM public.billing_audit_events WHERE action='LICENCE_GRANTED' AND actor_user_id=$1 AND (new_state->>'licence_id')::uuid=$2", [U.admin, soloLicence]);
+    if (granted !== 1) return `no audited administrator grant: ${granted}`;
     const all = await Promise.all(MATRIX_CAPS.map(async (c) => [c, (await ent(L.holder, c)).status]));
     const entitled = all.filter(([, s]) => s === "ENTITLED").map(([c]) => c);
     const write = await addTaxLoss(L.holder, L.co);
@@ -562,6 +591,102 @@ async function main() {
     return seal === "sealed" && replay === "already_sealed" && cross === "not_found" && noCap.outcome === "capability_required" && refusedEv === 1
       && after === "entitlement_required" && stillVerifies.official === true
       ? true : JSON.stringify({ seal, replay, cross, noCap, refusedEv, after, stillVerifies });
+  });
+
+  group("Reconciliation write wall — match, categorize, score and resolve are refused without a current plan, on every path");
+  const R = { owner: await mkUser("rc-owner"), preparer: await mkUser("rc-preparer"), viewer: await mkUser("rc-viewer"), other: await mkUser("rc-other") };
+  R.lic = await grantPlan(R.owner, "PRACTICE");
+  await one(user(U.admin), "SELECT public.admin_set_licence_additional_seats($1,2,'proof')", [R.lic]);
+  R.co = await newCompany(R.owner, "Reconciliation Co");
+  await q(user(R.owner), "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now()), ($1,$3,'viewer',now())", [R.co, R.preparer, R.viewer]);
+  const mkRecon = async (owner, co) => {
+    const up = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,2025) RETURNING id", [owner + "/" + uuid() + ".csv", co, owner])).rows[0].id;
+    // Fixture rows are written directly (the wall still runs on them: the account has a plan).
+    const rec = (await admin.query("INSERT INTO public.safisha_reconciliations (client_id, tb_upload_id) VALUES ($1,$2) RETURNING id", [owner, up])).rows[0].id;
+    await admin.query("INSERT INTO public.safisha_transactions (reconciliation_id, source_id, account_code, raw_row_hash) VALUES ($1,'bank','1000','h1')", [rec]);
+    const ex = (await admin.query("INSERT INTO public.safisha_exceptions (reconciliation_id, account_code, category, variance) VALUES ($1,'1000','timing',10) RETURNING id", [rec])).rows[0].id;
+    const ex2 = (await admin.query("INSERT INTO public.safisha_exceptions (reconciliation_id, account_code, category, variance) VALUES ($1,'2000','timing',5) RETURNING id", [rec])).rows[0].id;
+    return { up, rec, ex, ex2 };
+  };
+  const match = (who, rec) => codeOf(() => q(user(who), "UPDATE public.safisha_reconciliations SET matched_count = matched_count + 1, status='needs_review' WHERE id=$1 RETURNING id", [rec]).then((x) => { if (x.length === 0) throw Object.assign(new Error("0 rows"), { code: "NO_ROW" }); }));
+  const categorize = (who, rec) => codeOf(() => q(user(who), "INSERT INTO public.safisha_exceptions (reconciliation_id, account_code, category, variance) VALUES ($1,'3000','investigate',1)", [rec]));
+  const score = (who, rec) => codeOf(() => q(user(who), "UPDATE public.safisha_reconciliations SET confidence_score = 90 WHERE id=$1 RETURNING id", [rec]).then((x) => { if (x.length === 0) throw Object.assign(new Error("0 rows"), { code: "NO_ROW" }); }));
+  const resolveEx = (reviewer, ex) => codeOf(() => q(SERVICE, "SELECT public.safisha_resolve_exception($1,$2,'approved','proof')", [ex, reviewer]));
+  const reconState = async (rec, co) => (await admin.query(`SELECT
+      (SELECT to_jsonb(r) FROM public.safisha_reconciliations r WHERE r.id=$1) r,
+      (SELECT coalesce(jsonb_agg(to_jsonb(e) ORDER BY e.id), '[]') FROM public.safisha_exceptions e WHERE e.reconciliation_id=$1) e,
+      (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.id), '[]') FROM public.safisha_transactions t WHERE t.reconciliation_id=$1) t,
+      (SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY a.id), '[]') FROM public.safisha_audit_log a WHERE a.reconciliation_id=$1) a,
+      (SELECT to_jsonb(u) - 'updated_at' FROM public.trial_balance_uploads u WHERE u.id=(SELECT tb_upload_id FROM public.safisha_reconciliations WHERE id=$1)) u,
+      (SELECT coalesce(jsonb_agg(to_jsonb(fi) ORDER BY fi.id), '[]') FROM public.findings fi WHERE fi.company_id=$2) f,
+      (SELECT coalesce(jsonb_agg(to_jsonb(s) ORDER BY s.id), '[]') FROM public.statement_sign_offs s WHERE s.company_id=$2) so,
+      (SELECT coalesce(jsonb_agg(to_jsonb(ev) ORDER BY ev.id), '[]') FROM public.efdms_reconciliation ev WHERE ev.company_id=$2) ef`, [rec, co])).rows[0];
+  let RC;
+  await check("with a current plan: the owner and a prepare_close holder can match, categorize, score and resolve; a viewer cannot", async () => {
+    RC = await mkRecon(R.owner, R.co);
+    const res = { match: await match(R.owner, RC.rec), cat: await categorize(R.preparer, RC.rec), score: await score(R.owner, RC.rec), resolve: await resolveEx(R.owner, RC.ex),
+      viewerMatch: await match(R.viewer, RC.rec), viewerResolve: await resolveEx(R.viewer, RC.ex2) };
+    return JSON.stringify(res) === JSON.stringify({ match: "ok", cat: "ok", score: "ok", resolve: "ok", viewerMatch: "42501", viewerResolve: "42501" }) ? true : JSON.stringify(res);
+  });
+  let before;
+  await check("after expiry an EXISTING reconciliation cannot be matched, categorized, scored or resolved (PT402, CLOSE_ASSURANCE), by the owner or any member", async () => {
+    await expire(R.lic);
+    before = await reconState(RC.rec, R.co);
+    const res = { match: await match(R.owner, RC.rec), cat: await categorize(R.owner, RC.rec), score: await score(R.owner, RC.rec), resolve: await resolveEx(R.owner, RC.ex2),
+      preparerMatch: await match(R.preparer, RC.rec) };
+    const e = await errOf(() => q(user(R.owner), "UPDATE public.safisha_reconciliations SET matched_count = 99 WHERE id=$1", [RC.rec]));
+    // The preparer is billing-suspended by the expiry (only the holder stays active), so the row is not even visible.
+    return res.match === "PT402" && res.cat === "PT402" && res.score === "PT402" && res.resolve === "PT402" && ["NO_ROW", "PT402"].includes(res.preparerMatch)
+      && e?.detail === "CLOSE_ASSURANCE" && e?.hint === "NO_PLAN" ? true : JSON.stringify({ res, detail: e?.detail, hint: e?.hint });
+  });
+  await check("no direct bypass: service-role table writes, the evidence RPC, transaction / exception / audit inserts and EFDMS writes are all refused", async () => {
+    const res = {
+      svcUpdate: await codeOf(() => q(SERVICE, "UPDATE public.safisha_reconciliations SET status='clean' WHERE id=$1", [RC.rec])),
+      svcDelete: await codeOf(() => q(SERVICE, "DELETE FROM public.safisha_reconciliations WHERE id=$1", [RC.rec])),
+      evidenceRpc: await codeOf(() => q(SERVICE, "SELECT public.safisha_append_evidence_file($1,'bank','x.csv',1)", [RC.rec])),
+      txnInsert: await codeOf(() => q(user(R.owner), "INSERT INTO public.safisha_transactions (reconciliation_id, source_id, account_code, raw_row_hash) VALUES ($1,'bank','1000','h2')", [RC.rec])),
+      svcExInsert: await codeOf(() => q(SERVICE, "INSERT INTO public.safisha_exceptions (reconciliation_id, account_code, category, variance) VALUES ($1,'9','timing',1)", [RC.rec])),
+      auditInsert: await codeOf(() => q(SERVICE, "INSERT INTO public.safisha_audit_log (exception_id, reconciliation_id, reviewer_id, action) VALUES ($1,$2,$3,'approved')", [RC.ex2, RC.rec, R.owner])),
+      newRecon: await codeOf(() => q(user(R.owner), "INSERT INTO public.safisha_reconciliations (client_id, tb_upload_id) VALUES ($1,$2)", [R.owner, RC.up])),
+      efdms: await codeOf(() => q(SERVICE, "INSERT INTO public.efdms_reconciliation (company_id, fiscal_year, period_month) VALUES ($1,2025,1)", [R.co])),
+      resolverDirect: await codeOf(() => q(user(R.owner), "SELECT public.safisha_resolve_exception($1,$2,'approved','x')", [RC.ex2, R.owner])),
+    };
+    const ok = Object.entries(res).every(([k, v]) => (k === "resolverDirect" ? v === "42501" : v === "PT402"));
+    return ok ? true : JSON.stringify(res);
+  });
+  await check("another account fails identically: an outsider changes nothing (RLS), and a second expired account is refused with the same PT402 on its own reconciliation", async () => {
+    const outsider = await match(R.other, RC.rec);
+    const O = { owner: await mkUser("rc2") }; O.lic = await grantPlan(O.owner, "SOLO"); O.co = await newCompany(O.owner, "Other Recon"); O.rc = await mkRecon(O.owner, O.co);
+    await expire(O.lic);
+    const e1 = await errOf(() => q(user(O.owner), "UPDATE public.safisha_reconciliations SET matched_count=1 WHERE id=$1", [O.rc.rec]));
+    const e2 = await errOf(() => q(user(R.owner), "UPDATE public.safisha_reconciliations SET matched_count=1 WHERE id=$1", [RC.rec]));
+    return outsider === "NO_ROW" && e1?.code === "PT402" && e2?.code === "PT402" && e1.detail === e2.detail && e1.hint === e2.hint && e1.message === e2.message
+      ? true : JSON.stringify({ outsider, e1: [e1?.code, e1?.detail], e2: [e2?.code, e2?.detail] });
+  });
+  await check("refusal changed no reconciliation, exception, transaction, audit, upload, finding, sign-off or EFDMS state; history stays readable to the owner", async () => {
+    const after = await reconState(RC.rec, R.co);
+    const readable = (await q(user(R.owner), "SELECT id FROM public.safisha_reconciliations WHERE id=$1", [RC.rec])).length === 1
+      && (await q(user(R.owner), "SELECT id FROM public.safisha_exceptions WHERE reconciliation_id=$1", [RC.rec])).length === 3;
+    // (safisha_audit_log has never been client-readable; its unchanged content is compared above.)
+    return JSON.stringify(after) === JSON.stringify(before) && readable ? true : JSON.stringify({ same: JSON.stringify(after) === JSON.stringify(before), readable });
+  });
+  await check("reactivation restores only explicitly entitled operations: the owner may reconcile again; a member without prepare_close still may not", async () => {
+    R.lic = await grantPlan(R.owner, "PRACTICE");
+    await one(user(U.admin), "SELECT public.admin_set_licence_additional_seats($1,2,'proof')", [R.lic]);
+    const roster = (await one(user(R.owner), "SELECT public.get_named_user_roster() r")).r;
+    await one(user(R.owner), "SELECT public.choose_active_named_users($1::uuid[],$2)", [[R.preparer, R.viewer], roster.roster_version]);
+    await one(user(R.owner), "SELECT public.revoke_member_capability($1,$2,'prepare_close','proof')", [R.co, R.preparer]);
+    const res = { owner: await match(R.owner, RC.rec), ownerResolve: await resolveEx(R.owner, RC.ex2), preparer: await match(R.preparer, RC.rec), viewer: await categorize(R.viewer, RC.rec) };
+    return JSON.stringify(res) === JSON.stringify({ owner: "ok", ownerResolve: "ok", preparer: "42501", viewer: "42501" }) ? true : JSON.stringify(res);
+  });
+  await check("the wall covers every reconciliation table on INSERT, UPDATE and DELETE, and no other function writes them", async () => {
+    const t = (await admin.query("SELECT tgrelid::regclass::text t, (tgtype & 4) <> 0 ins, (tgtype & 8) <> 0 del, (tgtype & 16) <> 0 upd FROM pg_trigger WHERE tgname='aa_reconciliation_write_wall' ORDER BY 1")).rows;
+    const tables = t.map((x) => x.t);
+    const writers = (await admin.query(String.raw`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind='f'
+      AND pg_get_functiondef(p.oid) ~* '(INSERT INTO|UPDATE|DELETE FROM)\s+(public\.)?(safisha_(reconciliations|transactions|exceptions|audit_log)|efdms_(reconciliation|records|z_reports))\M' ORDER BY 1`)).rows.map((x) => x.proname);
+    return JSON.stringify(tables) === JSON.stringify(["efdms_reconciliation", "efdms_records", "efdms_z_reports", "safisha_audit_log", "safisha_exceptions", "safisha_reconciliations", "safisha_transactions"])
+      && t.every((x) => x.ins && x.del && x.upd) && JSON.stringify(writers) === '["safisha_append_evidence_file","safisha_resolve_exception"]'
+      ? true : JSON.stringify({ tables, writers });
   });
 
   group("Close Assurance wall — no new preparation output without a plan, on every path");

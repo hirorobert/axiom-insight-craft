@@ -830,6 +830,15 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   `workspace_capability_allowed` (held + current plan, for writes) replace every title check in 30 RLS policies and
   the authority functions; `close_assurance_wall` refuses new uploads, reconciliations, validations, tax computations,
   closing balances and findings without a plan. Only the owner-title integrity guards read the title.
+  `reconciliation_write_wall` (BEFORE INSERT / UPDATE / DELETE on every `safisha_*` reconciliation table and the three
+  `efdms_*` tables) refuses every reconciliation mutation — match, categorize, score, resolve, ingest, direct table,
+  service role, RPC — without a current plan (PT402) or without `prepare_close` (42501); `safisha_resolve_exception`
+  checks the reviewer the same way. Reads are untouched.
+- **Free transition and production interlock:** the transition is FREE -> EXPIRED_READ_ONLY; no plan is ever granted
+  by a migration. `20260925130000` refuses on a database with open Free licences unless the session sets
+  `cfoclose.free_retirement_approval = 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED'` after the
+  sequence in `docs/release/PR34_STAGING_DEPLOYMENT_PLAN.md` §0. Until checkout exists, every CTA is non-transactional
+  (`CHECKOUT_AVAILABLE = false`, "Request access" / "Contact sales"); nothing renders Buy, Subscribe or Start free.
 - **One authority:** `_authorize_paid_action(user, company, capability)` = session ∧ workspace access
   (`_workspace_access_basis`: creator, accepted member or capability grant; never an occupational title) ∧
   entitlement. It returns stable codes (`ALLOWED`, `ENTITLEMENT_REQUIRED`, `WORKSPACE_ACCESS_DENIED`, …). DB walls raise
