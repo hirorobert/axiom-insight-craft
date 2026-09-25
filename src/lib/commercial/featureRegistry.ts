@@ -7,10 +7,12 @@
  * holds the two in lockstep.
  *
  * Kinds:
- *   included  every plan, always on, never a wall  (Close Assurance, Comparative Reporting)
+ *   included  included in every plan, never charged separately — but never free: with no current plan it is
+ *             refused like any other (Close Assurance, Comparative Reporting; 20260925130000)
  *   paid      a NEW action of this kind needs a plan that includes it (Close Certification, Reporting Pack,
  *             Close Insights). Existing records stay readable whatever the plan.
  *   capacity  a number per plan, not an action (Entity Capacity)
+ *   feature   a plan feature from the plan x capability matrix (PLAN_FEATURES below; 20260925130000)
  */
 
 export const CAPABILITY_CODES = [
@@ -24,7 +26,7 @@ export const CAPABILITY_CODES = [
 ] as const;
 
 export type CapabilityCode = (typeof CAPABILITY_CODES)[number];
-export type CapabilityKind = "included" | "paid" | "capacity";
+export type CapabilityKind = "included" | "paid" | "capacity" | "feature";
 
 export interface CapabilityDefinition {
   readonly code: CapabilityCode;
@@ -37,11 +39,11 @@ export interface CapabilityDefinition {
 export const CAPABILITIES: Readonly<Record<CapabilityCode, CapabilityDefinition>> = {
   CLOSE_ASSURANCE: {
     code: "CLOSE_ASSURANCE", kind: "included", name: "Close Assurance",
-    description: "Always-on integrity checks: validations, readiness checks and statement preview.",
+    description: "Integrity checks: validations, readiness checks and statement preview. Included in every plan.",
   },
   COMPARATIVE_REPORTING: {
     code: "COMPARATIVE_REPORTING", kind: "included", name: "Comparative Reporting",
-    description: "The prior-period comparative your reporting framework requires, in every plan.",
+    description: "The prior-period comparative your reporting framework requires. Included in every plan, never charged separately.",
   },
   STATEMENT_CERTIFICATION: {
     code: "STATEMENT_CERTIFICATION", kind: "paid", name: "Close Certification",
@@ -66,6 +68,28 @@ export const CAPABILITIES: Readonly<Record<CapabilityCode, CapabilityDefinition>
 };
 
 export const PAID_CAPABILITY_CODES = CAPABILITY_CODES.filter((c) => CAPABILITIES[c].kind === "paid");
+
+/** Plan features (kind "feature"): mirrors the rows 20260925130000 adds to public.commercial_capabilities. */
+export const PLAN_FEATURE_CODES = [
+  "CLEAN_PDF",
+  "EXCEL_EXPORT",
+  "FILING_PACKS",
+  "MANAGEMENT_LETTERS",
+  "MULTI_ENTITY_REPORTING",
+  "CONSOLIDATION",
+  "REGIONAL_PACKS",
+] as const;
+export type PlanFeatureCode = (typeof PLAN_FEATURE_CODES)[number];
+
+export const PLAN_FEATURES: Readonly<Record<PlanFeatureCode, { readonly code: PlanFeatureCode; readonly kind: "feature"; readonly name: string; readonly description: string }>> = {
+  CLEAN_PDF: { code: "CLEAN_PDF", kind: "feature", name: "Clean PDF", description: "Official PDF deliverables without the draft marking." },
+  EXCEL_EXPORT: { code: "EXCEL_EXPORT", kind: "feature", name: "Excel", description: "Official spreadsheet and data exports." },
+  FILING_PACKS: { code: "FILING_PACKS", kind: "feature", name: "XBRL and regional filing packs", description: "Official filing packs, including XBRL instances." },
+  MANAGEMENT_LETTERS: { code: "MANAGEMENT_LETTERS", kind: "feature", name: "Management letters", description: "Official management letters." },
+  MULTI_ENTITY_REPORTING: { code: "MULTI_ENTITY_REPORTING", kind: "feature", name: "Multi-entity reporting", description: "Reporting across more than one active entity." },
+  CONSOLIDATION: { code: "CONSOLIDATION", kind: "feature", name: "Consolidation", description: "Group consolidation. Not offered on any plan." },
+  REGIONAL_PACKS: { code: "REGIONAL_PACKS", kind: "feature", name: "Regional packs", description: "Jurisdiction-specific statutory packs." },
+};
 
 /** Legacy identifiers (still stored by older callers / rows) and their canonical replacement. */
 export const LEGACY_CAPABILITY_ALIASES: Readonly<Record<string, CapabilityCode>> = {

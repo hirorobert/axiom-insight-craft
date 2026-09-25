@@ -371,9 +371,11 @@ describe("viewer / read-only access — no mutating control is offered, and the 
     expect(editorHtml).not.toMatch(/<textarea[^>]*disabled=""/);
   });
 
-  it("the hook refuses every mutating action for a viewer BEFORE doing anything (save, decide, add evidence, correct evidence, set publication)", () => {
+  it("the hook refuses every mutating action for a person without prepare_close (or without a current plan) BEFORE doing anything (save, decide, add evidence, correct evidence, set publication)", () => {
     const src = fs.readFileSync(path.join(ROOT, "src/hooks/useFinancialStatementsWorkspace.ts"), "utf8");
-    expect(src).toContain('const viewerReadOnly = access?.enabled === true && access.role === "viewer";');
+    // The server's capability answer decides read-only; the job title is display metadata only.
+    expect(src).toContain('const viewerReadOnly = access?.enabled === true && access.canPrepare !== true;');
+    expect(src).not.toMatch(/access\.role\s*===/);
     const firstStatementAfter = (needle: string) => src.slice(src.indexOf(needle) + needle.length).split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
     expect(firstStatementAfter("const decide = useCallback(\n    async (request: DecisionRequest): Promise<DecisionResult> => {")).toMatch(/^if \(viewerReadOnly\) return/);
     expect(firstStatementAfter("(request: EvidenceAddRequest): EvidenceAddResult => {")).toMatch(/^if \(viewerReadOnly\) return/);
@@ -383,11 +385,14 @@ describe("viewer / read-only access — no mutating control is offered, and the 
     expect(src).toMatch(/readOnly: viewing !== null \|\| viewerReadOnly, readOnlyAccess: viewerReadOnly/);
   });
 
-  it("the transport passes the caller's role through, and anything but an explicit server 'viewer' leaves the workspace editable-by-the-server's-rules (the server still decides)", async () => {
+  it("the transport passes the server's capability answer through; only an explicit can_prepare: true is editable (a title never decides; the server still decides every write)", async () => {
     const mk = (payload: unknown) => new FsRpcTransport({ rpc: async () => ({ data: payload, error: null }), select: async () => ({ data: [], error: null }) } as never);
-    expect(await mk({ enabled: true, reason: "ENABLED", role: "viewer" }).access("c")).toEqual({ enabled: true, reason: "ENABLED", role: "viewer" });
-    expect(await mk({ enabled: true, reason: "ENABLED", role: "partner" }).access("c")).toMatchObject({ role: "partner" });
-    expect(await mk({ enabled: true, reason: "ENABLED" }).access("c")).toMatchObject({ role: null });
+    expect(await mk({ enabled: true, reason: "ENABLED", role: "viewer", can_prepare: false }).access("c")).toEqual({ enabled: true, reason: "ENABLED", role: "viewer", canPrepare: false });
+    // A 'viewer' title granted prepare_close is editable; a 'partner' title without it (or without a plan) is not.
+    expect(await mk({ enabled: true, reason: "ENABLED", role: "viewer", can_prepare: true }).access("c")).toMatchObject({ canPrepare: true });
+    expect(await mk({ enabled: true, reason: "ENABLED", role: "partner", can_prepare: false }).access("c")).toMatchObject({ role: "partner", canPrepare: false });
+    expect(await mk({ enabled: true, reason: "ENABLED", role: "partner" }).access("c")).toMatchObject({ canPrepare: false });
+    expect(await mk({ enabled: true, reason: "ENABLED", can_prepare: "yes" }).access("c")).toMatchObject({ role: null, canPrepare: false });
     expect(await mk({ enabled: false, reason: "NOT_A_MEMBER" }).access("c")).toMatchObject({ enabled: false, role: null });
   });
 });

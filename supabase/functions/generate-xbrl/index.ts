@@ -118,7 +118,8 @@ serve(async (req: Request) => {
     const companyId          = upload.company_id;
 
     // A filing pack is a Reporting Pack deliverable (CFO Close, 20260925100000): refused before anything is generated.
-    const notEntitled = await requirePaidActionAsCaller((fn, args) => supabase.rpc(fn, args), companyId, "REPORTING_PACK_EXPORT", corsHeaders);
+    const notEntitled = await requirePaidActionAsCaller((fn, args) => supabase.rpc(fn, args), companyId, "REPORTING_PACK_EXPORT", corsHeaders)
+      ?? await requirePaidActionAsCaller((fn, args) => supabase.rpc(fn, args), companyId, "FILING_PACKS", corsHeaders);
     if (notEntitled) return notEntitled;
     const reportingFramework = upload.reporting_framework ?? "ifrs_for_smes";
 

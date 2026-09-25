@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — plain ESM script without type declarations
-import { LEGACY_NAME, PERSISTED_IDENTIFIER_ALLOWLIST, scanFile, sweep } from "../../../scripts/ci/legacyNameSweep.mjs";
+import { LEGACY_FILENAME, LEGACY_NAME, PERSISTED_IDENTIFIER_ALLOWLIST, PUBLIC_SURFACES, scanFile, scanPublicSurfaces, sweep } from "../../../scripts/ci/legacyNameSweep.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +18,13 @@ describe("customer-visible legacy product names", () => {
   it("none remain in any customer-visible string", () => {
     const findings = sweep() as Finding[];
     expect(findings.map((f) => `${f.file}:${f.line} ${f.text}`)).toEqual([]);
+  }, 60_000); // parses every source file with the TypeScript compiler; slow under a loaded parallel run
+
+  it("downloaded file names and public SEO surfaces are swept too", () => {
+    expect(LEGACY_FILENAME.test("kinga_uploads_x.csv")).toBe(true);
+    expect(LEGACY_FILENAME.test("trial-balance-uploads_x.csv")).toBe(false);
+    expect(PUBLIC_SURFACES).toEqual(["index.html", "public/robots.txt", "public/sitemap.xml"]);
+    expect(scanPublicSurfaces()).toEqual([]);
   });
 
   it("the only allowed occurrences are the three legacy redirect route paths, each reviewed", () => {

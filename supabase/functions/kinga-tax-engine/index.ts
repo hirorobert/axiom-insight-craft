@@ -84,6 +84,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { isNamedUserActive } from "../_shared/namedUserAccess.ts";
+import { requirePaidAction } from "../_shared/paidAction.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ENGINE_VERSION = "Module E v1.3 — FA2026";
@@ -456,6 +457,11 @@ serve(async (req) => {
         );
       }
       firmMemberId = member.id;
+    }
+    // Close Assurance is included in every plan and needs one: no current plan, no new computation (20260925130000).
+    {
+      const noPlan = await requirePaidAction((fn, args) => supabase.rpc(fn, args), callerId, companyId, "CLOSE_ASSURANCE", corsHeaders);
+      if (noPlan) return noPlan;
     }
 
     const warnings: string[]               = [];

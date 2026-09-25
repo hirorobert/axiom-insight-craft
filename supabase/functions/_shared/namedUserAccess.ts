@@ -8,6 +8,18 @@
 
 type Rpc = (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
 
+/** Workspace capabilities (20260925140000): the authority is the stored capability, never a job title. */
+export type WorkspaceCapability = "prepare_close" | "review_close" | "approve_certification" | "issue_reporting_pack" | "manage_members";
+
+/**
+ * Does this person hold the workspace capability? (workspace_capability_allowed also requires a current plan for the
+ * operational capabilities.) Asked with the service role and the user id from the verified JWT. Fails closed.
+ */
+export async function hasWorkspaceCapability(rpc: Rpc, companyId: string, userId: string, capability: WorkspaceCapability): Promise<boolean> {
+  const { data, error } = await rpc("has_workspace_capability", { p_company_id: companyId, p_user: userId, p_capability: capability });
+  return !error && data === true;
+}
+
 export async function isNamedUserActive(rpc: Rpc, companyId: string, userId: string): Promise<boolean> {
   if (!companyId || !userId) return false;
   const { data, error } = await rpc("named_user_access_active", { p_company_id: companyId, p_user: userId });

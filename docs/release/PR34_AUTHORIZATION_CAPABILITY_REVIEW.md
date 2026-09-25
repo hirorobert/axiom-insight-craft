@@ -6,7 +6,13 @@ the frontend. PR #34 adds **no** role check. Its own authority (`_authorize_paid
 suspension, Reporting Pack issuance) is capability- and account-based, proven in `scripts/db-proof/entitlements.mjs`
 and `scripts/db-proof/billingSuspension.mjs` ("no occupational title changes anything").
 
-This is a review. Nothing below was changed by PR #34; redesigning these checks is a separate, owner-approved task.
+**Update (20260925140000):** the recommendation below is now implemented in this PR. Every title check listed as an
+occupational assumption was replaced by an explicit, stored workspace capability (`prepare_close`, `review_close`,
+`approve_certification`, `issue_reporting_pack`, `manage_members`; `manage_billing` = the account holder). Titles are
+display metadata and a starting template. The unreachable `manager` / `reviewer` / `approver` branches were dropped.
+Remaining title reads: the four `firm_members` owner-integrity policies and last-owner guards (not authorization) and
+the display ordering in `financial_statements_workspace_access`. Proven by `scripts/db-proof/planCapabilities.mjs`.
+The original review follows for the record.
 
 ## The role column
 

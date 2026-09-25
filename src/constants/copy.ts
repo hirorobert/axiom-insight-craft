@@ -33,7 +33,7 @@ export const BRAND = {
 } as const;
 
 export const CTA = {
-  primary:     "Start free",
+  primary:     "Get started",
   secondary:   "See how it works",
   primaryHref: "/auth",
 } as const;
@@ -251,10 +251,11 @@ export const JURISDICTION_SECTION = {
 // ─────────────────────────────────────────────────────────────
 
 // Pricing copy is DERIVED from the one catalogue (src/lib/commercial/pricingCatalogue.ts), which mirrors the
-// plans and offers seeded by 20260925100000. No price is written here or in any component.
+// plans and offers seeded by 20260925100000 and 20260925130000. No price is written here or in any component. There is
+// no free plan and no trial.
 const ENTRY_PLAN = planByCode(ENTRY_PAID_PLAN)!;
 export const PRICING = {
-  FREE_NAME:            "Free",
+  NO_PLAN_NAME:         "No current plan",
   ENTRY_PLAN_NAME:      ENTRY_PLAN.name,
   ENTRY_MONTHLY:        formatCatalogueAmount(ENTRY_PLAN.monthlyMinor!),
   ENTRY_ANNUAL:         formatCatalogueAmount(ENTRY_PLAN.annualMinor!),
@@ -265,12 +266,12 @@ export const PRICING = {
 } as const;
 
 export const PRICING_TABLE = [
-  { term: "Plans",     value: "Free, Practice, Firm and Enterprise. Plans differ by entity capacity, named users and paid actions." },
-  { term: "Named users", value: `Every plan includes 1 named user. Practice and Firm can add named users at ${formatCatalogueAmount(ADDITIONAL_SEAT_PRICE.monthlyMinor)} per user per month or ${formatCatalogueAmount(ADDITIONAL_SEAT_PRICE.annualMinor)} per user per year. Free cannot add users; Enterprise is negotiated.` },
+  { term: "Plans",     value: "Solo, Practice, Firm and Enterprise. Plans differ by entity capacity and named users. There is no free plan and no trial." },
+  { term: "Named users", value: `Every plan includes 1 named user. Practice and Firm can add named users at ${formatCatalogueAmount(ADDITIONAL_SEAT_PRICE.monthlyMinor)} per user per month or ${formatCatalogueAmount(ADDITIONAL_SEAT_PRICE.annualMinor)} per user per year. Solo includes 1 named user and cannot add users; Enterprise is negotiated.` },
   { term: "Sign-in",   value: "Each named user is one person with their own sign-in, so the work recorded under a sign-in belongs to that person. Accounts are never shared." },
-  { term: "Included",  value: "Every plan includes preparation, validation, statement preview and comparative reporting." },
-  { term: "Paid",      value: "Close Certification, Reporting Pack and Close Insights from Practice upwards." },
-  { term: "History",   value: "Certified closes, packs and insights you created stay accessible if your plan changes." },
+  { term: "Included",  value: "Every plan includes Close Assurance, comparative reporting, Close Certification, Reporting Pack and Close Insights. Comparative periods are never charged separately." },
+  { term: "Multi-entity", value: "Multi-entity reporting from Practice upwards. Consolidation is not offered." },
+  { term: "History",   value: "If a plan ends, existing data and outputs already issued stay readable; new work needs a current plan." },
   { term: "Storage",   value: "Encrypted at rest. Hosted on enterprise-grade infrastructure." },
   { term: "Support",   value: "Standard on Practice, priority on Firm, contractual on Enterprise." },
 ] as const;
@@ -279,7 +280,7 @@ export const PRICING_TABLE = [
 export const PRICING_SECTION = {
   headline: "Simple, transparent pricing.",
   subhead:
-    "Start free. Practice and Firm plans add certified closes, reporting packs and insights, monthly or annually. Enterprise on request.",
+    "Solo for one entity, Practice and Firm for a portfolio, monthly or annually. Enterprise on request.",
   cta:     "See plans",
   ctaHref: "/pricing",
 } as const;

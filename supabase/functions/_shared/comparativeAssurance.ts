@@ -29,6 +29,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isNamedUserActive } from "./namedUserAccess.ts";
+import { requirePaidAction } from "./paidAction.ts";
 import { isActiveUploadLifecycle } from "../_shared/uploadLifecycle.ts";
 
 const corsHeaders = {
@@ -298,6 +299,9 @@ export async function handleComparativeAssurance(req: Request): Promise<Response
           { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
+      // Comparative reporting is never paywalled separately: it is included in every plan, and needs a current plan.
+      const noPlan = await requirePaidAction((fn, args) => supabase.rpc(fn, args), callerId, company_id, "COMPARATIVE_REPORTING", corsHeaders);
+      if (noPlan) return noPlan;
     }
 
     // ── STEP 1: Resolve periods ────────────────────────────────────────────────

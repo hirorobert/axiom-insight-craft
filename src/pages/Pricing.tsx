@@ -6,9 +6,12 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { BRAND, PRICING, PRICING_TABLE } from "@/constants/copy";
 import {
+  MATRIX_CAPABILITIES,
   PRICING_CATALOGUE,
   annualSavingMinor,
   formatCatalogueAmount,
+  matrixCapabilityName,
+  planIncludes,
   type CataloguePlan,
 } from "@/lib/commercial/pricingCatalogue";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
@@ -16,8 +19,9 @@ import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGat
 // ─────────────────────────────────────────────────────────────
 // /pricing — CFO Close plans.
 //
-// Every name, capacity and price comes from the one catalogue (src/lib/commercial/pricingCatalogue.ts), which
-// mirrors the plans and offers in 20260925100000. Prices never authorize anything: the database checks the
+// Every name, capacity, price and included capability comes from the one catalogue (src/lib/commercial/
+// pricingCatalogue.ts), which mirrors the plans, offers and plan x capability matrix in 20260925100000 / 20260925130000.
+// There is no free plan and no trial. Prices never authorize anything: the database checks the
 // capabilities and capacity of the plan actually held. There is no checkout in this build, so paid plans say
 // plainly how to upgrade today instead of showing a payment button, and the page links to the contact form only
 // when that route actually exists.
@@ -29,14 +33,6 @@ type BillingInterval = "monthly" | "annual";
 const CHECKOUT_UNAVAILABLE = "Online checkout is temporarily unavailable. Contact support for billing assistance.";
 
 function PriceBlock({ plan, interval }: { plan: CataloguePlan; interval: BillingInterval }) {
-  if (plan.salesMode === "free") {
-    return (
-      <div data-testid={`price-${plan.code}`}>
-        <p className="text-3xl font-semibold tracking-tight text-foreground">$0</p>
-        <p className="mt-1 text-xs text-muted-foreground">No card required</p>
-      </div>
-    );
-  }
   if (plan.salesMode === "contact_sales" || plan.monthlyMinor === null || plan.annualMinor === null) {
     return (
       <div data-testid={`price-${plan.code}`}>
@@ -83,13 +79,6 @@ function SeatLine({ plan, interval }: { plan: CataloguePlan; interval: BillingIn
 }
 
 function PlanAction({ plan, contactAvailable }: { plan: CataloguePlan; contactAvailable: boolean }) {
-  if (plan.salesMode === "free") {
-    return (
-      <Button asChild variant="outline" className="w-full">
-        <Link to="/auth">Start free <ArrowRight className="h-4 w-4" /></Link>
-      </Button>
-    );
-  }
   const label = plan.salesMode === "contact_sales" ? "Contact sales" : `Talk to us about ${plan.name}`;
   return (
     <div>
@@ -125,8 +114,8 @@ export default function Pricing() {
               Plans that grow with your portfolio.
             </h1>
             <p className="mx-auto max-w-xl text-sm leading-relaxed text-muted-foreground">
-              Start free. Upgrade when you need to certify a close, issue a reporting pack or analyse the results.
-              Prices in {PRICING.CURRENCY_CODE}.
+              Every plan certifies, issues and analyses the close; plans differ by entities and named users. There is
+              no free plan and no trial. Prices in {PRICING.CURRENCY_CODE}.
             </p>
           </div>
 
@@ -178,15 +167,43 @@ export default function Pricing() {
           <section className="mt-12 border border-border bg-muted/20 p-5 sm:p-6" aria-labelledby="always-included">
             <h2 id="always-included" className="text-sm font-semibold text-foreground">In every plan</h2>
             <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              Trial balance upload, classification, reconciliation, validation, statement preview, comparative
-              reporting and readiness checks are never behind a paywall. If your plan changes, every certified close,
-              reporting pack and insight you already created stays accessible; new paid actions pause, and people beyond the
+              Every plan includes trial balance upload, classification, reconciliation, validation, statement preview and
+              comparative reporting; comparative periods are never charged separately. If a plan ends, existing data and
+              every output already issued stay readable; new work pauses until a plan is in place, and people beyond the
               plan's named users are suspended, never removed, until you choose who stays active.
             </p>
             <p className="mt-2 text-xs leading-5 text-muted-foreground" data-testid="named-user-policy">
               Every person who uses {BRAND.name} signs in with their own account. A named user is one person, so the work
               recorded under a sign-in belongs to that person.
             </p>
+          </section>
+
+          <section className="mt-10" aria-labelledby="plan-matrix">
+            <h2 id="plan-matrix" className="text-sm font-semibold text-foreground">What each plan includes</h2>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[520px] border-collapse text-xs" data-testid="plan-capability-matrix">
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    <th scope="col" className="py-2 pr-3 font-medium text-muted-foreground">Capability</th>
+                    {PRICING_CATALOGUE.map((p) => (
+                      <th key={p.code} scope="col" className="px-2 py-2 text-center font-medium text-foreground">{p.name}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {MATRIX_CAPABILITIES.map((c) => (
+                    <tr key={c} className="border-b border-border/60">
+                      <th scope="row" className="py-2 pr-3 text-left font-normal text-foreground/80">{matrixCapabilityName(c)}</th>
+                      {PRICING_CATALOGUE.map((p) => (
+                        <td key={p.code} className="px-2 py-2 text-center text-foreground/80">
+                          {planIncludes(p.code, c) ? <Check className="mx-auto h-3.5 w-3.5" aria-label="Included" /> : <span aria-label="Not included">—</span>}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
 
           <dl className="mt-8 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">

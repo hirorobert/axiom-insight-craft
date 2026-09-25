@@ -5,6 +5,8 @@
 //   → CIT 30% / Minimum Tax 0.5% → Provision vs Computed → Gap
 // ============================================================
 
+import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
+import { CAPABILITY_LABELS, SIGN_OFF_TIER_CAPABILITY, canExercise } from "@/lib/auth/workspaceCapabilities";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -258,13 +260,6 @@ interface KingaTaxPanelProps {
   onResultChange?: (result: TaxResult | null) => void;
 }
 
-// D6-FIX: role weights for sign-off tier enforcement
-const ROLE_WEIGHT: Record<string, number> = { viewer: 0, preparer: 1, partner: 2, owner: 3 };
-const TIER_MIN_WEIGHT: Record<string, number> = {
-  preparer: 1,  // preparer, partner, owner can sign as Tier 1
-  reviewer: 2,  // only partner or owner for Tier 2
-  approver: 2,  // only partner or owner can lock (Tier 3)
-};
 
 // ── HELPERS ───────────────────────────────────────────────────────────────
 function fmt(n: number): string {
@@ -508,8 +503,8 @@ export function KingaTaxPanel({
   const [certificationRefused, setCertificationRefused] = useState(false);
   const certificationLocked = certificationRefused || certificationAction.status === "locked";
   const [signOffNote, setSignOffNote]   = useState("");
-  // D6-FIX: current user's firm_members role (for sign-off enforcement)
-  const [firmMemberRole, setFirmMemberRole] = useState<string>("preparer");
+  // What the person may do in this workspace (capabilities, not a job title).
+  const { state: myCapabilities } = useWorkspaceCapabilities(companyId);
   const [firmMemberId, setFirmMemberId]     = useState<string | null>(null);
   // D4-FIX: management inputs (dividends, share capital, loan movements)
   const [mgmtInputs, setMgmtInputs]         = useState({ dividends: "", shareCapital: "", loanRepaid: "", newBorrowings: "", otherEquity: "" });
@@ -591,13 +586,13 @@ export function KingaTaxPanel({
       .eq("company_id", companyId).eq("period_year", periodYear).maybeSingle()
       .then(({ data }) => { if (data) setSignOff(data as SignOff); });
 
-    // D6-FIX: load current user's role in this company
+    // The person's membership id (the sign-off audit trail's actor).
     supabase
       .from("firm_members")
-      .select("id, role")
+      .select("id")
       .eq("company_id", companyId).eq("user_id", userId).maybeSingle()
       .then(({ data }) => {
-        if (data) { setFirmMemberRole(data.role); setFirmMemberId(data.id); }
+        if (data) setFirmMemberId(data.id);
       });
 
     // D4-FIX: load saved management inputs if they exist
@@ -617,14 +612,10 @@ export function KingaTaxPanel({
   }, [companyId, uploadId, periodYear, userId]);
 
   const handleSign = async (tier: "preparer" | "reviewer" | "approver") => {
-    // D6-FIX: enforce minimum role weight for each sign-off tier
-    const userWeight = ROLE_WEIGHT[firmMemberRole] ?? 0;
-    const requiredWeight = TIER_MIN_WEIGHT[tier] ?? 99;
-    if (userWeight < requiredWeight) {
-      setError(
-        `Role "${firmMemberRole}" cannot sign off as ${tier}. ` +
-        `This action requires at least ${tier === "preparer" ? "preparer" : "partner or owner"} role.`
-      );
+    // Each sign-off tier needs its capability in this workspace (never a job title); the database policies decide.
+    const needed = SIGN_OFF_TIER_CAPABILITY[tier];
+    if (!canExercise(myCapabilities, needed)) {
+      setError(`Signing off as ${tier} needs the "${CAPABILITY_LABELS[needed]}" capability in this workspace and a current plan.`);
       return;
     }
 

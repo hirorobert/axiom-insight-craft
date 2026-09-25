@@ -80,6 +80,8 @@ export interface WorkspaceAccess {
   readonly reason: "ENABLED" | "NOT_A_MEMBER" | "KILL_SWITCH" | "NOT_ALLOWLISTED" | "UNKNOWN";
   /** The caller's own membership role, when the server reports one. A display hint: the server still refuses every unauthorised write. */
   readonly role?: string | null;
+  /** The server's answer: may the caller prepare (the prepare_close capability, with a current plan)? Absent = no. */
+  readonly canPrepare?: boolean;
 }
 
 export interface StoredReportRow {
@@ -226,10 +228,10 @@ export class FsRpcTransport {
 
   async access(companyId: string): Promise<WorkspaceAccess> {
     try {
-      const r = await this.call<{ enabled?: boolean; reason?: string; role?: string | null } | null>("financial_statements_workspace_access", { p_company_id: companyId });
+      const r = await this.call<{ enabled?: boolean; reason?: string; role?: string | null; can_prepare?: boolean } | null>("financial_statements_workspace_access", { p_company_id: companyId });
       const reason = (r?.reason ?? "UNKNOWN") as WorkspaceAccess["reason"];
       // Anything other than an explicit server "enabled: true" is a denial.
-      return { enabled: r?.enabled === true, reason, role: typeof r?.role === "string" ? r.role : null };
+      return { enabled: r?.enabled === true, reason, role: typeof r?.role === "string" ? r.role : null, canPrepare: r?.can_prepare === true };
     } catch {
       return { enabled: false, reason: "UNKNOWN" };
     }

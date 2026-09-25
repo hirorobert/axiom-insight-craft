@@ -4,7 +4,7 @@
 // Invites a user to a company's firm_members roster.
 //
 // Flow:
-//   1. Validate caller is owner of the company
+//   1. Validate the caller holds manage_members in this workspace (a capability, never a job title)
 //   2. Named-user seat pre-check (seat_check_for_invitation)
 //   3. An EXISTING account that is not yet a member is linked directly as an accepted member (no email:
 //      inviteUserByEmail rejects existing accounts) — the database seat wall still decides. Otherwise the
@@ -27,12 +27,13 @@
 //   • Admin client (service role) required for auth.admin.inviteUserByEmail
 //   • RLS on firm_members enforced by trigger (owner-only writes for
 //     non-owner roles are enforced by firm_members policies)
-//   • Caller's JWT is checked: must be owner of target company
+//   • Caller's JWT is checked: must hold manage_members in the target workspace (has_workspace_capability)
 // ============================================================
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isSeatWallError, requireSeatForInvitation, seatRefusal } from "../_shared/paidAction.ts";
+import { hasWorkspaceCapability } from "../_shared/namedUserAccess.ts";
 
 // reserve_workspace_invitation outcome -> the structured seat refusal the client reads.
 const RESERVATION_REFUSALS: Record<string, string> = {
@@ -98,17 +99,10 @@ serve(async (req) => {
       );
     }
 
-    // ── Verify caller is owner of the company ─────────────────
-    const { data: membership, error: memErr } = await admin
-      .from("firm_members")
-      .select("role")
-      .eq("company_id", company_id)
-      .eq("user_id", callerUser.id)
-      .maybeSingle();
-
-    if (memErr || !membership || membership.role !== "owner") {
+    // ── Verify the caller may manage this workspace's members (manage_members, never a title) ──
+    if (!(await hasWorkspaceCapability((fn, args) => admin.rpc(fn, args), company_id, callerUser.id, "manage_members"))) {
       return new Response(
-        JSON.stringify({ error: "You must be an owner of this company to invite members." }),
+        JSON.stringify({ status: "capability_required", capability: "manage_members", error: "You don't have permission to manage the members of this workspace." }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

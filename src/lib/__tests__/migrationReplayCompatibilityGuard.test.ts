@@ -181,7 +181,9 @@ describe("migration directory integrity", () => {
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
     // Bumped from 135 -> 137: 20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql (named-user billing suspension and invitation reservations) and
     // 20260925120000_reporting_pack_issuance_binding.sql (the official Reporting Pack issuance binding).
-    expect(files.length).toBe(137);
+    // Bumped from 137 -> 140: 20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql (Solo, no free plan, plan x capability matrix),
+    // 20260925140000_workspace_capability_authorization.sql (capability authorization) and 20260925150000_can_user_act_on_workspace_minimum_grant.sql (minimum grant).
+    expect(files.length).toBe(140);
   });
 });
 

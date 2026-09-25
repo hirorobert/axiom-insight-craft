@@ -188,7 +188,8 @@ serve(async (req) => {
 
     // A management letter is a Reporting Pack client deliverable (CFO Close, 20260925100000): the verified user
     // (from the JWT) must be entitled through the workspace's account. Refused before anything is generated.
-    const notEntitled = await requirePaidAction((fn, args) => admin.rpc(fn, args), userId!, upload.company_id, "REPORTING_PACK_EXPORT", corsHeaders);
+    const notEntitled = await requirePaidAction((fn, args) => admin.rpc(fn, args), userId!, upload.company_id, "REPORTING_PACK_EXPORT", corsHeaders)
+      ?? await requirePaidAction((fn, args) => admin.rpc(fn, args), userId!, upload.company_id, "MANAGEMENT_LETTERS", corsHeaders);
     if (notEntitled) return notEntitled;
 
     // ── 1b. Company TIN (mandatory for all TRA-facing documents) ─

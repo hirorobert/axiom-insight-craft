@@ -1775,6 +1775,8 @@ GRANT EXECUTE ON FUNCTION public.cancel_workspace_invitation(UUID) TO authentica
 REVOKE ALL ON FUNCTION public.accept_workspace_invitations() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.accept_workspace_invitations() TO authenticated;
 REVOKE ALL ON FUNCTION public.seat_check_for_invitation(UUID, UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.seat_check_for_invitation(UUID, UUID) TO service_role;
 REVOKE ALL ON FUNCTION public.get_workspace_seat_capacity(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_workspace_seat_capacity(UUID) TO authenticated;

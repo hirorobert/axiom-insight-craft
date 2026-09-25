@@ -340,3 +340,11 @@ jobs:
         run: |
           createdb billing_suspension_proof
           node scripts/db-proof/billingSuspension.mjs
+
+      - name: Plan catalogue, capability authorization and minimum-grant proof (no free plan, Solo, matrix, capabilities, grant convergence, on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/plan_capabilities_proof
+        run: |
+          createdb plan_capabilities_proof
+          node scripts/db-proof/planCapabilities.mjs

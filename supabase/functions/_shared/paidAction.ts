@@ -6,7 +6,12 @@
 // answer into a stable, non-sensitive HTTP refusal. Pure except for the injected rpc; unit-tested in Node
 // (src/lib/commercial/paidAction.test.ts).
 
-export const PAID_CAPABILITIES = ["STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS"] as const;
+// Every capability an action can need. There is no free plan (20260925130000): Close Assurance and Comparative
+// Reporting are included in every plan, and the plan features (filing packs, management letters) come from the one
+// plan x capability matrix. Without a current plan every one of them is refused.
+export const PAID_CAPABILITIES = [
+  "STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS", "CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "FILING_PACKS", "MANAGEMENT_LETTERS",
+] as const;
 export type PaidCapability = (typeof PAID_CAPABILITIES)[number];
 
 export interface PaidActionRefusal {
@@ -15,9 +20,13 @@ export interface PaidActionRefusal {
 }
 
 const MESSAGES: Record<PaidCapability, string> = {
-  STATEMENT_CERTIFICATION: "Creating a certified close is available with Practice. Preparation and preview remain available.",
-  REPORTING_PACK_EXPORT: "Issuing a formal Reporting Pack is available with Practice. Statement preview remains available.",
-  CLOSE_INSIGHTS: "Close Insights analysis is available with Practice. Validation and readiness checks remain available.",
+  STATEMENT_CERTIFICATION: "Creating a certified close needs a current plan. Existing records remain readable.",
+  REPORTING_PACK_EXPORT: "Issuing a formal Reporting Pack needs a current plan. Existing records remain readable.",
+  CLOSE_INSIGHTS: "Close Insights analysis needs a current plan. Existing records remain readable.",
+  CLOSE_ASSURANCE: "Preparing and validating a close needs a current plan. Existing records remain readable.",
+  COMPARATIVE_REPORTING: "Comparative reporting is included in every plan and needs a current plan. Existing records remain readable.",
+  FILING_PACKS: "Filing packs need a current plan. Existing records remain readable.",
+  MANAGEMENT_LETTERS: "Management letters need a current plan. Existing records remain readable.",
 };
 
 /** Maps the authority's answer to a refusal, or null when the action may proceed. Anything unexpected fails closed. */
@@ -27,7 +36,7 @@ export function paidActionRefusal(capability: PaidCapability, answer: unknown): 
   switch (a.code) {
     case "ENTITLEMENT_REQUIRED":
       return { httpStatus: 402, body: { status: "entitlement_required", error: "Entitlement Required", capability,
-        required_plan: typeof a.required_plan === "string" ? a.required_plan : "PRACTICE", message: MESSAGES[capability] } };
+        required_plan: typeof a.required_plan === "string" ? a.required_plan : "SOLO", message: MESSAGES[capability] } };
     case "WORKSPACE_ACCESS_DENIED":
       return { httpStatus: 403, body: { status: "workspace_access_denied", error: "Forbidden", capability, message: "You don't have access to this workspace." } };
     case "UNAUTHENTICATED":

@@ -39,7 +39,7 @@ export const LANDING_HERO = {
   headline: "From trial balance to reviewable financial statements.",
   supporting:
     "Import a trial balance, review classification exceptions and prepare framework-aware financial statements with traceable checks and attributable user decisions.",
-  primaryCta: { label: "Start free", href: "/auth" },
+  primaryCta: { label: "Get started", href: "/auth" },
   secondaryCta: { label: "Explore a sample close", href: "#sample-close" },
 } as const;
 
@@ -287,11 +287,11 @@ export interface ProposedPlan {
 
 export const PROPOSED_PLANS: readonly ProposedPlan[] = [
   {
-    name: "Free",
-    proposedAmount: "Proposed: no charge",
+    name: "Solo",
+    proposedAmount: "Proposed: USD 49 per month",
     proposedEntities: "Proposed: 1 entity",
     proposedUsers: "Proposed: 1 named user",
-    proposedCapabilities: "Preparation and review",
+    proposedCapabilities: "Close Certification, Reporting Pack, Close Insights",
   },
   {
     name: "Practice",
@@ -384,7 +384,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
 export const LANDING_FINAL_CTA = {
   heading: "Bring greater control to your next financial close.",
   supporting: "Create a workspace and explore CFOCLOSE's preparation and review workflow.",
-  primaryCta: { label: "Start free", href: "/auth" },
+  primaryCta: { label: "Get started", href: "/auth" },
   secondaryCta: { label: "Sign in", href: "/auth" },
 } as const;
 

@@ -325,16 +325,15 @@ export default function Settings() {
                     </div>
                   </div>
                 ) : !billing || !billing.hasBillingCustomer ? (
-                  /* No billing customer — show Free state */
+                  /* No billing customer — no current plan (there is no free plan) */
                   <div className="space-y-6">
                     <div className="border border-border p-6">
                       <div className="flex flex-wrap items-center gap-3 mb-4">
-                        <Badge variant="secondary">{PRICING.FREE_NAME}</Badge>
-                        <Badge variant="default">Active</Badge>
+                        <Badge variant="secondary">{PRICING.NO_PLAN_NAME}</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground leading-relaxed mb-4">
-                        You are currently using the free plan. Review available plans and released
-                        Professional capabilities.
+                        This account has no current plan. Existing data stays readable; new work needs a plan.
+                        Review the available plans.
                       </p>
                       <Button variant="outline" size="sm" asChild className="gap-2">
                         <Link to="/pricing">

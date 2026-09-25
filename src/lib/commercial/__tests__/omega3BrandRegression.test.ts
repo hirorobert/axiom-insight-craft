@@ -109,28 +109,29 @@ describe("Ω3-BRAND · public brand", () => {
     expect(NAV.every((n) => n.href.startsWith("#")), "landing navigation is in-page only").toBe(true);
   });
 
-  // Superseded by the CFO Close catalogue (20260925100000): the entry paid plan is Practice at $99 / $990, derived
-  // from the one catalogue — no price is written in copy.ts. There is no public $49 plan.
-  it("10 · Entry paid plan monthly price is $99 (USD)", () => {
-    expect(PRICING.ENTRY_MONTHLY).toBe("$99");
+  // Superseded by the CFO Close catalogue (20260925100000 / 20260925130000): there is no free plan; the entry plan is
+  // Solo at $49 / $490, derived from the one catalogue — no price is written in copy.ts.
+  it("10 · Entry plan monthly price is $49 (USD)", () => {
+    expect(PRICING.ENTRY_MONTHLY).toBe("$49");
     expect(PRICING.CURRENCY_CODE).toBe("USD");
   });
 
-  it("11 · Entry paid plan annual price is $990", () => {
-    expect(PRICING.ENTRY_ANNUAL).toBe("$990");
+  it("11 · Entry plan annual price is $490", () => {
+    expect(PRICING.ENTRY_ANNUAL).toBe("$490");
   });
 
-  it("12 · Entry paid plan annual saving is exactly $198", () => {
-    expect(PRICING.ENTRY_ANNUAL_SAVING).toBe("$198");
+  it("12 · Entry plan annual saving is exactly $98", () => {
+    expect(PRICING.ENTRY_ANNUAL_SAVING).toBe("$98");
   });
 
-  it("13 · Annual saving arithmetic: 99 × 12 − 990 = 198 (derived once, in the catalogue)", () => {
-    expect(99 * 12 - 990).toBe(198);
+  it("13 · Annual saving arithmetic: 49 × 12 − 490 = 98 (derived once, in the catalogue)", () => {
+    expect(49 * 12 - 490).toBe(98);
     expect(Object.keys(PRICING)).not.toContain("MONTHLY_USD");
   });
 
-  it("14 · Entry paid plan customer-facing name is Practice", () => {
-    expect(PRICING.ENTRY_PLAN_NAME).toBe("Practice");
+  it("14 · Entry plan customer-facing name is Solo; there is no free plan name", () => {
+    expect(PRICING.ENTRY_PLAN_NAME).toBe("Solo");
+    expect(Object.keys(PRICING)).not.toContain("FREE_NAME");
   });
 
   it("15 · Security headline is the iron-dome moat sentence", () => {
@@ -205,13 +206,13 @@ describe("Ω3-BRAND · pricing and checkout guards", () => {
 // ─────────────────────────────────────────────────────────────
 
 describe("Ω3-BRAND · Settings section — real billingDisplay.ts functions", () => {
-  it("21 · FREE plan code maps to Free (not PAID or raw code)", () => {
-    expect(displayPlanName("FREE")).toBe("Free");
+  it("21 · the retired FREE plan code maps to 'Free (retired)' (not PAID, not a current plan, not the raw code)", () => {
+    expect(displayPlanName("FREE")).toBe("Free (retired)");
     expect(displayPlanName("FREE")).not.toBe("PAID");
   });
 
   it("22 · plan codes map to catalogue names; the grandfathered legacy PAID plan is labelled as legacy", () => {
-    expect(displayPlanName("FREE")).toBe("Free");
+    expect(displayPlanName("SOLO")).toBe("Solo");
     expect(displayPlanName("PRACTICE")).toBe("Practice");
     expect(displayPlanName("FIRM")).toBe("Firm");
     expect(displayPlanName("ENTERPRISE")).toBe("Enterprise");
@@ -294,15 +295,15 @@ describe("Ω3-BRAND · Settings section — real billingDisplay.ts functions", (
   });
 
   it("25 · Monthly amount display comes from the catalogue", () => {
-    expect(`${PRICING.ENTRY_MONTHLY}/month`).toBe("$99/month");
+    expect(`${PRICING.ENTRY_MONTHLY}/month`).toBe("$49/month");
   });
 
   it("26 · Annual amount display comes from the catalogue", () => {
-    expect(`${PRICING.ENTRY_ANNUAL}/year`).toBe("$990/year");
+    expect(`${PRICING.ENTRY_ANNUAL}/year`).toBe("$490/year");
   });
 
   it("27 · Annual saving display comes from the catalogue", () => {
-    expect(`Save ${PRICING.ENTRY_ANNUAL_SAVING}`).toBe("Save $198");
+    expect(`Save ${PRICING.ENTRY_ANNUAL_SAVING}`).toBe("Save $98");
   });
 
   it("28 · Settings CTA routes to /pricing, not to checkout", () => {
@@ -624,11 +625,9 @@ describe("Ω3-BRAND · Pricing/Settings — H-2 unenforced commercial limits rem
     expect(pricingSrc).not.toMatch(/const (FREE|PAID)_(FEATURES|TAGLINE)\b/);
   });
 
-  it("73 · Settings.tsx Plan & Billing free-state copy uses the approved scope-neutral replacement", () => {
-    expect(settingsSrc).toContain(
-      "You are currently using the free plan. Review available plans and released",
-    );
-    expect(settingsSrc).toMatch(/Professional capabilities\.?/);
+  it("73 · Settings.tsx Plan & Billing no-plan copy states read-only access, never a free plan", () => {
+    expect(settingsSrc).toContain("This account has no current plan. Existing data stays readable; new work needs a plan.");
+    expect(settingsSrc).not.toMatch(/using the free plan|PRICING.FREE_NAME/i);
   });
 
   it("74 · neither Pricing.tsx nor Settings.tsx were touched in a way that changes commercial entitlement logic — both still route upgrade/checkout intent through the shared CheckoutUpgradeButton, never a direct call of their own", () => {

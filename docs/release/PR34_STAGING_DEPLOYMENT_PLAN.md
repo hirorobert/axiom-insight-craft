@@ -8,16 +8,26 @@ Preconditions:
 - exact-head CI for the PR head is green;
 - the three SQL files have had an independent local review;
 - every disposable-PostgreSQL proof passes: `run`, `setupAuthority`, `serviceEnquiries`, `uploadLifecycle`,
-  `entitlements`, `billingSuspension`, and the `scripts/db-contract-tests` harness.
+  `entitlements`, `billingSuspension`, `planCapabilities`, and the `scripts/db-contract-tests` harness.
 
 Migrations, in order (each refuses before any change if its predecessor is missing or it is already applied):
 1. `20260925100000_global_capabilities_entitlements_pricing.sql`
 2. `20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql`
 3. `20260925120000_reporting_pack_issuance_binding.sql`
+4. `20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql`
+5. `20260925140000_workspace_capability_authorization.sql`
+6. `20260925150000_can_user_act_on_workspace_minimum_grant.sql`
+
+**Consequence to confirm before applying 130000:** there is no free plan. Every account without a current paid licence
+(every account on the auto-provisioned Free licence today) becomes read-only when 130000 is applied: its data stays
+readable, but it cannot create an entity, upload, prepare or issue until a plan is recorded
+(`admin_ensure_billing_customer` then `admin_grant_commercial_licence(..., 'SOLO' | 'PRACTICE' | 'FIRM', ...)`). New
+sign-ups cannot create a workspace until a plan is recorded (there is no checkout). List the affected accounts first
+(read-only): accounts whose current licence is on the FREE plan.
 
 Hosted apply goes through Lovable's apply journal (`drizzle/migrations`). `scripts/ci/assertMigrationAuthority.mjs`
-lists these three as `PENDING_HOSTED_APPLY` and fails CI if a journal entry later diverges from its source. The one
-existing registered divergence (MIGRATION-AUTHORITY-DRIFT-0006) needs an owner decision first (see §10).
+lists these six as `PENDING_HOSTED_APPLY` and fails CI if a journal entry later diverges from its source. The one
+historical divergence (MIGRATION-AUTHORITY-DRIFT-0006) is resolved forward by 20260925150000 (see §10).
 
 ## 1. Read-only preflight (no writes)
 
@@ -79,6 +89,9 @@ decision; the migration will not guess.
 2. Record any agreed seats or overrides (§3).
 3. `20260925110000` (suspension, invitation lifecycle, redefinition of 19 access functions, reconcile).
 4. `20260925120000` (Reporting Pack issuance binding; replaces the 4-argument `issue_reporting_pack`).
+5. Record plans for the accounts that must keep operating (see the consequence above).
+6. `20260925130000` (Solo, Free retired, plan × capability matrix), `20260925140000` (capability authorization,
+   Close Assurance wall), `20260925150000` (minimum grant; idempotent, safe to re-apply).
 
 Apply each migration as one transaction. Each one refuses (SQLSTATE 55000) before any change if applied twice or out of order.
 
@@ -143,9 +156,8 @@ Add cases:
 - A planned reduction via `admin_prepare_planned_reduction`, then `admin_set_licence_additional_seats` → the chosen
   person stays; an unplanned reduction is refused with `SELECTION_REQUIRED`.
 - Restoring a seat reactivates nobody until `choose_active_named_users`.
-- **MIGRATION-AUTHORITY-DRIFT-0006:** the hosted journal did not revoke `can_user_act_on_workspace(uuid, uuid, text)`
-  from `authenticated`. Owner decision: confirm and apply
-  `REVOKE EXECUTE ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) FROM authenticated;`, or record why not.
+- **MIGRATION-AUTHORITY-DRIFT-0006:** resolved by `20260925150000`. After applying, confirm (read-only) that
+  `has_function_privilege('authenticated', 'public.can_user_act_on_workspace(uuid,uuid,text)', 'EXECUTE')` is false.
 
 ## 11. Reporting Pack issuance tests
 

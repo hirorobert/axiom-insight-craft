@@ -8,6 +8,8 @@ import {
   FEATURE_DESCRIPTIONS,
   LEGACY_CAPABILITY_ALIASES,
   PAID_CAPABILITY_CODES,
+  PLAN_FEATURES,
+  PLAN_FEATURE_CODES,
   canonicalCapability,
   isFeatureCode,
 } from "./featureRegistry";
@@ -33,7 +35,7 @@ describe("canonical capability vocabulary", () => {
     expect(FEATURE_CODES).toBe(CAPABILITY_CODES);
   });
 
-  it("kinds: two included (never a wall), three paid, two capacities", () => {
+  it("kinds: two included in every plan (never charged separately), three paid, two capacities", () => {
     expect(CAPABILITY_CODES.filter((c) => CAPABILITIES[c].kind === "included")).toEqual(["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING"]);
     expect([...PAID_CAPABILITY_CODES]).toEqual(["STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS"]);
     expect(CAPABILITIES.ENTITY_CAPACITY.kind).toBe("capacity");
@@ -81,5 +83,15 @@ describe("registry stays in lockstep with 20260925100000", () => {
     for (const block of [planCheck, overrideCheck]) {
       expect([...block.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]).sort()).toEqual([...CAPABILITY_CODES].sort());
     }
+  });
+});
+
+describe("plan features stay in lockstep with 20260925130000", () => {
+  it("the migration adds exactly these plan features (kind 'feature') with the same names", () => {
+    const m = fs.readFileSync(path.join(__dirname, "../../../supabase/migrations/20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql"), "utf-8");
+    const block = m.slice(m.indexOf("INSERT INTO public.commercial_capabilities"), m.indexOf("── 2. Plans"));
+    const rows = [...block.matchAll(/\('([A-Z_]+)',\s*'feature',\s*'([^']+)'/g)].map((x) => [x[1], x[2]]);
+    expect(rows).toEqual(PLAN_FEATURE_CODES.map((c) => [c, PLAN_FEATURES[c].name]));
+    for (const c of PLAN_FEATURE_CODES) expect(c).not.toMatch(/SAFISHA|HESABU|MAONO|KINGA/);
   });
 });

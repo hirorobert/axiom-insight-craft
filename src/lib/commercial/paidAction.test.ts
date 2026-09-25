@@ -29,10 +29,15 @@ describe("paidActionRefusal — structured answer in, stable non-sensitive refus
     }
   });
   it("maps each denial to its HTTP status and a body that names the capability, never another tenant or a price", () => {
-    const e = paidActionRefusal("REPORTING_PACK_EXPORT", { allowed: false, code: "ENTITLEMENT_REQUIRED", required_plan: "PRACTICE" })!;
+    const e = paidActionRefusal("REPORTING_PACK_EXPORT", { allowed: false, code: "ENTITLEMENT_REQUIRED", required_plan: "SOLO" })!;
     expect(e.httpStatus).toBe(402);
-    expect(e.body).toMatchObject({ status: "entitlement_required", capability: "REPORTING_PACK_EXPORT", required_plan: "PRACTICE" });
-    expect(e.body.message).toMatch(/available with Practice\. .*remains available\./);
+    expect(e.body).toMatchObject({ status: "entitlement_required", capability: "REPORTING_PACK_EXPORT", required_plan: "SOLO" });
+    expect(e.body.message).toMatch(/needs a current plan\. Existing records remain readable\./);
+    // No free plan: without an answer naming a plan, the refusal points to the entry plan, never "free".
+    expect(paidActionRefusal("CLOSE_ASSURANCE", { allowed: false, code: "ENTITLEMENT_REQUIRED" })!.body.required_plan).toBe("SOLO");
+    for (const c of ["STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS", "CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "FILING_PACKS", "MANAGEMENT_LETTERS"] as const) {
+      expect(paidActionRefusal(c, { allowed: false, code: "ENTITLEMENT_REQUIRED" })!.body.message).not.toMatch(/free|trial|Practice/i);
+    }
     expect(JSON.stringify(e.body)).not.toMatch(/\$\d|USD|owner|partner/i);
     expect(paidActionRefusal("CLOSE_INSIGHTS", { allowed: false, code: "WORKSPACE_ACCESS_DENIED" })!.httpStatus).toBe(403);
     expect(paidActionRefusal("CLOSE_INSIGHTS", { allowed: false, code: "UNAUTHENTICATED" })!.httpStatus).toBe(401);
@@ -70,6 +75,9 @@ describe("every paid server path asks the authority before doing any work", () =
     ["supabase/functions/maono-root-cause/index.ts", "CLOSE_INSIGHTS", /\.from\("maono_context"\)/],
     ["supabase/functions/generate-xbrl/index.ts", "REPORTING_PACK_EXPORT", /\.from\("companies"\)/],
     ["supabase/functions/generate-management-letter/index.ts", "REPORTING_PACK_EXPORT", /\.from\("companies"\)/],
+    // The output format's own plan feature (commercial_plan_features), asked in the same expression.
+    ["supabase/functions/generate-xbrl/index.ts", "FILING_PACKS", /\.from\("companies"\)/],
+    ["supabase/functions/generate-management-letter/index.ts", "MANAGEMENT_LETTERS", /\.from\("companies"\)/],
   ];
   it.each(gated)("%s gates %s before its first work", (file, capability, firstWork) => {
     const src = read(file).replace(/\r\n/g, "\n");
@@ -87,9 +95,18 @@ describe("every paid server path asks the authority before doing any work", () =
     expect(skip).toBeGreaterThan(-1);
     expect(skip).toBeLessThan(src.indexOf("await scanCompany(supabase, company.id)"));
   });
-  it("essential validation engines are never gated", () => {
-    for (const f of ["supabase/functions/hesabu-validate/index.ts", "supabase/functions/process-trial-balance/index.ts", "supabase/functions/kinga-findings-engine/index.ts", "supabase/functions/_shared/comparativeAssurance.ts"]) {
-      expect(read(f)).not.toMatch(/requirePaidAction|authorize_paid_action/);
+  it("no engine is free and none is separately paywalled: preparation needs a current plan (Close Assurance and Comparative Reporting are included in every plan)", () => {
+    // Refused at the Edge before any work when the workspace's account has no current plan.
+    for (const [f, cap] of [["supabase/functions/kinga-tax-engine/index.ts", "CLOSE_ASSURANCE"], ["supabase/functions/_shared/comparativeAssurance.ts", "COMPARATIVE_REPORTING"]]) {
+      expect(read(f).replace(/\r\n/g, "\n")).toMatch(new RegExp(`requirePaidAction\\([^;]*"${cap}"[^;]*;\\s*if \\(noPlan\\) return noPlan;`));
+    }
+    // The validation engines are never behind a PAID feature; what they write is behind the Close Assurance wall.
+    for (const f of ["supabase/functions/hesabu-validate/index.ts", "supabase/functions/process-trial-balance/index.ts", "supabase/functions/kinga-findings-engine/index.ts"]) {
+      expect(read(f)).not.toMatch(/STATEMENT_CERTIFICATION|REPORTING_PACK_EXPORT|CLOSE_INSIGHTS/);
+    }
+    const wall = read("supabase/migrations/20260925140000_workspace_capability_authorization.sql");
+    for (const t of ["trial_balance_uploads", "safisha_reconciliations", "hesabu_validations", "tax_computations", "period_closing_balances", "findings"]) {
+      expect(wall).toMatch(new RegExp(`BEFORE INSERT ON public\\.${t} FOR EACH ROW EXECUTE FUNCTION public\\.close_assurance_wall\\(\\)`));
     }
   });
 });

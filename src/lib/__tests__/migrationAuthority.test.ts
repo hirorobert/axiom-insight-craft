@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — plain ESM script without type declarations
 import { checkMigrationAuthority, PINNED } from "../../../scripts/ci/assertMigrationAuthority.mjs";
 
-type Result = { ok: boolean; errors: string[]; mirrored: { tag: string; source: string; how: string }[]; pending: string[]; knownDrift: string[] };
+type Result = { ok: boolean; errors: string[]; mirrored: { tag: string; source: string; how: string }[]; pending: string[]; knownDrift: string[]; resolved: string[] };
 const ROOT = path.join(__dirname, "../../..");
 
 function copyRepo(): string {
@@ -36,14 +36,41 @@ describe("migration authority parity", () => {
       "20260925100000_global_capabilities_entitlements_pricing.sql",
       "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
       "20260925120000_reporting_pack_issuance_binding.sql",
+      "20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
+      "20260925140000_workspace_capability_authorization.sql",
+      "20260925150000_can_user_act_on_workspace_minimum_grant.sql",
     ]);
   });
-  it("the one known divergence is registered exactly (a privilege statement), not ignored", () => {
+  it("the one historical divergence is RESOLVED forward (never allowlisted): no open drift remains", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
-    expect(r.knownDrift).toEqual([
-      "0006_pr32_02_upload_lifecycle_retire_and_replace: REVOKE ALL ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) FROM PUBLIC, anon (source: REVOKE ALL ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) FROM PUBLIC, anon, authenticated)",
+    expect(r.knownDrift).toEqual([]);
+    expect(r.resolved).toEqual([
+      "0006_pr32_02_upload_lifecycle_retire_and_replace: REVOKE ALL ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) FROM PUBLIC, anon -> resolved by 20260925150000_can_user_act_on_workspace_minimum_grant.sql",
     ]);
     expect(Object.keys(PINNED).sort()).toEqual(["0003_service_enquiry_intake_reconciliation_assert", "0006_pr32_02_upload_lifecycle_retire_and_replace"]);
+  });
+  it("fails when the resolving migration loses its corrective statement, or is missing", () => {
+    const dir = copyRepo();
+    try {
+      const f = path.join(dir, "supabase/migrations/20260925150000_can_user_act_on_workspace_minimum_grant.sql");
+      fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace("FROM PUBLIC, anon, authenticated;\nGRANT EXECUTE ON FUNCTION public.can_user_act_on_workspace", "FROM PUBLIC, anon;\nGRANT EXECUTE ON FUNCTION public.can_user_act_on_workspace"));
+      expect((checkMigrationAuthority(dir) as Result).errors.join("\n")).toMatch(/no longer contains the exact corrective statements/);
+      fs.rmSync(f);
+      expect((checkMigrationAuthority(dir) as Result).errors.join("\n")).toMatch(/resolving migration 20260925150000_can_user_act_on_workspace_minimum_grant.sql is missing/);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+  it("Lovable / Drizzle cannot reintroduce a conflicting permission: a journal entry granting the predicate to authenticated, or re-creating it without the revoke, fails", () => {
+    const dir = copyRepo();
+    try {
+      // A new hosted journal entry that re-grants the predicate (any role but service_role) is refused wherever it appears.
+      const src = path.join(dir, "supabase/migrations/20260926000000_regrant.sql");
+      fs.writeFileSync(src, "GRANT EXECUTE ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) TO authenticated;\n");
+      const errs = (checkMigrationAuthority(dir) as Result).errors.join("\n");
+      expect(errs).toMatch(/grants can_user_act_on_workspace to authenticated \(service_role only\)/);
+      fs.rmSync(src);
+      fs.writeFileSync(src, "CREATE OR REPLACE FUNCTION public.workspace_authority_basis(p_user_id uuid, p_company_id uuid, p_capability text) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$;\n");
+      expect((checkMigrationAuthority(dir) as Result).errors.join("\n")).toMatch(/re-creates workspace_authority_basis without revoking it/);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
   it("detects a hosted journal entry edited away from its source", () => {
     const dir = copyRepo();

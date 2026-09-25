@@ -85,25 +85,27 @@ const planName = (code: string) => planByCode(code)?.name ?? "a paid plan";
 export function lockedCopy(capability: PaidCapabilityCode, requiredPlan: string = ENTRY_PAID_PLAN): LockedCopy {
   const plan = planName(requiredPlan);
   switch (capability) {
+    // Every plan includes these capabilities, so a refusal means the account has no current plan (there is no free
+    // plan): the workspace is read-only until a plan is in place.
     case "STATEMENT_CERTIFICATION":
       return {
-        title: "Upgrade to create a certified close",
-        unavailable: `Signing off statements and marking a report version final are available with ${plan}.`,
-        remains: "Preparation, validation and statement preview remain available.",
+        title: "A current plan is needed",
+        unavailable: `Signing off statements and marking a report version final need a current plan, from ${plan}.`,
+        remains: "Everything already recorded stays readable.",
         history: "Sign-offs and final versions you already created stay accessible.",
       };
     case "REPORTING_PACK_EXPORT":
       return {
-        title: `Available with ${plan}`,
-        unavailable: `Issuing a formal ${CAPABILITIES.REPORTING_PACK_EXPORT.name} (PDF, spreadsheet, filing or client pack) is available with ${plan}.`,
-        remains: "Preview remains available.",
+        title: "A current plan is needed",
+        unavailable: `Issuing a formal ${CAPABILITIES.REPORTING_PACK_EXPORT.name} (PDF, spreadsheet, filing or client pack) needs a current plan, from ${plan}.`,
+        remains: "Preview remains available. Reports already issued stay readable.",
         history: "Your existing reports remain accessible.",
       };
     case "CLOSE_INSIGHTS":
       return {
-        title: `Available with ${plan}`,
-        unavailable: `Running new ${CAPABILITIES.CLOSE_INSIGHTS.name} analysis is available with ${plan}.`,
-        remains: "Validation, reconciliation and readiness checks remain available.",
+        title: "A current plan is needed",
+        unavailable: `Running new ${CAPABILITIES.CLOSE_INSIGHTS.name} analysis needs a current plan, from ${plan}.`,
+        remains: "Everything already recorded stays readable.",
         history: "Insights you already generated stay accessible.",
       };
   }
@@ -125,6 +127,14 @@ export function capacityCopy(answer: CapacityAnswer): LockedCopy {
       unavailable: "Your plan's entity capacity has not been recorded yet, so a new entity can't be created.",
       remains: "Every existing entity stays fully accessible.",
       history: "Our team records the capacity agreed in your contract.",
+    };
+  }
+  if (answer.planCode === null && answer.capacity === 0) {
+    return {
+      title: "A current plan is needed",
+      unavailable: `This account has no current plan, so no entity can be added. ${planName(ENTRY_PAID_PLAN)} includes one active entity.`,
+      remains: "Every existing entity stays readable.",
+      history: "Nothing is deleted, hidden or moved when a plan ends.",
     };
   }
   const n = answer.capacity;
@@ -153,7 +163,7 @@ export async function functionEntitlementRefusal(error: unknown): Promise<Capabi
 }
 
 // ── Named-user seats ──────────────────────────────────────────────────────────────────────────────────────────
-// Every plan includes one named user; Practice and Firm add purchased seats. The database seat wall decides
+// Every plan includes one named user; Practice and Firm add purchased seats; Solo cannot. No plan: the holder only. The database seat wall decides
 // (named_user_seat_wall); these helpers only explain its structured state (get_workspace_seat_capacity,
 // accept_workspace_invitations, the invitation function's 402 body). No message text is read.
 
@@ -217,10 +227,18 @@ export function seatCopy(state: SeatCapacityState | null): LockedCopy | null {
       history: "Contact us to confirm the named users in your agreement.",
     };
   }
-  if (state.planCode === "FREE") {
+  if (state.planCode === null) {
     return {
-      title: `Available with ${planName(ENTRY_PAID_PLAN)}`,
-      unavailable: "The Free plan includes one named user: you. Inviting other people is available with Practice or Firm.",
+      title: "A current plan is needed",
+      unavailable: "This account has no current plan, so only the account holder can use the workspace (read-only) and no one can be invited.",
+      remains: `Practice and Firm include one named user and can add more at ${seatPrice} each.`,
+      history: "Memberships and their history are never deleted; people beyond the plan's named users are suspended until a seat is available and you choose them.",
+    };
+  }
+  if (state.planCode === "SOLO") {
+    return {
+      title: "Available with Practice or Firm",
+      unavailable: "The Solo plan includes one named user: you. Inviting other people is available with Practice or Firm.",
       remains: `On Practice and Firm, each additional named user is ${seatPrice}.`,
       history: "Memberships and their history are never deleted; people beyond the plan's named users are suspended until a seat is available and you choose them.",
     };

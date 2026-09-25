@@ -807,13 +807,29 @@ the already-built `_resolve_entitlement_for_owner()`), not a schema change.
 and `20260925100000` enforces it as `ENTITY_CAPACITY` (see §9.3). Until that
 migration is applied by the owner, hosted company creation stays unrestricted.
 
-### 9.3 CFO Close Capabilities, Walls and Pricing (`20260925100000`, unapplied to hosted DBs)
+### 9.3 CFO Close Capabilities, Walls and Pricing (`20260925100000`–`20260925150000`, unapplied to hosted DBs)
 
 - **Canonical capability codes** (`commercial_capabilities`; frontend mirror `src/lib/commercial/featureRegistry.ts`):
-  `CLOSE_ASSURANCE` and `COMPARATIVE_REPORTING` (included, always on, never chargeable), `STATEMENT_CERTIFICATION`
+  `CLOSE_ASSURANCE` and `COMPARATIVE_REPORTING` (included in every plan, never charged separately — but never free:
+  with no current plan they are refused like everything else), `STATEMENT_CERTIFICATION`
   (Close Certification), `REPORTING_PACK_EXPORT` (Reporting Pack) and `CLOSE_INSIGHTS` (Close Insights), which are
   paid, and the capacities `ENTITY_CAPACITY` and `NAMED_USER_SEATS`. Legacy codes (`SAFISHA_*`, `HESABU_*`, `MAONO_INTELLIGENCE`, `MULTI_COMPANY`,
   `MULTI_PERIOD`) resolve only through `commercial_capability_aliases` / `commercial_canonical_capability()`.
+- **No free plan, one matrix (`20260925130000`):** the Free plan is retired (kept for history, `sales_mode = 'retired'`,
+  never offered, never provisioned; `chk_cp_no_free_sales`). Open FREE licences were ended (EXPIRED, audited
+  `FREE_PLAN_RETIRED`); no customer row was deleted. No current plan = read-only: existing data and issued outputs stay
+  readable, entity capacity 0, only the holder active, no new operation. There is no trial.
+  `commercial_plan_features` is the ONE plan × capability matrix the resolver reads (plan features `CLEAN_PDF`,
+  `EXCEL_EXPORT`, `FILING_PACKS`, `MANAGEMENT_LETTERS`, `MULTI_ENTITY_REPORTING`, `CONSOLIDATION` (no plan),
+  `REGIONAL_PACKS`); `reporting_pack_kind_features` binds each official format to its feature. Unknown plan,
+  capability or missing matrix row fails closed. The pricing page renders the mirror in `pricingCatalogue.ts`.
+- **Capabilities, never titles (`20260925140000`):** `workspace_member_capabilities` stores `prepare_close`,
+  `review_close`, `approve_certification`, `issue_reporting_pack`, `manage_members` per person (append-only;
+  `grant_member_capability` / `revoke_member_capability`). `manage_billing` is the account holder. `firm_members.role`
+  is display metadata and a starting template only. `has_workspace_capability` (reads) and
+  `workspace_capability_allowed` (held + current plan, for writes) replace every title check in 30 RLS policies and
+  the authority functions; `close_assurance_wall` refuses new uploads, reconciliations, validations, tax computations,
+  closing balances and findings without a plan. Only the owner-title integrity guards read the title.
 - **One authority:** `_authorize_paid_action(user, company, capability)` = session ∧ workspace access
   (`_workspace_access_basis`: creator, accepted member or capability grant; never an occupational title) ∧
   entitlement. It returns stable codes (`ALLOWED`, `ENTITLEMENT_REQUIRED`, `WORKSPACE_ACCESS_DENIED`, …). DB walls raise
@@ -822,7 +838,7 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   (`src/lib/commercial/paidActions.ts`). Never parse message text.
 - **Walls:**
   - Close Certification is enforced by the `statement_sign_offs` sign-off events and by FINAL publication inserts.
-  - Reporting Pack: free users get the in-app preview only. A browser can always rebuild a look-alike file from data it
+  - Reporting Pack: without an official issuance only the in-app preview exists. A browser can always rebuild a look-alike file from data it
     already shows, so the wall protects the OFFICIAL pack (`20260925120000`):
     - `issue_reporting_pack(workspace, period, kind, output_ref, request_id)` binds an issuance to the user,
       workspace, period, saved output / version (`fs-report:<id>:v<n>` is checked to exist) and format, with a
@@ -838,17 +854,18 @@ migration is applied by the owner, hosted company creation stays unrestricted.
     are gated server-side. The financial-statements workspace stays database-inert: its host page supplies the
     deliverer.
 
-    Any free printing carries `DRAFT — NOT CERTIFIED — NOT FOR FILING OR CLIENT ISSUE` on every printed page (the
+    Any printing outside an official issuance carries `DRAFT — NOT CERTIFIED — NOT FOR FILING OR CLIENT ISSUE` on every printed page (the
     statements print CSS, `DraftPrintMark` in `WorkspaceLayout`, and the board pack print). Not deliverables (never
     gated): the blank TB template and exports of the user's own inputs (account mappings, upload list).
   - Close Insights is enforced by the `maono-*` analysis functions and the triggers on their output tables.
     `maono-monitor` skips non-entitled workspaces.
-  - Entity capacity is enforced by `trg_companies_entity_capacity` (advisory lock per account). Capacities: Free 1,
-    Practice 5, Firm 25, Enterprise by override, legacy PAID 25. Create through the idempotent `create_entity` RPC.
+  - Entity capacity is enforced by `trg_companies_entity_capacity` (advisory lock per account). Capacities: Solo 1,
+    Practice 5, Firm 25, Enterprise by override, legacy PAID 25; no current plan 0. Create through the idempotent `create_entity` RPC.
   - Named-user seats: every plan includes exactly ONE named user (Enterprise negotiated). Practice and Firm may add
     purchased seats (`commercial_licences.additional_seats`, set by the audited `admin_set_licence_additional_seats`
     until a payment provider exists; Enterprise's negotiated seats by `admin_grant_named_user_seats_override`).
-    `allowed_named_users = included_seats + additional_seats`; Free is always 1 and can buy nothing; unknown or
+    `allowed_named_users = included_seats + additional_seats`; Solo is always 1 and can buy nothing; no current plan
+    means the holder only; unknown or
     malformed quantities fail closed. `named_user_seat_wall` (on `firm_members` and
     `workspace_capability_grants`, advisory lock per account) refuses a new person on invitation, direct insert,
     grant, re-pointing and acceptance, and any new membership or grant for a suspended person.
@@ -869,7 +886,7 @@ migration is applied by the owner, hosted company creation stays unrestricted.
     - Memberships, grants, attribution and history are never deleted; suspensions are append-only (lifted, never
       removed).
   - Invitations: a pending invitation reserves a seat only until `invitation_expires_at`
-    (`invitation_reservation_ttl()`, a PROPOSED 7 days, pending a product decision) and while not cancelled.
+    (`invitation_reservation_ttl()`, 7 days — product decision) and while not cancelled.
     - The account holder cancels with `cancel_workspace_invitation`.
     - `invite-firm-member` runs: seat pre-check → an unconfirmed account → `reserve_workspace_invitation` → email; an
       email failure calls `release_workspace_invitation`. Reissuing refreshes the same row.
@@ -877,20 +894,24 @@ migration is applied by the owner, hosted company creation stays unrestricted.
       cancelled.
   - Service identities and scheduled jobs never hold a seat. Each person has their own sign-in; nothing designs or
     advertises shared credentials. No assignment or reviewer workflow.
-  - Validation, readiness, the automated certification run, comparatives, previews and history are never gated.
-    Expiry or downgrade blocks new paid actions and suspends people beyond the allowance (see the invariant
+  - Nothing is free and nothing is separately paywalled beyond the matrix: comparatives are in every plan. Expiry or
+    downgrade makes the workspace read-only (new work needs a plan) and suspends people beyond the allowance (see the invariant
     above); it never deletes or rewrites anything. Billing never writes accounting data.
 - **Pricing catalogue:** `src/lib/commercial/pricingCatalogue.ts` is the only place prices live. It is mirrored exactly
-  by the migration (`pricingCatalogue.test.ts`): FREE $0, PRACTICE $99/$990, FIRM $299/$2,990, ENTERPRISE contact sales,
+  by the migrations (`pricingCatalogue.test.ts`): SOLO $49/$490 (1 entity, 1 user, no seats), PRACTICE $99/$990 (5),
+  FIRM $299/$2,990 (25), ENTERPRISE contact sales,
   in USD; one included named user each; additional named users $20/month or $200/year on Practice and Firm
-  (`commercial_additional_seat_prices`, separate from base-plan offers). There is no public $49 plan. No checkout
+  (`commercial_additional_seat_prices`, separate from base-plan offers). There is no free plan and no trial. No checkout
   exists and nothing is purchasable.
 - **Comparative endpoint:** `comparative-assurance-engine` is canonical. `kinga-comparative-engine` is a thin adapter
   that serves the same `_shared/comparativeAssurance.ts` handler, with no HTTP hop and no writes. Retire it only after
   30 days with no requests following the frontend release.
 - **Customer-visible names:** SAFISHA/HESABU/MAONO/KINGA never appear in customer-visible strings. This is enforced by
-  `scripts/ci/legacyNameSweep.mjs` and `src/lib/__tests__/customerVisibleLegacyNames.test.ts`.
-- **Proof:** `scripts/db-proof/entitlements.mjs` and `scripts/db-proof/billingSuspension.mjs` run on real PostgreSQL
+  `scripts/ci/legacyNameSweep.mjs` (string literals, downloaded file names, `index.html` / robots / sitemap; legacy
+  routes are immediate redirects under the robots-disallowed `/workspace/`) and
+  `src/lib/__tests__/customerVisibleLegacyNames.test.ts`.
+- **Proof:** `scripts/db-proof/entitlements.mjs` (the `100000`–`120000` layer), `scripts/db-proof/billingSuspension.mjs`
+  and `scripts/db-proof/planCapabilities.mjs` (no free plan, matrix, capabilities, grants) run on real PostgreSQL
   (CI disposable-DB job). Staging plan: `docs/release/PR34_STAGING_DEPLOYMENT_PLAN.md`. Role-check review:
   `docs/release/PR34_AUTHORIZATION_CAPABILITY_REVIEW.md`.
 
@@ -903,11 +924,12 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   `migrate` (the Drizzle schema file is empty, so a push could propose dropping everything).
 - `scripts/ci/assertMigrationAuthority.mjs` (CI, and `src/lib/__tests__/migrationAuthority.test.ts`) proves every
   journal entry mirrors one source migration in order with no gap, and lists newer sources as `PENDING_HOSTED_APPLY`.
-- **MIGRATION-AUTHORITY-DRIFT-0006** (registered, OPEN, owner decision): Drizzle `0006` revokes EXECUTE on
-  `can_user_act_on_workspace(uuid, uuid, text)` from `PUBLIC, anon` but not from `authenticated`, unlike its source.
-  No SQL caller needs it (only the service-role storage-cleanup function), so on the hosted database a signed-in user
-  may be able to probe whether any user can act on any workspace. Forward fix: `REVOKE EXECUTE ... FROM authenticated`.
-  The guard pins exactly this one statement and fails on any other divergence.
+- **MIGRATION-AUTHORITY-DRIFT-0006** (RESOLVED forward by `20260925150000`, pending hosted apply): Drizzle `0006`
+  revokes EXECUTE on `can_user_act_on_workspace(uuid, uuid, text)` from `PUBLIC, anon` but not from `authenticated`.
+  The forward migration sets EXECUTE on it and `workspace_authority_basis` to `service_role` only (their only callers
+  are service-role Edge Functions and definer functions) and fails if any other role can still execute them. The guard
+  requires the corrective statements, and refuses any source or journal entry that grants these predicates to anyone
+  but `service_role` or re-creates them without the revoke.
 
 **OBSERVABILITY_PROVIDER_WIRING_DEFERRED_TO_Ω2/PRE-GO-LIVE** —
 `src/lib/observability/correlationId.ts` (Wave Ω1) provides a genuine,

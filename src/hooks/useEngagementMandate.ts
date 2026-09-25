@@ -10,6 +10,8 @@
  * (grant/revoke), never a direct insert into an event table.
  */
 
+import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
+import { canExercise } from "@/lib/auth/workspaceCapabilities";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -50,7 +52,7 @@ export interface UseEngagementMandateReturn {
   mandate: EngagementMandate | null;
   authorities: AuthorityGrant[];
   events: MandateEventRow[];
-  /** Owner / partner / manager may amend scope. */
+  /** The person holds review_close in this workspace and the account has a current plan (never a job title). */
   canAmend: boolean;
   loading: boolean;
   refresh: () => void;
@@ -61,8 +63,6 @@ export interface UseEngagementMandateReturn {
   grantCapability: (cap: EngagementCapability, reason?: string) => Promise<void>;
   revokeCapability: (cap: EngagementCapability, reason?: string) => Promise<void>;
 }
-
-const SENIOR_ROLES = ["owner", "partner", "manager"];
 
 function yearOf(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -80,8 +80,8 @@ export function useEngagementMandate(
   const [authorities, setAuthorities] = useState<AuthorityGrant[]>([]);
   const [events, setEvents] = useState<MandateEventRow[]>([]);
   const [memberId, setMemberId] = useState<string | null>(null);
-  const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const { state: capabilities } = useWorkspaceCapabilities(companyId);
 
   const load = useCallback(async () => {
     // `!user` is NOT the same condition as `!companyId || !periodYear`: the route params are
@@ -102,14 +102,13 @@ export function useEngagementMandate(
 
     const { data: member } = await supabase
       .from("firm_members")
-      .select("id, role")
+      .select("id")
       .eq("company_id", companyId)
       .eq("user_id", user.id)
       .not("accepted_at", "is", null)
       .maybeSingle();
 
     setMemberId(member?.id ?? null);
-    setRole(member?.role ?? null);
 
     // Reporting periods for this company; pick the one for this year.
     const { data: periods } = await supabase
@@ -222,7 +221,7 @@ export function useEngagementMandate(
     mandate,
     authorities,
     events,
-    canAmend: !!role && SENIOR_ROLES.includes(role),
+    canAmend: canExercise(capabilities, "review_close"),
     loading,
     refresh: load,
     createEngagement,

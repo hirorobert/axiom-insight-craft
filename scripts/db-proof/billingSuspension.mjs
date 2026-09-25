@@ -181,11 +181,18 @@ async function main() {
     for (const sig of PATCHED) before[sig] = await defOf(sig);
     return true;
   });
-  await check(`${MIGRATION} and every later migration apply`, async () => { for (const f of files.slice(cut)) await applyMigration(f); return true; });
+  const after110 = {};
+  await check(`${MIGRATION} and every later migration apply`, async () => {
+    await applyMigration(MIGRATION);
+    // Captured before the later migrations (20260925140000 replaces title checks in some of these with capability checks).
+    for (const sig of PATCHED) after110[sig] = await defOf(sig);
+    for (const f of files.slice(cut + 1)) await applyMigration(f);
+    return true;
+  });
   await check("each of the 19 redefined access functions equals its previous definition once the single activity conjunct is removed (no other logic changed)", async () => {
     const bad = [];
     for (const sig of PATCHED) {
-      const now = await defOf(sig);
+      const now = after110[sig];
       const added = (now.match(/public\.named_user_access_active\(/g) ?? []).length;
       if (added < 1 || stripPredicate(now) !== before[sig].replace(/\r/g, "")) bad.push(`${sig}:${added}`);
     }
@@ -262,7 +269,7 @@ async function main() {
       && active.length === 2 && active.includes(firmPeople[0]) && (await openSuspensions(firm.uid)) === 8 && (await invariant(firm.uid))
       ? true : JSON.stringify({ afterRestore, two, oneSel, active });
   });
-  await check("expiry (time) is enforced the instant it passes, with no job: the live predicate locks out everyone but the account holder", async () => {
+  await check("expiry (time) is enforced the instant it passes, with no job: the live predicate locks out everyone but the account holder, who keeps read access (new work needs a plan)", async () => {
     const a = await account("PRACTICE", 2);
     const p1 = await mkUser("e"), p2 = await mkUser("e");
     await addActive(a.uid, a.co, p1); await addActive(a.uid, a.co, p2);
@@ -271,7 +278,8 @@ async function main() {
     await admin.query("UPDATE public.commercial_licences SET effective_end = now() - interval '1 second', effective_start = now() - interval '2 days' WHERE id=$1", [a.lic.id]);
     await admin.query("COMMIT");
     const denied = (await authz(p1, a.co)).code === "WORKSPACE_ACCESS_DENIED" && (await authz(p2, a.co)).code === "WORKSPACE_ACCESS_DENIED";
-    const holder = (await authz(a.uid, a.co)).allowed === true;
+    // No free plan (20260925130000): the holder keeps workspace access (existing data stays readable) but no capability without a plan.
+    const holder = (await authz(a.uid, a.co)).code === "ENTITLEMENT_REQUIRED";
     return denied && holder && (await activeOf(a.uid)).length === 1 && (await invariant(a.uid));
   });
   let practice;
@@ -504,8 +512,10 @@ async function main() {
   const pkMember = await mkUser("pk");
   await addActive(pk.uid, pk.co, pkMember);
   const other = await account("PRACTICE", 0);
-  await check("a Free workspace cannot obtain an issuance at all (and the refusal is audited)", async () => {
-    const f = await account(null);
+  await check("a workspace with no current plan cannot obtain an issuance at all (and the refusal is audited)", async () => {
+    // There is no free plan: a workspace exists only under a plan; its plan then ends.
+    const f = await account("PRACTICE");
+    await admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end = now() WHERE id=$1", [f.lic.id]);
     const r = await issue(f.uid, f.co);
     return r.outcome === "entitlement_required" && (await count("SELECT count(*) n FROM public.reporting_pack_issuance_events WHERE company_id=$1 AND event='REFUSED'", [f.co])) === 1;
   });

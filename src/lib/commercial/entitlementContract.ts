@@ -1,7 +1,8 @@
 /**
  * Ω1 — pure TS mirror of the server-authoritative entitlement resolution
- * logic in _resolve_entitlement_for_owner() (migration
- * 20260904180000_commercial_foundation_wave_omega1.sql).
+ * logic in _resolve_entitlement_for_owner() (current definition:
+ * 20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql — no free
+ * plan; every capability comes from the plan x capability matrix).
  *
  * NON-AUTHORITATIVE. This module never grants or denies anything by
  * itself — it exists so the UI can render a consistent "why is this
@@ -21,7 +22,8 @@
  * flattening it to false.
  */
 
-import { CAPABILITIES, FEATURE_CODES, type FeatureCode, canonicalCapability } from "./featureRegistry";
+import { CAPABILITIES, FEATURE_CODES, PLAN_FEATURE_CODES, type FeatureCode, canonicalCapability } from "./featureRegistry";
+import { planIncludes } from "./pricingCatalogue";
 
 export type EntitlementStatus = "ENTITLED" | "NOT_ENTITLED" | "UNKNOWN";
 
@@ -81,22 +83,22 @@ export function classifyEntitlement(
   currentLicence: CurrentLicenceSnapshot | null,
   hasActiveOverride: boolean,
 ): EntitlementResult {
-  // Legacy codes resolve through the compatibility aliases, exactly as commercial_canonical_capability() does.
-  const capability = canonicalCapability(featureCode);
+  // Legacy codes resolve through the compatibility aliases, exactly as commercial_canonical_capability() does; plan
+  // features are canonical codes of their own.
+  const capability: string | null = canonicalCapability(featureCode)
+    ?? ((PLAN_FEATURE_CODES as readonly string[]).includes(featureCode) ? featureCode : null);
   if (!capability) {
     return { status: "UNKNOWN", reason: "UNKNOWN_FEATURE_CODE", licenceStatus: null, planCode: null, source: null };
   }
-  const kind = CAPABILITIES[capability].kind;
-  if (kind === "included") {
-    return { status: "ENTITLED", reason: "INCLUDED_IN_EVERY_PLAN", licenceStatus: null, planCode: null, source: "INCLUDED" };
-  }
+  const kind = capability in CAPABILITIES ? CAPABILITIES[capability as FeatureCode].kind : "feature";
+  // No capability is free: "included" means included in every PLAN, so it is resolved like any other below.
   if (kind === "capacity") {
     // Capacity is a number the server resolves (_entity_capacity_for_account, _seat_capacity_for_account); it is never a yes/no flag here.
     return { status: "UNKNOWN", reason: "CAPACITY_RESOLVED_BY_SERVER", licenceStatus: null, planCode: null, source: null };
   }
 
   if (!hasBillingCustomer) {
-    return { status: "NOT_ENTITLED", reason: "NO_BILLING_CUSTOMER", licenceStatus: null, planCode: "FREE", source: null };
+    return { status: "NOT_ENTITLED", reason: "NO_CURRENT_PLAN", licenceStatus: null, planCode: null, source: null };
   }
 
   if (hasActiveOverride) {
@@ -104,7 +106,7 @@ export function classifyEntitlement(
   }
 
   if (!currentLicence) {
-    return { status: "NOT_ENTITLED", reason: "NO_CURRENT_LICENCE_PERIOD", licenceStatus: null, planCode: "FREE", source: null };
+    return { status: "NOT_ENTITLED", reason: "NO_CURRENT_PLAN", licenceStatus: null, planCode: null, source: null };
   }
 
   if (!ENTITLING_LICENCE_STATUSES.includes(currentLicence.status)) {
@@ -117,11 +119,16 @@ export function classifyEntitlement(
     };
   }
 
+  if (currentLicence.planCode === "FREE") {
+    return { status: "NOT_ENTITLED", reason: "RETIRED_PLAN", licenceStatus: currentLicence.status, planCode: null, source: null };
+  }
+
   if (!KNOWN_PLAN_CODES.includes(currentLicence.planCode)) {
     return { status: "NOT_ENTITLED", reason: "UNKNOWN_PLAN", licenceStatus: currentLicence.status, planCode: null, source: null };
   }
 
-  if (currentLicence.featureCodes.some((c) => canonicalCapability(c) === capability)) {
+  // The plan x capability matrix decides (commercial_plan_features, mirrored by PLAN_FEATURE_MATRIX).
+  if (planIncludes(currentLicence.planCode, capability)) {
     return {
       status: "ENTITLED",
       reason: "ACTIVE_LICENCE_INCLUDES_FEATURE",
@@ -140,8 +147,8 @@ export function classifyEntitlement(
   };
 }
 
-/** Plan codes the resolver recognises (commercial_plans.chk_cp_code, 20260925100000). Anything else is refused. */
-export const KNOWN_PLAN_CODES: readonly string[] = ["FREE", "PRACTICE", "FIRM", "ENTERPRISE", "PAID"];
+/** Plan codes that can entitle anything (20260925130000). The retired FREE plan and anything else are refused. */
+export const KNOWN_PLAN_CODES: readonly string[] = ["SOLO", "PRACTICE", "FIRM", "ENTERPRISE", "PAID"];
 
 /** UNKNOWN and NOT_ENTITLED both fail closed for privileged use — ENTITLED is the only pass state. */
 export function isEntitledForPrivilegedUse(result: EntitlementResult): boolean {

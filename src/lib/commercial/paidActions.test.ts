@@ -42,13 +42,13 @@ const locked = { allowed: false, code: "ENTITLEMENT_REQUIRED" };
 describe("parseWorkspaceCommercialState / paidActionState — only an explicit server ALLOWED is allowed", () => {
   it("parses the canonical shape and drops legacy or malformed capability keys", () => {
     const s = parseWorkspaceCommercialState({
-      access: true, plan_code: "FREE",
+      access: true, plan_code: null,
       capabilities: { CLOSE_INSIGHTS: locked, REPORTING_PACK_EXPORT: allowed, MAONO_INTELLIGENCE: allowed, STATEMENT_CERTIFICATION: { allowed: "yes", code: "ALLOWED" } },
     })!;
-    expect(s.planCode).toBe("FREE");
+    expect(s.planCode).toBeNull();
     expect(Object.keys(s.capabilities).sort()).toEqual(["CLOSE_INSIGHTS", "REPORTING_PACK_EXPORT"]);
     expect(paidActionState(s, "REPORTING_PACK_EXPORT")).toEqual({ status: "allowed" });
-    expect(paidActionState(s, "CLOSE_INSIGHTS")).toEqual({ status: "locked", capability: "CLOSE_INSIGHTS", requiredPlan: "PRACTICE" });
+    expect(paidActionState(s, "CLOSE_INSIGHTS")).toEqual({ status: "locked", capability: "CLOSE_INSIGHTS", requiredPlan: "SOLO" });
     expect(paidActionState(s, "STATEMENT_CERTIFICATION")).toEqual({ status: "unknown" });
   });
   it("fails closed on anything malformed, loading or without workspace access", () => {
@@ -80,25 +80,30 @@ describe("entitlementRefusal — structured codes only", () => {
 
 describe("customer copy", () => {
   it("uses the approved locked wording, names the plan, and says what remains and what is kept", () => {
-    expect(lockedCopy("STATEMENT_CERTIFICATION").title).toBe("Upgrade to create a certified close");
-    expect(lockedCopy("REPORTING_PACK_EXPORT")).toMatchObject({ title: "Available with Practice", remains: "Preview remains available.", history: "Your existing reports remain accessible." });
-    expect(lockedCopy("CLOSE_INSIGHTS").title).toBe("Available with Practice");
+    // Every plan includes these, so a refusal means no current plan: the workspace is read-only, nothing is lost.
+    expect(lockedCopy("STATEMENT_CERTIFICATION").title).toBe("A current plan is needed");
+    expect(lockedCopy("REPORTING_PACK_EXPORT")).toMatchObject({ title: "A current plan is needed", remains: "Preview remains available. Reports already issued stay readable.", history: "Your existing reports remain accessible." });
+    expect(lockedCopy("CLOSE_INSIGHTS").unavailable).toMatch(/needs a current plan, from Solo\./);
     for (const c of PAID_ACTIONS) {
       const text = Object.values(lockedCopy(c)).join(" ");
-      expect(text).not.toMatch(/payment required|pay now|must pay|forbidden|denied|owner|partner|manager|SAFISHA|HESABU|MAONO|KINGA/i);
+      expect(text).not.toMatch(/payment required|pay now|must pay|forbidden|denied|owner|partner|manager|SAFISHA|HESABU|MAONO|KINGA|\bfree\b|trial/i);
     }
   });
   it("capacity copy states the capacity, never deletes or hides anything, and is honest when capacity is undetermined", () => {
     const c = capacityCopy({ capacity: 5, used: 5, planCode: "PRACTICE", determined: true });
     expect(c.unavailable).toBe("Your Practice plan includes 5 active entities, and 5 are in use.");
     expect(c.history).toMatch(/Nothing is deleted, hidden or moved/);
-    expect(capacityCopy({ capacity: 1, used: 1, planCode: "FREE", determined: true }).unavailable).toMatch(/1 active entity, and 1 is in use/);
+    expect(capacityCopy({ capacity: 1, used: 1, planCode: "SOLO", determined: true }).unavailable).toMatch(/Your Solo plan includes 1 active entity, and 1 is in use/);
+    // No current plan: no entity can be added; existing ones stay readable.
+    const none = capacityCopy({ capacity: 0, used: 2, planCode: null, determined: true });
+    expect(none.title).toBe("A current plan is needed");
+    expect(none.remains).toBe("Every existing entity stays readable.");
     expect(capacityCopy({ capacity: null, used: 3, planCode: "ENTERPRISE", determined: false }).title).toBe("Entity capacity needs confirming");
   });
   it("PaidActionNotice is neutral: lock icon, no success glyph or colour, links to plan comparison, no checkout", () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(PaidActionNotice, { copy: lockedCopy("CLOSE_INSIGHTS") })));
     expect(html).toContain('href="/pricing"');
-    expect(html).toContain("Available with Practice");
+    expect(html).toContain("A current plan is needed");
     expect(html).toContain("Insights you already generated stay accessible.");
     expect(html).toMatch(/lucide-lock/);
     expect(html).not.toMatch(/lucide-(check|circle-check)|✓|✔|green|emerald|success|checkout/i);
@@ -182,13 +187,19 @@ describe("named-user seats in the UI (structured state only)", () => {
     expect(c.history).toBe("Nobody is ever reactivated automatically.");
     expect(Object.values(c).join(" ")).not.toMatch(/keeps? (their )?access/i);
   });
-  it("Free: one named user, inviting is available with Practice, seat price from the catalogue, memberships never deleted", () => {
-    const c = seatCopy(parseSeatCapacity(raw({ plan_code: "FREE", included_seats: 1, additional_seats: 0, allowed_named_users: 1, additional_seats_purchasable: false, active_named_users: 1, reserved_named_users: 1 })))!;
-    expect(c.title).toBe("Available with Practice");
+  it("Solo: one named user, inviting is available with Practice or Firm, seat price from the catalogue, memberships never deleted", () => {
+    const c = seatCopy(parseSeatCapacity(raw({ plan_code: "SOLO", included_seats: 1, additional_seats: 0, allowed_named_users: 1, additional_seats_purchasable: false, active_named_users: 1, reserved_named_users: 1 })))!;
+    expect(c.title).toBe("Available with Practice or Firm");
     expect(c.unavailable).toMatch(/one named user: you/);
     expect(c.remains).toContain("$20 / month or $200 / year");
     expect(c.history).toMatch(/never deleted/);
     expect(c.history).not.toMatch(/keeps? access/i);
+  });
+  it("no current plan: only the account holder, read-only; nobody can be invited", () => {
+    const c = seatCopy(parseSeatCapacity(raw({ plan_code: null, included_seats: 1, additional_seats: 0, allowed_named_users: 1, additional_seats_purchasable: false, active_named_users: 1, reserved_named_users: 1 })))!;
+    expect(c.title).toBe("A current plan is needed");
+    expect(c.unavailable).toMatch(/only the account holder can use the workspace \(read-only\)/);
+    expect(Object.values(c).join(" ")).not.toMatch(/\bfree\b|trial/i);
   });
   it("Practice at its allowance: states the formula and how to add seats; no checkout, no hostile wording", () => {
     const c = seatCopy(parseSeatCapacity(raw({ active_named_users: 3, reserved_named_users: 3 })))!;

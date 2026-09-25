@@ -3,7 +3,7 @@
 //
 // SAFISHA, HESABU, MAONO and KINGA are internal engine names. They may stay in code identifiers, file and folder
 // names, database object names, Edge Function slugs, comments and developer console output. They may never reach
-// a customer: JSX text, user-facing string and template literals (copy, toasts, errors, PDF/spreadsheet content,
+// a customer (downloaded file names and the public metadata / SEO surfaces included): JSX text, user-facing string and template literals (copy, toasts, errors, PDF/spreadsheet content,
 // export metadata, Edge Function response messages) are scanned with the TypeScript parser (so comments, identifiers,
 // import paths and type-only literals are never counted).
 //
@@ -24,6 +24,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 export const LEGACY_NAME = /\b(SAFISHA|HESABU|MAONO|KINGA|Safisha|Hesabu|Maono|Kinga)\b|(^|[\s"(])(safisha|hesabu|maono|kinga)([\s.,:;!?)"]|$)/;
 
 const JSX_SLUG = /\b(safisha|hesabu|maono|kinga)[-_]/i;
+// A downloaded file keeps its name on the customer's disk, so a technical slug in a file name is customer-visible too.
+export const LEGACY_FILENAME = /(safisha|hesabu|maono|kinga)[^\s"'`/]*\.(pdf|xlsx|xls|csv|json|xml|xbrl|zip|docx|txt|html)\b/i;
+
+// Public, indexable surfaces (metadata, SEO, sitemap, robots): no engine name in any form, any case.
+export const PUBLIC_SURFACES = ["index.html", "public/robots.txt", "public/sitemap.xml"];
+const ANY_CASE = /(safisha|hesabu|maono|kinga)/i;
 
 // Literals that must keep their exact value because they are identities, not display text. Each entry is reviewed:
 // the value is never rendered to a customer.
@@ -75,7 +81,7 @@ export function scanFile(abs) {
   const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true, abs.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const findings = [];
   const report = (node, value) => {
-    if (!LEGACY_NAME.test(value)) return;
+    if (!LEGACY_NAME.test(value) && !LEGACY_FILENAME.test(value)) return;
     if (PERSISTED_IDENTIFIER_ALLOWLIST.some((a) => a.file === rel && a.value === value)) return;
     const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
     findings.push({ file: rel, line: line + 1, text: value.trim().slice(0, 140) });
@@ -88,7 +94,9 @@ export function scanFile(abs) {
     } else if (ts.isJsxText(node)) report(node, node.getText(sf));
     else if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && !skipNode(node)) report(node, node.text);
     else if (ts.isTemplateExpression(node) && !skipNode(node)) {
-      report(node, [node.head.text, ...node.templateSpans.map((s) => s.literal.text)].join(" "));
+      const parts = [node.head.text, ...node.templateSpans.map((s) => s.literal.text)];
+      // Joined with a space for words; joined with a placeholder too, so `kinga_${date}.csv` is seen as a file name.
+      report(node, LEGACY_FILENAME.test(parts.join("x")) ? parts.join("x") : parts.join(" "));
     }
     ts.forEachChild(node, visit);
   };
@@ -96,10 +104,28 @@ export function scanFile(abs) {
   return findings;
 }
 
+export function scanPublicSurfaces(root = ROOT) {
+  const findings = [];
+  for (const rel of PUBLIC_SURFACES) {
+    const abs = path.join(root, rel);
+    if (!fs.existsSync(abs)) continue;
+    fs.readFileSync(abs, "utf8").split(/\r?\n/).forEach((l, i) => { if (ANY_CASE.test(l)) findings.push({ file: rel, line: i + 1, text: l.trim().slice(0, 140) }); });
+  }
+  // The legacy workspace routes (src/App.tsx) are immediate redirects under /workspace/, which the catch-all crawler
+  // block of robots.txt disallows; the sitemap never lists them (checked above).
+  const robots = path.join(root, "public/robots.txt");
+  if (fs.existsSync(robots)) {
+    const blocks = fs.readFileSync(robots, "utf8").split(/\r?\n(?=User-agent:)/);
+    const star = blocks.find((b) => /^User-agent:\s*\*/m.test(b));
+    if (!star || !/^Disallow:\s*\/workspace\//m.test(star)) findings.push({ file: "public/robots.txt", line: 0, text: "the legacy redirect routes under /workspace/ must be disallowed for every crawler" });
+  }
+  return findings;
+}
+
 export function sweep() {
   const files = SCAN_DIRS.flatMap((d) => walk(path.join(ROOT, d), []))
     .filter((abs) => !skipFile(path.relative(ROOT, abs).split(path.sep).join("/")));
-  return files.flatMap(scanFile);
+  return [...files.flatMap(scanFile), ...scanPublicSurfaces()];
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

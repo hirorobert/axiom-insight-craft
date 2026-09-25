@@ -13,6 +13,11 @@
 //    downgrade retention, fail-closed quantities, service identities never counted).
 // 4. Billing never touches accounting: licence transitions leave certifications, sign-offs and uploads byte-identical.
 //
+// Layer: this proof runs the chain through 20260925120000, the layer it proves. 20260925130000 retires the Free plan
+// (the "Free" behaviour below is that layer's, later superseded: no plan now means read-only, nothing is free) and
+// 20260925140000 moves authorization to explicit capabilities; the resulting state is proven by
+// scripts/db-proof/planCapabilities.mjs and scripts/db-proof/billingSuspension.mjs, which run the whole chain.
+//
 //   DB_PROOF_MODULES_DIR=<dir whose node_modules has pg + embedded-postgres> node scripts/db-proof/entitlements.mjs
 //
 // It reads no Supabase credential and refuses every non-loopback host and the production project reference.
@@ -182,7 +187,11 @@ async function main() {
   const retiredOffers = (await admin.query("SELECT id, offer_code FROM public.commercial_offers WHERE offer_code LIKE 'CFOCLOSE_PROFESSIONAL%' ORDER BY offer_code")).rows;
 
   await check(`${MIGRATION} applies over the legacy state`, async () => { await applyMigration(MIGRATION); return true; });
-  await check("every later migration also applies", async () => { for (const f of files.slice(cut + 1)) await applyMigration(f); return true; });
+  const layerEnd = files.indexOf("20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql");
+  await check("every later migration of this layer also applies (through 20260925120000)", async () => {
+    for (const f of files.slice(cut + 1, layerEnd < 0 ? undefined : layerEnd)) await applyMigration(f);
+    return true;
+  });
 
   await check("the catalogue is exactly Free / Practice / Firm / Enterprise (+ the hidden legacy PAID plan)", async () => {
     const rows = (await admin.query("SELECT code, entity_capacity, included_seats, additional_seats_purchasable AS buy, is_public, sales_mode, display_order, feature_codes FROM public.commercial_plans WHERE product_id=$1 ORDER BY code", [product])).rows;

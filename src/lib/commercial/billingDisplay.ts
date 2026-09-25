@@ -8,8 +8,8 @@ import { isFeatureCode, FEATURE_DESCRIPTIONS } from "@/lib/commercial/featureReg
  * component itself would pull in React Router, the Supabase client, and
  * other module-scope side effects that have no place in a logic test).
  *
- * The authoritative plan-code vocabulary is FREE, PRACTICE, FIRM, ENTERPRISE and
- * the grandfathered legacy PAID (commercial_plans.code, 20260925100000). Anything else
+ * The authoritative plan-code vocabulary is SOLO, PRACTICE, FIRM, ENTERPRISE, the grandfathered legacy PAID
+ * and the retired FREE (commercial_plans.code, 20260925130000). Anything else
  * — a future code the UI doesn't know about yet, or a data-integrity
  * issue — fails closed rather than being misrepresented as an active paid
  * plan (CFOClose Ω∞ Execution Charter, Phase 1, item 5).
@@ -17,7 +17,7 @@ import { isFeatureCode, FEATURE_DESCRIPTIONS } from "@/lib/commercial/featureReg
  * IMPORTANT: this function does NOT decide what to show when there is no
  * billing customer at all — that is a separate, distinct state, and
  * Settings.tsx's own `!billing.hasBillingCustomer` branch renders the
- * default Free state for it upstream of this call. By the time
+ * "no current plan" state for it upstream of this call. By the time
  * `displayPlanName` is invoked, a billing customer is already confirmed to
  * exist, so a `null` or empty `planCode` reaching here is itself an
  * anomaly — not "no billing customer" — and must fail closed exactly like

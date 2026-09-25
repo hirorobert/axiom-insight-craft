@@ -32,6 +32,8 @@ export const DRAFT_PRINT_MARK = "DRAFT — NOT CERTIFIED — NOT FOR FILING OR C
 export type IssueOutcome =
   | { readonly status: "issued"; readonly issuanceId: string }
   | { readonly status: "locked" }
+  /** The person does not hold issue_reporting_pack in this workspace (a capability, never a job title). */
+  | { readonly status: "not_permitted" }
   | { readonly status: "failed" };
 
 /** Strict parse of issue_reporting_pack(); only a server "issued"/"already_issued" with an id may proceed. */
@@ -42,16 +44,18 @@ export function parseIssueOutcome(raw: unknown): IssueOutcome {
     return { status: "issued", issuanceId: r.issuance_id };
   }
   if (r.outcome === "entitlement_required") return { status: "locked" };
+  if (r.outcome === "capability_required") return { status: "not_permitted" };
   return { status: "failed" };
 }
 
-export type SealOutcome = "sealed" | "locked" | "failed";
+export type SealOutcome = "sealed" | "locked" | "not_permitted" | "failed";
 
 /** Strict parse of consume_reporting_pack_issuance(); anything but "sealed" means the file must not be saved. */
 export function parseSealOutcome(raw: unknown): SealOutcome {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>).outcome : null;
   if (o === "sealed") return "sealed";
   if (o === "entitlement_required" || o === "workspace_access_denied") return "locked";
+  if (o === "capability_required") return "not_permitted";
   return "failed";
 }
 
@@ -97,7 +101,7 @@ export function financialStatementsOutputRef(lineage: { reportId: string; report
     : `fs-draft:${lineage.reportId}:${lineage.contentHash.slice(0, 16)}`;
 }
 
-export type DeliveryOutcome = "delivered" | "locked" | "failed";
+export type DeliveryOutcome = "delivered" | "locked" | "not_permitted" | "failed";
 
 /**
  * The whole official path, independent of the browser: issue → build the bytes (the issuance id may be printed in
@@ -109,7 +113,7 @@ export async function deliverOfficialPack(
   rpc: Rpc, b: PackBinding, build: (issuanceId: string) => BuiltPack | Promise<BuiltPack>, save: (blob: Blob, fileName: string | null) => void,
 ): Promise<DeliveryOutcome> {
   const issued = await issueReportingPack(rpc, b);
-  if (issued.status !== "issued") return issued.status === "locked" ? "locked" : "failed";
+  if (issued.status !== "issued") return issued.status;
   const built = await build(issued.issuanceId);
   const blob = built instanceof Blob ? built : built.blob;
   const sealed = await sealReportingPack(rpc, issued.issuanceId, b, await sha256Hex(await blob.arrayBuffer()));

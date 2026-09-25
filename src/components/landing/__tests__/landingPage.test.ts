@@ -242,7 +242,9 @@ describe("page structure", () => {
   });
 
   it("asks for sign-up in at most three places across the whole page", () => {
-    const startFree = PAGE_TEXT.match(/Start free/g) ?? [];
+    // There is no free plan: the sign-up action says "Get started", never "Start free".
+    expect(PAGE_TEXT).not.toMatch(/Start free/i);
+    const startFree = PAGE_TEXT.match(/Get started/g) ?? [];
     expect(startFree.length).toBeLessThanOrEqual(3);
     expect(startFree.length).toBeGreaterThan(0);
   });

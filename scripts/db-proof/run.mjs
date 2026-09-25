@@ -206,6 +206,12 @@ async function seed() {
     const prod = (await admin.query("SELECT id FROM public.commercial_products WHERE code='CFOCLOSE'")).rows[0].id;
     const bc = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) RETURNING id", [U.owner, prod])).rows[0].id;
     await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats) SELECT $1, id, 'ACTIVE', 'ADMIN_GRANT', now() - interval '1 day', 4 FROM public.commercial_plans WHERE product_id=$2 AND code='PRACTICE'", [bc, prod]);
+    // There is no free plan (20260925130000): every other account that creates a workspace in this proof holds a plan too,
+    // recorded exactly as a real account's would be (Firm, with room for its collaborators).
+    for (const uid of [U.ownerB]) {
+      const b2 = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) RETURNING id", [uid, prod])).rows[0].id;
+      await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats) SELECT $1, id, 'ACTIVE', 'ADMIN_GRANT', now() - interval '1 day', 50 FROM public.commercial_plans WHERE product_id=$2 AND code='FIRM'", [b2, prod]);
+    }
   }
   COMPANY_A = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1, 'Company A') RETURNING id", [U.owner])).rows[0].id;
   COMPANY_B = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1, 'Company B') RETURNING id", [U.ownerB])).rows[0].id;

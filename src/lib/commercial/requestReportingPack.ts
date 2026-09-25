@@ -45,6 +45,8 @@ export async function deliverReportingPack(req: PackRequest): Promise<DeliveryOu
   if (outcome === "locked") {
     const copy = lockedCopy("REPORTING_PACK_EXPORT");
     toast(copy.title, { description: `${copy.unavailable} ${copy.remains} ${copy.history}` });
+  } else if (outcome === "not_permitted") {
+    toast("Not permitted in this workspace", { description: "Issuing official outputs needs the Issue Reporting Pack outputs capability here. Nothing was downloaded." });
   } else if (outcome === "failed") {
     toast.error("The file could not be issued. Nothing was downloaded; try again.");
   }
