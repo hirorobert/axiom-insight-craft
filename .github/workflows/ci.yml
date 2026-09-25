@@ -114,6 +114,9 @@ jobs:
       - name: Package-manager authority (one lockfile, pinned Bun, no competing installer)
         run: node scripts/ci/assertSingleLockfile.mjs
 
+      - name: Migration authority (the hosted Drizzle apply journal mirrors the authored supabase/migrations exactly)
+        run: node scripts/ci/assertMigrationAuthority.mjs
+
       - name: Full test suite
         run: bun run test
 
@@ -329,3 +332,11 @@ jobs:
         run: |
           createdb entitlements_proof
           node scripts/db-proof/entitlements.mjs
+
+      - name: Named-user billing suspension, invitation reservations and official Reporting Pack proof (on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/billing_suspension_proof
+        run: |
+          createdb billing_suspension_proof
+          node scripts/db-proof/billingSuspension.mjs

@@ -24,7 +24,7 @@ import {
   Clock,
 } from "lucide-react";
 import jsPDF from "jspdf";
-import { requestReportingPack } from "@/lib/commercial/requestReportingPack";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 import { useAuditLog } from "@/hooks/useAuditLog";
 
 interface DisclosureNote {
@@ -112,8 +112,6 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated, companyId
 
   const exportNotesToPDF = async () => {
     if (notes.length === 0) return;
-// A disclosure-notes PDF is a Reporting Pack deliverable: issued by the server first, or not produced.
-if (!(await requestReportingPack(companyId, periodYear, "disclosure_notes"))) return;
 
     const doc = new jsPDF();
     let yPosition = 20;
@@ -174,7 +172,7 @@ if (!(await requestReportingPack(companyId, periodYear, "disclosure_notes"))) re
       yPosition += 10;
     });
 
-    doc.save("disclosure-notes.pdf");
+    return doc.output("blob");
     toast.success("Notes exported to PDF");
   };
 
@@ -238,7 +236,11 @@ if (!(await requestReportingPack(companyId, periodYear, "disclosure_notes"))) re
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void exportNotesToPDF()} className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => notes.length > 0 && void deliverReportingPack({
+            // A disclosure-notes PDF is an official Reporting Pack deliverable: issued, built, sealed, then saved.
+            companyId, periodYear, kind: "disclosure_notes", outputRef: `upload:${uploadId}`, fileName: "disclosure-notes.pdf",
+            build: async () => (await exportNotesToPDF()) as Blob,
+          })} className="gap-2">
             <Download className="w-4 h-4" />
             Export PDF
           </Button>

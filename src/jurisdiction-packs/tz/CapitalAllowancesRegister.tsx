@@ -23,7 +23,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { requestReportingPack } from "@/lib/commercial/requestReportingPack";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 import {
   computeWearTear,
   formatWearTearPreview,
@@ -193,9 +193,8 @@ export function CapitalAllowancesRegister({
   };
 
   // ── CSV export ─────────────────────────────────────────────────────────────
+  // The capital allowances schedule is an official Reporting Pack deliverable: issued, built, sealed, then saved.
   const handleExport = async () => {
-  // The capital allowances schedule is a Reporting Pack deliverable: issued by the server first, or not produced.
-  if (!(await requestReportingPack(companyId, periodYear, "tax_workpaper"))) return;
     const header = "Asset,Class,Rate,Cost TZS,Opening WDV,Additions,Disposals,W&T,Closing WDV,Acc Dep'n,Notes";
     const rows = assets.map(a => {
       const cls = ITA_CLASSES.find(c => c.value === a.ita_class);
@@ -210,14 +209,12 @@ export function CapitalAllowancesRegister({
       ].join(",");
     });
     const csv = [header, ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `capital_allowances_${companyName?.replace(/\s+/g, "_") ?? companyId}_FY${periodYear}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("CSV downloaded");
+    const outcome = await deliverReportingPack({
+      companyId, periodYear, kind: "tax_workpaper", outputRef: `capital-allowances:${companyId}:FY${periodYear}`,
+      fileName: `capital_allowances_${companyName?.replace(/\s+/g, "_") ?? companyId}_FY${periodYear}.csv`,
+      build: () => new Blob([csv], { type: "text/csv" }),
+    });
+    if (outcome === "delivered") toast.success("CSV downloaded");
   };
 
   // ── Group by class ─────────────────────────────────────────────────────────

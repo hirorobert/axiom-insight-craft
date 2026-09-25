@@ -28,7 +28,7 @@ import { useAuditLog } from "@/hooks/useAuditLog";
 import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState";
 import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
 import { functionEntitlementRefusal, lockedCopy, paidActionState } from "@/lib/commercial/paidActions";
-import { requestReportingPack } from "@/lib/commercial/requestReportingPack";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 
 // ── Types (mirrors edge function output) ─────────────────────
 interface TableRow { label: string; value: string; highlight?: boolean; indent?: boolean }
@@ -295,7 +295,7 @@ function exportToPDF(letter: LetterDocument, editedSections: Record<string, stri
     y += 8;
   });
 
-  doc.save(`management-letter-${letter.metadata.periodYear}.pdf`);
+  return doc.output("blob");
   toast.success("Management letter exported to PDF");
 }
 
@@ -410,7 +410,10 @@ export function MgmtLetterPanel({ uploadId, companyId = null, existingLetter, on
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <Button variant="outline" size="sm" onClick={async () => { if (await requestReportingPack(companyId, letter.metadata.periodYear, "management_letter")) exportToPDF(letter, editedSections); }} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => void deliverReportingPack({
+            companyId, periodYear: letter.metadata.periodYear, kind: "management_letter", outputRef: `upload:${uploadId}`,
+            fileName: `management-letter-${letter.metadata.periodYear}.pdf`, build: () => exportToPDF(letter, editedSections),
+          })} className="gap-1.5">
             <Download className="w-3.5 h-3.5" />Export PDF
           </Button>
           <Button variant="ghost" size="sm" onClick={generate} disabled={isGenerating || packLocked} className="gap-1.5">

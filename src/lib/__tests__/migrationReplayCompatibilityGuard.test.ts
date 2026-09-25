@@ -179,7 +179,9 @@ describe("migration directory integrity", () => {
     // Bumped from 134 -> 135: 20260925100000_global_capabilities_entitlements_pricing.sql (CFO Close capability names, one entitlement authority,
     // product walls and the pricing catalogue) — forward-only, sorts last.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(135);
+    // Bumped from 135 -> 137: 20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql (named-user billing suspension and invitation reservations) and
+    // 20260925120000_reporting_pack_issuance_binding.sql (the official Reporting Pack issuance binding).
+    expect(files.length).toBe(137);
   });
 });
 
@@ -516,8 +518,11 @@ describe("trigger replay guard — every migration file, keyed by exact trigger 
 
   const duplicateKeys = [...creatorsByKey.entries()].filter(([, fs2]) => fs2.length > 1);
 
-  it("finds exactly 20 duplicate trigger name+relation identities across the repository", () => {
-    expect(duplicateKeys.length).toBe(20);
+  // 20 -> 21: 20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql re-creates the firm_members
+  // seat-wall trigger (trg_firm_members_named_user_seats, now also on the invitation columns) behind its own
+  // DROP TRIGGER IF EXISTS; the grants trigger keeps its definition (only its function is replaced).
+  it("finds exactly 21 duplicate trigger name+relation identities across the repository", () => {
+    expect(duplicateKeys.length).toBe(21);
   });
 
   it("the first creator of any trigger name+relation needs no guard; every later creator of that same name+relation contains its own same-relation DROP TRIGGER IF EXISTS strictly before its corresponding CREATE TRIGGER — evaluated against every migration, no exclusions", () => {

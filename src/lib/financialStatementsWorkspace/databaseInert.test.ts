@@ -124,6 +124,12 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/paidAction.ts",
       "supabase/functions/_shared/comparativeAssurance.ts",
       "supabase/functions/comparative-assurance-engine/index.ts",
+      // Named-user billing suspension and invitation reservations (20260925110000), the official Reporting Pack
+      // issuance binding (20260925120000), and the service-role named-user activity check Edge Functions share. No
+      // financial-statements schema.
+      "supabase/migrations/20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
+      "supabase/migrations/20260925120000_reporting_pack_issuance_binding.sql",
+      "supabase/functions/_shared/namedUserAccess.ts",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
@@ -152,6 +158,13 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/generate-management-letter/index.ts",
       "supabase/functions/generate-disclosure-notes/index.ts",
       "supabase/functions/_shared/certifiedTbSource.ts",
+      // Named-user activity (20260925110000): the shared membership checks and the service-role membership lookups
+      // also require an ACTIVE named user (a billing-suspended member gets an outsider's 403); the invitation function
+      // reserves the seat before any email and releases it when the email fails. Accounting logic unchanged.
+      "supabase/functions/_shared/auth.ts",
+      "supabase/functions/_shared/actor.ts",
+      "supabase/functions/invite-firm-member/index.ts",
+      "supabase/functions/kinga-tax-engine/index.ts",
     ]);
     for (const line of changed) {
       const [status, file] = line.split("	");
@@ -182,7 +195,10 @@ describe("database inertness — schema and functions", () => {
       "scripts/browser-acceptance/checks.mjs",
       // CFO Close capabilities: the loopback-only real-PostgreSQL entitlement proof and the customer-visible legacy-name
       // sweep (a read-only source scanner).
-      "scripts/db-proof/entitlements.mjs", "scripts/ci/legacyNameSweep.mjs"]);
+      "scripts/db-proof/entitlements.mjs", "scripts/ci/legacyNameSweep.mjs",
+      // Named-user billing suspension, invitation reservations and the official Reporting Pack: the loopback-only
+      // real-PostgreSQL proof, and the read-only migration-authority parity guard.
+      "scripts/db-proof/billingSuspension.mjs", "scripts/ci/assertMigrationAuthority.mjs"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

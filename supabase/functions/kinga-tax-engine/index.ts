@@ -83,6 +83,7 @@
 // ============================================================
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { isNamedUserActive } from "../_shared/namedUserAccess.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ENGINE_VERSION = "Module E v1.3 — FA2026";
@@ -447,7 +448,8 @@ serve(async (req) => {
         .not("accepted_at", "is", null)
         .limit(1)
         .maybeSingle();
-      if (!member) {
+      // A membership row is history; only an ACTIVE named user has access (20260925110000).
+      if (!member || !(await isNamedUserActive((fn, args) => supabase.rpc(fn, args), companyId, callerId))) {
         return new Response(
           JSON.stringify({ error: "Forbidden", message: "Not a member of this company" }),
           { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },

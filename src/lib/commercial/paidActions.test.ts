@@ -14,15 +14,18 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
 import { DraftPrintMarkView } from "@/components/commercial/DraftPrintMark";
-import { DRAFT_PRINT_MARK, REPORTING_PACK_KINDS, parseIssueOutcome } from "./reportingPack";
+import { DRAFT_PRINT_MARK, REPORTING_PACK_KINDS, deliverOfficialPack, financialStatementsOutputRef, parseIssueOutcome, parseSealOutcome, sha256Hex } from "./reportingPack";
 import { parseCreateEntityOutcome } from "./entityCreation";
 import {
   canInviteAnother,
   capacityCopy,
   functionSeatRefusal,
   parseAcceptInvitations,
+  parseNamedUserRoster,
   parseSeatCapacity,
+  parseSelectionOutcome,
   seatCopy,
+  selectableSeats,
   entitlementRefusal,
   functionEntitlementRefusal,
   lockedCopy,
@@ -118,11 +121,11 @@ describe("parseCreateEntityOutcome", () => {
 });
 
 describe("UI call sites defer to the server", () => {
-  it("a formal statement export is issued by the server before anything is rendered", () => {
+  it("a formal statement export is issued, sealed with its exact bytes, and only then saved (never rendered straight to disk)", () => {
     const src = read("src/components/ExportStatements.tsx").replace(/\r\n/g, "\n");
     const fn = src.slice(src.indexOf("const issueAndExport"), src.indexOf("const isDisabled"));
-    expect(fn.indexOf('supabase.rpc("issue_reporting_pack"')).toBeGreaterThan(-1);
-    expect(fn.indexOf('supabase.rpc("issue_reporting_pack"')).toBeLessThan(fn.indexOf("render(result.issuance_id)"));
+    expect(fn).toMatch(/await deliverReportingPack\(/);
+    expect(fn.indexOf('if (outcome !== "delivered") return;')).toBeLessThan(fn.indexOf("logAction("));
     expect(src).toMatch(/issueAndExport\("financial_statements_pdf", exportToPDF\)/);
     expect(src).toMatch(/issueAndExport\("financial_statements_spreadsheet", exportToExcel\)/);
     expect(src).not.toMatch(/onClick=\{exportTo(PDF|Excel)\}/);
@@ -153,27 +156,39 @@ describe("UI call sites defer to the server", () => {
 });
 
 describe("named-user seats in the UI (structured state only)", () => {
-  const raw = (o: Record<string, unknown>) => ({ access: true, determined: true, plan_code: "PRACTICE", included_seats: 1, additional_seats: 2, allowed_named_users: 3, additional_seats_purchasable: true, active_named_users: 2, reserved_named_users: 2, ...o });
+  const raw = (o: Record<string, unknown>) => ({ access: true, determined: true, plan_code: "PRACTICE", included_seats: 1, additional_seats: 2, allowed_named_users: 3,
+    additional_seats_purchasable: true, active_named_users: 2, reserved_named_users: 2, suspended_named_users: 0, over_allowance: false, is_account_holder: true, ...o });
   it("parses the seat state; no access, malformed or undetermined fails closed", () => {
     const s = parseSeatCapacity(raw({}))!;
-    expect(s).toMatchObject({ determined: true, allowedNamedUsers: 3, activeNamedUsers: 2, reservedNamedUsers: 2, additionalSeatsPurchasable: true });
+    expect(s).toMatchObject({ determined: true, allowedNamedUsers: 3, activeNamedUsers: 2, reservedNamedUsers: 2, additionalSeatsPurchasable: true, overAllowance: false, isAccountHolder: true });
     expect(canInviteAnother(s)).toBe(true);
     for (const bad of [null, { access: false }, raw({ active_named_users: -1 }), raw({ determined: "yes" }), raw({ reserved_named_users: 1.5 })]) expect(parseSeatCapacity(bad)).toBeNull();
     const und = parseSeatCapacity(raw({ determined: false, allowed_named_users: null }))!;
     expect(canInviteAnother(und)).toBe(false);
     expect(canInviteAnother(null)).toBe(false);
     expect(seatCopy(und)!.title).toBe("Named-user seats need confirming");
+    // A missing over_allowance flag is treated as over (fail closed).
+    expect(parseSeatCapacity(raw({ over_allowance: undefined }))!.overAllowance).toBe(true);
   });
   it("a pending invitation holds a seat: reserved = allowed means no further invitation", () => {
     expect(canInviteAnother(parseSeatCapacity(raw({ active_named_users: 2, reserved_named_users: 3 })))).toBe(false);
     expect(seatCopy(parseSeatCapacity(raw({})))).toBeNull();
   });
-  it("Free: one named user, inviting is available with Practice, seat price from the catalogue, nobody removed", () => {
+  it("over the allowance (after a downgrade or expiry): nobody new, and the account holder is asked to choose; nobody is reactivated automatically", () => {
+    const s = parseSeatCapacity(raw({ plan_code: "PRACTICE", additional_seats: 0, allowed_named_users: 1, active_named_users: 4, reserved_named_users: 4, over_allowance: true }))!;
+    expect(canInviteAnother(s)).toBe(false);
+    const c = seatCopy(s)!;
+    expect(c.title).toBe("Choose who stays active");
+    expect(c.history).toBe("Nobody is ever reactivated automatically.");
+    expect(Object.values(c).join(" ")).not.toMatch(/keeps? (their )?access/i);
+  });
+  it("Free: one named user, inviting is available with Practice, seat price from the catalogue, memberships never deleted", () => {
     const c = seatCopy(parseSeatCapacity(raw({ plan_code: "FREE", included_seats: 1, additional_seats: 0, allowed_named_users: 1, additional_seats_purchasable: false, active_named_users: 1, reserved_named_users: 1 })))!;
     expect(c.title).toBe("Available with Practice");
     expect(c.unavailable).toMatch(/one named user: you/);
     expect(c.remains).toContain("$20 / month or $200 / year");
-    expect(c.history).toMatch(/nobody is removed/);
+    expect(c.history).toMatch(/never deleted/);
+    expect(c.history).not.toMatch(/keeps? access/i);
   });
   it("Practice at its allowance: states the formula and how to add seats; no checkout, no hostile wording", () => {
     const c = seatCopy(parseSeatCapacity(raw({ active_named_users: 3, reserved_named_users: 3 })))!;
@@ -183,17 +198,29 @@ describe("named-user seats in the UI (structured state only)", () => {
     const text = Object.values(c).join(" ");
     expect(text).not.toMatch(/payment required|pay now|checkout|shared (login|account|password)|owner|partner|manager/i);
   });
+  it("roster and selection are read by structured fields; the account holder may choose up to allowance - 1 among active and suspended people", () => {
+    const r = parseNamedUserRoster({ outcome: "ok", allowed_named_users: 2, over_allowance: true, roster_version: "v1", people: [
+      { user_id: "a", state: "active_candidate", invited_email: "a@x" }, { user_id: "b", state: "suspended" }, { user_id: "c", state: "pending" }, { user_id: "d", state: "inactive" }] })!;
+    expect(selectableSeats(r)).toEqual({ choices: ["a", "b"], max: 1 });
+    expect(parseNamedUserRoster({ outcome: "ok", roster_version: "v", people: [{ user_id: "x", state: "owner" }] })).toBeNull();
+    expect(parseNamedUserRoster({ outcome: "unauthenticated" })).toBeNull();
+    expect(selectableSeats(null)).toEqual({ choices: [], max: 0 });
+    expect(parseSelectionOutcome({ outcome: "applied" })).toBe("applied");
+    expect(parseSelectionOutcome({ outcome: "stale_selection" })).toBe("stale_selection");
+    expect(parseSelectionOutcome({ outcome: "whatever" })).toBeNull();
+  });
   it("accept_workspace_invitations and the invitation function's 402 body are read by structured fields", async () => {
     const id = "0b7e3f0a-7c1e-4a51-9a2e-3f7e1c2d4b5a";
-    expect(parseAcceptInvitations({ outcome: "ok", accepted: [id], blocked: [{ company_id: id, code: "SEAT_LIMIT_REACHED" }, { company_id: 1, code: "X" }] }))
-      .toEqual({ accepted: [id], blocked: [{ companyId: id, code: "SEAT_LIMIT_REACHED" }] });
+    expect(parseAcceptInvitations({ outcome: "ok", accepted: [id], blocked: [{ company_id: id, code: "SEAT_LIMIT_REACHED" }, { company_id: id, code: "INVITATION_EXPIRED" }, { company_id: 1, code: "X" }] }))
+      .toEqual({ accepted: [id], blocked: [{ companyId: id, code: "SEAT_LIMIT_REACHED" }, { companyId: id, code: "INVITATION_EXPIRED" }] });
     expect(parseAcceptInvitations({ outcome: "unauthenticated" })).toBeNull();
     const ctx = new Response(JSON.stringify({ status: "seat_limit_reached", capability: "NAMED_USER_SEATS" }), { status: 402 });
     expect(await functionSeatRefusal({ context: ctx })).toBe("seat_limit_reached");
+    expect(await functionSeatRefusal({ context: new Response(JSON.stringify({ status: "named_user_suspended", capability: "NAMED_USER_SEATS" })) })).toBe("named_user_suspended");
     expect(await functionSeatRefusal({ context: new Response(JSON.stringify({ status: "seat_limit_reached", capability: "CLOSE_INSIGHTS" })) })).toBeNull();
     expect(await functionSeatRefusal({ message: "seat_limit_reached" })).toBeNull();
   });
-  it("acceptance goes through the per-invitation RPC (never a bulk client update); the team panel never offers an invitation the server would refuse", () => {
+  it("acceptance goes through the per-invitation RPC; the team panel never offers an invitation the server would refuse, cancels (never deletes) invitations, and reactivates only by explicit selection", () => {
     const dash = read("src/pages/Dashboard.tsx");
     expect(dash).toMatch(/supabase\.rpc\("accept_workspace_invitations"/);
     expect(dash).not.toMatch(/\.from\("firm_members"\)\s*\.update\(/);
@@ -202,41 +229,87 @@ describe("named-user seats in the UI (structured state only)", () => {
     expect(panel).toMatch(/disabled=\{!seatsLoaded \|\| !canInviteAnother\(seats\)\}/);
     expect(panel).toMatch(/functionSeatRefusal\(error\)/);
     expect(panel).toMatch(/Each person signs in with their own account/);
+    expect(panel).toMatch(/supabase\.rpc\("cancel_workspace_invitation"/);
+    expect(panel).toMatch(/isPending \? void handleCancelInvitation\(m\.id\) : handleRemove\(m\.id\)/);
+    expect(panel).toMatch(/supabase\.rpc\("choose_active_named_users"[^)]*p_roster_version: roster\.rosterVersion/);
+    expect(panel).not.toMatch(/named_user_billing_suspensions/);
   });
 });
 
-describe("Reporting Pack: downloads are issued by the server first; free printing is marked on every page", () => {
-  it("parseIssueOutcome: only issued / already_issued with an id allows a download", () => {
+describe("Reporting Pack: the official file is issued, sealed with its exact bytes, then saved; free printing is marked on every page", () => {
+  it("parseIssueOutcome: only issued / already_issued (and not yet sealed) with an id may proceed", () => {
     expect(parseIssueOutcome({ outcome: "issued", issuance_id: "abc" })).toEqual({ status: "issued", issuanceId: "abc" });
     expect(parseIssueOutcome({ outcome: "already_issued", issuance_id: "abc" })).toEqual({ status: "issued", issuanceId: "abc" });
+    expect(parseIssueOutcome({ outcome: "already_issued", issuance_id: "abc", sealed: true }).status).toBe("failed");
     expect(parseIssueOutcome({ outcome: "entitlement_required" })).toEqual({ status: "locked" });
     for (const bad of [null, {}, { outcome: "issued" }, { outcome: "issued", issuance_id: "" }, { outcome: "workspace_access_denied" }]) expect(parseIssueOutcome(bad).status).toBe("failed");
+    expect(parseSealOutcome({ outcome: "sealed" })).toBe("sealed");
+    for (const o of ["binding_mismatch", "already_sealed", "expired", "not_found", "invalid_request"]) expect(parseSealOutcome({ outcome: o })).toBe("failed");
+    expect(parseSealOutcome({ outcome: "entitlement_required" })).toBe("locked");
   });
   it("the client kinds are exactly the database's issuance kinds", () => {
-    const migration = read("supabase/migrations/20260925100000_global_capabilities_entitlements_pricing.sql");
-    const check = /chk_rpi_kind CHECK \(pack_kind IN \(([^)]*)\)\)/.exec(migration)?.[1] ?? "";
+    const migration = read("supabase/migrations/20260925120000_reporting_pack_issuance_binding.sql");
+    const check = /ADD CONSTRAINT chk_rpi_kind CHECK \(pack_kind IN \(([^)]*)\)\)/.exec(migration)?.[1] ?? "";
     expect([...check.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()).toEqual([...REPORTING_PACK_KINDS].sort());
   });
-  it.each([
-    ["src/pages/workspace/StatementsWorkspace.tsx", /issueReportingPack\([^;]*"financial_statements_data"\)/, /issueDownload=\{issueStatementsDownload\}/],
-    ["src/components/financialStatements/OutputsStage.tsx", /const outcome = await issueDownload\(\);/, /if \(outcome\.status === "issued"\) download\(file\)/],
-    ["src/components/MgmtLetterPanel.tsx", /requestReportingPack\(companyId, letter\.metadata\.periodYear, "management_letter"\)\) exportToPDF/, null],
-    ["src/components/NoteSynth.tsx", /if \(!\(await requestReportingPack\(companyId, periodYear, "disclosure_notes"\)\)\) return;/, null],
-    ["src/jurisdiction-packs/tz/CapitalAllowancesRegister.tsx", /if \(!\(await requestReportingPack\(companyId, periodYear, "tax_workpaper"\)\)\) return;/, null],
-    ["src/jurisdiction-packs/tz/TRAAuditReadinessPanel.tsx", /if \(!\(await requestReportingPack\(companyId, periodYear, "tax_workpaper"\)\)\) return;/, null],
-    ["src/components/maono/BoardPackGenerator.tsx", /requestReportingPack\(companyId, periodYear, "board_pack"\)\)\) return;/, /requestReportingPack\(companyId, periodYear, "board_pack"\)\) exportToExcel\(pack\)/],
-  ] as const)("%s issues before it generates", (file, gate, second) => {
-    const src = read(file);
-    expect(src).toMatch(gate);
-    if (second) expect(src).toMatch(second);
+  it("deliverOfficialPack: issue → build → SHA-256 of the exact bytes → seal → save; nothing is saved unless sealed", async () => {
+    const binding = { companyId: "co", periodYear: 2031, kind: "financial_statements_data" as const, outputRef: "upload:u" };
+    const bytes = new TextEncoder().encode("statement bytes");
+    const expected = await sha256Hex(bytes.buffer as ArrayBuffer);
+    const calls: Array<[string, Record<string, unknown>]> = [];
+    const saved: string[] = [];
+    const rpc = (seal: string) => async (fn: string, args: Record<string, unknown>) => {
+      calls.push([fn, args]);
+      return fn === "issue_reporting_pack" ? { data: { outcome: "issued", issuance_id: "iss-1" }, error: null } : { data: { outcome: seal }, error: null };
+    };
+    const ok = await deliverOfficialPack(rpc("sealed"), binding, (id) => { expect(id).toBe("iss-1"); return new Blob([bytes]); }, () => saved.push("saved"));
+    expect(ok).toBe("delivered");
+    expect(saved).toEqual(["saved"]);
+    expect(calls.map((c) => c[0])).toEqual(["issue_reporting_pack", "consume_reporting_pack_issuance"]);
+    expect(calls[1][1]).toMatchObject({ p_issuance_id: "iss-1", p_company_id: "co", p_period_year: 2031, p_pack_kind: "financial_statements_data", p_output_ref: "upload:u", p_content_sha256: expected });
+    for (const refusal of ["binding_mismatch", "expired", "already_sealed"]) {
+      const s: string[] = [];
+      expect(await deliverOfficialPack(rpc(refusal), binding, () => new Blob([bytes]), () => s.push("x"))).toBe("failed");
+      expect(s).toEqual([]);
+    }
+    const s2: string[] = [];
+    expect(await deliverOfficialPack(rpc("entitlement_required"), binding, () => new Blob([bytes]), () => s2.push("x"))).toBe("locked");
+    expect(s2).toEqual([]);
+    const locked = async () => ({ data: { outcome: "entitlement_required" }, error: null });
+    let built = false;
+    expect(await deliverOfficialPack(locked, binding, () => { built = true; return new Blob([]); }, () => {})).toBe("locked");
+    expect(built).toBe(false);
   });
-  it("the tax computation PDF is issued first at both entry points", () => {
+  it("a saved statement version is named so the server can check it; an unsaved draft is named, never passed off as a version", () => {
+    expect(financialStatementsOutputRef({ reportId: "r1", reportVersion: 3, persisted: true, contentHash: "a".repeat(64) })).toBe("fs-report:r1:v3");
+    expect(financialStatementsOutputRef({ reportId: "r1", reportVersion: null, persisted: false, contentHash: "b".repeat(64) })).toBe(`fs-draft:r1:${"b".repeat(16)}`);
+    expect(financialStatementsOutputRef(null)).toBeNull();
+  });
+  it.each([
+    ["src/components/ExportStatements.tsx", /deliverReportingPack\(\{[\s\S]*?kind, outputRef: uploadId \? `upload:\$\{uploadId\}` : null[\s\S]*?build: render/],
+    ["src/pages/workspace/StatementsWorkspace.tsx", /deliverReportingPack\(\{[\s\S]*?kind: "financial_statements_data", outputRef/],
+    ["src/components/MgmtLetterPanel.tsx", /deliverReportingPack\(\{[\s\S]*?kind: "management_letter"/],
+    ["src/components/NoteSynth.tsx", /notes\.length > 0 && void deliverReportingPack\(\{[\s\S]*?kind: "disclosure_notes"/],
+    ["src/jurisdiction-packs/tz/CapitalAllowancesRegister.tsx", /deliverReportingPack\(\{[\s\S]*?kind: "tax_workpaper"/],
+    ["src/jurisdiction-packs/tz/TRAAuditReadinessPanel.tsx", /deliverReportingPack\(\{[\s\S]*?kind: "tax_workpaper"/],
+    ["src/components/maono/BoardPackGenerator.tsx", /deliverReportingPack\(\{ companyId, periodYear, kind: "board_pack"/],
+  ] as const)("%s delivers through the sealed path", (file, re) => {
+    expect(read(file).replace(/\r\n/g, "\n")).toMatch(re);
+  });
+  it("no reporting deliverable writes a file directly: no doc.save, XLSX.writeFile or ad-hoc download link in any delivering component", () => {
+    for (const f of ["src/components/ExportStatements.tsx", "src/components/MgmtLetterPanel.tsx", "src/components/NoteSynth.tsx", "src/jurisdiction-packs/tz/generateTaxComputationPDF.ts",
+      "src/jurisdiction-packs/tz/CapitalAllowancesRegister.tsx", "src/jurisdiction-packs/tz/TRAAuditReadinessPanel.tsx", "src/components/maono/BoardPackGenerator.tsx",
+      "src/components/financialStatements/OutputsStage.tsx"]) {
+      const src = read(f);
+      expect(src, f).not.toMatch(/\.save\(|XLSX\.writeFile|createObjectURL|\.download\s*=/);
+    }
+  });
+  it("the tax computation PDF is delivered through the sealed path at both entry points", () => {
     const src = read("src/jurisdiction-packs/tz/KingaTaxPanel.tsx").replace(/\r\n/g, "\n");
-    const gates = [...src.matchAll(/if \(!\(await requestReportingPack\(companyId, periodYear, "tax_computation"\)\)\) return;\n\s*generateTaxComputationPDF\(\{/g)];
-    expect(gates.length).toBe(2);
+    expect([...src.matchAll(/await deliverReportingPack\(\{\n\s*companyId, periodYear, kind: "tax_computation", outputRef: `upload:\$\{uploadId\}`,\n\s*build: \(\) => generateTaxComputationPDF\(\{/g)].length).toBe(2);
     expect([...src.matchAll(/generateTaxComputationPDF\(\{/g)].length).toBe(2);
   });
-  it("the workspace print mark carries the exact required marking on every printed page (the statements print: honestDraft.test.ts)", () => {
+  it("the workspace print mark carries the exact required marking on every printed page (the statements print: honestDraft.test.ts); board pack prints are marked too", () => {
     expect(DRAFT_PRINT_MARK).toBe("DRAFT — NOT CERTIFIED — NOT FOR FILING OR CLIENT ISSUE");
     const html = renderToStaticMarkup(createElement(DraftPrintMarkView));
     expect(html.split(DRAFT_PRINT_MARK).length - 1).toBe(2);
@@ -245,5 +318,6 @@ describe("Reporting Pack: downloads are issued by the server first; free printin
     expect(read("src/pages/workspace/WorkspaceLayout.tsx")).toMatch(/<DraftPrintMark companyId=\{companyId\} \/>/);
     const mark = read("src/components/commercial/DraftPrintMark.tsx");
     expect(mark).toMatch(/paidActionState\(state, "REPORTING_PACK_EXPORT", loading\)\.status === "allowed"\) return null;/);
+    expect(read("src/components/maono/BoardPackGenerator.tsx")).toMatch(/mark\.textContent = DRAFT_PRINT_MARK;/);
   });
 });

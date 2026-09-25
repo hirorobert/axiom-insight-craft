@@ -87,6 +87,9 @@ export function seatRefusal(answer: unknown): SeatRefusal | null {
     case "SEAT_LIMIT_REACHED":
       return { httpStatus: 402, body: { status: "seat_limit_reached", error: "Seat Limit Reached", capability: "NAMED_USER_SEATS",
         message: "Every named-user seat on this plan is in use. Additional named users are available on Practice and Firm. Existing members are not affected." } };
+    case "NAMED_USER_SUSPENDED":
+      return { httpStatus: 402, body: { status: "named_user_suspended", error: "Named User Suspended", capability: "NAMED_USER_SEATS",
+        message: "This person is billing-suspended on this account. The account holder can reactivate them by choosing who is active; a new invitation is not needed." } };
     case "SEAT_CAPACITY_UNDETERMINED":
       return { httpStatus: 402, body: { status: "seat_capacity_undetermined", error: "Seat Capacity Undetermined", capability: "NAMED_USER_SEATS",
         message: "This plan's named-user seats have not been recorded yet, so no one new can be invited. Existing members are not affected." } };

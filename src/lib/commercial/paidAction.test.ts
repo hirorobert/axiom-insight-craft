@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { isNamedUserActive } from "../../../supabase/functions/_shared/namedUserAccess";
 import {
   isSeatWallError,
   paidActionRefusal,
@@ -148,13 +149,53 @@ describe("named-user seats at the invitation boundary", () => {
     expect(isSeatWallError({ code: "PT402", details: "CLOSE_INSIGHTS" })).toBe(false);
     expect(isSeatWallError({ message: "PT402 NAMED_USER_SEATS" })).toBe(false);
   });
-  it("invite-firm-member checks the seat BEFORE sending any email or creating any account, and maps the wall's race refusal to 402", () => {
+  it("invite-firm-member: seat pre-check → the person's own account (unconfirmed) → atomic reservation → only then the email; an email failure releases the seat", () => {
     const src = read("supabase/functions/invite-firm-member/index.ts").replace(/\r\n/g, "\n");
     const seat = src.indexOf("requireSeatForInvitation(");
-    const email = src.indexOf("inviteUserByEmail(\n");
+    const create = src.indexOf("admin.auth.admin.createUser(");
+    const reserve = src.indexOf('admin.rpc("reserve_workspace_invitation"');
+    const email = src.indexOf("admin.auth.admin.inviteUserByEmail(");
+    const release = src.indexOf('admin.rpc("release_workspace_invitation"');
     expect(seat).toBeGreaterThan(-1);
-    expect(email === -1 ? src.indexOf("inviteUserByEmail(") : email).toBeGreaterThan(seat);
+    expect(seat < create && create < reserve && reserve < email && email < release).toBe(true);
     expect(src.slice(seat, seat + 200)).toMatch(/if \(noSeat\) return noSeat;/);
-    expect(src).toMatch(/isSeatWallError\(insertErr\)/);
+    expect(src).toMatch(/email_confirm: false/);
+    // No membership row is written directly: the reservation RPC (under the database seat wall) is the only path.
+    expect(src).not.toMatch(/from\("firm_members"\)\s*\.(insert|upsert)\(/);
+    // A failed email is detected by the structured error code only, never by message text.
+    expect(src).toMatch(/\?\.code === "email_exists"/);
+    expect(src).not.toMatch(/inviteErr\.message/);
+  });
+  it("a billing-suspended invitee gets a structured refusal, never a new invitation", () => {
+    const r = seatRefusal({ allowed: false, code: "NAMED_USER_SUSPENDED" })!;
+    expect(r.httpStatus).toBe(402);
+    expect(r.body).toMatchObject({ status: "named_user_suspended", capability: "NAMED_USER_SEATS" });
+  });
+});
+
+describe("service-role membership checks also require an ACTIVE named user (billing suspension)", () => {
+  it("isNamedUserActive is true only for an explicit true; errors and anything else fail closed", async () => {
+    expect(await isNamedUserActive(vi.fn(async () => ({ data: true, error: null })), "co", "u")).toBe(true);
+    for (const r of [{ data: false, error: null }, { data: "true", error: null }, { data: true, error: { m: 1 } }, { data: null, error: null }]) {
+      expect(await isNamedUserActive(vi.fn(async () => r), "co", "u")).toBe(false);
+    }
+    const rpc = vi.fn(async () => ({ data: true, error: null }));
+    expect(await isNamedUserActive(rpc, "", "u")).toBe(false);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["supabase/functions/_shared/auth.ts", "adminClient", "companyId", "userId"],
+    ["supabase/functions/_shared/actor.ts", "adminClient", "companyId", "userId"],
+    ["supabase/functions/kinga-tax-engine/index.ts", "supabase", "companyId", "callerId"],
+    ["supabase/functions/_shared/comparativeAssurance.ts", "supabase", "company_id", "callerId"],
+    ["supabase/functions/generate-disclosure-notes/index.ts", "admin", "upload.company_id", "userId"],
+    ["supabase/functions/generate-management-letter/index.ts", "admin", "upload.company_id", "userId"],
+  ])("%s refuses a suspended member exactly like an outsider", (file, client, company, userVar) => {
+    const src = read(file).replace(/\r\n/g, "\n");
+    const call = `!(await isNamedUserActive((fn, args) => ${client}.rpc(fn, args), ${company}, ${userVar}))`;
+    expect(src).toContain(call);
+    // Same 403 body as for a non-member: nothing reveals the suspension.
+    const after = src.slice(src.indexOf(call), src.indexOf(call) + 400);
+    expect(after).toMatch(/JSON\.stringify\(\{ error: "Forbidden", message: "Not a member of this company" \}\)/);
   });
 });

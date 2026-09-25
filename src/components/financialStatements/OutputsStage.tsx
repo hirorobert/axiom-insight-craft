@@ -13,10 +13,11 @@
  * configures them.
  *
  * Reporting Pack (REPORTING_PACK_EXPORT, 20260925100000): the web preview is
- * free; every downloadable file (JSON / CSV) is a Reporting Pack deliverable.
- * This stage stays database-inert: the HOST PAGE supplies `issueDownload`
- * (which asks the server, issue_reporting_pack) and `downloadsLocked`. A file
- * is written only after issueDownload answers "issued"; without an issuer no
+ * free; every downloadable file (JSON / CSV) is an OFFICIAL Reporting Pack
+ * deliverable. This stage stays database-inert and never writes a file itself:
+ * the HOST PAGE supplies `deliverDownload` (issue -> seal with the SHA-256 of
+ * the exact bytes -> save; 20260925120000) and `downloadsLocked`. The stage
+ * passes the output reference of the version it shows. Without a deliverer no
  * download is offered at all. The print is always a draft and carries
  * DRAFT_PRINT_MARK on every printed page.
  */
@@ -32,18 +33,7 @@ import { BudgetActualTable, DisclosureChecklist, PublicationControls } from "./E
 import { auditExport, budgetCsv, canonicalJsonExport, checklistCsv, evidenceExport, findingsCsv, outputStatus, type ExportFile } from "@/lib/financialStatementsWorkspace/exports";
 import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
 import { lockedCopy } from "@/lib/commercial/paidActions";
-import { DRAFT_PRINT_MARK, type IssueOutcome } from "@/lib/commercial/reportingPack";
-
-function download(file: ExportFile) {
-  const url = URL.createObjectURL(new Blob([file.content], { type: `${file.mimeType};charset=utf-8` }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = file.fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
+import { DRAFT_PRINT_MARK, financialStatementsOutputRef, type DeliveryOutcome } from "@/lib/commercial/reportingPack";
 
 const STAMP = {
   DRAFT: "Draft — not reviewed or approved",
@@ -77,25 +67,25 @@ export const PRINT_CSS = `@media print {
 
 export interface OutputsStageProps {
   readonly model: FinancialStatementsWorkspaceModel;
-  /** Issues ONE downloadable file as a Reporting Pack deliverable (supplied by the host page). Absent → no downloads. */
-  readonly issueDownload?: () => Promise<IssueOutcome>;
+  /** Delivers ONE file as an official Reporting Pack for the given output reference (supplied by the host page). Absent → no downloads. */
+  readonly deliverDownload?: (file: ExportFile, outputRef: string) => Promise<DeliveryOutcome>;
   /** The host page knows the workspace cannot issue a Reporting Pack: show the plan explanation instead. */
   readonly downloadsLocked?: boolean;
   /** Explicit signature/approval blocks to print. Omit (default) to print none. */
   readonly signatureBlocks?: readonly string[];
 }
 
-export function OutputsStage({ model, signatureBlocks, issueDownload, downloadsLocked = false }: OutputsStageProps) {
+export function OutputsStage({ model, signatureBlocks, deliverDownload, downloadsLocked = false }: OutputsStageProps) {
   const [refused, setRefused] = useState(false);
   const [failed, setFailed] = useState(false);
   const packLocked = refused || downloadsLocked;
-  // A downloadable file is a Reporting Pack deliverable: issued first, or nothing is downloaded.
+  // A downloadable file is an official Reporting Pack: the host issues it, seals the exact bytes, then saves it.
   const issueAndDownload = async (file: ExportFile) => {
-    if (!issueDownload) return;
-    const outcome = await issueDownload();
-    setFailed(outcome.status === "failed");
-    if (outcome.status === "issued") download(file);
-    else if (outcome.status === "locked") setRefused(true);
+    const outputRef = financialStatementsOutputRef(model.output?.lineage ?? null);
+    if (!deliverDownload || !outputRef) return;
+    const outcome = await deliverDownload(file, outputRef);
+    setFailed(outcome === "failed");
+    if (outcome === "locked") setRefused(true);
   };
   const { snapshot, profile, composition, numbering, structure } = model;
   const blockers: string[] = [];
@@ -141,7 +131,7 @@ export function OutputsStage({ model, signatureBlocks, issueDownload, downloadsL
         <div className="fs-no-print">
           <PaidActionNotice copy={lockedCopy("REPORTING_PACK_EXPORT")} testId="outputs-downloads-locked" />
         </div>
-      ) : !issueDownload ? null : (
+      ) : !deliverDownload ? null : (
         <div className="flex flex-wrap gap-2 fs-no-print" data-testid="export-buttons">
           {bundle.map((f) => (
             <Button key={f.fileName} type="button" variant="outline" size="sm" onClick={() => void issueAndDownload(f)} data-export-file={f.fileName}>

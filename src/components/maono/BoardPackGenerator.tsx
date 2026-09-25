@@ -28,7 +28,8 @@ import React, { useState, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 // @ts-expect-error - runtime ESM URL import (loaded via esm.sh at runtime)
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
-import { requestReportingPack } from "@/lib/commercial/requestReportingPack";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
+import { DRAFT_PRINT_MARK } from "@/lib/commercial/reportingPack";
 
 interface BoardPackData {
   company_name:    string;
@@ -63,7 +64,7 @@ function fmt(n: number): string {
 
 // ── Excel export ──────────────────────────────────────────────────────────────
 
-function exportToExcel(pack: BoardPackData) {
+function exportToExcel(pack: BoardPackData): { blob: Blob; fileName: string } {
   const wb = XLSX.utils.book_new();
 
   // Sheet 1: Summary
@@ -163,9 +164,10 @@ function exportToExcel(pack: BoardPackData) {
   ws4["!cols"] = [{ wch: 22 }, { wch: 12 }, { wch: 60 }, { wch: 40 }, { wch: 20 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, ws4, "Alerts");
 
-  // Write and trigger download
-  const filename = `BoardPack_${pack.company_name.replace(/\s/g, "_")}_${pack.period_label.replace(/\s/g, "_")}.xlsx`;
-  XLSX.writeFile(wb, filename);
+  // The bytes of the official pack (delivered by the caller: issued, sealed, then saved)
+  const fileName = `BoardPack_${pack.company_name.replace(/\s/g, "_")}_${pack.period_label.replace(/\s/g, "_")}.xlsx`;
+  const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+  return { blob: new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), fileName };
 }
 
 // ── Print styles injected into document head ──────────────────────────────────
@@ -325,12 +327,19 @@ export function BoardPackGenerator({
     setSaving(false);
   };
 
-  // A board pack (print or spreadsheet) is a Reporting Pack deliverable: issued by the server first, or not produced.
+  // A print cannot be sealed, so it is never an official board pack: every printed page carries the draft marking.
+  // The official board pack is the sealed spreadsheet below.
   const handlePrint = async () => {
     if (!printRef.current) return;
-    if (!(await requestReportingPack(companyId, periodYear, "board_pack"))) return;
     const printRoot = document.getElementById("maono-board-pack-print-root");
-    if (printRoot) printRoot.innerHTML = printRef.current.outerHTML;
+    if (printRoot) {
+      printRoot.innerHTML = printRef.current.outerHTML;
+      const mark = document.createElement("div");
+      mark.setAttribute("data-testid", "board-pack-draft-mark");
+      mark.style.cssText = "position:fixed;top:0;left:0;right:0;text-align:center;font-weight:700;font-size:8pt;z-index:2147483647;";
+      mark.textContent = DRAFT_PRINT_MARK;
+      printRoot.appendChild(mark);
+    }
     window.print();
   };
 
@@ -388,7 +397,7 @@ export function BoardPackGenerator({
                 🖨 Export PDF (Print)
               </button>
               <button
-                onClick={async () => { if (await requestReportingPack(companyId, periodYear, "board_pack")) exportToExcel(pack); }}
+                onClick={() => void deliverReportingPack({ companyId, periodYear, kind: "board_pack", outputRef: `variance-run:${runId}`, build: () => exportToExcel(pack) })}
                 className="flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white text-xs font-medium rounded-lg px-4 py-2 transition-colors"
               >
                 📊 Export Excel

@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState";
@@ -934,18 +935,7 @@ export function ExportStatements({
     });
 
     addFooters();
-    doc.save(`${baseFileName}-financial-statements.pdf`);
-    toast.success("PDF exported successfully");
-    logAction({
-      action: "export_statements",
-      entityType: "trial_balance_upload",
-      entityId: uploadId,
-      metadata: {
-        format: "pdf",
-        fileName: `${baseFileName}-financial-statements.pdf`,
-        reportingFramework: reportingFramework ?? "",
-      },
-    });
+    return doc.output("blob");
   };
 
   const exportToExcel = (packReference: string) => {
@@ -1062,18 +1052,8 @@ export function ExportStatements({
       XLSX.utils.book_append_sheet(wb, cfSheet, sn.cashFlow.substring(0, 31));
     }
 
-    XLSX.writeFile(wb, `${baseFileName}-financial-statements.xlsx`);
-    toast.success("Excel file exported successfully");
-    logAction({
-      action: "export_statements",
-      entityType: "trial_balance_upload",
-      entityId: uploadId,
-      metadata: {
-        format: "excel",
-        fileName: `${baseFileName}-financial-statements.xlsx`,
-        reportingFramework: reportingFramework ?? "",
-      },
-    });
+    const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+    return new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   };
 
   // A formal export is a Reporting Pack: the server issues it (issue_reporting_pack) before anything is generated,
@@ -1083,24 +1063,27 @@ export function ExportStatements({
   const [refused, setRefused] = useState(false);
   const locked = refused || pack.status === "locked";
 
-  const issueAndExport = async (kind: "financial_statements_pdf" | "financial_statements_spreadsheet", render: (reference: string) => void) => {
-    if (!companyId || !periodYear) {
-      toast.error("Open this export from a workspace period to issue a Reporting Pack.");
-      return;
-    }
-    const { data, error } = await supabase.rpc("issue_reporting_pack" as never, {
-      p_company_id: companyId, p_period_year: periodYear, p_pack_kind: kind, p_request_id: crypto.randomUUID(),
-    } as never);
-    const result = !error && data && typeof data === "object" ? (data as { outcome?: string; issuance_id?: string }) : null;
-    if ((result?.outcome === "issued" || result?.outcome === "already_issued") && result.issuance_id) {
-      render(result.issuance_id);
-      return;
-    }
-    if (result?.outcome === "entitlement_required") {
+  // The official path: issued by the server, built with the pack reference printed in it, sealed with the SHA-256
+  // of the exact bytes (entitlement re-checked), and only then saved (deliverReportingPack).
+  const issueAndExport = async (kind: "financial_statements_pdf" | "financial_statements_spreadsheet", render: (reference: string) => Blob) => {
+    const base = fileName.replace(/\.[^/.]+$/, "");
+    const format = kind === "financial_statements_pdf" ? "pdf" : "excel";
+    const outputFile = `${base}-financial-statements.${format === "pdf" ? "pdf" : "xlsx"}`;
+    const outcome = await deliverReportingPack({
+      companyId, periodYear, kind, outputRef: uploadId ? `upload:${uploadId}` : null, fileName: outputFile, build: render,
+    });
+    if (outcome === "locked") {
       setRefused(true);
       return;
     }
-    toast.error("The Reporting Pack could not be issued. Try again.");
+    if (outcome !== "delivered") return;
+    toast.success(format === "pdf" ? "PDF exported successfully" : "Excel file exported successfully");
+    logAction({
+      action: "export_statements",
+      entityType: "trial_balance_upload",
+      entityId: uploadId,
+      metadata: { format, fileName: outputFile, reportingFramework: reportingFramework ?? "" },
+    });
   };
 
   const isDisabled = !mapping || locked || pack.status === "loading";

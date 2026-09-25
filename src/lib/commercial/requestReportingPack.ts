@@ -1,27 +1,52 @@
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { lockedCopy } from "./paidActions";
-import { issueReportingPack, type ReportingPackKind } from "./reportingPack";
+import { deliverOfficialPack, type BuiltPack, type DeliveryOutcome, type ReportingPackKind } from "./reportingPack";
+
+/** Saves a blob as a file in the browser. */
+export function saveBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export interface PackRequest {
+  readonly companyId: string | null | undefined;
+  readonly periodYear: number | null | undefined;
+  readonly kind: ReportingPackKind;
+  /** The saved output / version the pack is issued for. */
+  readonly outputRef: string | null | undefined;
+  /** The file name, unless build returns its own. */
+  readonly fileName?: string;
+  /** Builds the exact bytes (the issuance id may be printed in them as the pack reference). */
+  readonly build: (issuanceId: string) => BuiltPack | Promise<BuiltPack>;
+}
 
 /**
- * Asks the server to issue one downloadable Reporting Pack deliverable before a component generates it. Returns the
- * issuance id, or null — in which case NOTHING may be generated or downloaded. A plan refusal is explained neutrally
- * (the locked copy, never an error styling); any other failure fails closed.
+ * Delivers one OFFICIAL Reporting Pack file: issued by the server, built, sealed with its SHA-256, and only then
+ * saved. A plan refusal is explained neutrally (the locked copy); any other failure saves nothing.
  */
-export async function requestReportingPack(
-  companyId: string | null | undefined, periodYear: number | null | undefined, kind: ReportingPackKind,
-): Promise<string | null> {
-  if (!companyId || !periodYear) {
+export async function deliverReportingPack(req: PackRequest): Promise<DeliveryOutcome> {
+  if (!req.companyId || !req.periodYear || !req.outputRef) {
     toast.error("Open this from a workspace period to download it.");
-    return null;
+    return "failed";
   }
-  const outcome = await issueReportingPack((fn, args) => supabase.rpc(fn as never, args as never), companyId, periodYear, kind);
-  if (outcome.status === "issued") return outcome.issuanceId;
-  if (outcome.status === "locked") {
+  const outcome = await deliverOfficialPack(
+    (fn, args) => supabase.rpc(fn as never, args as never),
+    { companyId: req.companyId, periodYear: req.periodYear, kind: req.kind, outputRef: req.outputRef },
+    req.build,
+    (blob, builtName) => saveBlob(blob, builtName ?? req.fileName ?? "reporting-pack"),
+  );
+  if (outcome === "locked") {
     const copy = lockedCopy("REPORTING_PACK_EXPORT");
     toast(copy.title, { description: `${copy.unavailable} ${copy.remains} ${copy.history}` });
-    return null;
+  } else if (outcome === "failed") {
+    toast.error("The file could not be issued. Nothing was downloaded; try again.");
   }
-  toast.error("The file could not be issued. Try again.");
-  return null;
+  return outcome;
 }

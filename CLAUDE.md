@@ -822,14 +822,25 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   (`src/lib/commercial/paidActions.ts`). Never parse message text.
 - **Walls:**
   - Close Certification is enforced by the `statement_sign_offs` sign-off events and by FINAL publication inserts.
-  - Reporting Pack: free users get the in-app preview only. Every downloadable reporting deliverable (statement JSON /
-    CSV / Excel / PDF, XBRL, board pack, management letter, disclosure notes, tax computation, tax workpaper
-    schedules) is issued by `issue_reporting_pack` (immutable, idempotent) before it is generated, via
-    `src/lib/commercial/requestReportingPack.ts`; `generate-xbrl` and `generate-management-letter` are gated
-    server-side. The financial-statements workspace stays database-inert: its host page supplies the issuer. Any free
-    printing carries `DRAFT — NOT CERTIFIED — NOT FOR FILING OR CLIENT ISSUE` on every printed page (the statements
-    print CSS and `DraftPrintMark` in `WorkspaceLayout`). Not deliverables (never gated): the blank TB template and
-    exports of the user's own inputs (account mappings, upload list).
+  - Reporting Pack: free users get the in-app preview only. A browser can always rebuild a look-alike file from data it
+    already shows, so the wall protects the OFFICIAL pack (`20260925120000`):
+    - `issue_reporting_pack(workspace, period, kind, output_ref, request_id)` binds an issuance to the user,
+      workspace, period, saved output / version (`fs-report:<id>:v<n>` is checked to exist) and format, with a
+      10-minute expiry.
+    - `consume_reporting_pack_issuance` seals it once with the SHA-256 of the exact bytes, re-checking every binding
+      and the entitlement.
+    - `verify_reporting_pack(sha256)` answers whether a file is official.
+    - Every issue, seal and refusal is an append-only `reporting_pack_issuance_events` row.
+
+    Every download site (statement JSON / CSV / Excel / PDF, board pack, management letter, disclosure notes, tax
+    computation, tax workpaper schedules) goes through `deliverReportingPack` (`src/lib/commercial/requestReportingPack.ts`):
+    issue → build → hash → seal → save. Nothing is saved unless sealed. `generate-xbrl` and `generate-management-letter`
+    are gated server-side. The financial-statements workspace stays database-inert: its host page supplies the
+    deliverer.
+
+    Any free printing carries `DRAFT — NOT CERTIFIED — NOT FOR FILING OR CLIENT ISSUE` on every printed page (the
+    statements print CSS, `DraftPrintMark` in `WorkspaceLayout`, and the board pack print). Not deliverables (never
+    gated): the blank TB template and exports of the user's own inputs (account mappings, upload list).
   - Close Insights is enforced by the `maono-*` analysis functions and the triggers on their output tables.
     `maono-monitor` skips non-entitled workspaces.
   - Entity capacity is enforced by `trg_companies_entity_capacity` (advisory lock per account). Capacities: Free 1,
@@ -840,13 +851,35 @@ migration is applied by the owner, hosted company creation stays unrestricted.
     `allowed_named_users = included_seats + additional_seats`; Free is always 1 and can buy nothing; unknown or
     malformed quantities fail closed. `named_user_seat_wall` (on `firm_members` and
     `workspace_capability_grants`, advisory lock per account) refuses a new person on invitation, direct insert,
-    grant, re-pointing and acceptance. Pending invitations hold a seat. Acceptance goes through
-    `accept_workspace_invitations` and `invite-firm-member` asks `seat_check_for_invitation` before any email is
-    sent. After expiry or downgrade existing members keep their access and nothing is deleted; no one new can join
-    until the account is within its allowance. Service identities and scheduled jobs never hold a seat. Each person
-    has their own sign-in; nothing designs or advertises shared credentials. No assignment or reviewer workflow.
+    grant, re-pointing and acceptance, and any new membership or grant for a suspended person.
+  - Active-seat invariant (`20260925110000`): `active_named_users <= included_seats + additional_seats`, always.
+    - `named_user_access_active(workspace, user)` is the single predicate. The account holder is always active; a
+      person with an open `named_user_billing_suspensions` row is not; an account whose capacity is undetermined, or
+      whose non-suspended people exceed the allowance, has only its holder active (live, no job).
+    - It is enforced by one RESTRICTIVE policy on `firm_members` (covers every RLS policy that sub-selects
+      `firm_members`), one added conjunct in each of 19 SECURITY DEFINER access functions (the proof checks that
+      nothing else changed), and `isNamedUserActive` in the Edge Functions' service-role membership checks.
+    - Unplanned loss (expiry, cancellation, admin plan change, override loss) is materialised by
+      `reconcile_named_user_allowance`: BEFORE and AFTER triggers on licences and overrides record `ENTITLEMENT_LOST`
+      suspensions for everyone but the holder. A planned reduction is `admin_prepare_planned_reduction` (the holder's
+      selection against the future allowance) before `admin_set_licence_additional_seats`; a reduction without it is
+      refused (`SELECTION_REQUIRED`).
+    - Reactivation is only ever the account holder's explicit, roster-version-checked `choose_active_named_users`.
+      Restoring capacity reactivates no one.
+    - Memberships, grants, attribution and history are never deleted; suspensions are append-only (lifted, never
+      removed).
+  - Invitations: a pending invitation reserves a seat only until `invitation_expires_at`
+    (`invitation_reservation_ttl()`, a PROPOSED 7 days, pending a product decision) and while not cancelled.
+    - The account holder cancels with `cancel_workspace_invitation`.
+    - `invite-firm-member` runs: seat pre-check → an unconfirmed account → `reserve_workspace_invitation` → email; an
+      email failure calls `release_workspace_invitation`. Reissuing refreshes the same row.
+    - Acceptance goes through `accept_workspace_invitations` and is refused once the invitation has expired or been
+      cancelled.
+  - Service identities and scheduled jobs never hold a seat. Each person has their own sign-in; nothing designs or
+    advertises shared credentials. No assignment or reviewer workflow.
   - Validation, readiness, the automated certification run, comparatives, previews and history are never gated.
-    Expiry or downgrade blocks only new paid actions. Billing never writes accounting data.
+    Expiry or downgrade blocks new paid actions and suspends people beyond the allowance (see the invariant
+    above); it never deletes or rewrites anything. Billing never writes accounting data.
 - **Pricing catalogue:** `src/lib/commercial/pricingCatalogue.ts` is the only place prices live. It is mirrored exactly
   by the migration (`pricingCatalogue.test.ts`): FREE $0, PRACTICE $99/$990, FIRM $299/$2,990, ENTERPRISE contact sales,
   in USD; one included named user each; additional named users $20/month or $200/year on Practice and Firm
@@ -857,7 +890,24 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   30 days with no requests following the frontend release.
 - **Customer-visible names:** SAFISHA/HESABU/MAONO/KINGA never appear in customer-visible strings. This is enforced by
   `scripts/ci/legacyNameSweep.mjs` and `src/lib/__tests__/customerVisibleLegacyNames.test.ts`.
-- **Proof:** `scripts/db-proof/entitlements.mjs` runs on real PostgreSQL (CI disposable-DB job).
+- **Proof:** `scripts/db-proof/entitlements.mjs` and `scripts/db-proof/billingSuspension.mjs` run on real PostgreSQL
+  (CI disposable-DB job). Staging plan: `docs/release/PR34_STAGING_DEPLOYMENT_PLAN.md`. Role-check review:
+  `docs/release/PR34_AUTHORIZATION_CAPABILITY_REVIEW.md`.
+
+### 9.4 Migration authority
+
+- `supabase/migrations/` is the AUTHORED source of truth. Every schema change is written there, forward-only, and CI
+  replays it.
+- `drizzle/migrations/` is Lovable's apply journal for the hosted database (drizzle-kit, `LOVABLE_DB_MIGRATION_URL`).
+  Lovable adds an entry when it applies a source migration. Never hand-edit it; never run `drizzle-kit push` or
+  `migrate` (the Drizzle schema file is empty, so a push could propose dropping everything).
+- `scripts/ci/assertMigrationAuthority.mjs` (CI, and `src/lib/__tests__/migrationAuthority.test.ts`) proves every
+  journal entry mirrors one source migration in order with no gap, and lists newer sources as `PENDING_HOSTED_APPLY`.
+- **MIGRATION-AUTHORITY-DRIFT-0006** (registered, OPEN, owner decision): Drizzle `0006` revokes EXECUTE on
+  `can_user_act_on_workspace(uuid, uuid, text)` from `PUBLIC, anon` but not from `authenticated`, unlike its source.
+  No SQL caller needs it (only the service-role storage-cleanup function), so on the hosted database a signed-in user
+  may be able to probe whether any user can act on any workspace. Forward fix: `REVOKE EXECUTE ... FROM authenticated`.
+  The guard pins exactly this one statement and fails on any other divergence.
 
 **OBSERVABILITY_PROVIDER_WIRING_DEFERRED_TO_Ω2/PRE-GO-LIVE** —
 `src/lib/observability/correlationId.ts` (Wave Ω1) provides a genuine,

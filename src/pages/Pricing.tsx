@@ -180,7 +180,8 @@ export default function Pricing() {
             <p className="mt-2 text-xs leading-5 text-muted-foreground">
               Trial balance upload, classification, reconciliation, validation, statement preview, comparative
               reporting and readiness checks are never behind a paywall. If your plan changes, every certified close,
-              reporting pack and insight you already created stays accessible; only new paid actions pause.
+              reporting pack and insight you already created stays accessible; new paid actions pause, and people beyond the
+              plan's named users are suspended, never removed, until you choose who stays active.
             </p>
             <p className="mt-2 text-xs leading-5 text-muted-foreground" data-testid="named-user-policy">
               Every person who uses {BRAND.name} signs in with their own account. A named user is one person, so every

@@ -28,6 +28,7 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isNamedUserActive } from "./namedUserAccess.ts";
 import { isActiveUploadLifecycle } from "../_shared/uploadLifecycle.ts";
 
 const corsHeaders = {
@@ -290,7 +291,8 @@ export async function handleComparativeAssurance(req: Request): Promise<Response
         .not("accepted_at", "is", null)
         .limit(1)
         .maybeSingle();
-      if (!member) {
+      // A membership row is history; only an ACTIVE named user has access (20260925110000).
+      if (!member || !(await isNamedUserActive((fn, args) => supabase.rpc(fn, args), company_id, callerId))) {
         return new Response(
           JSON.stringify({ error: "Forbidden", message: "Not a member of this company" }),
           { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },

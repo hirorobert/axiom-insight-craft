@@ -13,6 +13,7 @@
 // earlier documentation (CLAUDE.md, SAFF directive V1) incorrectly claimed.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isNamedUserActive } from "./namedUserAccess.ts";
 
 // The non-membership user actor (workspace owner or explicit capability holder); see processingActor.ts.
 export type { WorkspaceUserActor } from "./processingActor.ts";
@@ -56,7 +57,8 @@ export async function resolveFirmMemberActor(
     .limit(1)
     .maybeSingle();
 
-  if (error || !data) {
+  // A membership row is history; only an ACTIVE named user is an actor (20260925110000). Same 403 as an outsider.
+  if (error || !data || !(await isNamedUserActive((fn, args) => adminClient.rpc(fn, args), companyId, userId))) {
     return new Response(
       JSON.stringify({ error: "Forbidden", message: "Not a member of this company" }),
       { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },

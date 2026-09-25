@@ -282,7 +282,8 @@ async function main() {
   await admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now())", [W.practice, U.member]);
   // The Free workspace's three members PREDATE the seat wall (as memberships in an existing database do when this
   // migration is applied): inserted with triggers suspended for this one fixture statement only. The seat proofs
-  // below show they are kept, keep their access, and block any new person until the account is within its allowance.
+  // below show they are kept (history, attribution) but are NOT active: a Free account has one named user, so only
+  // its account holder may use the workspace (20260925110000).
   await admin.query("BEGIN");
   await admin.query("SET LOCAL session_replication_role = replica");
   await admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now()), ($1,$3,'partner',now()), ($1,$4,'preparer',now())", [W.free, U.member, U.partnerTitle, U.paidOutsider]);
@@ -290,9 +291,20 @@ async function main() {
   await admin.query("INSERT INTO public.workspace_capability_grants (company_id, grantee_user_id, capability, granted_by_user_id) VALUES ($1,$2,'prepare_trial_balance',$3)", [W.practice, U.grantee, U.practice]);
   await admin.query("INSERT INTO public.workspace_capability_grants (company_id, grantee_user_id, capability, granted_by_user_id, revoked_at, revoked_by_user_id) VALUES ($1,$2,'prepare_trial_balance',$3,now(),$3)", [W.practice, U.revoked, U.practice]);
 
+  // Expires a licence for the duration of fn, then restores it. Restoring capacity never reactivates anyone by
+  // itself (20260925110000): the account holder explicitly re-selects the people who were active before.
   const withExpired = async (licenceId, fn) => {
+    const account = (await admin.query("SELECT b.owner_user_id a FROM public.commercial_licences cl JOIN public.billing_customers b ON b.id=cl.billing_customer_id WHERE cl.id=$1", [licenceId])).rows[0].a;
+    const activeBefore = (await one(user(account), "SELECT public.get_named_user_roster() r")).r.people.filter((p) => p.state === "active_candidate").map((p) => p.user_id);
     await admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end = now() WHERE id=$1", [licenceId]);
-    try { return await fn(); } finally { await admin.query("UPDATE public.commercial_licences SET status='ACTIVE', effective_end = NULL WHERE id=$1", [licenceId]); }
+    try { return await fn(); } finally {
+      await admin.query("UPDATE public.commercial_licences SET status='ACTIVE', effective_end = NULL WHERE id=$1", [licenceId]);
+      if (activeBefore.length > 0) {
+        const roster = (await one(user(account), "SELECT public.get_named_user_roster() r")).r;
+        const applied = (await one(user(account), "SELECT public.choose_active_named_users($1::uuid[], $2) r", [activeBefore, roster.roster_version])).r;
+        if (applied.outcome !== "applied") throw new Error(`fixture reactivation refused: ${JSON.stringify(applied)}`);
+      }
+    }
   };
   const authz = async (caller, company, cap) => (await one(caller, "SELECT public.authorize_paid_action($1,$2) r", [company, cap])).r;
   const PAID = ["STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS"];
@@ -319,11 +331,13 @@ async function main() {
   await check("workspace access carries the WORKSPACE's entitlement: an accepted member and an active grant holder of a Practice workspace are allowed; a revoked grant is not", async () =>
     (await authz(user(U.member), W.practice, "CLOSE_INSIGHTS")).allowed === true && (await authz(user(U.grantee), W.practice, "REPORTING_PACK_EXPORT")).allowed === true
     && (await authz(user(U.revoked), W.practice, "REPORTING_PACK_EXPORT")).code === "WORKSPACE_ACCESS_DENIED");
-  await check("workspace membership never grants a paid capability: the same member is refused in the Free workspace", async () =>
-    (await authz(user(U.member), W.free, "CLOSE_INSIGHTS")).code === "ENTITLEMENT_REQUIRED");
+  await check("workspace membership never grants a paid capability, and a Free workspace's members beyond its one named user have no access at all (the same denial as an outsider)", async () =>
+    (await authz(user(U.member), W.free, "CLOSE_INSIGHTS")).code === "WORKSPACE_ACCESS_DENIED"
+    && (await authz(user(U.member), W.free, "COMPARATIVE_REPORTING")).code === "WORKSPACE_ACCESS_DENIED"
+    && (await authz(user(U.member), W.practice, "CLOSE_INSIGHTS")).allowed === true);
   await check("an entitlement never grants workspace access, and cannot be carried into another account's workspace (cross-user / cross-workspace reuse)", async () =>
     (await authz(user(U.paidOutsider), W.practice, "CLOSE_INSIGHTS")).code === "WORKSPACE_ACCESS_DENIED"
-    && (await authz(user(U.paidOutsider), W.free, "CLOSE_INSIGHTS")).code === "ENTITLEMENT_REQUIRED"
+    && (await authz(user(U.paidOutsider), W.free, "CLOSE_INSIGHTS")).code === "WORKSPACE_ACCESS_DENIED"
     && (await authz(user(U.paidOutsider), W.outsider, "CLOSE_INSIGHTS")).allowed === true);
   await check("no occupational title changes anything: a 'partner' member of the Free workspace is treated exactly like a 'preparer'", async () => {
     for (const cap of [...PAID, "COMPARATIVE_REPORTING"]) {
@@ -428,7 +442,7 @@ async function main() {
   });
 
   group("Reporting Pack — issued only by the server, idempotent, workspace-scoped, readable after expiry");
-  const issue = (uid, co, kind = "financial_statements_pdf", rid = uuid()) => one(user(uid), "SELECT public.issue_reporting_pack($1,2025,$2,$3) r", [co, kind, rid]).then((x) => x.r);
+  const issue = (uid, co, kind = "financial_statements_pdf", rid = uuid()) => one(user(uid), "SELECT public.issue_reporting_pack($1,2025,$2,$3,$4) r", [co, kind, "upload:entitlement-proof", rid]).then((x) => x.r);
   await check("Free: preview stays available, a formal pack is refused with a structured outcome (entitlement_required, Practice)", async () => {
     const r = await issue(U.free, W.free);
     return r.outcome === "entitlement_required" && r.required_plan === "PRACTICE" && (await count("SELECT count(*) n FROM public.reporting_pack_issuances WHERE company_id=$1", [W.free])) === 0;
@@ -668,7 +682,7 @@ async function main() {
     const kept = await count("SELECT count(*) n FROM public.firm_members WHERE company_id=$1 AND user_id = ANY($2::uuid[])", [a.co, who]);
     return accepted === 1 && blocked.length === 2 && blocked.every((b) => b.code === "SEAT_LIMIT_REACHED") && kept === 3 ? true : JSON.stringify({ accepted, blocked, kept });
   });
-  await check("expiry / downgrade: every existing member is kept with the access they had; no new person, invitation acceptance or re-admission until within the allowance", async () => {
+  await check("expiry: every membership row is kept but only the account holder stays active; excess people are billing-suspended; no new person, acceptance or re-admission", async () => {
     const a = await seatAccount("PRACTICE", 2);
     const m1 = person(), m2 = person(), pending = person();
     await addActive(a.uid, a.co, m1); await addActive(a.uid, a.co, m2);
@@ -676,19 +690,22 @@ async function main() {
     const before = (await admin.query("SELECT id, user_id, accepted_at FROM public.firm_members WHERE company_id=$1 ORDER BY id", [a.co])).rows;
     await admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end = now() WHERE id=$1", [a.lic.id]);
     const after = (await admin.query("SELECT id, user_id, accepted_at FROM public.firm_members WHERE company_id=$1 ORDER BY id", [a.co])).rows;
-    const stillIn = (await authz(user(m1), a.co, "COMPARATIVE_REPORTING")).allowed === true && (await authz(user(m2), a.co, "COMPARATIVE_REPORTING")).allowed === true;
+    const lockedOut = (await authz(user(m1), a.co, "COMPARATIVE_REPORTING")).code === "WORKSPACE_ACCESS_DENIED" && (await authz(user(m2), a.co, "COMPARATIVE_REPORTING")).code === "WORKSPACE_ACCESS_DENIED";
+    const holder = (await authz(user(a.uid), a.co, "COMPARATIVE_REPORTING")).allowed === true;
     const st = await seatState(a.uid, a.co);
     const newPerson = await codeOf(() => invite(a.uid, a.co, person()));
     const acc = await accept(pending);
     await q(user(a.uid), "DELETE FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [a.co, m2]);
     const readmit = await codeOf(() => addActive(a.uid, a.co, m2));
-    return JSON.stringify(before) === JSON.stringify(after) && stillIn && st.plan_code === "FREE" && st.allowed_named_users === 1 && st.active_named_users === 3
+    return JSON.stringify(before) === JSON.stringify(after) && lockedOut && holder && st.plan_code === "FREE" && st.allowed_named_users === 1
+      && st.active_named_users === 1 && st.suspended_named_users === 2
       && newPerson === "PT402" && acc.accepted.length === 0 && acc.blocked.length === 1 && readmit === "PT402"
       && (await count("SELECT count(*) n FROM public.firm_members WHERE company_id=$1 AND user_id=$2 AND accepted_at IS NULL", [a.co, pending])) === 1
-      ? true : JSON.stringify({ stillIn, st, newPerson, acc, readmit });
+      ? true : JSON.stringify({ lockedOut, holder, st, newPerson, acc, readmit });
   });
-  await check("the Free workspace's pre-existing members keep their access; the Free account still cannot add anyone", async () =>
-    (await authz(user(U.partnerTitle), W.free, "COMPARATIVE_REPORTING")).allowed === true
+  await check("the Free workspace's pre-existing members are kept (history) but not active; the Free account still cannot add anyone", async () =>
+    (await authz(user(U.partnerTitle), W.free, "COMPARATIVE_REPORTING")).code === "WORKSPACE_ACCESS_DENIED"
+    && (await authz(user(U.free), W.free, "COMPARATIVE_REPORTING")).allowed === true
     && (await count("SELECT count(*) n FROM public.firm_members WHERE company_id=$1 AND user_id <> $2", [W.free, U.free])) === 3
     && (await codeOf(() => invite(U.free, W.free, person()))) === "PT402");
   await check("unknown, negative, missing or malformed seat quantities fail closed: the licence refuses them; Enterprise without negotiated seats admits no one until an audited override records them", async () => {

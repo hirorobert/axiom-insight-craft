@@ -165,14 +165,14 @@ describe("honest draft — final outputs are draft-only; no approval or final st
     expect(PRINT_CSS).toContain(`#fs-print-document::before { content: "${mark}"; position: fixed;`);
   });
 
-  it("Reporting Pack: downloads exist only with a host-supplied issuer; a locked workspace sees the plan explanation, never a file button", async () => {
+  it("Reporting Pack: downloads exist only with a host-supplied deliverer (issue → seal → save); a locked workspace sees the plan explanation, never a file button", async () => {
     const model = await makeModel();
     const bare = renderToStaticMarkup(createElement(OutputsStage, { model }));
     expect(bare).not.toContain('data-testid="export-buttons"');
-    const issuer = async () => ({ status: "issued" as const, issuanceId: "x" });
-    const withIssuer = renderToStaticMarkup(createElement(OutputsStage, { model, issueDownload: issuer }));
+    const issuer = async () => "delivered" as const;
+    const withIssuer = renderToStaticMarkup(createElement(OutputsStage, { model, deliverDownload: issuer }));
     expect(withIssuer).toContain('data-testid="export-buttons"');
-    const locked = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(OutputsStage, { model, issueDownload: issuer, downloadsLocked: true })));
+    const locked = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(OutputsStage, { model, deliverDownload: issuer, downloadsLocked: true })));
     expect(locked).not.toContain('data-testid="export-buttons"');
     expect(locked).toContain('data-testid="outputs-downloads-locked"');
     expect(text(locked)).toContain("Preview remains available.");

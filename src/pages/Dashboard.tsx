@@ -106,8 +106,11 @@ export default function Dashboard() {
       }
       const result = parseAcceptInvitations(data);
       if (result && result.blocked.length > 0) {
-        toast.info("An invitation is waiting for a seat", {
-          description: "The account that invited you has no free named-user seat yet. Your invitation is kept and will work once a seat is available.",
+        const closed = result.blocked.some((b) => b.code === "INVITATION_EXPIRED" || b.code === "INVITATION_CANCELLED");
+        toast.info(closed ? "An invitation is no longer valid" : "An invitation is waiting for a seat", {
+          description: closed
+            ? "It expired or was cancelled. Ask the person who invited you to send a new invitation."
+            : "The account that invited you has no free named-user seat for you yet. Your invitation is kept until it expires.",
         });
       }
     });

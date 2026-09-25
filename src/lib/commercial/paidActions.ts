@@ -166,6 +166,11 @@ export interface SeatCapacityState {
   readonly activeNamedUsers: number;
   readonly reservedNamedUsers: number;
   readonly additionalSeatsPurchasable: boolean;
+  /** People billing-suspended on the account (memberships and history kept, no access). */
+  readonly suspendedNamedUsers: number;
+  /** More people than the allowance: only the account holder is active until they choose who else is. */
+  readonly overAllowance: boolean;
+  readonly isAccountHolder: boolean;
 }
 
 const nonNegInt = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
@@ -188,12 +193,15 @@ export function parseSeatCapacity(raw: unknown): SeatCapacityState | null {
     activeNamedUsers: active,
     reservedNamedUsers: reserved,
     additionalSeatsPurchasable: r.additional_seats_purchasable === true,
+    suspendedNamedUsers: nonNegInt(r.suspended_named_users) ?? 0,
+    overAllowance: r.over_allowance !== false,
+    isAccountHolder: r.is_account_holder === true,
   };
 }
 
-/** Whether one more person could be invited now. Unknown → false. */
+/** Whether one more person could be invited now. Unknown or over the allowance → false. */
 export function canInviteAnother(state: SeatCapacityState | null): boolean {
-  return !!state && state.determined && state.allowedNamedUsers !== null && state.reservedNamedUsers < state.allowedNamedUsers;
+  return !!state && state.determined && !state.overAllowance && state.allowedNamedUsers !== null && state.reservedNamedUsers < state.allowedNamedUsers;
 }
 
 /** Customer copy when no one else can be invited (null when an invitation is possible). */
@@ -204,8 +212,8 @@ export function seatCopy(state: SeatCapacityState | null): LockedCopy | null {
   if (!state || !state.determined) {
     return {
       title: "Named-user seats need confirming",
-      unavailable: "Your plan's named-user seats have not been recorded yet, so no one new can be invited.",
-      remains: "Everyone who already has access keeps it.",
+      unavailable: "Your plan's named-user seats have not been recorded yet, so only the account holder can use the workspace and no one new can be invited.",
+      remains: "Every membership and all history are kept.",
       history: "Contact us to confirm the named users in your agreement.",
     };
   }
@@ -214,7 +222,15 @@ export function seatCopy(state: SeatCapacityState | null): LockedCopy | null {
       title: `Available with ${planName(ENTRY_PAID_PLAN)}`,
       unavailable: "The Free plan includes one named user: you. Inviting other people is available with Practice or Firm.",
       remains: `On Practice and Firm, each additional named user is ${seatPrice}.`,
-      history: "Everyone who already has access keeps it, and nobody is removed when a plan changes.",
+      history: "Memberships and their history are never deleted; people beyond the plan's named users are suspended until a seat is available and you choose them.",
+    };
+  }
+  if (state.overAllowance) {
+    return {
+      title: "Choose who stays active",
+      unavailable: `Your plan has ${state.allowedNamedUsers} named ${state.allowedNamedUsers === 1 ? "user" : "users"}, fewer than the people on this account, so only you are active until you choose.`,
+      remains: "Everyone else keeps their membership and history, but has no access until you select them.",
+      history: "Nobody is ever reactivated automatically.",
     };
   }
   const plan = displayCataloguePlanName(state.planCode) ?? "current";
@@ -227,13 +243,16 @@ export function seatCopy(state: SeatCapacityState | null): LockedCopy | null {
     remains: state.additionalSeatsPurchasable
       ? `Additional named users are ${seatPrice} each. Contact us to add seats.`
       : "Contact us to change the named users in your agreement.",
-    history: "Existing members keep their access. Removing a member or a pending invitation frees a seat.",
+    history: "Removing a member, cancelling a pending invitation or letting it expire frees a seat.",
   };
 }
 
+export type AcceptBlockCode = "SEAT_LIMIT_REACHED" | "SEAT_CAPACITY_UNDETERMINED" | "NAMED_USER_SUSPENDED" | "INVITATION_EXPIRED" | "INVITATION_CANCELLED";
+const ACCEPT_BLOCK_CODES: readonly AcceptBlockCode[] = ["SEAT_LIMIT_REACHED", "SEAT_CAPACITY_UNDETERMINED", "NAMED_USER_SUSPENDED", "INVITATION_EXPIRED", "INVITATION_CANCELLED"];
+
 export interface AcceptInvitationsResult {
   readonly accepted: readonly string[];
-  readonly blocked: readonly { readonly companyId: string; readonly code: "SEAT_LIMIT_REACHED" | "SEAT_CAPACITY_UNDETERMINED" }[];
+  readonly blocked: readonly { readonly companyId: string; readonly code: AcceptBlockCode }[];
 }
 
 /** Strict parse of accept_workspace_invitations(); malformed → null. */
@@ -242,22 +261,63 @@ export function parseAcceptInvitations(raw: unknown): AcceptInvitationsResult | 
   const r = raw as Record<string, unknown>;
   if (r.outcome !== "ok" || !Array.isArray(r.accepted) || !Array.isArray(r.blocked)) return null;
   const accepted = r.accepted.filter((x): x is string => typeof x === "string");
-  const blocked: { companyId: string; code: "SEAT_LIMIT_REACHED" | "SEAT_CAPACITY_UNDETERMINED" }[] = [];
+  const blocked: { companyId: string; code: AcceptBlockCode }[] = [];
   for (const b of r.blocked) {
     const o = (b && typeof b === "object" ? b : {}) as Record<string, unknown>;
-    if (typeof o.company_id === "string" && (o.code === "SEAT_LIMIT_REACHED" || o.code === "SEAT_CAPACITY_UNDETERMINED")) blocked.push({ companyId: o.company_id, code: o.code });
+    if (typeof o.company_id === "string" && ACCEPT_BLOCK_CODES.includes(o.code as AcceptBlockCode)) blocked.push({ companyId: o.company_id, code: o.code as AcceptBlockCode });
   }
   return { accepted, blocked };
 }
 
+// ── Explicit selection of who is active (the only reactivation path) ────────────────────────────────────────
+export type RosterState = "active_candidate" | "suspended" | "pending" | "inactive";
+export interface NamedUserRoster {
+  readonly allowedNamedUsers: number | null;
+  readonly overAllowance: boolean;
+  readonly rosterVersion: string;
+  readonly people: readonly { readonly userId: string; readonly state: RosterState; readonly invitedEmail: string | null }[];
+}
+
+/** Strict parse of get_named_user_roster(); malformed → null. */
+export function parseNamedUserRoster(raw: unknown): NamedUserRoster | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (r.outcome !== "ok" || typeof r.roster_version !== "string" || !Array.isArray(r.people)) return null;
+  const states: readonly RosterState[] = ["active_candidate", "suspended", "pending", "inactive"];
+  const people: { userId: string; state: RosterState; invitedEmail: string | null }[] = [];
+  for (const p of r.people) {
+    const o = (p && typeof p === "object" ? p : {}) as Record<string, unknown>;
+    if (typeof o.user_id !== "string" || !states.includes(o.state as RosterState)) return null;
+    people.push({ userId: o.user_id, state: o.state as RosterState, invitedEmail: typeof o.invited_email === "string" ? o.invited_email : null });
+  }
+  return { allowedNamedUsers: nonNegInt(r.allowed_named_users), overAllowance: r.over_allowance !== false, rosterVersion: r.roster_version, people };
+}
+
+/** The people the account holder may choose among, and how many they may choose (the holder takes one seat). */
+export function selectableSeats(roster: NamedUserRoster | null): { readonly choices: readonly string[]; readonly max: number } {
+  if (!roster || roster.allowedNamedUsers === null) return { choices: [], max: 0 };
+  return {
+    choices: roster.people.filter((p) => p.state === "active_candidate" || p.state === "suspended").map((p) => p.userId),
+    max: Math.max(0, roster.allowedNamedUsers - 1),
+  };
+}
+
+export type SelectionOutcome = "applied" | "stale_selection" | "selection_required" | "invalid_selection" | "selection_exceeds_allowance" | "capacity_undetermined" | "unauthenticated";
+const SELECTION_OUTCOMES: readonly SelectionOutcome[] = ["applied", "stale_selection", "selection_required", "invalid_selection", "selection_exceeds_allowance", "capacity_undetermined", "unauthenticated"];
+/** Strict parse of choose_active_named_users(); anything unexpected → null (treated as a failure). */
+export function parseSelectionOutcome(raw: unknown): SelectionOutcome | null {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>).outcome : null;
+  return SELECTION_OUTCOMES.includes(o as SelectionOutcome) ? (o as SelectionOutcome) : null;
+}
+
 /** The invitation function's structured seat refusal (HTTP 402 body), or null for any other failure. */
-export async function functionSeatRefusal(error: unknown): Promise<"seat_limit_reached" | "seat_capacity_undetermined" | null> {
+export async function functionSeatRefusal(error: unknown): Promise<"seat_limit_reached" | "seat_capacity_undetermined" | "named_user_suspended" | null> {
   const ctx = error && typeof error === "object" ? (error as { context?: unknown }).context : undefined;
   if (!ctx || typeof (ctx as { clone?: unknown }).clone !== "function") return null;
   try {
     const body = (await (ctx as Response).clone().json()) as Record<string, unknown>;
     if (body?.capability !== "NAMED_USER_SEATS") return null;
-    return body.status === "seat_limit_reached" || body.status === "seat_capacity_undetermined" ? body.status : null;
+    return body.status === "seat_limit_reached" || body.status === "seat_capacity_undetermined" || body.status === "named_user_suspended" ? body.status : null;
   } catch {
     return null;
   }

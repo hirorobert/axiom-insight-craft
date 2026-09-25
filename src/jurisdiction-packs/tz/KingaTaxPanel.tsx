@@ -24,7 +24,7 @@ import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState
 import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
 import { entitlementRefusal, lockedCopy, paidActionState } from "@/lib/commercial/paidActions";
 import { generateTaxComputationPDF } from "./generateTaxComputationPDF";
-import { requestReportingPack } from "@/lib/commercial/requestReportingPack";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 import { FileDown, ShieldCheck, ShieldX, ShieldAlert } from "lucide-react";
 
 // ── ITA CLASS METADATA — VERIFIED: PwC Tanzania (reviewed 14 Jan 2026) ───
@@ -1575,9 +1575,10 @@ export function KingaTaxPanel({
                       .eq("company_id", companyId)
                       .in("status", ["open", "in_progress"]);
                     const [{ data: allowances }, { data: findings }] = await Promise.all([q1, q2]);
-                    // The tax computation PDF is a Reporting Pack deliverable: issued by the server first, or not produced.
-                    if (!(await requestReportingPack(companyId, periodYear, "tax_computation"))) return;
-                    generateTaxComputationPDF({
+                    // The tax computation PDF is an official Reporting Pack deliverable: issued, built, sealed, then saved.
+                    await deliverReportingPack({
+                      companyId, periodYear, kind: "tax_computation", outputRef: `upload:${uploadId}`,
+                      build: () => generateTaxComputationPDF({
                       result,
                       companyName: companyName ?? "Company",
                       companyTin,
@@ -1585,6 +1586,7 @@ export function KingaTaxPanel({
                       periodEndMonth: periodEndMonth ?? 12,
                       allowances: (allowances ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["allowances"],
                       findings:   (findings   ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["findings"],
+                      }),
                     });
                   }}
                 >
@@ -1636,9 +1638,10 @@ export function KingaTaxPanel({
                       .eq("company_id", companyId)
                       .in("status", ["open", "in_progress"]);
                     const [{ data: allowances }, { data: findings }] = await Promise.all([qa, qf]);
-                    // The tax computation PDF is a Reporting Pack deliverable: issued by the server first, or not produced.
-                    if (!(await requestReportingPack(companyId, periodYear, "tax_computation"))) return;
-                    generateTaxComputationPDF({
+                    // The tax computation PDF is an official Reporting Pack deliverable: issued, built, sealed, then saved.
+                    await deliverReportingPack({
+                      companyId, periodYear, kind: "tax_computation", outputRef: `upload:${uploadId}`,
+                      build: () => generateTaxComputationPDF({
                       result,
                       companyName: companyName ?? "Company",
                       companyTin,
@@ -1646,6 +1649,7 @@ export function KingaTaxPanel({
                       periodEndMonth: periodEndMonth ?? 12,
                       allowances: (allowances ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["allowances"],
                       findings:   (findings   ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["findings"],
+                      }),
                     });
                   }}
                 >

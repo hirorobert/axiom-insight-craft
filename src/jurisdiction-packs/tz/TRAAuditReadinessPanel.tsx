@@ -20,7 +20,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { requestReportingPack } from "@/lib/commercial/requestReportingPack";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -264,9 +264,8 @@ export function TRAAuditReadinessPanel({
   const partialOk = fails === 0 && warns > 0;
 
   // ── Print manifest ─────────────────────────────────────────────────────────
+  // The audit manifest is an official Reporting Pack deliverable: issued, built, sealed, then saved.
   const handlePrintManifest = async () => {
-  // The audit manifest is a Reporting Pack deliverable: issued by the server first, or not produced.
-  if (!(await requestReportingPack(companyId, periodYear, "tax_workpaper"))) return;
     const lines = [
       `TRA AUDIT READINESS MANIFEST`,
       `Generated: ${new Date().toLocaleString("en-TZ", { timeZone: "Africa/Dar_es_Salaam" })} (EAT)`,
@@ -285,14 +284,12 @@ export function TRAAuditReadinessPanel({
       `This manifest does not alter any records.`,
     ];
     const text = lines.join("\n");
-    const blob = new Blob([text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `audit_manifest_${companyName?.replace(/\s+/g, "_") ?? companyId}_FY${periodYear}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Audit manifest downloaded");
+    const outcome = await deliverReportingPack({
+      companyId, periodYear, kind: "tax_workpaper", outputRef: `audit-manifest:${companyId}:FY${periodYear}`,
+      fileName: `audit_manifest_${companyName?.replace(/\s+/g, "_") ?? companyId}_FY${periodYear}.txt`,
+      build: () => new Blob([text], { type: "text/plain" }),
+    });
+    if (outcome === "delivered") toast.success("Audit manifest downloaded");
   };
 
   // ── Overall badge ──────────────────────────────────────────────────────────
