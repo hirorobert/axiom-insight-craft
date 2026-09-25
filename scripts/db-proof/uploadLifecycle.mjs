@@ -137,6 +137,15 @@ async function applyAutocommit(file) {
 
 const migrationFiles = () => fs.readdirSync(path.join(REPO, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
 async function applyMigration(f) {
+  // This proof holds a legacy (Free-licensed) account created mid-history. Retiring the Free plan (20260925130000) is
+  // interlocked: this disposable database records the durable approval an operator would (current inventory, notice,
+  // activation path) immediately before that migration.
+  if (f.startsWith("20260925130000_")) {
+    await admin.query(`INSERT INTO public.deployment_approvals (purpose, environment_fingerprint, environment_label, evidence, approved_by, expires_at)
+      SELECT 'FREE_PLAN_RETIREMENT', public._environment_fingerprint(), 'upload-lifecycle-proof',
+             public._free_plan_inventory() || jsonb_build_object('notification_reference', 'proof notice', 'activation_path', 'MANUAL_ADMIN'),
+             gen_random_uuid(), now() + interval '1 hour'`);
+  }
   let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
   if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
   try { await admin.query(text); } catch (e) { throw new Error(`migration ${f} failed: ${String(e.message).split("\n")[0]}`); }
@@ -235,9 +244,6 @@ async function main() {
     return true;
   });
 
-  // This fixture is a legacy (Free-licensed) account created mid-history. Retiring the Free plan (20260925130000) is
-  // interlocked for production; this disposable database confirms the release sequence the way an operator would.
-  await admin.query("SET cfoclose.free_retirement_approval = 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED'");
   await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,'legacy@example.test')", [U.legacy]);
   const L = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Legacy Co') RETURNING id", [U.legacy])).rows[0].id;
   ownerMemberOf[L] = (await admin.query("SELECT id FROM public.firm_members WHERE company_id=$1 AND role='owner'", [L])).rows[0].id;

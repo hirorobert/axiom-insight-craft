@@ -39,7 +39,7 @@ export const LANDING_HERO = {
   headline: "From trial balance to reviewable financial statements.",
   supporting:
     "Import a trial balance, review classification exceptions and prepare framework-aware financial statements with traceable checks and attributable user decisions.",
-  primaryCta: { label: "Request access", href: "/auth" },
+  primaryCta: { label: "Request access", href: "/request-access" },
   secondaryCta: { label: "Explore a sample close", href: "#sample-close" },
 } as const;
 
@@ -384,7 +384,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
 export const LANDING_FINAL_CTA = {
   heading: "Bring greater control to your next financial close.",
   supporting: "Create a workspace and explore CFOCLOSE's preparation and review workflow.",
-  primaryCta: { label: "Request access", href: "/auth" },
+  primaryCta: { label: "Request access", href: "/request-access" },
   secondaryCta: { label: "Sign in", href: "/auth" },
 } as const;
 

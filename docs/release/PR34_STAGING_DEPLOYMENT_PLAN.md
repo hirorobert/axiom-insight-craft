@@ -36,10 +36,21 @@ approved manual activation procedure and the customer communication are ready. T
 **FREE -> EXPIRED_READ_ONLY**: every open Free licence is ended and the account becomes read-only. **No plan (Solo or
 any other) is granted by the migration**; a plan is only ever recorded by an explicit, audited administrator action.
 
-Enforced, not only documented: `20260925130000` refuses (SQLSTATE 55000, before any change) on any database holding open
-Free licences unless the operator sets, in the same session,
-`SET cfoclose.free_retirement_approval = 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED';`
-Setting it is the operator's attestation that steps 1–4 below are complete. Proven by `scripts/db-proof/planCapabilities.mjs`.
+Enforced, not only documented, and atomic:
+- `20260925130000` and `20260925140000` are each ONE statement (an atomic DO envelope): run statement by statement, as a
+  whole file, with or without a transaction, or by a runner that continues after errors, they apply completely or change
+  nothing.
+- Over any open Free licence, the retirement statement itself consumes a durable approval
+  (`deployment_approvals`, created by `20260925120000`) or fails: purpose `FREE_PLAN_RETIREMENT`, bound to THIS
+  environment's fingerprint, unexpired (≤ 72 h), unconsumed, and whose inventory (count and digest of the open Free
+  licences) matches exactly what would be ended. The approval is single use (consumed in the same statement) and
+  append-only (who, when, notification reference, activation path). No session, database or role setting can stand
+  in for it. A database with no open Free licence needs no approval.
+- The approval is recorded by a commercial administrator AFTER steps 1–4, between applying 20260925120000 and
+  20260925130000:
+  `SELECT public.admin_record_deployment_approval('FREE_PLAN_RETIREMENT', '<environment label>', <open Free licence count>,
+  '<customer notification reference>', 'MANUAL_ADMIN' | 'CHECKOUT', <valid hours ≤ 72>);`
+Proven by `scripts/db-proof/planCapabilities.mjs`.
 
 Production sequence (in order, each step recorded):
 1. **Inventory** existing Free accounts (read-only): every account whose current licence is on the FREE plan, with its
@@ -48,7 +59,7 @@ Production sequence (in order, each step recorded):
 3. **Notify affected users** of the change and its date (the owner's approved communication).
 4. **Confirm the administrative activation path**: `admin_ensure_billing_customer` then `admin_grant_commercial_licence`
    (and `admin_set_licence_additional_seats`) by a commercial administrator, tested on staging; or checkout, if activated.
-5. **Apply** 20260925100000 → 20260925150000 in order, setting the approval above for 20260925130000.
+5. **Apply** 20260925100000 → 20260925120000, **record the approval** (above), then apply 20260925130000 → 20260925150000.
 6. **Verify**: every former Free account is EXPIRED_READ_ONLY (no current licence, data intact, reads work, writes
    refused); every intended paid account is activated by its audited `LICENCE_GRANTED` event and operates.
 7. **Run the RLS / capability regressions** (§8) and the invariant queries (§12) against the migrated database.

@@ -4,8 +4,10 @@
  * A downloadable deliverable is rendered in the browser from data the user can already see, so no client check can
  * stop someone rebuilding a look-alike file. What the server makes authoritative is the OFFICIAL pack
  * (20260925120000): an issuance bound to the user, workspace, fiscal period, output / version and format, with a
- * short expiry, that is SEALED once with the SHA-256 of the exact bytes produced (entitlement re-checked at that
- * moment) and can later be verified by that hash. Nothing is saved unless the seal succeeds.
+ * short expiry, that is SEALED once by the SERVER: the exact bytes are uploaded to the seal-reporting-pack Edge Function,
+ * which hashes what it received, stores it (private, no overwrite) and seals (entitlement and capability re-checked at
+ * that moment; 20260925140000). A browser-computed hash is never sent or trusted. Nothing is saved unless the seal
+ * succeeds; drafts (fs-draft references, prints, manual files) are never official.
  *
  * Covered: statement data (JSON / CSV), statement PDF and spreadsheet, board packs, management letters, disclosure
  * notes, tax computations and tax workpaper schedules (XBRL is gated server-side in generate-xbrl). Not deliverables
@@ -50,7 +52,7 @@ export function parseIssueOutcome(raw: unknown): IssueOutcome {
 
 export type SealOutcome = "sealed" | "locked" | "not_permitted" | "failed";
 
-/** Strict parse of consume_reporting_pack_issuance(); anything but "sealed" means the file must not be saved. */
+/** Strict parse of the seal-reporting-pack answer; anything but "sealed" means the file must not be saved. */
 export function parseSealOutcome(raw: unknown): SealOutcome {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>).outcome : null;
   if (o === "sealed") return "sealed";
@@ -78,22 +80,33 @@ export async function issueReportingPack(rpc: Rpc, b: PackBinding, requestId: st
   return error ? { status: "failed" } : parseIssueOutcome(data);
 }
 
-/** Seals the issuance with the SHA-256 of the exact bytes; the server re-checks every binding and the entitlement. */
-export async function sealReportingPack(rpc: Rpc, issuanceId: string, b: PackBinding, sha256: string): Promise<SealOutcome> {
-  const { data, error } = await rpc("consume_reporting_pack_issuance", {
-    p_issuance_id: issuanceId, p_company_id: b.companyId, p_period_year: b.periodYear, p_pack_kind: b.kind,
-    p_output_ref: b.outputRef, p_content_sha256: sha256,
-  });
+/**
+ * Uploads the exact bytes for the server to hash, store and seal (the seal-reporting-pack Edge Function). The server's
+ * answer is the only seal; a transport error is a failure.
+ */
+export type SealUpload = (issuanceId: string, b: PackBinding, blob: Blob, fileName: string) => Promise<{ data: unknown; error: unknown }>;
+
+export async function sealReportingPack(upload: SealUpload, issuanceId: string, b: PackBinding, blob: Blob, fileName: string): Promise<SealOutcome> {
+  const { data, error } = await upload(issuanceId, b, blob, fileName);
   return error ? "failed" : parseSealOutcome(data);
 }
 
-/** Lower-case hex SHA-256 of the bytes (Web Crypto). */
-export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+/** The multipart body the Edge Function expects: the binding and the exact bytes, and never a hash. */
+export function sealFormData(issuanceId: string, b: PackBinding, blob: Blob, fileName: string): FormData {
+  const form = new FormData();
+  form.set("issuance_id", issuanceId);
+  form.set("company_id", b.companyId);
+  form.set("period_year", String(b.periodYear));
+  form.set("pack_kind", b.kind);
+  form.set("output_ref", b.outputRef);
+  form.set("file", blob, fileName);
+  return form;
 }
 
-/** The output reference of a financial-statements export: a saved version the server can check, or a named draft. */
+/**
+ * The output reference of a financial-statements export: a saved version the server can check, or a named draft. A
+ * draft reference is refused by the server's closed output-reference scheme: drafts are never official.
+ */
 export function financialStatementsOutputRef(lineage: { reportId: string; reportVersion: number | null; persisted: boolean; contentHash: string } | null): string | null {
   if (!lineage) return null;
   return lineage.persisted && lineage.reportVersion !== null
@@ -104,19 +117,21 @@ export function financialStatementsOutputRef(lineage: { reportId: string; report
 export type DeliveryOutcome = "delivered" | "locked" | "not_permitted" | "failed";
 
 /**
- * The whole official path, independent of the browser: issue → build the bytes (the issuance id may be printed in
- * them) → hash → seal → save. `save` runs ONLY after the server sealed the issuance for exactly these bytes.
+ * The whole official path: issue → build the bytes (the issuance id may be printed in them) → upload them for the
+ * SERVER to hash and seal → save. `save` runs ONLY after the server sealed the issuance for exactly these bytes.
  */
 export type BuiltPack = Blob | { readonly blob: Blob; readonly fileName: string };
 
 export async function deliverOfficialPack(
-  rpc: Rpc, b: PackBinding, build: (issuanceId: string) => BuiltPack | Promise<BuiltPack>, save: (blob: Blob, fileName: string | null) => void,
+  rpc: Rpc, upload: SealUpload, b: PackBinding, build: (issuanceId: string) => BuiltPack | Promise<BuiltPack>,
+  save: (blob: Blob, fileName: string | null) => void, fallbackFileName = "reporting-pack",
 ): Promise<DeliveryOutcome> {
   const issued = await issueReportingPack(rpc, b);
   if (issued.status !== "issued") return issued.status;
   const built = await build(issued.issuanceId);
   const blob = built instanceof Blob ? built : built.blob;
-  const sealed = await sealReportingPack(rpc, issued.issuanceId, b, await sha256Hex(await blob.arrayBuffer()));
+  const name = built instanceof Blob ? fallbackFileName : built.fileName;
+  const sealed = await sealReportingPack(upload, issued.issuanceId, b, blob, name);
   if (sealed !== "sealed") return sealed;
   save(blob, built instanceof Blob ? null : built.fileName);
   return "delivered";

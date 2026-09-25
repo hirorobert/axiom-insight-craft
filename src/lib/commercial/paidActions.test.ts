@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
 import { DraftPrintMarkView } from "@/components/commercial/DraftPrintMark";
-import { DRAFT_PRINT_MARK, REPORTING_PACK_KINDS, deliverOfficialPack, financialStatementsOutputRef, parseIssueOutcome, parseSealOutcome, sha256Hex } from "./reportingPack";
+import { DRAFT_PRINT_MARK, REPORTING_PACK_KINDS, deliverOfficialPack, financialStatementsOutputRef, parseIssueOutcome, parseSealOutcome, sealFormData } from "./reportingPack";
 import { parseCreateEntityOutcome } from "./entityCreation";
 import {
   canInviteAnother,
@@ -263,32 +263,38 @@ describe("Reporting Pack: the official file is issued, sealed with its exact byt
     const check = /ADD CONSTRAINT chk_rpi_kind CHECK \(pack_kind IN \(([^)]*)\)\)/.exec(migration)?.[1] ?? "";
     expect([...check.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()).toEqual([...REPORTING_PACK_KINDS].sort());
   });
-  it("deliverOfficialPack: issue → build → SHA-256 of the exact bytes → seal → save; nothing is saved unless sealed", async () => {
+  it("deliverOfficialPack: issue → build → the SERVER hashes and seals the uploaded bytes → save; no client hash exists; nothing is saved unless sealed", async () => {
     const binding = { companyId: "co", periodYear: 2031, kind: "financial_statements_data" as const, outputRef: "upload:u" };
     const bytes = new TextEncoder().encode("statement bytes");
-    const expected = await sha256Hex(bytes.buffer as ArrayBuffer);
-    const calls: Array<[string, Record<string, unknown>]> = [];
+    const calls: string[] = [];
+    const uploads: Array<{ issuanceId: string; fileName: string; size: number; form: string[] }> = [];
     const saved: string[] = [];
-    const rpc = (seal: string) => async (fn: string, args: Record<string, unknown>) => {
-      calls.push([fn, args]);
-      return fn === "issue_reporting_pack" ? { data: { outcome: "issued", issuance_id: "iss-1" }, error: null } : { data: { outcome: seal }, error: null };
+    const rpc = async (fn: string) => {
+      calls.push(fn);
+      return { data: { outcome: "issued", issuance_id: "iss-1" }, error: null };
     };
-    const ok = await deliverOfficialPack(rpc("sealed"), binding, (id) => { expect(id).toBe("iss-1"); return new Blob([bytes]); }, () => saved.push("saved"));
+    const upload = (seal: string) => async (issuanceId: string, b: typeof binding, blob: Blob, fileName: string) => {
+      uploads.push({ issuanceId, fileName, size: blob.size, form: [...sealFormData(issuanceId, b, blob, fileName).keys()].sort() });
+      return { data: { outcome: seal }, error: null };
+    };
+    const ok = await deliverOfficialPack(rpc, upload("sealed"), binding, (id) => { expect(id).toBe("iss-1"); return new Blob([bytes]); }, () => saved.push("saved"), "statement.json");
     expect(ok).toBe("delivered");
     expect(saved).toEqual(["saved"]);
-    expect(calls.map((c) => c[0])).toEqual(["issue_reporting_pack", "consume_reporting_pack_issuance"]);
-    expect(calls[1][1]).toMatchObject({ p_issuance_id: "iss-1", p_company_id: "co", p_period_year: 2031, p_pack_kind: "financial_statements_data", p_output_ref: "upload:u", p_content_sha256: expected });
+    // Only the issue goes through the database client; the bytes go to the server, which computes the hash itself.
+    expect(calls).toEqual(["issue_reporting_pack"]);
+    expect(uploads).toEqual([{ issuanceId: "iss-1", fileName: "statement.json", size: bytes.byteLength, form: ["company_id", "file", "issuance_id", "output_ref", "pack_kind", "period_year"] }]);
+    expect(read("src/lib/commercial/reportingPack.ts")).not.toMatch(/consume_reporting_pack_issuance|p_content_sha256|crypto\.subtle/);
     for (const refusal of ["binding_mismatch", "expired", "already_sealed"]) {
       const s: string[] = [];
-      expect(await deliverOfficialPack(rpc(refusal), binding, () => new Blob([bytes]), () => s.push("x"))).toBe("failed");
+      expect(await deliverOfficialPack(rpc, upload(refusal), binding, () => new Blob([bytes]), () => s.push("x"))).toBe("failed");
       expect(s).toEqual([]);
     }
     const s2: string[] = [];
-    expect(await deliverOfficialPack(rpc("entitlement_required"), binding, () => new Blob([bytes]), () => s2.push("x"))).toBe("locked");
+    expect(await deliverOfficialPack(rpc, upload("entitlement_required"), binding, () => new Blob([bytes]), () => s2.push("x"))).toBe("locked");
     expect(s2).toEqual([]);
     const locked = async () => ({ data: { outcome: "entitlement_required" }, error: null });
     let built = false;
-    expect(await deliverOfficialPack(locked, binding, () => { built = true; return new Blob([]); }, () => {})).toBe("locked");
+    expect(await deliverOfficialPack(locked, upload("sealed"), binding, () => { built = true; return new Blob([]); }, () => {})).toBe("locked");
     expect(built).toBe(false);
   });
   it("a saved statement version is named so the server can check it; an unsaved draft is named, never passed off as a version", () => {

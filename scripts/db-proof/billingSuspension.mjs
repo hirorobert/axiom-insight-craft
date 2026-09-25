@@ -503,93 +503,126 @@ async function main() {
     return results.every(Boolean) ? true : JSON.stringify(results);
   });
 
-  group("P-05 — the official Reporting Pack: bound, short-lived, single-use, re-authorised at seal time, verifiable, audited");
-  const issue = async (who, co, kind = "financial_statements_pdf", ref = "upload:p05", period = 2031, rid = uuid()) =>
+  group("P-05 — the official Reporting Pack: bound, short-lived, single-use, SERVER-hashed, re-authorised at seal time, verifiable, audited");
+  // Output references are a closed scheme (20260925140000): a real upload / saved version / schedule of the workspace
+  // and period. Seals are made only by the service role (the seal-reporting-pack Edge Function, which hashed the bytes
+  // it received); the stored object path is <company>/<issuance>.<ext>.
+  const uploadRef = async (acct, co, period = 2031) => `upload:${(await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,$4) RETURNING id", [`${acct}/${uuid()}.csv`, co, acct, period])).rows[0].id}`;
+  const refs = new Map();
+  const refOf = async (acct, co) => { if (!refs.has(co)) refs.set(co, await uploadRef(acct, co)); return refs.get(co); };
+  const EXT = { financial_statements_pdf: "pdf", financial_statements_spreadsheet: "xlsx", financial_statements_data: "json", filing_pack: "xml", management_letter: "pdf", disclosure_notes: "pdf", tax_computation: "pdf", tax_workpaper: "csv" };
+  const issue = async (who, co, kind = "financial_statements_pdf", ref, period = 2031, rid = uuid()) =>
     (await one(user(who), "SELECT public.issue_reporting_pack($1,$2,$3,$4,$5) r", [co, period, kind, ref, rid])).r;
-  const seal = async (who, id, co, kind = "financial_statements_pdf", ref = "upload:p05", period = 2031, sha = "a".repeat(64)) =>
-    (await one(user(who), "SELECT public.consume_reporting_pack_issuance($1,$2,$3,$4,$5,$6) r", [id, co, period, kind, ref, sha])).r;
+  const seal = async (who, id, co, kind = "financial_statements_pdf", ref, period = 2031, sha = "a".repeat(64), path = null) =>
+    (await one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3,$4,$5,$6,$7,$8,10) r", [who, id, co, period, kind, ref, sha, path ?? `${co}/${id}.${EXT[kind] ?? "pdf"}`])).r;
   const pk = await account("PRACTICE", 1);
   const pkMember = await mkUser("pk");
   await addActive(pk.uid, pk.co, pkMember);
   const other = await account("PRACTICE", 0);
+  const R = await refOf(pk.uid, pk.co);
+  const RO = await refOf(other.uid, other.co);
   await check("a workspace with no current plan cannot obtain an issuance at all (and the refusal is audited)", async () => {
     // There is no free plan: a workspace exists only under a plan; its plan then ends.
     const f = await account("PRACTICE");
+    const fr = await refOf(f.uid, f.co);
     await admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end = now() WHERE id=$1", [f.lic.id]);
-    const r = await issue(f.uid, f.co);
+    const r = await issue(f.uid, f.co, "financial_statements_pdf", fr);
     return r.outcome === "entitlement_required" && (await count("SELECT count(*) n FROM public.reporting_pack_issuance_events WHERE company_id=$1 AND event='REFUSED'", [f.co])) === 1;
   });
-  await check("sealing requires the same user, workspace, period, saved output and format: every other combination is refused", async () => {
-    const i = await issue(pk.uid, pk.co);
-    const otherUser = await seal(pkMember, i.issuance_id, pk.co);
-    const otherWs = await seal(pk.uid, i.issuance_id, other.co);
-    const otherPeriod = await seal(pk.uid, i.issuance_id, pk.co, "financial_statements_pdf", "upload:p05", 2030);
-    const otherVersion = await seal(pk.uid, i.issuance_id, pk.co, "financial_statements_pdf", "upload:other");
-    const otherFormat = await seal(pk.uid, i.issuance_id, pk.co, "financial_statements_spreadsheet");
-    const csv = await seal(pk.uid, i.issuance_id, pk.co, "financial_statements_data");
-    const ok = await seal(pk.uid, i.issuance_id, pk.co);
-    return i.outcome === "issued" && otherUser.outcome === "not_found" && otherWs.outcome === "binding_mismatch" && otherPeriod.outcome === "binding_mismatch"
-      && otherVersion.outcome === "binding_mismatch" && otherFormat.outcome === "binding_mismatch" && csv.outcome === "binding_mismatch" && ok.outcome === "sealed"
-      ? true : JSON.stringify({ otherUser, otherWs, otherPeriod, otherVersion, otherFormat, csv, ok });
+  await check("a client can never seal: the client-hash function is gone and the server seal is executable by the service role only", async () => {
+    const i = await issue(pk.uid, pk.co, "financial_statements_pdf", R);
+    const clientSeal = await codeOf(() => q(user(pk.uid), "SELECT public.seal_reporting_pack_server($1,$2,$3,2031,'financial_statements_pdf',$4,$5,$6,10)", [pk.uid, i.issuance_id, pk.co, R, "a".repeat(64), `${pk.co}/${i.issuance_id}.pdf`]));
+    const oldConsume = (await admin.query("SELECT to_regproc('public.consume_reporting_pack_issuance') p")).rows[0].p;
+    return clientSeal === "42501" && oldConsume === null ? true : JSON.stringify({ clientSeal, oldConsume });
   });
-  await check("an issuance cannot be replayed: a second seal, a re-issue with the same request id and different bindings, and an expired issuance are all refused", async () => {
+  await check("sealing requires the same user, workspace, period, saved output, format and stored object: every other combination is refused", async () => {
+    const i = await issue(pk.uid, pk.co, "financial_statements_pdf", R);
+    const otherUser = await seal(pkMember, i.issuance_id, pk.co, "financial_statements_pdf", R);
+    const otherWs = await seal(pk.uid, i.issuance_id, other.co, "financial_statements_pdf", R);
+    const otherPeriod = await seal(pk.uid, i.issuance_id, pk.co, "financial_statements_pdf", R, 2030);
+    const otherVersion = await seal(pk.uid, i.issuance_id, pk.co, "financial_statements_pdf", RO);
+    const otherFormat = await seal(pk.uid, i.issuance_id, pk.co, "financial_statements_spreadsheet", R);
+    const otherObject = await seal(pk.uid, i.issuance_id, pk.co, "financial_statements_pdf", R, 2031, "a".repeat(64), `${other.co}/${i.issuance_id}.pdf`);
+    const ok = await seal(pk.uid, i.issuance_id, pk.co, "financial_statements_pdf", R);
+    return i.outcome === "issued" && otherUser.outcome === "not_found" && otherWs.outcome === "binding_mismatch" && otherPeriod.outcome === "binding_mismatch"
+      && otherVersion.outcome === "binding_mismatch" && otherFormat.outcome === "binding_mismatch" && otherObject.outcome === "binding_mismatch" && ok.outcome === "sealed"
+      ? true : JSON.stringify({ otherUser, otherWs, otherPeriod, otherVersion, otherFormat, otherObject, ok });
+  });
+  await check("output references are closed and format-specific: free text, drafts, unknown or foreign records and wrong kinds are refused", async () => {
+    const bad = [
+      ["financial_statements_pdf", "upload:p05"], ["financial_statements_pdf", "anything at all"], ["financial_statements_data", "fs-draft:r1:abcdef0123456789"],
+      ["financial_statements_data", "fs-report:nope:v1"], ["financial_statements_pdf", RO], ["financial_statements_pdf", `upload:${uuid()}`],
+      ["board_pack", R], ["tax_workpaper", R], ["tax_workpaper", `capital-allowances:${other.co}:FY2031`], ["tax_workpaper", `capital-allowances:${pk.co}:FY2030`],
+      ["financial_statements_pdf", ""],
+    ];
+    const out = []; for (const [k, ref] of bad) out.push((await issue(pk.uid, pk.co, k, ref)).outcome);
+    const good = (await issue(pk.uid, pk.co, "tax_workpaper", `capital-allowances:${pk.co}:FY2031`)).outcome;
+    return out.every((o) => o === "invalid_request") && good === "issued" ? true : JSON.stringify({ out, good });
+  });
+  await check("an issuance cannot be replayed: a second seal (other bytes), a re-issue with the same request id and different bindings, and an expired issuance are all refused", async () => {
     const rid = uuid();
-    const i = await issue(pk.uid, pk.co, "board_pack", "upload:p05", 2031, rid);
-    await seal(pk.uid, i.issuance_id, pk.co, "board_pack");
-    const again = await seal(pk.uid, i.issuance_id, pk.co, "board_pack", "upload:p05", 2031, "c".repeat(64));
-    const sameReq = await issue(pk.uid, pk.co, "board_pack", "upload:p05", 2031, rid);
-    const conflict = await issue(pk.uid, pk.co, "client_pack", "upload:p05", 2031, rid);
-    const e = await issue(pk.uid, pk.co, "client_pack");
+    const i = await issue(pk.uid, pk.co, "disclosure_notes", R, 2031, rid);
+    await seal(pk.uid, i.issuance_id, pk.co, "disclosure_notes", R);
+    const again = await seal(pk.uid, i.issuance_id, pk.co, "disclosure_notes", R, 2031, "c".repeat(64));
+    const sameReq = await issue(pk.uid, pk.co, "disclosure_notes", R, 2031, rid);
+    const conflict = await issue(pk.uid, pk.co, "management_letter", R, 2031, rid);
+    const e = await issue(pk.uid, pk.co, "management_letter", R);
     await admin.query("BEGIN"); await admin.query("SET LOCAL session_replication_role = replica");
     await admin.query("UPDATE public.reporting_pack_issuances SET expires_at = now() - interval '1 second' WHERE id=$1", [e.issuance_id]);
     await admin.query("COMMIT");
-    const expired = await seal(pk.uid, e.issuance_id, pk.co, "client_pack");
+    const expired = await seal(pk.uid, e.issuance_id, pk.co, "management_letter", R);
     return again.outcome === "already_sealed" && sameReq.outcome === "already_issued" && sameReq.sealed === true && conflict.outcome === "request_conflict" && expired.outcome === "expired"
       ? true : JSON.stringify({ again, sameReq, conflict, expired });
   });
   await check("a downgrade between issue and generation is refused at seal time; so is a person suspended in between", async () => {
     const a = await account("PRACTICE", 1);
+    const ar = await refOf(a.uid, a.co);
     const m = await mkUser("dg");
     await addActive(a.uid, a.co, m);
-    const i = await issue(a.uid, a.co);
-    const im = await issue(m, a.co, "financial_statements_spreadsheet");
+    const i = await issue(a.uid, a.co, "financial_statements_pdf", ar);
+    const im = await issue(m, a.co, "financial_statements_spreadsheet", ar);
     const r = await roster(a.uid);
     await choose(a.uid, [], r.roster_version);
-    const memberSeal = await seal(m, im.issuance_id, a.co, "financial_statements_spreadsheet");
+    const memberSeal = await seal(m, im.issuance_id, a.co, "financial_statements_spreadsheet", ar);
     await admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end=now() WHERE id=$1", [a.lic.id]);
-    const holderSeal = await seal(a.uid, i.issuance_id, a.co);
+    const holderSeal = await seal(a.uid, i.issuance_id, a.co, "financial_statements_pdf", ar);
     return memberSeal.outcome === "workspace_access_denied" && holderSeal.outcome === "entitlement_required" ? true : JSON.stringify({ memberSeal, holderSeal });
   });
-  await check(`${CONCURRENCY} tabs sealing the same issuance at once: exactly one seal`, async () => {
-    const i = await issue(pk.uid, pk.co, "tax_workpaper");
-    const out = await Promise.all(Array.from({ length: CONCURRENCY }, (_, n) => seal(pk.uid, i.issuance_id, pk.co, "tax_workpaper", "upload:p05", 2031, n.toString(16).padStart(64, "0"))));
+  await check(`${CONCURRENCY} concurrent seals of the same issuance: exactly one seal`, async () => {
+    const i = await issue(pk.uid, pk.co, "tax_computation", R);
+    const out = await Promise.all(Array.from({ length: CONCURRENCY }, (_, n) => seal(pk.uid, i.issuance_id, pk.co, "tax_computation", R, 2031, n.toString(16).padStart(64, "0"))));
     return out.filter((o) => o.outcome === "sealed").length === 1 && out.filter((o) => o.outcome === "already_sealed").length === CONCURRENCY - 1;
   });
-  await check("a saved financial-statements version must exist for the workspace and period; an unknown one is refused", async () =>
-    (await issue(pk.uid, pk.co, "financial_statements_data", "fs-report:nope:v1")).outcome === "invalid_request"
-    && (await issue(pk.uid, pk.co, "financial_statements_data", "")).outcome === "invalid_request");
-  await check("verification: a sealed file is official for the workspace's members only; unsealed or unknown bytes never are", async () => {
+  await check("verification: a sealed file is official for the workspace's members only (also after the plan ends); unsealed or unknown bytes never are", async () => {
     const sha = "d".repeat(64);
-    const i = await issue(pk.uid, pk.co, "management_letter");
-    await seal(pk.uid, i.issuance_id, pk.co, "management_letter", "upload:p05", 2031, sha);
-    const member = (await one(user(pkMember), "SELECT public.verify_reporting_pack($1) r", [sha])).r;
+    const v = await account("PRACTICE", 1);
+    const vr = await refOf(v.uid, v.co);
+    const vm = await mkUser("vm"); await addActive(v.uid, v.co, vm);
+    const i = await issue(v.uid, v.co, "management_letter", vr);
+    await seal(v.uid, i.issuance_id, v.co, "management_letter", vr, 2031, sha);
+    const member = (await one(user(vm), "SELECT public.verify_reporting_pack($1) r", [sha])).r;
     const outsider = (await one(user(U.outsider), "SELECT public.verify_reporting_pack($1) r", [sha])).r;
-    const unknown = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", ["e".repeat(64)])).r;
-    const unsealed = await issue(pk.uid, pk.co, "management_letter");
+    const unknown = (await one(user(v.uid), "SELECT public.verify_reporting_pack($1) r", ["e".repeat(64)])).r;
+    await admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end=now() WHERE id=$1", [v.lic.id]);
+    const afterExpiry = (await one(user(v.uid), "SELECT public.verify_reporting_pack($1) r", [sha])).r;
+    const stored = (await one(SERVICE, "SELECT public.reporting_pack_sealed_object($1) r", [i.issuance_id])).r;
     return member.official === true && member.pack_kind === "management_letter" && member.issuance_id === i.issuance_id
-      && outsider.official === false && unknown.official === false && unsealed.outcome === "issued" ? true : JSON.stringify({ member, outsider, unknown });
+      && outsider.official === false && unknown.official === false && afterExpiry.official === true
+      && stored.content_sha256 === sha && stored.storage_path === `${v.co}/${i.issuance_id}.pdf` ? true : JSON.stringify({ member, outsider, unknown, afterExpiry, stored });
   });
   await check("issuances and their audit events cannot be written, changed or deleted by clients or the service role; issuances change only by one seal", async () => {
-    const i = await issue(pk.uid, pk.co, "filing_pack");
+    const i = await issue(pk.uid, pk.co, "filing_pack", R);
     const clientIns = await codeOf(() => q(user(pk.uid), "INSERT INTO public.reporting_pack_issuance_events (event) VALUES ('ISSUED')"));
     const svcIns = await codeOf(() => q(SERVICE, "INSERT INTO public.reporting_pack_issuance_events (event) VALUES ('ISSUED')"));
     const evUpd = await codeOf(() => admin.query("UPDATE public.reporting_pack_issuance_events SET event='SEALED' WHERE issuance_id=$1", [i.issuance_id]));
     const evDel = await codeOf(() => admin.query("DELETE FROM public.reporting_pack_issuance_events WHERE issuance_id=$1", [i.issuance_id]));
     const kindUpd = await codeOf(() => admin.query("UPDATE public.reporting_pack_issuances SET pack_kind='client_pack' WHERE id=$1", [i.issuance_id]));
     const extend = await codeOf(() => admin.query("UPDATE public.reporting_pack_issuances SET expires_at = now() + interval '1 day' WHERE id=$1", [i.issuance_id]));
+    await seal(pk.uid, i.issuance_id, pk.co, "filing_pack", R);
+    const reseal = await codeOf(() => admin.query("UPDATE public.reporting_pack_issuances SET content_sha256=$2, storage_path=$3 WHERE id=$1", [i.issuance_id, "f".repeat(64), `${pk.co}/${i.issuance_id}.zip`]));
     const events = await count("SELECT count(*) n FROM public.reporting_pack_issuance_events WHERE issuance_id=$1 AND event='ISSUED'", [i.issuance_id]);
-    return clientIns === "42501" && svcIns === "42501" && evUpd === "P0001" && evDel === "P0001" && kindUpd === "P0001" && extend === "P0001" && events === 1
-      ? true : JSON.stringify({ clientIns, svcIns, evUpd, evDel, kindUpd, extend, events });
+    return clientIns === "42501" && svcIns === "42501" && evUpd === "P0001" && evDel === "P0001" && kindUpd === "P0001" && extend === "P0001" && reseal === "P0001" && events === 1
+      ? true : JSON.stringify({ clientIns, svcIns, evUpd, evDel, kindUpd, extend, reseal, events });
   });
 
   group("Invariant and history across everything above");
@@ -607,11 +640,11 @@ async function main() {
       FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN
       ('_account_named_user_access_active','named_user_access_active','_named_user_suspended','_named_user_roster','_apply_named_user_selection','choose_active_named_users',
        'get_named_user_roster','admin_prepare_planned_reduction','reconcile_named_user_allowance','reconcile_all_named_user_allowances','reserve_workspace_invitation',
-       'release_workspace_invitation','cancel_workspace_invitation','consume_reporting_pack_issuance','verify_reporting_pack','issue_reporting_pack')`)).rows;
+       'release_workspace_invitation','cancel_workspace_invitation','seal_reporting_pack_server','verify_reporting_pack','issue_reporting_pack')`)).rows;
     const pinned = rows.every((r) => (r.proconfig ?? []).some((c) => c.startsWith("search_path=")));
     const byName = Object.fromEntries(rows.map((r) => [r.proname, r]));
-    const clientOk = ["named_user_access_active", "choose_active_named_users", "get_named_user_roster", "admin_prepare_planned_reduction", "cancel_workspace_invitation", "consume_reporting_pack_issuance", "verify_reporting_pack", "issue_reporting_pack"];
-    const internal = ["_account_named_user_access_active", "_named_user_suspended", "_named_user_roster", "_apply_named_user_selection", "reconcile_named_user_allowance", "reconcile_all_named_user_allowances", "reserve_workspace_invitation", "release_workspace_invitation"];
+    const clientOk = ["named_user_access_active", "choose_active_named_users", "get_named_user_roster", "admin_prepare_planned_reduction", "cancel_workspace_invitation", "verify_reporting_pack", "issue_reporting_pack"];
+    const internal = ["_account_named_user_access_active", "_named_user_suspended", "_named_user_roster", "_apply_named_user_selection", "reconcile_named_user_allowance", "reconcile_all_named_user_allowances", "reserve_workspace_invitation", "release_workspace_invitation", "seal_reporting_pack_server"];
     return rows.length === 16 && pinned && rows.every((r) => !r.anon) && clientOk.every((n) => byName[n]?.auth) && internal.every((n) => byName[n] && !byName[n].auth)
       ? true : JSON.stringify(rows.map((r) => [r.proname, r.anon, r.auth]));
   });

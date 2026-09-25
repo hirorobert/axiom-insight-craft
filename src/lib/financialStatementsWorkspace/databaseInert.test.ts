@@ -136,6 +136,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
       "supabase/migrations/20260925140000_workspace_capability_authorization.sql",
       "supabase/migrations/20260925150000_can_user_act_on_workspace_minimum_grant.sql",
+      // Official Reporting Pack bytes are hashed and stored by the server (security correction B-4): the Edge Function
+      // and its pure handler. No financial-statements schema.
+      "supabase/functions/_shared/reportingPackSeal.ts",
+      "supabase/functions/seal-reporting-pack/index.ts",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
@@ -171,6 +175,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/actor.ts",
       "supabase/functions/invite-firm-member/index.ts",
       "supabase/functions/kinga-tax-engine/index.ts",
+      // B-5: the evidence-attachment RPC error is a failure, never ignored.
+      "supabase/functions/safisha-ingest/index.ts",
     ]);
     for (const line of changed) {
       const [status, file] = line.split("	");

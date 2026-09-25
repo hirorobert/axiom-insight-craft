@@ -82,7 +82,8 @@ serve(async (req) => {
       );
     }
 
-    const allowedRoles = ["owner", "partner", "preparer", "viewer"];
+    // The owner title is assigned only when a company is created; an invitation can never create another owner.
+    const allowedRoles = ["partner", "preparer", "viewer"];
     if (!allowedRoles.includes(role)) {
       return new Response(
         JSON.stringify({ error: `Invalid role. Must be one of: ${allowedRoles.join(", ")}` }),

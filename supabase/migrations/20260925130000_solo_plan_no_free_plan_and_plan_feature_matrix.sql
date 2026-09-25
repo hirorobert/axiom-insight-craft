@@ -21,8 +21,69 @@
 -- Nothing here reads or writes accounting values, certification verdicts or stage locks.
 -- ════════════════════════════════════════════════════════════════════════════
 
+-- The matching approval for the Free retirement, or NULL. With no open Free licence nothing needs approving and the
+-- answer is the sentinel all-zero id. (Defined first: the refusal below and the retirement statement both use it.)
+--
+-- ATOMIC ENVELOPE (security correction B-3): every statement below runs inside this ONE DO statement. Whatever the
+-- runner does (statement by statement, whole file, with or without a transaction, continuing after errors) the
+-- migration either applies completely or changes nothing.
+DO $cfoclose_retirement$
+BEGIN
+  EXECUTE $mretirementaaa$
+CREATE OR REPLACE FUNCTION public._free_retirement_approval_id()
+RETURNS UUID LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_inv JSONB := public._free_plan_inventory();
+  v_id  UUID;
+BEGIN
+  IF (v_inv->>'open_free_licences')::integer = 0 THEN RETURN '00000000-0000-0000-0000-000000000000'::uuid; END IF;
+  SELECT a.id INTO v_id FROM public.deployment_approvals a
+   WHERE a.purpose = 'FREE_PLAN_RETIREMENT' AND a.consumed_at IS NULL AND a.expires_at > clock_timestamp()
+     AND a.environment_fingerprint = public._environment_fingerprint()
+     AND a.evidence->>'inventory_digest' = v_inv->>'inventory_digest'
+     AND (a.evidence->>'open_free_licences')::integer = (v_inv->>'open_free_licences')::integer
+   ORDER BY a.approved_at DESC LIMIT 1;
+  RETURN v_id;
+END;
+$$
+$mretirementaaa$;
+
+  EXECUTE $mretirementaab$
+-- Consumes the approval (single use) or raises; called INSIDE the retirement statement, so no runner can end a Free
+-- licence without it, whatever it does with errors or transactions.
+CREATE OR REPLACE FUNCTION public._consume_free_retirement_approval(p_by TEXT)
+RETURNS BOOLEAN LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_id UUID := public._free_retirement_approval_id();
+BEGIN
+  IF v_id IS NULL THEN
+    RAISE EXCEPTION 'production interlock: no matching Free-retirement approval for this environment' USING ERRCODE = '55000';
+  END IF;
+  IF v_id <> '00000000-0000-0000-0000-000000000000'::uuid THEN
+    UPDATE public.deployment_approvals SET consumed_at = clock_timestamp(), consumed_by = p_by WHERE id = v_id AND consumed_at IS NULL;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'production interlock: the approval was consumed concurrently' USING ERRCODE = '55000';
+    END IF;
+  END IF;
+  RETURN true;
+END;
+$$
+$mretirementaab$;
+
+  EXECUTE $mretirementaac$
+REVOKE ALL ON FUNCTION public._free_retirement_approval_id() FROM PUBLIC, anon, authenticated
+$mretirementaac$;
+
+  EXECUTE $mretirementaad$
+REVOKE ALL ON FUNCTION public._consume_free_retirement_approval(TEXT) FROM PUBLIC, anon, authenticated
+$mretirementaad$;
+
+  EXECUTE $mretirementaae$
 DO $refuse$
 BEGIN
+  IF to_regclass('public.deployment_approvals') IS NULL THEN
+    RAISE EXCEPTION 'plan catalogue migration refused: 20260925120000 (deployment approvals) is not applied. Nothing was changed.' USING ERRCODE = '55000';
+  END IF;
   IF to_regclass('public.reporting_pack_issuance_events') IS NULL THEN
     RAISE EXCEPTION 'plan catalogue migration refused: 20260925120000 is not applied. Nothing was changed.' USING ERRCODE = '55000';
   END IF;
@@ -34,31 +95,43 @@ BEGIN
                   WHERE p.code = 'CFOCLOSE' AND cp.code = 'FREE') THEN
     RAISE EXCEPTION 'plan catalogue migration refused: the FREE plan is missing. Nothing was changed.' USING ERRCODE = '55000';
   END IF;
-  -- PRODUCTION DEPLOYMENT INTERLOCK. Applying this to a database that holds open Free licences turns every such account
-  -- read-only (FREE -> EXPIRED_READ_ONLY). It is refused unless the operator, in the SAME session, records that the
-  -- release sequence in docs/release/PR34_STAGING_DEPLOYMENT_PLAN.md ("Production deployment interlock") is complete:
-  -- Free accounts inventoried, intended paid / manual status recorded, affected users notified, and either checkout
-  -- activated or the manual activation path (admin_ensure_billing_customer + admin_grant_commercial_licence) confirmed:
-  --   SET cfoclose.free_retirement_approval = 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED';
-  IF EXISTS (SELECT 1 FROM public.commercial_licences cl JOIN public.commercial_plans cp ON cp.id = cl.plan_id
-              WHERE cp.code = 'FREE' AND cl.status IN ('PENDING', 'ACTIVE', 'GRACE'))
-     AND COALESCE(current_setting('cfoclose.free_retirement_approval', true), '') <> 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED' THEN
-    RAISE EXCEPTION 'plan catalogue migration refused (production interlock): open Free licences exist and the Free-retirement release sequence has not been confirmed in this session. Nothing was changed.'
+  -- PRODUCTION DEPLOYMENT INTERLOCK (early, friendly refusal; the binding check is inside the retirement statement).
+  -- Over open Free licences this migration needs a recorded, unexpired, unconsumed FREE_PLAN_RETIREMENT approval for
+  -- THIS environment whose inventory matches the licences it would end (admin_record_deployment_approval, 20260925120000).
+  IF public._free_retirement_approval_id() IS NULL THEN
+    RAISE EXCEPTION 'plan catalogue migration refused (production interlock): open Free licences exist and no matching Free-retirement approval is recorded for this environment. Nothing was changed.'
       USING ERRCODE = '55000', HINT = 'See docs/release/PR34_STAGING_DEPLOYMENT_PLAN.md, Production deployment interlock.';
   END IF;
 END
-$refuse$;
+$refuse$
+$mretirementaae$;
 
-SET search_path TO public, pg_catalog;
+  EXECUTE $mretirementaaf$
+SET search_path TO public, pg_catalog
+$mretirementaaf$;
 
+  EXECUTE $mretirementaag$
 -- ── 1. Capability vocabulary: plan features ─────────────────────────────────────────────────
-ALTER TABLE public.commercial_capabilities DROP CONSTRAINT chk_ccap_kind;
-ALTER TABLE public.commercial_capabilities ADD CONSTRAINT chk_ccap_kind CHECK (kind IN ('included', 'paid', 'capacity', 'feature'));
+ALTER TABLE public.commercial_capabilities DROP CONSTRAINT chk_ccap_kind
+$mretirementaag$;
 
-UPDATE public.commercial_capabilities SET description = 'Integrity checks: validations, readiness checks and statement preview. Included in every plan.' WHERE code = 'CLOSE_ASSURANCE';
-UPDATE public.commercial_capabilities SET description = 'The prior-period comparative the reporting framework requires. Included in every plan, never charged separately.' WHERE code = 'COMPARATIVE_REPORTING';
-UPDATE public.commercial_capabilities SET description = 'How many people may use the account, each with their own sign-in: one included in every plan, plus additional seats purchased on Practice and Firm.' WHERE code = 'NAMED_USER_SEATS';
+  EXECUTE $mretirementaah$
+ALTER TABLE public.commercial_capabilities ADD CONSTRAINT chk_ccap_kind CHECK (kind IN ('included', 'paid', 'capacity', 'feature'))
+$mretirementaah$;
 
+  EXECUTE $mretirementaai$
+UPDATE public.commercial_capabilities SET description = 'Integrity checks: validations, readiness checks and statement preview. Included in every plan.' WHERE code = 'CLOSE_ASSURANCE'
+$mretirementaai$;
+
+  EXECUTE $mretirementaaj$
+UPDATE public.commercial_capabilities SET description = 'The prior-period comparative the reporting framework requires. Included in every plan, never charged separately.' WHERE code = 'COMPARATIVE_REPORTING'
+$mretirementaaj$;
+
+  EXECUTE $mretirementaak$
+UPDATE public.commercial_capabilities SET description = 'How many people may use the account, each with their own sign-in: one included in every plan, plus additional seats purchased on Practice and Firm.' WHERE code = 'NAMED_USER_SEATS'
+$mretirementaak$;
+
+  EXECUTE $mretirementaal$
 INSERT INTO public.commercial_capabilities (code, kind, display_name, description) VALUES
   ('CLEAN_PDF',              'feature', 'Clean PDF',                    'Official PDF deliverables without the draft marking.'),
   ('EXCEL_EXPORT',           'feature', 'Excel',                        'Official spreadsheet and data exports.'),
@@ -66,37 +139,61 @@ INSERT INTO public.commercial_capabilities (code, kind, display_name, descriptio
   ('MANAGEMENT_LETTERS',     'feature', 'Management letters',           'Official management letters.'),
   ('MULTI_ENTITY_REPORTING', 'feature', 'Multi-entity reporting',       'Reporting across more than one active entity.'),
   ('CONSOLIDATION',          'feature', 'Consolidation',                'Group consolidation. Not offered on any plan.'),
-  ('REGIONAL_PACKS',         'feature', 'Regional packs',               'Jurisdiction-specific statutory packs.');
+  ('REGIONAL_PACKS',         'feature', 'Regional packs',               'Jurisdiction-specific statutory packs.')
+$mretirementaal$;
 
+  EXECUTE $mretirementaam$
 -- ── 2. Plans: retire Free; add Solo ─────────────────────────────────────────────────────────
-ALTER TABLE public.commercial_plans DROP CONSTRAINT chk_cp_code;
-ALTER TABLE public.commercial_plans ADD CONSTRAINT chk_cp_code CHECK (code IN ('FREE','SOLO','PRACTICE','FIRM','ENTERPRISE','PAID'));
-ALTER TABLE public.commercial_plans DROP CONSTRAINT chk_cp_sales_mode;
-ALTER TABLE public.commercial_plans ADD CONSTRAINT chk_cp_sales_mode CHECK (sales_mode IN ('free','self_serve','contact_sales','legacy','retired'));
--- Solo never buys seats (like the retired Free plan).
-ALTER TABLE public.commercial_plans ADD CONSTRAINT chk_cp_solo_seats CHECK (code <> 'SOLO' OR (included_seats = 1 AND NOT additional_seats_purchasable AND entity_capacity = 1));
+ALTER TABLE public.commercial_plans DROP CONSTRAINT chk_cp_code
+$mretirementaam$;
 
+  EXECUTE $mretirementaan$
+ALTER TABLE public.commercial_plans ADD CONSTRAINT chk_cp_code CHECK (code IN ('FREE','SOLO','PRACTICE','FIRM','ENTERPRISE','PAID'))
+$mretirementaan$;
+
+  EXECUTE $mretirementaao$
+ALTER TABLE public.commercial_plans DROP CONSTRAINT chk_cp_sales_mode
+$mretirementaao$;
+
+  EXECUTE $mretirementaap$
+ALTER TABLE public.commercial_plans ADD CONSTRAINT chk_cp_sales_mode CHECK (sales_mode IN ('free','self_serve','contact_sales','legacy','retired'))
+$mretirementaap$;
+
+  EXECUTE $mretirementaaq$
+-- Solo never buys seats (like the retired Free plan).
+ALTER TABLE public.commercial_plans ADD CONSTRAINT chk_cp_solo_seats CHECK (code <> 'SOLO' OR (included_seats = 1 AND NOT additional_seats_purchasable AND entity_capacity = 1))
+$mretirementaaq$;
+
+  EXECUTE $mretirementaar$
 UPDATE public.commercial_plans cp
    SET is_active = false, is_public = false, display_order = NULL, sales_mode = 'retired'
-  FROM public.commercial_products p WHERE p.id = cp.product_id AND p.code = 'CFOCLOSE' AND cp.code = 'FREE';
+  FROM public.commercial_products p WHERE p.id = cp.product_id AND p.code = 'CFOCLOSE' AND cp.code = 'FREE'
+$mretirementaar$;
 
+  EXECUTE $mretirementaas$
 -- No plan may be offered free of charge again.
-ALTER TABLE public.commercial_plans ADD CONSTRAINT chk_cp_no_free_sales CHECK (sales_mode <> 'free');
+ALTER TABLE public.commercial_plans ADD CONSTRAINT chk_cp_no_free_sales CHECK (sales_mode <> 'free')
+$mretirementaas$;
 
+  EXECUTE $mretirementaat$
 INSERT INTO public.commercial_plans (product_id, code, name, feature_codes, entity_capacity, included_seats, additional_seats_purchasable, is_public, display_order, sales_mode)
 SELECT p.id, 'SOLO', 'Solo',
        ARRAY['CLOSE_ASSURANCE','CLOSE_INSIGHTS','COMPARATIVE_REPORTING','ENTITY_CAPACITY','NAMED_USER_SEATS','REPORTING_PACK_EXPORT','STATEMENT_CERTIFICATION']::TEXT[],
        1, 1, false, true, 1, 'self_serve'
-  FROM public.commercial_products p WHERE p.code = 'CFOCLOSE';
+  FROM public.commercial_products p WHERE p.code = 'CFOCLOSE'
+$mretirementaat$;
 
+  EXECUTE $mretirementaau$
 INSERT INTO public.commercial_offers (offer_code, plan_id, market_code, currency_code, amount_minor, currency_exponent, billing_interval, billing_interval_count)
 SELECT v.offer_code, cp.id, 'GLOBAL', 'USD', v.amount, 2, v.billing_interval, 1
   FROM public.commercial_plans cp
   JOIN public.commercial_products p ON p.id = cp.product_id AND p.code = 'CFOCLOSE'
   JOIN (VALUES ('SOLO', 'CFOCLOSE_SOLO_GLOBAL_USD_MONTHLY',  4900::bigint, 'MONTHLY'),
                ('SOLO', 'CFOCLOSE_SOLO_GLOBAL_USD_ANNUAL',  49000::bigint, 'ANNUAL')) AS v(plan_code, offer_code, amount, billing_interval)
-    ON v.plan_code = cp.code;
+    ON v.plan_code = cp.code
+$mretirementaau$;
 
+  EXECUTE $mretirementaav$
 -- ── 3. The plan x capability matrix (the one authority) ────────────────────────────────────
 CREATE TABLE public.commercial_plan_features (
   plan_id          UUID        NOT NULL,
@@ -106,12 +203,26 @@ CREATE TABLE public.commercial_plan_features (
   CONSTRAINT commercial_plan_features_pk PRIMARY KEY (plan_id, capability_code),
   CONSTRAINT fk_cpf_plan FOREIGN KEY (plan_id) REFERENCES public.commercial_plans(id) ON DELETE RESTRICT,
   CONSTRAINT fk_cpf_capability FOREIGN KEY (capability_code) REFERENCES public.commercial_capabilities(code) ON DELETE RESTRICT
-);
-ALTER TABLE public.commercial_plan_features ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "cpf_select_public" ON public.commercial_plan_features FOR SELECT USING (true);
-REVOKE ALL ON public.commercial_plan_features FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT ON public.commercial_plan_features TO anon, authenticated, service_role;
+)
+$mretirementaav$;
 
+  EXECUTE $mretirementaaw$
+ALTER TABLE public.commercial_plan_features ENABLE ROW LEVEL SECURITY
+$mretirementaaw$;
+
+  EXECUTE $mretirementaax$
+CREATE POLICY "cpf_select_public" ON public.commercial_plan_features FOR SELECT USING (true)
+$mretirementaax$;
+
+  EXECUTE $mretirementaay$
+REVOKE ALL ON public.commercial_plan_features FROM PUBLIC, anon, authenticated, service_role
+$mretirementaay$;
+
+  EXECUTE $mretirementaaz$
+GRANT SELECT ON public.commercial_plan_features TO anon, authenticated, service_role
+$mretirementaaz$;
+
+  EXECUTE $mretirementaaa$
 -- Rows: every plan x every capability that is not a capacity. The retired Free plan includes nothing.
 INSERT INTO public.commercial_plan_features (plan_id, capability_code, included)
 SELECT cp.id, m.capability, m.plans @> ARRAY[cp.code]::TEXT[]
@@ -129,19 +240,36 @@ SELECT cp.id, m.capability, m.plans @> ARRAY[cp.code]::TEXT[]
    ('MANAGEMENT_LETTERS',      ARRAY['SOLO','PRACTICE','FIRM','ENTERPRISE','PAID']),
    ('MULTI_ENTITY_REPORTING',  ARRAY['PRACTICE','FIRM','ENTERPRISE','PAID']),
    ('CONSOLIDATION',           ARRAY[]::TEXT[]),
-   ('REGIONAL_PACKS',          ARRAY['SOLO','PRACTICE','FIRM','ENTERPRISE','PAID'])) AS m(capability, plans);
+   ('REGIONAL_PACKS',          ARRAY['SOLO','PRACTICE','FIRM','ENTERPRISE','PAID'])) AS m(capability, plans)
+$mretirementaaa$;
 
+  EXECUTE $mretirementaab$
 -- Every official output format and the capability it needs besides REPORTING_PACK_EXPORT.
 CREATE TABLE public.reporting_pack_kind_features (
   pack_kind        TEXT NOT NULL,
   capability_code  TEXT NOT NULL,
   CONSTRAINT reporting_pack_kind_features_pk PRIMARY KEY (pack_kind),
   CONSTRAINT fk_rpkf_capability FOREIGN KEY (capability_code) REFERENCES public.commercial_capabilities(code) ON DELETE RESTRICT
-);
-ALTER TABLE public.reporting_pack_kind_features ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "rpkf_select_public" ON public.reporting_pack_kind_features FOR SELECT USING (true);
-REVOKE ALL ON public.reporting_pack_kind_features FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT ON public.reporting_pack_kind_features TO anon, authenticated, service_role;
+)
+$mretirementaab$;
+
+  EXECUTE $mretirementaac$
+ALTER TABLE public.reporting_pack_kind_features ENABLE ROW LEVEL SECURITY
+$mretirementaac$;
+
+  EXECUTE $mretirementaad$
+CREATE POLICY "rpkf_select_public" ON public.reporting_pack_kind_features FOR SELECT USING (true)
+$mretirementaad$;
+
+  EXECUTE $mretirementaae$
+REVOKE ALL ON public.reporting_pack_kind_features FROM PUBLIC, anon, authenticated, service_role
+$mretirementaae$;
+
+  EXECUTE $mretirementaaf$
+GRANT SELECT ON public.reporting_pack_kind_features TO anon, authenticated, service_role
+$mretirementaaf$;
+
+  EXECUTE $mretirementaag$
 INSERT INTO public.reporting_pack_kind_features (pack_kind, capability_code) VALUES
   ('financial_statements_pdf',         'CLEAN_PDF'),
   ('financial_statements_spreadsheet', 'EXCEL_EXPORT'),
@@ -152,8 +280,10 @@ INSERT INTO public.reporting_pack_kind_features (pack_kind, capability_code) VAL
   ('management_letter',                'MANAGEMENT_LETTERS'),
   ('disclosure_notes',                 'CLEAN_PDF'),
   ('tax_computation',                  'CLEAN_PDF'),
-  ('tax_workpaper',                    'EXCEL_EXPORT');
+  ('tax_workpaper',                    'EXCEL_EXPORT')
+$mretirementaag$;
 
+  EXECUTE $mretirementaah$
 -- ── 4. Current plan of an account ───────────────────────────────────────────────────────────
 -- The plan code of the account's current (ACTIVE / GRACE, in effect) licence, or NULL when there is none.
 CREATE OR REPLACE FUNCTION public._account_current_plan_code(p_account UUID)
@@ -163,22 +293,28 @@ RETURNS TEXT LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, 
     JOIN public.commercial_licences cl ON cl.billing_customer_id = b.id
     JOIN public.commercial_plans cp ON cp.id = cl.plan_id
    WHERE b.owner_user_id = p_account AND cl.status IN ('ACTIVE','GRACE')
-     AND cl.effective_start <= now() AND (cl.effective_end IS NULL OR cl.effective_end > now())
+     AND cl.effective_start <= clock_timestamp() AND (cl.effective_end IS NULL OR cl.effective_end > clock_timestamp())
    ORDER BY cl.effective_start DESC LIMIT 1;
-$$;
+$$
+$mretirementaah$;
 
+  EXECUTE $mretirementaai$
 -- TRUE only for a current licence on a plan that is sold or grandfathered. The retired Free plan, no licence or an
 -- ended licence is never a current plan.
 CREATE OR REPLACE FUNCTION public._account_has_current_plan(p_account UUID)
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT COALESCE(public._account_current_plan_code(p_account) IN ('SOLO','PRACTICE','FIRM','ENTERPRISE','PAID'), false);
-$$;
+$$
+$mretirementaai$;
 
+  EXECUTE $mretirementaaj$
 CREATE OR REPLACE FUNCTION public.workspace_has_current_plan(p_company_id UUID)
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT COALESCE(public._account_has_current_plan((SELECT c.user_id FROM public.companies c WHERE c.id = p_company_id)), false);
-$$;
+$$
+$mretirementaaj$;
 
+  EXECUTE $mretirementaak$
 -- ── 5. The entitlement resolver (supersedes 20260925100000) ─────────────────────────────────
 -- Every capability that is not a capacity comes from the matrix of the account's current plan. No capability is
 -- entitled without a current plan (an active admin override excepted, which is recorded and audited).
@@ -222,7 +358,7 @@ BEGIN
   SELECT cl.status AS licence_status, cp.id AS plan_id, cp.code AS plan_code INTO v_licence
     FROM public.commercial_licences cl JOIN public.commercial_plans cp ON cp.id = cl.plan_id
    WHERE cl.billing_customer_id = v_bc AND cl.status IN ('ACTIVE','GRACE')
-     AND cl.effective_start <= now() AND (cl.effective_end IS NULL OR cl.effective_end > now())
+     AND cl.effective_start <= clock_timestamp() AND (cl.effective_end IS NULL OR cl.effective_end > clock_timestamp())
    ORDER BY cl.effective_start DESC LIMIT 1;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('status','NOT_ENTITLED','reason','NO_CURRENT_PLAN','capability',v_cap,'licence_status',NULL,'plan_code',NULL,'source',NULL);
@@ -242,8 +378,10 @@ BEGIN
   END IF;
   RETURN jsonb_build_object('status','NOT_ENTITLED','reason','PLAN_DOES_NOT_INCLUDE_FEATURE','capability',v_cap,'licence_status',v_licence.licence_status,'plan_code',v_licence.plan_code,'source',NULL);
 END;
-$$;
+$$
+$mretirementaak$;
 
+  EXECUTE $mretirementaal$
 -- Entity capacity: the current plan's number, raised by an active ENTITY_CAPACITY override. No current plan
 -- (including the retired Free plan) = 0: existing entities are kept, none can be added or reactivated.
 CREATE OR REPLACE FUNCTION public._entity_capacity_for_account(p_account UUID)
@@ -264,7 +402,7 @@ BEGIN
     SELECT cp.code, cp.entity_capacity INTO v_plan_code, v_plan_cap
       FROM public.commercial_licences cl JOIN public.commercial_plans cp ON cp.id = cl.plan_id
      WHERE cl.billing_customer_id = v_bc AND cl.status IN ('ACTIVE','GRACE')
-       AND cl.effective_start <= now() AND (cl.effective_end IS NULL OR cl.effective_end > now())
+       AND cl.effective_start <= clock_timestamp() AND (cl.effective_end IS NULL OR cl.effective_end > clock_timestamp())
      ORDER BY cl.effective_start DESC LIMIT 1;
     v_found := FOUND;
   END IF;
@@ -285,8 +423,10 @@ BEGIN
   END IF;
   RETURN jsonb_build_object('capacity', v_plan_cap, 'determined', v_plan_cap IS NOT NULL, 'plan_code', v_plan_code, 'source', v_source);
 END;
-$$;
+$$
+$mretirementaal$;
 
+  EXECUTE $mretirementaam$
 -- Named users: allowed = included + purchased. No current plan (or the retired Free plan) = the account holder
 -- only. Solo is exactly one and can never carry purchased seats (a Solo licence recording any is malformed and
 -- fails closed).
@@ -311,7 +451,7 @@ BEGIN
     SELECT cp.code AS plan_code, cp.included_seats, cp.additional_seats_purchasable, cl.additional_seats INTO v_lic
       FROM public.commercial_licences cl JOIN public.commercial_plans cp ON cp.id = cl.plan_id
      WHERE cl.billing_customer_id = v_bc AND cl.status IN ('ACTIVE','GRACE')
-       AND cl.effective_start <= now() AND (cl.effective_end IS NULL OR cl.effective_end > now())
+       AND cl.effective_start <= clock_timestamp() AND (cl.effective_end IS NULL OR cl.effective_end > clock_timestamp())
      ORDER BY cl.effective_start DESC LIMIT 1;
     v_found := FOUND;
   END IF;
@@ -338,8 +478,10 @@ BEGIN
     'allowed_named_users', CASE WHEN v_ok THEN v_included + v_purchased END,
     'additional_seats_purchasable', v_lic.additional_seats_purchasable, 'source', v_source);
 END;
-$$;
+$$
+$mretirementaam$;
 
+  EXECUTE $mretirementaan$
 -- ── 6. The paid-action authority: every non-capacity capability needs the workspace account's plan ──────
 CREATE OR REPLACE FUNCTION public._authorize_paid_action(p_user UUID, p_company_id UUID, p_capability TEXT)
 RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -371,8 +513,10 @@ BEGIN
     'plan_code', v_ent->>'plan_code', 'required_plan', CASE WHEN v_cap = 'MULTI_ENTITY_REPORTING' THEN 'PRACTICE' ELSE 'SOLO' END,
     'reason', v_ent->>'reason');
 END;
-$$;
+$$
+$mretirementaan$;
 
+  EXECUTE $mretirementaao$
 CREATE OR REPLACE FUNCTION public._require_workspace_capability(p_company_id UUID, p_capability TEXT)
 RETURNS VOID LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
@@ -381,8 +525,10 @@ BEGIN
       USING ERRCODE = 'PT402', DETAIL = public.commercial_canonical_capability(p_capability), HINT = 'SOLO';
   END IF;
 END;
-$$;
+$$
+$mretirementaao$;
 
+  EXECUTE $mretirementaap$
 CREATE OR REPLACE FUNCTION public.get_workspace_commercial_state(p_company_id UUID)
 RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
@@ -404,8 +550,10 @@ BEGIN
     'has_current_plan', public._account_has_current_plan(v_account),
     'capabilities', v_caps);
 END;
-$$;
+$$
+$mretirementaap$;
 
+  EXECUTE $mretirementaaq$
 -- ── 7. Seats: Solo (like the retired Free plan) never records purchased seats ───────────────
 CREATE OR REPLACE FUNCTION public.admin_set_licence_additional_seats(p_licence_id UUID, p_quantity INTEGER, p_reason TEXT)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog AS $$
@@ -443,8 +591,10 @@ BEGIN
           jsonb_build_object('licence_id', p_licence_id, 'additional_seats', p_quantity), p_reason);
   RETURN jsonb_build_object('licence_id', p_licence_id, 'additional_seats', p_quantity);
 END;
-$$;
+$$
+$mretirementaaq$;
 
+  EXECUTE $mretirementaar$
 -- ── 7b. Capacity walls: without a current plan the refusal still carries a structured hint ──────
 -- Identical to their previous definitions (20260925100000 / 20260925110000) except that the HINT is NO_PLAN when the
 -- account has no current plan (a NULL hint would make the refusal itself fail).
@@ -472,9 +622,10 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$;
+$$
+$mretirementaar$;
 
-
+  EXECUTE $mretirementaas$
 CREATE OR REPLACE FUNCTION public.named_user_seat_wall()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
@@ -555,9 +706,10 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$;
+$$
+$mretirementaas$;
 
-
+  EXECUTE $mretirementaat$
 CREATE OR REPLACE FUNCTION public.named_user_billing_suspensions_guard()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
@@ -583,9 +735,10 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$;
+$$
+$mretirementaat$;
 
-
+  EXECUTE $mretirementaau$
 -- ── 8. Provisioning: a billing record only; never a licence ─────────────────────────────────
 -- Creating a company no longer enrols anyone in a plan (there is no free plan). The billing record lets a commercial
 -- administrator record the account's plan. (Company creation itself needs a plan: the entity-capacity wall.)
@@ -604,9 +757,14 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$;
-REVOKE ALL ON FUNCTION public.provision_billing_customer_for_company() FROM PUBLIC, anon, authenticated;
+$$
+$mretirementaau$;
 
+  EXECUTE $mretirementaav$
+REVOKE ALL ON FUNCTION public.provision_billing_customer_for_company() FROM PUBLIC, anon, authenticated
+$mretirementaav$;
+
+  EXECUTE $mretirementaaw$
 -- A commercial administrator records a new customer's billing record (needed before a plan can be granted to
 -- someone who has no entity yet). Idempotent; audited.
 CREATE OR REPLACE FUNCTION public.admin_ensure_billing_customer(p_owner_user_id UUID, p_reason TEXT)
@@ -634,18 +792,29 @@ BEGIN
   VALUES (v_bc, v_user_id, 'BILLING_CUSTOMER_CREATED', NULL, jsonb_build_object('owner_user_id', p_owner_user_id), p_reason);
   RETURN jsonb_build_object('billing_customer_id', v_bc, 'created', true);
 END;
-$$;
-REVOKE ALL ON FUNCTION public.admin_ensure_billing_customer(UUID, TEXT) FROM PUBLIC, anon, service_role;
-GRANT EXECUTE ON FUNCTION public.admin_ensure_billing_customer(UUID, TEXT) TO authenticated;
+$$
+$mretirementaaw$;
 
+  EXECUTE $mretirementaax$
+REVOKE ALL ON FUNCTION public.admin_ensure_billing_customer(UUID, TEXT) FROM PUBLIC, anon, service_role
+$mretirementaax$;
+
+  EXECUTE $mretirementaay$
+GRANT EXECUTE ON FUNCTION public.admin_ensure_billing_customer(UUID, TEXT) TO authenticated
+$mretirementaay$;
+
+  EXECUTE $mretirementaaz$
 -- ── 9. Conversion from Free: end every open Free licence (the licence row, not data) ────────
+-- FREE -> EXPIRED_READ_ONLY. No plan is granted here; a plan is only ever recorded by an explicit administrator action.
 -- The reconcile triggers of 20260925110000 run for each account: a Free account already had one named user, so
 -- nobody's access changes except that the account now has no current plan (read-only until a plan is recorded).
-WITH ended AS (
+WITH authorized AS MATERIALIZED (
+  SELECT public._consume_free_retirement_approval('20260925130000') AS ok
+), ended AS (
   UPDATE public.commercial_licences cl
      SET status = 'EXPIRED', effective_end = GREATEST(now(), cl.effective_start + interval '1 second'), updated_at = now()
     FROM public.commercial_plans cp
-   WHERE cp.id = cl.plan_id AND cp.code = 'FREE' AND cl.status IN ('PENDING','ACTIVE','GRACE')
+   WHERE (SELECT ok FROM authorized) AND cp.id = cl.plan_id AND cp.code = 'FREE' AND cl.status IN ('PENDING','ACTIVE','GRACE')
   RETURNING cl.id, cl.billing_customer_id, cl.status AS new_status
 )
 INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
@@ -653,22 +822,60 @@ SELECT e.billing_customer_id, NULL, 'FREE_PLAN_RETIRED',
        jsonb_build_object('licence_id', e.id, 'plan_code', 'FREE'),
        jsonb_build_object('licence_id', e.id, 'status', e.new_status),
        'The permanent Free plan is retired (20260925130000). No data was changed or deleted.'
-  FROM ended e;
+  FROM ended e
+$mretirementaaz$;
 
+  EXECUTE $mretirementaba$
 -- ── 10. Privileges ───────────────────────────────────────────────────────────────────────────
-REVOKE ALL ON FUNCTION public._account_current_plan_code(UUID) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._account_has_current_plan(UUID) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.workspace_has_current_plan(UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.workspace_has_current_plan(UUID) TO service_role;
-REVOKE ALL ON FUNCTION public._resolve_entitlement_for_owner(UUID, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._entity_capacity_for_account(UUID) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._seat_capacity_for_account(UUID) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._authorize_paid_action(UUID, UUID, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._require_workspace_capability(UUID, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.get_workspace_commercial_state(UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.get_workspace_commercial_state(UUID) TO authenticated;
-REVOKE ALL ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) TO authenticated;
+REVOKE ALL ON FUNCTION public._account_current_plan_code(UUID) FROM PUBLIC, anon, authenticated
+$mretirementaba$;
 
--- Rollback (forward-fix only): re-activate the FREE plan and restore the previous resolver definitions from
--- 20260925100000. Ended FREE licences are records and are never deleted; a new licence is granted instead.
+  EXECUTE $mretirementabb$
+REVOKE ALL ON FUNCTION public._account_has_current_plan(UUID) FROM PUBLIC, anon, authenticated
+$mretirementabb$;
+
+  EXECUTE $mretirementabc$
+REVOKE ALL ON FUNCTION public.workspace_has_current_plan(UUID) FROM PUBLIC, anon, authenticated
+$mretirementabc$;
+
+  EXECUTE $mretirementabd$
+GRANT EXECUTE ON FUNCTION public.workspace_has_current_plan(UUID) TO service_role
+$mretirementabd$;
+
+  EXECUTE $mretirementabe$
+REVOKE ALL ON FUNCTION public._resolve_entitlement_for_owner(UUID, TEXT) FROM PUBLIC, anon, authenticated
+$mretirementabe$;
+
+  EXECUTE $mretirementabf$
+REVOKE ALL ON FUNCTION public._entity_capacity_for_account(UUID) FROM PUBLIC, anon, authenticated
+$mretirementabf$;
+
+  EXECUTE $mretirementabg$
+REVOKE ALL ON FUNCTION public._seat_capacity_for_account(UUID) FROM PUBLIC, anon, authenticated
+$mretirementabg$;
+
+  EXECUTE $mretirementabh$
+REVOKE ALL ON FUNCTION public._authorize_paid_action(UUID, UUID, TEXT) FROM PUBLIC, anon, authenticated
+$mretirementabh$;
+
+  EXECUTE $mretirementabi$
+REVOKE ALL ON FUNCTION public._require_workspace_capability(UUID, TEXT) FROM PUBLIC, anon, authenticated
+$mretirementabi$;
+
+  EXECUTE $mretirementabj$
+REVOKE ALL ON FUNCTION public.get_workspace_commercial_state(UUID) FROM PUBLIC, anon
+$mretirementabj$;
+
+  EXECUTE $mretirementabk$
+GRANT EXECUTE ON FUNCTION public.get_workspace_commercial_state(UUID) TO authenticated
+$mretirementabk$;
+
+  EXECUTE $mretirementabl$
+REVOKE ALL ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) FROM PUBLIC, anon
+$mretirementabl$;
+
+  EXECUTE $mretirementabm$
+GRANT EXECUTE ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) TO authenticated
+$mretirementabm$;
+END
+$cfoclose_retirement$;

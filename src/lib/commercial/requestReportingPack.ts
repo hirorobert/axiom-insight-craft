@@ -1,7 +1,13 @@
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { lockedCopy } from "./paidActions";
-import { deliverOfficialPack, type BuiltPack, type DeliveryOutcome, type ReportingPackKind } from "./reportingPack";
+import { deliverOfficialPack, sealFormData, type BuiltPack, type DeliveryOutcome, type ReportingPackKind, type SealUpload } from "./reportingPack";
+
+/** The exact bytes go to the server, which hashes and seals them (no client hash exists). */
+const uploadForSeal: SealUpload = async (issuanceId, b, blob, fileName) => {
+  const { data, error } = await supabase.functions.invoke("seal-reporting-pack", { body: sealFormData(issuanceId, b, blob, fileName) });
+  return { data, error };
+};
 
 /** Saves a blob as a file in the browser. */
 export function saveBlob(blob: Blob, fileName: string): void {
@@ -38,9 +44,11 @@ export async function deliverReportingPack(req: PackRequest): Promise<DeliveryOu
   }
   const outcome = await deliverOfficialPack(
     (fn, args) => supabase.rpc(fn as never, args as never),
+    uploadForSeal,
     { companyId: req.companyId, periodYear: req.periodYear, kind: req.kind, outputRef: req.outputRef },
     req.build,
     (blob, builtName) => saveBlob(blob, builtName ?? req.fileName ?? "reporting-pack"),
+    req.fileName ?? "reporting-pack",
   );
   if (outcome === "locked") {
     const copy = lockedCopy("REPORTING_PACK_EXPORT");

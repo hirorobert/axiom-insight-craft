@@ -182,7 +182,7 @@ async function main() {
       (SELECT coalesce(jsonb_agg(to_jsonb(u) - 'updated_at' ORDER BY u.id), '[]') FROM public.trial_balance_uploads u WHERE u.company_id=$1) tb,
       (SELECT coalesce(jsonb_agg(to_jsonb(g) ORDER BY g.id), '[]') FROM public.workspace_capability_grants g WHERE g.company_id=$1) gr,
       (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.id), '[]') FROM public.tax_losses t WHERE t.company_id=$1) tl,
-      (SELECT coalesce(jsonb_agg(to_jsonb(i) ORDER BY i.id), '[]') FROM public.reporting_pack_issuances i WHERE i.company_id=$1) iss,
+      (SELECT coalesce(jsonb_agg(to_jsonb(i) - 'storage_path' - 'byte_size' ORDER BY i.id), '[]') FROM public.reporting_pack_issuances i WHERE i.company_id=$1) iss,
       (SELECT coalesce(jsonb_agg(to_jsonb(e) ORDER BY e.id), '[]') FROM public.reporting_pack_issuance_events e WHERE e.company_id=$1) iev,
       (SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY a.id), '[]') FROM public.billing_audit_events a JOIN public.billing_customers b ON b.id=a.billing_customer_id
          JOIN public.companies c ON c.user_id=b.owner_user_id WHERE c.id=$1) aud`, [company])).rows[0];
@@ -209,18 +209,75 @@ async function main() {
       JOIN public.commercial_plans cp ON cp.id=cl.plan_id WHERE b.owner_user_id=$1 AND cp.code='FREE'`, [L.holder])).rows[0];
   const legacyBefore = await snapshot(L.co);
   const preCapabilityDefs = {};
-  await check("production interlock: over open Free licences, ${M130} is refused at statement 1 (55000, nothing changed) until the release sequence is confirmed in the session", async () => {
-    const before = await fingerprint();
+  // ── Production interlock (B-3): a durable, environment-bound, single-use approval, consumed by the retirement statement ──
+  const IA = await mkUser("interlock-admin");
+  await admin.query("INSERT INTO public.commercial_admins (user_id) VALUES ($1)", [IA]);
+  const inventory = async () => (await admin.query("SELECT public._free_plan_inventory() i")).rows[0].i;
+  const freeOpen = () => count("SELECT count(*) n FROM public.commercial_licences cl JOIN public.commercial_plans cp ON cp.id=cl.plan_id WHERE cp.code='FREE' AND cl.status IN ('PENDING','ACTIVE','GRACE')");
+  const refusedCleanly = async (label) => {
+    const before = await fingerprint(); const open = await freeOpen();
     const e = await errOf(() => applyMigration(M130));
-    const wrong = await (async () => { await admin.query("SET cfoclose.free_retirement_approval = 'yes'"); try { return (await errOf(() => applyMigration(M130)))?.message ?? "applied"; } finally { await admin.query("RESET cfoclose.free_retirement_approval"); } })();
-    return /production interlock/.test(e?.message ?? "") && /production interlock/.test(wrong) && (await fingerprint()) === before ? true : JSON.stringify({ e: e?.message, wrong });
+    const ok = e?.message?.includes("production interlock") && (await fingerprint()) === before && (await freeOpen()) === open && open > 0;
+    return ok ? null : `${label}: ${e?.message ?? "applied"}`;
+  };
+  await check("production interlock: with no approval, 130000 is refused as a whole — schema, data and every Free licence unchanged", async () => (await refusedCleanly("no approval")) ?? true);
+  await check("a runner that continues after errors (statement by statement) cannot apply ANY part of 130000: it is one atomic statement", async () => {
+    const before = await fingerprint(); const open = await freeOpen();
+    const stmts = splitStatements(fs.readFileSync(path.join(REPO, "supabase/migrations", M130), "utf8"));
+    let errors = 0; for (const st of stmts) { try { await admin.query(st); } catch { errors++; } }
+    return stmts.length === 1 && errors === 1 && (await fingerprint()) === before && (await freeOpen()) === open ? true : JSON.stringify({ n: stmts.length, errors });
   });
-  await check(`${M130} applies over the legacy Free state once the operator confirms the release sequence (an ACTIVE auto-provisioned FREE licence existed)`, async () => {
-    if (legacyFreeLicence?.status !== "ACTIVE") return `no legacy FREE licence: ${JSON.stringify(legacyFreeLicence)}`;
+  await check("no setting can stand in for the approval: session, database-level and role-level defaults of the old switch are ignored", async () => {
+    const db = (await admin.query("SELECT current_database() d")).rows[0].d;
+    await admin.query(`ALTER DATABASE "${db}" SET cfoclose.free_retirement_approval = 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED'`);
+    await admin.query("ALTER ROLE postgres SET cfoclose.free_retirement_approval = 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED'");
     await admin.query("SET cfoclose.free_retirement_approval = 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED'");
+    try { return (await refusedCleanly("settings")) ?? true; } finally {
+      await admin.query(`ALTER DATABASE "${db}" RESET cfoclose.free_retirement_approval`); await admin.query("ALTER ROLE postgres RESET cfoclose.free_retirement_approval");
+      await admin.query("RESET cfoclose.free_retirement_approval");
+    }
+  });
+  await check("wrong approvals are refused: another environment, a stale inventory, an expired one, an already consumed one", async () => {
+    const inv = await inventory();
+    const ins = (fp, evidence, approvedAt = "now()", expiresAt = "now() + interval '1 hour'", consumed = false) => admin.query(
+      `INSERT INTO public.deployment_approvals (purpose, environment_fingerprint, environment_label, evidence, approved_by, approved_at, expires_at, consumed_at, consumed_by)
+       VALUES ('FREE_PLAN_RETIREMENT',$1,'proof',$2,$3,${approvedAt},${expiresAt},${consumed ? "now()" : "NULL"},${consumed ? "'earlier'" : "NULL"})`, [fp, evidence, IA]);
+    const fp = (await admin.query("SELECT public._environment_fingerprint() f")).rows[0].f;
+    const out = [];
+    await ins("0".repeat(32), inv); out.push(await refusedCleanly("other environment"));
+    await ins(fp, { ...inv, inventory_digest: "f".repeat(32) }); out.push(await refusedCleanly("stale inventory"));
+    await ins(fp, inv, "now() - interval '3 hours'", "now() - interval '1 hour'"); out.push(await refusedCleanly("expired"));
+    await ins(fp, inv, "now()", "now() + interval '1 hour'", true); out.push(await refusedCleanly("consumed"));
+    return out.every((x) => x === null) ? true : JSON.stringify(out);
+  });
+  await check("the approval can only be recorded by a commercial administrator, for the current inventory, with a notification reference and an activation path", async () => {
+    const inv = await inventory();
+    const nonAdmin = await codeOf(() => q(user(L.holder), "SELECT public.admin_record_deployment_approval('FREE_PLAN_RETIREMENT','staging',$1,'notice-1','MANUAL_ADMIN')", [inv.open_free_licences]));
+    const stale = await errOf(() => q(user(IA), "SELECT public.admin_record_deployment_approval('FREE_PLAN_RETIREMENT','staging',$1,'notice-1','MANUAL_ADMIN')", [inv.open_free_licences + 1]));
+    const noNotice = await errOf(() => q(user(IA), "SELECT public.admin_record_deployment_approval('FREE_PLAN_RETIREMENT','staging',$1,'','MANUAL_ADMIN')", [inv.open_free_licences]));
+    const noPath = await errOf(() => q(user(IA), "SELECT public.admin_record_deployment_approval('FREE_PLAN_RETIREMENT','staging',$1,'notice-1','LATER')", [inv.open_free_licences]));
+    const direct = await codeOf(() => q(user(IA), "INSERT INTO public.deployment_approvals (purpose, environment_fingerprint, environment_label, evidence, approved_by, expires_at) VALUES ('FREE_PLAN_RETIREMENT','x','y','{}',$1, now() + interval '1 hour')", [IA]));
+    return nonAdmin === "42501" && /INVENTORY_MISMATCH/.test(stale?.message ?? "") && /NOTIFICATION_REFERENCE_REQUIRED/.test(noNotice?.message ?? "") && /ACTIVATION_PATH_REQUIRED/.test(noPath?.message ?? "") && direct === "42501"
+      ? true : JSON.stringify({ nonAdmin, stale: stale?.message, noNotice: noNotice?.message, noPath: noPath?.message, direct });
+  });
+  let approvalId;
+  await check(`${M130} applies over the legacy Free state with a recorded approval and consumes it (single use, audited by who / when / what)`, async () => {
+    if (legacyFreeLicence?.status !== "ACTIVE") return `no legacy FREE licence: ${JSON.stringify(legacyFreeLicence)}`;
+    const inv = await inventory();
+    approvalId = (await one(user(IA), "SELECT public.admin_record_deployment_approval('FREE_PLAN_RETIREMENT','proof',$1,'customer notice CN-1','MANUAL_ADMIN',2) r", [inv.open_free_licences])).r.approval_id;
     await applyMigration(M130);
     for (const p of (await admin.query("SELECT tablename, policyname, qual, with_check FROM pg_policies WHERE schemaname='public'")).rows) preCapabilityDefs[`${p.tablename}.${p.policyname}`] = p;
-    return true;
+    const a = (await admin.query("SELECT approved_by, consumed_at, consumed_by, evidence FROM public.deployment_approvals WHERE id=$1", [approvalId])).rows[0];
+    return a.approved_by === IA && a.consumed_at !== null && a.consumed_by === "20260925130000" && a.evidence.notification_reference === "customer notice CN-1"
+      && a.evidence.activation_path === "MANUAL_ADMIN" ? true : JSON.stringify(a);
+  });
+  await check("the used approval cannot be replayed or edited, re-application is refused, and a zero-open-Free database needs no approval", async () => {
+    const unconsume = await codeOf(() => admin.query("UPDATE public.deployment_approvals SET consumed_at=NULL, consumed_by=NULL WHERE id=$1", [approvalId]));
+    const del = await codeOf(() => admin.query("DELETE FROM public.deployment_approvals WHERE id=$1", [approvalId]));
+    const again = await errOf(() => applyMigration(M130));
+    const zero = (await admin.query("SELECT public._free_retirement_approval_id() i")).rows[0].i;
+    return unconsume === "42501" && del === "42501" && /already applied/.test(again?.message ?? "") && zero === "00000000-0000-0000-0000-000000000000"
+      ? true : JSON.stringify({ unconsume, del, again: again?.message, zero });
   });
   await check(`${M140} and ${M150} (and every later migration) apply`, async () => { for (const f of files.slice(cut + 1)) await applyMigration(f); return true; });
   await check("a second application of 130000 and 140000 is refused at statement 1 and changes nothing (55000)", async () => {
@@ -470,7 +527,7 @@ async function main() {
     const mine = await caps(pr.b, pr.co);
     return write === "42501" && scope === "42501" && JSON.stringify(mine.capabilities) === '["issue_reporting_pack"]' ? true : JSON.stringify({ write, scope, mine });
   });
-  await check("the capability, not the title, decides a title change: a new title's template is recorded, explicit grants are kept", async () => {
+  await check("a title change never adds a capability (it can only narrow); explicit grants are kept", async () => {
     await one(user(pr.uid), "SELECT public.grant_member_capability($1,$2,'review_close','explicit') r", [pr.co, pr.a]);
     await q(user(pr.uid), "UPDATE public.firm_members SET role='viewer' WHERE company_id=$1 AND user_id=$2", [pr.co, pr.a]);
     const held = (await caps(pr.a, pr.co)).capabilities;
@@ -533,6 +590,88 @@ async function main() {
     return n === 30 && bad.length === 0 ? true : JSON.stringify({ n, bad });
   });
 
+  group("Invitation acceptance — no self-escalation, no second owner, no capability resurrection (B-1)");
+  const IV = { holder: await mkUser("iv-holder") };
+  IV.lic = await grantPlan(IV.holder, "FIRM");
+  await one(user(U.admin), "SELECT public.admin_set_licence_additional_seats($1,20,'proof')", [IV.lic]);
+  IV.co = await newCompany(IV.holder, "Invitation Co");
+  const invitePending = async (who, role = "viewer") => (await q(user(IV.holder), "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,$3,NULL) RETURNING id", [IV.co, who, role]))[0].id;
+  const memberRow = async (who) => (await admin.query("SELECT to_jsonb(f) - 'updated_at' j FROM public.firm_members f WHERE company_id=$1 AND user_id=$2", [IV.co, who])).rows[0]?.j ?? null;
+  const capsOf = async (who, co = IV.co) => (await admin.query("SELECT coalesce(array_agg(capability ORDER BY capability), '{}') c FROM public.workspace_member_capabilities WHERE company_id=$1 AND user_id=$2 AND revoked_at IS NULL", [co, who])).rows[0].c;
+  const ownersOf = () => count("SELECT count(*) n FROM public.firm_members WHERE company_id=$1 AND role='owner'", [IV.co]);
+  await check("an invitee cannot make themselves owner or partner, re-point, re-date or re-attribute the invitation: every crafted UPDATE fails and changes nothing", async () => {
+    const v = await mkUser("iv-viewer"); await invitePending(v, "viewer");
+    const before = { row: await memberRow(v), caps: await capsOf(v), owners: await ownersOf() };
+    const attempts = {
+      owner: await codeOf(() => q(user(v), "UPDATE public.firm_members SET role='owner', accepted_at=now() WHERE company_id=$1 AND user_id=$2", [IV.co, v])),
+      partner: await codeOf(() => q(user(v), "UPDATE public.firm_members SET role='partner', accepted_at=now() WHERE company_id=$1 AND user_id=$2", [IV.co, v])),
+      expiry: await codeOf(() => q(user(v), "UPDATE public.firm_members SET accepted_at=now(), invitation_expires_at=now() + interval '10 years' WHERE company_id=$1 AND user_id=$2", [IV.co, v])),
+      inviter: await codeOf(() => q(user(v), "UPDATE public.firm_members SET accepted_at=now(), invited_by=$3 WHERE company_id=$1 AND user_id=$2", [IV.co, v, v])),
+      repoint: await codeOf(() => q(user(v), "UPDATE public.firm_members SET company_id=$3 WHERE company_id=$1 AND user_id=$2", [IV.co, v, pr.co])),
+    };
+    const after = { row: await memberRow(v), caps: await capsOf(v), owners: await ownersOf() };
+    return Object.values(attempts).every((c) => c === "42501") && JSON.stringify(after) === JSON.stringify(before) && after.owners === 1
+      ? true : JSON.stringify({ attempts, same: JSON.stringify(after) === JSON.stringify(before) });
+  });
+  await check("acceptance changes only the acceptance: title and capabilities stay those the inviter chose", async () => {
+    const v = await mkUser("iv-accept"); await invitePending(v, "viewer");
+    const before = await memberRow(v);
+    const acc = (await one(user(v), "SELECT public.accept_workspace_invitations() r")).r;
+    const after = await memberRow(v);
+    const changed = Object.keys(after).filter((k) => JSON.stringify(after[k]) !== JSON.stringify(before[k]));
+    return acc.accepted.length === 1 && JSON.stringify(changed) === '["accepted_at"]' && after.role === "viewer" && JSON.stringify(await capsOf(v)) === '["issue_reporting_pack"]'
+      ? true : JSON.stringify({ acc, changed, caps: await capsOf(v) });
+  });
+  await check("duplicate and concurrent acceptance: exactly one acceptance, a repeat changes nothing", async () => {
+    const v = await mkUser("iv-concurrent"); await invitePending(v, "preparer");
+    const out = await Promise.all(Array.from({ length: CONCURRENCY }, () => one(user(v), "SELECT public.accept_workspace_invitations() r").then((x) => x.r.accepted.length, (e) => e.code)));
+    const row = await memberRow(v);
+    const again = (await one(user(v), "SELECT public.accept_workspace_invitations() r")).r;
+    const direct = await codeOf(() => q(user(v), "UPDATE public.firm_members SET accepted_at=now() WHERE company_id=$1 AND user_id=$2 RETURNING id", [IV.co, v]).then((r) => { if (r.length) throw Object.assign(new Error("changed"), { code: "CHANGED" }); }));
+    return out.filter((n) => n === 1).length === 1 && out.every((n) => n === 0 || n === 1) && again.accepted.length === 0
+      && JSON.stringify(await memberRow(v)) === JSON.stringify(row) && direct !== "CHANGED" ? true : JSON.stringify({ out, again, direct });
+  });
+  await check("nobody can create a second billing owner: not the account holder, not the service role, not an invitation", async () => {
+    const m = await mkUser("iv-member"); await q(user(IV.holder), "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'partner',now())", [IV.co, m]);
+    const holder = await codeOf(() => q(user(IV.holder), "UPDATE public.firm_members SET role='owner' WHERE company_id=$1 AND user_id=$2", [IV.co, m]));
+    const svc = await codeOf(() => q(SERVICE, "UPDATE public.firm_members SET role='owner' WHERE company_id=$1 AND user_id=$2", [IV.co, m]));
+    const newcomer = await mkUser("iv-o");
+    const invite = await codeOf(() => q(user(IV.holder), "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'owner',NULL)", [IV.co, newcomer]));
+    return holder === "42501" && svc === "42501" && ["42501", "P0001"].includes(invite) && (await ownersOf()) === 1 ? true : JSON.stringify({ holder, svc, invite, owners: await ownersOf() });
+  });
+  await check("a cancelled or expired invitation cannot be accepted, and the failed acceptance changes nothing", async () => {
+    const c = await mkUser("iv-cancel"); const cid = await invitePending(c, "viewer");
+    await one(user(IV.holder), "SELECT public.cancel_workspace_invitation($1)", [cid]);
+    const e = await mkUser("iv-expired"); await invitePending(e, "viewer");
+    await admin.query("UPDATE public.firm_members SET invitation_expires_at = now() - interval '1 minute' WHERE company_id=$1 AND user_id=$2", [IV.co, e]);
+    const before = [await memberRow(c), await memberRow(e)];
+    const rc = (await one(user(c), "SELECT public.accept_workspace_invitations() r")).r;
+    const re = (await one(user(e), "SELECT public.accept_workspace_invitations() r")).r;
+    return rc.blocked[0]?.code === "INVITATION_CANCELLED" && re.blocked[0]?.code === "INVITATION_EXPIRED" && rc.accepted.length === 0 && re.accepted.length === 0
+      && JSON.stringify([await memberRow(c), await memberRow(e)]) === JSON.stringify(before) ? true : JSON.stringify({ rc, re });
+  });
+  await check("a revoked capability stays revoked through a no-op title save, a real title change, an invitation refresh, acceptance, and suspension / reactivation", async () => {
+    const m = await mkUser("iv-revoked"); await q(user(IV.holder), "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now())", [IV.co, m]);
+    await one(user(IV.holder), "SELECT public.revoke_member_capability($1,$2,'prepare_close','proof')", [IV.co, m]);
+    const steps = {};
+    await q(user(IV.holder), "UPDATE public.firm_members SET role=role WHERE company_id=$1 AND user_id=$2", [IV.co, m]); steps.noop = await capsOf(m);
+    await q(user(IV.holder), "UPDATE public.firm_members SET role='partner' WHERE company_id=$1 AND user_id=$2", [IV.co, m]); steps.retitle = await capsOf(m);
+    const p = await mkUser("iv-pending"); await invitePending(p, "preparer");
+    await one(user(IV.holder), "SELECT public.revoke_member_capability($1,$2,'prepare_close','proof')", [IV.co, p]);
+    await one(SERVICE, "SELECT public.reserve_workspace_invitation($1,$2,'partner',$3,'p@example.test') r", [IV.co, p, IV.holder]); steps.refresh = await capsOf(p);
+    await one(user(p), "SELECT public.accept_workspace_invitations()"); steps.accept = await capsOf(p);
+    await admin.query("UPDATE public.commercial_licences SET plan_id=$1, additional_seats=0 WHERE id=$2", [await planId("SOLO"), IV.lic]);
+    await admin.query("UPDATE public.commercial_licences SET plan_id=$1, additional_seats=20 WHERE id=$2", [await planId("FIRM"), IV.lic]);
+    const roster = (await one(user(IV.holder), "SELECT public.get_named_user_roster() r")).r;
+    await one(user(IV.holder), "SELECT public.choose_active_named_users($1::uuid[],$2)", [roster.people.filter((x) => x.state !== "pending").map((x) => x.user_id).filter((id) => id !== IV.holder), roster.roster_version]);
+    steps.reactivated = await capsOf(m);
+    const ok = JSON.stringify(steps.noop) === '["issue_reporting_pack"]' && JSON.stringify(steps.retitle) === '["issue_reporting_pack"]'
+      && JSON.stringify(steps.refresh) === '["issue_reporting_pack"]' && JSON.stringify(steps.accept) === '["issue_reporting_pack"]'
+      && JSON.stringify(steps.reactivated) === '["issue_reporting_pack"]';
+    return ok ? true : JSON.stringify(steps);
+  });
+
+  const legacyRef = async () => `upload:${(await admin.query("SELECT id FROM public.trial_balance_uploads WHERE company_id=$1 AND period_year=2025 ORDER BY uploaded_at LIMIT 1", [L.co])).rows[0].id}`;
   group("Plan / capability matrix — one authority, fail closed");
   await check("the matrix has exactly one row for every plan x every non-capacity capability; multi-entity follows capacity; consolidation is on no plan", async () => {
     const rows = (await admin.query(`SELECT cp.code, f.capability_code c, f.included i, cp.entity_capacity e FROM public.commercial_plan_features f JOIN public.commercial_plans cp ON cp.id=f.plan_id`)).rows;
@@ -554,12 +693,13 @@ async function main() {
   });
   await check("every official format needs its plan feature: withdrawing CLEAN_PDF from Solo refuses a statement PDF while a spreadsheet is still issued", async () => {
     // Run the same change inside the caller's own transaction so both issuance calls see it.
+    const LREF = await legacyRef();
     return asCaller(user(L.holder), async (cl) => {
       await cl.query("RESET ROLE");
       await cl.query("UPDATE public.commercial_plan_features SET included=false WHERE plan_id=(SELECT id FROM public.commercial_plans WHERE code='SOLO') AND capability_code='CLEAN_PDF'");
       await cl.query("SET LOCAL ROLE authenticated");
-      const pdf = (await cl.query("SELECT public.issue_reporting_pack($1,2025,'financial_statements_pdf',$2,$3) r", [L.co, `upload:${uuid()}`, uuid()])).rows[0].r;
-      const xls = (await cl.query("SELECT public.issue_reporting_pack($1,2025,'financial_statements_spreadsheet',$2,$3) r", [L.co, `upload:${uuid()}`, uuid()])).rows[0].r;
+      const pdf = (await cl.query("SELECT public.issue_reporting_pack($1,2025,'financial_statements_pdf',$2,$3) r", [L.co, LREF, uuid()])).rows[0].r;
+      const xls = (await cl.query("SELECT public.issue_reporting_pack($1,2025,'financial_statements_spreadsheet',$2,$3) r", [L.co, LREF, uuid()])).rows[0].r;
       await cl.query("RESET ROLE");
       await cl.query("UPDATE public.commercial_plan_features SET included=true WHERE plan_id=(SELECT id FROM public.commercial_plans WHERE code='SOLO') AND capability_code='CLEAN_PDF'");
       return pdf.outcome === "entitlement_required" && pdf.capability === "CLEAN_PDF" && xls.outcome === "issued" ? true : JSON.stringify({ pdf, xls });
@@ -575,18 +715,20 @@ async function main() {
 
   group("Reporting Pack — replay, cross-account, capability and downgrade refusal");
   await check("issue → seal once; a replayed seal, another account's seal, a person without issue_reporting_pack, and an issue after the plan ends are all refused; an output already issued stays verifiable", async () => {
-    const ref = `upload:${uuid()}`;
+    const ref = await legacyRef();
+    const prRef = `upload:${(await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,2025) RETURNING id", [`${pr.uid}/${uuid()}.csv`, pr.co, pr.uid])).rows[0].id}`;
+    const serverSeal = (who, id, sha, co = L.co) => one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3,2025,'financial_statements_spreadsheet',$4,$5,$6,10) r", [who, id, co, ref, sha, `${co}/${id}.xlsx`]);
     const i = (await one(user(L.holder), "SELECT public.issue_reporting_pack($1,2025,'financial_statements_spreadsheet',$2,$3) r", [L.co, ref, uuid()])).r;
     const sha = "a".repeat(64);
-    const seal = (await one(user(L.holder), "SELECT public.consume_reporting_pack_issuance($1,$2,2025,'financial_statements_spreadsheet',$3,$4) r", [i.issuance_id, L.co, ref, sha])).r.outcome;
-    const replay = (await one(user(L.holder), "SELECT public.consume_reporting_pack_issuance($1,$2,2025,'financial_statements_spreadsheet',$3,$4) r", [i.issuance_id, L.co, ref, sha])).r.outcome;
-    const cross = (await one(user(pr.uid), "SELECT public.consume_reporting_pack_issuance($1,$2,2025,'financial_statements_spreadsheet',$3,$4) r", [i.issuance_id, L.co, ref, "b".repeat(64)])).r.outcome;
+    const seal = (await serverSeal(L.holder, i.issuance_id, sha)).r.outcome;
+    const replay = (await serverSeal(L.holder, i.issuance_id, sha)).r.outcome;
+    const cross = (await serverSeal(pr.uid, i.issuance_id, "b".repeat(64))).r.outcome;
     // A Practice member whose issue_reporting_pack was withdrawn.
     await one(user(pr.uid), "SELECT public.revoke_member_capability($1,$2,'issue_reporting_pack','proof')", [pr.co, pr.b]);
-    const noCap = (await one(user(pr.b), "SELECT public.issue_reporting_pack($1,2025,'financial_statements_spreadsheet',$2,$3) r", [pr.co, `upload:${uuid()}`, uuid()])).r;
+    const noCap = (await one(user(pr.b), "SELECT public.issue_reporting_pack($1,2025,'financial_statements_spreadsheet',$2,$3) r", [pr.co, prRef, uuid()])).r;
     const refusedEv = await count("SELECT count(*) n FROM public.reporting_pack_issuance_events WHERE actor_user_id=$1 AND event='REFUSED' AND detail->>'code'='CAPABILITY_REQUIRED'", [pr.b]);
     await expire(soloLicence);
-    const after = (await one(user(L.holder), "SELECT public.issue_reporting_pack($1,2025,'financial_statements_spreadsheet',$2,$3) r", [L.co, `upload:${uuid()}`, uuid()])).r.outcome;
+    const after = (await one(user(L.holder), "SELECT public.issue_reporting_pack($1,2025,'financial_statements_spreadsheet',$2,$3) r", [L.co, ref, uuid()])).r.outcome;
     const stillVerifies = (await one(user(L.holder), "SELECT public.verify_reporting_pack($1) r", [sha])).r;
     return seal === "sealed" && replay === "already_sealed" && cross === "not_found" && noCap.outcome === "capability_required" && refusedEv === 1
       && after === "entitlement_required" && stillVerifies.official === true
@@ -599,8 +741,8 @@ async function main() {
   await one(user(U.admin), "SELECT public.admin_set_licence_additional_seats($1,2,'proof')", [R.lic]);
   R.co = await newCompany(R.owner, "Reconciliation Co");
   await q(user(R.owner), "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now()), ($1,$3,'viewer',now())", [R.co, R.preparer, R.viewer]);
-  const mkRecon = async (owner, co) => {
-    const up = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,2025) RETURNING id", [owner + "/" + uuid() + ".csv", co, owner])).rows[0].id;
+  const mkRecon = async (owner, co, period = 2025) => {
+    const up = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,$4) RETURNING id", [owner + "/" + uuid() + ".csv", co, owner, period])).rows[0].id;
     // Fixture rows are written directly (the wall still runs on them: the account has a plan).
     const rec = (await admin.query("INSERT INTO public.safisha_reconciliations (client_id, tb_upload_id) VALUES ($1,$2) RETURNING id", [owner, up])).rows[0].id;
     await admin.query("INSERT INTO public.safisha_transactions (reconciliation_id, source_id, account_code, raw_row_hash) VALUES ($1,'bank','1000','h1')", [rec]);
@@ -678,6 +820,81 @@ async function main() {
     await one(user(R.owner), "SELECT public.revoke_member_capability($1,$2,'prepare_close','proof')", [R.co, R.preparer]);
     const res = { owner: await match(R.owner, RC.rec), ownerResolve: await resolveEx(R.owner, RC.ex2), preparer: await match(R.preparer, RC.rec), viewer: await categorize(R.viewer, RC.rec) };
     return JSON.stringify(res) === JSON.stringify({ owner: "ok", ownerResolve: "ok", preparer: "42501", viewer: "42501" }) ? true : JSON.stringify(res);
+  });
+  // ── B-2: no record can be moved or detached across workspaces, uploads or reconciliations (OLD and NEW scope) ──
+  const X = { up: null, co: null, up2: null, co2: null };
+  X.lic = await grantPlan(R.viewer, "SOLO");
+  X.co = await newCompany(R.viewer, "Attacker Co");
+  X.up = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,2025) RETURNING id", [`${R.viewer}/${uuid()}.csv`, X.co, R.viewer])).rows[0].id;
+  X.co2 = await newCompany(R.owner, "Owner second Co");
+  X.up2 = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,2025) RETURNING id", [`${R.owner}/${uuid()}.csv`, X.co2, R.owner])).rows[0].id;
+  X.ef = (await admin.query("INSERT INTO public.efdms_reconciliation (company_id, fiscal_year, period_month) VALUES ($1,2025,2) RETURNING id", [R.co])).rows[0].id;
+  await check("re-parenting is refused for a viewer, the owner and the service role — to another workspace, another upload, another reconciliation, another company or NULL — and nothing changes", async () => {
+    const beforeR = await reconState(RC.rec, R.co); const beforeX = await admin.query("SELECT count(*)::int n FROM public.safisha_reconciliations r JOIN public.trial_balance_uploads u ON u.id=r.tb_upload_id WHERE u.company_id IN ($1,$2)", [X.co, X.co2]);
+    const other = await mkRecon(R.owner, R.co, 2026);
+    const res = {
+      viewerMove: await codeOf(() => q(user(R.viewer), "UPDATE public.safisha_reconciliations SET tb_upload_id=$2 WHERE id=$1", [RC.rec, X.up])),
+      ownerMove: await codeOf(() => q(user(R.owner), "UPDATE public.safisha_reconciliations SET tb_upload_id=$2 WHERE id=$1", [RC.rec, X.up2])),
+      serviceMove: await codeOf(() => q(SERVICE, "UPDATE public.safisha_reconciliations SET tb_upload_id=$2 WHERE id=$1", [RC.rec, X.up])),
+      serviceClient: await codeOf(() => q(SERVICE, "UPDATE public.safisha_reconciliations SET client_id=$2 WHERE id=$1", [RC.rec, R.viewer])),
+      detach: await codeOf(() => q(SERVICE, "UPDATE public.safisha_reconciliations SET tb_upload_id=NULL WHERE id=$1", [RC.rec])),
+      exceptionMove: await codeOf(() => q(SERVICE, "UPDATE public.safisha_exceptions SET reconciliation_id=$2 WHERE id=$1", [RC.ex2, other.rec])),
+      transactionMove: await codeOf(() => q(SERVICE, "UPDATE public.safisha_transactions SET reconciliation_id=$2 WHERE reconciliation_id=$1", [RC.rec, other.rec])),
+      efdmsMove: await codeOf(() => q(SERVICE, "UPDATE public.efdms_reconciliation SET company_id=$2 WHERE id=$1", [X.ef, X.co])),
+      efdmsDetach: await codeOf(() => q(SERVICE, "UPDATE public.efdms_reconciliation SET company_id=NULL WHERE id=$1", [X.ef])),
+    };
+    const concurrent = await Promise.all(Array.from({ length: CONCURRENCY }, (_, n) => codeOf(() => (n % 2 ? q(SERVICE, "UPDATE public.safisha_reconciliations SET tb_upload_id=$2 WHERE id=$1", [RC.rec, X.up2]) : q(user(R.owner), "UPDATE public.safisha_reconciliations SET tb_upload_id=$2 WHERE id=$1", [RC.rec, X.up2])))));
+    const afterR = await reconState(RC.rec, R.co); const afterX = await admin.query("SELECT count(*)::int n FROM public.safisha_reconciliations r JOIN public.trial_balance_uploads u ON u.id=r.tb_upload_id WHERE u.company_id IN ($1,$2)", [X.co, X.co2]);
+    const efdmsKept = (await admin.query("SELECT company_id FROM public.efdms_reconciliation WHERE id=$1", [X.ef])).rows[0].company_id === R.co;
+    const ok = Object.values(res).every((c) => c === "42501") && concurrent.every((c) => c === "42501")
+      && JSON.stringify(afterR) === JSON.stringify(beforeR) && afterX.rows[0].n === beforeX.rows[0].n && efdmsKept;
+    return ok ? true : JSON.stringify({ res, concurrent: [...new Set(concurrent)], same: JSON.stringify(afterR) === JSON.stringify(beforeR), efdmsKept });
+  });
+  await check("evidence attachment: pinned search path; attaches exactly one entry when authorized; an outsider, bad input or no plan fails atomically", async () => {
+    const cfg = (await admin.query("SELECT proconfig FROM pg_proc WHERE oid='public.safisha_append_evidence_file(uuid,text,text,integer)'::regprocedure")).rows[0].proconfig;
+    const len = async () => (await admin.query("SELECT jsonb_array_length(evidence_files) n FROM public.safisha_reconciliations WHERE id=$1", [RC.rec])).rows[0].n;
+    const n0 = await len();
+    const ok = (await one(user(R.owner), "SELECT public.safisha_append_evidence_file($1,'bank','statement.csv',12) r", [RC.rec])).r;
+    const n1 = await len();
+    const outsider = await codeOf(() => q(user(U.outsider), "SELECT public.safisha_append_evidence_file($1,'bank','x.csv',1)", [RC.rec]));
+    const viewer = await codeOf(() => q(user(R.viewer), "SELECT public.safisha_append_evidence_file($1,'bank','x.csv',1)", [RC.rec]));
+    const bad = await codeOf(() => q(user(R.owner), "SELECT public.safisha_append_evidence_file($1,'invoice','x.csv',1)", [RC.rec]));
+    const anon = await codeOf(() => q(ANON, "SELECT public.safisha_append_evidence_file($1,'bank','x.csv',1)", [RC.rec]));
+    const n2 = await len();
+    return (cfg ?? []).some((c) => c.startsWith("search_path=")) && ok.outcome === "attached" && n1 === n0 + 1 && outsider === "42501" && viewer === "42501"
+      && bad === "22023" && ["42501", "28000"].includes(anon) && n2 === n1 ? true : JSON.stringify({ cfg, ok, n0, n1, n2, outsider, viewer, bad, anon });
+  });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const ownerSession = async (uid) => { const c = await pool.connect(); await c.query("BEGIN"); await c.query("SET LOCAL ROLE authenticated");
+    await c.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [uid]); return c; };
+  const matchedCount = async () => (await admin.query("SELECT matched_count FROM public.safisha_reconciliations WHERE id=$1", [RC.rec])).rows[0].matched_count;
+  await check("expiry vs write race — expiry commits first: the waiting write re-reads the plan after the lock and is refused (nothing written)", async () => {
+    const before = await matchedCount();
+    const a = await pool.connect(); await a.query("BEGIN");
+    await a.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end=now() WHERE id=$1", [R.lic]);
+    const b = await ownerSession(R.owner);
+    let settled = false;
+    const pb = b.query("UPDATE public.safisha_reconciliations SET matched_count = matched_count + 1 WHERE id=$1", [RC.rec]).then(() => "ok", (e) => e.code).finally(() => { settled = true; });
+    await sleep(400);
+    const blocked = !settled;
+    await a.query("COMMIT"); a.release();
+    const rb = await pb; await b.query("ROLLBACK"); b.release();
+    return blocked && rb === "PT402" && (await matchedCount()) === before ? true : JSON.stringify({ blocked, rb, before, after: await matchedCount() });
+  });
+  await check("expiry vs write race — write commits first: the expiry waits for it; final state is deterministic (write kept, plan ended)", async () => {
+    R.lic = await grantPlan(R.owner, "PRACTICE");
+    const before = await matchedCount();
+    const b = await ownerSession(R.owner);
+    await b.query("UPDATE public.safisha_reconciliations SET matched_count = matched_count + 1 WHERE id=$1", [RC.rec]);
+    const a = await pool.connect(); await a.query("BEGIN");
+    let settled = false;
+    const pa = a.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end=now() WHERE id=$1", [R.lic]).then(() => "ok", (e) => e.code).finally(() => { settled = true; });
+    await sleep(400);
+    const blocked = !settled;
+    await b.query("COMMIT"); b.release();
+    const ra = await pa; await a.query("COMMIT"); a.release();
+    const plan = (await admin.query("SELECT public._account_has_current_plan($1) p", [R.owner])).rows[0].p;
+    return blocked && ra === "ok" && (await matchedCount()) === before + 1 && plan === false ? true : JSON.stringify({ blocked, ra, before, after: await matchedCount(), plan });
   });
   await check("the wall covers every reconciliation table on INSERT, UPDATE and DELETE, and no other function writes them", async () => {
     const t = (await admin.query("SELECT tgrelid::regclass::text t, (tgtype & 4) <> 0 ins, (tgtype & 8) <> 0 del, (tgtype & 16) <> 0 upd FROM pg_trigger WHERE tgname='aa_reconciliation_write_wall' ORDER BY 1")).rows;

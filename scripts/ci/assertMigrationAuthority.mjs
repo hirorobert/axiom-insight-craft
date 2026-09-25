@@ -103,13 +103,15 @@ export function checkMigrationAuthority(repo = REPO) {
   for (const [name, text] of allSql) {
     const st = statements(text);
     for (const fnName of SERVICE_ONLY_FUNCTIONS) {
-      const grant = new RegExp(`^GRANT [A-Z, ]+ ON FUNCTION public\\.${fnName}\\b[^;]* TO (.+)$`, "i");
+      // Unanchored: a statement may be wrapped in an atomic DO envelope (EXECUTE of the original text).
+      const grant = new RegExp(`\\bGRANT [A-Z, ]+ ON FUNCTION public\\.${fnName}\\b[^;$]*? TO ([a-z_]+(?:\\s*,\\s*[a-z_]+)*)`, "gi");
       for (const s of st) {
-        const m = grant.exec(s);
-        if (m && !/^service_role$/i.test(m[1].trim())) errors.push(`permissions: ${name} grants ${fnName} to ${m[1].trim()} (service_role only)`);
+        for (const m of s.matchAll(grant)) {
+          if (!/^service_role$/i.test(m[1].trim())) errors.push(`permissions: ${name} grants ${fnName} to ${m[1].trim()} (service_role only)`);
+        }
       }
-      const recreated = st.some((s) => new RegExp(`^(CREATE (OR REPLACE )?FUNCTION|DROP FUNCTION( IF EXISTS)?) public\\.${fnName}\\b`, "i").test(s));
-      const revoked = st.some((s) => new RegExp(`^REVOKE ALL ON FUNCTION public\\.${fnName}\\(uuid, uuid, text\\) FROM PUBLIC, anon, authenticated$`, "i").test(s));
+      const recreated = st.some((s) => new RegExp(`\\b(CREATE (OR REPLACE )?FUNCTION|DROP FUNCTION( IF EXISTS)?) public\\.${fnName}\\b`, "i").test(s));
+      const revoked = st.some((s) => new RegExp(`\\bREVOKE ALL ON FUNCTION public\\.${fnName}\\(uuid, uuid, text\\) FROM PUBLIC, anon, authenticated\\b`, "i").test(s));
       const historical = name === "drizzle/migrations/0006_pr32_02_upload_lifecycle_retire_and_replace.sql" && fnName === "can_user_act_on_workspace";
       if (recreated && !revoked && !historical) errors.push(`permissions: ${name} re-creates ${fnName} without revoking it from PUBLIC, anon and authenticated`);
     }

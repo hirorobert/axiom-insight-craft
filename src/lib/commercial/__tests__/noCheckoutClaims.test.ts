@@ -19,6 +19,7 @@ import * as COPY from "@/constants/copy";
 import * as LANDING from "@/content/landing/landingContent";
 import { CheckoutUpgradeButton } from "@/components/commercial/CheckoutUpgradeButton";
 import Pricing from "@/pages/Pricing";
+import RequestAccess from "@/pages/RequestAccess";
 
 const ROOT = path.join(__dirname, "../../../..");
 // Wording that claims or invites a payment step that does not exist.
@@ -53,5 +54,18 @@ describe("no surface claims that an unavailable checkout exists", () => {
     expect(fs.readFileSync(path.join(ROOT, "src/pages/Settings.tsx"), "utf8")).toMatch(/\{CHECKOUT_AVAILABLE && billing\.planCode === "PAID"/);
     const pkg = fs.readFileSync(path.join(ROOT, "package.json"), "utf8");
     expect(pkg).not.toMatch(/paddle|polar|snippe|stripe|flutterwave|pesapal|selcom/i);
+  });
+  it("every \"Request access\" leads to the request path, never to ordinary sign-up (which would reach a blocked workspace)", () => {
+    expect(COPY.CTA.primaryHref).toBe("/request-access");
+    expect(LANDING.LANDING_HERO.primaryCta.href).toBe("/request-access");
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(RequestAccess)));
+    expect(html).toContain('data-testid="request-access"');
+    expect(text(html)).toContain("There is no online checkout.");
+    expect(text(html)).not.toMatch(TRANSACTIONAL);
+    // No invented contact details: no e-mail address or phone number.
+    expect(text(html)).not.toMatch(/[\w.+-]+@[\w-]+\.[a-z]{2,}|\+\d[\d\s-]{7,}/i);
+    // With the request form enabled the page sends the request through it; otherwise it says so plainly.
+    expect(html).toMatch(/data-testid="request-access-(form-link|offline)"/);
+    expect(fs.readFileSync(path.join(ROOT, "src/App.tsx"), "utf8")).toContain('<Route path="/request-access" element={<RequestAccess />} />');
   });
 });

@@ -835,9 +835,18 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   service role, RPC — without a current plan (PT402) or without `prepare_close` (42501); `safisha_resolve_exception`
   checks the reviewer the same way. Reads are untouched.
 - **Free transition and production interlock:** the transition is FREE -> EXPIRED_READ_ONLY; no plan is ever granted
-  by a migration. `20260925130000` refuses on a database with open Free licences unless the session sets
-  `cfoclose.free_retirement_approval = 'FREE_ACCOUNTS_INVENTORIED_NOTIFIED_AND_ACTIVATION_PATH_CONFIRMED'` after the
-  sequence in `docs/release/PR34_STAGING_DEPLOYMENT_PLAN.md` §0. Until checkout exists, every CTA is non-transactional
+  by a migration. `20260925130000` and `20260925140000` are each one atomic DO statement; over open Free licences the
+  retirement statement itself consumes a durable, environment-bound, single-use `deployment_approvals` row recorded by
+  `admin_record_deployment_approval` (inventory must match) — no setting can stand in for it
+  (`docs/release/PR34_STAGING_DEPLOYMENT_PLAN.md` §0).
+- **Security corrections (B-1..B-7):** an invitee can change only `accepted_at` on their own pending membership
+  (`firm_members_update_guard`); no UPDATE assigns the owner title or moves a membership; a title change never adds or
+  restores a capability. Reconciliation / EFDMS scope bindings are immutable and UPDATE / DELETE are authorized on the
+  row's existing scope. Official Reporting Pack bytes are hashed and stored by the server (`seal-reporting-pack` Edge
+  Function → service-only `seal_reporting_pack_server`; closed per-kind `output_ref` scheme; verify-by-rehash detects
+  object substitution); `consume_reporting_pack_issuance` (client hash) is removed. `safisha_append_evidence_file`
+  pins its search path and its errors fail the ingest. Plan changes and financial writes serialise on one advisory key
+  per account (expiry linearization). "Request access" leads to `/request-access`, never to sign-up. Until checkout exists, every CTA is non-transactional
   (`CHECKOUT_AVAILABLE = false`, "Request access" / "Contact sales"); nothing renders Buy, Subscribe or Start free.
 - **One authority:** `_authorize_paid_action(user, company, capability)` = session ∧ workspace access
   (`_workspace_access_basis`: creator, accepted member or capability grant; never an occupational title) ∧

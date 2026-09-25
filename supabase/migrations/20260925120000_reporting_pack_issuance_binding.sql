@@ -246,6 +246,107 @@ GRANT EXECUTE ON FUNCTION public.consume_reporting_pack_issuance(UUID, UUID, INT
 REVOKE ALL ON FUNCTION public.verify_reporting_pack(TEXT) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.verify_reporting_pack(TEXT) TO authenticated;
 
+-- ── 7. Durable deployment approvals (the Free-retirement production interlock of 20260925130000) ──────────────
+-- 20260925130000 turns every open Free licence into EXPIRED_READ_ONLY. It runs only against a recorded, unexpired,
+-- unconsumed approval for THIS environment whose inventory matches the licences it would end, and it consumes that
+-- approval in the same statement (single use). An approval is recorded by a commercial administrator through
+-- admin_record_deployment_approval (inventory count, notification reference, activation path) and is append-only.
+-- Nothing reads a session or database setting: the interlock cannot be satisfied by a GUC or a role default.
+CREATE OR REPLACE FUNCTION public._environment_fingerprint()
+RETURNS TEXT LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_sys TEXT := '';
+BEGIN
+  BEGIN
+    SELECT system_identifier::text INTO v_sys FROM pg_control_system();
+  EXCEPTION WHEN insufficient_privilege OR undefined_function THEN
+    v_sys := '';
+  END;
+  RETURN md5(COALESCE(v_sys, '') || ':' || (SELECT d.oid::text FROM pg_database d WHERE d.datname = current_database()) || ':' || current_database());
+END;
+$$;
+
+-- The open Free licences a retirement would end, as a count and a digest of their ids (an approval must match both).
+CREATE OR REPLACE FUNCTION public._free_plan_inventory()
+RETURNS JSONB LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT jsonb_build_object('open_free_licences', count(*), 'inventory_digest', md5(COALESCE(string_agg(cl.id::text, ',' ORDER BY cl.id), '')))
+    FROM public.commercial_licences cl JOIN public.commercial_plans cp ON cp.id = cl.plan_id
+   WHERE cp.code = 'FREE' AND cl.status IN ('PENDING', 'ACTIVE', 'GRACE');
+$$;
+
+CREATE TABLE public.deployment_approvals (
+  id                      UUID        NOT NULL DEFAULT gen_random_uuid(),
+  purpose                 TEXT        NOT NULL,
+  environment_fingerprint TEXT        NOT NULL,
+  environment_label       TEXT        NOT NULL,
+  evidence                JSONB       NOT NULL,
+  approved_by             UUID        NOT NULL,
+  approved_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at              TIMESTAMPTZ NOT NULL,
+  consumed_at             TIMESTAMPTZ NULL,
+  consumed_by             TEXT        NULL,
+  CONSTRAINT deployment_approvals_pk PRIMARY KEY (id),
+  CONSTRAINT chk_da_purpose CHECK (purpose IN ('FREE_PLAN_RETIREMENT')),
+  CONSTRAINT chk_da_label CHECK (length(environment_label) BETWEEN 1 AND 64 AND environment_label !~ '[[:cntrl:]]'),
+  CONSTRAINT chk_da_window CHECK (expires_at > approved_at AND expires_at <= approved_at + interval '72 hours'),
+  CONSTRAINT chk_da_consumed CHECK ((consumed_at IS NULL) = (consumed_by IS NULL))
+);
+CREATE OR REPLACE FUNCTION public.deployment_approvals_guard()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.consumed_at IS NULL AND NEW.consumed_at IS NOT NULL
+     AND (to_jsonb(NEW) - 'consumed_at' - 'consumed_by') = (to_jsonb(OLD) - 'consumed_at' - 'consumed_by') THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'deployment_approvals is append-only (an approval is consumed once, never edited or deleted)' USING ERRCODE = '42501';
+END;
+$$;
+CREATE TRIGGER trg_da_guard BEFORE UPDATE OR DELETE ON public.deployment_approvals FOR EACH ROW EXECUTE FUNCTION public.deployment_approvals_guard();
+CREATE TRIGGER trg_da_no_truncate BEFORE TRUNCATE ON public.deployment_approvals FOR EACH STATEMENT EXECUTE FUNCTION public.deployment_approvals_guard();
+ALTER TABLE public.deployment_approvals ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "da_select_commercial_admin" ON public.deployment_approvals FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.commercial_admins a WHERE a.user_id = auth.uid() AND a.active));
+REVOKE ALL ON public.deployment_approvals FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.deployment_approvals TO authenticated;
+
+-- A commercial administrator records the approval after the release sequence: the inventory they reviewed must be the
+-- current one, a notification reference and the activation path are required, and it expires within 72 hours.
+CREATE OR REPLACE FUNCTION public.admin_record_deployment_approval(
+  p_purpose TEXT, p_environment_label TEXT, p_expected_open_free_licences INTEGER, p_notification_reference TEXT,
+  p_activation_path TEXT, p_valid_hours INTEGER DEFAULT 24)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid UUID := auth.uid();
+  v_inv JSONB := public._free_plan_inventory();
+  v_id  UUID;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.commercial_admins WHERE user_id = v_uid AND active) THEN
+    RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
+  END IF;
+  IF p_purpose IS DISTINCT FROM 'FREE_PLAN_RETIREMENT' THEN RAISE EXCEPTION 'UNKNOWN_PURPOSE' USING ERRCODE = '22023'; END IF;
+  IF p_activation_path IS NULL OR p_activation_path NOT IN ('CHECKOUT', 'MANUAL_ADMIN') THEN RAISE EXCEPTION 'ACTIVATION_PATH_REQUIRED' USING ERRCODE = '22023'; END IF;
+  IF p_notification_reference IS NULL OR length(btrim(p_notification_reference)) NOT BETWEEN 3 AND 200 THEN
+    RAISE EXCEPTION 'NOTIFICATION_REFERENCE_REQUIRED' USING ERRCODE = '22023';
+  END IF;
+  IF p_expected_open_free_licences IS DISTINCT FROM (v_inv->>'open_free_licences')::integer THEN
+    RAISE EXCEPTION 'INVENTORY_MISMATCH: the reviewed inventory is not the current one' USING ERRCODE = '22023';
+  END IF;
+  IF p_valid_hours IS NULL OR p_valid_hours NOT BETWEEN 1 AND 72 THEN RAISE EXCEPTION 'INVALID_VALIDITY' USING ERRCODE = '22023'; END IF;
+  INSERT INTO public.deployment_approvals (purpose, environment_fingerprint, environment_label, evidence, approved_by, expires_at)
+  VALUES (p_purpose, public._environment_fingerprint(), btrim(p_environment_label),
+          v_inv || jsonb_build_object('notification_reference', btrim(p_notification_reference), 'activation_path', p_activation_path),
+          v_uid, now() + make_interval(hours => p_valid_hours))
+  RETURNING id INTO v_id;
+  RETURN jsonb_build_object('approval_id', v_id, 'inventory', v_inv);
+END;
+$$;
+REVOKE ALL ON FUNCTION public._environment_fingerprint() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public._free_plan_inventory() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.deployment_approvals_guard() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_record_deployment_approval(TEXT, TEXT, INTEGER, TEXT, TEXT, INTEGER) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.admin_record_deployment_approval(TEXT, TEXT, INTEGER, TEXT, TEXT, INTEGER) TO authenticated;
+
 -- ── Rollback (NOT executed; for reference only) ─────────────────────────────────────────────
 -- Issuances and events are records: never delete them. Restore 20260925100000's issue_reporting_pack(4 args) and
 -- immutable trigger function; drop consume_/verify_ and the ttl/ref helpers. The added columns may stay.
