@@ -184,8 +184,8 @@ export default function Pricing() {
               plan's named users are suspended, never removed, until you choose who stays active.
             </p>
             <p className="mt-2 text-xs leading-5 text-muted-foreground" data-testid="named-user-policy">
-              Every person who uses {BRAND.name} signs in with their own account. A named user is one person, so every
-              sign-off, export and change is attributed to the person who made it.
+              Every person who uses {BRAND.name} signs in with their own account. A named user is one person, so the work
+              recorded under a sign-in belongs to that person.
             </p>
           </section>
 

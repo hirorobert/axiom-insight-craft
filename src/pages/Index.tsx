@@ -2,22 +2,28 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
-import { Hero } from "@/components/Hero";
-import { PainPoints } from "@/components/PainPoints";
-import { ProductTour } from "@/components/ProductTour";
-import { Features } from "@/components/Features";
-import { ClosingCTA } from "@/components/ClosingCTA";
+import { LandingHero } from "@/components/landing/LandingHero";
+import { CoreCapabilities } from "@/components/landing/CoreCapabilities";
+import { ControlledCloseAndAssurance } from "@/components/landing/ControlledCloseAndAssurance";
+import { VerifiedDeliverables } from "@/components/landing/VerifiedDeliverables";
+import { CommercialVerification } from "@/components/landing/CommercialVerification";
+import { LandingFAQ } from "@/components/landing/LandingFAQ";
+import { LandingFinalCTA } from "@/components/landing/LandingFinalCTA";
 import { Footer } from "@/components/Footer";
 import { AuthLinkErrorScreen, getAuthLinkError } from "@/components/AuthLinkErrorScreen";
 
 // ─── Page composition ────────────────────────────────────────────────────────
-// Section order follows conversion architecture:
-//  1. Hero        — what it is, trust metrics, immediate CTAs
-//  2. PainPoints  — before/after contrast that earns attention
-//  3. ProductTour — outcome selector: what specifically does it produce?
-//  4. Features    — method, deliverables, security, jurisdiction, pricing
-//  5. ClosingCTA  — one last conversion moment before the footer
-//  6. Footer
+//  1. Header
+//  2. Hero — proposition and actions on the left, synthetic status preview on the right,
+//            so product proof sits inside the first viewport rather than below a tall
+//            text-only band.
+//  3. Core capabilities
+//  4. Controlled-close process, combined with the Close Assurance control layer
+//  5. Verified deliverables — only outputs reachable in the current interface
+//  6. Commercial structure, under final enforcement verification
+//  7. FAQ — the same data the FAQPage structured data in index.html is built from
+//  8. Final call to action
+//  9. Footer
 // ─────────────────────────────────────────────────────────────────────────────
 
 const Index = () => {
@@ -46,13 +52,21 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:border focus:border-border focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+      >
+        Skip to main content
+      </a>
       <Header />
-      <main>
-        <Hero />
-        <PainPoints />
-        <ProductTour />
-        <Features />
-        <ClosingCTA />
+      <main id="main-content">
+        <LandingHero />
+        <CoreCapabilities />
+        <ControlledCloseAndAssurance />
+        <VerifiedDeliverables />
+        <CommercialVerification />
+        <LandingFAQ />
+        <LandingFinalCTA />
       </main>
       <Footer />
     </div>

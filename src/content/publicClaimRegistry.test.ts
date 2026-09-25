@@ -3,6 +3,12 @@
  * no prohibited stronger wording may appear anywhere in it. This is what makes the registry a real
  * gate rather than documentation: a future edit that silently drops a substantiated claim, or
  * upgrades one into unsupported territory, fails this test.
+ *
+ * LANDING_FILES tracks the real public surface. It was updated when the landing page was rebuilt
+ * (the retired Hero/PainPoints/ProductTour/Features/ClosingCTA sections were deleted and replaced
+ * by src/components/landing/* reading src/content/landing/landingContent.ts) — the set of files
+ * scanned changed, the strictness did not: every assertion below is retained and the prohibited
+ * vocabulary is larger than before.
  */
 
 import fs from "node:fs";
@@ -14,29 +20,45 @@ const ROOT = path.resolve(__dirname, "../..");
 const LANDING_FILES = [
   "src/pages/Index.tsx",
   "src/components/Header.tsx",
-  "src/components/Hero.tsx",
-  "src/components/PainPoints.tsx",
-  "src/components/ProductTour.tsx",
-  "src/components/Features.tsx",
-  "src/components/ClosingCTA.tsx",
   "src/components/Footer.tsx",
+  "src/components/landing/LandingHero.tsx",
+  "src/components/landing/SyntheticClosePreview.tsx",
+  "src/components/landing/CoreCapabilities.tsx",
+  "src/components/landing/ControlledCloseAndAssurance.tsx",
+  "src/components/landing/VerifiedDeliverables.tsx",
+  "src/components/landing/CommercialVerification.tsx",
+  "src/components/landing/LandingFAQ.tsx",
+  "src/components/landing/LandingFinalCTA.tsx",
+  "src/content/landing/landingContent.ts",
   "src/constants/copy.ts",
   "index.html",
 ];
 
 const RAW_LANDING_SOURCE = LANDING_FILES.map((f) => fs.readFileSync(path.join(ROOT, f), "utf8")).join("\n");
 // Strip comments before scanning for prohibited wording: a code comment explaining WHY a stronger
-// claim was removed (see Hero.tsx's own history note) is documentation, not a rendered user claim.
+// claim was removed is documentation, not a rendered user claim.
 const LANDING_SOURCE_NO_COMMENTS = RAW_LANDING_SOURCE
   .replace(/\/\*[\s\S]*?\*\//g, "")
-  .replace(/^\s*\/\/.*$/gm, "");
+  .replace(/^\s*\/\/.*$/gm, "")
+  .replace(/<!--[\s\S]*?-->/g, "");
 
 describe("PUBLIC_CLAIM_REGISTRY — every entry is well-formed", () => {
-  it.each(PUBLIC_CLAIM_REGISTRY)("$id has non-empty claimText, evidenceSource, approvedWording and a real verifiedDate", (claim) => {
+  it.each(PUBLIC_CLAIM_REGISTRY)("$id has non-empty claimText, evidenceSource, evidenceScope, approvedWording and a real verifiedDate", (claim) => {
     expect(claim.claimText.length).toBeGreaterThan(0);
     expect(claim.evidenceSource.length).toBeGreaterThan(10);
+    expect(claim.evidenceScope.length).toBeGreaterThan(20);
     expect(claim.approvedWording.length).toBeGreaterThan(0);
     expect(claim.verifiedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("every entry names a real repository path in its evidence", () => {
+    for (const claim of PUBLIC_CLAIM_REGISTRY) {
+      const paths = claim.evidenceSource.match(/(?:src|supabase)\/[\w./-]+\.(?:tsx|ts|sql)/g) ?? [];
+      expect(paths.length, `${claim.id}: evidenceSource names no repository file`).toBeGreaterThan(0);
+      for (const p of paths) {
+        expect(fs.existsSync(path.join(ROOT, p)), `${claim.id}: ${p} does not exist`).toBe(true);
+      }
+    }
   });
 
   it("no duplicate ids", () => {
@@ -78,9 +100,53 @@ describe("absolute prohibited claims never appear anywhere on the landing page, 
     "guaranteed", // outside code comments — checked against the landing surface only, which has none
     "cancel anytime",
     "money-back guarantee",
+    // Absolute / unverifiable assurance language.
+    "immutable",
+    "every action",
+    "all actions",
+    "audit assurance",
+    "integrity guarantee",
+    "encrypted storage",
+    "statutory compliance",
+    "complete financial statements",
+    "every balance is tied",
+    "100%",
+    "zero ai guesswork",
+    "audit-ready",
+    "audit ready",
+    "no credit card",
+    "in minutes",
+    "four-eye",
+    "four eyes",
   ];
 
   it.each(ABSOLUTE_PROHIBITED)("\"%s\" is absent from the live landing-page source", (phrase) => {
     expect(LANDING_SOURCE_NO_COMMENTS.toLowerCase()).not.toContain(phrase);
+  });
+
+  // Whole-word checks: these tokens are substrings of legitimate words ("tra" inside "traceable",
+  // "kinga" nowhere, "partner" inside nothing) so they are matched on word boundaries only.
+  const ABSOLUTE_PROHIBITED_WORDS = [
+    // Internal engine names must never reach a customer-facing surface (Iron Dome §8.4).
+    "safisha",
+    "hesabu",
+    "kinga",
+    "maono",
+    // Jurisdiction-specific terminology has no place on the neutral public page.
+    "tzs",
+    "tra",
+    // Occupational hierarchy the product does not implement.
+    "junior",
+    "juniors",
+    "manager",
+    "managers",
+    "partner",
+    "partners",
+    "preparer hierarchy",
+  ];
+
+  it.each(ABSOLUTE_PROHIBITED_WORDS)("the word \"%s\" is absent from the live landing-page source", (word) => {
+    const pattern = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    expect(pattern.test(LANDING_SOURCE_NO_COMMENTS)).toBe(false);
   });
 });

@@ -1,19 +1,22 @@
 import { Link } from "react-router-dom";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
-import { FOOTER, BRAND, NAV, PRICING } from "@/constants/copy";
+import { FOOTER, BRAND } from "@/constants/copy";
+import { LANDING_FOOTER_NOTE } from "@/content/landing/landingContent";
 import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
+// Landing-section anchors only. No price is rendered in the footer: the commercial structure is
+// proposed and under enforcement verification, so it is stated in exactly one place on the page.
 const PRODUCT_LINKS = [
-  { label: "Outcomes",  href: "/#outcomes"  },
-  { label: "Method",    href: "/#method"    },
-  { label: "Controls",  href: "/#security"  },
-  { label: "Pricing",   href: "/pricing"    },
+  { label: "Capabilities", href: "/#capabilities" },
+  { label: "Process",      href: "/#process"      },
+  { label: "Deliverables", href: "/#deliverables" },
+  { label: "Commercial",   href: "/#commercial"   },
 ] as const;
 
 const ACCOUNT_LINKS = [
-  { label: "Sign in",        href: "/auth"       },
-  { label: "Choose outcome", href: "/#outcomes"  },
+  { label: "Sign in",   href: "/auth" },
+  { label: "Questions", href: "/#faq" },
 ] as const;
 
 export function Footer() {
@@ -30,8 +33,8 @@ export function Footer() {
             <p className="mt-3 max-w-xs text-xs leading-5 text-muted-foreground">
               {FOOTER.description}
             </p>
-            <p className="mt-4 text-[10px] font-mono text-muted-foreground/45">
-              Free plan · {PRICING.ENTRY_PLAN_NAME} from {PRICING.ENTRY_MONTHLY}/mo ({PRICING.CURRENCY_CODE})
+            <p className="mt-4 max-w-xs text-[11px] leading-5 text-muted-foreground">
+              {LANDING_FOOTER_NOTE}
             </p>
           </div>
 

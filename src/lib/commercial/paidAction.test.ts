@@ -158,10 +158,18 @@ describe("named-user seats at the invitation boundary", () => {
     const release = src.indexOf('admin.rpc("release_workspace_invitation"');
     expect(seat).toBeGreaterThan(-1);
     expect(seat < create && create < reserve && reserve < email && email < release).toBe(true);
-    expect(src.slice(seat, seat + 200)).toMatch(/if \(noSeat\) return noSeat;/);
+    expect(src).toMatch(/if \(noSeat\) return noSeat;/);
+    expect(src).toMatch(/if \(noSeatExisting\) return noSeatExisting;/);
     expect(src).toMatch(/email_confirm: false/);
-    // No membership row is written directly: the reservation RPC (under the database seat wall) is the only path.
-    expect(src).not.toMatch(/from\("firm_members"\)\s*\.(insert|upsert)\(/);
+    // The only direct membership write is the existing-account link (Lovable's fix: inviteUserByEmail rejects existing
+    // accounts). It comes after that account's seat pre-check, and a seat-wall refusal maps to the structured 402.
+    const inserts = [...src.matchAll(/from\("firm_members"\)\.insert\(/g)].map((m) => m.index!);
+    expect(inserts.length).toBe(1);
+    const existingSeat = src.indexOf("requireSeatForInvitation((fn, args) => admin.rpc(fn, args), company_id, existingUser.id, corsHeaders)");
+    expect(existingSeat).toBeGreaterThan(-1);
+    expect(existingSeat).toBeLessThan(inserts[0]);
+    expect(src.slice(inserts[0], inserts[0] + 900)).toMatch(/isSeatWallError\(linkErr\)/);
+    expect(src).not.toMatch(/from\("firm_members"\)\s*\.upsert\(/);
     // A failed email is detected by the structured error code only, never by message text.
     expect(src).toMatch(/\?\.code === "email_exists"/);
     expect(src).not.toMatch(/inviteErr\.message/);

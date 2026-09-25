@@ -198,7 +198,10 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/entitlements.mjs", "scripts/ci/legacyNameSweep.mjs",
       // Named-user billing suspension, invitation reservations and the official Reporting Pack: the loopback-only
       // real-PostgreSQL proof, and the read-only migration-authority parity guard.
-      "scripts/db-proof/billingSuspension.mjs", "scripts/ci/assertMigrationAuthority.mjs"]);
+      "scripts/db-proof/billingSuspension.mjs", "scripts/ci/assertMigrationAuthority.mjs",
+      // Disposable-database contract harness, section E only: asserts the CURRENT catalogue (the original offers kept but
+      // retired by 20260925100000, the four current offers non-purchasable) instead of the retired offers being active.
+      "scripts/db-contract-tests/10_static_contract_assertions.sql"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

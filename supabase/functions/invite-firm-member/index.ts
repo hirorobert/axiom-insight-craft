@@ -6,7 +6,9 @@
 // Flow:
 //   1. Validate caller is owner of the company
 //   2. Named-user seat pre-check (seat_check_for_invitation)
-//   3. The invitee's own account: existing, or created UNCONFIRMED (no email yet)
+//   3. An EXISTING account that is not yet a member is linked directly as an accepted member (no email:
+//      inviteUserByEmail rejects existing accounts) — the database seat wall still decides. Otherwise the
+//      invitee's own account is created UNCONFIRMED (no email yet)
 //   4. Reserve the seat: reserve_workspace_invitation (a pending firm_members row with an expiry;
 //      an existing pending / expired / cancelled invitation is refreshed or reissued, never duplicated)
 //   5. Send the invitation email; on failure release the reservation (release_workspace_invitation)
@@ -30,7 +32,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { requireSeatForInvitation, seatRefusal } from "../_shared/paidAction.ts";
+import { isSeatWallError, requireSeatForInvitation, seatRefusal } from "../_shared/paidAction.ts";
 
 // reserve_workspace_invitation outcome -> the structured seat refusal the client reads.
 const RESERVATION_REFUSALS: Record<string, string> = {
@@ -137,6 +139,49 @@ serve(async (req) => {
           { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
+
+      // Named-user seat pre-check for the existing account (a person already counted needs no new seat).
+      const noSeatExisting = await requireSeatForInvitation((fn, args) => admin.rpc(fn, args), company_id, existingUser.id, corsHeaders);
+      if (noSeatExisting) return noSeatExisting;
+
+      if (!existingMember) {
+        // Existing account, not yet a member of this company: link them
+        // directly. inviteUserByEmail would reject with email_exists (422) → 500.
+        // The database seat wall still decides (an accepted insert must fit the allowance, whoever writes it).
+        const { error: linkErr } = await admin.from("firm_members").insert({
+          company_id,
+          user_id:       existingUser.id,
+          role,
+          invited_by:    callerUser.id,
+          invited_email: email,
+          accepted_at:   new Date().toISOString(),
+        });
+
+        if (linkErr && isSeatWallError(linkErr)) {
+          // A concurrent change took the last seat after the pre-check: the same structured refusal.
+          const hint = (linkErr as { hint?: string }).hint;
+          const refusal = seatRefusal({ allowed: false, code: hint === "SUSPENDED" ? "NAMED_USER_SUSPENDED" : hint === "UNDETERMINED" ? "SEAT_CAPACITY_UNDETERMINED" : "SEAT_LIMIT_REACHED" })!;
+          return new Response(JSON.stringify(refusal.body), { status: refusal.httpStatus, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        if (linkErr) {
+          console.error("firm_members link error:", linkErr);
+          return new Response(
+            JSON.stringify({ error: `Could not add existing user to this company: ${linkErr.message}` }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            userId: existingUser.id,
+            alreadyMember: false,
+            message: `${email} already has an account and has been added to this company.`,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      // An existing account with a pending (possibly expired or cancelled) invitation: reissued below, never duplicated.
     }
 
     // ── Named-user seat pre-check (before any account is created or email sent) ──
