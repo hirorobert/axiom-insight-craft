@@ -2975,6 +2975,9 @@ export type Database = {
           company_id: string
           created_at: string
           id: string
+          invitation_cancel_reason: string | null
+          invitation_cancelled_at: string | null
+          invitation_expires_at: string | null
           invited_by: string | null
           invited_email: string | null
           role: string
@@ -2986,6 +2989,9 @@ export type Database = {
           company_id: string
           created_at?: string
           id?: string
+          invitation_cancel_reason?: string | null
+          invitation_cancelled_at?: string | null
+          invitation_expires_at?: string | null
           invited_by?: string | null
           invited_email?: string | null
           role: string
@@ -2997,6 +3003,9 @@ export type Database = {
           company_id?: string
           created_at?: string
           id?: string
+          invitation_cancel_reason?: string | null
+          invitation_cancelled_at?: string | null
+          invitation_expires_at?: string | null
           invited_by?: string | null
           invited_email?: string | null
           role?: string
@@ -3597,6 +3606,42 @@ export type Database = {
           id?: string
           started_at?: string
           trigger_type?: string
+        }
+        Relationships: []
+      }
+      named_user_billing_suspensions: {
+        Row: {
+          account_user_id: string
+          id: string
+          lift_reason: string | null
+          lifted_at: string | null
+          lifted_by: string | null
+          reason: string
+          suspended_at: string
+          suspended_by: string | null
+          user_id: string
+        }
+        Insert: {
+          account_user_id: string
+          id?: string
+          lift_reason?: string | null
+          lifted_at?: string | null
+          lifted_by?: string | null
+          reason: string
+          suspended_at?: string
+          suspended_by?: string | null
+          user_id: string
+        }
+        Update: {
+          account_user_id?: string
+          id?: string
+          lift_reason?: string | null
+          lifted_at?: string | null
+          lifted_by?: string | null
+          reason?: string
+          suspended_at?: string
+          suspended_by?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -6440,6 +6485,10 @@ export type Database = {
       }
     }
     Functions: {
+      _account_named_user_access_active: {
+        Args: { p_account: string; p_user: string }
+        Returns: boolean
+      }
       _account_named_users: {
         Args: {
           p_account: string
@@ -6451,6 +6500,18 @@ export type Database = {
           named_user_id: string
         }[]
       }
+      _apply_named_user_selection: {
+        Args: {
+          p_account: string
+          p_actor: string
+          p_allowed: number
+          p_keep: string[]
+          p_lift_reason: string
+          p_roster_version: string
+          p_suspend_reason: string
+        }
+        Returns: Json
+      }
       _authorize_paid_action: {
         Args: { p_capability: string; p_company_id: string; p_user: string }
         Returns: Json
@@ -6458,6 +6519,19 @@ export type Database = {
       _entity_capacity_for_account: {
         Args: { p_account: string }
         Returns: Json
+      }
+      _invitation_valid: {
+        Args: {
+          p_accepted_at: string
+          p_cancelled_at: string
+          p_expires_at: string
+        }
+        Returns: boolean
+      }
+      _named_user_roster: { Args: { p_account: string }; Returns: Json }
+      _named_user_suspended: {
+        Args: { p_account: string; p_user: string }
+        Returns: boolean
       }
       _require_workspace_capability: {
         Args: { p_capability: string; p_company_id: string }
@@ -6536,6 +6610,16 @@ export type Database = {
       }
       admin_list_commercial_offers: {
         Args: { p_plan_code?: string }
+        Returns: Json
+      }
+      admin_prepare_planned_reduction: {
+        Args: {
+          p_billing_customer_id: string
+          p_future_allowed: number
+          p_keep: string[]
+          p_reason: string
+          p_roster_version: string
+        }
         Returns: Json
       }
       admin_resolve_manual_review_intent: {
@@ -6659,6 +6743,10 @@ export type Database = {
           restored_upload_id: string
         }[]
       }
+      cancel_workspace_invitation: {
+        Args: { p_member_id: string }
+        Returns: Json
+      }
       capability_needs_jurisdiction: {
         Args: { p_capability: string }
         Returns: boolean
@@ -6672,6 +6760,10 @@ export type Database = {
           wdv_closing_prior: number
           wdv_opening_new: number
         }[]
+      }
+      choose_active_named_users: {
+        Args: { p_keep: string[]; p_roster_version: string }
+        Returns: Json
       }
       claim_trial_balance_discard_purge: {
         Args: { p_operation_id: string }
@@ -7193,6 +7285,7 @@ export type Database = {
       get_member_company_ids: { Args: never; Returns: string[] }
       get_my_billing_summary: { Args: never; Returns: Json }
       get_my_entity_capacity: { Args: never; Returns: Json }
+      get_named_user_roster: { Args: never; Returns: Json }
       get_workspace_access: {
         Args: { p_company_id: string }
         Returns: {
@@ -7301,6 +7394,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      invitation_reservation_ttl: { Args: never; Returns: string }
       is_commercial_admin: { Args: never; Returns: boolean }
       is_iso_3166_alpha2: { Args: { p_code: string }; Returns: boolean }
       issue_reporting_pack: {
@@ -7387,6 +7481,10 @@ export type Database = {
         }
         Returns: Json
       }
+      named_user_access_active: {
+        Args: { p_company_id: string; p_user: string }
+        Returns: boolean
+      }
       next_engagement_sequence: {
         Args: { p_engagement_id: string }
         Returns: number
@@ -7429,6 +7527,11 @@ export type Database = {
           outcome: string
         }[]
       }
+      reconcile_all_named_user_allowances: { Args: never; Returns: number }
+      reconcile_named_user_allowance: {
+        Args: { p_account: string }
+        Returns: number
+      }
       record_engagement_data_start: {
         Args: {
           p_choice: string
@@ -7464,6 +7567,10 @@ export type Database = {
           upload_id: string
         }[]
       }
+      release_workspace_invitation: {
+        Args: { p_member_id: string }
+        Returns: Json
+      }
       reserve_trial_balance_source: {
         Args: { p_company_id: string; p_file_name: string }
         Returns: {
@@ -7472,6 +7579,16 @@ export type Database = {
           outcome: string
           reservation_id: string
         }[]
+      }
+      reserve_workspace_invitation: {
+        Args: {
+          p_company_id: string
+          p_invited_by: string
+          p_invited_email: string
+          p_role: string
+          p_user: string
+        }
+        Returns: Json
       }
       resolve_account_review_batch: {
         Args: {
