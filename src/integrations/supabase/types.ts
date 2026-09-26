@@ -6876,6 +6876,10 @@ export type Database = {
         Args: { p_title: string }
         Returns: string[]
       }
+      _upload_processing_account: {
+        Args: { p_company_id: string; p_uploader: string }
+        Returns: string
+      }
       _workspace_access_basis: {
         Args: { p_company_id: string; p_user: string }
         Returns: string
@@ -7067,6 +7071,10 @@ export type Database = {
       }
       authorize_paid_action_for_user: {
         Args: { p_capability: string; p_company_id: string; p_user: string }
+        Returns: Json
+      }
+      authorize_trial_balance_processing: {
+        Args: { p_upload_id: string; p_user: string }
         Returns: Json
       }
       begin_provider_checkout_request: {
