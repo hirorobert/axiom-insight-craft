@@ -22,6 +22,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { LicenceStatus } from "@/lib/commercial/entitlementContract";
 import { moneyToDisplay, type CurrencyCode } from "@/lib/commercial/payments/money";
 import { toast } from "sonner";
+import { CHECKOUT_AVAILABLE, NO_CHECKOUT_NOTICE } from "@/lib/commercial/pricingCatalogue";
 
 interface Props {
   billingStatus: LicenceStatus | null;
@@ -251,6 +252,11 @@ export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, p
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planCode, billingInterval, marketCode]);
 
+  // No checkout exists in this build: never render a payment action, only the truthful notice.
+  if (!CHECKOUT_AVAILABLE) {
+    return <p className="text-xs text-muted-foreground" data-testid="no-checkout-notice">{NO_CHECKOUT_NOTICE}</p>;
+  }
+
   if (!shouldShowUpgradeAction(currentPlanCode, planCode, billingStatus)) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -293,7 +299,7 @@ export function CheckoutUpgradeButton({ billingStatus, currentPlanCode = null, p
   if (offer.phase === "UNAVAILABLE") {
     return (
       <p className="text-xs text-muted-foreground">
-        Online checkout is temporarily unavailable. Contact support for billing assistance.
+        {NO_CHECKOUT_NOTICE}
       </p>
     );
   }

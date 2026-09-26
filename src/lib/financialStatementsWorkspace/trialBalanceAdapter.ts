@@ -468,7 +468,7 @@ async function normalizeTrialBalance(input: TrialBalanceNormalizationInput): Pro
   for (const row of rows) {
     if ((SCF_CLASSIFICATIONS as readonly string[]).includes(row.classification)) {
       warnings.push(
-        warning(CODE.CASH_FLOW_CLASSIFICATION_SKIPPED, `Account "${row.accountKey}" is classified "${row.classification}" (cash flow) — this adapter version does not construct a Statement of Cash Flows from a trial balance (see DEFECT-SAFISHA-TRANSACTION-LEDGER-GAP-001); it is excluded from the extraction`, {
+        warning(CODE.CASH_FLOW_CLASSIFICATION_SKIPPED, `Account "${row.accountKey}" is classified "${row.classification}" (cash flow) — this adapter version does not construct a Statement of Cash Flows from a trial balance (no period-complete transaction ledger is available); it is excluded from the extraction`, {
           accountKey: row.accountKey,
           accountName: row.accountName,
         }),

@@ -39,8 +39,9 @@ export default function Terms() {
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">3. Current commercial terms</h2>
             <p>
-              Self-service paid subscriptions are not yet available. Sign-up
-              currently provisions a free-tier workspace. If and when paid
+              Self-service paid subscriptions are not yet available. There is no
+              free plan and no trial: a workspace needs a plan recorded for the
+              account by our team. If and when paid
               licensing becomes self-serve, these terms will be updated first, and
               nothing will be charged without that update being published and, where
               required, your affirmative agreement to it.

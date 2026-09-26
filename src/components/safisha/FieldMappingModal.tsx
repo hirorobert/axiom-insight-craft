@@ -169,7 +169,7 @@ export default function FieldMappingModal({
         <DialogHeader>
           <DialogTitle>Map Columns — {labelSourceType(sourceType)}</DialogTitle>
           <DialogDescription>
-            Tell Safisha which column in your file corresponds to each field.
+            Tell CFO Close which column in your file corresponds to each field.
             This is a one-time setup — next time you upload this file type, we'll use
             this mapping automatically.
           </DialogDescription>

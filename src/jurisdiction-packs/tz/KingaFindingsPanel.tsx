@@ -587,7 +587,7 @@ export function KingaFindingsPanel({
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <ShieldAlert className="w-5 h-5 text-primary" />
-            Kinga — Statutory Compliance Analysis
+            Statutory Compliance Analysis
           </CardTitle>
           <div className="flex items-center gap-2">
             <AddPaymentModal

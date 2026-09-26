@@ -24,6 +24,7 @@ import {
   Clock,
 } from "lucide-react";
 import jsPDF from "jspdf";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 import { useAuditLog } from "@/hooks/useAuditLog";
 
 interface DisclosureNote {
@@ -51,9 +52,12 @@ interface NoteSynthProps {
     };
   } | null;
   onNotesGenerated?: () => void;
+/** Workspace and fiscal year the notes PDF is issued for (issue_reporting_pack). */
+companyId?: string;
+periodYear?: number;
 }
 
-export function NoteSynth({ uploadId, existingNotes, onNotesGenerated }: NoteSynthProps) {
+export function NoteSynth({ uploadId, existingNotes, onNotesGenerated, companyId, periodYear }: NoteSynthProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [notes, setNotes] = useState<DisclosureNote[]>(existingNotes?.notes || []);
   const [metadata, setMetadata] = useState(existingNotes?.metadata || null);
@@ -106,7 +110,7 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated }: NoteSyn
     }
   };
 
-  const exportNotesToPDF = () => {
+  const exportNotesToPDF = async () => {
     if (notes.length === 0) return;
 
     const doc = new jsPDF();
@@ -168,7 +172,7 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated }: NoteSyn
       yPosition += 10;
     });
 
-    doc.save("disclosure-notes.pdf");
+    return doc.output("blob");
     toast.success("Notes exported to PDF");
   };
 
@@ -232,7 +236,11 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated }: NoteSyn
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={exportNotesToPDF} className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => notes.length > 0 && void deliverReportingPack({
+            // A disclosure-notes PDF is a Reporting Pack working copy: issued by the server, built, then saved (never sealed).
+            companyId, periodYear, kind: "disclosure_notes", outputRef: `upload:${uploadId}`, fileName: "disclosure-notes.pdf",
+            build: async () => (await exportNotesToPDF()) as Blob,
+          })} className="gap-2">
             <Download className="w-4 h-4" />
             Export PDF
           </Button>
@@ -327,7 +335,7 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated }: NoteSyn
                               day: "2-digit", month: "short", year: "numeric",
                               hour: "2-digit", minute: "2-digit",
                             })}
-                            {note.engineVersion ? ` · Kinga Engine ${note.engineVersion}` : ""}
+                            {note.engineVersion ? ` · Tax computation ${note.engineVersion}` : ""}
                           </span>
                         </div>
                       )}

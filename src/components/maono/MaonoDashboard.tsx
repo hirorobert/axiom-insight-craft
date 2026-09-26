@@ -23,6 +23,9 @@ import { createClient }  from "@supabase/supabase-js";
 import { InsightCard, InsightRow }   from "./InsightCard";
 import { CashFlowForecast, CashWeek } from "./CashFlowForecast";
 import { RiskRadar, RiskData }        from "./RiskRadar";
+import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState";
+import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
+import { lockedCopy, paidActionState } from "@/lib/commercial/paidActions";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -492,6 +495,10 @@ export function MaonoDashboard({
   const [riskData,  setRiskData]  = useState<RiskData | null>(null);
   const [cashWeeks, setCashWeeks] = useState<CashWeek[]>([]);
   const [alerts,    setAlerts]    = useState<Alert[]>([]);
+  // Close Insights is a paid capability: new analysis needs it (the server refuses otherwise); results already
+  // generated for this workspace remain visible below whatever the plan.
+  const { state: commercialState, loading: commercialLoading } = useWorkspaceCommercialState(companyId);
+  const insightsLocked = paidActionState(commercialState, "CLOSE_INSIGHTS", commercialLoading).status === "locked";
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -635,7 +642,7 @@ export function MaonoDashboard({
   if (error) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 p-6">
-        <p className="text-sm font-medium text-red-800">Failed to load Maono dashboard</p>
+        <p className="text-sm font-medium text-red-800">Failed to load Close Insights</p>
         <p className="text-xs text-red-700 mt-1">{error}</p>
         <button
           onClick={loadData}
@@ -657,7 +664,7 @@ export function MaonoDashboard({
           <div className="h-6 w-6 rounded bg-indigo-600 flex items-center justify-center">
             <span className="text-white text-xs font-bold">M</span>
           </div>
-          <span className="text-sm font-semibold text-gray-900">Maono Intelligence</span>
+          <span className="text-sm font-semibold text-gray-900">Close Insights</span>
           {run && (
             <span className="text-xs text-gray-500">
               {new Date(run.period_from).toLocaleDateString("en-GB", { month: "short", year: "numeric" })}
@@ -685,7 +692,7 @@ export function MaonoDashboard({
         <div className="mx-6 mt-3 rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-xs text-blue-700 flex items-center gap-2">
           <span>🛡</span>
           <span>
-            All figures sourced from verified, Safisha-clean trial balance data.
+            All figures sourced from verified, Close Certification-checked trial balance data.
             {userRole === "cfo" || userRole === "director"
               ? " AI insights shown here have passed numeric validation."
               : " Decisions require explicit sign-off — nothing executes automatically."}
@@ -695,6 +702,9 @@ export function MaonoDashboard({
 
       {/* Main content */}
       <div className="mx-6 mt-4 pb-12">
+        {insightsLocked && (
+          <div className="mb-4"><PaidActionNotice copy={lockedCopy("CLOSE_INSIGHTS")} testId="close-insights-locked" /></div>
+        )}
         {userRole === "cfo"        && <CFOView       {...commonProps} />}
         {userRole === "director"   && <DirectorView  {...commonProps} />}
         {userRole === "manager"    && <ManagerView   {...commonProps} />}

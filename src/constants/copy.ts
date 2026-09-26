@@ -1,3 +1,13 @@
+import {
+  NO_CHECKOUT_NOTICE,
+  ENTRY_PAID_PLAN,
+  CATALOGUE_CURRENCY,
+  annualSavingMinor,
+  formatCatalogueAmount,
+  planByCode,
+  ADDITIONAL_SEAT_PRICE,
+} from "@/lib/commercial/pricingCatalogue";
+
 // ─────────────────────────────────────────────────────────────
 // CFOClose — Marketing Copy
 // Ω3-BRAND · LOCKED
@@ -24,9 +34,10 @@ export const BRAND = {
 } as const;
 
 export const CTA = {
-  primary:     "Start free",
+  primary:     "Request access",
   secondary:   "See how it works",
-  primaryHref: "/auth",
+  // No self-serve sign-up reaches a working workspace (there is no free plan and no checkout): the request path.
+  primaryHref: "/request-access",
 } as const;
 
 export const HERO = {
@@ -241,45 +252,37 @@ export const JURISDICTION_SECTION = {
 // Pricing
 // ─────────────────────────────────────────────────────────────
 
-// Canonical pricing constants. Arithmetic is verified by regression tests.
-// Monthly: USD 49.  Annual: USD 499.  Annual saving vs 12×monthly: USD 89.
-// 49 × 12 = 588.  588 − 499 = 89.  These values match commercial_offers
-// amount_minor: 4900 (monthly) / 49900 (annual), exponent 2, currency USD.
+// Pricing copy is DERIVED from the one catalogue (src/lib/commercial/pricingCatalogue.ts), which mirrors the
+// plans and offers seeded by 20260925100000 and 20260925130000. No price is written here or in any component. There is
+// no free plan and no trial.
+const ENTRY_PLAN = planByCode(ENTRY_PAID_PLAN)!;
 export const PRICING = {
-  FREE_NAME:           "Free",
-  PAID_NAME:           "CFOClose Professional",
-  MONTHLY_USD:         49,
-  ANNUAL_USD:          499,
-  ANNUAL_FULL_USD:     588,   // 49 × 12
-  ANNUAL_SAVING_USD:   89,    // 588 − 499
-  CURRENCY_CODE:       "USD",
-  TAX_DISCLAIMER:      "Applicable taxes, if any, are shown before payment.",
-  CHECKOUT_DISABLED_MSG: "Secure self-service checkout is being activated.",
+  NO_PLAN_NAME:         "No current plan",
+  ENTRY_PLAN_NAME:      ENTRY_PLAN.name,
+  ENTRY_MONTHLY:        formatCatalogueAmount(ENTRY_PLAN.monthlyMinor!),
+  ENTRY_ANNUAL:         formatCatalogueAmount(ENTRY_PLAN.annualMinor!),
+  ENTRY_ANNUAL_SAVING:  formatCatalogueAmount(annualSavingMinor(ENTRY_PLAN)!),
+  CURRENCY_CODE:        CATALOGUE_CURRENCY.code,
+  TAX_DISCLAIMER:       "Applicable taxes, if any, are shown before payment.",
+  CHECKOUT_DISABLED_MSG: NO_CHECKOUT_NOTICE,
 } as const;
 
-// Verify arithmetic at module load time (caught at build, not runtime).
-const _pricingArithmeticCheck = (() => {
-  if (PRICING.MONTHLY_USD * 12 !== PRICING.ANNUAL_FULL_USD)
-    throw new Error("PRICING: ANNUAL_FULL_USD must equal MONTHLY_USD × 12");
-  if (PRICING.ANNUAL_FULL_USD - PRICING.ANNUAL_USD !== PRICING.ANNUAL_SAVING_USD)
-    throw new Error("PRICING: ANNUAL_SAVING_USD must equal ANNUAL_FULL_USD − ANNUAL_USD");
-})();
-void _pricingArithmeticCheck;
-
 export const PRICING_TABLE = [
-  { term: "Licence",   value: "Firm-level access under the active commercial terms shown before purchase." },
-  { term: "Modules",   value: "All currently released Professional capabilities. No per-module pricing." },
-  { term: "Users",     value: "Role-based team access under the active plan terms." },
+  { term: "Plans",     value: "Solo, Practice, Firm and Enterprise. Plans differ by entity capacity and named users. There is no free plan and no trial." },
+  { term: "Named users", value: `Every plan includes 1 named user. Practice and Firm can add named users at ${formatCatalogueAmount(ADDITIONAL_SEAT_PRICE.monthlyMinor)} per user per month or ${formatCatalogueAmount(ADDITIONAL_SEAT_PRICE.annualMinor)} per user per year. Solo includes 1 named user and cannot add users; Enterprise is negotiated.` },
+  { term: "Sign-in",   value: "Each named user is one person with their own sign-in, so the work recorded under a sign-in belongs to that person. Accounts are never shared." },
+  { term: "Included",  value: "Every plan includes Close Assurance, comparative reporting, Close Certification, Reporting Pack and Close Insights. Comparative periods are never charged separately." },
+  { term: "Multi-entity", value: "Multi-entity reporting from Practice upwards. Consolidation is not offered." },
+  { term: "History",   value: "If a plan ends, existing data and outputs already issued stay readable; new work needs a current plan." },
   { term: "Storage",   value: "Encrypted at rest. Hosted on enterprise-grade infrastructure." },
-  { term: "Updates",   value: "Jurisdiction pack updates deployed promptly after regulatory enactment." },
-  { term: "Support",   value: "Implementation support included." },
+  { term: "Support",   value: "Standard on Practice, priority on Firm, contractual on Enterprise." },
 ] as const;
 
 // Pricing section landing-page teaser (links to /pricing for full detail).
 export const PRICING_SECTION = {
   headline: "Simple, transparent pricing.",
   subhead:
-    "One professional plan, with monthly and annual terms. Current availability and the exact amount are verified before checkout.",
+    "Solo for one entity, Practice and Firm for a portfolio, monthly or annually. Enterprise on request.",
   cta:     "See plans",
   ctaHref: "/pricing",
 } as const;

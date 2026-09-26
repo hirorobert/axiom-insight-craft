@@ -398,7 +398,7 @@ function EFDMSReconciliationPanelInner({
             <h3 className="text-xs font-semibold text-foreground">Engine vs EFDMS Reconciliation</h3>
             <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <Info className="w-3 h-3" />
-              Gap = Kinga engine exposure − EFDMS Z-Report total
+              Gap = tax computation exposure − EFDMS Z-Report total
             </div>
           </div>
           <div className="rounded-xl border border-border overflow-hidden">
@@ -407,7 +407,7 @@ function EFDMSReconciliationPanelInner({
                 <tr className="bg-muted/40 border-b border-border">
                   <th className="text-left py-2 px-3 font-medium text-muted-foreground">Category</th>
                   <th className="text-right py-2 px-3 font-medium text-muted-foreground">EFDMS Total</th>
-                  <th className="text-right py-2 px-3 font-medium text-muted-foreground">Kinga Engine</th>
+                  <th className="text-right py-2 px-3 font-medium text-muted-foreground">Tax computation</th>
                   <th className="text-right py-2 px-3 font-medium text-muted-foreground">Gap / Status</th>
                 </tr>
               </thead>
@@ -521,7 +521,7 @@ function EFDMSReconciliationPanelInner({
         {/* Footer */}
         <div className="pt-2 border-t border-border/40 text-xs text-muted-foreground/70 flex items-center gap-1.5">
           <Lock className="w-3 h-3" />
-          Z-Report entries are permanent and cannot be deleted (TRA audit trail). All writes go through the safisha-efdms-ingest Iron Dome gatekeeper.
+          Z-Report entries are permanent and cannot be deleted (TRA audit trail). All writes go through the server-side EFDMS intake, which verifies each entry.
         </div>
       </CardContent>
     </Card>

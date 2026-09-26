@@ -25,6 +25,10 @@ import {
 } from "lucide-react";
 import jsPDF from "jspdf";
 import { useAuditLog } from "@/hooks/useAuditLog";
+import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState";
+import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
+import { functionEntitlementRefusal, lockedCopy, paidActionState } from "@/lib/commercial/paidActions";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 
 // ── Types (mirrors edge function output) ─────────────────────
 interface TableRow { label: string; value: string; highlight?: boolean; indent?: boolean }
@@ -81,6 +85,8 @@ interface LetterDocument {
 
 interface MgmtLetterPanelProps {
   uploadId: string;
+  /** Workspace the letter belongs to: a management letter is a Reporting Pack client deliverable. */
+  companyId?: string | null;
   existingLetter?: LetterDocument | null;
   onLetterGenerated?: () => void;
 }
@@ -289,17 +295,20 @@ function exportToPDF(letter: LetterDocument, editedSections: Record<string, stri
     y += 8;
   });
 
-  doc.save(`management-letter-${letter.metadata.periodYear}.pdf`);
+  return doc.output("blob");
   toast.success("Management letter exported to PDF");
 }
 
 // ── Main component ───────────────────────────────────────────
-export function MgmtLetterPanel({ uploadId, existingLetter, onLetterGenerated }: MgmtLetterPanelProps) {
+export function MgmtLetterPanel({ uploadId, companyId = null, existingLetter, onLetterGenerated }: MgmtLetterPanelProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [letter, setLetter] = useState<LetterDocument | null>(existingLetter ?? null);
   const [editedSections, setEditedSections] = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const { logAction } = useAuditLog();
+  const { state: commercialState, loading: commercialLoading } = useWorkspaceCommercialState(companyId);
+  const [packRefused, setPackRefused] = useState(false);
+  const packLocked = packRefused || paidActionState(commercialState, "REPORTING_PACK_EXPORT", commercialLoading).status === "locked";
 
   const generate = async () => {
     setIsGenerating(true);
@@ -308,7 +317,13 @@ export function MgmtLetterPanel({ uploadId, existingLetter, onLetterGenerated }:
       const { data, error } = await supabase.functions.invoke("generate-management-letter", {
         body: { uploadId },
       });
-      if (error) throw error;
+      if (error) {
+        if ((await functionEntitlementRefusal(error)) === "REPORTING_PACK_EXPORT") {
+          setPackRefused(true);
+          return;
+        }
+        throw error;
+      }
       if (data?.error) throw new Error(data.error);
       setLetter(data.letter);
       toast.success("Management letter generated");
@@ -345,13 +360,17 @@ export function MgmtLetterPanel({ uploadId, existingLetter, onLetterGenerated }:
             <h3 className="text-lg font-semibold mb-2">Generate Management Letter</h3>
             <p className="text-muted-foreground text-sm mb-6 max-w-md mx-auto">
               Produces a structured management letter for directors based on committed tax computation
-              and open compliance findings. No AI inference — all figures from the Kinga Engine.
+              and open compliance findings. No AI inference — all figures from the CFO Close tax computation.
             </p>
+            {packLocked ? (
+              <PaidActionNotice copy={lockedCopy("REPORTING_PACK_EXPORT")} testId="management-letter-locked" />
+            ) : (
             <Button variant="hero" onClick={generate} disabled={isGenerating} className="gap-2">
               {isGenerating
                 ? <><Loader2 className="w-4 h-4 animate-spin" />Generating…</>
                 : <><FileText className="w-4 h-4" />Generate Management Letter</>}
             </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -385,16 +404,19 @@ export function MgmtLetterPanel({ uploadId, existingLetter, onLetterGenerated }:
                 </Badge>
               )}
               <Badge variant="secondary" className="text-[10px]">
-                Kinga {meta.engineVersion}
+                Tax computation {meta.engineVersion}
               </Badge>
             </div>
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <Button variant="outline" size="sm" onClick={() => exportToPDF(letter, editedSections)} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => void deliverReportingPack({
+            companyId, periodYear: letter.metadata.periodYear, kind: "management_letter", outputRef: `upload:${uploadId}`,
+            fileName: `management-letter-${letter.metadata.periodYear}.pdf`, build: () => exportToPDF(letter, editedSections),
+          })} className="gap-1.5">
             <Download className="w-3.5 h-3.5" />Export PDF
           </Button>
-          <Button variant="ghost" size="sm" onClick={generate} disabled={isGenerating} className="gap-1.5">
+          <Button variant="ghost" size="sm" onClick={generate} disabled={isGenerating || packLocked} className="gap-1.5">
             {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Regenerate
           </Button>
@@ -485,7 +507,7 @@ export function MgmtLetterPanel({ uploadId, existingLetter, onLetterGenerated }:
           <span>
             Generated {meta ? new Date(meta.generatedAt).toLocaleString("en-TZ", {
               day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
-            }) : "—"} · Kinga Engine {meta?.engineVersion ?? "—"}
+            }) : "—"} · Tax computation {meta?.engineVersion ?? "—"}
           </span>
           <span className="italic">Review all sections before delivery to client directors.</span>
         </div>

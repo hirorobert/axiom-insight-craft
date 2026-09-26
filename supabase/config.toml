@@ -5,6 +5,10 @@ project_id = "bvyivmmfjejbmqoydezk"
     verify_jwt = false
   [functions.generate-disclosure-notes]
     verify_jwt = false
+  # The canonical Comparative Assurance endpoint and its legacy-named compatibility adapter serve the same handler
+  # (supabase/functions/_shared/comparativeAssurance.ts), which authenticates the caller's JWT itself.
+  [functions.comparative-assurance-engine]
+    verify_jwt = false
   [functions.kinga-comparative-engine]
     verify_jwt = false
   [functions.policy-compass]

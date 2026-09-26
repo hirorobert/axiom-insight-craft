@@ -23,6 +23,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 import {
   computeWearTear,
   formatWearTearPreview,
@@ -192,7 +193,8 @@ export function CapitalAllowancesRegister({
   };
 
   // ── CSV export ─────────────────────────────────────────────────────────────
-  const handleExport = () => {
+  // The capital allowances schedule is a Reporting Pack working copy: issued by the server, built, then saved (never sealed).
+  const handleExport = async () => {
     const header = "Asset,Class,Rate,Cost TZS,Opening WDV,Additions,Disposals,W&T,Closing WDV,Acc Dep'n,Notes";
     const rows = assets.map(a => {
       const cls = ITA_CLASSES.find(c => c.value === a.ita_class);
@@ -207,14 +209,12 @@ export function CapitalAllowancesRegister({
       ].join(",");
     });
     const csv = [header, ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `capital_allowances_${companyName?.replace(/\s+/g, "_") ?? companyId}_FY${periodYear}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("CSV downloaded");
+    const outcome = await deliverReportingPack({
+      companyId, periodYear, kind: "tax_workpaper", outputRef: `capital-allowances:${companyId}:FY${periodYear}`,
+      fileName: `capital_allowances_${companyName?.replace(/\s+/g, "_") ?? companyId}_FY${periodYear}.csv`,
+      build: () => new Blob([csv], { type: "text/csv" }),
+    });
+    if (outcome === "delivered") toast.success("CSV downloaded");
   };
 
   // ── Group by class ─────────────────────────────────────────────────────────
@@ -269,7 +269,7 @@ export function CapitalAllowancesRegister({
             </CollapsibleTrigger>
             <div className="flex items-center gap-2">
               {assets.length > 0 && (
-                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handleExport}>
+                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => void handleExport()}>
                   <Download className="w-3.5 h-3.5" />CSV
                 </Button>
               )}
@@ -381,7 +381,7 @@ export function CapitalAllowancesRegister({
                   </Button>
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
                     <Lock className="w-3 h-3" />
-                    W&T computed by Kinga Tax Engine — run engine after saving assets.
+                    W&T is computed by the tax computation — run it after saving assets.
                   </p>
                 </div>
               </div>
@@ -397,7 +397,7 @@ export function CapitalAllowancesRegister({
               <div className="text-center py-8">
                 <Calculator className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
                 <p className="text-sm text-muted-foreground">No assets in register for FY{periodYear}.</p>
-                <p className="text-xs text-muted-foreground/70 mt-1">Add assets manually or run the Kinga Tax Engine — it auto-populates Class 1–3 assets from the trial balance.</p>
+                <p className="text-xs text-muted-foreground/70 mt-1">Add assets manually or run the tax computation — it auto-populates Class 1–3 assets from the trial balance.</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -529,7 +529,7 @@ export function CapitalAllowancesRegister({
                         <tr className="border-t border-violet-200 text-xs">
                           <td colSpan={8} className="py-2 px-3 text-muted-foreground">
                             ITA add-back: accounting dep'n TZS {fmt(grand.accDep)} − tax W&T TZS {fmt(grand.wearTear)} = {addBackDiff >= 0 ? "add-back" : "extra deduction"} TZS {fmt(Math.abs(addBackDiff))} to accounting PBT.
-                            Verified by kinga-tax-engine on each run.
+                            Verified by the tax computation on each run.
                           </td>
                         </tr>
                       </tbody>

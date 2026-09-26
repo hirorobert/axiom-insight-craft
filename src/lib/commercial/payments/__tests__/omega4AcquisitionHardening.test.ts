@@ -361,7 +361,12 @@ describe("HIGH-2 — offer-seed binding re-asserted in full", () => {
 // ============================================================
 
 describe("HIGH-3 — pricing parity fails closed (Pricing.tsx and Settings.tsx)", () => {
-  for (const [name, code] of [["Pricing.tsx", pricingCode], ["Settings.tsx", settingsCode]] as const) {
+  // The pricing page carries no checkout at all (CFO Close catalogue, 20260925100000): nothing to race or verify there.
+  it("Pricing.tsx: offers no checkout path — no checkout button, no payment function, no amount sent anywhere", () => {
+    expect(pricingCode).not.toMatch(/CheckoutUpgradeButton|commercial-create-checkout|functions.invoke|createCheckout/);
+  });
+
+  for (const [name, code] of [["Settings.tsx", settingsCode]] as const) {
     it(`${name}: CheckoutUpgradeButton is wrapped in a native hidden={...} guard, not a conditional-render fallback that could race with the resolution effect`, () => {
       expect(code).toMatch(/<div hidden=\{(pricingVerification|renewalPricingVerification) !== "VERIFIED"\}>/);
     });

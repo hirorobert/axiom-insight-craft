@@ -252,7 +252,7 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
     a.href     = url;
-    a.download = `kinga_uploads_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `trial-balance-uploads_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success(`Exported ${filtered.length} rows`);

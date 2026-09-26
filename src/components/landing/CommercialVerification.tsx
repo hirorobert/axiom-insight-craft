@@ -7,7 +7,8 @@
  * purchasable and nothing here is emitted as structured data.
  */
 
-import { COMMERCIAL_HEADING, COMMERCIAL_NOTICE, PROPOSED_PLANS } from "@/content/landing/landingContent";
+import { COMMERCIAL_HEADING, COMMERCIAL_NOTICE } from "@/content/landing/landingContent";
+import { PROPOSED_PLANS } from "@/content/landing/proposedPlans";
 
 export function CommercialVerification() {
   return (

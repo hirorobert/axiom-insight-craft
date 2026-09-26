@@ -39,7 +39,7 @@ export const LANDING_HERO = {
   headline: "From trial balance to reviewable financial statements.",
   supporting:
     "Import a trial balance, review classification exceptions and prepare framework-aware financial statements with traceable checks and attributable user decisions.",
-  primaryCta: { label: "Start free", href: "/auth" },
+  primaryCta: { label: "Request access", href: "/request-access" },
   secondaryCta: { label: "Explore a sample close", href: "#sample-close" },
 } as const;
 
@@ -276,45 +276,8 @@ export const COMMERCIAL_HEADING = "Commercial structure under final enforcement 
 export const COMMERCIAL_NOTICE =
   "Entity limits, named-user capacity and self-serve payment activation are undergoing final enforcement verification. This preview is not a public commercial offer." as const;
 
-export interface ProposedPlan {
-  readonly name: string;
-  /** Proposed amount, always rendered beside the word "Proposed". Never structured data. */
-  readonly proposedAmount: string;
-  readonly proposedEntities: string;
-  readonly proposedUsers: string;
-  readonly proposedCapabilities: string;
-}
-
-export const PROPOSED_PLANS: readonly ProposedPlan[] = [
-  {
-    name: "Free",
-    proposedAmount: "Proposed: no charge",
-    proposedEntities: "Proposed: 1 entity",
-    proposedUsers: "Proposed: 1 named user",
-    proposedCapabilities: "Preparation and review",
-  },
-  {
-    name: "Practice",
-    proposedAmount: "Proposed: USD 99 per month",
-    proposedEntities: "Proposed: 5 entities",
-    proposedUsers: "Proposed: 1 named user included",
-    proposedCapabilities: "Close Certification, Reporting Pack, Close Insights",
-  },
-  {
-    name: "Firm",
-    proposedAmount: "Proposed: USD 299 per month",
-    proposedEntities: "Proposed: 25 entities",
-    proposedUsers: "Proposed: 1 named user included",
-    proposedCapabilities: "Close Certification, Reporting Pack, Close Insights",
-  },
-  {
-    name: "Enterprise",
-    proposedAmount: "Proposed: terms agreed separately",
-    proposedEntities: "Proposed: capacity agreed separately",
-    proposedUsers: "Proposed: capacity agreed separately",
-    proposedCapabilities: "Close Certification, Reporting Pack, Close Insights",
-  },
-];
+// The proposed plans are derived from the PR #34 commercial catalogue in ./proposedPlans.ts (this module stays data
+// only: no imports, no logic).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FAQ — the one source for both the visible copy and the FAQPage structured data
@@ -373,7 +336,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
     id: "pricing-status",
     question: "Is the displayed pricing already available?",
     answer:
-      "No. The plan structure shown is proposed and is undergoing final enforcement verification. Entity limits and named-user capacity are not enforced by the system today, additional-user billing is not built, and self-serve payment is switched off, so nothing on this page can be purchased. Treat it as a preview, not a commercial offer.",
+      "No. The plan structure shown is proposed and is undergoing final enforcement verification. Self-serve payment is switched off: there is no online checkout, plans are activated by our team, and nothing on this page can be purchased. Treat it as a preview, not a commercial offer.",
   },
 ];
 
@@ -383,8 +346,8 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
 
 export const LANDING_FINAL_CTA = {
   heading: "Bring greater control to your next financial close.",
-  supporting: "Create a workspace and explore CFOCLOSE's preparation and review workflow.",
-  primaryCta: { label: "Start free", href: "/auth" },
+  supporting: "Workspaces are activated by our team because online payment is not yet available.",
+  primaryCta: { label: "Request access", href: "/request-access" },
   secondaryCta: { label: "Sign in", href: "/auth" },
 } as const;
 

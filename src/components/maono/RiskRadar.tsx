@@ -78,7 +78,7 @@ export function RiskRadar({ riskData, isLoading }: RiskRadarProps) {
   if (!riskData) {
     return (
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
-        Risk analysis not yet available. Run maono-risk to generate.
+        Risk analysis not yet available. It appears here once a Close Insights risk analysis has run.
       </div>
     );
   }

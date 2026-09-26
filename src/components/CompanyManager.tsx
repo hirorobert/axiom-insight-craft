@@ -26,6 +26,8 @@ import { useAuditLog } from "@/hooks/useAuditLog";
 import { validateTin } from "@/components/workspace/CompanyTinDialog";
 import { FrameworkConfirmationBanner } from "@/components/FrameworkConfirmationBanner";
 import { deriveCompanyFieldLock, guardCompanyFieldChange, type ProcessingCertainty } from "@/lib/accounting/companyFieldLock";
+import { capacityCopy } from "@/lib/commercial/paidActions";
+import { parseCreateEntityOutcome } from "@/lib/commercial/entityCreation";
 
 const FRAMEWORK_LABELS: Record<string, string> = {
   ifrs_for_smes: "IFRS for SMEs",
@@ -176,6 +178,8 @@ export const CompanyManager = () => {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formDialogOpen, setFormDialogOpen] = useState(false);
+  // One request id per new-company form: a retried submission returns the SAME workspace (create_entity is idempotent).
+  const [creationRequestId, setCreationRequestId] = useState<string>(() => crypto.randomUUID());
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [tinTouched, setTinTouched] = useState(false);
   const { user } = useAuth();
@@ -240,6 +244,7 @@ export const CompanyManager = () => {
 
   const resetForm = () => {
     setFormData(EMPTY_FORM_DATA);
+    setCreationRequestId(crypto.randomUUID());
     setEditingCompany(null);
     setTinTouched(false);
     // A brand-new company has nothing processed, but the very next handleEdit() sets this back to
@@ -325,29 +330,34 @@ export const CompanyManager = () => {
 
         toast.success("Company updated successfully");
       } else {
-        const { data, error } = await supabase
-          .from("companies")
-          .insert({
-            name: formData.name,
-            code: formData.code || null,
-            tin: formData.tin.trim() || null,
-            description: formData.description || null,
-            industry: formData.industry || null,
-            fiscal_year_end: resolvedFiscalYearEnd,
-            currency: formData.currency,
-            // See the cast comment in the update branch above.
-            reporting_framework: formData.reporting_framework,
-            user_id: user.id,
-          } as never)
-          .select()
-          .single();
+        // create_entity (20260925100000): created for the signed-in user; entity capacity enforced by the server;
+        // idempotent per request id.
+        const { data, error } = await supabase.rpc("create_entity" as never, {
+          p_request_id: creationRequestId,
+          p_name: formData.name,
+          p_fiscal_year_end: resolvedFiscalYearEnd,
+          p_currency: formData.currency,
+          p_reporting_framework: formData.reporting_framework,
+          p_code: formData.code || null,
+          p_tin: formData.tin.trim() || null,
+          p_description: formData.description || null,
+          p_industry: formData.industry || null,
+        } as never);
 
         if (error) throw error;
+
+        const outcome = parseCreateEntityOutcome(data);
+        if (outcome.kind === "capacity") {
+          const copy = capacityCopy(outcome.capacity);
+          toast.error(copy.title, { description: `${copy.unavailable} ${copy.remains}` });
+          return;
+        }
+        if (outcome.kind !== "created") throw new Error("The company could not be created.");
 
         logAction({
           action: "create_company",
           entityType: "company",
-          entityId: data.id,
+          entityId: outcome.companyId,
           metadata: { name: formData.name },
         });
 

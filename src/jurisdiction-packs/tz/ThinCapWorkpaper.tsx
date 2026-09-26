@@ -196,7 +196,7 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                   </p>
                   <p className="text-xs text-amber-700 mt-1 leading-relaxed">
                     The thin capitalisation ratio (ITA s.12(2)) has not been confirmed against
-                    the primary source text. The Kinga engine returned null for total_debt and
+                    the primary source text. The tax computation returned null for total_debt and
                     interest_expense — no tax position has been calculated.
                   </p>
                   <p className="text-xs text-amber-700 mt-1 leading-relaxed">
@@ -218,7 +218,7 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                 <div>
                   <p className="text-sm font-medium text-amber-800">No debt/equity data from engine</p>
                   <p className="text-xs text-amber-700 mt-0.5">
-                    Thin cap data is populated by the Kinga Tax Engine on each run. If total debt and equity
+                    Thin cap data is populated by the tax computation on each run. If total debt and equity
                     are both zero, either (a) the engine has not been run yet, or (b) the company has no
                     interest-bearing debt — in which case ITA s.12(2) does not apply.
                   </p>
@@ -265,7 +265,7 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                         {
                           label: "Total interest-bearing debt (from TB)",
                           value: totalDebt,
-                          note: "Per Kinga engine — balance sheet",
+                          note: "Per tax computation — balance sheet",
                           indent: false, bold: false,
                         },
                         {
@@ -283,7 +283,7 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                         {
                           label: "Total equity",
                           value: equity,
-                          note: "Per Kinga engine — balance sheet",
+                          note: "Per tax computation — balance sheet",
                           indent: false, bold: false,
                         },
                         {
@@ -302,7 +302,7 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                         {
                           label: "Total interest expense (from TB)",
                           value: interest,
-                          note: "Per Kinga engine",
+                          note: "Per tax computation",
                           indent: false, bold: false,
                         },
                         {
@@ -362,7 +362,7 @@ export function ThinCapWorkpaper({ companyId, uploadId, periodYear, companyName 
                   Source: ITA Chapter 332 s.12(2) (as amended); Deloitte Tanzania Transfer Pricing Guide Aug 2025.
                   Resident bank debt exclusion per ITA s.12. Maximum debt:equity ratio 70:30 (2.333:1).
                   Interest rate assumption is indicative only — use actual weighted average rate from loan agreements.
-                  Kinga engine pre-populates debt/equity from balance sheet; CPA must confirm resident bank debt exclusion.
+                  The tax computation pre-populates debt/equity from the balance sheet; CPA must confirm resident bank debt exclusion.
                 </p>
               </>
             )}

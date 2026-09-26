@@ -246,7 +246,14 @@ describe("Flutterwave decommission — preserved provider-neutral business state
 });
 
 describe("Flutterwave decommission — honest user-facing copy", () => {
-  const HONEST = "Online checkout is temporarily unavailable. Contact support for billing assistance.";
+  // The honest notice lives in the pricing catalogue (there is no checkout at all in this build).
+  const HONEST = "NO_CHECKOUT_NOTICE";
+  const NOTICE = /export const NO_CHECKOUT_NOTICE = "There is no online checkout. Plans are activated by our team: contact sales to request one.";/;
+  it("the notice itself states there is no online checkout and names no provider", () => {
+    const catalogue = read("src/lib/commercial/pricingCatalogue.ts");
+    expect(catalogue).toMatch(NOTICE);
+    expect(catalogue).not.toMatch(/flutterwave/i);
+  });
 
   it("the pricing page states checkout is unavailable without naming a retired provider", () => {
     const pricing = read("src/pages/Pricing.tsx");

@@ -461,7 +461,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
         <div className="flex items-center gap-2">
           <Shield className="h-5 w-5 text-[#0E6B55]" />
           <div>
-            <h3 className="text-sm font-semibold text-[#0E1D30]">Safisha TB Verification</h3>
+            <h3 className="text-sm font-semibold text-[#0E1D30]">Close Certification · Trial Balance Verification</h3>
             <p className="text-xs text-muted-foreground">
               Upload evidence for <span className="font-mono">{fileName}</span> before running the tax engine.
             </p>
@@ -546,7 +546,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
         </div>
 
         <p className="text-[10px] text-muted-foreground text-center">
-          Iron Dome: the tax engine is locked until Safisha clears this TB.
+          The tax computation stays locked until Close Certification clears this trial balance.
         </p>
 
         {/* FieldMappingModal shown as overlay when column mapping needed */}
@@ -573,7 +573,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
       <div className="space-y-4">
         <div className="flex items-center gap-2">
           <Shield className="h-5 w-5 text-[#0E6B55]" />
-          <h3 className="text-sm font-semibold text-[#0E1D30]">Safisha TB Verification</h3>
+          <h3 className="text-sm font-semibold text-[#0E1D30]">Close Certification · Trial Balance Verification</h3>
         </div>
         {stepIndicator}
         <div className="py-8 flex flex-col items-center gap-3 text-center">
@@ -595,7 +595,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-amber-500" />
-            <h3 className="text-sm font-semibold text-[#0E1D30]">Safisha TB Verification</h3>
+            <h3 className="text-sm font-semibold text-[#0E1D30]">Close Certification · Trial Balance Verification</h3>
           </div>
           <div className="w-36">
             <ConfidenceScoreBar score={matchResult.confidence_score ?? 0} size="sm" />

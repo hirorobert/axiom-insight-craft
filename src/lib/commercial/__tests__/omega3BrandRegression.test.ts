@@ -109,26 +109,29 @@ describe("Ω3-BRAND · public brand", () => {
     expect(NAV.every((n) => n.href.startsWith("#")), "landing navigation is in-page only").toBe(true);
   });
 
-  it("10 · Monthly price is USD 49", () => {
-    expect(PRICING.MONTHLY_USD).toBe(49);
+  // Superseded by the CFO Close catalogue (20260925100000 / 20260925130000): there is no free plan; the entry plan is
+  // Solo at $49 / $490, derived from the one catalogue — no price is written in copy.ts.
+  it("10 · Entry plan monthly price is $49 (USD)", () => {
+    expect(PRICING.ENTRY_MONTHLY).toBe("$49");
     expect(PRICING.CURRENCY_CODE).toBe("USD");
   });
 
-  it("11 · Annual price is USD 499", () => {
-    expect(PRICING.ANNUAL_USD).toBe(499);
+  it("11 · Entry plan annual price is $490", () => {
+    expect(PRICING.ENTRY_ANNUAL).toBe("$490");
   });
 
-  it("12 · Annual saving is exactly USD 89", () => {
-    expect(PRICING.ANNUAL_SAVING_USD).toBe(89);
+  it("12 · Entry plan annual saving is exactly $98", () => {
+    expect(PRICING.ENTRY_ANNUAL_SAVING).toBe("$98");
   });
 
-  it("13 · Annual saving arithmetic: 49 × 12 − 499 = 89", () => {
-    expect(PRICING.MONTHLY_USD * 12).toBe(PRICING.ANNUAL_FULL_USD);
-    expect(PRICING.ANNUAL_FULL_USD - PRICING.ANNUAL_USD).toBe(PRICING.ANNUAL_SAVING_USD);
+  it("13 · Annual saving arithmetic: 49 × 12 − 490 = 98 (derived once, in the catalogue)", () => {
+    expect(49 * 12 - 490).toBe(98);
+    expect(Object.keys(PRICING)).not.toContain("MONTHLY_USD");
   });
 
-  it("14 · Paid plan customer-facing name is CFOClose Professional", () => {
-    expect(PRICING.PAID_NAME).toBe("CFOClose Professional");
+  it("14 · Entry plan customer-facing name is Solo; there is no free plan name", () => {
+    expect(PRICING.ENTRY_PLAN_NAME).toBe("Solo");
+    expect(Object.keys(PRICING)).not.toContain("FREE_NAME");
   });
 
   it("15 · Security headline is the iron-dome moat sentence", () => {
@@ -167,7 +170,7 @@ describe("Ω3-BRAND · pricing and checkout guards", () => {
     expect(PRICING_SECTION.cta.toLowerCase()).not.toContain("contact");
   });
 
-  it("32 · Ω3-CHECKOUT — Pricing.tsx (real source) invokes checkout ONLY through the shared CheckoutUpgradeButton component, never a direct/duplicated call of its own", () => {
+  it("32 · Pricing.tsx (real source) never constructs a checkout call of its own and, with no checkout in this build, renders none", () => {
     // CORRECTED (Ω3-CHECKOUT supersedes Ω3-BRAND's "checkout stays fully
     // disabled" milestone): checkout is now server-gated (platform_state,
     // offer resolution, provider configuration all still fail this closed
@@ -181,11 +184,9 @@ describe("Ω3-BRAND · pricing and checkout guards", () => {
     expect(src).not.toMatch(/commercial-create-checkout|payment-status|initiatePayment/i);
     expect(src).not.toMatch(/supabase\.functions\.invoke/);
     expect(src).not.toMatch(/\bcreateCheckoutIntent\(/);
-    expect(src).toMatch(/<CheckoutUpgradeButton\b/);
-    // Ω3-CHECKOUT audit HIGH fix (pricing parity) also imports the
-    // ResolvedOfferData type alongside the component — still the SAME
-    // single source module, never a second/duplicated import path.
-    expect(src).toMatch(/import \{[\s\S]*?CheckoutUpgradeButton,[\s\S]*?\} from "@\/components\/commercial\/CheckoutUpgradeButton";/);
+    expect(src).not.toMatch(/<CheckoutUpgradeButton\b/);
+    // CFO Close catalogue (20260925100000): no checkout in this build, so the pricing page imports none.
+    expect(src).not.toMatch(/from "@\/components\/commercial\/CheckoutUpgradeButton"/);
   });
 
   it("33 · Ω3-CHECKOUT — Settings.tsx (real source) invokes checkout/renewal ONLY through the shared CheckoutUpgradeButton component, never a direct/duplicated call of its own", () => {
@@ -205,13 +206,17 @@ describe("Ω3-BRAND · pricing and checkout guards", () => {
 // ─────────────────────────────────────────────────────────────
 
 describe("Ω3-BRAND · Settings section — real billingDisplay.ts functions", () => {
-  it("21 · FREE plan code maps to Free (not PAID or raw code)", () => {
-    expect(displayPlanName("FREE")).toBe("Free");
+  it("21 · the retired FREE plan code maps to 'Free (retired)' (not PAID, not a current plan, not the raw code)", () => {
+    expect(displayPlanName("FREE")).toBe("Free (retired)");
     expect(displayPlanName("FREE")).not.toBe("PAID");
   });
 
-  it("22 · PAID plan code maps to CFOClose Professional", () => {
-    expect(displayPlanName("PAID")).toBe("CFOClose Professional");
+  it("22 · plan codes map to catalogue names; the grandfathered legacy PAID plan is labelled as legacy", () => {
+    expect(displayPlanName("SOLO")).toBe("Solo");
+    expect(displayPlanName("PRACTICE")).toBe("Practice");
+    expect(displayPlanName("FIRM")).toBe("Firm");
+    expect(displayPlanName("ENTERPRISE")).toBe("Enterprise");
+    expect(displayPlanName("PAID")).toBe("Professional (legacy)");
   });
 
   it("23 · null plan code fails closed as 'Plan unavailable' — Settings.tsx only calls displayPlanName after confirming a billing customer exists, so null here is an anomaly, not 'no billing customer'", () => {
@@ -242,11 +247,10 @@ describe("Ω3-BRAND · Settings section — real billingDisplay.ts functions", (
     }
   });
 
-  it("35 · A known feature code maps to its real description, never the raw code", () => {
-    expect(displayEntitlement("MULTI_COMPANY")).toBe(
-      "Manage more than one company under a single firm licence.",
-    );
-    expect(displayEntitlement("MULTI_COMPANY")).not.toBe("MULTI_COMPANY");
+  it("35 · A known capability code maps to its customer description, never the raw code", () => {
+    expect(displayEntitlement("ENTITY_CAPACITY")).toBe("Entity Capacity — How many active entities your plan includes.");
+    expect(displayEntitlement("ENTITY_CAPACITY")).not.toBe("ENTITY_CAPACITY");
+    expect(displayEntitlement("MULTI_COMPANY")).toBe("Capability details unavailable"); // legacy codes are never displayed raw
   });
 
   it("36 · An unrecognized entitlement code never exposes the raw code and never claims inclusion (charter item 6, corrected)", () => {
@@ -290,19 +294,16 @@ describe("Ω3-BRAND · Settings section — real billingDisplay.ts functions", (
     expect(EFFECTIVE_END_LABEL).toBe("Effective through");
   });
 
-  it("25 · Monthly amount display is arithmetically correct", () => {
-    const monthly = `USD ${PRICING.MONTHLY_USD}/month`;
-    expect(monthly).toBe("USD 49/month");
+  it("25 · Monthly amount display comes from the catalogue", () => {
+    expect(`${PRICING.ENTRY_MONTHLY}/month`).toBe("$49/month");
   });
 
-  it("26 · Annual amount display is arithmetically correct", () => {
-    const annual = `USD ${PRICING.ANNUAL_USD}/year`;
-    expect(annual).toBe("USD 499/year");
+  it("26 · Annual amount display comes from the catalogue", () => {
+    expect(`${PRICING.ENTRY_ANNUAL}/year`).toBe("$490/year");
   });
 
-  it("27 · Annual saving display is correct", () => {
-    const saving = `Save USD ${PRICING.ANNUAL_SAVING_USD}`;
-    expect(saving).toBe("Save USD 89");
+  it("27 · Annual saving display comes from the catalogue", () => {
+    expect(`Save ${PRICING.ENTRY_ANNUAL_SAVING}`).toBe("Save $98");
   });
 
   it("28 · Settings CTA routes to /pricing, not to checkout", () => {
@@ -614,21 +615,19 @@ describe("Ω3-BRAND · Pricing/Settings — H-2 unenforced commercial limits rem
     expect(settingsSrc).not.toMatch(/unlimited/i);
   });
 
-  it("71 · Pricing.tsx no longer claims 'Audit trail for all actions' — hardened to a scope-neutral, truthful description", () => {
-    expect(pricingSrc).not.toMatch(/Audit trail for all actions/i);
-    expect(pricingSrc).toContain("Recorded workspace activity and review decisions");
+  it("71 · neither the pricing page nor the catalogue claims 'Audit trail for all actions'", () => {
+    const catalogueSrc = readSource("src/lib/commercial/pricingCatalogue.ts");
+    for (const src of [pricingSrc, catalogueSrc]) expect(src).not.toMatch(/Audit trail for all actions/i);
   });
 
-  it("72 · Pricing.tsx uses the approved scope-neutral Free and Professional taglines", () => {
-    expect(pricingSrc).toContain("Create a workspace and evaluate the core reporting workflow");
-    expect(pricingSrc).toContain("Complete professional reporting and review workflow");
+  it("72 · plan names, taglines and features come from the one catalogue, never from page-local copy", () => {
+    expect(pricingSrc).toMatch(/PRICING_CATALOGUE\.map\(/);
+    expect(pricingSrc).not.toMatch(/const (FREE|PAID)_(FEATURES|TAGLINE)\b/);
   });
 
-  it("73 · Settings.tsx Plan & Billing free-state copy uses the approved scope-neutral replacement", () => {
-    expect(settingsSrc).toContain(
-      "You are currently using the free plan. Review available plans and released",
-    );
-    expect(settingsSrc).toMatch(/Professional capabilities\.?/);
+  it("73 · Settings.tsx Plan & Billing no-plan copy states read-only access, never a free plan", () => {
+    expect(settingsSrc).toContain("This account has no current plan. Existing data stays readable; new work needs a plan.");
+    expect(settingsSrc).not.toMatch(/using the free plan|PRICING.FREE_NAME/i);
   });
 
   it("74 · neither Pricing.tsx nor Settings.tsx were touched in a way that changes commercial entitlement logic — both still route upgrade/checkout intent through the shared CheckoutUpgradeButton, never a direct call of their own", () => {

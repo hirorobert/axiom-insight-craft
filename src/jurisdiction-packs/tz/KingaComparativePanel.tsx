@@ -77,7 +77,7 @@ export function KingaComparativePanel({ companyId, currentPeriodId }: Props) {
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke(
-        "kinga-comparative-engine",
+        "comparative-assurance-engine",
         {
           body: {
             company_id: companyId,
@@ -134,7 +134,7 @@ export function KingaComparativePanel({ companyId, currentPeriodId }: Props) {
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
           <TrendingUp className="w-5 h-5 text-primary" />
-          Kinga — Comparative Analysis (Module F)
+          Comparative Analysis (Module F)
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">

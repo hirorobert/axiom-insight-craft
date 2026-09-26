@@ -137,6 +137,23 @@ async function applyAutocommit(file) {
 
 const migrationFiles = () => fs.readdirSync(path.join(REPO, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
 async function applyMigration(f) {
+  // This proof holds a legacy (Free-licensed) account created mid-history. Retiring the Free plan (20260925130000) is
+  // interlocked: this disposable database records the durable approval an operator would (current inventory, notice,
+  // activation path) immediately before that migration.
+  if (f.startsWith("20260925130000_")) {
+    // Recorded exactly as an operator would: by an active commercial administrator, through the only creation path.
+    const approver = globalThis.crypto.randomUUID();
+    await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [approver, `approver-${approver}@example.test`]);
+    await admin.query("INSERT INTO public.commercial_admins (user_id) VALUES ($1)", [approver]);
+    const open = (await admin.query("SELECT (public._free_plan_inventory()->>'open_free_licences')::int n")).rows[0].n;
+    await admin.query("BEGIN");
+    try {
+      await admin.query("SET LOCAL ROLE authenticated");
+      await admin.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [approver]);
+      await admin.query("SELECT public.admin_record_deployment_approval('FREE_PLAN_RETIREMENT','upload-lifecycle-proof',$1,'proof notice','MANUAL_ADMIN',1)", [open]);
+      await admin.query("COMMIT");
+    } catch (e) { await admin.query("ROLLBACK"); throw e; }
+  }
   let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
   if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
   try { await admin.query(text); } catch (e) { throw new Error(`migration ${f} failed: ${String(e.message).split("\n")[0]}`); }
@@ -392,6 +409,19 @@ async function main() {
   // (create_owner_firm_member) and trg_prevent_last_owner_delete protects it. In this throwaway database only,
   // the fixture removes that row with triggers suspended for the one statement, so the proof shows authority
   // never needs it.
+  // Entity Capacity and named-user seats (20260925100000): this fixture account runs several workspaces with many
+  // collaborators, as a Firm-plan account with purchased additional seats would.
+  if ((await count("SELECT count(*) n FROM information_schema.tables WHERE table_name='commercial_capabilities'")) === 1) {
+    const prod = (await admin.query("SELECT id FROM public.commercial_products WHERE code='CFOCLOSE'")).rows[0].id;
+    const bc = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) RETURNING id", [U.owner, prod])).rows[0].id;
+    await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats) SELECT $1, id, 'ACTIVE', 'ADMIN_GRANT', now() - interval '1 day', 50 FROM public.commercial_plans WHERE product_id=$2 AND code='FIRM'", [bc, prod]);
+    // There is no free plan (20260925130000): every other account that creates a workspace in this proof holds a plan too,
+    // recorded exactly as a real account's would be (Firm, with room for its collaborators).
+    for (const uid of [U.solo, U.ownerB, U.unrelated]) {
+      const b2 = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) RETURNING id", [uid, prod])).rows[0].id;
+      await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats) SELECT $1, id, 'ACTIVE', 'ADMIN_GRANT', now() - interval '1 day', 50 FROM public.commercial_plans WHERE product_id=$2 AND code='FIRM'", [b2, prod]);
+    }
+  }
   const S = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Solo workspace') RETURNING id", [U.solo])).rows[0].id;
   await admin.query("BEGIN");
   await admin.query("SET LOCAL session_replication_role = replica");

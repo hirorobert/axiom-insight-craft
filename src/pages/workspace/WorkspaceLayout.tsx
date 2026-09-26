@@ -27,6 +27,7 @@ import { deriveWorkspaceNavigation } from "@/lib/workspace/navigation";
 import { canOpenStage, isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 import { WorkspaceAccessShell } from "@/components/workspace/WorkspaceAccessGate";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
+import { DraftPrintMark } from "@/components/commercial/DraftPrintMark";
 import type { CompanyReportingFrameworkDbValue } from "@/lib/accounting/frameworkAdapter";
 import { detectEntityAccountingContext } from "@/lib/accounting/detectEntityContext";
 import { classifyConfirmationPosture } from "@/lib/accounting/confirmationPosture";
@@ -385,6 +386,8 @@ export default function WorkspaceLayout() {
         <main className="flex-1 max-w-screen-2xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
           <Outlet />
         </main>
+        {/* Free printing of any workspace page carries the draft marking on every printed page. */}
+        <DraftPrintMark companyId={companyId} />
 
       </div>
       </WorkspaceAccessShell>

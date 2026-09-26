@@ -359,24 +359,39 @@ BEGIN
 END $$;
 
 -- ============================================================
--- E. Offer-seed binding — independently re-queried (already asserted at
---    migration-apply time by 20260913000000 itself; re-proven here as a
---    live, post-apply fact, not merely "the migration didn't abort")
+-- E. Offer-seed binding — independently re-queried as a live, post-apply
+--    fact. The two original Professional offers (20260913000000) are kept,
+--    still bound to PAID and non-purchasable, but RETIRED (inactive) by
+--    20260925100000; the current catalogue's four offers are bound to
+--    PRACTICE / FIRM, active and non-purchasable.
 -- ============================================================
 
 DO $$
-DECLARE v_count INTEGER;
+DECLARE v_legacy INTEGER; v_current INTEGER;
 BEGIN
-  SELECT count(*) INTO v_count
+  SELECT count(*) INTO v_legacy
     FROM public.commercial_offers co
     JOIN public.commercial_plans cp ON cp.id = co.plan_id
     JOIN public.commercial_products cprod ON cprod.id = cp.product_id
    WHERE co.offer_code IN ('CFOCLOSE_PROFESSIONAL_GLOBAL_USD_MONTHLY', 'CFOCLOSE_PROFESSIONAL_GLOBAL_USD_ANNUAL')
-     AND cprod.code = 'CFOCLOSE' AND cp.code = 'PAID' AND co.is_purchasable = false AND co.is_active = true;
-  IF v_count != 2 THEN
-    RAISE EXCEPTION 'FAIL: expected 2 correctly-bound, non-purchasable CFOClose offers, found %', v_count;
+     AND cprod.code = 'CFOCLOSE' AND cp.code = 'PAID' AND co.is_purchasable = false AND co.is_active = false;
+  IF v_legacy != 2 THEN
+    RAISE EXCEPTION 'FAIL: expected the 2 original CFOClose offers retained, bound to PAID, retired and non-purchasable, found %', v_legacy;
   END IF;
-  RAISE NOTICE 'PASS: both CFOClose offers exist, correctly bound, non-purchasable';
+  SELECT count(*) INTO v_current
+    FROM public.commercial_offers co
+    JOIN public.commercial_plans cp ON cp.id = co.plan_id
+    JOIN public.commercial_products cprod ON cprod.id = cp.product_id
+   WHERE cprod.code = 'CFOCLOSE' AND co.is_active = true AND co.is_purchasable = false
+     AND (cp.code, co.offer_code) IN (('PRACTICE', 'CFOCLOSE_PRACTICE_GLOBAL_USD_MONTHLY'), ('PRACTICE', 'CFOCLOSE_PRACTICE_GLOBAL_USD_ANNUAL'),
+                                      ('FIRM', 'CFOCLOSE_FIRM_GLOBAL_USD_MONTHLY'), ('FIRM', 'CFOCLOSE_FIRM_GLOBAL_USD_ANNUAL'));
+  IF v_current != 4 THEN
+    RAISE EXCEPTION 'FAIL: expected 4 current CFOClose offers bound to PRACTICE / FIRM, active and non-purchasable, found %', v_current;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.commercial_offers WHERE is_purchasable) THEN
+    RAISE EXCEPTION 'FAIL: an offer is purchasable although no checkout is activated';
+  END IF;
+  RAISE NOTICE 'PASS: original offers retained but retired; the current four offers are correctly bound and non-purchasable';
 END $$;
 
 -- ============================================================

@@ -9,90 +9,95 @@ import {
   type LicencePeriod,
 } from "./entitlementContract";
 
-const paidLicence: CurrentLicenceSnapshot = {
-  status: "ACTIVE",
-  planCode: "PAID",
-  featureCodes: [
-    "SAFISHA_PREVIEW",
-    "SAFISHA_CERTIFY",
-    "HESABU_REPORTING",
-    "HESABU_EXPORT",
-    "MAONO_INTELLIGENCE",
-    "MULTI_COMPANY",
-    "MULTI_PERIOD",
-  ],
-};
+const ALL_PAID = ["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "ENTITY_CAPACITY", "NAMED_USER_SEATS", "STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS"];
+const practiceLicence: CurrentLicenceSnapshot = { status: "ACTIVE", planCode: "PRACTICE", featureCodes: ALL_PAID };
+const freeLicence: CurrentLicenceSnapshot = { status: "ACTIVE", planCode: "FREE", featureCodes: ["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "ENTITY_CAPACITY", "NAMED_USER_SEATS"] };
 
-const freeLicence: CurrentLicenceSnapshot = {
-  status: "ACTIVE",
-  planCode: "FREE",
-  featureCodes: ["SAFISHA_PREVIEW", "HESABU_REPORTING"],
-};
-
-describe("classifyEntitlement — mirrors _resolve_entitlement_for_owner()", () => {
+describe("classifyEntitlement — mirrors _resolve_entitlement_for_owner() (20260925130000: no free plan, one matrix)", () => {
   it("unknown feature code -> UNKNOWN, fails closed", () => {
-    const result = classifyEntitlement("NOT_A_REAL_FEATURE", true, paidLicence, false);
+    const result = classifyEntitlement("NOT_A_REAL_FEATURE", true, practiceLicence, false);
     expect(result.status).toBe("UNKNOWN");
     expect(isEntitledForPrivilegedUse(result)).toBe(false);
   });
 
-  it("no billing customer -> NOT_ENTITLED (a known fact, never UNKNOWN)", () => {
-    const result = classifyEntitlement("HESABU_REPORTING", false, null, false);
-    expect(result).toEqual({
-      status: "NOT_ENTITLED",
-      reason: "NO_BILLING_CUSTOMER",
-      licenceStatus: null,
-      planCode: null,
-      source: null,
+  it("no permanent free entitlement: capabilities included in every plan still need a plan", () => {
+    for (const code of ["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "MULTI_PERIOD", "SAFISHA_PREVIEW"]) {
+      expect(classifyEntitlement(code, false, null, false)).toEqual({ status: "NOT_ENTITLED", reason: "NO_CURRENT_PLAN", licenceStatus: null, planCode: null, source: null });
+      expect(classifyEntitlement(code, true, null, false).reason).toBe("NO_CURRENT_PLAN");
+      expect(classifyEntitlement(code, true, practiceLicence, false).status).toBe("ENTITLED");
+    }
+  });
+
+  it("capacity is never a yes/no flag in the mirror (the server resolves the number)", () => {
+    expect(classifyEntitlement("ENTITY_CAPACITY", true, practiceLicence, false).status).toBe("UNKNOWN");
+    expect(classifyEntitlement("MULTI_COMPANY", true, practiceLicence, false).status).toBe("UNKNOWN");
+    expect(classifyEntitlement("NAMED_USER_SEATS", true, practiceLicence, false).status).toBe("UNKNOWN");
+  });
+
+  it("no billing customer -> NOT_ENTITLED with no plan (a known fact, never UNKNOWN)", () => {
+    expect(classifyEntitlement("STATEMENT_CERTIFICATION", false, null, false)).toEqual({
+      status: "NOT_ENTITLED", reason: "NO_CURRENT_PLAN", licenceStatus: null, planCode: null, source: null,
     });
   });
 
   it("active admin override wins even with no current licence", () => {
-    const result = classifyEntitlement("MAONO_INTELLIGENCE", true, null, true);
+    const result = classifyEntitlement("CLOSE_INSIGHTS", true, null, true);
     expect(result.status).toBe("ENTITLED");
     expect(result.source).toBe("ADMIN_OVERRIDE");
-    expect(isEntitledForPrivilegedUse(result)).toBe(true);
   });
 
-  it("no current licence period, no override -> NOT_ENTITLED", () => {
-    const result = classifyEntitlement("HESABU_REPORTING", true, null, false);
-    expect(result.status).toBe("NOT_ENTITLED");
-    expect(result.reason).toBe("NO_CURRENT_LICENCE_PERIOD");
+  it("no current licence period, no override -> NOT_ENTITLED with no plan (read-only after expiry)", () => {
+    const result = classifyEntitlement("REPORTING_PACK_EXPORT", true, null, false);
+    expect([result.status, result.reason, result.planCode]).toEqual(["NOT_ENTITLED", "NO_CURRENT_PLAN", null]);
   });
 
   it.each<[LicenceStatusLike]>([["SUSPENDED"], ["CANCELLED"], ["EXPIRED"], ["PENDING"]])(
     "licence status %s -> NOT_ENTITLED, never silently entitled",
     (status) => {
-      const result = classifyEntitlement("HESABU_REPORTING", true, { ...paidLicence, status }, false);
+      const result = classifyEntitlement("STATEMENT_CERTIFICATION", true, { ...practiceLicence, status }, false);
       expect(result.status).toBe("NOT_ENTITLED");
       expect(result.reason).toBe("LICENCE_NOT_ACTIVE");
       expect(result.licenceStatus).toBe(status);
     },
   );
 
-  it("GRACE status counts as entitled, same as ACTIVE (flagged design decision)", () => {
-    const result = classifyEntitlement("HESABU_REPORTING", true, { ...paidLicence, status: "GRACE" }, false);
+  it("GRACE status counts as entitled, same as ACTIVE", () => {
+    const result = classifyEntitlement("STATEMENT_CERTIFICATION", true, { ...practiceLicence, status: "GRACE" }, false);
     expect(result.status).toBe("ENTITLED");
     expect(result.source).toBe("ACTIVE_LICENCE");
   });
 
-  it("ACTIVE licence whose plan includes the feature -> ENTITLED", () => {
-    const result = classifyEntitlement("MULTI_COMPANY", true, paidLicence, false);
-    expect(result.status).toBe("ENTITLED");
-    expect(result.reason).toBe("ACTIVE_LICENCE_INCLUDES_FEATURE");
-    expect(result.planCode).toBe("PAID");
+  it("Practice includes every paid capability; legacy input codes resolve the same way", () => {
+    for (const code of ["STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS", "SAFISHA_CERTIFY", "HESABU_EXPORT", "MAONO_INTELLIGENCE"]) {
+      const result = classifyEntitlement(code, true, practiceLicence, false);
+      expect([result.status, result.reason, result.planCode]).toEqual(["ENTITLED", "ACTIVE_LICENCE_INCLUDES_FEATURE", "PRACTICE"]);
+    }
   });
 
-  it("ACTIVE licence whose plan excludes the feature -> NOT_ENTITLED (FREE plan lacks MAONO)", () => {
-    const result = classifyEntitlement("MAONO_INTELLIGENCE", true, freeLicence, false);
-    expect(result.status).toBe("NOT_ENTITLED");
-    expect(result.reason).toBe("PLAN_DOES_NOT_INCLUDE_FEATURE");
-    expect(result.planCode).toBe("FREE");
+  it("a licence on the retired Free plan entitles nothing, whatever features it claims", () => {
+    for (const code of ["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS", "CLEAN_PDF"]) {
+      const result = classifyEntitlement(code, true, freeLicence, false);
+      expect([result.status, result.reason, result.planCode]).toEqual(["NOT_ENTITLED", "RETIRED_PLAN", null]);
+    }
   });
 
-  it("FREE plan IS entitled to its own included features", () => {
-    const result = classifyEntitlement("HESABU_REPORTING", true, freeLicence, false);
-    expect(result.status).toBe("ENTITLED");
+  it("Solo includes every capability except multi-entity reporting; consolidation is on no plan", () => {
+    const solo: CurrentLicenceSnapshot = { status: "ACTIVE", planCode: "SOLO", featureCodes: ALL_PAID };
+    for (const code of ["CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS", "CLEAN_PDF", "EXCEL_EXPORT", "FILING_PACKS", "MANAGEMENT_LETTERS", "REGIONAL_PACKS"]) {
+      expect(classifyEntitlement(code, true, solo, false).status).toBe("ENTITLED");
+    }
+    expect(classifyEntitlement("MULTI_ENTITY_REPORTING", true, solo, false).reason).toBe("PLAN_DOES_NOT_INCLUDE_FEATURE");
+    expect(classifyEntitlement("MULTI_ENTITY_REPORTING", true, practiceLicence, false).status).toBe("ENTITLED");
+    for (const l of [solo, practiceLicence]) expect(classifyEntitlement("CONSOLIDATION", true, l, false).status).toBe("NOT_ENTITLED");
+  });
+
+  it("an unknown plan code is refused, whatever features it claims", () => {
+    const result = classifyEntitlement("CLOSE_INSIGHTS", true, { status: "ACTIVE", planCode: "GOLD", featureCodes: ALL_PAID }, false);
+    expect([result.status, result.reason]).toEqual(["NOT_ENTITLED", "UNKNOWN_PLAN"]);
+  });
+
+  it("the grandfathered legacy PAID plan still entitles its paid capabilities", () => {
+    expect(classifyEntitlement("CLOSE_INSIGHTS", true, { status: "ACTIVE", planCode: "PAID", featureCodes: ALL_PAID }, false).status).toBe("ENTITLED");
   });
 });
 
@@ -119,8 +124,8 @@ const day = (n: number) => new Date(Date.UTC(2026, 0, n));
 function period(overrides: Partial<LicencePeriod> & { id: string }): LicencePeriod {
   return {
     status: "ACTIVE",
-    planCode: "PAID",
-    featureCodes: ["HESABU_REPORTING"],
+    planCode: "PRACTICE",
+    featureCodes: ["CLOSE_ASSURANCE"],
     effectiveStart: day(1),
     effectiveEnd: null,
     ...overrides,
@@ -220,7 +225,7 @@ describe("selectCurrentAuthoritativeLicence — mirrors the resolver's current-p
     const periods = [period({ id: "A", status: "CANCELLED", effectiveStart: day(1), effectiveEnd: null })];
     const current = selectCurrentAuthoritativeLicence(periods, day(15));
     const result = classifyEntitlement(
-      "HESABU_REPORTING",
+      "STATEMENT_CERTIFICATION",
       true,
       current
         ? { status: current.status, planCode: current.planCode, featureCodes: current.featureCodes }

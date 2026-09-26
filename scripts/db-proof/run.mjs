@@ -198,6 +198,21 @@ async function seed() {
   for (const [k, id] of Object.entries(U)) {
     await admin.query("INSERT INTO auth.users (id, email) VALUES ($1, $2)", [id, `${k}@example.test`]);
   }
+  // A certified close (FINAL) needs STATEMENT_CERTIFICATION (20260925100000): Company A is a Practice-plan workspace.
+  // The licence exists before the workspace, so the automatic Free licence is not provisioned beside it. Company A
+  // has four other people (three members and one pending invitation), so the licence carries four purchased
+  // additional named-user seats (1 included + 4).
+  if ((await admin.query("SELECT to_regclass('public.commercial_capabilities') IS NOT NULL AS ok")).rows[0].ok) {
+    const prod = (await admin.query("SELECT id FROM public.commercial_products WHERE code='CFOCLOSE'")).rows[0].id;
+    const bc = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) RETURNING id", [U.owner, prod])).rows[0].id;
+    await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats) SELECT $1, id, 'ACTIVE', 'ADMIN_GRANT', now() - interval '1 day', 4 FROM public.commercial_plans WHERE product_id=$2 AND code='PRACTICE'", [bc, prod]);
+    // There is no free plan (20260925130000): every other account that creates a workspace in this proof holds a plan too,
+    // recorded exactly as a real account's would be (Firm, with room for its collaborators).
+    for (const uid of [U.ownerB]) {
+      const b2 = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) RETURNING id", [uid, prod])).rows[0].id;
+      await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats) SELECT $1, id, 'ACTIVE', 'ADMIN_GRANT', now() - interval '1 day', 50 FROM public.commercial_plans WHERE product_id=$2 AND code='FIRM'", [b2, prod]);
+    }
+  }
   COMPANY_A = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1, 'Company A') RETURNING id", [U.owner])).rows[0].id;
   COMPANY_B = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1, 'Company B') RETURNING id", [U.ownerB])).rows[0].id;
   for (const [k, role] of [["partner", "partner"], ["preparer", "preparer"], ["viewer", "viewer"]]) {

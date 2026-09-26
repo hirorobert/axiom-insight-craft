@@ -85,6 +85,8 @@ CREATE TABLE IF NOT EXISTS storage.objects (
   owner      UUID,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- As in Supabase Storage: the object's metadata (size, mimetype) recorded by the upload.
+ALTER TABLE storage.objects ADD COLUMN IF NOT EXISTS metadata JSONB;
 
 CREATE OR REPLACE FUNCTION storage.foldername(name TEXT) RETURNS TEXT[]
 LANGUAGE sql IMMUTABLE AS $$

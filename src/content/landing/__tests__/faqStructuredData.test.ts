@@ -17,7 +17,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { LANDING_FAQ, PROPOSED_PLANS } from "../landingContent";
+import { LANDING_FAQ } from "../landingContent";
+import { PROPOSED_PLANS } from "../proposedPlans";
 import { buildFaqStructuredData, serializeFaqStructuredData } from "../faqStructuredData";
 
 const ROOT = path.resolve(__dirname, "../../../..");
@@ -84,8 +85,9 @@ describe("no price, offer or availability reaches structured data or metadata", 
 
   it("no proposed plan amount appears anywhere in index.html", () => {
     for (const plan of PROPOSED_PLANS) {
-      if (!/\d/.test(plan.amount)) continue;
-      expect(INDEX_HTML, `${plan.name}'s amount leaked into index.html`).not.toContain(plan.amount);
+      if (!/\d/.test(plan.proposedAmount)) continue;
+      const amount = plan.proposedAmount.replace(/^Proposed: /, "");
+      expect(INDEX_HTML, `${plan.name}'s amount leaked into index.html`).not.toContain(amount);
     }
   });
 
