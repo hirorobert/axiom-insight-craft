@@ -114,8 +114,25 @@ const word = (tok, w) => tok?.type === "word" && tok.text.toUpperCase() === w;
 function inspectCode(code, where, forbiddenTag, depth = 0) {
   if (depth > 32) fail(`${where}: dollar quotes nested too deeply`);
   const toks = lexSql(code).filter((x) => !isTrivia(x));
+  // The statement (at this level) each token belongs to: an executable body of a CREATE FUNCTION / PROCEDURE must be
+  // dollar-quoted (so it is inspected below); a string body would be executable code hidden from inspection.
+  let stmtStart = 0;
   for (let k = 0; k < toks.length; k++) {
     const tok = toks[k];
+    if (tok.type === "punct" && tok.text === ";") { stmtStart = k + 1; continue; }
+    // DO [LANGUAGE x] <body>: the body must be dollar-quoted (ON CONFLICT DO NOTHING / UPDATE are not bodies).
+    if (word(tok, "DO")) {
+      let b = k + 1;
+      if (word(toks[b], "LANGUAGE")) b += 2;
+      if (toks[b]?.type === "string") fail(`${where}: a DO body in a string literal (${JSON.stringify(toks[b].text.slice(0, 24))}); executable bodies must be dollar-quoted`);
+    }
+    if (word(tok, "AS") && toks[k + 1]?.type === "string") {
+      const stmt = toks.slice(stmtStart, k);
+      const create = stmt.findIndex((x) => word(x, "CREATE"));
+      if (create >= 0 && stmt.slice(create).some((x) => word(x, "FUNCTION") || word(x, "PROCEDURE"))) {
+        fail(`${where}: a function / procedure body in a string literal (${JSON.stringify(toks[k + 1].text.slice(0, 24))}); executable bodies must be dollar-quoted`);
+      }
+    }
     if (tok.type === "dollar") {
       if (forbiddenTag(tok.tag)) fail(`${where}: contains a nested envelope or segment tag $${tok.tag}$`);
       inspectCode(tok.body, where, forbiddenTag, depth + 1);

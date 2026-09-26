@@ -45,6 +45,18 @@ const MALICIOUS: Array<[string, string, RegExp]> = [
   ["10b newlines and tabs", inDo("EXECUTE\n\t\n  'GRANT ALL ON public.t TO anon';"), /dynamic SQL/],
   ["11 nested block comments hiding nothing", inDo("/* outer /* inner */ still comment */ EXECUTE 'GRANT ALL ON public.t TO anon';"), /dynamic SQL/],
   ["11b nested dollar quotes", envelope(seg("DO $a$ BEGIN PERFORM $b$ x $b$; EXECUTE $c$GRANT ALL ON public.t TO anon$c$; END $a$", "aaa")), /dynamic SQL/],
+  // Executable bodies in string literals would hide their code from inspection: only dollar-quoted bodies are allowed.
+  ["14a DO '...'", envelope(seg("DO 'BEGIN EXECUTE ''GRANT ALL ON public.t TO anon''; END'", "aaa")), /DO body in a string literal/],
+  ["14b DO E'...'", envelope(seg("DO E'BEGIN EXECUTE \\'GRANT ALL ON public.t TO anon\\'; END'", "aaa")), /DO body in a string literal/],
+  ["14c DO LANGUAGE plpgsql '...'", envelope(seg("DO LANGUAGE plpgsql 'BEGIN NULL; END'", "aaa")), /DO body in a string literal/],
+  ["14d do /* c */ e'...' (case, comment)", envelope(seg("do /* hidden */ e'BEGIN NULL; END'", "aaa")), /DO body in a string literal/],
+  ["14e DO '...' nested inside a dollar-quoted body", inDo("PERFORM 1; DO 'BEGIN NULL; END';"), /DO body in a string literal/],
+  ["15a CREATE FUNCTION ... AS '...' LANGUAGE plpgsql", envelope(seg("CREATE FUNCTION public.f() RETURNS void AS 'BEGIN EXECUTE ''GRANT ALL ON public.t TO anon''; END' LANGUAGE plpgsql", "aaa")), /function \/ procedure body in a string literal/],
+  ["15b CREATE OR REPLACE FUNCTION ... AS E'...'", envelope(seg("CREATE OR REPLACE FUNCTION public.f() RETURNS void LANGUAGE plpgsql AS E'BEGIN NULL; END'", "aaa")), /function \/ procedure body in a string literal/],
+  ["15c create function, mixed case, comments and newlines", envelope(seg("create\n  /* x */ Function public.f()\n\tReturns void language sql as\n  'SELECT 1'", "aaa")), /function \/ procedure body in a string literal/],
+  ["16a CREATE PROCEDURE ... AS '...'", envelope(seg("CREATE PROCEDURE public.p() LANGUAGE plpgsql AS 'BEGIN NULL; END'", "aaa")), /function \/ procedure body in a string literal/],
+  ["16b CREATE OR REPLACE PROCEDURE ... AS E'...'", envelope(seg("CREATE OR REPLACE PROCEDURE public.p() AS E'BEGIN NULL; END' LANGUAGE plpgsql", "aaa")), /function \/ procedure body in a string literal/],
+  ["16c procedure inside a DO body", inDo("CREATE PROCEDURE public.p() AS 'BEGIN NULL; END' LANGUAGE plpgsql;"), /function \/ procedure body in a string literal/],
   ["12a raw GRANT before", `GRANT ALL ON public.t TO anon;\n${envelope(seg("SELECT 1", "aaa"))}`, /before the envelope/],
   ["12b raw REVOKE after", `${envelope(seg("SELECT 1", "aaa"))}REVOKE ALL ON public.t FROM service_role;\n`, /after the envelope/],
   ["12c trailing GRANT after a comment", `${envelope(seg("SELECT 1", "aaa"))}-- done\nGRANT EXECUTE ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) TO authenticated;`, /after the envelope/],
@@ -95,6 +107,11 @@ describe("no false positives", () => {
     accepted(envelope(seg("REVOKE EXECUTE ON FUNCTION public.f() FROM PUBLIC", "aaa")));
     accepted(envelope(seg("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role", "aaa")));
     accepted(`-- header\n/* block /* nested */ comment */\n${envelope(seg("SELECT 1", "aaa"))}-- trailing comment\n`);
+    // Dollar-quoted bodies, ON CONFLICT DO, and strings that merely follow AS outside a function definition.
+    accepted(envelope(seg("CREATE OR REPLACE FUNCTION public.f() RETURNS text LANGUAGE sql AS $fn$ SELECT 'AS ''x''' $fn$", "aaa")));
+    accepted(envelope(seg("DO LANGUAGE plpgsql $d$ BEGIN NULL; END $d$", "aaa")));
+    accepted(envelope(seg("INSERT INTO public.t (id) VALUES (1) ON CONFLICT DO NOTHING", "aaa")));
+    accepted(envelope(seg("COMMENT ON FUNCTION public.f() IS 'defined AS ''sql'' elsewhere'", "aaa")));
   });
 });
 
