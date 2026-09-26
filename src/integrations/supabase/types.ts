@@ -1367,6 +1367,42 @@ export type Database = {
           },
         ]
       }
+      commercial_plan_features: {
+        Row: {
+          capability_code: string
+          created_at: string
+          included: boolean
+          plan_id: string
+        }
+        Insert: {
+          capability_code: string
+          created_at?: string
+          included: boolean
+          plan_id: string
+        }
+        Update: {
+          capability_code?: string
+          created_at?: string
+          included?: boolean
+          plan_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_cpf_capability"
+            columns: ["capability_code"]
+            isOneToOne: false
+            referencedRelation: "commercial_capabilities"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "fk_cpf_plan"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commercial_plans: {
         Row: {
           additional_seats_purchasable: boolean
@@ -4316,11 +4352,13 @@ export type Database = {
       }
       reporting_pack_issuances: {
         Row: {
+          byte_size: number | null
           company_id: string
           consumed_at: string | null
           consumed_plan_code: string | null
           content_sha256: string | null
           expires_at: string
+          final_publication_id: string | null
           id: string
           issued_at: string
           issued_by: string
@@ -4329,13 +4367,16 @@ export type Database = {
           period_year: number
           plan_code: string | null
           request_id: string
+          storage_path: string | null
         }
         Insert: {
+          byte_size?: number | null
           company_id: string
           consumed_at?: string | null
           consumed_plan_code?: string | null
           content_sha256?: string | null
           expires_at: string
+          final_publication_id?: string | null
           id?: string
           issued_at?: string
           issued_by: string
@@ -4344,13 +4385,16 @@ export type Database = {
           period_year: number
           plan_code?: string | null
           request_id: string
+          storage_path?: string | null
         }
         Update: {
+          byte_size?: number | null
           company_id?: string
           consumed_at?: string | null
           consumed_plan_code?: string | null
           content_sha256?: string | null
           expires_at?: string
+          final_publication_id?: string | null
           id?: string
           issued_at?: string
           issued_by?: string
@@ -4359,6 +4403,7 @@ export type Database = {
           period_year?: number
           plan_code?: string | null
           request_id?: string
+          storage_path?: string | null
         }
         Relationships: [
           {
@@ -4367,6 +4412,36 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "companies"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_rpi_final_publication"
+            columns: ["final_publication_id"]
+            isOneToOne: false
+            referencedRelation: "financial_statement_publications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reporting_pack_kind_features: {
+        Row: {
+          capability_code: string
+          pack_kind: string
+        }
+        Insert: {
+          capability_code: string
+          pack_kind: string
+        }
+        Update: {
+          capability_code?: string
+          pack_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_rpkf_capability"
+            columns: ["capability_code"]
+            isOneToOne: false
+            referencedRelation: "commercial_capabilities"
+            referencedColumns: ["code"]
           },
         ]
       }
@@ -6265,6 +6340,100 @@ export type Database = {
           },
         ]
       }
+      workspace_capability_revocations: {
+        Row: {
+          capability: string
+          company_id: string
+          id: string
+          lift_reason: string | null
+          lifted_at: string | null
+          lifted_by: string | null
+          reason: string
+          revoked_at: string
+          revoked_by: string
+          user_id: string
+        }
+        Insert: {
+          capability: string
+          company_id: string
+          id?: string
+          lift_reason?: string | null
+          lifted_at?: string | null
+          lifted_by?: string | null
+          reason: string
+          revoked_at?: string
+          revoked_by: string
+          user_id: string
+        }
+        Update: {
+          capability?: string
+          company_id?: string
+          id?: string
+          lift_reason?: string | null
+          lifted_at?: string | null
+          lifted_by?: string | null
+          reason?: string
+          revoked_at?: string
+          revoked_by?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_wcr_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_member_capabilities: {
+        Row: {
+          capability: string
+          company_id: string
+          granted_at: string
+          granted_by: string | null
+          id: string
+          revoke_reason: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          source: string
+          user_id: string
+        }
+        Insert: {
+          capability: string
+          company_id: string
+          granted_at?: string
+          granted_by?: string | null
+          id?: string
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          source: string
+          user_id: string
+        }
+        Update: {
+          capability?: string
+          company_id?: string
+          granted_at?: string
+          granted_by?: string | null
+          id?: string
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          source?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_wmc_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       xbrl_concept_map: {
         Row: {
           created_at: string
@@ -6577,6 +6746,14 @@ export type Database = {
       }
     }
     Functions: {
+      _account_current_plan_code: {
+        Args: { p_account: string }
+        Returns: string
+      }
+      _account_has_current_plan: {
+        Args: { p_account: string }
+        Returns: boolean
+      }
       _account_named_user_access_active: {
         Args: { p_account: string; p_user: string }
         Returns: boolean
@@ -6608,12 +6785,29 @@ export type Database = {
         Args: { p_capability: string; p_company_id: string; p_user: string }
         Returns: Json
       }
+      _capability_withheld: {
+        Args: { p_capability: string; p_company_id: string; p_user: string }
+        Returns: boolean
+      }
+      _consume_free_retirement_approval: {
+        Args: { p_by: string }
+        Returns: boolean
+      }
       _entity_capacity_for_account: {
         Args: { p_account: string }
         Returns: Json
       }
       _environment_fingerprint: { Args: never; Returns: string }
+      _final_publication_for: {
+        Args: {
+          p_company_id: string
+          p_output_ref: string
+          p_period_year: number
+        }
+        Returns: string
+      }
       _free_plan_inventory: { Args: never; Returns: Json }
+      _free_retirement_approval_id: { Args: never; Returns: string }
       _invitation_valid: {
         Args: {
           p_accepted_at: string
@@ -6622,9 +6816,38 @@ export type Database = {
         }
         Returns: boolean
       }
+      _issue_reporting_pack: {
+        Args: {
+          p_company_id: string
+          p_final_publication_id: string
+          p_output_ref: string
+          p_pack_kind: string
+          p_period_year: number
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      _member_capability_lock: {
+        Args: { p_company_id: string; p_user: string }
+        Returns: undefined
+      }
       _named_user_roster: { Args: { p_account: string }; Returns: Json }
       _named_user_suspended: {
         Args: { p_account: string; p_user: string }
+        Returns: boolean
+      }
+      _official_reporting_pack_document: {
+        Args: { p_issuance_id: string }
+        Returns: string
+      }
+      _plan_lock_key: { Args: { p_account: string }; Returns: number }
+      _plan_write_lock: { Args: { p_account: string }; Returns: undefined }
+      _reporting_pack_object_matches: {
+        Args: { p_byte_size: number; p_storage_path: string }
+        Returns: boolean
+      }
+      _reporting_pack_officially_sealable: {
+        Args: { p_kind: string; p_output_ref: string }
         Returns: boolean
       }
       _reporting_pack_output_ref_valid: {
@@ -6636,6 +6859,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      _reporting_pack_seal_refusal: {
+        Args: { p_issuance_id: string; p_user: string }
+        Returns: Record<string, unknown>
+      }
       _require_workspace_capability: {
         Args: { p_capability: string; p_company_id: string }
         Returns: undefined
@@ -6645,6 +6872,10 @@ export type Database = {
         Returns: Json
       }
       _seat_capacity_for_account: { Args: { p_account: string }; Returns: Json }
+      _title_capability_template: {
+        Args: { p_title: string }
+        Returns: string[]
+      }
       _workspace_access_basis: {
         Args: { p_company_id: string; p_user: string }
         Returns: string
@@ -6670,6 +6901,10 @@ export type Database = {
         Returns: Json
       }
       admin_billing_lookup: { Args: { p_company_id: string }; Returns: Json }
+      admin_ensure_billing_customer: {
+        Args: { p_owner_user_id: string; p_reason: string }
+        Returns: Json
+      }
       admin_get_billing_detail: {
         Args: { p_owner_user_id: string }
         Returns: Json
@@ -6945,17 +7180,6 @@ export type Database = {
           detail: string
           outcome: string
         }[]
-      }
-      consume_reporting_pack_issuance: {
-        Args: {
-          p_company_id: string
-          p_content_sha256: string
-          p_issuance_id: string
-          p_output_ref: string
-          p_pack_kind: string
-          p_period_year: number
-        }
-        Returns: Json
       }
       create_entity: {
         Args: {
@@ -7410,6 +7634,10 @@ export type Database = {
       get_member_company_ids: { Args: never; Returns: string[] }
       get_my_billing_summary: { Args: never; Returns: Json }
       get_my_entity_capacity: { Args: never; Returns: Json }
+      get_my_workspace_capabilities: {
+        Args: { p_company_id: string }
+        Returns: Json
+      }
       get_named_user_roster: { Args: never; Returns: Json }
       get_workspace_access: {
         Args: { p_company_id: string }
@@ -7454,6 +7682,15 @@ export type Database = {
         }
         Returns: string
       }
+      grant_member_capability: {
+        Args: {
+          p_capability: string
+          p_company_id: string
+          p_reason?: string
+          p_user: string
+        }
+        Returns: Json
+      }
       grant_workspace_capability: {
         Args: {
           p_capability: string
@@ -7464,6 +7701,14 @@ export type Database = {
           grant_id: string
           outcome: string
         }[]
+      }
+      has_account_capability: {
+        Args: { p_capability: string; p_user: string }
+        Returns: boolean
+      }
+      has_workspace_capability: {
+        Args: { p_capability: string; p_company_id: string; p_user: string }
+        Returns: boolean
       }
       hesabu_write_validation: {
         Args: {
@@ -7519,9 +7764,22 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      invitation_capability_summary: {
+        Args: { p_company_id: string; p_user: string }
+        Returns: Json
+      }
       invitation_reservation_ttl: { Args: never; Returns: string }
       is_commercial_admin: { Args: never; Returns: boolean }
       is_iso_3166_alpha2: { Args: { p_code: string }; Returns: boolean }
+      issue_official_reporting_pack: {
+        Args: {
+          p_company_id: string
+          p_output_ref: string
+          p_period_year: number
+          p_request_id: string
+        }
+        Returns: Json
+      }
       issue_reporting_pack: {
         Args: {
           p_company_id: string
@@ -7646,6 +7904,10 @@ export type Database = {
         Args: { p_operator_label: string; p_reason: string; p_user_id: string }
         Returns: Json
       }
+      prepare_official_reporting_pack: {
+        Args: { p_issuance_id: string; p_user: string }
+        Returns: Json
+      }
       purge_trial_balance_discard: {
         Args: { p_operation_id: string }
         Returns: {
@@ -7698,6 +7960,17 @@ export type Database = {
         Returns: Json
       }
       reporting_pack_issuance_ttl: { Args: never; Returns: string }
+      reporting_pack_sealed_object: {
+        Args: { p_issuance_id: string }
+        Returns: Json
+      }
+      reporting_pack_storage_orphans: {
+        Args: never
+        Returns: {
+          created_at: string
+          storage_path: string
+        }[]
+      }
       reserve_trial_balance_source: {
         Args: { p_company_id: string; p_file_name: string }
         Returns: {
@@ -7773,6 +8046,15 @@ export type Database = {
         }
         Returns: string
       }
+      revoke_member_capability: {
+        Args: {
+          p_capability: string
+          p_company_id: string
+          p_reason: string
+          p_user: string
+        }
+        Returns: Json
+      }
       revoke_workspace_capability: {
         Args: {
           p_capability: string
@@ -7791,7 +8073,7 @@ export type Database = {
           p_rows: number
           p_source_type: string
         }
-        Returns: undefined
+        Returns: Json
       }
       safisha_recon_company_scoped: {
         Args: { _recon_id: string }
@@ -7817,6 +8099,10 @@ export type Database = {
           opened: number
           resolved: number
         }[]
+      }
+      seal_reporting_pack_server: {
+        Args: { p_issuance_id: string; p_storage_path: string; p_user: string }
+        Returns: Json
       }
       seat_check_for_invitation: {
         Args: { p_company_id: string; p_invitee: string }
@@ -8027,16 +8313,20 @@ export type Database = {
         Args: { p_company_id: string; p_path: string }
         Returns: boolean
       }
-      verify_reporting_pack: {
-        Args: { p_content_sha256: string }
-        Returns: Json
-      }
       workspace_authority_basis: {
         Args: { p_capability: string; p_company_id: string; p_user_id: string }
         Returns: string
       }
+      workspace_capability_allowed: {
+        Args: { p_capability: string; p_company_id: string; p_user: string }
+        Returns: boolean
+      }
       workspace_capability_entitled: {
         Args: { p_capability: string; p_company_id: string }
+        Returns: boolean
+      }
+      workspace_has_current_plan: {
+        Args: { p_company_id: string }
         Returns: boolean
       }
       xbrl_write_instance: {

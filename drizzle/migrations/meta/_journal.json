@@ -134,6 +134,27 @@
       "when": 1790433878910,
       "tag": "0018_pr34_apply_20260925120000",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790434420208,
+      "tag": "0019_pr34_apply_20260925130000",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790434452294,
+      "tag": "0020_pr34_apply_20260925140000",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790434467104,
+      "tag": "0021_pr34_apply_20260925150000",
+      "breakpoints": true
     }
   ]
 }
