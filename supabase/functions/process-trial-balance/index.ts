@@ -31,10 +31,8 @@ import { classifyPublicSectorAccount } from "./publicSectorClassification.ts";
 import { resolveProcessingActor, type ProcessingActor } from "../_shared/processingActor.ts";
 import { PROCESSING_FORBIDDEN, personalUploadRefusal, processingRefusal, sourceBindingRefusal } from "../_shared/uploadLifecycle.ts";
 import { isEntitlementWallError, paidActionRefusal, processingEntitlementRefusal } from "../_shared/paidAction.ts";
-
-/** Controlled answers (never a raw database or Storage error). */
-const PROCESSING_UNAVAILABLE = { status: "processing_unavailable", error: "Processing Unavailable", message: "The trial balance could not be processed right now. Nothing was changed; try again." } as const;
-const SOURCE_MISSING = { status: "source_missing", error: "Source File Missing", message: "The uploaded source file could not be found. Upload the trial balance again." } as const;
+// Controlled answers (never a raw database or Storage error) and the source-download failure path (L-1 / L-2).
+import { PROCESSING_UNAVAILABLE, classifyDownloadFailure, sourceFailureOutcome } from "../_shared/processingSource.ts";
 import { claimIdempotency, failIdempotency } from "../_shared/idempotency.ts";
 import { recordEngineRunFailed } from "../_shared/engine-run.ts";
 import { canonicalJson, sha256Hex, sha256HexBytes, type CanonicalValue } from "../_shared/hash.ts";
@@ -1515,10 +1513,14 @@ serve(async (req) => {
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("trial-balance-files").download(upload.file_path);
     if (downloadError || !fileData) {
-      // A controlled missing-source answer (entitled account only; never the no-plan refusal): the upload returns to
-      // its previous status and nothing else is written.
-      await supabase.from("trial_balance_uploads").update({ status: upload.status }).eq("id", uploadId);
-      return new Response(JSON.stringify(SOURCE_MISSING), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      // L-1 / L-2: classify from structured fields (confirmed not-found → source_missing; anything else →
+      // processing_unavailable), restore the previous status with a CHECKED write, and answer from its result (a plan
+      // that ended concurrently → the controlled 402). Nothing else is written; no raw error reaches the response.
+      const classification = classifyDownloadFailure(downloadError);
+      const { error: restoreErr } = await supabase.from("trial_balance_uploads").update({ status: upload.status }).eq("id", uploadId);
+      const outcome = sourceFailureOutcome(classification, restoreErr, downloadError);
+      console.error("[PTB] source download failed", JSON.stringify({ upload_id: uploadId, ...outcome.log }));
+      return new Response(JSON.stringify(outcome.body), { status: outcome.httpStatus, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── STEP 1: Format detection + parsing ────────────────────────────────────

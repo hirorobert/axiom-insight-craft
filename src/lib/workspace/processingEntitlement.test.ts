@@ -77,10 +77,9 @@ describe("static order contract: the refusal precedes every Storage read, bindin
     // No unchecked status claim remains (a bare `await ... update(...)` statement whose error is dropped).
     expect(src).not.toMatch(/\n\s*await supabase\.from\("trial_balance_uploads"\)\.update\(\{ status: "validating" \}\)/);
   });
-  it("a missing Storage object (entitled account) is a controlled 409 source_missing, distinct from the 402, and never a raw error", () => {
+  it("a download failure (entitled account) is answered by the checked source-failure path (409 source_missing only for a confirmed not-found; see processingSource.test.ts), and never a raw error", () => {
     const dl = at(".download(upload.file_path)");
-    expect(src.slice(dl, dl + 600)).toMatch(/JSON\.stringify\(SOURCE_MISSING\)[\s\S]*status: 409/);
-    expect(src).toMatch(/const SOURCE_MISSING = \{ status: "source_missing"/);
+    expect(src.slice(dl, dl + 1400)).toMatch(/sourceFailureOutcome\(classification, restoreErr, downloadError\)[\s\S]*status: outcome\.httpStatus/);
     expect(src).not.toMatch(/throw new Error\(`Failed to download file/);
     expect(src).not.toMatch(/error: error instanceof Error \? error\.message/);
   });

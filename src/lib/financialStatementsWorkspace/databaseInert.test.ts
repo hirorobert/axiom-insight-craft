@@ -122,6 +122,8 @@ describe("database inertness — schema and functions", () => {
       // one handler both it and the legacy kinga-comparative-engine adapter serve. No financial-statements schema.
       "supabase/migrations/20260925100000_global_capabilities_entitlements_pricing.sql",
       "supabase/functions/_shared/paidAction.ts",
+      // process-trial-balance's source-download failure path (L-1 / L-2): pure classification + checked recovery. No schema.
+      "supabase/functions/_shared/processingSource.ts",
       "supabase/functions/_shared/comparativeAssurance.ts",
       "supabase/functions/comparative-assurance-engine/index.ts",
       // Named-user billing suspension and invitation reservations (20260925110000), the official Reporting Pack
