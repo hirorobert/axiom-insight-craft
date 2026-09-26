@@ -30,15 +30,11 @@ describe("migration authority parity", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
     expect(r.ok).toBe(true);
-    expect(r.mirrored.length).toBe(13);
-    // Authored here and not yet applied by the owner: listed, never an error.
+    // 13 byte-equal mirrors + the six reviewed PR #34 release wrappers (0015, 0017–0021; rule 8). The prerequisite
+    // 20260915100000 is recorded as applied out of source order (0016) — see releaseJournal.test.ts.
+    expect(r.mirrored.length).toBe(19);
+    // Authored here and not yet applied by the owner: listed, never an error. PR #34 100000–150000 are applied.
     expect(r.pending).toEqual([
-      "20260925100000_global_capabilities_entitlements_pricing.sql",
-      "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
-      "20260925120000_reporting_pack_issuance_binding.sql",
-      "20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
-      "20260925140000_workspace_capability_authorization.sql",
-      "20260925150000_can_user_act_on_workspace_minimum_grant.sql",
       "20260926160000_trial_balance_processing_entitlement_wall.sql",
     ]);
   });

@@ -807,7 +807,19 @@ the already-built `_resolve_entitlement_for_owner()`), not a schema change.
 and `20260925100000` enforces it as `ENTITY_CAPACITY` (see §9.3). Until that
 migration is applied by the owner, hosted company creation stays unrestricted.
 
-### 9.3 CFO Close Capabilities, Walls and Pricing (`20260925100000`–`20260925150000`, unapplied to hosted DBs)
+### 9.3 CFO Close Capabilities, Walls and Pricing (`20260925100000`–`20260925150000`)
+
+**Production state (2026-09-26, Lovable's controlled release; recorded in Drizzle entries `0013`–`0021`, reviewed by
+`scripts/ci/releaseJournal.mjs`, migration-authority rule 8).** The release is NOT complete:
+- APPLIED in production, byte-for-byte as reviewed at `c2c1e8e` (each wrapper verifies the SHA-256 before executing):
+  `20260925100000`–`20260925150000`, and the prerequisite `20260915100000_financial_statement_documents.sql`
+  (applied out of source order in this release).
+- NOT applied: the forward migration `20260926160000_trial_balance_processing_entitlement_wall.sql`.
+- NOT deployed: the corrected `process-trial-balance` (entitlement refusal before any Storage access; `source_missing`).
+  Production runs the `c2c1e8e` version.
+- PENDING CLEANUP (release-only objects, not application schema): `public._pr34_probe`, `public._pr34_migration_bodies`.
+- Applied migrations are never edited (SHA-256 pinned in `src/lib/__tests__/appliedMigrationsImmutable.test.ts`); every
+  further change is a new forward migration.
 
 - **Canonical capability codes** (`commercial_capabilities`; frontend mirror `src/lib/commercial/featureRegistry.ts`):
   `CLOSE_ASSURANCE` and `COMPARATIVE_REPORTING` (included in every plan, never charged separately — but never free:

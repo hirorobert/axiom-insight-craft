@@ -4,6 +4,12 @@
 targets **staging-replay `hplriydtdelehepgttul` only**, never production (`bvyivmmfjejbmqoydezk`). No payment
 provider is activated. Only the owner or Lovable applies hosted migrations.
 
+**Production state (2026-09-26), separate from this staging plan.** Lovable released PR #34 to production directly
+(Drizzle entries `0013`–`0021`): `20260925100000`–`20260925150000` and the prerequisite `20260915100000` are applied,
+byte-for-byte as reviewed at `c2c1e8e`. Not yet in production: the forward migration `20260926160000` (processing
+entitlement wall) and the corrected `process-trial-balance`. The release-only tables `public._pr34_probe` and
+`public._pr34_migration_bodies` remain pending cleanup. The release is not complete.
+
 Preconditions:
 - exact-head CI for the PR head is green;
 - the three SQL files have had an independent local review;

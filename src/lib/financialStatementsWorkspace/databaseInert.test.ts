@@ -152,6 +152,9 @@ describe("database inertness — schema and functions", () => {
       // PR #32 user-based validation: process-trial-balance resolves its actor with tbu_resolve_processing_actor, and the
       // idempotency claim records a workspace_user actor (actor_user_id) with no firm membership.
       "supabase/functions/process-trial-balance/index.ts",
+      // PR #34 release blocker P-1 (after main received PR #34 in production): the processing entitlement helpers
+      // (processingEntitlementRefusal, isEntitlementWallError) added to the reviewed paid-action gate. No financial-statements schema.
+      "supabase/functions/_shared/paidAction.ts",
       // PR #32 N-01: the comparative engine refuses a stale period pointer (non-active or foreign upload).
       "supabase/functions/kinga-comparative-engine/index.ts",
       "supabase/functions/_shared/actor.ts",
@@ -223,7 +226,9 @@ describe("database inertness — schema and functions", () => {
       // so the official Reporting Pack's stored-object check is proven (test shim only; never applied to a hosted project).
       "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql",
       // Static-guard helper: guards judge an atomic (one DO envelope) migration by the statements it executes. Read-only.
-      "scripts/ci/atomicEnvelope.mjs"]);
+      "scripts/ci/atomicEnvelope.mjs",
+      // Migration-authority rule 8: the reviewed PR #34 release journal (strict validation of Drizzle 0013–0021). Read-only.
+      "scripts/ci/releaseJournal.mjs"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

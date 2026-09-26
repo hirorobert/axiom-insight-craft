@@ -17,6 +17,9 @@
 //      by Lovable) — that is the expected state of an unmerged or unapplied change, never an error;
 //   5. a registered difference is RESOLVED only by a named forward migration that exists and contains the exact
 //      corrective statements (its own journal mirror must then match it byte for byte, like any other);
+//   8. the controlled PR #34 release entries (scripts/ci/releaseJournal.mjs) are each exactly their reviewed content and
+//      template: a wrapper applies exactly its named source migration, whose SHA-256 (and byte count) it pins; the probe
+//      and staging entries touch only release objects; an unreviewed release entry fails;
 //   6. no source migration and no journal entry may grant the service-only workspace-authority predicates to anyone
 //      else, or re-create them without revoking them from PUBLIC, anon and authenticated in the same file (a
 //      re-created function would otherwise inherit the platform's default EXECUTE grants).
@@ -25,6 +28,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isAtomicEnvelope, parseAtomicEnvelope, unwrapAtomicEnvelope } from "./atomicEnvelope.mjs";
+import { RELEASE_JOURNAL, checkReleaseEntry, isReleaseTag } from "./releaseJournal.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -106,6 +110,7 @@ export function checkMigrationAuthority(repo = REPO) {
   const mirrored = [];
   const knownDrift = [];
   const resolved = [];
+  const releaseApplied = [];   // rule 8: sources applied out of source order by a reviewed release wrapper
 
   // Rule 6: the service-only predicates are never granted to anyone else, and never re-created without the revoke.
   const dzFiles = fs.readdirSync(dzDir).filter((f) => f.endsWith(".sql")).sort();
@@ -131,6 +136,16 @@ export function checkMigrationAuthority(repo = REPO) {
     if (!fs.existsSync(file)) continue;
     const text = fs.readFileSync(file, "utf8");
     const exact = byNormal.get(normalise(text));
+    // Rule 8: a controlled-release entry is validated strictly (never skipped, never a wildcard).
+    if (isReleaseTag(t)) {
+      const r = checkReleaseEntry(t, text, (name) => (srcText[name] !== undefined ? fs.readFileSync(path.join(srcDir, name)) : null));
+      for (const p of r.problems) errors.push(`release: ${p}`);
+      if (r.covers && r.problems.length === 0) {
+        if (r.outOfOrder) releaseApplied.push({ tag: t, source: r.covers });
+        else mirrored.push({ tag: t, source: r.covers, how: "release_wrapper" });
+      }
+      continue;
+    }
     const pin = PINNED[t];
     if (exact && !pin) { mirrored.push({ tag: t, source: exact, how: "equal" }); continue; }
     if (!pin) { errors.push(`drizzle: ${t} matches no source migration (drift)`); continue; }
@@ -161,16 +176,17 @@ export function checkMigrationAuthority(repo = REPO) {
     mirrored.push({ tag: t, source: pin.source, how: pin.rule });
   }
 
+  for (const t of Object.keys(RELEASE_JOURNAL)) if (!tags.includes(t)) errors.push(`release: reviewed entry ${t} is missing from the journal`);
   const order = mirrored.map((m) => sources.indexOf(m.source));
   for (let i = 1; i < order.length; i++) if (!(order[i] > order[i - 1])) errors.push(`drizzle: ${mirrored[i].tag} mirrors ${mirrored[i].source} out of source order`);
   const pending = [];
   if (mirrored.length > 0) {
     const first = Math.min(...order), last = Math.max(...order);
-    const covered = new Set(mirrored.map((m) => m.source));
+    const covered = new Set([...mirrored, ...releaseApplied].map((m) => m.source));
     for (let i = first; i <= last; i++) if (!covered.has(sources[i])) errors.push(`drizzle: source ${sources[i]} was skipped by the hosted apply journal`);
     for (let i = last + 1; i < sources.length; i++) pending.push(sources[i]);
   }
-  return { ok: errors.length === 0, errors, mirrored, pending, knownDrift, resolved };
+  return { ok: errors.length === 0, errors, mirrored, pending, knownDrift, resolved, releaseApplied };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
