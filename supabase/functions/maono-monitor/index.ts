@@ -34,6 +34,7 @@
 
 import { serve }       from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { workspaceEntitled } from "../_shared/paidAction.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -155,7 +156,7 @@ async function scanCompany(
           supabase, companyId, null,
           "budget_missing", "warn",
           [], [],
-          `No approved budget for ${budgetCheck.period}. Maono variance analysis cannot run without a budget.`,
+          `No approved budget for ${budgetCheck.period}. Close Insights variance analysis cannot run without a budget.`,
           `Submit and approve a budget for ${budgetCheck.period} to enable variance analysis.`
         );
         if (id) alertsWritten++;
@@ -333,6 +334,7 @@ serve(async (req: Request) => {
   const allErrors:   string[] = [];
   let   totalAlerts  = 0;
   let   companiesScanned = 0;
+  let   companiesSkipped = 0;
 
   try {
     // Load all companies (no company filter — monitor scans all)
@@ -344,6 +346,12 @@ serve(async (req: Request) => {
     console.log(`maono-monitor: scanning ${companies?.length ?? 0} companies`);
 
     for (const company of (companies ?? [])) {
+      // Close Insights is a paid capability (20260925100000): a workspace whose account is not entitled is skipped,
+      // not failed. Its existing alerts stay readable; no new ones are generated.
+      if (!(await workspaceEntitled((fn, args) => supabase.rpc(fn, args), company.id, "CLOSE_INSIGHTS"))) {
+        companiesSkipped += 1;
+        continue;
+      }
       const { alertsWritten, errors } = await scanCompany(supabase, company.id);
       totalAlerts       += alertsWritten;
       companiesScanned  += 1;
@@ -374,6 +382,7 @@ serve(async (req: Request) => {
       success:            true,
       trigger_type:       triggerType,
       companies_scanned:  companiesScanned,
+      companies_skipped_not_entitled: companiesSkipped,
       alerts_written:     totalAlerts,
       error_count:        allErrors.length,
       elapsed_ms:         elapsed,
