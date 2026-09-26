@@ -90,8 +90,9 @@ export function OutputsStage({ model, signatureBlocks, deliverDownload, deliverO
     setFailed(outcome === "failed");
     if (outcome === "locked") setRefused(true);
   };
-  // The official pack exists only for a SAVED version: the server generates it from that version and seals it.
-  const officialRef = model.output?.lineage?.persisted ? financialStatementsOutputRef(model.output.lineage) : null;
+  // The official pack exists only for a SAVED version with a FINAL publication: the server binds that exact FINAL record,
+  // generates the document from the version and seals it (the server refuses anything else; this only hides the button).
+  const officialRef = model.output?.lineage?.persisted && model.publication?.state === "FINAL" ? financialStatementsOutputRef(model.output.lineage) : null;
   const issueOfficial = async () => {
     if (!deliverOfficial || !officialRef) return;
     const outcome = await deliverOfficial(officialRef);

@@ -15,7 +15,13 @@
 --   4. Every issue, seal and refusal is an append-only audit event.
 -- A file that was not sealed this way is not an official Reporting Pack, whatever it looks like.
 -- ════════════════════════════════════════════════════════════════════════════
-
+--
+-- ATOMIC ENVELOPE (security correction B-3): every statement below runs inside this ONE DO statement. Whatever the
+-- runner does (statement by statement, whole file, with or without a transaction, continuing after errors) the
+-- migration either applies completely or changes nothing.
+DO $cfoclose_issuance$
+BEGIN
+  EXECUTE $missuanceaaa$
 DO $refuse$
 BEGIN
   IF to_regclass('public.reporting_pack_issuances') IS NULL OR to_regproc('public.named_user_access_active') IS NULL THEN
@@ -25,33 +31,56 @@ BEGIN
     RAISE EXCEPTION 'issuance-binding migration refused: already applied. Nothing was changed.' USING ERRCODE = '55000';
   END IF;
 END
-$refuse$;
+$refuse$
+$missuanceaaa$;
 
-SET search_path TO public, pg_catalog;
+  EXECUTE $missuanceaab$
+SET search_path TO public, pg_catalog
+$missuanceaab$;
 
+  EXECUTE $missuanceaac$
 -- ── 1. Issuance bindings, expiry and single-use seal ─────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.reporting_pack_issuance_ttl()
-RETURNS interval LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$ SELECT interval '10 minutes' $$;
+RETURNS interval LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$ SELECT interval '10 minutes' $$
+$missuanceaac$;
 
-ALTER TABLE public.reporting_pack_issuances DISABLE TRIGGER trg_rpi_immutable;
+  EXECUTE $missuanceaad$
+ALTER TABLE public.reporting_pack_issuances DISABLE TRIGGER trg_rpi_immutable
+$missuanceaad$;
+
+  EXECUTE $missuanceaae$
 ALTER TABLE public.reporting_pack_issuances
   ADD COLUMN output_ref         TEXT        NULL,
   ADD COLUMN expires_at         TIMESTAMPTZ NULL,
   ADD COLUMN consumed_at        TIMESTAMPTZ NULL,
   ADD COLUMN content_sha256     TEXT        NULL,
-  ADD COLUMN consumed_plan_code TEXT        NULL;
+  ADD COLUMN consumed_plan_code TEXT        NULL
+$missuanceaae$;
+
+  EXECUTE $missuanceaaf$
 -- Any issuance created before this migration is already expired and can never be sealed.
-UPDATE public.reporting_pack_issuances SET expires_at = issued_at WHERE expires_at IS NULL;
+UPDATE public.reporting_pack_issuances SET expires_at = issued_at WHERE expires_at IS NULL
+$missuanceaaf$;
+
+  EXECUTE $missuanceaag$
 ALTER TABLE public.reporting_pack_issuances
   ALTER COLUMN expires_at SET NOT NULL,
   DROP CONSTRAINT chk_rpi_kind,
   ADD CONSTRAINT chk_rpi_kind CHECK (pack_kind IN ('financial_statements_pdf', 'financial_statements_spreadsheet', 'financial_statements_data', 'filing_pack', 'client_pack', 'board_pack', 'management_letter', 'disclosure_notes', 'tax_computation', 'tax_workpaper')),
   ADD CONSTRAINT chk_rpi_output_ref CHECK (output_ref IS NULL OR (length(output_ref) BETWEEN 1 AND 200 AND output_ref !~ '[[:cntrl:]]')),
   ADD CONSTRAINT chk_rpi_seal CHECK ((consumed_at IS NULL) = (content_sha256 IS NULL) AND (consumed_at IS NULL) = (consumed_plan_code IS NULL)),
-  ADD CONSTRAINT chk_rpi_sha256 CHECK (content_sha256 IS NULL OR content_sha256 ~ '^[0-9a-f]{64}$');
-ALTER TABLE public.reporting_pack_issuances ENABLE TRIGGER trg_rpi_immutable;
-CREATE INDEX idx_rpi_content_sha256 ON public.reporting_pack_issuances (content_sha256) WHERE content_sha256 IS NOT NULL;
+  ADD CONSTRAINT chk_rpi_sha256 CHECK (content_sha256 IS NULL OR content_sha256 ~ '^[0-9a-f]{64}$')
+$missuanceaag$;
 
+  EXECUTE $missuanceaah$
+ALTER TABLE public.reporting_pack_issuances ENABLE TRIGGER trg_rpi_immutable
+$missuanceaah$;
+
+  EXECUTE $missuanceaai$
+CREATE INDEX idx_rpi_content_sha256 ON public.reporting_pack_issuances (content_sha256) WHERE content_sha256 IS NOT NULL
+$missuanceaai$;
+
+  EXECUTE $missuanceaaj$
 -- Immutable except ONE seal (consumed_at, content_sha256, consumed_plan_code from NULL); never deleted.
 CREATE OR REPLACE FUNCTION public.reporting_pack_issuances_immutable()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -64,8 +93,10 @@ BEGIN
   END IF;
   RAISE EXCEPTION 'Iron Dome: reporting_pack_issuances is append-only except for a single seal (% refused).', TG_OP USING ERRCODE = 'P0001';
 END;
-$$;
+$$
+$missuanceaaj$;
 
+  EXECUTE $missuanceaak$
 -- ── 2. Append-only audit of every issue, seal and refusal ────────────────────────────────────
 CREATE TABLE public.reporting_pack_issuance_events (
   id           UUID        NOT NULL DEFAULT gen_random_uuid(),
@@ -77,28 +108,60 @@ CREATE TABLE public.reporting_pack_issuance_events (
   occurred_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT reporting_pack_issuance_events_pk PRIMARY KEY (id),
   CONSTRAINT chk_rpie_event CHECK (event IN ('ISSUED', 'SEALED', 'REFUSED'))
-);
-CREATE INDEX idx_rpie_issuance ON public.reporting_pack_issuance_events (issuance_id, occurred_at);
-ALTER TABLE public.reporting_pack_issuance_events ENABLE ROW LEVEL SECURITY;
+)
+$missuanceaak$;
+
+  EXECUTE $missuanceaal$
+CREATE INDEX idx_rpie_issuance ON public.reporting_pack_issuance_events (issuance_id, occurred_at)
+$missuanceaal$;
+
+  EXECUTE $missuanceaam$
+ALTER TABLE public.reporting_pack_issuance_events ENABLE ROW LEVEL SECURITY
+$missuanceaam$;
+
+  EXECUTE $missuanceaan$
 CREATE POLICY "rpie_select_workspace" ON public.reporting_pack_issuance_events FOR SELECT TO authenticated
-  USING (company_id IS NOT NULL AND public.can_access_workspace(company_id));
-REVOKE ALL ON public.reporting_pack_issuance_events FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT ON public.reporting_pack_issuance_events TO authenticated, service_role;
+  USING (company_id IS NOT NULL AND public.can_access_workspace(company_id))
+$missuanceaan$;
+
+  EXECUTE $missuanceaao$
+REVOKE ALL ON public.reporting_pack_issuance_events FROM PUBLIC, anon, authenticated, service_role
+$missuanceaao$;
+
+  EXECUTE $missuanceaap$
+GRANT SELECT ON public.reporting_pack_issuance_events TO authenticated, service_role
+$missuanceaap$;
+
+  EXECUTE $missuanceaaq$
 -- Issuances are written only by issue_reporting_pack / consume_reporting_pack_issuance (definer): nobody else,
 -- including the service role, writes them directly.
-REVOKE ALL ON public.reporting_pack_issuances FROM service_role;
-GRANT SELECT ON public.reporting_pack_issuances TO service_role;
+REVOKE ALL ON public.reporting_pack_issuances FROM service_role
+$missuanceaaq$;
+
+  EXECUTE $missuanceaar$
+GRANT SELECT ON public.reporting_pack_issuances TO service_role
+$missuanceaar$;
+
+  EXECUTE $missuanceaas$
 CREATE OR REPLACE FUNCTION public.reporting_pack_issuance_events_immutable()
 RETURNS TRIGGER LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
 BEGIN
   RAISE EXCEPTION 'Iron Dome: reporting_pack_issuance_events is append-only (% refused).', TG_OP USING ERRCODE = 'P0001';
 END;
-$$;
-CREATE TRIGGER trg_rpie_immutable BEFORE UPDATE OR DELETE ON public.reporting_pack_issuance_events
-  FOR EACH ROW EXECUTE FUNCTION public.reporting_pack_issuance_events_immutable();
-CREATE TRIGGER trg_rpie_no_truncate BEFORE TRUNCATE ON public.reporting_pack_issuance_events
-  FOR EACH STATEMENT EXECUTE FUNCTION public.reporting_pack_issuance_events_immutable();
+$$
+$missuanceaas$;
 
+  EXECUTE $missuanceaat$
+CREATE TRIGGER trg_rpie_immutable BEFORE UPDATE OR DELETE ON public.reporting_pack_issuance_events
+  FOR EACH ROW EXECUTE FUNCTION public.reporting_pack_issuance_events_immutable()
+$missuanceaat$;
+
+  EXECUTE $missuanceaau$
+CREATE TRIGGER trg_rpie_no_truncate BEFORE TRUNCATE ON public.reporting_pack_issuance_events
+  FOR EACH STATEMENT EXECUTE FUNCTION public.reporting_pack_issuance_events_immutable()
+$missuanceaau$;
+
+  EXECUTE $missuanceaav$
 -- A saved financial-statements version is named "fs-report:<report_id>:v<version>"; it must exist for the workspace
 -- and period. Any other output reference is recorded as given (bound, not interpreted).
 CREATE OR REPLACE FUNCTION public._reporting_pack_output_ref_valid(p_company_id UUID, p_period_year INTEGER, p_kind TEXT, p_output_ref TEXT)
@@ -116,12 +179,17 @@ BEGIN
   RETURN EXISTS (SELECT 1 FROM public.financial_statement_reports r
                   WHERE r.report_id = m[1] AND r.report_version = m[2]::integer AND r.company_id = p_company_id AND r.period_year = p_period_year);
 END;
-$$;
+$$
+$missuanceaav$;
 
+  EXECUTE $missuanceaaw$
 -- ── 3. Issue (supersedes the 4-argument 20260925100000 version) ───────────────────────────────
 -- Outcomes: issued | already_issued | request_conflict | entitlement_required | workspace_access_denied |
 --           unauthenticated | invalid_request
-DROP FUNCTION public.issue_reporting_pack(UUID, INTEGER, TEXT, UUID);
+DROP FUNCTION public.issue_reporting_pack(UUID, INTEGER, TEXT, UUID)
+$missuanceaaw$;
+
+  EXECUTE $missuanceaax$
 CREATE OR REPLACE FUNCTION public.issue_reporting_pack(
   p_company_id UUID, p_period_year INTEGER, p_pack_kind TEXT, p_output_ref TEXT, p_request_id UUID)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -162,8 +230,10 @@ BEGIN
   VALUES (v_row.id, p_company_id, v_user, 'ISSUED', jsonb_build_object('pack_kind', p_pack_kind, 'period_year', p_period_year, 'output_ref', p_output_ref, 'plan_code', v_row.plan_code));
   RETURN jsonb_build_object('outcome', 'issued', 'issuance_id', v_row.id, 'expires_at', v_row.expires_at);
 END;
-$$;
+$$
+$missuanceaax$;
 
+  EXECUTE $missuanceaay$
 -- ── 4. Seal once, with the exact bytes' SHA-256 ───────────────────────────────────────────────
 -- Outcomes: sealed | not_found (unknown, or issued to someone else) | binding_mismatch | already_sealed | expired |
 --           entitlement_required | workspace_access_denied | invalid_request | unauthenticated
@@ -211,8 +281,10 @@ BEGIN
   VALUES (v_row.id, v_row.company_id, v_user, 'SEALED', jsonb_build_object('content_sha256', p_content_sha256, 'pack_kind', v_row.pack_kind));
   RETURN jsonb_build_object('outcome', 'sealed', 'issuance_id', v_row.id);
 END;
-$$;
+$$
+$missuanceaay$;
 
+  EXECUTE $missuanceaaz$
 -- ── 5. Verification: is this file an official issued pack? (for anyone with access to its workspace) ──
 CREATE OR REPLACE FUNCTION public.verify_reporting_pack(p_content_sha256 TEXT)
 RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -231,21 +303,55 @@ BEGIN
   RETURN jsonb_build_object('official', true, 'issuance_id', v_row.id, 'company_id', v_row.company_id, 'period_year', v_row.period_year,
     'pack_kind', v_row.pack_kind, 'output_ref', v_row.output_ref, 'issued_at', v_row.issued_at, 'sealed_at', v_row.consumed_at);
 END;
-$$;
+$$
+$missuanceaaz$;
 
+  EXECUTE $missuanceaaa$
 -- ── 6. Privileges ──────────────────────────────────────────────────────────────────────────────
-REVOKE ALL ON FUNCTION public.reporting_pack_issuance_ttl() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.reporting_pack_issuance_ttl() TO authenticated, service_role;
-REVOKE ALL ON FUNCTION public._reporting_pack_output_ref_valid(UUID, INTEGER, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.reporting_pack_issuances_immutable() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.reporting_pack_issuance_events_immutable() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.issue_reporting_pack(UUID, INTEGER, TEXT, TEXT, UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.issue_reporting_pack(UUID, INTEGER, TEXT, TEXT, UUID) TO authenticated;
-REVOKE ALL ON FUNCTION public.consume_reporting_pack_issuance(UUID, UUID, INTEGER, TEXT, TEXT, TEXT) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.consume_reporting_pack_issuance(UUID, UUID, INTEGER, TEXT, TEXT, TEXT) TO authenticated;
-REVOKE ALL ON FUNCTION public.verify_reporting_pack(TEXT) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.verify_reporting_pack(TEXT) TO authenticated;
+REVOKE ALL ON FUNCTION public.reporting_pack_issuance_ttl() FROM PUBLIC, anon
+$missuanceaaa$;
 
+  EXECUTE $missuanceaab$
+GRANT EXECUTE ON FUNCTION public.reporting_pack_issuance_ttl() TO authenticated, service_role
+$missuanceaab$;
+
+  EXECUTE $missuanceaac$
+REVOKE ALL ON FUNCTION public._reporting_pack_output_ref_valid(UUID, INTEGER, TEXT, TEXT) FROM PUBLIC, anon, authenticated
+$missuanceaac$;
+
+  EXECUTE $missuanceaad$
+REVOKE ALL ON FUNCTION public.reporting_pack_issuances_immutable() FROM PUBLIC, anon, authenticated
+$missuanceaad$;
+
+  EXECUTE $missuanceaae$
+REVOKE ALL ON FUNCTION public.reporting_pack_issuance_events_immutable() FROM PUBLIC, anon, authenticated
+$missuanceaae$;
+
+  EXECUTE $missuanceaaf$
+REVOKE ALL ON FUNCTION public.issue_reporting_pack(UUID, INTEGER, TEXT, TEXT, UUID) FROM PUBLIC, anon
+$missuanceaaf$;
+
+  EXECUTE $missuanceaag$
+GRANT EXECUTE ON FUNCTION public.issue_reporting_pack(UUID, INTEGER, TEXT, TEXT, UUID) TO authenticated
+$missuanceaag$;
+
+  EXECUTE $missuanceaah$
+REVOKE ALL ON FUNCTION public.consume_reporting_pack_issuance(UUID, UUID, INTEGER, TEXT, TEXT, TEXT) FROM PUBLIC, anon
+$missuanceaah$;
+
+  EXECUTE $missuanceaai$
+GRANT EXECUTE ON FUNCTION public.consume_reporting_pack_issuance(UUID, UUID, INTEGER, TEXT, TEXT, TEXT) TO authenticated
+$missuanceaai$;
+
+  EXECUTE $missuanceaaj$
+REVOKE ALL ON FUNCTION public.verify_reporting_pack(TEXT) FROM PUBLIC, anon
+$missuanceaaj$;
+
+  EXECUTE $missuanceaak$
+GRANT EXECUTE ON FUNCTION public.verify_reporting_pack(TEXT) TO authenticated
+$missuanceaak$;
+
+  EXECUTE $missuanceaal$
 -- ── 7. Durable deployment approvals (the Free-retirement production interlock of 20260925130000) ──────────────
 -- 20260925130000 turns every open Free licence into EXPIRED_READ_ONLY. It runs only against a recorded, unexpired,
 -- unconsumed approval for THIS environment whose inventory matches the licences it would end, and it consumes that
@@ -270,16 +376,20 @@ BEGIN
   END;
   RETURN md5(COALESCE(v_sys, '') || ':' || (SELECT d.oid::text FROM pg_database d WHERE d.datname = current_database()) || ':' || current_database());
 END;
-$$;
+$$
+$missuanceaal$;
 
+  EXECUTE $missuanceaam$
 -- The open Free licences a retirement would end, as a count and a digest of their ids (an approval must match both).
 CREATE OR REPLACE FUNCTION public._free_plan_inventory()
 RETURNS JSONB LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT jsonb_build_object('open_free_licences', count(*), 'inventory_digest', md5(COALESCE(string_agg(cl.id::text, ',' ORDER BY cl.id), '')))
     FROM public.commercial_licences cl JOIN public.commercial_plans cp ON cp.id = cl.plan_id
    WHERE cp.code = 'FREE' AND cl.status IN ('PENDING', 'ACTIVE', 'GRACE');
-$$;
+$$
+$missuanceaam$;
 
+  EXECUTE $missuanceaan$
 CREATE TABLE public.deployment_approvals (
   id                      UUID        NOT NULL DEFAULT gen_random_uuid(),
   purpose                 TEXT        NOT NULL,
@@ -297,7 +407,10 @@ CREATE TABLE public.deployment_approvals (
   CONSTRAINT chk_da_window CHECK (expires_at > approved_at AND expires_at <= approved_at + interval '72 hours'),
   CONSTRAINT chk_da_consumed CHECK ((consumed_at IS NULL) = (consumed_by IS NULL)),
   CONSTRAINT fk_da_approved_by FOREIGN KEY (approved_by) REFERENCES public.commercial_admins(user_id) ON DELETE RESTRICT
-);
+)
+$missuanceaan$;
+
+  EXECUTE $missuanceaao$
 -- Creation only through admin_record_deployment_approval: it marks its own transaction immediately before its INSERT
 -- (and clears the mark after). The approver must be the calling, ACTIVE commercial administrator; the row is created
 -- unconsumed, approved now, for this environment. (A superuser can forge the mark: see the scope note above.)
@@ -318,8 +431,14 @@ BEGIN
   NEW.approved_at := now();
   RETURN NEW;
 END;
-$$;
-CREATE TRIGGER trg_da_insert_guard BEFORE INSERT ON public.deployment_approvals FOR EACH ROW EXECUTE FUNCTION public.deployment_approvals_insert_guard();
+$$
+$missuanceaao$;
+
+  EXECUTE $missuanceaap$
+CREATE TRIGGER trg_da_insert_guard BEFORE INSERT ON public.deployment_approvals FOR EACH ROW EXECUTE FUNCTION public.deployment_approvals_insert_guard()
+$missuanceaap$;
+
+  EXECUTE $missuanceaaq$
 CREATE OR REPLACE FUNCTION public.deployment_approvals_guard()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
@@ -329,15 +448,35 @@ BEGIN
   END IF;
   RAISE EXCEPTION 'deployment_approvals is append-only (an approval is consumed once, never edited or deleted)' USING ERRCODE = '42501';
 END;
-$$;
-CREATE TRIGGER trg_da_guard BEFORE UPDATE OR DELETE ON public.deployment_approvals FOR EACH ROW EXECUTE FUNCTION public.deployment_approvals_guard();
-CREATE TRIGGER trg_da_no_truncate BEFORE TRUNCATE ON public.deployment_approvals FOR EACH STATEMENT EXECUTE FUNCTION public.deployment_approvals_guard();
-ALTER TABLE public.deployment_approvals ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "da_select_commercial_admin" ON public.deployment_approvals FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.commercial_admins a WHERE a.user_id = auth.uid() AND a.active));
-REVOKE ALL ON public.deployment_approvals FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT ON public.deployment_approvals TO authenticated;
+$$
+$missuanceaaq$;
 
+  EXECUTE $missuanceaar$
+CREATE TRIGGER trg_da_guard BEFORE UPDATE OR DELETE ON public.deployment_approvals FOR EACH ROW EXECUTE FUNCTION public.deployment_approvals_guard()
+$missuanceaar$;
+
+  EXECUTE $missuanceaas$
+CREATE TRIGGER trg_da_no_truncate BEFORE TRUNCATE ON public.deployment_approvals FOR EACH STATEMENT EXECUTE FUNCTION public.deployment_approvals_guard()
+$missuanceaas$;
+
+  EXECUTE $missuanceaat$
+ALTER TABLE public.deployment_approvals ENABLE ROW LEVEL SECURITY
+$missuanceaat$;
+
+  EXECUTE $missuanceaau$
+CREATE POLICY "da_select_commercial_admin" ON public.deployment_approvals FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.commercial_admins a WHERE a.user_id = auth.uid() AND a.active))
+$missuanceaau$;
+
+  EXECUTE $missuanceaav$
+REVOKE ALL ON public.deployment_approvals FROM PUBLIC, anon, authenticated, service_role
+$missuanceaav$;
+
+  EXECUTE $missuanceaaw$
+GRANT SELECT ON public.deployment_approvals TO authenticated
+$missuanceaaw$;
+
+  EXECUTE $missuanceaax$
 -- A commercial administrator records the approval after the release sequence: the inventory they reviewed must be the
 -- current one, a notification reference and the activation path are required, and it expires within 72 hours.
 CREATE OR REPLACE FUNCTION public.admin_record_deployment_approval(
@@ -371,14 +510,31 @@ BEGIN
   PERFORM set_config('cfoclose.deployment_approval_writer', '', true);
   RETURN jsonb_build_object('approval_id', v_id, 'inventory', v_inv);
 END;
-$$;
-REVOKE ALL ON FUNCTION public._environment_fingerprint() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._free_plan_inventory() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.deployment_approvals_guard() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.deployment_approvals_insert_guard() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.admin_record_deployment_approval(TEXT, TEXT, INTEGER, TEXT, TEXT, INTEGER) FROM PUBLIC, anon, service_role;
-GRANT EXECUTE ON FUNCTION public.admin_record_deployment_approval(TEXT, TEXT, INTEGER, TEXT, TEXT, INTEGER) TO authenticated;
+$$
+$missuanceaax$;
 
--- ── Rollback (NOT executed; for reference only) ─────────────────────────────────────────────
--- Issuances and events are records: never delete them. Restore 20260925100000's issue_reporting_pack(4 args) and
--- immutable trigger function; drop consume_/verify_ and the ttl/ref helpers. The added columns may stay.
+  EXECUTE $missuanceaay$
+REVOKE ALL ON FUNCTION public._environment_fingerprint() FROM PUBLIC, anon, authenticated
+$missuanceaay$;
+
+  EXECUTE $missuanceaaz$
+REVOKE ALL ON FUNCTION public._free_plan_inventory() FROM PUBLIC, anon, authenticated
+$missuanceaaz$;
+
+  EXECUTE $missuanceaba$
+REVOKE ALL ON FUNCTION public.deployment_approvals_guard() FROM PUBLIC, anon, authenticated
+$missuanceaba$;
+
+  EXECUTE $missuanceabb$
+REVOKE ALL ON FUNCTION public.deployment_approvals_insert_guard() FROM PUBLIC, anon, authenticated
+$missuanceabb$;
+
+  EXECUTE $missuanceabc$
+REVOKE ALL ON FUNCTION public.admin_record_deployment_approval(TEXT, TEXT, INTEGER, TEXT, TEXT, INTEGER) FROM PUBLIC, anon, service_role
+$missuanceabc$;
+
+  EXECUTE $missuanceabd$
+GRANT EXECUTE ON FUNCTION public.admin_record_deployment_approval(TEXT, TEXT, INTEGER, TEXT, TEXT, INTEGER) TO authenticated
+$missuanceabd$;
+END
+$cfoclose_issuance$;

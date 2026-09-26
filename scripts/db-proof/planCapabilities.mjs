@@ -113,6 +113,16 @@ const FINGERPRINT_SQL = `SELECT md5(string_agg(x, '|' ORDER BY x)) AS fp FROM (
                           || coalesce((SELECT string_agg(to_jsonb(e)::text, ',' ORDER BY e.id) FROM public.entitlement_overrides e), ''))
 ) s`;
 const fingerprint = async () => (await admin.query(FINGERPRINT_SQL)).rows[0].fp;
+// Schema, policies, triggers, constraints AND privileges (function and table ACLs).
+const SCHEMA_SQL = `SELECT md5(string_agg(x, '|' ORDER BY x)) fp, count(*) n FROM (
+      SELECT 'c:'||table_name||'.'||column_name||':'||data_type||':'||coalesce(column_default,'')||is_nullable AS x FROM information_schema.columns WHERE table_schema='public'
+      UNION ALL SELECT 'r:'||c.relname||c.relkind::text||':'||coalesce(c.relacl::text,'')||':'||c.relrowsecurity::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
+      UNION ALL SELECT 'f:'||p.oid::regprocedure::text||md5(pg_get_functiondef(p.oid))||':'||coalesce(p.proacl::text,'') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind='f'
+      UNION ALL SELECT 't:'||tgname||':'||tgrelid::regclass::text||':'||tgenabled::text FROM pg_trigger WHERE NOT tgisinternal
+      UNION ALL SELECT 'k:'||conname||':'||conrelid::regclass::text||':'||pg_get_constraintdef(oid) FROM pg_constraint WHERE connamespace='public'::regnamespace
+      UNION ALL SELECT 'p:'||tablename||'.'||policyname||':'||permissive||':'||roles::text||':'||cmd||':'||coalesce(qual,'')||':'||coalesce(with_check,'') FROM pg_policies WHERE schemaname IN ('public','storage')
+    ) s`;
+const schemaFp = async () => (await admin.query(SCHEMA_SQL)).rows[0].fp;
 
 async function asCaller(caller, fn) {
   const c = await pool.connect();
@@ -182,7 +192,7 @@ async function main() {
       (SELECT coalesce(jsonb_agg(to_jsonb(u) - 'updated_at' ORDER BY u.id), '[]') FROM public.trial_balance_uploads u WHERE u.company_id=$1) tb,
       (SELECT coalesce(jsonb_agg(to_jsonb(g) ORDER BY g.id), '[]') FROM public.workspace_capability_grants g WHERE g.company_id=$1) gr,
       (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.id), '[]') FROM public.tax_losses t WHERE t.company_id=$1) tl,
-      (SELECT coalesce(jsonb_agg(to_jsonb(i) - 'storage_path' - 'byte_size' ORDER BY i.id), '[]') FROM public.reporting_pack_issuances i WHERE i.company_id=$1) iss,
+      (SELECT coalesce(jsonb_agg(to_jsonb(i) - 'storage_path' - 'byte_size' - 'final_publication_id' ORDER BY i.id), '[]') FROM public.reporting_pack_issuances i WHERE i.company_id=$1) iss,
       (SELECT coalesce(jsonb_agg(to_jsonb(e) ORDER BY e.id), '[]') FROM public.reporting_pack_issuance_events e WHERE e.company_id=$1) iev,
       (SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY a.id), '[]') FROM public.billing_audit_events a JOIN public.billing_customers b ON b.id=a.billing_customer_id
          JOIN public.companies c ON c.user_id=b.owner_user_id WHERE c.id=$1) aud`, [company])).rows[0];
@@ -364,7 +374,9 @@ async function main() {
   });
   await check("the postcondition fails the migration if a grant slips back in (it can never leave an authenticated grant in place)", async () => {
     const text = fs.readFileSync(path.join(REPO, "supabase/migrations", M150), "utf8");
-    const post = text.slice(text.indexOf("DO $post$"));
+    // The postcondition statement itself (inside the atomic envelope): from DO $post$ to its closing tag.
+    const at = text.indexOf("DO $post$");
+    const post = text.slice(at, text.indexOf("$post$", at + 9) + 6);
     await admin.query("BEGIN");
     try {
       await admin.query("GRANT EXECUTE ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) TO authenticated");
@@ -914,10 +926,14 @@ async function main() {
     await admin.query("BEGIN"); await admin.query("SET LOCAL session_replication_role = replica");
     await admin.query(`INSERT INTO public.financial_statement_reports (report_id, report_version, company_id, period_year, provenance_origin, report_document, content_hash, document_hash, created_by_firm_member_id)
       VALUES ($1,1,$2,2025,'TRIAL_BALANCE_DERIVED','{"statements":{}}'::jsonb,$3, public.fs_sha256_hex('{"statements":{}}'::jsonb::text), $4)`, [rid, L.co, "e".repeat(64), member]);
+    // Its publication history ends FINAL: an official pack needs the exact FINAL publication (X-1).
+    for (const st of ["DRAFT", "REVIEWED", "FINAL"]) {
+      await admin.query("INSERT INTO public.financial_statement_publications (report_id, report_version, company_id, state, reason, actor_firm_member_id) VALUES ($1,1,$2,$3,'proof publication step',$4)", [rid, L.co, st, member]);
+    }
     await admin.query("COMMIT");
     const saved = `fs-report:${rid}:v1`;
     const serverSeal = (who, id, co = L.co) => one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3) r", [who, id, `${co}/${id}.json`]);
-    const i = (await one(user(L.holder), "SELECT public.issue_reporting_pack($1,2025,'financial_statements_data',$2,$3) r", [L.co, saved, uuid()])).r;
+    const i = (await one(user(L.holder), "SELECT public.issue_official_reporting_pack($1,2025,$2,$3) r", [L.co, saved, uuid()])).r;
     // The object the Edge Function stores (Supabase Storage records its size): a seal needs it.
     const prepared = (await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [L.holder, i.issuance_id])).r;
     await admin.query("INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('reporting-packs', $1, $2::jsonb)", [`${L.co}/${i.issuance_id}.json`, JSON.stringify({ size: prepared.byte_size })]);
@@ -932,9 +948,11 @@ async function main() {
     const refusedEv = await count("SELECT count(*) n FROM public.reporting_pack_issuance_events WHERE actor_user_id=$1 AND event='REFUSED' AND detail->>'code'='CAPABILITY_REQUIRED'", [pr.b]);
     await expire(soloLicence);
     const after = (await one(user(L.holder), "SELECT public.issue_reporting_pack($1,2025,'financial_statements_spreadsheet',$2,$3) r", [L.co, ref, uuid()])).r.outcome;
-    const stillVerifies = (await one(user(L.holder), "SELECT public.verify_reporting_pack($1) r", [sha])).r;
+    // After the plan ended the seal still stands, canonical and with its object (the official answer itself comes only
+    // from the Edge Function's byte re-hash, proven in billingSuspension.mjs; no database route says official).
+    const stillVerifies = (await one(SERVICE, "SELECT public.reporting_pack_sealed_object($1) r", [i.issuance_id])).r;
     return seal === "sealed" && replay === "already_sealed" && cross === "not_found" && noCap.outcome === "capability_required" && refusedEv === 1
-      && after === "entitlement_required" && stillVerifies.official === true
+      && after === "entitlement_required" && stillVerifies.content_sha256 === sha && stillVerifies.canonical_sha256 === sha && stillVerifies.object_present === true
       ? true : JSON.stringify({ seal, replay, cross, noCap, refusedEv, after, stillVerifies });
   });
 
@@ -1117,16 +1135,37 @@ async function main() {
       ? true : JSON.stringify({ tables, svc });
   });
 
+  group("X-2 — every pending migration is ONE atomic statement: re-application and continue-on-error change nothing");
+  await check("100000, 110000, 120000, 130000, 140000 and 150000 are each one top-level statement for the repository splitter", async () => {
+    const counts = {};
+    for (const m of files.filter((x) => /^2026092510|^2026092511|^2026092512|^2026092513|^2026092514|^2026092515/.test(x))) counts[m.slice(0, 14)] = splitStatements(fs.readFileSync(path.join(REPO, "supabase/migrations", m), "utf8")).length;
+    return Object.keys(counts).length === 6 && Object.values(counts).every((n) => n === 1) ? true : JSON.stringify(counts);
+  });
+  await check("after the full chain, applying any pending migration again — whole file, or statement by statement continuing after errors — restores nothing: schema, privileges, catalogue and data unchanged", async () => {
+    const before = { schema: await schemaFp(), data: await fingerprint() };
+    const out = {};
+    for (const m of files.filter((x) => /^202609251[0-5]0000/.test(x))) {
+      const text = fs.readFileSync(path.join(REPO, "supabase/migrations", m), "utf8");
+      let whole; try { await admin.query(text); whole = "applied"; } catch (e) { whole = e.code; }
+      let errors = 0; const stmts = splitStatements(text); for (const st of stmts) { try { await admin.query(st); } catch { errors++; } }
+      out[m.slice(0, 14)] = { whole, statements: stmts.length, errors, same: (await schemaFp()) === before.schema && (await fingerprint()) === before.data };
+    }
+    // Specifically: the client-hash sealing path, the metadata-only verifier and the Free offer stay gone; the
+    // authority predicates stay service-role only; old title-based capability checks are not back.
+    const restored = {
+      consume: (await admin.query("SELECT to_regproc('public.consume_reporting_pack_issuance') p")).rows[0].p,
+      verify: (await admin.query("SELECT to_regproc('public.verify_reporting_pack') p")).rows[0].p,
+      freeOffered: await count("SELECT count(*) n FROM public.commercial_offers o JOIN public.commercial_plans p ON p.id=o.plan_id WHERE p.code='FREE' AND o.is_active"),
+      predicateAuth: (await admin.query("SELECT has_function_privilege('authenticated','public.can_user_act_on_workspace(uuid,uuid,text)','EXECUTE') a")).rows[0].a,
+    };
+    const ok = Object.values(out).every((x) => x.same && x.statements === 1 && (x.whole !== "applied" || x.errors === 0))
+      && ["20260925100000", "20260925110000", "20260925120000", "20260925130000", "20260925140000"].every((k) => out[k]?.whole === "55000" && out[k]?.errors === 1)
+      && restored.consume === null && restored.verify === null && restored.freeOffered === 0 && restored.predicateAuth === false;
+    return ok ? true : JSON.stringify({ out, restored });
+  });
+
   group("Migration replay — a clean replay and the upgrade replay above converge to the same schema");
   await check("an empty database replaying every migration (no approval needed: no open Free licence) reaches exactly the schema, policies, triggers, constraints and privileges of the upgraded legacy database", async () => {
-    const SCHEMA_SQL = `SELECT md5(string_agg(x, '|' ORDER BY x)) fp, count(*) n FROM (
-      SELECT 'c:'||table_name||'.'||column_name||':'||data_type||':'||coalesce(column_default,'')||is_nullable AS x FROM information_schema.columns WHERE table_schema='public'
-      UNION ALL SELECT 'r:'||c.relname||c.relkind::text||':'||coalesce(c.relacl::text,'')||':'||c.relrowsecurity::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
-      UNION ALL SELECT 'f:'||p.oid::regprocedure::text||md5(pg_get_functiondef(p.oid))||':'||coalesce(p.proacl::text,'') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind='f'
-      UNION ALL SELECT 't:'||tgname||':'||tgrelid::regclass::text||':'||tgenabled::text FROM pg_trigger WHERE NOT tgisinternal
-      UNION ALL SELECT 'k:'||conname||':'||conrelid::regclass::text||':'||pg_get_constraintdef(oid) FROM pg_constraint WHERE connamespace='public'::regnamespace
-      UNION ALL SELECT 'p:'||tablename||'.'||policyname||':'||permissive||':'||roles::text||':'||cmd||':'||coalesce(qual,'')||':'||coalesce(with_check,'') FROM pg_policies WHERE schemaname IN ('public','storage')
-    ) s`;
     const cleanName = `clean_replay_${Date.now()}`;
     await admin.query(`CREATE DATABASE ${cleanName}`);
     const cp = admin.connectionParameters;

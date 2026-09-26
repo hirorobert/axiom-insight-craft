@@ -237,12 +237,19 @@ serve(async (req) => {
       );
     }
 
+    // What this invitation actually carries, shown to the inviter: a title never grants or restores a capability, so a
+    // re-invitation after a withdrawal names the capabilities it does NOT carry.
+    const { data: summary } = await admin.rpc("invitation_capability_summary", { p_company_id: company_id, p_user: invitedUserId });
+    const carried = (summary ?? {}) as { capabilities?: string[]; withheld?: string[] };
+
     return new Response(
       JSON.stringify({
         ok: true,
         userId: invitedUserId,
         alreadyMember: false,
         reservation: reserved.outcome,
+        capabilities: carried.capabilities ?? [],
+        withheld: carried.withheld ?? [],
         message: alreadyRegistered
           ? `${email} already has an account. The invitation is reserved and is accepted when they next sign in.`
           : `Invitation sent to ${email}. They will appear as 'Pending' until they accept.`,

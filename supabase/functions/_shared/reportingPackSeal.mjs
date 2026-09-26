@@ -95,6 +95,22 @@ export async function issueOfficialPack(deps, input) {
 }
 
 /**
+ * THE official-verification route (security correction X-3): the only answer that may say official = true, because it
+ * downloads the stored bytes and re-hashes them. The caller must have access to the workspace (also after its plan
+ * ended); anyone else learns nothing (not_found). official is true only for "intact".
+ * @param {import("./reportingPackSeal.d.mts").SealDeps} deps @param {string} userId @param {string} issuanceId
+ */
+export async function verifyOfficialPack(deps, userId, issuanceId) {
+  if (!UUID.test(userId ?? "")) return { outcome: "not_found", official: false };
+  const r = await verifyStoredPack(deps, issuanceId);
+  if (!r.company_id) return { outcome: "not_found", official: false };
+  const { data } = await deps.rpc("authorize_paid_action_for_user", { p_user: userId, p_company_id: r.company_id, p_capability: "CLOSE_ASSURANCE" });
+  const code = obj(data)?.code;
+  if (!code || code === "WORKSPACE_ACCESS_DENIED" || code === "UNAUTHENTICATED") return { outcome: "not_found", official: false };
+  return { outcome: r.outcome, official: r.outcome === "intact" };
+}
+
+/**
  * intact        the stored object is the sealed bytes, and the seal is the canonical document of its source
  * substituted   the stored object is not the sealed bytes
  * not_canonical the seal's hash is not the canonical hash re-derived from the authoritative source (never official)

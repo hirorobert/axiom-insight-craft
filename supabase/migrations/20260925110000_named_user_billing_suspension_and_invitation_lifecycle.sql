@@ -37,7 +37,13 @@
 --   invitation_reservation_ttl() is the ONE duration: 7 days is a PROPOSED value awaiting a product decision; no
 --   invitation duration is documented anywhere in this repository.
 -- ════════════════════════════════════════════════════════════════════════════
-
+--
+-- ATOMIC ENVELOPE (security correction B-3): every statement below runs inside this ONE DO statement. Whatever the
+-- runner does (statement by statement, whole file, with or without a transaction, continuing after errors) the
+-- migration either applies completely or changes nothing.
+DO $cfoclose_suspension$
+BEGIN
+  EXECUTE $msuspensionaaa$
 DO $refuse$
 BEGIN
   IF to_regclass('public.commercial_capabilities') IS NULL OR to_regproc('public._seat_capacity_for_account') IS NULL THEN
@@ -47,36 +53,48 @@ BEGIN
     RAISE EXCEPTION 'billing-suspension migration refused: already applied. Nothing was changed.' USING ERRCODE = '55000';
   END IF;
 END
-$refuse$;
+$refuse$
+$msuspensionaaa$;
 
-SET search_path TO public, pg_catalog;
+  EXECUTE $msuspensionaab$
+SET search_path TO public, pg_catalog
+$msuspensionaab$;
 
+  EXECUTE $msuspensionaac$
 -- ── 1. Invitation reservation lifecycle ──────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.invitation_reservation_ttl()
 RETURNS interval LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
   -- PROPOSED 7 days — product decision pending (no documented invitation duration exists). Change only here.
   SELECT interval '7 days'
-$$;
+$$
+$msuspensionaac$;
 
+  EXECUTE $msuspensionaad$
 ALTER TABLE public.firm_members
   ADD COLUMN invitation_expires_at   TIMESTAMPTZ NULL,
   ADD COLUMN invitation_cancelled_at TIMESTAMPTZ NULL,
   ADD COLUMN invitation_cancel_reason TEXT NULL,
   ADD CONSTRAINT chk_fm_invitation_cancel_pair CHECK ((invitation_cancelled_at IS NULL) = (invitation_cancel_reason IS NULL)),
   ADD CONSTRAINT chk_fm_invitation_cancel_reason CHECK (invitation_cancel_reason IS NULL OR invitation_cancel_reason IN ('OWNER_CANCELLED', 'EMAIL_FAILED')),
-  ADD CONSTRAINT chk_fm_invitation_cancel_pending CHECK (invitation_cancelled_at IS NULL OR accepted_at IS NULL);
+  ADD CONSTRAINT chk_fm_invitation_cancel_pending CHECK (invitation_cancelled_at IS NULL OR accepted_at IS NULL)
+$msuspensionaad$;
 
+  EXECUTE $msuspensionaae$
 -- Pending invitations that predate this migration get one full reservation period from now (deterministic; none is
 -- expired retroactively). The seat-wall trigger is replaced below, after this backfill.
 UPDATE public.firm_members SET invitation_expires_at = now() + public.invitation_reservation_ttl()
- WHERE accepted_at IS NULL AND invitation_expires_at IS NULL;
+ WHERE accepted_at IS NULL AND invitation_expires_at IS NULL
+$msuspensionaae$;
 
+  EXECUTE $msuspensionaaf$
 -- A pending invitation is VALID (reserves a seat, may be accepted) only until it expires and while not cancelled.
 CREATE OR REPLACE FUNCTION public._invitation_valid(p_accepted_at TIMESTAMPTZ, p_expires_at TIMESTAMPTZ, p_cancelled_at TIMESTAMPTZ)
 RETURNS BOOLEAN LANGUAGE sql STABLE SET search_path = pg_catalog, public AS $$
   SELECT p_accepted_at IS NULL AND p_cancelled_at IS NULL AND p_expires_at IS NOT NULL AND p_expires_at > now()
-$$;
+$$
+$msuspensionaaf$;
 
+  EXECUTE $msuspensionaag$
 -- ── 2. Billing suspensions (append-only history; a suspension is lifted, never deleted) ──────
 CREATE TABLE public.named_user_billing_suspensions (
   id               UUID        NOT NULL DEFAULT gen_random_uuid(),
@@ -95,23 +113,48 @@ CREATE TABLE public.named_user_billing_suspensions (
   CONSTRAINT chk_nubs_reason CHECK (reason IN ('ENTITLEMENT_LOST', 'OWNER_SELECTION', 'PLANNED_REDUCTION')),
   CONSTRAINT chk_nubs_lift CHECK ((lifted_at IS NULL) = (lifted_by IS NULL) AND (lifted_at IS NULL) = (lift_reason IS NULL)),
   CONSTRAINT chk_nubs_lift_reason CHECK (lift_reason IS NULL OR lift_reason IN ('OWNER_SELECTION', 'PLANNED_SELECTION'))
-);
-CREATE UNIQUE INDEX uq_nubs_open ON public.named_user_billing_suspensions (account_user_id, user_id) WHERE lifted_at IS NULL;
-CREATE INDEX idx_nubs_user ON public.named_user_billing_suspensions (user_id) WHERE lifted_at IS NULL;
-ALTER TABLE public.named_user_billing_suspensions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "nubs_select_account" ON public.named_user_billing_suspensions FOR SELECT TO authenticated
-  USING (account_user_id = auth.uid() OR public.is_commercial_admin());
-REVOKE ALL ON public.named_user_billing_suspensions FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT ON public.named_user_billing_suspensions TO authenticated;
--- The service role may record and lift (the guard enforces the allowance); it can never delete or truncate history.
-GRANT SELECT, INSERT, UPDATE ON public.named_user_billing_suspensions TO service_role;
+)
+$msuspensionaag$;
 
+  EXECUTE $msuspensionaah$
+CREATE UNIQUE INDEX uq_nubs_open ON public.named_user_billing_suspensions (account_user_id, user_id) WHERE lifted_at IS NULL
+$msuspensionaah$;
+
+  EXECUTE $msuspensionaai$
+CREATE INDEX idx_nubs_user ON public.named_user_billing_suspensions (user_id) WHERE lifted_at IS NULL
+$msuspensionaai$;
+
+  EXECUTE $msuspensionaaj$
+ALTER TABLE public.named_user_billing_suspensions ENABLE ROW LEVEL SECURITY
+$msuspensionaaj$;
+
+  EXECUTE $msuspensionaak$
+CREATE POLICY "nubs_select_account" ON public.named_user_billing_suspensions FOR SELECT TO authenticated
+  USING (account_user_id = auth.uid() OR public.is_commercial_admin())
+$msuspensionaak$;
+
+  EXECUTE $msuspensionaal$
+REVOKE ALL ON public.named_user_billing_suspensions FROM PUBLIC, anon, authenticated, service_role
+$msuspensionaal$;
+
+  EXECUTE $msuspensionaam$
+GRANT SELECT ON public.named_user_billing_suspensions TO authenticated
+$msuspensionaam$;
+
+  EXECUTE $msuspensionaan$
+-- The service role may record and lift (the guard enforces the allowance); it can never delete or truncate history.
+GRANT SELECT, INSERT, UPDATE ON public.named_user_billing_suspensions TO service_role
+$msuspensionaan$;
+
+  EXECUTE $msuspensionaao$
 CREATE OR REPLACE FUNCTION public._named_user_suspended(p_account UUID, p_user UUID)
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT EXISTS (SELECT 1 FROM public.named_user_billing_suspensions s
                   WHERE s.account_user_id = p_account AND s.user_id = p_user AND s.lifted_at IS NULL)
-$$;
+$$
+$msuspensionaao$;
 
+  EXECUTE $msuspensionaap$
 -- Named users of an account, never counting a suspended person.
 --   p_include_pending = true  -> RESERVED: account holder + accepted and VALID pending memberships + active grants
 --   p_include_pending = false -> ACTIVE candidates: account holder + accepted memberships + active grants
@@ -128,8 +171,10 @@ RETURNS TABLE (named_user_id UUID) LANGUAGE sql STABLE SECURITY DEFINER SET sear
   SELECT g.grantee_user_id FROM public.workspace_capability_grants g JOIN public.companies c ON c.id = g.company_id
    WHERE c.user_id = p_account AND g.revoked_at IS NULL AND g.id IS DISTINCT FROM p_exclude_grant
      AND NOT public._named_user_suspended(p_account, g.grantee_user_id);
-$$;
+$$
+$msuspensionaap$;
 
+  EXECUTE $msuspensionaaq$
 -- THE activity predicate (see header). Restrictive by construction: it never grants anything on its own; every
 -- caller also requires its existing membership / grant / ownership condition.
 CREATE OR REPLACE FUNCTION public._account_named_user_access_active(p_account UUID, p_user UUID)
@@ -152,8 +197,10 @@ BEGIN
   END IF;
   RETURN (SELECT count(*) FROM public._account_named_users(p_account, false)) <= (v_cap->>'allowed_named_users')::integer;
 END;
-$$;
+$$
+$msuspensionaaq$;
 
+  EXECUTE $msuspensionaar$
 -- named_user_access_active is evaluated inside RLS, so signed-in users can execute it; called directly by a signed-in
 -- user it only ever answers about that user (it can never be used to probe who is suspended where).
 CREATE OR REPLACE FUNCTION public.named_user_access_active(p_company_id UUID, p_user UUID)
@@ -164,14 +211,18 @@ BEGIN
   END IF;
   RETURN public._account_named_user_access_active((SELECT c.user_id FROM public.companies c WHERE c.id = p_company_id), p_user);
 END;
-$$;
+$$
+$msuspensionaar$;
 
+  EXECUTE $msuspensionaas$
 -- ── 3. A person who is not active cannot see their own membership rows, so every RLS policy that proves
 --      membership with a sub-select on firm_members denies them. Other people's rows are unaffected.
 CREATE POLICY "firm_members_named_user_active" ON public.firm_members AS RESTRICTIVE FOR ALL TO authenticated
   USING (CASE WHEN user_id = auth.uid() THEN public.named_user_access_active(company_id, user_id) ELSE true END)
-  WITH CHECK (CASE WHEN user_id = auth.uid() THEN public.named_user_access_active(company_id, user_id) ELSE true END);
+  WITH CHECK (CASE WHEN user_id = auth.uid() THEN public.named_user_access_active(company_id, user_id) ELSE true END)
+$msuspensionaas$;
 
+  EXECUTE $msuspensionaat$
 -- ── 4. Workspace access basis (20260925100000) now requires an active named user ─────────────
 CREATE OR REPLACE FUNCTION public._workspace_access_basis(p_user UUID, p_company_id UUID)
 RETURNS TEXT LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -182,8 +233,10 @@ RETURNS TEXT LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, 
     WHEN EXISTS (SELECT 1 FROM public.firm_members fm WHERE fm.company_id = p_company_id AND fm.user_id = p_user AND fm.accepted_at IS NOT NULL) THEN 'accepted_member'
     WHEN EXISTS (SELECT 1 FROM public.workspace_capability_grants g WHERE g.company_id = p_company_id AND g.grantee_user_id = p_user AND g.revoked_at IS NULL) THEN 'capability_grant'
   END;
-$$;
+$$
+$msuspensionaat$;
 
+  EXECUTE $msuspensionaau$
 -- ── 5. Every other definer function that confers access: exactly one added conjunct each ─────
 
 CREATE OR REPLACE FUNCTION public.assert_engagement_write_authority(p_engagement_id uuid)
@@ -231,8 +284,10 @@ BEGIN
 
   RETURN v_member;
 END;
-$function$;
+$function$
+$msuspensionaau$;
 
+  EXECUTE $msuspensionaav$
 CREATE OR REPLACE FUNCTION public.financial_statements_workspace_access(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -265,8 +320,10 @@ BEGIN
   END IF;
   RETURN jsonb_build_object('enabled', true, 'reason', 'ENABLED', 'role', v_role);
 END;
-$function$;
+$function$
+$msuspensionaav$;
 
+  EXECUTE $msuspensionaaw$
 CREATE OR REPLACE FUNCTION public.fs_actor_member_id(p_company_id uuid)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -297,8 +354,10 @@ BEGIN
 
   RETURN v_member;
 END;
-$function$;
+$function$
+$msuspensionaaw$;
 
+  EXECUTE $msuspensionaax$
 CREATE OR REPLACE FUNCTION public.get_engagement_setup_state(p_engagement_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -322,8 +381,10 @@ BEGIN
     'sequence', COALESCE((SELECT MAX(sequence_no) FROM public.engagement_setup_events WHERE engagement_id = p_engagement_id), 0)
   );
 END;
-$function$;
+$function$
+$msuspensionaax$;
 
+  EXECUTE $msuspensionaay$
 CREATE OR REPLACE FUNCTION public.get_member_company_ids()
  RETURNS SETOF uuid
  LANGUAGE plpgsql
@@ -346,8 +407,10 @@ BEGIN
     FROM   public.companies c
     WHERE  c.user_id = auth.uid();
 END;
-$function$;
+$function$
+$msuspensionaay$;
 
+  EXECUTE $msuspensionaaz$
 CREATE OR REPLACE FUNCTION public.get_workspace_access(p_company_id uuid)
  RETURNS TABLE(company_id uuid, access text, capabilities text[], stages text[], name text, fiscal_year_end text, reporting_framework text, currency text, created_at timestamp with time zone)
  LANGUAGE plpgsql
@@ -381,8 +444,10 @@ BEGIN
       v_company.fiscal_year_end, v_company.reporting_framework, v_company.currency, v_company.created_at;
   END IF;
 END;
-$function$;
+$function$
+$msuspensionaaz$;
 
+  EXECUTE $msuspensionaaa$
 CREATE OR REPLACE FUNCTION public.hesabu_write_validation(p_upload_id uuid, p_company_id uuid, p_period_year integer, p_status text, p_assertions_total integer, p_assertions_passed integer, p_assertions_failed integer, p_assertions_skipped integer, p_sfp_tolerance_used numeric, p_scf_tolerance_used numeric, p_socie_tolerance_used numeric, p_request_id uuid, p_function_version text, p_assertions jsonb)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -455,8 +520,10 @@ BEGIN
 
   RETURN v_validation_id;
 END;
-$function$;
+$function$
+$msuspensionaaa$;
 
+  EXECUTE $msuspensionaab$
 CREATE OR REPLACE FUNCTION public.intake_financial_statement_document(p_company_id uuid, p_period_year integer, p_uploaded_by_firm_member_id uuid, p_original_file_name text, p_mime_type text, p_byte_size bigint, p_sha256 text, p_artifact_class text, p_storage_path text)
  RETURNS financial_statement_documents
  LANGUAGE plpgsql
@@ -516,8 +583,10 @@ EXCEPTION
      LIMIT 1;
     RETURN v_row;
 END;
-$function$;
+$function$
+$msuspensionaab$;
 
+  EXECUTE $msuspensionaac$
 CREATE OR REPLACE FUNCTION public.list_shared_workspaces()
  RETURNS TABLE(company_id uuid, capabilities text[], name text, fiscal_year_end text, reporting_framework text, currency text, created_at timestamp with time zone)
  LANGUAGE sql
@@ -533,8 +602,10 @@ AS $function$
      AND c.user_id IS DISTINCT FROM auth.uid() AND COALESCE(c.is_active, true)
    GROUP BY c.id, c.name, c.fiscal_year_end, c.reporting_framework, c.currency, c.created_at
    ORDER BY c.name, c.id;
-$function$;
+$function$
+$msuspensionaac$;
 
+  EXECUTE $msuspensionaad$
 CREATE OR REPLACE FUNCTION public.maono_write_board_pack(p_company_id uuid, p_run_id uuid, p_period_label text, p_pack_type text, p_sections_json jsonb, p_summary_text text, p_generation_model text, p_context_version integer)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -580,8 +651,10 @@ BEGIN
 
   RETURN v_id;
 END;
-$function$;
+$function$
+$msuspensionaad$;
 
+  EXECUTE $msuspensionaae$
 CREATE OR REPLACE FUNCTION public.open_engagement_with_scope(p_company_id uuid, p_period_year integer, p_capabilities text[], p_engagement_type text DEFAULT 'composite'::text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -668,8 +741,10 @@ BEGIN
 
   RETURN jsonb_build_object('engagementId', v_eng, 'periodId', v_period, 'created', v_created, 'granted', to_jsonb(v_granted));
 END;
-$function$;
+$function$
+$msuspensionaae$;
 
+  EXECUTE $msuspensionaaf$
 CREATE OR REPLACE FUNCTION public.record_engagement_data_start(p_engagement_id uuid, p_choice text, p_expected_state text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -734,8 +809,10 @@ BEGIN
 
   RETURN jsonb_build_object('dataStart', p_choice, 'changed', true, 'replay', false, 'sequence', v_seq);
 END;
-$function$;
+$function$
+$msuspensionaaf$;
 
+  EXECUTE $msuspensionaag$
 CREATE OR REPLACE FUNCTION public.resolve_account_review_batch(p_company_id uuid, p_upload_id uuid, p_client_request_id uuid, p_decisions jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -969,8 +1046,10 @@ BEGIN
 
   RETURN v_result;
 END;
-$function$;
+$function$
+$msuspensionaag$;
 
+  EXECUTE $msuspensionaah$
 CREATE OR REPLACE FUNCTION public.safisha_recon_visible(_recon_id uuid)
  RETURNS boolean
  LANGUAGE sql
@@ -996,8 +1075,10 @@ AS $function$
         )
       )
   );
-$function$;
+$function$
+$msuspensionaah$;
 
+  EXECUTE $msuspensionaai$
 CREATE OR REPLACE FUNCTION public.set_company_filing_jurisdiction(p_company_id uuid, p_jurisdiction text)
  RETURNS text
  LANGUAGE plpgsql
@@ -1023,8 +1104,10 @@ BEGIN
   UPDATE public.companies SET filing_jurisdiction = v_code WHERE id = p_company_id;
   RETURN v_code;
 END;
-$function$;
+$function$
+$msuspensionaai$;
 
+  EXECUTE $msuspensionaaj$
 CREATE OR REPLACE FUNCTION public.tbu_can_view_workspace_audit(p_company_id uuid)
  RETURNS boolean
  LANGUAGE sql
@@ -1035,8 +1118,10 @@ AS $function$
     EXISTS (SELECT 1 FROM public.companies c WHERE c.id = p_company_id AND c.user_id = auth.uid())
     OR EXISTS (SELECT 1 FROM public.workspace_capability_grants g
                 WHERE g.company_id = p_company_id AND g.grantee_user_id = auth.uid() AND g.revoked_at IS NULL AND public.named_user_access_active(g.company_id, g.grantee_user_id)));
-$function$;
+$function$
+$msuspensionaaj$;
 
+  EXECUTE $msuspensionaak$
 CREATE OR REPLACE FUNCTION public.tbu_resolve_processing_actor(p_user_id uuid, p_company_id uuid)
  RETURNS TABLE(actor_type text, firm_member_id uuid, firm_member_role text, authority_basis text, authority_capability text)
  LANGUAGE plpgsql
@@ -1067,8 +1152,10 @@ BEGIN
                         CASE WHEN v_basis = 'explicit_capability' THEN v_cap END;
   END IF;
 END;
-$function$;
+$function$
+$msuspensionaak$;
 
+  EXECUTE $msuspensionaal$
 CREATE OR REPLACE FUNCTION public.workspace_authority_basis(p_user_id uuid, p_company_id uuid, p_capability text)
  RETURNS text
  LANGUAGE sql
@@ -1083,8 +1170,10 @@ AS $function$
                   WHERE g.company_id = p_company_id AND g.grantee_user_id = p_user_id
                     AND g.capability = p_capability AND g.revoked_at IS NULL AND public.named_user_access_active(g.company_id, g.grantee_user_id)) THEN 'explicit_capability'
   END;
-$function$;
+$function$
+$msuspensionaal$;
 
+  EXECUTE $msuspensionaam$
 CREATE OR REPLACE FUNCTION public.xbrl_write_instance(p_upload_id uuid, p_company_id uuid, p_period_year integer, p_reporting_framework text, p_output_format text, p_taxonomy_version text, p_instance_xml text, p_instance_sha256 text, p_fact_count integer, p_validation_passed boolean, p_validation_errors integer, p_validation_warnings integer, p_validation_info integer, p_request_id uuid, p_function_version text, p_issues jsonb)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -1174,8 +1263,10 @@ BEGIN
 
   RETURN v_doc_id;
 END;
-$function$;
+$function$
+$msuspensionaam$;
 
+  EXECUTE $msuspensionaan$
 -- ── 6. Seat wall (supersedes 20260925100000): bounded reservations, valid-only acceptance, no suspended person ─
 CREATE OR REPLACE FUNCTION public.named_user_seat_wall()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -1257,12 +1348,20 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$;
-DROP TRIGGER IF EXISTS trg_firm_members_named_user_seats ON public.firm_members;
+$$
+$msuspensionaan$;
+
+  EXECUTE $msuspensionaao$
+DROP TRIGGER IF EXISTS trg_firm_members_named_user_seats ON public.firm_members
+$msuspensionaao$;
+
+  EXECUTE $msuspensionaap$
 CREATE TRIGGER trg_firm_members_named_user_seats
   BEFORE INSERT OR UPDATE OF user_id, company_id, accepted_at, invitation_expires_at, invitation_cancelled_at ON public.firm_members
-  FOR EACH ROW EXECUTE FUNCTION public.named_user_seat_wall();
+  FOR EACH ROW EXECUTE FUNCTION public.named_user_seat_wall()
+$msuspensionaap$;
 
+  EXECUTE $msuspensionaaq$
 -- ── 7. Suspension history guard: append-only; a lift never exceeds the allowance (whoever writes it) ──────
 CREATE OR REPLACE FUNCTION public.named_user_billing_suspensions_guard()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -1289,18 +1388,29 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$;
+$$
+$msuspensionaaq$;
+
+  EXECUTE $msuspensionaar$
 CREATE TRIGGER trg_nubs_guard BEFORE UPDATE OR DELETE ON public.named_user_billing_suspensions
-  FOR EACH ROW EXECUTE FUNCTION public.named_user_billing_suspensions_guard();
+  FOR EACH ROW EXECUTE FUNCTION public.named_user_billing_suspensions_guard()
+$msuspensionaar$;
+
+  EXECUTE $msuspensionaas$
 CREATE OR REPLACE FUNCTION public.named_user_billing_suspensions_no_truncate()
 RETURNS TRIGGER LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
 BEGIN
   RAISE EXCEPTION 'Iron Dome: named-user suspension history is append-only (TRUNCATE refused).' USING ERRCODE = 'P0001';
 END;
-$$;
-CREATE TRIGGER trg_nubs_no_truncate BEFORE TRUNCATE ON public.named_user_billing_suspensions
-  FOR EACH STATEMENT EXECUTE FUNCTION public.named_user_billing_suspensions_no_truncate();
+$$
+$msuspensionaas$;
 
+  EXECUTE $msuspensionaat$
+CREATE TRIGGER trg_nubs_no_truncate BEFORE TRUNCATE ON public.named_user_billing_suspensions
+  FOR EACH STATEMENT EXECUTE FUNCTION public.named_user_billing_suspensions_no_truncate()
+$msuspensionaat$;
+
+  EXECUTE $msuspensionaau$
 -- ── 8. Roster, explicit selection and reactivation ───────────────────────────────────────────
 -- Every person who has ever had a place on the account's workspaces (never the account holder), with their state:
 --   suspended          an open billing suspension
@@ -1347,8 +1457,10 @@ BEGIN
     'roster_version', md5(COALESCE((SELECT string_agg((e->>'user_id') || ':' || (e->>'state'), ',' ORDER BY e->>'user_id') FROM jsonb_array_elements(v_people) e), '')
                           || '|' || COALESCE(v_cap->>'allowed_named_users', 'undetermined')));
 END;
-$$;
+$$
+$msuspensionaau$;
 
+  EXECUTE $msuspensionaav$
 -- The signed-in account holder's own roster (nobody else's).
 CREATE OR REPLACE FUNCTION public.get_named_user_roster()
 RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -1358,8 +1470,10 @@ BEGIN
   END IF;
   RETURN public._named_user_roster(auth.uid()) || jsonb_build_object('outcome', 'ok');
 END;
-$$;
+$$
+$msuspensionaav$;
 
+  EXECUTE $msuspensionaaw$
 -- Applies one selection atomically under the account's seat lock. p_keep = the people (never the account holder)
 -- who remain or become active; every other active person is suspended; kept suspended people are reactivated.
 -- Outcomes: applied | stale_selection | selection_required | invalid_selection | selection_exceeds_allowance |
@@ -1409,8 +1523,10 @@ BEGIN
   END IF;
   RETURN jsonb_build_object('outcome', 'applied', 'active', to_jsonb(p_keep), 'suspended', to_jsonb(v_suspended));
 END;
-$$;
+$$
+$msuspensionaaw$;
 
+  EXECUTE $msuspensionaax$
 -- The account holder chooses who is active within the CURRENT allowance (after a downgrade, an expiry, or when
 -- capacity is restored). Nobody is ever reactivated without this explicit choice.
 CREATE OR REPLACE FUNCTION public.choose_active_named_users(p_keep UUID[], p_roster_version TEXT)
@@ -1426,8 +1542,10 @@ BEGIN
     CASE WHEN COALESCE((v_cap->>'determined')::boolean, false) THEN (v_cap->>'allowed_named_users')::integer END,
     auth.uid(), 'OWNER_SELECTION', 'OWNER_SELECTION');
 END;
-$$;
+$$
+$msuspensionaax$;
 
+  EXECUTE $msuspensionaay$
 -- A PLANNED downgrade or seat reduction: a commercial admin applies the account holder's selection against the
 -- FUTURE allowance before changing the plan or seats. Refused when the selection is missing, invalid or stale.
 CREATE OR REPLACE FUNCTION public.admin_prepare_planned_reduction(
@@ -1446,8 +1564,10 @@ BEGIN
   IF v_account IS NULL THEN RAISE EXCEPTION 'BILLING_CUSTOMER_NOT_FOUND' USING ERRCODE = '22023'; END IF;
   RETURN public._apply_named_user_selection(v_account, p_keep, p_roster_version, p_future_allowed, auth.uid(), 'PLANNED_REDUCTION', 'PLANNED_SELECTION');
 END;
-$$;
+$$
+$msuspensionaay$;
 
+  EXECUTE $msuspensionaaz$
 -- ── 9. Unplanned loss: materialise the deterministic rule (only the account holder stays active) ──────────
 CREATE OR REPLACE FUNCTION public.reconcile_named_user_allowance(p_account UUID)
 RETURNS INTEGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -1470,8 +1590,10 @@ BEGIN
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN v_n;
 END;
-$$;
+$$
+$msuspensionaaz$;
 
+  EXECUTE $msuspensionaba$
 CREATE OR REPLACE FUNCTION public.reconcile_all_named_user_allowances()
 RETURNS INTEGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
@@ -1483,8 +1605,10 @@ BEGIN
   END LOOP;
   RETURN v_n;
 END;
-$$;
+$$
+$msuspensionaba$;
 
+  EXECUTE $msuspensionabb$
 -- Every licence or override change is reconciled BEFORE (so a lapsed allowance is materialised before any renewal
 -- could restore it) and AFTER (so a reduction takes effect at once). A planned reduction has already applied the
 -- account holder's selection, so its AFTER reconcile is a no-op.
@@ -1499,16 +1623,30 @@ BEGIN
   END IF;
   RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
-$$;
-CREATE TRIGGER trg_cl_named_user_reconcile_before BEFORE INSERT OR UPDATE OR DELETE ON public.commercial_licences
-  FOR EACH ROW EXECUTE FUNCTION public.commercial_named_user_reconcile_trigger();
-CREATE TRIGGER trg_cl_named_user_reconcile_after AFTER INSERT OR UPDATE OR DELETE ON public.commercial_licences
-  FOR EACH ROW EXECUTE FUNCTION public.commercial_named_user_reconcile_trigger();
-CREATE TRIGGER trg_eo_named_user_reconcile_before BEFORE INSERT OR UPDATE OR DELETE ON public.entitlement_overrides
-  FOR EACH ROW EXECUTE FUNCTION public.commercial_named_user_reconcile_trigger();
-CREATE TRIGGER trg_eo_named_user_reconcile_after AFTER INSERT OR UPDATE OR DELETE ON public.entitlement_overrides
-  FOR EACH ROW EXECUTE FUNCTION public.commercial_named_user_reconcile_trigger();
+$$
+$msuspensionabb$;
 
+  EXECUTE $msuspensionabc$
+CREATE TRIGGER trg_cl_named_user_reconcile_before BEFORE INSERT OR UPDATE OR DELETE ON public.commercial_licences
+  FOR EACH ROW EXECUTE FUNCTION public.commercial_named_user_reconcile_trigger()
+$msuspensionabc$;
+
+  EXECUTE $msuspensionabd$
+CREATE TRIGGER trg_cl_named_user_reconcile_after AFTER INSERT OR UPDATE OR DELETE ON public.commercial_licences
+  FOR EACH ROW EXECUTE FUNCTION public.commercial_named_user_reconcile_trigger()
+$msuspensionabd$;
+
+  EXECUTE $msuspensionabe$
+CREATE TRIGGER trg_eo_named_user_reconcile_before BEFORE INSERT OR UPDATE OR DELETE ON public.entitlement_overrides
+  FOR EACH ROW EXECUTE FUNCTION public.commercial_named_user_reconcile_trigger()
+$msuspensionabe$;
+
+  EXECUTE $msuspensionabf$
+CREATE TRIGGER trg_eo_named_user_reconcile_after AFTER INSERT OR UPDATE OR DELETE ON public.entitlement_overrides
+  FOR EACH ROW EXECUTE FUNCTION public.commercial_named_user_reconcile_trigger()
+$msuspensionabf$;
+
+  EXECUTE $msuspensionabg$
 -- Seat quantities can no longer be reduced below the active named users: a reduction needs the planned selection.
 CREATE OR REPLACE FUNCTION public.admin_set_licence_additional_seats(p_licence_id UUID, p_quantity INTEGER, p_reason TEXT)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog AS $$
@@ -1545,8 +1683,10 @@ BEGIN
           jsonb_build_object('licence_id', p_licence_id, 'additional_seats', p_quantity), p_reason);
   RETURN jsonb_build_object('licence_id', p_licence_id, 'additional_seats', p_quantity);
 END;
-$$;
+$$
+$msuspensionabg$;
 
+  EXECUTE $msuspensionabh$
 -- ── 10. Invitation reservation RPCs ───────────────────────────────────────────────────────────
 -- For the invitation Edge Function (service_role): reserve the seat BEFORE any email is sent. One row per person
 -- per workspace: reissuing refreshes that row, never a second reservation.
@@ -1604,8 +1744,10 @@ BEGIN
   END;
   RETURN jsonb_build_object('outcome', v_outcome, 'member_id', v_row.id, 'expires_at', v_row.invitation_expires_at);
 END;
-$$;
+$$
+$msuspensionabh$;
 
+  EXECUTE $msuspensionabi$
 -- Releases a reservation whose email could not be sent (service_role). Never deletes the row.
 CREATE OR REPLACE FUNCTION public.release_workspace_invitation(p_member_id UUID)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -1614,8 +1756,10 @@ BEGIN
    WHERE id = p_member_id AND accepted_at IS NULL AND invitation_cancelled_at IS NULL;
   RETURN jsonb_build_object('outcome', CASE WHEN FOUND THEN 'released' ELSE 'not_pending' END);
 END;
-$$;
+$$
+$msuspensionabi$;
 
+  EXECUTE $msuspensionabj$
 -- The account holder cancels a pending invitation (the seat is released at once; the row is kept).
 -- Outcomes: cancelled | already_cancelled | not_pending | not_found (also for anyone who is not the account holder)
 CREATE OR REPLACE FUNCTION public.cancel_workspace_invitation(p_member_id UUID)
@@ -1643,8 +1787,10 @@ BEGIN
   UPDATE public.firm_members SET invitation_cancelled_at = now(), invitation_cancel_reason = 'OWNER_CANCELLED' WHERE id = p_member_id;
   RETURN jsonb_build_object('outcome', 'cancelled');
 END;
-$$;
+$$
+$msuspensionabj$;
 
+  EXECUTE $msuspensionabk$
 -- Acceptance (supersedes 20260925100000): reports expired / cancelled invitations by code.
 CREATE OR REPLACE FUNCTION public.accept_workspace_invitations()
 RETURNS JSONB LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public AS $$
@@ -1679,8 +1825,10 @@ BEGIN
   END LOOP;
   RETURN jsonb_build_object('outcome', 'ok', 'accepted', v_accepted, 'blocked', v_blocked);
 END;
-$$;
+$$
+$msuspensionabk$;
 
+  EXECUTE $msuspensionabl$
 -- Invitation pre-check (supersedes 20260925100000): a suspended person is reported, never re-admitted.
 CREATE OR REPLACE FUNCTION public.seat_check_for_invitation(p_company_id UUID, p_invitee UUID)
 RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -1711,8 +1859,10 @@ BEGIN
   END IF;
   RETURN jsonb_build_object('allowed', true, 'code', 'ALLOWED');
 END;
-$$;
+$$
+$msuspensionabl$;
 
+  EXECUTE $msuspensionabm$
 -- Seat state (supersedes 20260925100000): also the suspended count and whether the account is over its allowance.
 -- A person who is not active gets exactly what an outsider gets.
 CREATE OR REPLACE FUNCTION public.get_workspace_seat_capacity(p_company_id UUID)
@@ -1735,59 +1885,182 @@ BEGIN
     'over_allowance', NOT COALESCE((v_cap->>'determined')::boolean, false) OR v_active > (v_cap->>'allowed_named_users')::integer,
     'is_account_holder', v_account = auth.uid());
 END;
-$$;
+$$
+$msuspensionabm$;
 
+  EXECUTE $msuspensionabn$
 -- ── 11. Privileges ─────────────────────────────────────────────────────────────────────────────
-REVOKE ALL ON FUNCTION public.invitation_reservation_ttl() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.invitation_reservation_ttl() TO authenticated, service_role;
-REVOKE ALL ON FUNCTION public._invitation_valid(TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public._invitation_valid(TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ) TO authenticated, service_role;
-REVOKE ALL ON FUNCTION public._named_user_suspended(UUID, UUID) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._account_named_users(UUID, BOOLEAN, UUID, UUID) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._account_named_user_access_active(UUID, UUID) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.named_user_access_active(UUID, UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.named_user_access_active(UUID, UUID) TO authenticated, service_role;
-REVOKE ALL ON FUNCTION public._workspace_access_basis(UUID, UUID) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.named_user_seat_wall() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.named_user_billing_suspensions_guard() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.named_user_billing_suspensions_no_truncate() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._named_user_roster(UUID) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._apply_named_user_selection(UUID, UUID[], TEXT, INTEGER, UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.commercial_named_user_reconcile_trigger() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.get_named_user_roster() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.get_named_user_roster() TO authenticated;
-REVOKE ALL ON FUNCTION public.choose_active_named_users(UUID[], TEXT) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.choose_active_named_users(UUID[], TEXT) TO authenticated;
-REVOKE ALL ON FUNCTION public.admin_prepare_planned_reduction(UUID, INTEGER, UUID[], TEXT, TEXT) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.admin_prepare_planned_reduction(UUID, INTEGER, UUID[], TEXT, TEXT) TO authenticated;
-REVOKE ALL ON FUNCTION public.reconcile_named_user_allowance(UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.reconcile_named_user_allowance(UUID) TO service_role;
-REVOKE ALL ON FUNCTION public.reconcile_all_named_user_allowances() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.reconcile_all_named_user_allowances() TO service_role;
-REVOKE ALL ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) TO authenticated;
-REVOKE ALL ON FUNCTION public.reserve_workspace_invitation(UUID, UUID, TEXT, UUID, TEXT) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.reserve_workspace_invitation(UUID, UUID, TEXT, UUID, TEXT) TO service_role;
-REVOKE ALL ON FUNCTION public.release_workspace_invitation(UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.release_workspace_invitation(UUID) TO service_role;
-REVOKE ALL ON FUNCTION public.cancel_workspace_invitation(UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.cancel_workspace_invitation(UUID) TO authenticated;
-REVOKE ALL ON FUNCTION public.accept_workspace_invitations() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.accept_workspace_invitations() TO authenticated;
-REVOKE ALL ON FUNCTION public.seat_check_for_invitation(UUID, UUID) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) TO service_role;
-GRANT EXECUTE ON FUNCTION public.seat_check_for_invitation(UUID, UUID) TO service_role;
-REVOKE ALL ON FUNCTION public.get_workspace_seat_capacity(UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.get_workspace_seat_capacity(UUID) TO authenticated;
+REVOKE ALL ON FUNCTION public.invitation_reservation_ttl() FROM PUBLIC, anon
+$msuspensionabn$;
 
+  EXECUTE $msuspensionabo$
+GRANT EXECUTE ON FUNCTION public.invitation_reservation_ttl() TO authenticated, service_role
+$msuspensionabo$;
+
+  EXECUTE $msuspensionabp$
+REVOKE ALL ON FUNCTION public._invitation_valid(TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ) FROM PUBLIC, anon
+$msuspensionabp$;
+
+  EXECUTE $msuspensionabq$
+GRANT EXECUTE ON FUNCTION public._invitation_valid(TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ) TO authenticated, service_role
+$msuspensionabq$;
+
+  EXECUTE $msuspensionabr$
+REVOKE ALL ON FUNCTION public._named_user_suspended(UUID, UUID) FROM PUBLIC, anon, authenticated
+$msuspensionabr$;
+
+  EXECUTE $msuspensionabs$
+REVOKE ALL ON FUNCTION public._account_named_users(UUID, BOOLEAN, UUID, UUID) FROM PUBLIC, anon, authenticated
+$msuspensionabs$;
+
+  EXECUTE $msuspensionabt$
+REVOKE ALL ON FUNCTION public._account_named_user_access_active(UUID, UUID) FROM PUBLIC, anon, authenticated
+$msuspensionabt$;
+
+  EXECUTE $msuspensionabu$
+REVOKE ALL ON FUNCTION public.named_user_access_active(UUID, UUID) FROM PUBLIC, anon
+$msuspensionabu$;
+
+  EXECUTE $msuspensionabv$
+GRANT EXECUTE ON FUNCTION public.named_user_access_active(UUID, UUID) TO authenticated, service_role
+$msuspensionabv$;
+
+  EXECUTE $msuspensionabw$
+REVOKE ALL ON FUNCTION public._workspace_access_basis(UUID, UUID) FROM PUBLIC, anon, authenticated
+$msuspensionabw$;
+
+  EXECUTE $msuspensionabx$
+REVOKE ALL ON FUNCTION public.named_user_seat_wall() FROM PUBLIC, anon, authenticated
+$msuspensionabx$;
+
+  EXECUTE $msuspensionaby$
+REVOKE ALL ON FUNCTION public.named_user_billing_suspensions_guard() FROM PUBLIC, anon, authenticated
+$msuspensionaby$;
+
+  EXECUTE $msuspensionabz$
+REVOKE ALL ON FUNCTION public.named_user_billing_suspensions_no_truncate() FROM PUBLIC, anon, authenticated
+$msuspensionabz$;
+
+  EXECUTE $msuspensionaca$
+REVOKE ALL ON FUNCTION public._named_user_roster(UUID) FROM PUBLIC, anon, authenticated
+$msuspensionaca$;
+
+  EXECUTE $msuspensionacb$
+REVOKE ALL ON FUNCTION public._apply_named_user_selection(UUID, UUID[], TEXT, INTEGER, UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated
+$msuspensionacb$;
+
+  EXECUTE $msuspensionacc$
+REVOKE ALL ON FUNCTION public.commercial_named_user_reconcile_trigger() FROM PUBLIC, anon, authenticated
+$msuspensionacc$;
+
+  EXECUTE $msuspensionacd$
+REVOKE ALL ON FUNCTION public.get_named_user_roster() FROM PUBLIC, anon
+$msuspensionacd$;
+
+  EXECUTE $msuspensionace$
+GRANT EXECUTE ON FUNCTION public.get_named_user_roster() TO authenticated
+$msuspensionace$;
+
+  EXECUTE $msuspensionacf$
+REVOKE ALL ON FUNCTION public.choose_active_named_users(UUID[], TEXT) FROM PUBLIC, anon
+$msuspensionacf$;
+
+  EXECUTE $msuspensionacg$
+GRANT EXECUTE ON FUNCTION public.choose_active_named_users(UUID[], TEXT) TO authenticated
+$msuspensionacg$;
+
+  EXECUTE $msuspensionach$
+REVOKE ALL ON FUNCTION public.admin_prepare_planned_reduction(UUID, INTEGER, UUID[], TEXT, TEXT) FROM PUBLIC, anon
+$msuspensionach$;
+
+  EXECUTE $msuspensionaci$
+GRANT EXECUTE ON FUNCTION public.admin_prepare_planned_reduction(UUID, INTEGER, UUID[], TEXT, TEXT) TO authenticated
+$msuspensionaci$;
+
+  EXECUTE $msuspensionacj$
+REVOKE ALL ON FUNCTION public.reconcile_named_user_allowance(UUID) FROM PUBLIC, anon, authenticated
+$msuspensionacj$;
+
+  EXECUTE $msuspensionack$
+GRANT EXECUTE ON FUNCTION public.reconcile_named_user_allowance(UUID) TO service_role
+$msuspensionack$;
+
+  EXECUTE $msuspensionacl$
+REVOKE ALL ON FUNCTION public.reconcile_all_named_user_allowances() FROM PUBLIC, anon, authenticated
+$msuspensionacl$;
+
+  EXECUTE $msuspensionacm$
+GRANT EXECUTE ON FUNCTION public.reconcile_all_named_user_allowances() TO service_role
+$msuspensionacm$;
+
+  EXECUTE $msuspensionacn$
+REVOKE ALL ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) FROM PUBLIC, anon
+$msuspensionacn$;
+
+  EXECUTE $msuspensionaco$
+GRANT EXECUTE ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) TO authenticated
+$msuspensionaco$;
+
+  EXECUTE $msuspensionacp$
+REVOKE ALL ON FUNCTION public.reserve_workspace_invitation(UUID, UUID, TEXT, UUID, TEXT) FROM PUBLIC, anon, authenticated
+$msuspensionacp$;
+
+  EXECUTE $msuspensionacq$
+GRANT EXECUTE ON FUNCTION public.reserve_workspace_invitation(UUID, UUID, TEXT, UUID, TEXT) TO service_role
+$msuspensionacq$;
+
+  EXECUTE $msuspensionacr$
+REVOKE ALL ON FUNCTION public.release_workspace_invitation(UUID) FROM PUBLIC, anon, authenticated
+$msuspensionacr$;
+
+  EXECUTE $msuspensionacs$
+GRANT EXECUTE ON FUNCTION public.release_workspace_invitation(UUID) TO service_role
+$msuspensionacs$;
+
+  EXECUTE $msuspensionact$
+REVOKE ALL ON FUNCTION public.cancel_workspace_invitation(UUID) FROM PUBLIC, anon
+$msuspensionact$;
+
+  EXECUTE $msuspensionacu$
+GRANT EXECUTE ON FUNCTION public.cancel_workspace_invitation(UUID) TO authenticated
+$msuspensionacu$;
+
+  EXECUTE $msuspensionacv$
+REVOKE ALL ON FUNCTION public.accept_workspace_invitations() FROM PUBLIC, anon
+$msuspensionacv$;
+
+  EXECUTE $msuspensionacw$
+GRANT EXECUTE ON FUNCTION public.accept_workspace_invitations() TO authenticated
+$msuspensionacw$;
+
+  EXECUTE $msuspensionacx$
+REVOKE ALL ON FUNCTION public.seat_check_for_invitation(UUID, UUID) FROM PUBLIC, anon, authenticated
+$msuspensionacx$;
+
+  EXECUTE $msuspensionacy$
+REVOKE ALL ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) FROM PUBLIC, anon, authenticated
+$msuspensionacy$;
+
+  EXECUTE $msuspensionacz$
+GRANT EXECUTE ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) TO service_role
+$msuspensionacz$;
+
+  EXECUTE $msuspensionada$
+GRANT EXECUTE ON FUNCTION public.seat_check_for_invitation(UUID, UUID) TO service_role
+$msuspensionada$;
+
+  EXECUTE $msuspensionadb$
+REVOKE ALL ON FUNCTION public.get_workspace_seat_capacity(UUID) FROM PUBLIC, anon
+$msuspensionadb$;
+
+  EXECUTE $msuspensionadc$
+GRANT EXECUTE ON FUNCTION public.get_workspace_seat_capacity(UUID) TO authenticated
+$msuspensionadc$;
+
+  EXECUTE $msuspensionadd$
 -- ── 12. Materialise the rule for every account that is already over its allowance (deterministic: only the
 --        account holder stays active; every membership, grant and history row is kept).
-SELECT public.reconcile_all_named_user_allowances();
-
--- ── Rollback (NOT executed; for reference only; review before use) ──────────────────────────
--- Suspension rows are history: never delete them. To stop enforcement, drop the restrictive policy
--- firm_members_named_user_active, the four reconcile triggers and trg_nubs_*; restore the 19 redefined access
--- functions from their previous definitions (the proof records them), 20260925100000's _workspace_access_basis,
--- seat wall, accept_workspace_invitations, seat_check_for_invitation and get_workspace_seat_capacity. The invitation
--- columns are additive and may stay.
+SELECT public.reconcile_all_named_user_allowances()
+$msuspensionadd$;
+END
+$cfoclose_suspension$;

@@ -847,8 +847,7 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   `financial_statements_data` from a saved `fs-report:<id>:v<n>`, source proven by its `document_hash`, timestamps in
   UTC). `seal_reporting_pack_server(user, issuance, storage_path)` takes no hash and no bytes — it regenerates and hashes
   the document itself; `seal-reporting-pack` accepts only `{ action, issuance_id }` JSON, stores the database's bytes and
-  checks the stored object before sealing; `verify_reporting_pack` re-derives the canonical hash and requires the stored
-  object (`storage.objects`, exact size). The seal trigger itself refuses any hash, size or path that is not the
+  checks the stored object before sealing. The seal trigger itself refuses any hash, size or path that is not the
   canonical document's, whoever writes it; a seal needs its stored object (`object_missing`). An object left by an
   interrupted request is never official, is listed by `reporting_pack_storage_orphans()` (service role) and is reused
   on retry only when it is exactly the canonical bytes (foreign unsealed bytes are replaced; sealed objects never are). Every browser-rendered
@@ -860,6 +859,16 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   search path — `enforce_budget_immutability`, `enforce_budget_no_delete`, the six `maono_block_*_mutation` triggers
   (alert, analysis, board_pack, insight, monitor_run, run), `maono_check_safisha_gate(uuid[])` and
   `maono_compute_confidence(uuid, integer)`. None calls or is called by anything this delta changed.
+- **Security corrections X-1..X-3:** an official pack also needs the exact FINAL publication of that saved version:
+  `issue_official_reporting_pack` binds its immutable id (`reporting_pack_issuances.final_publication_id`); sealing and
+  the canonical document require it and print it; DRAFT, unreviewed and REVIEWED-only versions, another version's FINAL
+  and another period or workspace are refused (`final_publication_required` / `invalid_request`); `issue_reporting_pack`
+  issues working copies only. `verify_reporting_pack` (a metadata-only "official" answer) is removed: the ONLY route that
+  may say official is `seal-reporting-pack` `{ action: "verify" }` (`verifyOfficialPack`), which downloads the stored
+  bytes and re-hashes them. Migrations `20260925100000`–`150000` are each ONE atomic DO statement: re-application or a
+  continue-on-error runner changes nothing (proven with the clean / upgrade convergence in `planCapabilities.mjs`).
+  An invitation shows exactly the capabilities it carries and the withdrawn ones a title does not restore
+  (`invitation_capability_summary`).
 - **Security corrections (B-1..B-7):** an invitee can change only `accepted_at` on their own pending membership
   (`firm_members_update_guard`); no UPDATE assigns the owner title or moves a membership; a title change never adds or
   restores a capability. Reconciliation / EFDMS scope bindings are immutable and UPDATE / DELETE are authorized on the
@@ -881,9 +890,8 @@ migration is applied by the owner, hosted company creation stays unrestricted.
     - `issue_reporting_pack(workspace, period, kind, output_ref, request_id)` binds an issuance to the user,
       workspace, period, saved output / version (`fs-report:<id>:v<n>` is checked to exist) and format, with a
       10-minute expiry.
-    - `consume_reporting_pack_issuance` seals it once with the SHA-256 of the exact bytes, re-checking every binding
-      and the entitlement.
-    - `verify_reporting_pack(sha256)` answers whether a file is official.
+    - Superseded by N-1 / X-1 / X-3 (see above): official packs are issued by `issue_official_reporting_pack` (FINAL
+      publication required), generated and sealed by the server, and verified only by the byte re-hash route.
     - Every issue, seal and refusal is an append-only `reporting_pack_issuance_events` row.
 
     Every download site (statement JSON / CSV / Excel / PDF, board pack, management letter, disclosure notes, tax

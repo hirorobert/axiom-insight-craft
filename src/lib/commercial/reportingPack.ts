@@ -104,7 +104,21 @@ export function financialStatementsOutputRef(lineage: { reportId: string; report
     : `fs-draft:${lineage.reportId}:${lineage.contentHash.slice(0, 16)}`;
 }
 
-export type DeliveryOutcome = "delivered" | "locked" | "not_permitted" | "failed";
+/**
+ * Asks the server to issue an OFFICIAL pack: only a saved statements version with a FINAL publication qualifies, and the
+ * server binds that exact FINAL publication record to the issuance (security correction X-1).
+ */
+export async function issueOfficialReportingPack(rpc: Rpc, b: PackBinding, requestId: string = crypto.randomUUID()): Promise<IssueOutcome | { readonly status: "not_final" }> {
+  const { data, error } = await rpc("issue_official_reporting_pack", {
+    p_company_id: b.companyId, p_period_year: b.periodYear, p_output_ref: b.outputRef, p_request_id: requestId,
+  });
+  if (error) return { status: "failed" };
+  if (data && typeof data === "object" && (data as Record<string, unknown>).outcome === "final_publication_required") return { status: "not_final" };
+  return parseIssueOutcome(data);
+}
+
+/** not_final: the version has no FINAL publication (draft, unreviewed or REVIEWED only), so nothing official exists. */
+export type DeliveryOutcome = "delivered" | "locked" | "not_permitted" | "not_final" | "failed";
 
 /** Asks the seal-reporting-pack Edge Function to generate, store and seal the official document of an issuance. */
 export type OfficialIssue = (issuanceId: string) => Promise<{ data: unknown; error: unknown }>;
@@ -126,13 +140,13 @@ export function parseOfficialDocument(raw: unknown): OfficialDocument | null {
 /**
  * The OFFICIAL path: issue → the SERVER generates, stores and seals the document → save exactly the server's document.
  * Nothing is built in the browser, no bytes or hash are sent, and nothing is saved unless the server sealed it. A format
- * the server cannot generate is never issued here.
+ * the server cannot generate is never issued here; a version without a FINAL publication is refused (not_final).
  */
 export async function deliverOfficialPack(
   rpc: Rpc, issueOfficial: OfficialIssue, b: PackBinding, save: (blob: Blob, fileName: string) => void,
 ): Promise<DeliveryOutcome> {
   if (!isOfficiallySealable(b.kind, b.outputRef)) return "failed";
-  const issued = await issueReportingPack(rpc, b);
+  const issued = await issueOfficialReportingPack(rpc, b);
   if (issued.status !== "issued") return issued.status;
   const { data, error } = await issueOfficial(issued.issuanceId);
   if (error) return "failed";

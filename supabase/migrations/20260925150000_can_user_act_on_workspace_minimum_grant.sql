@@ -14,7 +14,13 @@
 -- idempotent by design (safe to apply again, it only re-asserts the same privileges) and ends with a postcondition
 -- that fails the transaction if any other role can still execute either function.
 -- ════════════════════════════════════════════════════════════════════════════
-
+--
+-- ATOMIC ENVELOPE (security correction B-3): every statement below runs inside this ONE DO statement. Whatever the
+-- runner does (statement by statement, whole file, with or without a transaction, continuing after errors) the
+-- migration either applies completely or changes nothing.
+DO $cfoclose_grants$
+BEGIN
+  EXECUTE $mgrantsaaa$
 DO $refuse$
 BEGIN
   IF to_regprocedure('public.can_user_act_on_workspace(uuid, uuid, text)') IS NULL
@@ -22,13 +28,26 @@ BEGIN
     RAISE EXCEPTION 'grant migration refused: the workspace-authority predicates are missing. Nothing was changed.' USING ERRCODE = '55000';
   END IF;
 END
-$refuse$;
+$refuse$
+$mgrantsaaa$;
 
-REVOKE ALL ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) TO service_role;
-REVOKE ALL ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) TO service_role;
+  EXECUTE $mgrantsaab$
+REVOKE ALL ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) FROM PUBLIC, anon, authenticated
+$mgrantsaab$;
 
+  EXECUTE $mgrantsaac$
+GRANT EXECUTE ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) TO service_role
+$mgrantsaac$;
+
+  EXECUTE $mgrantsaad$
+REVOKE ALL ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) FROM PUBLIC, anon, authenticated
+$mgrantsaad$;
+
+  EXECUTE $mgrantsaae$
+GRANT EXECUTE ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) TO service_role
+$mgrantsaae$;
+
+  EXECUTE $mgrantsaaf$
 DO $post$
 DECLARE
   f TEXT;
@@ -42,4 +61,7 @@ BEGIN
     END IF;
   END LOOP;
 END
-$post$;
+$post$
+$mgrantsaaf$;
+END
+$cfoclose_grants$;

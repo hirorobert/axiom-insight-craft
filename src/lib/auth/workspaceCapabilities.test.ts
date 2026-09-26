@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { SIGN_OFF_TIER_CAPABILITY, canExercise, parseMyWorkspaceCapabilities } from "./workspaceCapabilities";
+import { SIGN_OFF_TIER_CAPABILITY, canExercise, describeInvitationCapabilities, parseMyWorkspaceCapabilities } from "./workspaceCapabilities";
 
 const ROOT = path.join(__dirname, "../../..");
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), "utf8");
@@ -67,5 +67,22 @@ describe("no job title decides anything in the client or at the Edge", () => {
     expect(read("src/components/PeriodCloseManager.tsx")).toMatch(/get_my_workspace_capabilities/);
     expect(read("src/jurisdiction-packs/tz/KingaTaxPanel.tsx")).toMatch(/useWorkspaceCapabilities\(companyId\)/);
     expect(read("src/hooks/useEngagementMandate.ts")).toMatch(/canAmend: canExercise\(capabilities, "review_close"\)/);
+  });
+});
+
+describe("an invitation shows exactly the capabilities it carries", () => {
+  it("names the capabilities held on acceptance and, on a re-invitation, the withdrawn ones the title does not restore", () => {
+    expect(describeInvitationCapabilities({ capabilities: ["issue_reporting_pack", "prepare_close"], withheld: ["approve_certification", "review_close"] }))
+      .toBe("On acceptance: Issue Reporting Pack outputs, Prepare the close. Not included (withdrawn earlier; grant explicitly if intended): Approve certification, Review the close.");
+    expect(describeInvitationCapabilities({ capabilities: [], withheld: [] })).toBe("On acceptance: no capabilities (view only).");
+    expect(describeInvitationCapabilities({ capabilities: ["owner", "manage_billing", 7], role: "partner" })).toBe("On acceptance: no capabilities (view only).");
+    expect(describeInvitationCapabilities(null)).toBe("On acceptance: no capabilities (view only).");
+  });
+  it("the invitation function returns the database's summary and the panel shows it", () => {
+    const fn = fs.readFileSync(path.join(__dirname, "../../../supabase/functions/invite-firm-member/index.ts"), "utf8");
+    expect(fn).toContain('admin.rpc("invitation_capability_summary", { p_company_id: company_id, p_user: invitedUserId })');
+    expect(fn).toMatch(/capabilities: carried\.capabilities \?\? \[\],\s*withheld: carried\.withheld \?\? \[\]/);
+    const panel = fs.readFileSync(path.join(__dirname, "../../components/FirmManagementPanel.tsx"), "utf8");
+    expect(panel).toContain("{ description: describeInvitationCapabilities(data) }");
   });
 });

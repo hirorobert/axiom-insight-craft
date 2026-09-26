@@ -55,6 +55,7 @@ import {
   Trash2, Building2, Crown, Shield,
 } from "lucide-react";
 import { toast } from "sonner";
+import { describeInvitationCapabilities } from "@/lib/auth/workspaceCapabilities";
 import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
 import {
   canInviteAnother,
@@ -272,7 +273,7 @@ export function FirmManagementPanel() {
       if (data?.ok === false && data?.alreadyMember) {
         toast.warning(data.message);
       } else {
-        toast.success(data?.message ?? "Invitation sent.");
+        toast.success(data?.message ?? "Invitation sent.", { description: describeInvitationCapabilities(data) });
         setShowInvite(false);
         setInviteForm({ email: "", role: "preparer" });
         await fetchMembers(selectedCompany);

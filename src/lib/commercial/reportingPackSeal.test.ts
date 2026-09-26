@@ -189,6 +189,24 @@ describe("the client never produces official bytes", () => {
     expect(parseOfficialDocument({ outcome: "sealed", document: CANONICAL, file_name: "x", content_sha256: "bad" })).toBeNull();
     expect(await deliverOfficialPack(rpc, async () => ({ data: { outcome: "official_sealing_unavailable" }, error: null }), { companyId: U.co, periodYear: 2025, kind: "financial_statements_data", outputRef: "fs-report:r1:v3" }, () => { throw new Error("must not save"); })).toBe("failed");
   });
+  it("the official path asks the server for an OFFICIAL issuance; a version without a FINAL publication yields not_final and nothing else happens", async () => {
+    const called: string[] = [];
+    const notFinal = async (fn: string) => { called.push(fn); return { data: { outcome: "final_publication_required" }, error: null }; };
+    expect(await deliverOfficialPack(notFinal, async () => { throw new Error("must not be called"); }, { companyId: U.co, periodYear: 2025, kind: "financial_statements_data", outputRef: "fs-report:r1:v3" }, () => { throw new Error("must not save"); })).toBe("not_final");
+    expect(called).toEqual(["issue_official_reporting_pack"]);
+  });
+  it("only the byte re-hash route answers official: intact → official; substituted, missing, not canonical or no access → not official", async () => {
+    const { verifyOfficialPack } = await import("../../../supabase/functions/_shared/reportingPackSeal.mjs");
+    const w = world();
+    await issueOfficialPack(w.deps, { userId: U.user, issuanceId: U.iss });
+    const access = (code: string) => ({ ...w.deps, rpc: async (fn: string, args: Record<string, unknown>) => (fn === "authorize_paid_action_for_user" ? { data: { code }, error: null } : w.deps.rpc(fn, args)) });
+    expect(await verifyOfficialPack(access("ALLOWED"), U.user, U.iss)).toEqual({ outcome: "intact", official: true });
+    expect(await verifyOfficialPack(access("WORKSPACE_ACCESS_DENIED"), U.user, U.iss)).toEqual({ outcome: "not_found", official: false });
+    w.store.set(PATH, new TextEncoder().encode(CANONICAL.replace("audited", "restatd")));
+    expect(await verifyOfficialPack(access("ALLOWED"), U.user, U.iss)).toEqual({ outcome: "substituted", official: false });
+    w.store.delete(PATH);
+    expect(await verifyOfficialPack(access("ALLOWED"), U.user, U.iss)).toEqual({ outcome: "missing", official: false });
+  });
   it("working copies are issued and saved but never sent for sealing", async () => {
     const saved: string[] = [];
     expect(await deliverWorkingCopy(rpc, { companyId: U.co, periodYear: 2025, kind: "financial_statements_pdf", outputRef: "upload:x" }, (id) => new Blob([id]), (_b, n) => saved.push(String(n)))).toBe("delivered");

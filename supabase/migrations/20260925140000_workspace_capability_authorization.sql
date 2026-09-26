@@ -1119,7 +1119,9 @@ $function$
 $mcapabilitiesaar$;
 
   EXECUTE $mcapabilitiesaas$
-CREATE OR REPLACE FUNCTION public.issue_reporting_pack(p_company_id uuid, p_period_year integer, p_pack_kind text, p_output_ref text, p_request_id uuid)
+-- The one issuer behind issue_reporting_pack (working copies: no publication) and issue_official_reporting_pack (an
+-- official pack: bound to the exact FINAL publication of the saved version; security correction X-1).
+CREATE OR REPLACE FUNCTION public._issue_reporting_pack(p_company_id uuid, p_period_year integer, p_pack_kind text, p_output_ref text, p_request_id uuid, p_final_publication_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -1155,55 +1157,128 @@ BEGIN
   END IF;
   SELECT * INTO v_row FROM public.reporting_pack_issuances WHERE company_id = p_company_id AND issued_by = v_user AND request_id = p_request_id;
   IF v_row.id IS NOT NULL THEN
-    IF v_row.period_year <> p_period_year OR v_row.pack_kind <> p_pack_kind OR v_row.output_ref IS DISTINCT FROM p_output_ref THEN
+    IF v_row.period_year <> p_period_year OR v_row.pack_kind <> p_pack_kind OR v_row.output_ref IS DISTINCT FROM p_output_ref
+       OR v_row.final_publication_id IS DISTINCT FROM p_final_publication_id THEN
       RETURN jsonb_build_object('outcome', 'request_conflict');
     END IF;
     RETURN jsonb_build_object('outcome', 'already_issued', 'issuance_id', v_row.id, 'expires_at', v_row.expires_at, 'sealed', v_row.consumed_at IS NOT NULL);
   END IF;
   BEGIN
-    INSERT INTO public.reporting_pack_issuances (company_id, period_year, pack_kind, request_id, issued_by, plan_code, output_ref, expires_at)
-    VALUES (p_company_id, p_period_year, p_pack_kind, p_request_id, v_user, v_auth->>'plan_code', p_output_ref, now() + public.reporting_pack_issuance_ttl())
+    INSERT INTO public.reporting_pack_issuances (company_id, period_year, pack_kind, request_id, issued_by, plan_code, output_ref, expires_at, final_publication_id)
+    VALUES (p_company_id, p_period_year, p_pack_kind, p_request_id, v_user, v_auth->>'plan_code', p_output_ref, now() + public.reporting_pack_issuance_ttl(), p_final_publication_id)
     RETURNING * INTO v_row;
   EXCEPTION WHEN unique_violation THEN
     SELECT * INTO v_row FROM public.reporting_pack_issuances WHERE company_id = p_company_id AND issued_by = v_user AND request_id = p_request_id;
     RETURN jsonb_build_object('outcome', 'already_issued', 'issuance_id', v_row.id, 'expires_at', v_row.expires_at, 'sealed', v_row.consumed_at IS NOT NULL);
   END;
   INSERT INTO public.reporting_pack_issuance_events (issuance_id, company_id, actor_user_id, event, detail)
-  VALUES (v_row.id, p_company_id, v_user, 'ISSUED', jsonb_build_object('pack_kind', p_pack_kind, 'period_year', p_period_year, 'output_ref', p_output_ref, 'plan_code', v_row.plan_code));
+  VALUES (v_row.id, p_company_id, v_user, 'ISSUED', jsonb_build_object('pack_kind', p_pack_kind, 'period_year', p_period_year, 'output_ref', p_output_ref,
+          'plan_code', v_row.plan_code, 'final_publication_id', p_final_publication_id));
   RETURN jsonb_build_object('outcome', 'issued', 'issuance_id', v_row.id, 'expires_at', v_row.expires_at);
 END;
 $function$
 $mcapabilitiesaas$;
 
   EXECUTE $mcapabilitiesaat$
+-- A deliverable (working copy): never bound to a publication, never official.
+CREATE OR REPLACE FUNCTION public.issue_reporting_pack(p_company_id uuid, p_period_year integer, p_pack_kind text, p_output_ref text, p_request_id uuid)
+ RETURNS jsonb
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public'
+AS $function$
+  SELECT public._issue_reporting_pack(p_company_id, p_period_year, p_pack_kind, p_output_ref, p_request_id, NULL::uuid);
+$function$
+$mcapabilitiesaat$;
+
+  EXECUTE $mcapabilitiesaau$
+-- The FINAL publication record of EXACTLY the saved version an output reference names, in this workspace and period, or
+-- NULL. FINAL is terminal for a version (fs_set_publication_state refuses any change after it), so the record is
+-- immutable: an official pack binds to its id, never to a "latest state". DRAFT / REVIEWED versions, another version's
+-- FINAL, another period or another workspace never qualify.
+CREATE OR REPLACE FUNCTION public._final_publication_for(p_company_id UUID, p_period_year INTEGER, p_output_ref TEXT)
+RETURNS UUID LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT p.id
+    FROM public.financial_statement_publications p
+    JOIN public.financial_statement_reports r ON r.report_id = p.report_id AND r.report_version = p.report_version
+   WHERE p_output_ref ~ '^fs-report:[A-Za-z0-9_-]{1,120}:v[0-9]{1,6}$'
+     AND p.report_id = (regexp_match(p_output_ref, '^fs-report:([A-Za-z0-9_-]{1,120}):v([0-9]{1,6})$'))[1]
+     AND p.report_version = (regexp_match(p_output_ref, '^fs-report:([A-Za-z0-9_-]{1,120}):v([0-9]{1,6})$'))[2]::integer
+     AND p.company_id = p_company_id AND r.company_id = p_company_id AND r.period_year = p_period_year
+     AND p.state = 'FINAL'
+   ORDER BY p.seq
+   LIMIT 1;
+$$
+$mcapabilitiesaau$;
+
+  EXECUTE $mcapabilitiesaav$
+-- An OFFICIAL Reporting Pack (security correction X-1): only for a saved statements version with a FINAL publication,
+-- whose exact record is bound to the issuance and later printed in the canonical document. Outcomes are those of
+-- issue_reporting_pack, plus final_publication_required (a draft, unreviewed or REVIEWED-only version).
+CREATE OR REPLACE FUNCTION public.issue_official_reporting_pack(p_company_id uuid, p_period_year integer, p_output_ref text, p_request_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public'
+AS $function$
+DECLARE
+  v_user UUID := auth.uid();
+  v_pub  UUID;
+BEGIN
+  IF v_user IS NULL THEN RETURN jsonb_build_object('outcome', 'unauthenticated'); END IF;
+  IF p_company_id IS NULL OR p_period_year IS NULL OR p_request_id IS NULL
+     OR NOT public._reporting_pack_officially_sealable('financial_statements_data', p_output_ref)
+     OR NOT public._reporting_pack_output_ref_valid(p_company_id, p_period_year, 'financial_statements_data', p_output_ref) THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+  -- Nothing about publication state is disclosed to a person without access to the workspace.
+  IF public._workspace_access_basis(v_user, p_company_id) IS NULL THEN
+    RETURN jsonb_build_object('outcome', 'workspace_access_denied');
+  END IF;
+  v_pub := public._final_publication_for(p_company_id, p_period_year, p_output_ref);
+  IF v_pub IS NULL THEN
+    INSERT INTO public.reporting_pack_issuance_events (company_id, actor_user_id, event, detail)
+    VALUES (p_company_id, v_user, 'REFUSED', jsonb_build_object('stage', 'issue', 'code', 'FINAL_PUBLICATION_REQUIRED', 'output_ref', p_output_ref));
+    RETURN jsonb_build_object('outcome', 'final_publication_required');
+  END IF;
+  RETURN public._issue_reporting_pack(p_company_id, p_period_year, 'financial_statements_data', p_output_ref, p_request_id, v_pub);
+END;
+$function$
+$mcapabilitiesaav$;
+
+  EXECUTE $mcapabilitiesaaw$
 -- A browser-supplied hash can never make a file official: consume_reporting_pack_issuance (which accepted one) is
 -- removed (security correction B-4). Official bytes are GENERATED by the database from the authoritative saved output
 -- (security correction N-1, below): no uploaded bytes and no supplied hash are ever sealed.
 DROP FUNCTION public.consume_reporting_pack_issuance(UUID, UUID, INTEGER, TEXT, TEXT, TEXT)
-$mcapabilitiesaat$;
+$mcapabilitiesaaw$;
 
-  EXECUTE $mcapabilitiesaau$
+  EXECUTE $mcapabilitiesaax$
 ALTER TABLE public.reporting_pack_issuances DISABLE TRIGGER trg_rpi_immutable
-$mcapabilitiesaau$;
+$mcapabilitiesaax$;
 
-  EXECUTE $mcapabilitiesaav$
+  EXECUTE $mcapabilitiesaay$
 ALTER TABLE public.reporting_pack_issuances
   ADD COLUMN storage_path TEXT   NULL,
   ADD COLUMN byte_size    BIGINT NULL,
+  -- The exact FINAL publication an official pack is issued for (X-1); NULL for every working copy. Immutable.
+  ADD COLUMN final_publication_id UUID NULL,
+  ADD CONSTRAINT fk_rpi_final_publication FOREIGN KEY (final_publication_id) REFERENCES public.financial_statement_publications(id) ON DELETE RESTRICT,
+  ADD CONSTRAINT chk_rpi_final_publication_kind CHECK (final_publication_id IS NULL OR pack_kind = 'financial_statements_data'),
   DROP CONSTRAINT chk_rpi_seal,
   -- A seal made before this migration (client-supplied hash) keeps its row but has no stored object and is never
-  -- official (verify_reporting_pack below requires the server-stored object).
+  -- official (only the Edge Function's byte re-hash answers official).
   ADD CONSTRAINT chk_rpi_seal CHECK ((consumed_at IS NULL) = (content_sha256 IS NULL) AND (consumed_at IS NULL) = (consumed_plan_code IS NULL)
                                      AND (storage_path IS NULL) = (byte_size IS NULL) AND (storage_path IS NULL OR consumed_at IS NOT NULL)),
   ADD CONSTRAINT chk_rpi_storage_path CHECK (storage_path IS NULL OR storage_path ~ '^[0-9a-f-]{36}/[0-9a-f-]{36}\.(pdf|xlsx|csv|json|txt|xml|zip)$'),
   ADD CONSTRAINT chk_rpi_byte_size CHECK (byte_size IS NULL OR byte_size BETWEEN 1 AND 52428800)
-$mcapabilitiesaav$;
+$mcapabilitiesaay$;
 
-  EXECUTE $mcapabilitiesaaw$
+  EXECUTE $mcapabilitiesaaz$
 ALTER TABLE public.reporting_pack_issuances ENABLE TRIGGER trg_rpi_immutable
-$mcapabilitiesaaw$;
+$mcapabilitiesaaz$;
 
-  EXECUTE $mcapabilitiesaax$
+  EXECUTE $mcapabilitiesaba$
 -- Immutable except ONE seal (hash, plan, stored object and size, from NULL); never deleted. The seal itself must be
 -- the canonical document of the issuance's saved output (security correction N-1): whoever writes it — the seal
 -- function or any SQL caller with UPDATE — cannot record another hash, size or storage path.
@@ -1226,9 +1301,9 @@ BEGIN
   RAISE EXCEPTION 'Iron Dome: reporting_pack_issuances is append-only except for a single seal (% refused).', TG_OP USING ERRCODE = 'P0001';
 END;
 $$
-$mcapabilitiesaax$;
+$mcapabilitiesaba$;
 
-  EXECUTE $mcapabilitiesaay$
+  EXECUTE $mcapabilitiesabb$
 -- Closed, format-specific output references: each kind accepts only its own reference forms, and every reference must
 -- name a record of THIS workspace and period. Free text, drafts and unknown forms are refused.
 CREATE OR REPLACE FUNCTION public._reporting_pack_output_ref_valid(p_company_id UUID, p_period_year INTEGER, p_kind TEXT, p_output_ref TEXT)
@@ -1267,9 +1342,9 @@ BEGIN
   RETURN false;
 END;
 $$
-$mcapabilitiesaay$;
+$mcapabilitiesabb$;
 
-  EXECUTE $mcapabilitiesaaz$
+  EXECUTE $mcapabilitiesabc$
 -- ── Official Reporting Pack content authority (security correction N-1) ─────────────────────────────────────────
 -- An OFFICIAL Reporting Pack contains only bytes the DATABASE generates from the authoritative saved output its closed
 -- output_ref names. Nobody supplies the bytes or the hash: not the browser, not the Edge Function, not the service role.
@@ -1288,9 +1363,9 @@ CREATE OR REPLACE FUNCTION public._reporting_pack_officially_sealable(p_kind TEX
 RETURNS BOOLEAN LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
   SELECT p_kind = 'financial_statements_data' AND p_output_ref ~ '^fs-report:[A-Za-z0-9_-]{1,120}:v[0-9]{1,6}$';
 $$
-$mcapabilitiesaaz$;
+$mcapabilitiesabc$;
 
-  EXECUTE $mcapabilitiesaba$
+  EXECUTE $mcapabilitiesabd$
 -- The canonical official document of an issuance, or NULL when the issuance is not officially sealable. Raises when the
 -- source record is missing or no longer matches its recorded hash (never renders from an unproven source).
 CREATE OR REPLACE FUNCTION public._official_reporting_pack_document(p_issuance_id UUID)
@@ -1298,12 +1373,16 @@ RETURNS TEXT LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catal
 DECLARE
   v_row public.reporting_pack_issuances%ROWTYPE;
   v_rep public.financial_statement_reports%ROWTYPE;
+  v_pub public.financial_statement_publications%ROWTYPE;
   m     TEXT[];
 BEGIN
   SELECT * INTO v_row FROM public.reporting_pack_issuances WHERE id = p_issuance_id;
-  IF v_row.id IS NULL OR NOT public._reporting_pack_officially_sealable(v_row.pack_kind, v_row.output_ref) THEN
+  IF v_row.id IS NULL OR NOT public._reporting_pack_officially_sealable(v_row.pack_kind, v_row.output_ref)
+     OR v_row.final_publication_id IS NULL
+     OR v_row.final_publication_id IS DISTINCT FROM public._final_publication_for(v_row.company_id, v_row.period_year, v_row.output_ref) THEN
     RETURN NULL;
   END IF;
+  SELECT * INTO v_pub FROM public.financial_statement_publications WHERE id = v_row.final_publication_id;
   m := regexp_match(v_row.output_ref, '^fs-report:([A-Za-z0-9_-]{1,120}):v([0-9]{1,6})$');
   SELECT * INTO v_rep FROM public.financial_statement_reports r
    WHERE r.report_id = m[1] AND r.report_version = m[2]::integer AND r.company_id = v_row.company_id AND r.period_year = v_row.period_year;
@@ -1324,12 +1403,14 @@ BEGIN
                                  'provenance_origin', v_rep.provenance_origin, 'content_hash', v_rep.content_hash,
                                  'document_hash', v_rep.document_hash,
                                  'saved_at', to_char(v_rep.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')),
+    'publication', jsonb_build_object('publication_id', v_pub.id, 'state', v_pub.state, 'reason', v_pub.reason,
+                                      'published_at', to_char(v_pub.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')),
     'report', v_rep.report_document)) || E'\n';
 END;
 $$
-$mcapabilitiesaba$;
+$mcapabilitiesabd$;
 
-  EXECUTE $mcapabilitiesabb$
+  EXECUTE $mcapabilitiesabe$
 -- Everything that must hold for this person to seal this issuance now (the issuance row locked by the caller).
 -- Returns NULL when sealing may proceed, otherwise the refusal code; the plan code is returned through p_plan.
 CREATE OR REPLACE FUNCTION public._reporting_pack_seal_refusal(p_user UUID, p_issuance_id UUID, OUT p_code TEXT, OUT p_plan TEXT)
@@ -1351,6 +1432,10 @@ BEGIN
   IF NOT public._reporting_pack_officially_sealable(v_row.pack_kind, v_row.output_ref) THEN
     p_code := 'official_sealing_unavailable'; RETURN;
   END IF;
+  IF v_row.final_publication_id IS NULL
+     OR v_row.final_publication_id IS DISTINCT FROM public._final_publication_for(v_row.company_id, v_row.period_year, v_row.output_ref) THEN
+    p_code := 'final_publication_required'; RETURN;
+  END IF;
   v_auth := public._authorize_paid_action(p_user, v_row.company_id, 'REPORTING_PACK_EXPORT');
   IF (v_auth->>'allowed')::boolean THEN
     v_kind_auth := public._authorize_paid_action(p_user, v_row.company_id, (SELECT f.capability_code FROM public.reporting_pack_kind_features f WHERE f.pack_kind = v_row.pack_kind));
@@ -1365,9 +1450,9 @@ BEGIN
   p_plan := v_auth->>'plan_code';
 END;
 $$
-$mcapabilitiesabb$;
+$mcapabilitiesabe$;
 
-  EXECUTE $mcapabilitiesabc$
+  EXECUTE $mcapabilitiesabf$
 -- The stored object exists in the private bucket with exactly the expected size (Supabase Storage records it in
 -- storage.objects.metadata). Official status is never answered for a seal whose object is missing or of another size;
 -- the Edge Function's verify re-hashes the bytes themselves.
@@ -1378,9 +1463,9 @@ RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalo
      WHERE o.bucket_id = 'reporting-packs' AND o.name = p_storage_path
        AND COALESCE(o.metadata->>'size', '') ~ '^[0-9]{1,12}$' AND (o.metadata->>'size')::bigint = p_byte_size);
 $$
-$mcapabilitiesabc$;
+$mcapabilitiesabf$;
 
-  EXECUTE $mcapabilitiesabd$
+  EXECUTE $mcapabilitiesabg$
 -- Objects in the private bucket that no seal accounts for (a request interrupted between storing and sealing). They
 -- are never official; the Edge Function reuses such an object only when its bytes are exactly the canonical document,
 -- and otherwise removes it. Listed for the operator's sweep (service role only).
@@ -1391,9 +1476,9 @@ RETURNS TABLE (storage_path TEXT, created_at TIMESTAMPTZ) LANGUAGE sql STABLE SE
      AND NOT EXISTS (SELECT 1 FROM public.reporting_pack_issuances i WHERE i.storage_path = o.name AND i.consumed_at IS NOT NULL)
    ORDER BY o.created_at, o.name;
 $$
-$mcapabilitiesabd$;
+$mcapabilitiesabg$;
 
-  EXECUTE $mcapabilitiesabe$
+  EXECUTE $mcapabilitiesabh$
 -- Step 1 (service role, for the Edge Function): the canonical bytes to store, with their path. Changes nothing.
 -- Outcomes: ready | not_found | already_sealed | expired | binding_mismatch | official_sealing_unavailable |
 --           entitlement_required | capability_required | workspace_access_denied | invalid_request
@@ -1415,9 +1500,9 @@ BEGIN
     'file_name', 'official-reporting-pack-' || v_row.period_year::text || '-' || v_row.id::text || '.json');
 END;
 $$
-$mcapabilitiesabe$;
+$mcapabilitiesabh$;
 
-  EXECUTE $mcapabilitiesabf$
+  EXECUTE $mcapabilitiesabi$
 -- Step 2 (service role, after the object was stored): regenerate, hash and seal. No hash or bytes are accepted.
 -- Outcomes: sealed | the refusals of step 1 | binding_mismatch (a storage path other than this issuance's own) |
 --           object_missing (no stored object of the canonical size)
@@ -1464,44 +1549,18 @@ BEGIN
   RETURN jsonb_build_object('outcome', 'sealed', 'issuance_id', v_row.id, 'content_sha256', v_sha, 'byte_size', v_size);
 END;
 $$
-$mcapabilitiesabf$;
+$mcapabilitiesabi$;
 
-  EXECUTE $mcapabilitiesabg$
--- Official = sealed by the server AND the sealed hash is still exactly the hash of the canonical document re-derived
--- from its authoritative source now. A pre-migration client-hash seal, or any seal whose hash is not the canonical
--- one, is never official.
-CREATE OR REPLACE FUNCTION public.verify_reporting_pack(p_content_sha256 TEXT)
-RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $vrp$
-DECLARE
-  v_row public.reporting_pack_issuances%ROWTYPE;
-  v_doc TEXT;
-BEGIN
-  IF auth.uid() IS NULL OR p_content_sha256 IS NULL OR p_content_sha256 !~ '^[0-9a-f]{64}$' THEN
-    RETURN jsonb_build_object('official', false);
-  END IF;
-  SELECT i.* INTO v_row FROM public.reporting_pack_issuances i
-   WHERE i.content_sha256 = p_content_sha256 AND i.consumed_at IS NOT NULL AND i.storage_path IS NOT NULL AND public.can_access_workspace(i.company_id)
-   ORDER BY i.consumed_at DESC LIMIT 1;
-  IF v_row.id IS NULL THEN
-    RETURN jsonb_build_object('official', false);
-  END IF;
-  BEGIN
-    v_doc := public._official_reporting_pack_document(v_row.id);
-  EXCEPTION WHEN OTHERS THEN
-    v_doc := NULL;
-  END;
-  IF v_doc IS NULL OR public.fs_sha256_hex(v_doc) IS DISTINCT FROM v_row.content_sha256
-     OR NOT public._reporting_pack_object_matches(v_row.storage_path, v_row.byte_size) THEN
-    RETURN jsonb_build_object('official', false);
-  END IF;
-  RETURN jsonb_build_object('official', true, 'issuance_id', v_row.id, 'company_id', v_row.company_id, 'period_year', v_row.period_year,
-    'pack_kind', v_row.pack_kind, 'output_ref', v_row.output_ref, 'issued_at', v_row.issued_at, 'sealed_at', v_row.consumed_at,
-    'generated_by', 'database');
-END;
-$vrp$
-$mcapabilitiesabg$;
+  EXECUTE $mcapabilitiesabj$
+-- Security correction X-3: verify_reporting_pack answered "official" to signed-in callers from database metadata alone
+-- (a hash and an object's recorded size), without reading the stored bytes. It is removed. The ONLY route that may say
+-- official is the seal-reporting-pack Edge Function's verify action, which downloads the stored object, re-hashes it
+-- and compares it with the seal and with the canonical document re-derived from the saved output
+-- (reporting_pack_sealed_object, service role only, returns facts and never an official flag).
+DROP FUNCTION public.verify_reporting_pack(TEXT)
+$mcapabilitiesabj$;
 
-  EXECUTE $mcapabilitiesabh$
+  EXECUTE $mcapabilitiesabk$
 -- The stored object of a sealed issuance and the canonical hash re-derived now, for the Edge Function's
 -- verify-by-rehash (service role only).
 CREATE OR REPLACE FUNCTION public.reporting_pack_sealed_object(p_issuance_id UUID)
@@ -1523,273 +1582,314 @@ BEGIN
                             'object_present', public._reporting_pack_object_matches(v_row.storage_path, v_row.byte_size));
 END;
 $$
-$mcapabilitiesabh$;
-
-  EXECUTE $mcapabilitiesabi$
--- Private bucket for sealed official bytes: no client policy exists on it (the service role writes, never overwrites).
-INSERT INTO storage.buckets (id, name, public) VALUES ('reporting-packs', 'reporting-packs', false) ON CONFLICT (id) DO NOTHING
-$mcapabilitiesabi$;
-
-  EXECUTE $mcapabilitiesabj$
-REVOKE ALL ON FUNCTION public._reporting_pack_officially_sealable(TEXT, TEXT) FROM PUBLIC, anon
-$mcapabilitiesabj$;
-
-  EXECUTE $mcapabilitiesabk$
-GRANT EXECUTE ON FUNCTION public._reporting_pack_officially_sealable(TEXT, TEXT) TO authenticated, service_role
 $mcapabilitiesabk$;
 
   EXECUTE $mcapabilitiesabl$
-REVOKE ALL ON FUNCTION public._official_reporting_pack_document(UUID) FROM PUBLIC, anon, authenticated, service_role
+-- Private bucket for sealed official bytes: no client policy exists on it (the service role writes, never overwrites).
+INSERT INTO storage.buckets (id, name, public) VALUES ('reporting-packs', 'reporting-packs', false) ON CONFLICT (id) DO NOTHING
 $mcapabilitiesabl$;
 
   EXECUTE $mcapabilitiesabm$
-REVOKE ALL ON FUNCTION public._reporting_pack_seal_refusal(UUID, UUID) FROM PUBLIC, anon, authenticated, service_role
+REVOKE ALL ON FUNCTION public._reporting_pack_officially_sealable(TEXT, TEXT) FROM PUBLIC, anon
 $mcapabilitiesabm$;
 
   EXECUTE $mcapabilitiesabn$
-REVOKE ALL ON FUNCTION public._reporting_pack_object_matches(TEXT, BIGINT) FROM PUBLIC, anon, authenticated, service_role
+GRANT EXECUTE ON FUNCTION public._reporting_pack_officially_sealable(TEXT, TEXT) TO authenticated, service_role
 $mcapabilitiesabn$;
 
   EXECUTE $mcapabilitiesabo$
-REVOKE ALL ON FUNCTION public.reporting_pack_storage_orphans() FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public._official_reporting_pack_document(UUID) FROM PUBLIC, anon, authenticated, service_role
 $mcapabilitiesabo$;
 
   EXECUTE $mcapabilitiesabp$
-GRANT EXECUTE ON FUNCTION public.reporting_pack_storage_orphans() TO service_role
+REVOKE ALL ON FUNCTION public._reporting_pack_seal_refusal(UUID, UUID) FROM PUBLIC, anon, authenticated, service_role
 $mcapabilitiesabp$;
 
   EXECUTE $mcapabilitiesabq$
-REVOKE ALL ON FUNCTION public.prepare_official_reporting_pack(UUID, UUID) FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public._reporting_pack_object_matches(TEXT, BIGINT) FROM PUBLIC, anon, authenticated, service_role
 $mcapabilitiesabq$;
 
   EXECUTE $mcapabilitiesabr$
-GRANT EXECUTE ON FUNCTION public.prepare_official_reporting_pack(UUID, UUID) TO service_role
+REVOKE ALL ON FUNCTION public._issue_reporting_pack(UUID, INTEGER, TEXT, TEXT, UUID, UUID) FROM PUBLIC, anon, authenticated, service_role
 $mcapabilitiesabr$;
 
   EXECUTE $mcapabilitiesabs$
-REVOKE ALL ON FUNCTION public.seal_reporting_pack_server(UUID, UUID, TEXT) FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public._final_publication_for(UUID, INTEGER, TEXT) FROM PUBLIC, anon, authenticated, service_role
 $mcapabilitiesabs$;
 
   EXECUTE $mcapabilitiesabt$
-GRANT EXECUTE ON FUNCTION public.seal_reporting_pack_server(UUID, UUID, TEXT) TO service_role
+REVOKE ALL ON FUNCTION public.issue_official_reporting_pack(UUID, INTEGER, TEXT, UUID) FROM PUBLIC, anon
 $mcapabilitiesabt$;
 
   EXECUTE $mcapabilitiesabu$
-REVOKE ALL ON FUNCTION public.reporting_pack_sealed_object(UUID) FROM PUBLIC, anon, authenticated
+GRANT EXECUTE ON FUNCTION public.issue_official_reporting_pack(UUID, INTEGER, TEXT, UUID) TO authenticated
 $mcapabilitiesabu$;
 
   EXECUTE $mcapabilitiesabv$
-GRANT EXECUTE ON FUNCTION public.reporting_pack_sealed_object(UUID) TO service_role
+REVOKE ALL ON FUNCTION public.reporting_pack_storage_orphans() FROM PUBLIC, anon, authenticated
 $mcapabilitiesabv$;
 
   EXECUTE $mcapabilitiesabw$
-REVOKE ALL ON FUNCTION public._reporting_pack_output_ref_valid(UUID, INTEGER, TEXT, TEXT) FROM PUBLIC, anon, authenticated
+GRANT EXECUTE ON FUNCTION public.reporting_pack_storage_orphans() TO service_role
 $mcapabilitiesabw$;
 
   EXECUTE $mcapabilitiesabx$
+REVOKE ALL ON FUNCTION public.prepare_official_reporting_pack(UUID, UUID) FROM PUBLIC, anon, authenticated
+$mcapabilitiesabx$;
+
+  EXECUTE $mcapabilitiesaby$
+GRANT EXECUTE ON FUNCTION public.prepare_official_reporting_pack(UUID, UUID) TO service_role
+$mcapabilitiesaby$;
+
+  EXECUTE $mcapabilitiesabz$
+REVOKE ALL ON FUNCTION public.seal_reporting_pack_server(UUID, UUID, TEXT) FROM PUBLIC, anon, authenticated
+$mcapabilitiesabz$;
+
+  EXECUTE $mcapabilitiesaca$
+GRANT EXECUTE ON FUNCTION public.seal_reporting_pack_server(UUID, UUID, TEXT) TO service_role
+$mcapabilitiesaca$;
+
+  EXECUTE $mcapabilitiesacb$
+REVOKE ALL ON FUNCTION public.reporting_pack_sealed_object(UUID) FROM PUBLIC, anon, authenticated
+$mcapabilitiesacb$;
+
+  EXECUTE $mcapabilitiesacc$
+GRANT EXECUTE ON FUNCTION public.reporting_pack_sealed_object(UUID) TO service_role
+$mcapabilitiesacc$;
+
+  EXECUTE $mcapabilitiesacd$
+REVOKE ALL ON FUNCTION public._reporting_pack_output_ref_valid(UUID, INTEGER, TEXT, TEXT) FROM PUBLIC, anon, authenticated
+$mcapabilitiesacd$;
+
+  EXECUTE $mcapabilitiesace$
+-- What an invitation actually carries: the capabilities the invitee will hold on acceptance, the title's template, and
+-- the template capabilities this invitation does NOT carry (withdrawn earlier; a title never restores them — grant
+-- them explicitly if intended). invite-firm-member shows these to the inviter. Service role only.
+CREATE OR REPLACE FUNCTION public.invitation_capability_summary(p_company_id UUID, p_user UUID)
+RETURNS JSONB LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  WITH m AS (SELECT fm.role FROM public.firm_members fm WHERE fm.company_id = p_company_id AND fm.user_id = p_user),
+       held AS (SELECT COALESCE(array_agg(c.capability ORDER BY c.capability), ARRAY[]::TEXT[]) AS caps
+                  FROM public.workspace_member_capabilities c
+                 WHERE c.company_id = p_company_id AND c.user_id = p_user AND c.revoked_at IS NULL)
+  SELECT jsonb_build_object('title', m.role, 'capabilities', to_jsonb(held.caps),
+           'title_capabilities', to_jsonb(public._title_capability_template(m.role)),
+           'withheld', to_jsonb(ARRAY(SELECT t FROM unnest(public._title_capability_template(m.role)) AS t WHERE NOT (t = ANY (held.caps)) ORDER BY t)))
+    FROM m, held;
+$$
+$mcapabilitiesace$;
+
+  EXECUTE $mcapabilitiesacf$
+REVOKE ALL ON FUNCTION public.invitation_capability_summary(UUID, UUID) FROM PUBLIC, anon, authenticated
+$mcapabilitiesacf$;
+
+  EXECUTE $mcapabilitiesacg$
+GRANT EXECUTE ON FUNCTION public.invitation_capability_summary(UUID, UUID) TO service_role
+$mcapabilitiesacg$;
+
+  EXECUTE $mcapabilitiesach$
 -- ── 5. RLS policies: the same member row, a capability instead of a title (generated) ────────
 ALTER POLICY "account_pl_mapping_delete" ON public.account_pl_mapping USING ((company_id IN ( SELECT firm_members.company_id
    FROM firm_members
   WHERE ((firm_members.user_id = auth.uid()) AND (public.workspace_capability_allowed(firm_members.company_id, firm_members.user_id, 'review_close'::text))))))
-$mcapabilitiesabx$;
+$mcapabilitiesach$;
 
-  EXECUTE $mcapabilitiesaby$
+  EXECUTE $mcapabilitiesaci$
 ALTER POLICY "account_pl_mapping_update" ON public.account_pl_mapping USING ((company_id IN ( SELECT firm_members.company_id
    FROM firm_members
   WHERE ((firm_members.user_id = auth.uid()) AND (public.workspace_capability_allowed(firm_members.company_id, firm_members.user_id, 'review_close'::text)))))) WITH CHECK ((company_id IN ( SELECT firm_members.company_id
    FROM firm_members
   WHERE ((firm_members.user_id = auth.uid()) AND (public.workspace_capability_allowed(firm_members.company_id, firm_members.user_id, 'review_close'::text))))))
-$mcapabilitiesaby$;
+$mcapabilitiesaci$;
 
-  EXECUTE $mcapabilitiesabz$
+  EXECUTE $mcapabilitiesacj$
 ALTER POLICY "account_pl_mapping_write" ON public.account_pl_mapping WITH CHECK ((company_id IN ( SELECT firm_members.company_id
    FROM firm_members
   WHERE ((firm_members.user_id = auth.uid()) AND (public.workspace_capability_allowed(firm_members.company_id, firm_members.user_id, 'review_close'::text))))))
-$mcapabilitiesabz$;
+$mcapabilitiesacj$;
 
-  EXECUTE $mcapabilitiesaca$
+  EXECUTE $mcapabilitiesack$
 ALTER POLICY "aje_insert" ON public.adjusting_journal_entries WITH CHECK (((auth.uid() = created_by) AND (EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = adjusting_journal_entries.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text)))))))
-$mcapabilitiesaca$;
+$mcapabilitiesack$;
 
-  EXECUTE $mcapabilitiesacb$
+  EXECUTE $mcapabilitiesacl$
 ALTER POLICY "aje_select" ON public.adjusting_journal_entries USING ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = adjusting_journal_entries.company_id) AND (public.has_workspace_capability(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesacb$;
+$mcapabilitiesacl$;
 
-  EXECUTE $mcapabilitiesacc$
+  EXECUTE $mcapabilitiesacm$
 ALTER POLICY "aje_update_draft_preparer" ON public.adjusting_journal_entries USING (((status = 'draft'::text) AND (EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = adjusting_journal_entries.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text) AND (NOT public.has_workspace_capability(fm.company_id, fm.user_id, 'approve_certification'::text)))))))) WITH CHECK (((status = ANY (ARRAY['draft'::text, 'submitted'::text])) AND (EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = adjusting_journal_entries.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text) AND (NOT public.has_workspace_capability(fm.company_id, fm.user_id, 'approve_certification'::text))))))))
-$mcapabilitiesacc$;
+$mcapabilitiesacm$;
 
-  EXECUTE $mcapabilitiesacd$
+  EXECUTE $mcapabilitiesacn$
 ALTER POLICY "aje_update_partner_owner" ON public.adjusting_journal_entries USING ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = adjusting_journal_entries.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'approve_certification'::text)))))) WITH CHECK (((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = adjusting_journal_entries.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'approve_certification'::text))))) AND ((approved_by IS NULL) OR (approved_by IS DISTINCT FROM created_by)) AND ((status <> ALL (ARRAY['approved'::text, 'reversed'::text])) OR (auth.uid() IS DISTINCT FROM created_by))))
-$mcapabilitiesacd$;
+$mcapabilitiesacn$;
 
-  EXECUTE $mcapabilitiesace$
+  EXECUTE $mcapabilitiesaco$
 ALTER POLICY "aje_lines_insert" ON public.aje_lines WITH CHECK ((EXISTS ( SELECT 1
    FROM (adjusting_journal_entries a
      JOIN firm_members fm ON ((fm.company_id = a.company_id)))
   WHERE ((a.id = aje_lines.aje_id) AND (fm.user_id = auth.uid()) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesace$;
+$mcapabilitiesaco$;
 
-  EXECUTE $mcapabilitiesacf$
+  EXECUTE $mcapabilitiesacp$
 ALTER POLICY "aje_lines_select" ON public.aje_lines USING ((EXISTS ( SELECT 1
    FROM (adjusting_journal_entries a
      JOIN firm_members fm ON ((fm.company_id = a.company_id)))
   WHERE ((a.id = aje_lines.aje_id) AND (fm.user_id = auth.uid()) AND (public.has_workspace_capability(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesacf$;
+$mcapabilitiesacp$;
 
-  EXECUTE $mcapabilitiesacg$
+  EXECUTE $mcapabilitiesacq$
 ALTER POLICY "ca_delete" ON public.capital_allowances USING (((created_by = auth.uid()) AND (EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = capital_allowances.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text)))))))
-$mcapabilitiesacg$;
+$mcapabilitiesacq$;
 
-  EXECUTE $mcapabilitiesach$
+  EXECUTE $mcapabilitiesacr$
 ALTER POLICY "ca_insert" ON public.capital_allowances WITH CHECK (((auth.uid() = created_by) AND (EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = capital_allowances.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text)))))))
-$mcapabilitiesach$;
+$mcapabilitiesacr$;
 
-  EXECUTE $mcapabilitiesaci$
+  EXECUTE $mcapabilitiesacs$
 ALTER POLICY "ca_select" ON public.capital_allowances USING ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = capital_allowances.company_id) AND (public.has_workspace_capability(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesaci$;
+$mcapabilitiesacs$;
 
-  EXECUTE $mcapabilitiesacj$
+  EXECUTE $mcapabilitiesact$
 ALTER POLICY "ca_update" ON public.capital_allowances USING ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = capital_allowances.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text)))))) WITH CHECK ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = capital_allowances.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesacj$;
+$mcapabilitiesact$;
 
-  EXECUTE $mcapabilitiesack$
+  EXECUTE $mcapabilitiesacu$
 ALTER POLICY "Senior members create engagements" ON public.engagements WITH CHECK (((company_id IN ( SELECT get_member_company_ids() AS get_member_company_ids)) AND (EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.id = engagements.created_by_member_id) AND (fm.user_id = auth.uid()) AND (fm.company_id = engagements.company_id) AND (fm.accepted_at IS NOT NULL) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'review_close'::text)))))))
-$mcapabilitiesack$;
+$mcapabilitiesacu$;
 
-  EXECUTE $mcapabilitiesacl$
+  EXECUTE $mcapabilitiesacv$
 ALTER POLICY "Senior members update engagement status" ON public.engagements USING (((company_id IN ( SELECT get_member_company_ids() AS get_member_company_ids)) AND (EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = engagements.company_id) AND (fm.accepted_at IS NOT NULL) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'review_close'::text))))))) WITH CHECK ((company_id IN ( SELECT get_member_company_ids() AS get_member_company_ids)))
-$mcapabilitiesacl$;
+$mcapabilitiesacv$;
 
-  EXECUTE $mcapabilitiesacm$
+  EXECUTE $mcapabilitiesacw$
 ALTER POLICY "mi_insert" ON public.management_inputs WITH CHECK ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = management_inputs.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesacm$;
+$mcapabilitiesacw$;
 
-  EXECUTE $mcapabilitiesacn$
+  EXECUTE $mcapabilitiesacx$
 ALTER POLICY "mi_select" ON public.management_inputs USING ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = management_inputs.company_id) AND (public.has_workspace_capability(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesacn$;
+$mcapabilitiesacx$;
 
-  EXECUTE $mcapabilitiesaco$
+  EXECUTE $mcapabilitiesacy$
 ALTER POLICY "mi_update" ON public.management_inputs USING ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = management_inputs.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text)))))) WITH CHECK ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = management_inputs.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesaco$;
+$mcapabilitiesacy$;
 
-  EXECUTE $mcapabilitiesacp$
+  EXECUTE $mcapabilitiesacz$
 ALTER POLICY "sso_insert" ON public.statement_sign_offs WITH CHECK ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = statement_sign_offs.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesacp$;
+$mcapabilitiesacz$;
 
-  EXECUTE $mcapabilitiesacq$
+  EXECUTE $mcapabilitiesada$
 ALTER POLICY "sso_select" ON public.statement_sign_offs USING ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = statement_sign_offs.company_id) AND (public.has_workspace_capability(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesacq$;
+$mcapabilitiesada$;
 
-  EXECUTE $mcapabilitiesacr$
+  EXECUTE $mcapabilitiesadb$
 ALTER POLICY "sso_update_partner_owner" ON public.statement_sign_offs USING ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = statement_sign_offs.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'approve_certification'::text)))))) WITH CHECK (((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = statement_sign_offs.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'approve_certification'::text))))) AND ((reviewer_signed_at IS NULL) OR (reviewer_id IS DISTINCT FROM preparer_id)) AND ((approver_signed_at IS NULL) OR ((approver_id IS DISTINCT FROM preparer_id) AND (approver_id IS DISTINCT FROM reviewer_id)))))
-$mcapabilitiesacr$;
+$mcapabilitiesadb$;
 
-  EXECUTE $mcapabilitiesacs$
+  EXECUTE $mcapabilitiesadc$
 ALTER POLICY "sso_update_preparer" ON public.statement_sign_offs USING (((locked_at IS NULL) AND (EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = statement_sign_offs.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text) AND (NOT public.has_workspace_capability(fm.company_id, fm.user_id, 'approve_certification'::text)))))))) WITH CHECK (((locked_at IS NULL) AND (reviewer_signed_at IS NULL) AND (approver_signed_at IS NULL) AND (EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = statement_sign_offs.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text) AND (NOT public.has_workspace_capability(fm.company_id, fm.user_id, 'approve_certification'::text))))))))
-$mcapabilitiesacs$;
+$mcapabilitiesadc$;
 
-  EXECUTE $mcapabilitiesact$
+  EXECUTE $mcapabilitiesadd$
 ALTER POLICY "tl_insert" ON public.tax_losses WITH CHECK (((auth.uid() = created_by) AND (EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = tax_losses.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text)))))))
-$mcapabilitiesact$;
+$mcapabilitiesadd$;
 
-  EXECUTE $mcapabilitiesacu$
+  EXECUTE $mcapabilitiesade$
 ALTER POLICY "tl_select" ON public.tax_losses USING ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = tax_losses.company_id) AND (public.has_workspace_capability(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesacu$;
+$mcapabilitiesade$;
 
-  EXECUTE $mcapabilitiesacv$
+  EXECUTE $mcapabilitiesadf$
 ALTER POLICY "tl_update" ON public.tax_losses USING ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = tax_losses.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text)))))) WITH CHECK ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = tax_losses.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesacv$;
+$mcapabilitiesadf$;
 
-  EXECUTE $mcapabilitiesacw$
+  EXECUTE $mcapabilitiesadg$
 ALTER POLICY "tax_payments_delete" ON public.tax_payments USING (((created_by = auth.uid()) AND (EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = tax_payments.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text)))))))
-$mcapabilitiesacw$;
+$mcapabilitiesadg$;
 
-  EXECUTE $mcapabilitiesacx$
+  EXECUTE $mcapabilitiesadh$
 ALTER POLICY "tax_payments_insert" ON public.tax_payments WITH CHECK (((auth.uid() = created_by) AND (EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = tax_payments.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text)))))))
-$mcapabilitiesacx$;
+$mcapabilitiesadh$;
 
-  EXECUTE $mcapabilitiesacy$
+  EXECUTE $mcapabilitiesadi$
 ALTER POLICY "tax_payments_update" ON public.tax_payments USING ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = tax_payments.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text)))))) WITH CHECK ((EXISTS ( SELECT 1
    FROM firm_members fm
   WHERE ((fm.user_id = auth.uid()) AND (fm.company_id = tax_payments.company_id) AND (public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close'::text))))))
-$mcapabilitiesacy$;
+$mcapabilitiesadi$;
 
-  EXECUTE $mcapabilitiesacz$
+  EXECUTE $mcapabilitiesadj$
 ALTER POLICY "budget_approve" ON public.variance_budgets USING (((company_id IN ( SELECT firm_members.company_id
    FROM firm_members
   WHERE ((firm_members.user_id = auth.uid()) AND (public.workspace_capability_allowed(firm_members.company_id, firm_members.user_id, 'review_close'::text))))) AND (approved_by IS NULL) AND (submitted_by IS DISTINCT FROM auth.uid()))) WITH CHECK (((company_id IN ( SELECT firm_members.company_id
    FROM firm_members
   WHERE ((firm_members.user_id = auth.uid()) AND (public.workspace_capability_allowed(firm_members.company_id, firm_members.user_id, 'review_close'::text))))) AND (submitted_by IS DISTINCT FROM auth.uid()) AND ((approved_by IS NULL) OR (approved_by = auth.uid())) AND (approved_by IS DISTINCT FROM submitted_by)))
-$mcapabilitiesacz$;
+$mcapabilitiesadj$;
 
-  EXECUTE $mcapabilitiesada$
+  EXECUTE $mcapabilitiesadk$
 ALTER POLICY "variance_materiality_write" ON public.variance_materiality USING ((company_id IN ( SELECT firm_members.company_id
    FROM firm_members
   WHERE ((firm_members.user_id = auth.uid()) AND (public.workspace_capability_allowed(firm_members.company_id, firm_members.user_id, 'review_close'::text))))))
-$mcapabilitiesada$;
+$mcapabilitiesadk$;
 
-  EXECUTE $mcapabilitiesadb$
+  EXECUTE $mcapabilitiesadl$
 -- ── 5b. Close Assurance wall: new preparation and validation outputs need a current plan ─────
 -- Close Assurance is included in every plan and in no absence of one. After a plan ends (or with no plan), every
 -- existing upload, reconciliation, validation, computation and finding stays readable; a NEW one is refused on every
@@ -1811,57 +1911,57 @@ BEGIN
   RETURN NEW;
 END;
 $$
-$mcapabilitiesadb$;
-
-  EXECUTE $mcapabilitiesadc$
-DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.trial_balance_uploads
-$mcapabilitiesadc$;
-
-  EXECUTE $mcapabilitiesadd$
-CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.trial_balance_uploads FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall()
-$mcapabilitiesadd$;
-
-  EXECUTE $mcapabilitiesade$
-DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.safisha_reconciliations
-$mcapabilitiesade$;
-
-  EXECUTE $mcapabilitiesadf$
-CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.safisha_reconciliations FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall()
-$mcapabilitiesadf$;
-
-  EXECUTE $mcapabilitiesadg$
-DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.hesabu_validations
-$mcapabilitiesadg$;
-
-  EXECUTE $mcapabilitiesadh$
-CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.hesabu_validations FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall()
-$mcapabilitiesadh$;
-
-  EXECUTE $mcapabilitiesadi$
-DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.tax_computations
-$mcapabilitiesadi$;
-
-  EXECUTE $mcapabilitiesadj$
-CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.tax_computations FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall()
-$mcapabilitiesadj$;
-
-  EXECUTE $mcapabilitiesadk$
-DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.period_closing_balances
-$mcapabilitiesadk$;
-
-  EXECUTE $mcapabilitiesadl$
-CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.period_closing_balances FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall()
 $mcapabilitiesadl$;
 
   EXECUTE $mcapabilitiesadm$
-DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.findings
+DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.trial_balance_uploads
 $mcapabilitiesadm$;
 
   EXECUTE $mcapabilitiesadn$
-CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.findings FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall()
+CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.trial_balance_uploads FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall()
 $mcapabilitiesadn$;
 
   EXECUTE $mcapabilitiesado$
+DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.safisha_reconciliations
+$mcapabilitiesado$;
+
+  EXECUTE $mcapabilitiesadp$
+CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.safisha_reconciliations FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall()
+$mcapabilitiesadp$;
+
+  EXECUTE $mcapabilitiesadq$
+DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.hesabu_validations
+$mcapabilitiesadq$;
+
+  EXECUTE $mcapabilitiesadr$
+CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.hesabu_validations FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall()
+$mcapabilitiesadr$;
+
+  EXECUTE $mcapabilitiesads$
+DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.tax_computations
+$mcapabilitiesads$;
+
+  EXECUTE $mcapabilitiesadt$
+CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.tax_computations FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall()
+$mcapabilitiesadt$;
+
+  EXECUTE $mcapabilitiesadu$
+DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.period_closing_balances
+$mcapabilitiesadu$;
+
+  EXECUTE $mcapabilitiesadv$
+CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.period_closing_balances FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall()
+$mcapabilitiesadv$;
+
+  EXECUTE $mcapabilitiesadw$
+DROP TRIGGER IF EXISTS trg_close_assurance_wall ON public.findings
+$mcapabilitiesadw$;
+
+  EXECUTE $mcapabilitiesadx$
+CREATE TRIGGER trg_close_assurance_wall BEFORE INSERT ON public.findings FOR EACH ROW EXECUTE FUNCTION public.close_assurance_wall()
+$mcapabilitiesadx$;
+
+  EXECUTE $mcapabilitiesady$
 -- ── 5c. Reconciliation write wall: every reconciliation mutation needs a current plan and the capability ─────────
 -- Inventory (every write path to reconciliation state; nothing else writes these tables):
 --   safisha_reconciliations  INSERT (safisha-ingest, client RLS), UPDATE (safisha-match / -categorize / -score, client
@@ -1937,65 +2037,65 @@ BEGIN
   RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$
-$mcapabilitiesado$;
-
-  EXECUTE $mcapabilitiesadp$
-DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.safisha_reconciliations
-$mcapabilitiesadp$;
-
-  EXECUTE $mcapabilitiesadq$
-CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.safisha_reconciliations FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
-$mcapabilitiesadq$;
-
-  EXECUTE $mcapabilitiesadr$
-DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.safisha_transactions
-$mcapabilitiesadr$;
-
-  EXECUTE $mcapabilitiesads$
-CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.safisha_transactions FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
-$mcapabilitiesads$;
-
-  EXECUTE $mcapabilitiesadt$
-DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.safisha_exceptions
-$mcapabilitiesadt$;
-
-  EXECUTE $mcapabilitiesadu$
-CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.safisha_exceptions FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
-$mcapabilitiesadu$;
-
-  EXECUTE $mcapabilitiesadv$
-DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.safisha_audit_log
-$mcapabilitiesadv$;
-
-  EXECUTE $mcapabilitiesadw$
-CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.safisha_audit_log FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
-$mcapabilitiesadw$;
-
-  EXECUTE $mcapabilitiesadx$
-DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.efdms_reconciliation
-$mcapabilitiesadx$;
-
-  EXECUTE $mcapabilitiesady$
-CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.efdms_reconciliation FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
 $mcapabilitiesady$;
 
   EXECUTE $mcapabilitiesadz$
-DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.efdms_records
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.safisha_reconciliations
 $mcapabilitiesadz$;
 
   EXECUTE $mcapabilitiesaea$
-CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.efdms_records FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.safisha_reconciliations FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
 $mcapabilitiesaea$;
 
   EXECUTE $mcapabilitiesaeb$
-DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.efdms_z_reports
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.safisha_transactions
 $mcapabilitiesaeb$;
 
   EXECUTE $mcapabilitiesaec$
-CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.efdms_z_reports FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.safisha_transactions FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
 $mcapabilitiesaec$;
 
   EXECUTE $mcapabilitiesaed$
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.safisha_exceptions
+$mcapabilitiesaed$;
+
+  EXECUTE $mcapabilitiesaee$
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.safisha_exceptions FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
+$mcapabilitiesaee$;
+
+  EXECUTE $mcapabilitiesaef$
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.safisha_audit_log
+$mcapabilitiesaef$;
+
+  EXECUTE $mcapabilitiesaeg$
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.safisha_audit_log FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
+$mcapabilitiesaeg$;
+
+  EXECUTE $mcapabilitiesaeh$
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.efdms_reconciliation
+$mcapabilitiesaeh$;
+
+  EXECUTE $mcapabilitiesaei$
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.efdms_reconciliation FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
+$mcapabilitiesaei$;
+
+  EXECUTE $mcapabilitiesaej$
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.efdms_records
+$mcapabilitiesaej$;
+
+  EXECUTE $mcapabilitiesaek$
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.efdms_records FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
+$mcapabilitiesaek$;
+
+  EXECUTE $mcapabilitiesael$
+DROP TRIGGER IF EXISTS aa_reconciliation_write_wall ON public.efdms_z_reports
+$mcapabilitiesael$;
+
+  EXECUTE $mcapabilitiesaem$
+CREATE TRIGGER aa_reconciliation_write_wall BEFORE INSERT OR UPDATE OR DELETE ON public.efdms_z_reports FOR EACH ROW EXECUTE FUNCTION public.reconciliation_write_wall()
+$mcapabilitiesaem$;
+
+  EXECUTE $mcapabilitiesaen$
 -- The exception resolver (safisha-resolve, service role, reviewer id from the verified JWT): identical to its previous
 -- definition except the plan and capability check before any write.
 CREATE OR REPLACE FUNCTION public.safisha_resolve_exception(p_exception_id uuid, p_reviewer_id uuid, p_action text, p_note text DEFAULT NULL::text)
@@ -2113,122 +2213,122 @@ BEGIN
   );
 END;
 $function$
-$mcapabilitiesaed$;
+$mcapabilitiesaen$;
 
-  EXECUTE $mcapabilitiesaee$
+  EXECUTE $mcapabilitiesaeo$
 -- ── 6. Privileges ────────────────────────────────────────────────────────────────────────────
 -- RLS policies call the two predicates as the signed-in user, so authenticated needs EXECUTE; neither discloses
 -- anything about another person (see has_workspace_capability).
 REVOKE ALL ON FUNCTION public.has_workspace_capability(UUID, UUID, TEXT) FROM PUBLIC, anon
-$mcapabilitiesaee$;
-
-  EXECUTE $mcapabilitiesaef$
-GRANT EXECUTE ON FUNCTION public.has_workspace_capability(UUID, UUID, TEXT) TO authenticated, service_role
-$mcapabilitiesaef$;
-
-  EXECUTE $mcapabilitiesaeg$
-REVOKE ALL ON FUNCTION public.workspace_capability_allowed(UUID, UUID, TEXT) FROM PUBLIC, anon
-$mcapabilitiesaeg$;
-
-  EXECUTE $mcapabilitiesaeh$
-GRANT EXECUTE ON FUNCTION public.workspace_capability_allowed(UUID, UUID, TEXT) TO authenticated, service_role
-$mcapabilitiesaeh$;
-
-  EXECUTE $mcapabilitiesaei$
-REVOKE ALL ON FUNCTION public.has_account_capability(UUID, TEXT) FROM PUBLIC, anon
-$mcapabilitiesaei$;
-
-  EXECUTE $mcapabilitiesaej$
-GRANT EXECUTE ON FUNCTION public.has_account_capability(UUID, TEXT) TO authenticated, service_role
-$mcapabilitiesaej$;
-
-  EXECUTE $mcapabilitiesaek$
-REVOKE ALL ON FUNCTION public.get_my_workspace_capabilities(UUID) FROM PUBLIC, anon, service_role
-$mcapabilitiesaek$;
-
-  EXECUTE $mcapabilitiesael$
-GRANT EXECUTE ON FUNCTION public.get_my_workspace_capabilities(UUID) TO authenticated
-$mcapabilitiesael$;
-
-  EXECUTE $mcapabilitiesaem$
-REVOKE ALL ON FUNCTION public.grant_member_capability(UUID, UUID, TEXT, TEXT) FROM PUBLIC, anon, service_role
-$mcapabilitiesaem$;
-
-  EXECUTE $mcapabilitiesaen$
-GRANT EXECUTE ON FUNCTION public.grant_member_capability(UUID, UUID, TEXT, TEXT) TO authenticated
-$mcapabilitiesaen$;
-
-  EXECUTE $mcapabilitiesaeo$
-REVOKE ALL ON FUNCTION public.revoke_member_capability(UUID, UUID, TEXT, TEXT) FROM PUBLIC, anon, service_role
 $mcapabilitiesaeo$;
 
   EXECUTE $mcapabilitiesaep$
-GRANT EXECUTE ON FUNCTION public.revoke_member_capability(UUID, UUID, TEXT, TEXT) TO authenticated
+GRANT EXECUTE ON FUNCTION public.has_workspace_capability(UUID, UUID, TEXT) TO authenticated, service_role
 $mcapabilitiesaep$;
 
   EXECUTE $mcapabilitiesaeq$
--- The TB-lifecycle predicate stays service-only (see 20260925150000).
-REVOKE ALL ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public.workspace_capability_allowed(UUID, UUID, TEXT) FROM PUBLIC, anon
 $mcapabilitiesaeq$;
 
   EXECUTE $mcapabilitiesaer$
-GRANT EXECUTE ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) TO service_role
+GRANT EXECUTE ON FUNCTION public.workspace_capability_allowed(UUID, UUID, TEXT) TO authenticated, service_role
 $mcapabilitiesaer$;
 
   EXECUTE $mcapabilitiesaes$
-REVOKE ALL ON FUNCTION public._title_capability_template(TEXT) FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public.has_account_capability(UUID, TEXT) FROM PUBLIC, anon
 $mcapabilitiesaes$;
 
   EXECUTE $mcapabilitiesaet$
-REVOKE ALL ON FUNCTION public.firm_members_capability_template_sync() FROM PUBLIC, anon, authenticated
+GRANT EXECUTE ON FUNCTION public.has_account_capability(UUID, TEXT) TO authenticated, service_role
 $mcapabilitiesaet$;
 
   EXECUTE $mcapabilitiesaeu$
-REVOKE ALL ON FUNCTION public.workspace_member_capabilities_guard() FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public.get_my_workspace_capabilities(UUID) FROM PUBLIC, anon, service_role
 $mcapabilitiesaeu$;
 
   EXECUTE $mcapabilitiesaev$
-REVOKE ALL ON FUNCTION public.workspace_member_capabilities_no_truncate() FROM PUBLIC, anon, authenticated
+GRANT EXECUTE ON FUNCTION public.get_my_workspace_capabilities(UUID) TO authenticated
 $mcapabilitiesaev$;
 
   EXECUTE $mcapabilitiesaew$
-REVOKE ALL ON FUNCTION public.close_assurance_wall() FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public.grant_member_capability(UUID, UUID, TEXT, TEXT) FROM PUBLIC, anon, service_role
 $mcapabilitiesaew$;
 
   EXECUTE $mcapabilitiesaex$
-REVOKE ALL ON FUNCTION public.reconciliation_write_wall() FROM PUBLIC, anon, authenticated
+GRANT EXECUTE ON FUNCTION public.grant_member_capability(UUID, UUID, TEXT, TEXT) TO authenticated
 $mcapabilitiesaex$;
 
   EXECUTE $mcapabilitiesaey$
-REVOKE ALL ON FUNCTION public.firm_members_update_guard() FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public.revoke_member_capability(UUID, UUID, TEXT, TEXT) FROM PUBLIC, anon, service_role
 $mcapabilitiesaey$;
 
   EXECUTE $mcapabilitiesaez$
-REVOKE ALL ON FUNCTION public.commercial_plan_change_lock() FROM PUBLIC, anon, authenticated
+GRANT EXECUTE ON FUNCTION public.revoke_member_capability(UUID, UUID, TEXT, TEXT) TO authenticated
 $mcapabilitiesaez$;
 
   EXECUTE $mcapabilitiesafa$
-REVOKE ALL ON FUNCTION public._plan_write_lock(UUID) FROM PUBLIC, anon
+-- The TB-lifecycle predicate stays service-only (see 20260925150000).
+REVOKE ALL ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) FROM PUBLIC, anon, authenticated
 $mcapabilitiesafa$;
 
   EXECUTE $mcapabilitiesafb$
-GRANT EXECUTE ON FUNCTION public._plan_write_lock(UUID) TO authenticated, service_role
+GRANT EXECUTE ON FUNCTION public.workspace_authority_basis(uuid, uuid, text) TO service_role
 $mcapabilitiesafb$;
 
   EXECUTE $mcapabilitiesafc$
-REVOKE ALL ON FUNCTION public.safisha_append_evidence_file(uuid, text, text, integer) FROM PUBLIC, anon
+REVOKE ALL ON FUNCTION public._title_capability_template(TEXT) FROM PUBLIC, anon, authenticated
 $mcapabilitiesafc$;
 
   EXECUTE $mcapabilitiesafd$
-GRANT EXECUTE ON FUNCTION public.safisha_append_evidence_file(uuid, text, text, integer) TO authenticated, service_role
+REVOKE ALL ON FUNCTION public.firm_members_capability_template_sync() FROM PUBLIC, anon, authenticated
 $mcapabilitiesafd$;
 
   EXECUTE $mcapabilitiesafe$
-REVOKE ALL ON FUNCTION public.safisha_resolve_exception(uuid, uuid, text, text) FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public.workspace_member_capabilities_guard() FROM PUBLIC, anon, authenticated
 $mcapabilitiesafe$;
 
   EXECUTE $mcapabilitiesaff$
-GRANT EXECUTE ON FUNCTION public.safisha_resolve_exception(uuid, uuid, text, text) TO service_role
+REVOKE ALL ON FUNCTION public.workspace_member_capabilities_no_truncate() FROM PUBLIC, anon, authenticated
 $mcapabilitiesaff$;
+
+  EXECUTE $mcapabilitiesafg$
+REVOKE ALL ON FUNCTION public.close_assurance_wall() FROM PUBLIC, anon, authenticated
+$mcapabilitiesafg$;
+
+  EXECUTE $mcapabilitiesafh$
+REVOKE ALL ON FUNCTION public.reconciliation_write_wall() FROM PUBLIC, anon, authenticated
+$mcapabilitiesafh$;
+
+  EXECUTE $mcapabilitiesafi$
+REVOKE ALL ON FUNCTION public.firm_members_update_guard() FROM PUBLIC, anon, authenticated
+$mcapabilitiesafi$;
+
+  EXECUTE $mcapabilitiesafj$
+REVOKE ALL ON FUNCTION public.commercial_plan_change_lock() FROM PUBLIC, anon, authenticated
+$mcapabilitiesafj$;
+
+  EXECUTE $mcapabilitiesafk$
+REVOKE ALL ON FUNCTION public._plan_write_lock(UUID) FROM PUBLIC, anon
+$mcapabilitiesafk$;
+
+  EXECUTE $mcapabilitiesafl$
+GRANT EXECUTE ON FUNCTION public._plan_write_lock(UUID) TO authenticated, service_role
+$mcapabilitiesafl$;
+
+  EXECUTE $mcapabilitiesafm$
+REVOKE ALL ON FUNCTION public.safisha_append_evidence_file(uuid, text, text, integer) FROM PUBLIC, anon
+$mcapabilitiesafm$;
+
+  EXECUTE $mcapabilitiesafn$
+GRANT EXECUTE ON FUNCTION public.safisha_append_evidence_file(uuid, text, text, integer) TO authenticated, service_role
+$mcapabilitiesafn$;
+
+  EXECUTE $mcapabilitiesafo$
+REVOKE ALL ON FUNCTION public.safisha_resolve_exception(uuid, uuid, text, text) FROM PUBLIC, anon, authenticated
+$mcapabilitiesafo$;
+
+  EXECUTE $mcapabilitiesafp$
+GRANT EXECUTE ON FUNCTION public.safisha_resolve_exception(uuid, uuid, text, text) TO service_role
+$mcapabilitiesafp$;
 END
 $cfoclose_capabilities$;

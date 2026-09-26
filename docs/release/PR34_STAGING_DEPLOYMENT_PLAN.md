@@ -213,9 +213,11 @@ Add cases:
 ## 11. Reporting Pack issuance tests
 
 - Free → `entitlement_required` and an audit `REFUSED` event.
-- Practice → issue `financial_statements_data` for a SAVED statements version (`fs-report:<id>:v<n>`), then
-  `seal-reporting-pack` `{ action: "issue", issuance_id }` → the stored object's SHA-256 equals the sealed hash and
-  `verify_reporting_pack` reports it official.
+- Practice → `issue_official_reporting_pack` for a SAVED statements version with a FINAL publication
+  (`fs-report:<id>:v<n>`; DRAFT / REVIEWED-only versions → `final_publication_required`), then `seal-reporting-pack`
+  `{ action: "issue", issuance_id }` → the stored object's SHA-256 equals the sealed hash, and `seal-reporting-pack`
+  `{ action: "verify", issuance_id }` (downloads and re-hashes the bytes) answers `official: true`.
+- Replace the stored object with same-size different bytes, or delete its bytes → `verify` answers `official: false`.
 - A multipart upload, any body with document bytes or a hash, and every browser-rendered format are refused
   (`invalid_request` / `official_sealing_unavailable`); nothing is stored or sealed.
 - Replacing the stored object afterwards → `verify` answers `substituted`.

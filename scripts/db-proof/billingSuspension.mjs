@@ -508,7 +508,7 @@ async function main() {
   // closed output reference; nobody supplies bytes or a hash. The handler below is the Edge Function's own module
   // (supabase/functions/_shared/reportingPackSeal.mjs), run against THIS database through the service role. The
   // private bucket is modelled by an in-memory object store (Supabase Storage is not part of a PostgreSQL proof).
-  const { issueOfficialPack, verifyStoredPack, parseSealRequest } = await import(pathToFileURL(path.join(REPO, "supabase/functions/_shared/reportingPackSeal.mjs")).href);
+  const { issueOfficialPack, verifyStoredPack, verifyOfficialPack, parseSealRequest } = await import(pathToFileURL(path.join(REPO, "supabase/functions/_shared/reportingPackSeal.mjs")).href);
   const { createHash } = await import("node:crypto");
   const sha = (b) => createHash("sha256").update(b).digest("hex");
   const bucket = new Map();
@@ -535,20 +535,40 @@ async function main() {
     sha256Hex: async (b) => sha(b),
   };
   const official = (who, id) => issueOfficialPack(deps, { userId: who, issuanceId: id });
+  // THE official-verification route (X-3): the Edge Function's own code — access check, download, re-hash.
+  const edgeVerify = (who, id) => verifyOfficialPack(deps, who, id);
   const sealsOf = (id) => count("SELECT count(*) n FROM public.reporting_pack_issuances WHERE id=$1 AND consumed_at IS NOT NULL", [id]);
   // A saved statements version of a workspace and period (as the persistence RPC records it: document hash by the server).
-  const savedOutput = async (acct, co, period, doc) => {
+  // A saved version and its publication history as fs_set_publication_state records it: DRAFT -> REVIEWED -> FINAL
+  // (state = the last step recorded; null = never published). Returns the version's output reference.
+  const pubOf = new Map();
+  const STEPS = { DRAFT: ["DRAFT"], REVIEWED: ["DRAFT", "REVIEWED"], FINAL: ["DRAFT", "REVIEWED", "FINAL"] };
+  const publish = async (co, rid, version, state, pubCompany = co) => {
+    const member = (await admin.query("SELECT id FROM public.firm_members WHERE company_id=$1 AND role='owner'", [co])).rows[0]?.id;
+    await admin.query("BEGIN"); await admin.query("SET LOCAL session_replication_role = replica");
+    let last = null;
+    for (const st of STEPS[state] ?? []) {
+      last = (await admin.query("INSERT INTO public.financial_statement_publications (report_id, report_version, company_id, state, reason, actor_firm_member_id) VALUES ($1,$2,$3,$4,'proof publication step',$5) RETURNING id", [rid, version, pubCompany, st, member])).rows[0].id;
+    }
+    await admin.query("COMMIT");
+    return last;
+  };
+  const savedOutput = async (acct, co, period, doc, state = "FINAL", rid = `r-${uuid()}`, version = 1) => {
     const member = (await admin.query("SELECT id FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [co, acct])).rows[0]?.id;
-    const rid = `r-${uuid()}`;
     await admin.query("BEGIN"); await admin.query("SET LOCAL session_replication_role = replica");
     await admin.query(`INSERT INTO public.financial_statement_reports (report_id, report_version, company_id, period_year, provenance_origin, report_document, content_hash, document_hash, created_by_firm_member_id)
-      VALUES ($1,1,$2,$3,'TRIAL_BALANCE_DERIVED',$4::jsonb,$5, public.fs_sha256_hex($4::jsonb::text), $6)`, [rid, co, period, JSON.stringify(doc), "e".repeat(64), member]);
+      VALUES ($1,$7,$2,$3,'TRIAL_BALANCE_DERIVED',$4::jsonb,$5, public.fs_sha256_hex($4::jsonb::text), $6)`, [rid, co, period, JSON.stringify(doc), "e".repeat(64), member, version]);
     await admin.query("COMMIT");
-    return `fs-report:${rid}:v1`;
+    const ref = `fs-report:${rid}:v${version}`;
+    if (state) pubOf.set(ref, await publish(co, rid, version, state));
+    return ref;
   };
   const uploadRef = async (acct, co, period = 2031) => `upload:${(await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,$4) RETURNING id", [`${acct}/${uuid()}.csv`, co, acct, period])).rows[0].id}`;
   const issue = async (who, co, kind, ref, period = 2031, rid = uuid()) =>
     (await one(user(who), "SELECT public.issue_reporting_pack($1,$2,$3,$4,$5) r", [co, period, kind, ref, rid])).r;
+  // An OFFICIAL issuance: bound by the server to the exact FINAL publication of the saved version (X-1).
+  const issueO = async (who, co, ref, period = 2031, rid = uuid()) =>
+    (await one(user(who), "SELECT public.issue_official_reporting_pack($1,$2,$3,$4) r", [co, period, ref, rid])).r;
   const DOC = { statements: { revenue: "1000000.00", profit: "250000.00" }, entity: { legalName: "Proof Ltd — Dar es Salaam" } };
   const pk = await account("PRACTICE", 1);
   const pkMember = await mkUser("pk");
@@ -563,11 +583,11 @@ async function main() {
     const f = await account("PRACTICE");
     const fr = await savedOutput(f.uid, f.co, 2031, DOC);
     await admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end = now() WHERE id=$1", [f.lic.id]);
-    const r = await issue(f.uid, f.co, "financial_statements_data", fr);
+    const r = await issueO(f.uid, f.co, fr);
     return r.outcome === "entitlement_required" && (await count("SELECT count(*) n FROM public.reporting_pack_issuance_events WHERE company_id=$1 AND event='REFUSED'", [f.co])) === 1;
   });
   await check("no path accepts bytes or a hash: the client-hash function is gone; prepare and seal are service-role only; the seal's only inputs are user, issuance and storage path", async () => {
-    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const i = await issueO(pk.uid, pk.co, R);
     const clientPrep = await codeOf(() => q(user(pk.uid), "SELECT public.prepare_official_reporting_pack($1,$2)", [pk.uid, i.issuance_id]));
     const clientSeal = await codeOf(() => q(user(pk.uid), "SELECT public.seal_reporting_pack_server($1,$2,$3)", [pk.uid, i.issuance_id, `${pk.co}/${i.issuance_id}.json`]));
     const oldConsume = (await admin.query("SELECT to_regproc('public.consume_reporting_pack_issuance') p")).rows[0].p;
@@ -577,7 +597,7 @@ async function main() {
   });
   let canonical;
   await check("the canonical server-produced document of a saved output seals and verifies: deterministic, the stored bytes ARE the sealed bytes, the database's hash equals the SHA-256 of those bytes", async () => {
-    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const i = await issueO(pk.uid, pk.co, R);
     const docA = (await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [pk.uid, i.issuance_id])).r;
     // A different session time zone must not change a single byte.
     const docB = await asCaller(SERVICE, async (c) => {
@@ -588,7 +608,7 @@ async function main() {
     const row = (await admin.query("SELECT content_sha256, storage_path, byte_size FROM public.reporting_pack_issuances WHERE id=$1", [i.issuance_id])).rows[0];
     const stored = bucket.get(`${pk.co}/${i.issuance_id}.json`);
     const parsed = JSON.parse(r.body.document ?? "null");
-    const member = (await one(user(pkMember), "SELECT public.verify_reporting_pack($1) r", [row.content_sha256])).r;
+    const member = await edgeVerify(pkMember, i.issuance_id);
     const intact = (await verifyStoredPack(deps, i.issuance_id)).outcome;
     canonical = { id: i.issuance_id, sha: row.content_sha256, document: r.body.document };
     const ok = r.body.outcome === "sealed" && docA.document === docB.document && docA.content_sha256 === row.content_sha256
@@ -596,15 +616,15 @@ async function main() {
       && parsed.schema === "cfoclose.official-reporting-pack.v1" && parsed.source.report_id === R.split(":")[1] && parsed.source.report_version === 1
       && parsed.issuance.issuance_id === i.issuance_id && parsed.report.statements.revenue === DOC.statements.revenue
       && parsed.report.statements.profit === DOC.statements.profit && parsed.report.entity.legalName === DOC.entity.legalName && /Z$/.test(parsed.issuance.issued_at)
-      && member.official === true && member.generated_by === "database" && intact === "intact";
+      && member.official === true && intact === "intact";
     return ok ? true : JSON.stringify({ outcome: r.body, row, member, intact });
   });
   await check("adversarial bytes — unrelated valid PDF, a doctored copy of the legitimate file, the canonical file of another period / workspace / output: every submission is refused, creates no seal, and none verifies as official", async () => {
-    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const i = await issueO(pk.uid, pk.co, R);
     const pdf = Buffer.from("%PDF-1.7\n1 0 obj <<>> endobj\ntrailer <<>>\n%%EOF\n");
     const doctored = Buffer.from(canonical.document.replace("1000000.00", "9000000.00"));
-    const i30 = await issue(pk.uid, pk.co, "financial_statements_data", R30, 2030);
-    const iO = await issue(other.uid, other.co, "financial_statements_data", RO);
+    const i30 = await issueO(pk.uid, pk.co, R30, 2030);
+    const iO = await issueO(other.uid, other.co, RO);
     const foreignPeriod = Buffer.from((await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [pk.uid, i30.issuance_id])).r.document);
     const foreignWs = Buffer.from((await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [other.uid, iO.issuance_id])).r.document);
     const out = {};
@@ -616,7 +636,7 @@ async function main() {
         parseSealRequest("application/json", { action: "issue", issuance_id: i.issuance_id, document: bytes.toString("utf8") }),
         parseSealRequest("application/json", { action: "issue", issuance_id: i.issuance_id, content_sha256: sha(bytes) }),
       ];
-      const official1 = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", [sha(bytes)])).r.official;
+      const official1 = (await edgeVerify(pk.uid, i.issuance_id)).official;
       out[name] = { refused: submissions.every((x) => x === null), official: official1 };
     }
     const noSeal = (await sealsOf(i.issuance_id)) === 0 && (await sealsOf(i30.issuance_id)) === 0 && (await sealsOf(iO.issuance_id)) === 0;
@@ -625,7 +645,7 @@ async function main() {
     // hashes its own regeneration, never the object.
     const svc = [];
     for (const bytes of [pdf, doctored, foreignPeriod, foreignWs]) {
-      const j = await issue(pk.uid, pk.co, "financial_statements_data", R);
+      const j = await issueO(pk.uid, pk.co, R);
       const put = deps.put;
       deps.put = async (p) => { await storeObject(p, new Uint8Array(bytes)); return { error: null }; };
       const r = await official(pk.uid, j.issuance_id);
@@ -636,21 +656,21 @@ async function main() {
     return Object.values(out).every((x) => x.refused && x.official === false) && noSeal && svcOk ? true : JSON.stringify({ out, noSeal, svc });
   });
   await check("post-seal storage substitution is detected (substituted / missing), and substitute bytes never verify as official", async () => {
-    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const i = await issueO(pk.uid, pk.co, R);
     const r = await official(pk.uid, i.issuance_id);
     const p = `${pk.co}/${i.issuance_id}.json`;
     const swapped = Buffer.from(r.body.document.replace("250000.00", "0.00"));
     bucket.set(p, new Uint8Array(swapped));
     const sub = (await verifyStoredPack(deps, i.issuance_id)).outcome;
-    const swappedOfficial = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", [sha(swapped)])).r.official;
+    const swappedOfficial = (await edgeVerify(pk.uid, i.issuance_id)).official;
     await dropObject(p);
     const missing = (await verifyStoredPack(deps, i.issuance_id)).outcome;
     // Without its stored object a seal is never answered official.
-    const noObject = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", [r.body.content_sha256])).r.official;
+    const noObject = (await edgeVerify(pk.uid, i.issuance_id)).official;
     return sub === "substituted" && swappedOfficial === false && missing === "missing" && noObject === false ? true : JSON.stringify({ sub, swappedOfficial, missing, noObject });
   });
   await check("no seal without the stored object: sealing before storing (or after it vanished) is refused as object_missing and nothing is sealed", async () => {
-    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const i = await issueO(pk.uid, pk.co, R);
     const r = (await one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, i.issuance_id, `${pk.co}/${i.issuance_id}.json`])).r.outcome;
     // An object of the wrong size at the right path is not the canonical object either.
     await storeObject(`${pk.co}/${i.issuance_id}.json`, new Uint8Array(Buffer.from("x")));
@@ -659,7 +679,7 @@ async function main() {
     return r === "object_missing" && wrongSize === "object_missing" && (await sealsOf(i.issuance_id)) === 0 ? true : JSON.stringify({ r, wrongSize });
   });
   await check("SQL callers cannot supply a hash, size or path: the service role has no UPDATE; even the table owner's direct seal must be the canonical document", async () => {
-    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const i = await issueO(pk.uid, pk.co, R);
     const p = `${pk.co}/${i.issuance_id}.json`;
     const svc = await codeOf(() => q(SERVICE, "UPDATE public.reporting_pack_issuances SET consumed_at=now(), content_sha256=$2, consumed_plan_code='PRACTICE', storage_path=$3, byte_size=10 WHERE id=$1", [i.issuance_id, "a".repeat(64), p]));
     const forged = await codeOf(() => admin.query("UPDATE public.reporting_pack_issuances SET consumed_at=now(), content_sha256=$2, consumed_plan_code='PRACTICE', storage_path=$3, byte_size=10 WHERE id=$1", [i.issuance_id, "a".repeat(64), p]));
@@ -671,15 +691,15 @@ async function main() {
       ? true : JSON.stringify({ svc, forged, wrongPath, wrongSize, fnArgs });
   });
   await check("storage success followed by seal failure leaves no uncontrolled orphan: an interrupted request's object is listed, never official, and a retry reuses exactly-canonical bytes or replaces foreign ones", async () => {
-    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const i = await issueO(pk.uid, pk.co, R);
     const p = `${pk.co}/${i.issuance_id}.json`;
     const doc = (await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [pk.uid, i.issuance_id])).r;
     await storeObject(p, new TextEncoder().encode(doc.document));   // stored, then the request died before sealing
     const listed = (await q(SERVICE, "SELECT storage_path FROM public.reporting_pack_storage_orphans()")).map((x) => x.storage_path).includes(p);
-    const notOfficial = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", [doc.content_sha256])).r.official === false;
+    const notOfficial = (await edgeVerify(pk.uid, i.issuance_id)).official === false;
     const retry = (await official(pk.uid, i.issuance_id)).body.outcome;
     const cleared = !(await q(SERVICE, "SELECT storage_path FROM public.reporting_pack_storage_orphans()")).map((x) => x.storage_path).includes(p);
-    const j = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const j = await issueO(pk.uid, pk.co, R);
     const pj = `${pk.co}/${j.issuance_id}.json`;
     await storeObject(pj, new Uint8Array(Buffer.from("foreign bytes left behind")));
     const replaced = (await official(pk.uid, j.issuance_id)).body;
@@ -690,7 +710,7 @@ async function main() {
   });
   await check("later live-data changes do not alter an issued document: a new saved version, a new upload and a new period leave the sealed document canonical and official; the saved version itself cannot be changed", async () => {
     const RL = await savedOutput(pk.uid, pk.co, 2031, DOC);
-    const i = await issue(pk.uid, pk.co, "financial_statements_data", RL);
+    const i = await issueO(pk.uid, pk.co, RL);
     const r = await official(pk.uid, i.issuance_id);
     const rid = RL.split(":")[1];
     const member = (await admin.query("SELECT id FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [pk.co, pk.uid])).rows[0].id;
@@ -700,7 +720,7 @@ async function main() {
     await admin.query("COMMIT");
     await uploadRef(pk.uid, pk.co, 2032);
     const obj = (await one(SERVICE, "SELECT public.reporting_pack_sealed_object($1) r", [i.issuance_id])).r;
-    const stillOfficial = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", [r.body.content_sha256])).r.official;
+    const stillOfficial = (await edgeVerify(pk.uid, i.issuance_id)).official;
     const ownerEdit = await codeOf(() => admin.query("UPDATE public.financial_statement_reports SET report_document='{}'::jsonb WHERE report_id=$1 AND report_version=1", [rid]));
     const svcEdit = await codeOf(() => q(SERVICE, "UPDATE public.financial_statement_reports SET report_document='{}'::jsonb WHERE report_id=$1 AND report_version=1", [rid]));
     const del = await codeOf(() => admin.query("DELETE FROM public.financial_statement_reports WHERE report_id=$1 AND report_version=1", [rid]));
@@ -710,21 +730,21 @@ async function main() {
   await check("working copies and drafts never verify as official: an issued, unsealed working copy's bytes, and a draft reference, are never official", async () => {
     const w = await issue(pk.uid, pk.co, "financial_statements_pdf", UP);
     const bytes = Buffer.from(`%PDF working copy ${w.issuance_id}`);
-    const v = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", [sha(bytes)])).r.official;
-    const d = (await issue(pk.uid, pk.co, "financial_statements_data", "fs-draft:r1:abcdef0123456789")).outcome;
+    const v = (await edgeVerify(pk.uid, w.issuance_id)).official;
+    const d = (await issueO(pk.uid, pk.co, "fs-draft:r1:abcdef0123456789")).outcome;
     const sealedWorkingCopies = await count("SELECT count(*) n FROM public.reporting_pack_issuances WHERE pack_kind <> 'financial_statements_data' AND consumed_at IS NOT NULL AND storage_path IS NOT NULL");
     return w.outcome === "issued" && v === false && d === "invalid_request" && sealedWorkingCopies === 0 ? true : JSON.stringify({ w, v, d, sealedWorkingCopies });
   });
   await check("a saved output altered after sealing (superuser forgery) is never official: generation refuses it and verification answers not_canonical / official false", async () => {
     const f = await savedOutput(pk.uid, pk.co, 2031, DOC);
-    const i = await issue(pk.uid, pk.co, "financial_statements_data", f);
+    const i = await issueO(pk.uid, pk.co, f);
     const r = await official(pk.uid, i.issuance_id);
     await admin.query("BEGIN"); await admin.query("SET LOCAL session_replication_role = replica");
     await admin.query("UPDATE public.financial_statement_reports SET report_document = jsonb_set(report_document, '{statements,profit}', '\"999.00\"') WHERE report_id=$1", [f.split(":")[1]]);
     await admin.query("COMMIT");
-    const verified = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", [r.body.content_sha256])).r.official;
+    const verified = (await edgeVerify(pk.uid, i.issuance_id)).official;
     const stored = (await verifyStoredPack(deps, i.issuance_id)).outcome;
-    const j = await issue(pk.uid, pk.co, "financial_statements_data", f);
+    const j = await issueO(pk.uid, pk.co, f);
     const regen = await codeOf(() => q(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2)", [pk.uid, j.issuance_id]));
     return r.body.outcome === "sealed" && verified === false && stored === "not_canonical" && regen === "XX001" ? true : JSON.stringify({ r: r.body.outcome, verified, stored, regen });
   });
@@ -739,15 +759,15 @@ async function main() {
     return out.every((x) => /:issued:official_sealing_unavailable:0:false$/.test(x)) ? true : JSON.stringify(out);
   });
   await check("cross-account, replay, closed output references and bindings stay enforced", async () => {
-    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const i = await issueO(pk.uid, pk.co, R);
     const cross = (await official(pkMember, i.issuance_id)).body.outcome;
     const outsider = (await official(U.outsider, i.issuance_id)).body.outcome;
     const first = (await official(pk.uid, i.issuance_id)).body.outcome;
     const replay = (await official(pk.uid, i.issuance_id)).body.outcome;
-    const wrongPath = (await one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, (await issue(pk.uid, pk.co, "financial_statements_data", R)).issuance_id, `${other.co}/x.json`])).r.outcome;
+    const wrongPath = (await one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, (await issueO(pk.uid, pk.co, R)).issuance_id, `${other.co}/x.json`])).r.outcome;
     const refs = [];
-    for (const ref of ["fs-draft:r1:abcdef0123456789", RO, "fs-report:nope:v1", `fs-report:${R.split(":")[1]}:v2`, "anything"]) refs.push((await issue(pk.uid, pk.co, "financial_statements_data", ref)).outcome);
-    const otherPeriod = (await issue(pk.uid, pk.co, "financial_statements_data", R, 2030)).outcome;
+    for (const ref of ["fs-draft:r1:abcdef0123456789", RO, "fs-report:nope:v1", `fs-report:${R.split(":")[1]}:v2`, "anything"]) refs.push((await issueO(pk.uid, pk.co, ref)).outcome);
+    const otherPeriod = (await issueO(pk.uid, pk.co, R, 2030)).outcome;
     return cross === "not_found" && outsider === "not_found" && first === "sealed" && replay === "already_sealed" && wrongPath === "binding_mismatch"
       && refs.every((o) => o === "invalid_request") && otherPeriod === "invalid_request" ? true : JSON.stringify({ cross, outsider, first, replay, wrongPath, refs, otherPeriod });
   });
@@ -756,8 +776,8 @@ async function main() {
     const ar = await savedOutput(a.uid, a.co, 2031, DOC);
     const m = await mkUser("dg");
     await addActive(a.uid, a.co, m);
-    const i = await issue(a.uid, a.co, "financial_statements_data", ar);
-    const im = await issue(m, a.co, "financial_statements_data", ar);
+    const i = await issueO(a.uid, a.co, ar);
+    const im = await issueO(m, a.co, ar);
     const r = await roster(a.uid);
     await choose(a.uid, [], r.roster_version);
     const memberSeal = (await official(m, im.issuance_id)).body.outcome;
@@ -767,7 +787,7 @@ async function main() {
       && !bucket.has(`${a.co}/${i.issuance_id}.json`) ? true : JSON.stringify({ memberSeal, holderSeal });
   });
   await check(`${CONCURRENCY} concurrent generations of the same issuance: exactly one seal and one stored object`, async () => {
-    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const i = await issueO(pk.uid, pk.co, R);
     const out = await Promise.all(Array.from({ length: CONCURRENCY }, () => official(pk.uid, i.issuance_id).then((r) => r.body.outcome)));
     return out.filter((o) => o === "sealed").length === 1 && out.filter((o) => o === "already_sealed").length === CONCURRENCY - 1 && (await sealsOf(i.issuance_id)) === 1
       ? true : JSON.stringify(out);
@@ -776,19 +796,19 @@ async function main() {
     const v = await account("PRACTICE", 1);
     const vr = await savedOutput(v.uid, v.co, 2031, DOC);
     const vm = await mkUser("vm"); await addActive(v.uid, v.co, vm);
-    const i = await issue(v.uid, v.co, "financial_statements_data", vr);
+    const i = await issueO(v.uid, v.co, vr);
     const s = (await official(v.uid, i.issuance_id)).body.content_sha256;
-    const member = (await one(user(vm), "SELECT public.verify_reporting_pack($1) r", [s])).r;
-    const outsider = (await one(user(U.outsider), "SELECT public.verify_reporting_pack($1) r", [s])).r;
-    const unknown = (await one(user(v.uid), "SELECT public.verify_reporting_pack($1) r", ["e".repeat(64)])).r;
+    const member = await edgeVerify(vm, i.issuance_id);
+    const outsider = await edgeVerify(U.outsider, i.issuance_id);
+    const unknown = await edgeVerify(v.uid, uuid());
     await admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end=now() WHERE id=$1", [v.lic.id]);
-    const afterExpiry = (await one(user(v.uid), "SELECT public.verify_reporting_pack($1) r", [s])).r;
+    const afterExpiry = await edgeVerify(v.uid, i.issuance_id);
     const stored = (await one(SERVICE, "SELECT public.reporting_pack_sealed_object($1) r", [i.issuance_id])).r;
-    return member.official === true && member.issuance_id === i.issuance_id && outsider.official === false && unknown.official === false && afterExpiry.official === true
+    return member.official === true && outsider.official === false && outsider.outcome === "not_found" && unknown.official === false && afterExpiry.official === true
       && stored.content_sha256 === s && stored.canonical_sha256 === s && stored.storage_path === `${v.co}/${i.issuance_id}.json` ? true : JSON.stringify({ member, outsider, unknown, afterExpiry, stored });
   });
   await check("issuances and their audit events cannot be written, changed or deleted by clients or the service role; issuances change only by one seal", async () => {
-    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const i = await issueO(pk.uid, pk.co, R);
     const clientIns = await codeOf(() => q(user(pk.uid), "INSERT INTO public.reporting_pack_issuance_events (event) VALUES ('ISSUED')"));
     const svcIns = await codeOf(() => q(SERVICE, "INSERT INTO public.reporting_pack_issuance_events (event) VALUES ('ISSUED')"));
     const evUpd = await codeOf(() => admin.query("UPDATE public.reporting_pack_issuance_events SET event='SEALED' WHERE issuance_id=$1", [i.issuance_id]));
@@ -800,6 +820,97 @@ async function main() {
     const events = (await admin.query("SELECT event, detail->>'generated_by' g FROM public.reporting_pack_issuance_events WHERE issuance_id=$1 ORDER BY event", [i.issuance_id])).rows.map((r) => `${r.event}:${r.g ?? ""}`);
     return clientIns === "42501" && svcIns === "42501" && evUpd === "P0001" && evDel === "P0001" && kindUpd === "P0001" && extend === "P0001" && reseal === "P0001"
       && JSON.stringify(events) === '["ISSUED:","SEALED:database"]' ? true : JSON.stringify({ clientIns, svcIns, evUpd, evDel, kindUpd, extend, reseal, events });
+  });
+
+  group("X-1 — an official Reporting Pack requires the exact FINAL publication of the saved version");
+  await check("never published, DRAFT and REVIEWED-only versions cannot be officially issued (and the refusal is audited); nothing is issued, stored or sealed", async () => {
+    const out = {};
+    for (const state of [null, "DRAFT", "REVIEWED"]) {
+      const ref = await savedOutput(pk.uid, pk.co, 2031, DOC, state);
+      const before = await count("SELECT count(*) n FROM public.reporting_pack_issuances WHERE output_ref=$1", [ref]);
+      const r = await issueO(pk.uid, pk.co, ref);
+      const after = await count("SELECT count(*) n FROM public.reporting_pack_issuances WHERE output_ref=$1", [ref]);
+      out[state ?? "unpublished"] = `${r.outcome}:${after - before}`;
+    }
+    const audited = await count("SELECT count(*) n FROM public.reporting_pack_issuance_events WHERE company_id=$1 AND event='REFUSED' AND detail->>'code'='FINAL_PUBLICATION_REQUIRED'", [pk.co]);
+    return Object.values(out).every((x) => x === "final_publication_required:0") && audited >= 3 ? true : JSON.stringify({ out, audited });
+  });
+  await check("a working-copy issuance of a FINAL version (no bound publication) can never be sealed; the bound publication id is immutable and only data packs carry one", async () => {
+    const w = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const r = await official(pk.uid, w.issuance_id);
+    const direct = (await one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, w.issuance_id, `${pk.co}/${w.issuance_id}.json`])).r.outcome;
+    const o = await issueO(pk.uid, pk.co, R);
+    const rebind = await codeOf(() => admin.query("UPDATE public.reporting_pack_issuances SET final_publication_id=NULL WHERE id=$1", [o.issuance_id]));
+    const other = await savedOutput(pk.uid, pk.co, 2031, DOC);
+    const swap = await codeOf(() => admin.query("UPDATE public.reporting_pack_issuances SET final_publication_id=$2 WHERE id=$1", [o.issuance_id, pubOf.get(other)]));
+    const kindCheck = await codeOf(() => admin.query(`INSERT INTO public.reporting_pack_issuances (company_id, period_year, pack_kind, request_id, issued_by, plan_code, output_ref, expires_at, final_publication_id)
+      VALUES ($1,2031,'financial_statements_pdf',gen_random_uuid(),$2,'PRACTICE',$3,now() + interval '5 minutes',$4)`, [pk.co, pk.uid, R, pubOf.get(R)]));
+    const bound = (await admin.query("SELECT final_publication_id f FROM public.reporting_pack_issuances WHERE id=$1", [o.issuance_id])).rows[0].f;
+    return r.body.outcome === "final_publication_required" && direct === "final_publication_required" && (await sealsOf(w.issuance_id)) === 0 && !bucket.has(`${pk.co}/${w.issuance_id}.json`)
+      && rebind === "P0001" && swap === "P0001" && kindCheck === "23514" && bound === pubOf.get(R)
+      ? true : JSON.stringify({ r: r.body.outcome, direct, rebind, swap, kindCheck, bound, want: pubOf.get(R) });
+  });
+  await check("FINAL of another version, another period or another workspace never qualifies", async () => {
+    // One report: v1 REVIEWED only, v2 FINAL. Only v2 qualifies.
+    const rid = `r-${uuid()}`;
+    const v1 = await savedOutput(pk.uid, pk.co, 2031, DOC, "REVIEWED", rid, 1);
+    const v2 = await savedOutput(pk.uid, pk.co, 2031, { ...DOC, statements: { revenue: "2.00" } }, "FINAL", rid, 2);
+    const onV1 = (await issueO(pk.uid, pk.co, v1)).outcome;
+    const onV2 = (await issueO(pk.uid, pk.co, v2)).outcome;
+    // A FINAL record forged under another workspace's id for this workspace's version is not this workspace's FINAL.
+    const lone = `r-${uuid()}`;
+    const x = await savedOutput(pk.uid, pk.co, 2031, DOC, null, lone, 1);
+    await publish(pk.co, lone, 1, "FINAL", other.co);
+    const foreignFinal = (await issueO(pk.uid, pk.co, x)).outcome;
+    // Another period: a FINAL version of 2030 cannot be issued for 2031, and another workspace's FINAL version is not ours.
+    const p30 = await savedOutput(pk.uid, pk.co, 2030, DOC);
+    const wrongPeriod = (await issueO(pk.uid, pk.co, p30, 2031)).outcome;
+    const RF = await savedOutput(other.uid, other.co, 2031, DOC);
+    const foreignWs = (await issueO(pk.uid, pk.co, RF)).outcome;
+    return onV1 === "final_publication_required" && onV2 === "issued" && foreignFinal === "final_publication_required" && wrongPeriod === "invalid_request" && foreignWs === "invalid_request"
+      ? true : JSON.stringify({ onV1, onV2, foreignFinal, wrongPeriod, foreignWs });
+  });
+  await check("the canonical document names the exact FINAL publication; a later FINAL version leaves an issued historical pack unchanged and official", async () => {
+    const rid = `r-${uuid()}`;
+    const v1 = await savedOutput(pk.uid, pk.co, 2031, DOC, "FINAL", rid, 1);
+    const i = await issueO(pk.uid, pk.co, v1);
+    const r = await official(pk.uid, i.issuance_id);
+    const doc = JSON.parse(r.body.document);
+    await savedOutput(pk.uid, pk.co, 2031, { ...DOC, statements: { revenue: "5.00" } }, "FINAL", rid, 2);
+    const obj = (await one(SERVICE, "SELECT public.reporting_pack_sealed_object($1) r", [i.issuance_id])).r;
+    const still = await edgeVerify(pk.uid, i.issuance_id);
+    return doc.publication.publication_id === pubOf.get(v1) && doc.publication.state === "FINAL" && /Z$/.test(doc.publication.published_at)
+      && obj.canonical_sha256 === r.body.content_sha256 && still.official === true ? true : JSON.stringify({ pub: doc.publication, want: pubOf.get(v1), obj, still });
+  });
+
+  group("X-3 — only the byte re-hash route may say official");
+  await check("the metadata-only RPC is gone: a signed-in caller gets no official answer from the database, and no public function returns an official flag", async () => {
+    const i = await issueO(pk.uid, pk.co, R);
+    const r = await official(pk.uid, i.issuance_id);
+    const rpc = await codeOf(() => q(user(pk.uid), "SELECT public.verify_reporting_pack($1)", [r.body.content_sha256]));
+    const sealedObj = await codeOf(() => q(user(pk.uid), "SELECT public.reporting_pack_sealed_object($1)", [i.issuance_id]));
+    const svcFacts = (await one(SERVICE, "SELECT public.reporting_pack_sealed_object($1) r", [i.issuance_id])).r;
+    const flagged = (await admin.query(`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.prokind='f' AND pg_get_functiondef(p.oid) ~ '''official'',\\s*true' AND has_function_privilege('authenticated', p.oid, 'EXECUTE')`)).rows.map((x) => x.proname);
+    return rpc === "42883" && sealedObj === "42501" && !("official" in svcFacts) && flagged.length === 0 ? true : JSON.stringify({ rpc, sealedObj, svcFacts, flagged });
+  });
+  await check("canonical stored bytes → official; same-size substituted bytes, bytes gone with metadata left, and a missing object → not official", async () => {
+    const i = await issueO(pk.uid, pk.co, R);
+    const r = await official(pk.uid, i.issuance_id);
+    const p = `${pk.co}/${i.issuance_id}.json`;
+    const good = await edgeVerify(pk.uid, i.issuance_id);
+    const orig = bucket.get(p);
+    const same = Buffer.from(orig); same[same.length - 3] = same[same.length - 3] === 0x31 ? 0x32 : 0x31;   // one byte changed, same size
+    bucket.set(p, new Uint8Array(same));
+    const sameSize = await edgeVerify(pk.uid, i.issuance_id);
+    const metaLeft = (await admin.query("SELECT (metadata->>'size')::bigint s FROM storage.objects WHERE bucket_id='reporting-packs' AND name=$1", [p])).rows[0]?.s;
+    bucket.delete(p);   // the bytes are gone; storage.objects still records the object and its size
+    const bytesGone = await edgeVerify(pk.uid, i.issuance_id);
+    await dropObject(p);
+    const missing = await edgeVerify(pk.uid, i.issuance_id);
+    return good.official === true && good.outcome === "intact" && same.length === orig.length && Number(metaLeft) === orig.length
+      && sameSize.official === false && sameSize.outcome === "substituted" && bytesGone.official === false && bytesGone.outcome === "missing"
+      && missing.official === false && r.body.outcome === "sealed" ? true : JSON.stringify({ good, sameSize, bytesGone, missing });
   });
 
   group("Invariant and history across everything above");
@@ -817,10 +928,10 @@ async function main() {
       FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN
       ('_account_named_user_access_active','named_user_access_active','_named_user_suspended','_named_user_roster','_apply_named_user_selection','choose_active_named_users',
        'get_named_user_roster','admin_prepare_planned_reduction','reconcile_named_user_allowance','reconcile_all_named_user_allowances','reserve_workspace_invitation',
-       'release_workspace_invitation','cancel_workspace_invitation','seal_reporting_pack_server','verify_reporting_pack','issue_reporting_pack')`)).rows;
+       'release_workspace_invitation','cancel_workspace_invitation','seal_reporting_pack_server','issue_official_reporting_pack','issue_reporting_pack')`)).rows;
     const pinned = rows.every((r) => (r.proconfig ?? []).some((c) => c.startsWith("search_path=")));
     const byName = Object.fromEntries(rows.map((r) => [r.proname, r]));
-    const clientOk = ["named_user_access_active", "choose_active_named_users", "get_named_user_roster", "admin_prepare_planned_reduction", "cancel_workspace_invitation", "verify_reporting_pack", "issue_reporting_pack"];
+    const clientOk = ["named_user_access_active", "choose_active_named_users", "get_named_user_roster", "admin_prepare_planned_reduction", "cancel_workspace_invitation", "issue_official_reporting_pack", "issue_reporting_pack"];
     const internal = ["_account_named_user_access_active", "_named_user_suspended", "_named_user_roster", "_apply_named_user_selection", "reconcile_named_user_allowance", "reconcile_all_named_user_allowances", "reserve_workspace_invitation", "release_workspace_invitation", "seal_reporting_pack_server"];
     return rows.length === 16 && pinned && rows.every((r) => !r.anon) && clientOk.every((n) => byName[n]?.auth) && internal.every((n) => byName[n] && !byName[n].auth)
       ? true : JSON.stringify(rows.map((r) => [r.proname, r.anon, r.auth]));

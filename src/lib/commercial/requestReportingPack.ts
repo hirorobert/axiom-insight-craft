@@ -41,6 +41,8 @@ const explain = (outcome: DeliveryOutcome) => {
     toast(copy.title, { description: `${copy.unavailable} ${copy.remains} ${copy.history}` });
   } else if (outcome === "not_permitted") {
     toast("Not permitted in this workspace", { description: "Issuing outputs needs the Issue Reporting Pack outputs capability here. Nothing was downloaded." });
+  } else if (outcome === "not_final") {
+    toast("Not FINAL yet", { description: "Only a FINAL statements version can be issued as an official Reporting Pack. Nothing was downloaded." });
   } else if (outcome === "failed") {
     toast.error("The file could not be issued. Nothing was downloaded; try again.");
   }

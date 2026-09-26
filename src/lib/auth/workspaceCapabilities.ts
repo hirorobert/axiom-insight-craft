@@ -61,3 +61,18 @@ export const CAPABILITY_LABELS: Readonly<Record<WorkspaceCapability, string>> = 
   issue_reporting_pack: "Issue Reporting Pack outputs",
   manage_members: "Manage members",
 };
+
+/**
+ * What an invitation carries, in words, from invite-firm-member's structured answer: the capabilities the person holds
+ * on acceptance and, on a re-invitation, the ones the title would suggest but the invitation does NOT carry (withdrawn
+ * earlier; a title never restores them). Unknown codes are ignored; nothing is inferred from the title.
+ */
+export function describeInvitationCapabilities(raw: unknown): string {
+  const r = (raw && typeof raw === "object" ? raw : {}) as { capabilities?: unknown; withheld?: unknown };
+  const names = (v: unknown) => (Array.isArray(v) ? v : []).filter((c): c is WorkspaceCapability => typeof c === "string" && c in CAPABILITY_LABELS).map((c) => CAPABILITY_LABELS[c]);
+  const held = names(r.capabilities);
+  const withheld = names(r.withheld);
+  const parts = [held.length > 0 ? `On acceptance: ${held.join(", ")}.` : "On acceptance: no capabilities (view only)."];
+  if (withheld.length > 0) parts.push(`Not included (withdrawn earlier; grant explicitly if intended): ${withheld.join(", ")}.`);
+  return parts.join(" ");
+}

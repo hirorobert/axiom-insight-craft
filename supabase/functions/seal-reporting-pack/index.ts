@@ -5,14 +5,15 @@
 //     stores exactly those bytes (private bucket, no overwrite) and the database seals its own hash of them. The
 //     response carries the sealed document for the caller to save.
 // POST application/json { action: "verify", issuance_id }
-//   → intact | substituted | not_canonical | missing | not_found (workspace access required).
+//   → intact | substituted | not_canonical | missing | not_found, and official = (intact): the ONLY route that may
+//     answer official, because it downloads the stored bytes and re-hashes them (workspace access required).
 // No request may carry document bytes or a hash: non-JSON bodies, extra fields and any other action are refused.
 // The user id comes from the verified JWT only.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // @deno-types="../_shared/reportingPackSeal.d.mts"
-import { issueOfficialPack, parseSealRequest, verifyStoredPack, type SealDeps } from "../_shared/reportingPackSeal.mjs";
+import { issueOfficialPack, parseSealRequest, verifyOfficialPack, type SealDeps } from "../_shared/reportingPackSeal.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -53,15 +54,9 @@ serve(async (req) => {
       const r = await issueOfficialPack(deps, { userId: user.id, issuanceId: request.issuanceId });
       return json(r.httpStatus, r.body);
     }
-    {
-      const r = await verifyStoredPack(deps, request.issuanceId);
-      if (!r.company_id) return json(404, { outcome: "not_found" });
-      // Anyone with access to the workspace may verify (also after the plan has ended); others learn nothing.
-      const { data: access } = await admin.rpc("authorize_paid_action_for_user", { p_user: user.id, p_company_id: r.company_id, p_capability: "CLOSE_ASSURANCE" });
-      const code = (access as { code?: string } | null)?.code;
-      if (!code || code === "WORKSPACE_ACCESS_DENIED" || code === "UNAUTHENTICATED") return json(404, { outcome: "not_found" });
-      return json(200, { outcome: r.outcome });
-    }
+    // The only route that may answer official: the stored bytes are downloaded and re-hashed (workspace access required).
+    const v = await verifyOfficialPack(deps, user.id, request.issuanceId);
+    return json(v.outcome === "not_found" ? 404 : 200, v);
   } catch (err) {
     console.error("seal-reporting-pack error:", (err as Error)?.message ?? "unknown");
     return json(500, { outcome: "seal_failed" });
