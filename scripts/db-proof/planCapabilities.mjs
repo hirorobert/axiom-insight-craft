@@ -829,8 +829,9 @@ async function main() {
     const out = [];
     for (let k = 0; k < CONCURRENCY; k++) {
       const m = await mkUser(`nv-rev-${k}`); await nvAccepted(m, "preparer");
+      // A period of its own per round, so the write can genuinely commit when it wins the race (no key collision).
       const [w, rv] = await Promise.all([
-        addTaxLoss(m, NV.co),
+        codeOf(() => q(user(m), "INSERT INTO public.tax_losses (company_id, created_by, period_year) VALUES ($1,$2,$3)", [NV.co, m, 2040 + k])),
         one(user(NV.holder), "SELECT public.revoke_member_capability($1,$2,'prepare_close','race') r", [NV.co, m]).then((x) => x.r.outcome),
       ]);
       const after = await usable(m);
