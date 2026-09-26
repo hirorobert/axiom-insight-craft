@@ -1034,6 +1034,56 @@ export type Database = {
           },
         ]
       }
+      commercial_additional_seat_prices: {
+        Row: {
+          amount_minor: number
+          billing_interval: string
+          created_at: string
+          currency_code: string
+          currency_exponent: number
+          id: string
+          is_active: boolean
+          is_purchasable: boolean
+          market_code: string
+          plan_id: string
+          price_code: string
+        }
+        Insert: {
+          amount_minor: number
+          billing_interval: string
+          created_at?: string
+          currency_code: string
+          currency_exponent: number
+          id?: string
+          is_active?: boolean
+          is_purchasable?: boolean
+          market_code: string
+          plan_id: string
+          price_code: string
+        }
+        Update: {
+          amount_minor?: number
+          billing_interval?: string
+          created_at?: string
+          currency_code?: string
+          currency_exponent?: number
+          id?: string
+          is_active?: boolean
+          is_purchasable?: boolean
+          market_code?: string
+          plan_id?: string
+          price_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_casp_plan"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commercial_admins: {
         Row: {
           active: boolean
@@ -1057,6 +1107,53 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      commercial_capabilities: {
+        Row: {
+          code: string
+          created_at: string
+          description: string
+          display_name: string
+          kind: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          description: string
+          display_name: string
+          kind: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          description?: string
+          display_name?: string
+          kind?: string
+        }
+        Relationships: []
+      }
+      commercial_capability_aliases: {
+        Row: {
+          canonical_code: string
+          legacy_code: string
+        }
+        Insert: {
+          canonical_code: string
+          legacy_code: string
+        }
+        Update: {
+          canonical_code?: string
+          legacy_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_ccal_canonical"
+            columns: ["canonical_code"]
+            isOneToOne: false
+            referencedRelation: "commercial_capabilities"
+            referencedColumns: ["code"]
+          },
+        ]
       }
       commercial_catalog_audit_events: {
         Row: {
@@ -1117,6 +1214,7 @@ export type Database = {
       }
       commercial_licences: {
         Row: {
+          additional_seats: number
           billing_customer_id: string
           created_at: string
           effective_end: string | null
@@ -1129,6 +1227,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          additional_seats?: number
           billing_customer_id: string
           created_at?: string
           effective_end?: string | null
@@ -1141,6 +1240,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          additional_seats?: number
           billing_customer_id?: string
           created_at?: string
           effective_end?: string | null
@@ -1269,31 +1369,49 @@ export type Database = {
       }
       commercial_plans: {
         Row: {
+          additional_seats_purchasable: boolean
           code: string
           created_at: string
+          display_order: number | null
+          entity_capacity: number | null
           feature_codes: string[]
           id: string
+          included_seats: number | null
           is_active: boolean
+          is_public: boolean
           name: string
           product_id: string
+          sales_mode: string
         }
         Insert: {
+          additional_seats_purchasable?: boolean
           code: string
           created_at?: string
+          display_order?: number | null
+          entity_capacity?: number | null
           feature_codes?: string[]
           id?: string
+          included_seats?: number | null
           is_active?: boolean
+          is_public?: boolean
           name: string
           product_id: string
+          sales_mode?: string
         }
         Update: {
+          additional_seats_purchasable?: boolean
           code?: string
           created_at?: string
+          display_order?: number | null
+          entity_capacity?: number | null
           feature_codes?: string[]
           id?: string
+          included_seats?: number | null
           is_active?: boolean
+          is_public?: boolean
           name?: string
           product_id?: string
+          sales_mode?: string
         }
         Relationships: [
           {
@@ -1354,6 +1472,7 @@ export type Database = {
         Row: {
           code: string | null
           created_at: string
+          creation_request_id: string | null
           currency: string | null
           description: string | null
           filing_jurisdiction: string | null
@@ -1370,6 +1489,7 @@ export type Database = {
         Insert: {
           code?: string | null
           created_at?: string
+          creation_request_id?: string | null
           currency?: string | null
           description?: string | null
           filing_jurisdiction?: string | null
@@ -1386,6 +1506,7 @@ export type Database = {
         Update: {
           code?: string | null
           created_at?: string
+          creation_request_id?: string | null
           currency?: string | null
           description?: string | null
           filing_jurisdiction?: string | null
@@ -1950,6 +2071,7 @@ export type Database = {
       entitlement_overrides: {
         Row: {
           billing_customer_id: string
+          capacity_value: number | null
           created_at: string
           effective_end: string | null
           effective_start: string
@@ -1962,6 +2084,7 @@ export type Database = {
         }
         Insert: {
           billing_customer_id: string
+          capacity_value?: number | null
           created_at?: string
           effective_end?: string | null
           effective_start?: string
@@ -1974,6 +2097,7 @@ export type Database = {
         }
         Update: {
           billing_customer_id?: string
+          capacity_value?: number | null
           created_at?: string
           effective_end?: string | null
           effective_start?: string
@@ -4001,6 +4125,47 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      reporting_pack_issuances: {
+        Row: {
+          company_id: string
+          id: string
+          issued_at: string
+          issued_by: string
+          pack_kind: string
+          period_year: number
+          plan_code: string | null
+          request_id: string
+        }
+        Insert: {
+          company_id: string
+          id?: string
+          issued_at?: string
+          issued_by: string
+          pack_kind: string
+          period_year: number
+          plan_code?: string | null
+          request_id: string
+        }
+        Update: {
+          company_id?: string
+          id?: string
+          issued_at?: string
+          issued_by?: string
+          pack_kind?: string
+          period_year?: number
+          plan_code?: string | null
+          request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_rpi_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       safisha_audit_log: {
         Row: {
@@ -6209,10 +6374,39 @@ export type Database = {
       }
     }
     Functions: {
+      _account_named_users: {
+        Args: {
+          p_account: string
+          p_exclude_grant?: string
+          p_exclude_member?: string
+          p_include_pending: boolean
+        }
+        Returns: {
+          named_user_id: string
+        }[]
+      }
+      _authorize_paid_action: {
+        Args: { p_capability: string; p_company_id: string; p_user: string }
+        Returns: Json
+      }
+      _entity_capacity_for_account: {
+        Args: { p_account: string }
+        Returns: Json
+      }
+      _require_workspace_capability: {
+        Args: { p_capability: string; p_company_id: string }
+        Returns: undefined
+      }
       _resolve_entitlement_for_owner: {
         Args: { p_feature_code: string; p_owner_user_id: string }
         Returns: Json
       }
+      _seat_capacity_for_account: { Args: { p_account: string }; Returns: Json }
+      _workspace_access_basis: {
+        Args: { p_company_id: string; p_user: string }
+        Returns: string
+      }
+      accept_workspace_invitations: { Args: never; Returns: Json }
       acquire_checkout_attempt: {
         Args: {
           p_amount_minor: number
@@ -6256,6 +6450,24 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_grant_entity_capacity_override: {
+        Args: {
+          p_billing_customer_id: string
+          p_capacity: number
+          p_effective_end: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      admin_grant_named_user_seats_override: {
+        Args: {
+          p_billing_customer_id: string
+          p_effective_end: string
+          p_included_seats: number
+          p_reason: string
+        }
+        Returns: Json
+      }
       admin_list_commercial_offers: {
         Args: { p_plan_code?: string }
         Returns: Json
@@ -6270,6 +6482,10 @@ export type Database = {
       }
       admin_revoke_entitlement_override: {
         Args: { p_override_id: string; p_reason: string }
+        Returns: Json
+      }
+      admin_set_licence_additional_seats: {
+        Args: { p_licence_id: string; p_quantity: number; p_reason: string }
         Returns: Json
       }
       admin_supersede_commercial_offer: {
@@ -6321,10 +6537,19 @@ export type Database = {
         Args: { p_acting_user_id: string; p_provider_environment: string }
         Returns: undefined
       }
+      authorize_paid_action: {
+        Args: { p_capability: string; p_company_id: string }
+        Returns: Json
+      }
+      authorize_paid_action_for_user: {
+        Args: { p_capability: string; p_company_id: string; p_user: string }
+        Returns: Json
+      }
       begin_provider_checkout_request: {
         Args: { p_checkout_intent_id: string; p_creation_token: string }
         Returns: Json
       }
+      can_access_workspace: { Args: { p_company_id: string }; Returns: boolean }
       can_user_act_on_workspace: {
         Args: { p_capability: string; p_company_id: string; p_user_id: string }
         Returns: boolean
@@ -6370,6 +6595,10 @@ export type Database = {
           p_requesting_user_id: string
         }
         Returns: Json
+      }
+      commercial_canonical_capability: {
+        Args: { p_code: string }
+        Returns: string
       }
       commit_tb_certification: {
         Args: {
@@ -6419,6 +6648,20 @@ export type Database = {
           detail: string
           outcome: string
         }[]
+      }
+      create_entity: {
+        Args: {
+          p_code?: string
+          p_currency: string
+          p_description?: string
+          p_fiscal_year_end: string
+          p_industry?: string
+          p_name: string
+          p_reporting_framework: string
+          p_request_id: string
+          p_tin?: string
+        }
+        Returns: Json
       }
       current_platform_staff_role: { Args: never; Returns: string }
       discard_trial_balance_upload: {
@@ -6858,6 +7101,7 @@ export type Database = {
       }
       get_member_company_ids: { Args: never; Returns: string[] }
       get_my_billing_summary: { Args: never; Returns: Json }
+      get_my_entity_capacity: { Args: never; Returns: Json }
       get_workspace_access: {
         Args: { p_company_id: string }
         Returns: {
@@ -6871,6 +7115,14 @@ export type Database = {
           reporting_framework: string
           stages: string[]
         }[]
+      }
+      get_workspace_commercial_state: {
+        Args: { p_company_id: string }
+        Returns: Json
+      }
+      get_workspace_seat_capacity: {
+        Args: { p_company_id: string }
+        Returns: Json
       }
       grant_engagement_authority: {
         Args: {
@@ -6925,6 +7177,15 @@ export type Database = {
       }
       is_commercial_admin: { Args: never; Returns: boolean }
       is_iso_3166_alpha2: { Args: { p_code: string }; Returns: boolean }
+      issue_reporting_pack: {
+        Args: {
+          p_company_id: string
+          p_pack_kind: string
+          p_period_year: number
+          p_request_id: string
+        }
+        Returns: Json
+      }
       list_purgeable_trial_balance_sources: {
         Args: { p_company_id: string }
         Returns: {
@@ -7187,6 +7448,10 @@ export type Database = {
           resolved: number
         }[]
       }
+      seat_check_for_invitation: {
+        Args: { p_company_id: string; p_invitee: string }
+        Returns: Json
+      }
       service_enquiry_ack_state: {
         Args: { p_enquiry_id: string }
         Returns: string
@@ -7395,6 +7660,10 @@ export type Database = {
       workspace_authority_basis: {
         Args: { p_capability: string; p_company_id: string; p_user_id: string }
         Returns: string
+      }
+      workspace_capability_entitled: {
+        Args: { p_capability: string; p_company_id: string }
+        Returns: boolean
       }
       xbrl_write_instance: {
         Args: {
