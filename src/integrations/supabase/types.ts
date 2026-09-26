@@ -1367,6 +1367,42 @@ export type Database = {
           },
         ]
       }
+      commercial_plan_features: {
+        Row: {
+          capability_code: string
+          created_at: string
+          included: boolean
+          plan_id: string
+        }
+        Insert: {
+          capability_code: string
+          created_at?: string
+          included: boolean
+          plan_id: string
+        }
+        Update: {
+          capability_code?: string
+          created_at?: string
+          included?: boolean
+          plan_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_cpf_capability"
+            columns: ["capability_code"]
+            isOneToOne: false
+            referencedRelation: "commercial_capabilities"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "fk_cpf_plan"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commercial_plans: {
         Row: {
           additional_seats_purchasable: boolean
@@ -4370,6 +4406,29 @@ export type Database = {
           },
         ]
       }
+      reporting_pack_kind_features: {
+        Row: {
+          capability_code: string
+          pack_kind: string
+        }
+        Insert: {
+          capability_code: string
+          pack_kind: string
+        }
+        Update: {
+          capability_code?: string
+          pack_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_rpkf_capability"
+            columns: ["capability_code"]
+            isOneToOne: false
+            referencedRelation: "commercial_capabilities"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
       safisha_audit_log: {
         Row: {
           action: string
@@ -6577,6 +6636,14 @@ export type Database = {
       }
     }
     Functions: {
+      _account_current_plan_code: {
+        Args: { p_account: string }
+        Returns: string
+      }
+      _account_has_current_plan: {
+        Args: { p_account: string }
+        Returns: boolean
+      }
       _account_named_user_access_active: {
         Args: { p_account: string; p_user: string }
         Returns: boolean
@@ -6608,12 +6675,17 @@ export type Database = {
         Args: { p_capability: string; p_company_id: string; p_user: string }
         Returns: Json
       }
+      _consume_free_retirement_approval: {
+        Args: { p_by: string }
+        Returns: boolean
+      }
       _entity_capacity_for_account: {
         Args: { p_account: string }
         Returns: Json
       }
       _environment_fingerprint: { Args: never; Returns: string }
       _free_plan_inventory: { Args: never; Returns: Json }
+      _free_retirement_approval_id: { Args: never; Returns: string }
       _invitation_valid: {
         Args: {
           p_accepted_at: string
@@ -6670,6 +6742,10 @@ export type Database = {
         Returns: Json
       }
       admin_billing_lookup: { Args: { p_company_id: string }; Returns: Json }
+      admin_ensure_billing_customer: {
+        Args: { p_owner_user_id: string; p_reason: string }
+        Returns: Json
+      }
       admin_get_billing_detail: {
         Args: { p_owner_user_id: string }
         Returns: Json
@@ -8037,6 +8113,10 @@ export type Database = {
       }
       workspace_capability_entitled: {
         Args: { p_capability: string; p_company_id: string }
+        Returns: boolean
+      }
+      workspace_has_current_plan: {
+        Args: { p_company_id: string }
         Returns: boolean
       }
       xbrl_write_instance: {
