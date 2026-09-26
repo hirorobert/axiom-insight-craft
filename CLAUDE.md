@@ -869,7 +869,7 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   continue-on-error runner changes nothing (proven with the clean / upgrade convergence in `planCapabilities.mjs`).
   An invitation shows exactly the capabilities it carries and the withdrawn ones a title does not restore
   (`invitation_capability_summary`).
-- **Security corrections M-1 / M-2:** `scripts/ci/atomicEnvelope.mjs` parses an atomic migration FAIL-CLOSED: exactly one
+- **Security corrections M-1 / M-2:** `scripts/ci/atomicEnvelope.mjs` parses an atomic migration FAIL-CLOSED on a PostgreSQL-aware lexer (strings, E-strings, quoted identifiers, dollar quotes, nested comments; every body inspected recursively; EXECUTE only as FUNCTION / PROCEDURE / GRANT-REVOKE ON): exactly one
   `DO $cfoclose_<label>$` envelope with only comments / whitespace outside it, unique `$m<label><aaa>$` segments,
   no dynamic `EXECUTE` inside a segment, no nested envelope, no unrecognised DO-body content, at least one statement —
   anything else is an error in `assertMigrationAuthority.mjs` (rule 7) and the trigger-replay guard (mutation tests:

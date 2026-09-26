@@ -948,6 +948,12 @@ async function main() {
       del: await codeOf(() => admin.query("DELETE FROM public.workspace_capability_revocations WHERE id=$1", [id])),
       trunc: await codeOf(() => admin.query("TRUNCATE public.workspace_capability_revocations")),
     };
+    // Each TRUNCATE refusal names the table it guards.
+    const truncMsg = {
+      wcr: (await errOf(() => admin.query("TRUNCATE public.workspace_capability_revocations")))?.message ?? "",
+      wmc: (await errOf(() => admin.query("TRUNCATE public.workspace_member_capabilities")))?.message ?? "",
+    };
+    out.truncNames = truncMsg.wcr.startsWith("workspace_capability_revocations is append-only") && truncMsg.wmc.startsWith("workspace_member_capabilities is append-only") ? "42501" : JSON.stringify(truncMsg);
     const r = await mkUser("m2-f"); await nvAccepted(r, "preparer"); await remove(r);
     const removedRevoke = await revokeCap(r, "prepare_close");
     await reinvite(r, "preparer"); await accept(r);

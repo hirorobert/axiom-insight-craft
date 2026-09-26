@@ -127,7 +127,8 @@ $mcapabilitiesaag$;
 CREATE OR REPLACE FUNCTION public.workspace_member_capabilities_no_truncate()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
-  RAISE EXCEPTION 'workspace_member_capabilities is append-only' USING ERRCODE = '42501';
+  -- Shared by workspace_member_capabilities and workspace_capability_revocations: names the table it guards.
+  RAISE EXCEPTION '% is append-only (TRUNCATE refused)', TG_TABLE_NAME USING ERRCODE = '42501';
 END;
 $$
 $mcapabilitiesaah$;
