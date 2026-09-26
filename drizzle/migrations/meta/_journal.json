@@ -155,6 +155,13 @@
       "when": 1790434467104,
       "tag": "0021_pr34_apply_20260925150000",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790445286867,
+      "tag": "0022_pr34_apply_20260926160000",
+      "breakpoints": true
     }
   ]
 }
