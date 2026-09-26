@@ -252,6 +252,12 @@ GRANT EXECUTE ON FUNCTION public.verify_reporting_pack(TEXT) TO authenticated;
 -- approval in the same statement (single use). An approval is recorded by a commercial administrator through
 -- admin_record_deployment_approval (inventory count, notification reference, activation path) and is append-only.
 -- Nothing reads a session or database setting: the interlock cannot be satisfied by a GUC or a role default.
+-- Direct INSERT / UPDATE / DELETE is refused for every application role (anon, authenticated, service_role hold
+-- SELECT at most); a row can be created only by admin_record_deployment_approval, whose approver must be an active
+-- commercial administrator (foreign key to commercial_admins, re-checked by the insert guard) and the caller itself.
+-- Scope of this control: a true database superuser (or the table owner acting outside the function) stands outside
+-- every application-level control — it can disable triggers or replicate rows. That boundary is operational
+-- (who holds superuser credentials on the hosted project), not something a migration can enforce.
 CREATE OR REPLACE FUNCTION public._environment_fingerprint()
 RETURNS TEXT LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
@@ -289,8 +295,31 @@ CREATE TABLE public.deployment_approvals (
   CONSTRAINT chk_da_purpose CHECK (purpose IN ('FREE_PLAN_RETIREMENT')),
   CONSTRAINT chk_da_label CHECK (length(environment_label) BETWEEN 1 AND 64 AND environment_label !~ '[[:cntrl:]]'),
   CONSTRAINT chk_da_window CHECK (expires_at > approved_at AND expires_at <= approved_at + interval '72 hours'),
-  CONSTRAINT chk_da_consumed CHECK ((consumed_at IS NULL) = (consumed_by IS NULL))
+  CONSTRAINT chk_da_consumed CHECK ((consumed_at IS NULL) = (consumed_by IS NULL)),
+  CONSTRAINT fk_da_approved_by FOREIGN KEY (approved_by) REFERENCES public.commercial_admins(user_id) ON DELETE RESTRICT
 );
+-- Creation only through admin_record_deployment_approval: it marks its own transaction immediately before its INSERT
+-- (and clears the mark after). The approver must be the calling, ACTIVE commercial administrator; the row is created
+-- unconsumed, approved now, for this environment. (A superuser can forge the mark: see the scope note above.)
+CREATE OR REPLACE FUNCTION public.deployment_approvals_insert_guard()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF COALESCE(current_setting('cfoclose.deployment_approval_writer', true), '') IS DISTINCT FROM txid_current()::text THEN
+    RAISE EXCEPTION 'deployment approvals are recorded only through admin_record_deployment_approval' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.approved_by IS DISTINCT FROM auth.uid()
+     OR NOT EXISTS (SELECT 1 FROM public.commercial_admins a WHERE a.user_id = NEW.approved_by AND a.active) THEN
+    RAISE EXCEPTION 'the approver must be the calling, active commercial administrator' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.consumed_at IS NOT NULL OR NEW.consumed_by IS NOT NULL
+     OR NEW.environment_fingerprint IS DISTINCT FROM public._environment_fingerprint() THEN
+    RAISE EXCEPTION 'a deployment approval is created unconsumed, for this environment' USING ERRCODE = '42501';
+  END IF;
+  NEW.approved_at := now();
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER trg_da_insert_guard BEFORE INSERT ON public.deployment_approvals FOR EACH ROW EXECUTE FUNCTION public.deployment_approvals_insert_guard();
 CREATE OR REPLACE FUNCTION public.deployment_approvals_guard()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
@@ -333,17 +362,20 @@ BEGIN
     RAISE EXCEPTION 'INVENTORY_MISMATCH: the reviewed inventory is not the current one' USING ERRCODE = '22023';
   END IF;
   IF p_valid_hours IS NULL OR p_valid_hours NOT BETWEEN 1 AND 72 THEN RAISE EXCEPTION 'INVALID_VALIDITY' USING ERRCODE = '22023'; END IF;
+  PERFORM set_config('cfoclose.deployment_approval_writer', txid_current()::text, true);
   INSERT INTO public.deployment_approvals (purpose, environment_fingerprint, environment_label, evidence, approved_by, expires_at)
   VALUES (p_purpose, public._environment_fingerprint(), btrim(p_environment_label),
           v_inv || jsonb_build_object('notification_reference', btrim(p_notification_reference), 'activation_path', p_activation_path),
           v_uid, now() + make_interval(hours => p_valid_hours))
   RETURNING id INTO v_id;
+  PERFORM set_config('cfoclose.deployment_approval_writer', '', true);
   RETURN jsonb_build_object('approval_id', v_id, 'inventory', v_inv);
 END;
 $$;
 REVOKE ALL ON FUNCTION public._environment_fingerprint() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public._free_plan_inventory() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.deployment_approvals_guard() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.deployment_approvals_insert_guard() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.admin_record_deployment_approval(TEXT, TEXT, INTEGER, TEXT, TEXT, INTEGER) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.admin_record_deployment_approval(TEXT, TEXT, INTEGER, TEXT, TEXT, INTEGER) TO authenticated;
 

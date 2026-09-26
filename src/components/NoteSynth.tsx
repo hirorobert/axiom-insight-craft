@@ -237,7 +237,7 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated, companyId
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => notes.length > 0 && void deliverReportingPack({
-            // A disclosure-notes PDF is an official Reporting Pack deliverable: issued, built, sealed, then saved.
+            // A disclosure-notes PDF is a Reporting Pack working copy: issued by the server, built, then saved (never sealed).
             companyId, periodYear, kind: "disclosure_notes", outputRef: `upload:${uploadId}`, fileName: "disclosure-notes.pdf",
             build: async () => (await exportNotesToPDF()) as Blob,
           })} className="gap-2">

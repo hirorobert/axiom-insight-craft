@@ -136,9 +136,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
       "supabase/migrations/20260925140000_workspace_capability_authorization.sql",
       "supabase/migrations/20260925150000_can_user_act_on_workspace_minimum_grant.sql",
-      // Official Reporting Pack bytes are hashed and stored by the server (security correction B-4): the Edge Function
+      // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
       // and its pure handler. No financial-statements schema.
-      "supabase/functions/_shared/reportingPackSeal.ts",
+      "supabase/functions/_shared/reportingPackSeal.mjs",
+      "supabase/functions/_shared/reportingPackSeal.d.mts",
       "supabase/functions/seal-reporting-pack/index.ts",
     ]);
     const modified = new Set([

@@ -13,13 +13,14 @@
  * configures them.
  *
  * Reporting Pack (REPORTING_PACK_EXPORT, 20260925100000): the web preview is
- * free; every downloadable file (JSON / CSV) is an OFFICIAL Reporting Pack
- * deliverable. This stage stays database-inert and never writes a file itself:
- * the HOST PAGE supplies `deliverDownload` (issue -> seal with the SHA-256 of
- * the exact bytes -> save; 20260925120000) and `downloadsLocked`. The stage
- * passes the output reference of the version it shows. Without a deliverer no
- * download is offered at all. The print is always a draft and carries
- * DRAFT_PRINT_MARK on every printed page.
+ * free. The browser-rendered JSON / CSV files are WORKING COPIES (issued by the
+ * server, never sealed). The OFFICIAL Reporting Pack of a SAVED version is
+ * generated, stored and sealed by the server itself (security correction N-1):
+ * the browser only saves the server's document. This stage stays database-inert
+ * and never writes a file itself: the HOST PAGE supplies `deliverDownload`,
+ * `deliverOfficial` and `downloadsLocked`. Without a deliverer no download is
+ * offered at all. The print is always a draft and carries DRAFT_PRINT_MARK on
+ * every printed page.
  */
 import { useState } from "react";
 import { Printer } from "lucide-react";
@@ -67,15 +68,17 @@ export const PRINT_CSS = `@media print {
 
 export interface OutputsStageProps {
   readonly model: FinancialStatementsWorkspaceModel;
-  /** Delivers ONE file as an official Reporting Pack for the given output reference (supplied by the host page). Absent → no downloads. */
+  /** Delivers ONE browser-rendered file as a working copy for the given output reference (supplied by the host page). Absent → no downloads. */
   readonly deliverDownload?: (file: ExportFile, outputRef: string) => Promise<DeliveryOutcome>;
+  /** Asks the server to generate and seal the official Reporting Pack of a saved version. Absent → not offered. */
+  readonly deliverOfficial?: (outputRef: string) => Promise<DeliveryOutcome>;
   /** The host page knows the workspace cannot issue a Reporting Pack: show the plan explanation instead. */
   readonly downloadsLocked?: boolean;
   /** Explicit signature/approval blocks to print. Omit (default) to print none. */
   readonly signatureBlocks?: readonly string[];
 }
 
-export function OutputsStage({ model, signatureBlocks, deliverDownload, downloadsLocked = false }: OutputsStageProps) {
+export function OutputsStage({ model, signatureBlocks, deliverDownload, deliverOfficial, downloadsLocked = false }: OutputsStageProps) {
   const [refused, setRefused] = useState(false);
   const [failed, setFailed] = useState(false);
   const packLocked = refused || downloadsLocked;
@@ -84,6 +87,14 @@ export function OutputsStage({ model, signatureBlocks, deliverDownload, download
     const outputRef = financialStatementsOutputRef(model.output?.lineage ?? null);
     if (!deliverDownload || !outputRef) return;
     const outcome = await deliverDownload(file, outputRef);
+    setFailed(outcome === "failed");
+    if (outcome === "locked") setRefused(true);
+  };
+  // The official pack exists only for a SAVED version: the server generates it from that version and seals it.
+  const officialRef = model.output?.lineage?.persisted ? financialStatementsOutputRef(model.output.lineage) : null;
+  const issueOfficial = async () => {
+    if (!deliverOfficial || !officialRef) return;
+    const outcome = await deliverOfficial(officialRef);
     setFailed(outcome === "failed");
     if (outcome === "locked") setRefused(true);
   };
@@ -133,6 +144,11 @@ export function OutputsStage({ model, signatureBlocks, deliverDownload, download
         </div>
       ) : !deliverDownload ? null : (
         <div className="flex flex-wrap gap-2 fs-no-print" data-testid="export-buttons">
+          {deliverOfficial && officialRef && (
+            <Button type="button" size="sm" onClick={() => void issueOfficial()} data-testid="official-pack-button">
+              Official Reporting Pack (sealed by the server)
+            </Button>
+          )}
           {bundle.map((f) => (
             <Button key={f.fileName} type="button" variant="outline" size="sm" onClick={() => void issueAndDownload(f)} data-export-file={f.fileName}>
               {f.fileName.replace(/^.*?-(v\d+|unsaved-draft)\./, "").replace(/\./g, " ")} ({f.mimeType === "text/csv" ? "CSV" : "JSON"})

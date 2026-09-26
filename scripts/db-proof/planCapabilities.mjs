@@ -239,9 +239,14 @@ async function main() {
   });
   await check("wrong approvals are refused: another environment, a stale inventory, an expired one, an already consumed one", async () => {
     const inv = await inventory();
-    const ins = (fp, evidence, approvedAt = "now()", expiresAt = "now() + interval '1 hour'", consumed = false) => admin.query(
+    // Forged rows need superuser powers (replication mode bypasses the insert guard); even those are refused by the interlock.
+    const ins = async (fp, evidence, approvedAt = "now()", expiresAt = "now() + interval '1 hour'", consumed = false) => {
+      await admin.query("BEGIN"); await admin.query("SET LOCAL session_replication_role = replica");
+      await admin.query(
       `INSERT INTO public.deployment_approvals (purpose, environment_fingerprint, environment_label, evidence, approved_by, approved_at, expires_at, consumed_at, consumed_by)
        VALUES ('FREE_PLAN_RETIREMENT',$1,'proof',$2,$3,${approvedAt},${expiresAt},${consumed ? "now()" : "NULL"},${consumed ? "'earlier'" : "NULL"})`, [fp, evidence, IA]);
+      await admin.query("COMMIT");
+    };
     const fp = (await admin.query("SELECT public._environment_fingerprint() f")).rows[0].f;
     const out = [];
     await ins("0".repeat(32), inv); out.push(await refusedCleanly("other environment"));
@@ -259,6 +264,34 @@ async function main() {
     const direct = await codeOf(() => q(user(IA), "INSERT INTO public.deployment_approvals (purpose, environment_fingerprint, environment_label, evidence, approved_by, expires_at) VALUES ('FREE_PLAN_RETIREMENT','x','y','{}',$1, now() + interval '1 hour')", [IA]));
     return nonAdmin === "42501" && /INVENTORY_MISMATCH/.test(stale?.message ?? "") && /NOTIFICATION_REFERENCE_REQUIRED/.test(noNotice?.message ?? "") && /ACTIVATION_PATH_REQUIRED/.test(noPath?.message ?? "") && direct === "42501"
       ? true : JSON.stringify({ nonAdmin, stale: stale?.message, noNotice: noNotice?.message, noPath: noPath?.message, direct });
+  });
+  await check("deployment approvals: no direct INSERT / UPDATE / DELETE for anon, authenticated or service_role; even the table owner cannot insert outside the function; the approver must be the calling, active commercial administrator (FK)", async () => {
+    const inv = await inventory();
+    const fp = (await admin.query("SELECT public._environment_fingerprint() f")).rows[0].f;
+    const row = [fp, JSON.stringify(inv), IA];
+    const insSql = "INSERT INTO public.deployment_approvals (purpose, environment_fingerprint, environment_label, evidence, approved_by, expires_at) VALUES ('FREE_PLAN_RETIREMENT',$1,'x',$2::jsonb,$3, now() + interval '1 hour')";
+    const out = {
+      anon: await codeOf(() => q(ANON, insSql, row)),
+      admin_user: await codeOf(() => q(user(IA), insSql, row)),
+      service: await codeOf(() => q(SERVICE, insSql, row)),
+      owner: await codeOf(() => admin.query(insSql, row)),
+      svcUpdate: await codeOf(() => q(SERVICE, "UPDATE public.deployment_approvals SET consumed_at=now(), consumed_by='x'")),
+      svcDelete: await codeOf(() => q(SERVICE, "DELETE FROM public.deployment_approvals")),
+      userUpdate: await codeOf(() => q(user(IA), "UPDATE public.deployment_approvals SET consumed_at=now(), consumed_by='x'")),
+    };
+    const nonAdmin = await mkUser("not-admin");
+    const markForged = await codeOf(async () => { await admin.query("BEGIN"); try {
+      await admin.query("SET LOCAL ROLE authenticated");
+      await admin.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true), set_config('cfoclose.deployment_approval_writer', txid_current()::text, true)", [nonAdmin]);
+      await admin.query(insSql, [fp, JSON.stringify(inv), nonAdmin]);
+    } finally { await admin.query("ROLLBACK"); } });
+    await admin.query("UPDATE public.commercial_admins SET active=false WHERE user_id=$1", [IA]);
+    const inactive = await codeOf(() => q(user(IA), "SELECT public.admin_record_deployment_approval('FREE_PLAN_RETIREMENT','staging',$1,'notice-1','MANUAL_ADMIN')", [inv.open_free_licences]));
+    await admin.query("UPDATE public.commercial_admins SET active=true WHERE user_id=$1", [IA]);
+    const fk = (await admin.query("SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conname='fk_da_approved_by'")).rows[0]?.d ?? "";
+    const n = await count("SELECT count(*) n FROM public.deployment_approvals WHERE environment_label='x'");
+    return Object.values(out).every((c) => c === "42501") && ["42501", "42501"].includes(markForged) && inactive === "42501" && fk.includes("REFERENCES commercial_admins(user_id)") && n === 0
+      ? true : JSON.stringify({ out, markForged, inactive, fk, n });
   });
   let approvalId;
   await check(`${M130} applies over the legacy Free state with a recorded approval and consumes it (single use, audited by who / when / what)`, async () => {
@@ -671,6 +704,149 @@ async function main() {
     return ok ? true : JSON.stringify(steps);
   });
 
+  group("Active accepted membership — no capability before acceptance, after cancellation or expiry, or while suspended (N-2)");
+  const NV = { holder: await mkUser("nv-holder") };
+  NV.lic = await grantPlan(NV.holder, "FIRM");
+  await one(user(U.admin), "SELECT public.admin_set_licence_additional_seats($1,40,'proof')", [NV.lic]);
+  NV.co = await newCompany(NV.holder, "Membership Co");
+  const nvInvite = async (who, role) => (await q(user(NV.holder), "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,$3,NULL) RETURNING id", [NV.co, who, role]))[0].id;
+  const nvAccepted = async (who, role) => q(user(NV.holder), "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,$3,now())", [NV.co, who, role]);
+  const nvCaps = async (who) => (await admin.query("SELECT coalesce(array_agg(capability ORDER BY capability), '{}') c FROM public.workspace_member_capabilities WHERE company_id=$1 AND user_id=$2 AND revoked_at IS NULL", [NV.co, who])).rows[0].c;
+  const usable = async (who) => { const out = []; for (const c of CAPS) if ((await one(user(who), "SELECT public.has_workspace_capability($1,$2,$3) r", [NV.co, who, c])).r) out.push(c); return out; };
+  // Controls (accepted, active) and every inactive state, for both a partner and a preparer title.
+  const S = { partner: await mkUser("nv-partner"), preparer: await mkUser("nv-preparer") };
+  await nvAccepted(S.partner, "partner"); await nvAccepted(S.preparer, "preparer");
+  const INACTIVE = {};
+  for (const role of ["partner", "preparer"]) {
+    INACTIVE[`pending ${role}`] = await mkUser(`nv-pending-${role}`); await nvInvite(INACTIVE[`pending ${role}`], role);
+    INACTIVE[`expired ${role}`] = await mkUser(`nv-expired-${role}`); await nvInvite(INACTIVE[`expired ${role}`], role);
+    await admin.query("UPDATE public.firm_members SET invitation_expires_at = now() - interval '1 minute' WHERE company_id=$1 AND user_id=$2", [NV.co, INACTIVE[`expired ${role}`]]);
+    INACTIVE[`cancelled ${role}`] = await mkUser(`nv-cancelled-${role}`);
+    await one(user(NV.holder), "SELECT public.cancel_workspace_invitation($1)", [await nvInvite(INACTIVE[`cancelled ${role}`], role)]);
+    INACTIVE[`suspended ${role}`] = await mkUser(`nv-suspended-${role}`); await nvAccepted(INACTIVE[`suspended ${role}`], role);
+    await admin.query("INSERT INTO public.named_user_billing_suspensions (account_user_id, user_id, reason) VALUES ($1,$2,'OWNER_SELECTION')", [NV.holder, INACTIVE[`suspended ${role}`]]);
+    INACTIVE[`revoked ${role}`] = await mkUser(`nv-revoked-${role}`); await nvAccepted(INACTIVE[`revoked ${role}`], role);
+    for (const c of TEMPLATE[role]) await one(user(NV.holder), "SELECT public.revoke_member_capability($1,$2,$3,'proof')", [NV.co, INACTIVE[`revoked ${role}`], c]);
+    INACTIVE[`removed ${role}`] = await mkUser(`nv-removed-${role}`); await nvAccepted(INACTIVE[`removed ${role}`], role);
+    await q(user(NV.holder), "DELETE FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [NV.co, INACTIVE[`removed ${role}`]]);
+  }
+  // A real upload and journal entry, so policies that join through a parent row are evaluated against real data.
+  NV.upload = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,2025) RETURNING id", [`${NV.holder}/nv.csv`, NV.co, NV.holder])).rows[0].id;
+  await admin.query("BEGIN"); await admin.query("SET LOCAL session_replication_role = replica");
+  NV.aje = (await admin.query("INSERT INTO public.adjusting_journal_entries (company_id, upload_id, period_year, aje_number, description, aje_type, created_by) VALUES ($1,$2,2025,'AJE-M001','proof','accrual',$3) RETURNING id", [NV.co, NV.upload, NV.holder])).rows[0].id;
+  await admin.query("INSERT INTO public.tax_losses (company_id, created_by, period_year) VALUES ($1,$2,2025)", [NV.co, NV.holder]);
+  await admin.query("COMMIT");
+  const nvState = async () => (await admin.query(`SELECT
+      (SELECT coalesce(jsonb_agg(to_jsonb(f) - 'updated_at' ORDER BY f.id), '[]') FROM public.firm_members f WHERE f.company_id=$1) fm,
+      (SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY c.id), '[]') FROM public.workspace_member_capabilities c WHERE c.company_id=$1) caps,
+      (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.id), '[]') FROM public.tax_losses t WHERE t.company_id=$1) tl,
+      (SELECT coalesce(jsonb_agg(to_jsonb(a) - 'updated_at' ORDER BY a.id), '[]') FROM public.adjusting_journal_entries a WHERE a.company_id=$1) aje,
+      (SELECT coalesce(jsonb_agg(to_jsonb(s) ORDER BY s.id), '[]') FROM public.named_user_billing_suspensions s WHERE s.account_user_id=$2) sus`, [NV.co, NV.holder])).rows[0];
+
+  await check("the central authority: every capability is unusable in every inactive state (pending, expired, cancelled, suspended, revoked, removed), usable for the accepted controls", async () => {
+    const bad = {};
+    for (const [label, who] of Object.entries(INACTIVE)) { const u = await usable(who); if (u.length) bad[label] = u; }
+    const partner = await usable(S.partner); const preparer = await usable(S.preparer);
+    const allowed = (await one(user(INACTIVE["pending partner"]), "SELECT public.workspace_capability_allowed($1,$2,'prepare_close') r", [NV.co, INACTIVE["pending partner"]])).r;
+    const mine = (await caps(INACTIVE["pending partner"], NV.co)).capabilities;
+    return Object.keys(bad).length === 0 && allowed === false && JSON.stringify(mine) === "[]"
+      && JSON.stringify(partner) === JSON.stringify(CAPS.filter((c) => TEMPLATE.partner.includes(c))) && JSON.stringify(preparer) === JSON.stringify(CAPS.filter((c) => TEMPLATE.preparer.includes(c)))
+      ? true : JSON.stringify({ bad, allowed, mine, partner, preparer });
+  });
+  let sweptPolicies = 0;
+  await check("EVERY capability-backed RLS policy (each USING and WITH CHECK), evaluated for a row of this workspace: true for an accepted control, false for every inactive state", async () => {
+    const pols = (await admin.query(`SELECT tablename, policyname, cmd, qual, with_check FROM pg_policies WHERE schemaname='public'
+      AND (coalesce(qual,'')||coalesce(with_check,'')) ~ '(has_workspace_capability|workspace_capability_allowed)' ORDER BY 1,2`)).rows;
+    const before = await nvState();
+    const failures = []; let exprs = 0;
+    for (const p of pols) {
+      for (const [kind, expr] of [["USING", p.qual], ["WITH CHECK", p.with_check]]) {
+        // An expression without a capability predicate (engagements' status WITH CHECK is membership-only) is gated by
+        // the policy's USING, which is evaluated here; every policy must have at least one gated expression.
+        if (!expr || !/(has_workspace_capability|workspace_capability_allowed)/.test(expr)) continue;
+        exprs++;
+        const evalFor = async (who) => {
+          // The row as the caller would write / read it: this workspace, created by the caller, submitted by someone else.
+          const memberId = (await admin.query("SELECT id FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [NV.co, who])).rows[0]?.id ?? null;
+          const row = { company_id: NV.co, created_by: who, created_by_member_id: memberId, user_id: NV.holder, status: "draft", aje_id: NV.aje, upload_id: NV.upload, period_year: 2025, submitted_by: NV.holder };
+          const r = await one(user(who), `SELECT (${expr}) AS ok FROM jsonb_populate_record(NULL::public.${p.tablename}, $1::jsonb) AS ${p.tablename}`, [JSON.stringify(row)]);
+          return r.ok === true;
+        };
+        const controls = [NV.holder, S.partner, S.preparer];
+        const ctl = []; for (const c of controls) ctl.push(await evalFor(c));
+        const leaks = []; for (const [label, who] of Object.entries(INACTIVE)) if (await evalFor(who)) leaks.push(label);
+        if (!ctl.some(Boolean) || leaks.length) failures.push({ policy: `${p.tablename}.${p.policyname}`, kind, control: ctl, leaks });
+      }
+    }
+    sweptPolicies = pols.length;
+    const same = JSON.stringify(await nvState()) === JSON.stringify(before);
+    return pols.length >= 30 && failures.length === 0 && same ? true : JSON.stringify({ policies: pols.length, exprs, same, failures: failures.slice(0, 6), more: Math.max(0, failures.length - 6) });
+  });
+  await check("refused operations by a never-accepted invitee (write, read, sign-off, capability management, Reporting Pack issue) leave the database byte-identical", async () => {
+    const v = INACTIVE["pending partner"];
+    const before = await nvState();
+    const write = await addTaxLoss(v, NV.co);
+    const read = (await q(user(v), "SELECT id FROM public.tax_losses WHERE company_id=$1", [NV.co])).length;
+    const aje = (await q(user(v), "SELECT id FROM public.adjusting_journal_entries WHERE company_id=$1", [NV.co])).length;
+    const upd = (await q(user(v), "UPDATE public.adjusting_journal_entries SET description='x' WHERE id=$1 RETURNING id", [NV.aje])).length;
+    const grant = (await one(user(v), "SELECT public.grant_member_capability($1,$2,'review_close','x') r", [NV.co, v])).r.outcome;
+    const issue = (await one(user(v), "SELECT public.issue_reporting_pack($1,2025,'financial_statements_data',$2,$3) r", [NV.co, `upload:${NV.upload}`, uuid()])).r.outcome;
+    const same = JSON.stringify(await nvState()) === JSON.stringify(before);
+    return write === "42501" && read === 0 && aje === 0 && upd === 0 && grant === "forbidden" && ["workspace_access_denied", "capability_required"].includes(issue) && same
+      ? true : JSON.stringify({ write, read, aje, upd, grant, issue, same });
+  });
+  await check("acceptance activates exactly the capabilities the inviter chose, and nothing else", async () => {
+    const v = await mkUser("nv-accept"); await nvInvite(v, "preparer");
+    const pending = await usable(v);
+    await one(user(v), "SELECT public.accept_workspace_invitations()");
+    const active = await usable(v);
+    return JSON.stringify(pending) === "[]" && JSON.stringify(active) === JSON.stringify(CAPS.filter((c) => TEMPLATE.preparer.includes(c))) && (await addTaxLoss(v, NV.co)) === "ok"
+      ? true : JSON.stringify({ pending, active });
+  });
+  await check("concurrent acceptance: exactly one acceptance, capabilities activated once", async () => {
+    const v = await mkUser("nv-concurrent"); await nvInvite(v, "partner");
+    const out = await Promise.all(Array.from({ length: CONCURRENCY }, () => one(user(v), "SELECT public.accept_workspace_invitations() r").then((x) => x.r.accepted.length, (e) => e.code)));
+    const rows = await count("SELECT count(*) n FROM public.workspace_member_capabilities WHERE company_id=$1 AND user_id=$2 AND revoked_at IS NULL", [NV.co, v]);
+    return out.filter((n) => n === 1).length === 1 && out.every((n) => n === 0 || n === 1) && rows === TEMPLATE.partner.length
+      && JSON.stringify(await usable(v)) === JSON.stringify(CAPS.filter((c) => TEMPLATE.partner.includes(c))) ? true : JSON.stringify({ out, rows });
+  });
+  await check("cancelling during acceptance (12 races): either accepted and usable, or cancelled with nothing usable — never a cancelled person with a usable capability", async () => {
+    const outcomes = [];
+    for (let i = 0; i < CONCURRENCY; i++) {
+      const v = await mkUser(`nv-race-${i}`); const id = await nvInvite(v, "partner");
+      await Promise.all([
+        one(user(v), "SELECT public.accept_workspace_invitations()").catch(() => null),
+        one(user(NV.holder), "SELECT public.cancel_workspace_invitation($1)", [id]).catch(() => null),
+      ]);
+      const row = (await admin.query("SELECT accepted_at, invitation_cancelled_at FROM public.firm_members WHERE id=$1", [id])).rows[0];
+      const u = await usable(v);
+      const ok = (row.accepted_at && !row.invitation_cancelled_at && u.length === TEMPLATE.partner.length) || (!row.accepted_at && row.invitation_cancelled_at && u.length === 0);
+      outcomes.push(ok ? (row.accepted_at ? "accepted" : "cancelled") : { row, u });
+    }
+    return outcomes.every((o) => typeof o === "string") ? true : JSON.stringify(outcomes);
+  });
+  await check("re-invitation after cancellation does not resurrect an explicitly revoked capability; a title change adds none", async () => {
+    const v = await mkUser("nv-reinvite"); const id = await nvInvite(v, "partner");
+    await one(user(NV.holder), "SELECT public.revoke_member_capability($1,$2,'approve_certification','proof')", [NV.co, v]);
+    await one(user(NV.holder), "SELECT public.cancel_workspace_invitation($1)", [id]);
+    const whileCancelled = await usable(v);
+    await one(SERVICE, "SELECT public.reserve_workspace_invitation($1,$2,'partner',$3,'r@example.test') r", [NV.co, v, NV.holder]);
+    const reinvited = await usable(v);
+    await one(user(v), "SELECT public.accept_workspace_invitations()");
+    const accepted = await usable(v);
+    await q(user(NV.holder), "UPDATE public.firm_members SET role='preparer' WHERE company_id=$1 AND user_id=$2", [NV.co, v]);
+    await q(user(NV.holder), "UPDATE public.firm_members SET role='partner' WHERE company_id=$1 AND user_id=$2", [NV.co, v]);
+    const retitled = await usable(v);
+    return JSON.stringify(whileCancelled) === "[]" && JSON.stringify(reinvited) === "[]" && !accepted.includes("approve_certification")
+      && JSON.stringify(accepted) === '["prepare_close","review_close","issue_reporting_pack"]' && !retitled.includes("approve_certification") && !retitled.includes("review_close")
+      ? true : JSON.stringify({ whileCancelled, reinvited, accepted, retitled });
+  });
+  await check("an explicit workspace grant (no membership) confers no workspace capability; only an active, accepted membership does", async () => {
+    const g = await mkUser("nv-grantee");
+    await admin.query("INSERT INTO public.workspace_capability_grants (company_id, grantee_user_id, capability, granted_by_user_id) VALUES ($1,$2,'manage_source_files',$3)", [NV.co, g, NV.holder]);
+    return JSON.stringify(await usable(g)) === "[]" ? true : JSON.stringify(await usable(g));
+  });
+
   const legacyRef = async () => `upload:${(await admin.query("SELECT id FROM public.trial_balance_uploads WHERE company_id=$1 AND period_year=2025 ORDER BY uploaded_at LIMIT 1", [L.co])).rows[0].id}`;
   group("Plan / capability matrix — one authority, fail closed");
   await check("the matrix has exactly one row for every plan x every non-capacity capability; multi-entity follows capacity; consolidation is on no plan", async () => {
@@ -717,12 +893,21 @@ async function main() {
   await check("issue → seal once; a replayed seal, another account's seal, a person without issue_reporting_pack, and an issue after the plan ends are all refused; an output already issued stays verifiable", async () => {
     const ref = await legacyRef();
     const prRef = `upload:${(await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,2025) RETURNING id", [`${pr.uid}/${uuid()}.csv`, pr.co, pr.uid])).rows[0].id}`;
-    const serverSeal = (who, id, sha, co = L.co) => one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3,2025,'financial_statements_spreadsheet',$4,$5,$6,10) r", [who, id, co, ref, sha, `${co}/${id}.xlsx`]);
-    const i = (await one(user(L.holder), "SELECT public.issue_reporting_pack($1,2025,'financial_statements_spreadsheet',$2,$3) r", [L.co, ref, uuid()])).r;
-    const sha = "a".repeat(64);
-    const seal = (await serverSeal(L.holder, i.issuance_id, sha)).r.outcome;
-    const replay = (await serverSeal(L.holder, i.issuance_id, sha)).r.outcome;
-    const cross = (await serverSeal(pr.uid, i.issuance_id, "b".repeat(64))).r.outcome;
+    // The official pack is generated by the database from a SAVED statements version (N-1): the seal takes no hash.
+    const member = (await admin.query("SELECT id FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [L.co, L.holder])).rows[0].id;
+    const rid = `r-${uuid()}`;
+    await admin.query("BEGIN"); await admin.query("SET LOCAL session_replication_role = replica");
+    await admin.query(`INSERT INTO public.financial_statement_reports (report_id, report_version, company_id, period_year, provenance_origin, report_document, content_hash, document_hash, created_by_firm_member_id)
+      VALUES ($1,1,$2,2025,'TRIAL_BALANCE_DERIVED','{"statements":{}}'::jsonb,$3, public.fs_sha256_hex('{"statements":{}}'::jsonb::text), $4)`, [rid, L.co, "e".repeat(64), member]);
+    await admin.query("COMMIT");
+    const saved = `fs-report:${rid}:v1`;
+    const serverSeal = (who, id, co = L.co) => one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3) r", [who, id, `${co}/${id}.json`]);
+    const i = (await one(user(L.holder), "SELECT public.issue_reporting_pack($1,2025,'financial_statements_data',$2,$3) r", [L.co, saved, uuid()])).r;
+    const sealed = (await serverSeal(L.holder, i.issuance_id)).r;
+    const seal = sealed.outcome;
+    const sha = sealed.content_sha256;
+    const replay = (await serverSeal(L.holder, i.issuance_id)).r.outcome;
+    const cross = (await serverSeal(pr.uid, i.issuance_id)).r.outcome;
     // A Practice member whose issue_reporting_pack was withdrawn.
     await one(user(pr.uid), "SELECT public.revoke_member_capability($1,$2,'issue_reporting_pack','proof')", [pr.co, pr.b]);
     const noCap = (await one(user(pr.b), "SELECT public.issue_reporting_pack($1,2025,'financial_statements_spreadsheet',$2,$3) r", [pr.co, prRef, uuid()])).r;

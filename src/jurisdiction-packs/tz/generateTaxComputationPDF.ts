@@ -139,7 +139,7 @@ const RED   = [180, 30, 30]   as [number, number, number];
 
 // ── Main export ───────────────────────────────────────────────
 
-/** Builds the tax computation PDF (the caller delivers it as an official Reporting Pack: issued, sealed, then saved). */
+/** Builds the tax computation PDF (the caller delivers it as a Reporting Pack working copy: issued, then saved; never sealed). */
 export function generateTaxComputationPDF(opts: GeneratePDFOptions): { blob: Blob; fileName: string } {
   const {
     result, companyName, companyTin, periodYear, periodEndMonth,

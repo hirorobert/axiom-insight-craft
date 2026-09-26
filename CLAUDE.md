@@ -838,13 +838,29 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   by a migration. `20260925130000` and `20260925140000` are each one atomic DO statement; over open Free licences the
   retirement statement itself consumes a durable, environment-bound, single-use `deployment_approvals` row recorded by
   `admin_record_deployment_approval` (inventory must match) — no setting can stand in for it
-  (`docs/release/PR34_STAGING_DEPLOYMENT_PLAN.md` §0).
+  (`docs/release/PR34_STAGING_DEPLOYMENT_PLAN.md` §0). No application role (anon, authenticated, service_role) may
+  INSERT / UPDATE / DELETE `deployment_approvals`; a row is created only through that function (insert guard), and its
+  approver must be the calling, active commercial administrator (FK to `commercial_admins(user_id)`). A true database
+  superuser stays outside every application-level control.
+- **Security corrections N-1 / N-2:** an OFFICIAL Reporting Pack contains only bytes the DATABASE generates from the
+  authoritative saved output named by its closed `output_ref` (`_official_reporting_pack_document`: today
+  `financial_statements_data` from a saved `fs-report:<id>:v<n>`, source proven by its `document_hash`, timestamps in
+  UTC). `seal_reporting_pack_server(user, issuance, storage_path)` takes no hash and no bytes — it regenerates and hashes
+  the document itself; `seal-reporting-pack` accepts only `{ action, issuance_id }` JSON, stores the database's bytes and
+  checks the stored object before sealing; `verify_reporting_pack` re-derives the canonical hash. Every browser-rendered
+  format is `official_sealing_unavailable` and is delivered as a labelled WORKING COPY after `issue_reporting_pack`.
+  `has_workspace_capability` — the one resolver behind every capability-backed policy — requires an accepted
+  (`accepted_at IS NOT NULL`), uncancelled membership of that workspace, an active named user and an open grant;
+  pending, expired, cancelled, suspended, revoked and removed people, and explicit workspace grants, hold no workspace
+  capability. Technical debt (separate task, not changed here): ten older SECURITY DEFINER functions have no pinned
+  search path — `enforce_budget_immutability`, `enforce_budget_no_delete`, the six `maono_block_*_mutation` triggers
+  (alert, analysis, board_pack, insight, monitor_run, run), `maono_check_safisha_gate(uuid[])` and
+  `maono_compute_confidence(uuid, integer)`. None calls or is called by anything this delta changed.
 - **Security corrections (B-1..B-7):** an invitee can change only `accepted_at` on their own pending membership
   (`firm_members_update_guard`); no UPDATE assigns the owner title or moves a membership; a title change never adds or
   restores a capability. Reconciliation / EFDMS scope bindings are immutable and UPDATE / DELETE are authorized on the
-  row's existing scope. Official Reporting Pack bytes are hashed and stored by the server (`seal-reporting-pack` Edge
-  Function → service-only `seal_reporting_pack_server`; closed per-kind `output_ref` scheme; verify-by-rehash detects
-  object substitution); `consume_reporting_pack_issuance` (client hash) is removed. `safisha_append_evidence_file`
+  row's existing scope. Closed per-kind `output_ref` scheme; verify-by-rehash detects object substitution;
+  `consume_reporting_pack_issuance` (client hash) is removed (official bytes: see N-1 above). `safisha_append_evidence_file`
   pins its search path and its errors fail the ingest. Plan changes and financial writes serialise on one advisory key
   per account (expiry linearization). "Request access" leads to `/request-access`, never to sign-up. Until checkout exists, every CTA is non-transactional
   (`CHECKOUT_AVAILABLE = false`, "Request access" / "Contact sales"); nothing renders Buy, Subscribe or Start free.

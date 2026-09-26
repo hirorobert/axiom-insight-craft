@@ -1566,7 +1566,7 @@ export function KingaTaxPanel({
                       .eq("company_id", companyId)
                       .in("status", ["open", "in_progress"]);
                     const [{ data: allowances }, { data: findings }] = await Promise.all([q1, q2]);
-                    // The tax computation PDF is an official Reporting Pack deliverable: issued, built, sealed, then saved.
+                    // The tax computation PDF is a Reporting Pack working copy: issued by the server, built, then saved (never sealed).
                     await deliverReportingPack({
                       companyId, periodYear, kind: "tax_computation", outputRef: `upload:${uploadId}`,
                       build: () => generateTaxComputationPDF({
@@ -1629,7 +1629,7 @@ export function KingaTaxPanel({
                       .eq("company_id", companyId)
                       .in("status", ["open", "in_progress"]);
                     const [{ data: allowances }, { data: findings }] = await Promise.all([qa, qf]);
-                    // The tax computation PDF is an official Reporting Pack deliverable: issued, built, sealed, then saved.
+                    // The tax computation PDF is a Reporting Pack working copy: issued by the server, built, then saved (never sealed).
                     await deliverReportingPack({
                       companyId, periodYear, kind: "tax_computation", outputRef: `upload:${uploadId}`,
                       build: () => generateTaxComputationPDF({

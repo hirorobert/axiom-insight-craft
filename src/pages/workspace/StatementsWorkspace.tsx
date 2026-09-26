@@ -20,7 +20,7 @@ import { ExportStatements, type ProcessingResult } from "@/components/ExportStat
 import { FINANCIAL_STATEMENTS_WORKSPACE_ENABLED } from "@/lib/financialStatementsWorkspace/workspaceGate";
 import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState";
 import { paidActionState } from "@/lib/commercial/paidActions";
-import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
+import { deliverOfficialReportingPack, deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 
 // Internal-preview workspace: loaded (and therefore evaluated) only when the source-controlled gate is on.
 const FinancialStatementsWorkspace = FINANCIAL_STATEMENTS_WORKSPACE_ENABLED
@@ -106,6 +106,7 @@ export default function StatementsWorkspace() {
                 currentUpload={upload}
                 uploads={uploads}
                 deliverDownload={deliverStatementsDownload}
+                deliverOfficial={(outputRef: string) => deliverOfficialReportingPack({ companyId, periodYear, outputRef })}
                 downloadsLocked={downloadsLocked}
               />
             </Suspense>

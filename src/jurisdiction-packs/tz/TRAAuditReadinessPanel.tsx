@@ -264,7 +264,7 @@ export function TRAAuditReadinessPanel({
   const partialOk = fails === 0 && warns > 0;
 
   // ── Print manifest ─────────────────────────────────────────────────────────
-  // The audit manifest is an official Reporting Pack deliverable: issued, built, sealed, then saved.
+  // The audit manifest is a Reporting Pack working copy: issued by the server, built, then saved (never sealed).
   const handlePrintManifest = async () => {
     const lines = [
       `TRA AUDIT READINESS MANIFEST`,

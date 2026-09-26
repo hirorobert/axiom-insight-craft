@@ -193,7 +193,7 @@ export function CapitalAllowancesRegister({
   };
 
   // ── CSV export ─────────────────────────────────────────────────────────────
-  // The capital allowances schedule is an official Reporting Pack deliverable: issued, built, sealed, then saved.
+  // The capital allowances schedule is a Reporting Pack working copy: issued by the server, built, then saved (never sealed).
   const handleExport = async () => {
     const header = "Asset,Class,Rate,Cost TZS,Opening WDV,Additions,Disposals,W&T,Closing WDV,Acc Dep'n,Notes";
     const rows = assets.map(a => {

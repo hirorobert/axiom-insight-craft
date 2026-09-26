@@ -383,7 +383,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
 
 export const LANDING_FINAL_CTA = {
   heading: "Bring greater control to your next financial close.",
-  supporting: "Create a workspace and explore CFOCLOSE's preparation and review workflow.",
+  supporting: "Workspaces are activated by our team because online payment is not yet available.",
   primaryCta: { label: "Request access", href: "/request-access" },
   secondaryCta: { label: "Sign in", href: "/auth" },
 } as const;

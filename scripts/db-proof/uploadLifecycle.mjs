@@ -141,10 +141,18 @@ async function applyMigration(f) {
   // interlocked: this disposable database records the durable approval an operator would (current inventory, notice,
   // activation path) immediately before that migration.
   if (f.startsWith("20260925130000_")) {
-    await admin.query(`INSERT INTO public.deployment_approvals (purpose, environment_fingerprint, environment_label, evidence, approved_by, expires_at)
-      SELECT 'FREE_PLAN_RETIREMENT', public._environment_fingerprint(), 'upload-lifecycle-proof',
-             public._free_plan_inventory() || jsonb_build_object('notification_reference', 'proof notice', 'activation_path', 'MANUAL_ADMIN'),
-             gen_random_uuid(), now() + interval '1 hour'`);
+    // Recorded exactly as an operator would: by an active commercial administrator, through the only creation path.
+    const approver = globalThis.crypto.randomUUID();
+    await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [approver, `approver-${approver}@example.test`]);
+    await admin.query("INSERT INTO public.commercial_admins (user_id) VALUES ($1)", [approver]);
+    const open = (await admin.query("SELECT (public._free_plan_inventory()->>'open_free_licences')::int n")).rows[0].n;
+    await admin.query("BEGIN");
+    try {
+      await admin.query("SET LOCAL ROLE authenticated");
+      await admin.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [approver]);
+      await admin.query("SELECT public.admin_record_deployment_approval('FREE_PLAN_RETIREMENT','upload-lifecycle-proof',$1,'proof notice','MANUAL_ADMIN',1)", [open]);
+      await admin.query("COMMIT");
+    } catch (e) { await admin.query("ROLLBACK"); throw e; }
   }
   let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
   if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");

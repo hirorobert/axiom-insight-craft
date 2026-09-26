@@ -38,6 +38,12 @@ describe("no surface claims that an unavailable checkout exists", () => {
     expect(LANDING.LANDING_HERO.primaryCta.label).toBe("Request access");
     expect(COPY.CTA.primary).toBe("Request access");
   });
+  it("no public copy invites self-serve workspace creation: the closing call to action says the team activates workspaces because online payment (checkout) is unavailable", () => {
+    const all = JSON.stringify({ COPY, LANDING });
+    expect(all).not.toMatch(/Create a workspace and explore|explore CFOCLOSE/i);
+    expect(LANDING.LANDING_FINAL_CTA.supporting).toMatch(/activated by our team because online payment is not yet available/);
+    expect(LANDING.LANDING_FINAL_CTA.primaryCta.href).toBe("/request-access");
+  });
   it("the rendered pricing page has no payment action and states that there is no online checkout", () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Pricing)));
     expect(text(html)).not.toMatch(TRANSACTIONAL);

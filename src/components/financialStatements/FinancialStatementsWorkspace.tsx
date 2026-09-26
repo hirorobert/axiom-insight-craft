@@ -40,8 +40,9 @@ export interface FinancialStatementsWorkspaceProps {
   readonly uploads: readonly WorkspaceUploadInput[];
   readonly loadAccountMappings?: AccountMappingLoader;
   readonly signatureBlocks?: readonly string[];
-  /** Delivers one downloadable output as an official Reporting Pack; supplied by the host page (this workspace stays database-inert). */
+  /** Delivers one browser-rendered output as a working copy; supplied by the host page (this workspace stays database-inert). */
   readonly deliverDownload?: (file: ExportFile, outputRef: string) => Promise<DeliveryOutcome>;
+  readonly deliverOfficial?: (outputRef: string) => Promise<DeliveryOutcome>;
   /** The workspace's account cannot issue a Reporting Pack: downloads are replaced by the plan explanation. */
   readonly downloadsLocked?: boolean;
   /** Injected only by the non-production harness; production builds it behind the source gate. */
@@ -199,7 +200,7 @@ function FinancialStatementsWorkspaceEnabled(props: FinancialStatementsWorkspace
         {model.status !== "loading" && stage === "notes" && <NotesStage model={model} />}
         {model.status !== "loading" && stage === "validate" && <ValidateStage model={model} onFocusLine={focusFromAnywhere} />}
         {model.status !== "loading" && stage === "review" && <ReviewStage model={model} onFocusLine={focusFromAnywhere} />}
-        {model.status !== "loading" && stage === "outputs" && <OutputsStage model={model} signatureBlocks={props.signatureBlocks} deliverDownload={props.deliverDownload} downloadsLocked={props.downloadsLocked} />}
+        {model.status !== "loading" && stage === "outputs" && <OutputsStage model={model} signatureBlocks={props.signatureBlocks} deliverDownload={props.deliverDownload} deliverOfficial={props.deliverOfficial} downloadsLocked={props.downloadsLocked} />}
       </div>
 
       {stage !== "review" && model.persistence !== "UNSAVED_DRAFT" && <PersistenceBanner state={model.persistence} />}

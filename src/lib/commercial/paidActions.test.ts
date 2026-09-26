@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
 import { DraftPrintMarkView } from "@/components/commercial/DraftPrintMark";
-import { DRAFT_PRINT_MARK, REPORTING_PACK_KINDS, deliverOfficialPack, financialStatementsOutputRef, parseIssueOutcome, parseSealOutcome, sealFormData } from "./reportingPack";
+import { DRAFT_PRINT_MARK, REPORTING_PACK_KINDS, WORKING_COPY_NOTICE, deliverWorkingCopy, financialStatementsOutputRef, parseIssueOutcome, parseSealOutcome } from "./reportingPack";
 import { parseCreateEntityOutcome } from "./entityCreation";
 import {
   canInviteAnother,
@@ -126,7 +126,7 @@ describe("parseCreateEntityOutcome", () => {
 });
 
 describe("UI call sites defer to the server", () => {
-  it("a formal statement export is issued, sealed with its exact bytes, and only then saved (never rendered straight to disk)", () => {
+  it("a formal statement export is issued by the server and only then saved as a working copy (never rendered straight to disk)", () => {
     const src = read("src/components/ExportStatements.tsx").replace(/\r\n/g, "\n");
     const fn = src.slice(src.indexOf("const issueAndExport"), src.indexOf("const isDisabled"));
     expect(fn).toMatch(/await deliverReportingPack\(/);
@@ -247,7 +247,7 @@ describe("named-user seats in the UI (structured state only)", () => {
   });
 });
 
-describe("Reporting Pack: the official file is issued, sealed with its exact bytes, then saved; free printing is marked on every page", () => {
+describe("Reporting Pack: browser-rendered files are issued working copies (only server-generated packs are official); free printing is marked on every page", () => {
   it("parseIssueOutcome: only issued / already_issued (and not yet sealed) with an id may proceed", () => {
     expect(parseIssueOutcome({ outcome: "issued", issuance_id: "abc" })).toEqual({ status: "issued", issuanceId: "abc" });
     expect(parseIssueOutcome({ outcome: "already_issued", issuance_id: "abc" })).toEqual({ status: "issued", issuanceId: "abc" });
@@ -257,45 +257,34 @@ describe("Reporting Pack: the official file is issued, sealed with its exact byt
     expect(parseSealOutcome({ outcome: "sealed" })).toBe("sealed");
     for (const o of ["binding_mismatch", "already_sealed", "expired", "not_found", "invalid_request"]) expect(parseSealOutcome({ outcome: o })).toBe("failed");
     expect(parseSealOutcome({ outcome: "entitlement_required" })).toBe("locked");
+    expect(parseSealOutcome({ outcome: "official_sealing_unavailable" })).toBe("unavailable");
   });
   it("the client kinds are exactly the database's issuance kinds", () => {
     const migration = read("supabase/migrations/20260925120000_reporting_pack_issuance_binding.sql");
     const check = /ADD CONSTRAINT chk_rpi_kind CHECK \(pack_kind IN \(([^)]*)\)\)/.exec(migration)?.[1] ?? "";
     expect([...check.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()).toEqual([...REPORTING_PACK_KINDS].sort());
   });
-  it("deliverOfficialPack: issue → build → the SERVER hashes and seals the uploaded bytes → save; no client hash exists; nothing is saved unless sealed", async () => {
-    const binding = { companyId: "co", periodYear: 2031, kind: "financial_statements_data" as const, outputRef: "upload:u" };
-    const bytes = new TextEncoder().encode("statement bytes");
+  it("deliverWorkingCopy: issue (entitlement, capability) → build → save; the browser never uploads bytes or a hash, and nothing is built unless issued", async () => {
+    const binding = { companyId: "co", periodYear: 2031, kind: "financial_statements_pdf" as const, outputRef: "upload:u" };
     const calls: string[] = [];
-    const uploads: Array<{ issuanceId: string; fileName: string; size: number; form: string[] }> = [];
-    const saved: string[] = [];
+    const saved: Array<string | null> = [];
     const rpc = async (fn: string) => {
       calls.push(fn);
       return { data: { outcome: "issued", issuance_id: "iss-1" }, error: null };
     };
-    const upload = (seal: string) => async (issuanceId: string, b: typeof binding, blob: Blob, fileName: string) => {
-      uploads.push({ issuanceId, fileName, size: blob.size, form: [...sealFormData(issuanceId, b, blob, fileName).keys()].sort() });
-      return { data: { outcome: seal }, error: null };
-    };
-    const ok = await deliverOfficialPack(rpc, upload("sealed"), binding, (id) => { expect(id).toBe("iss-1"); return new Blob([bytes]); }, () => saved.push("saved"), "statement.json");
+    const ok = await deliverWorkingCopy(rpc, binding, (id) => { expect(id).toBe("iss-1"); return { blob: new Blob(["pdf"]), fileName: "statement.pdf" }; }, (_b, name) => saved.push(name));
     expect(ok).toBe("delivered");
-    expect(saved).toEqual(["saved"]);
-    // Only the issue goes through the database client; the bytes go to the server, which computes the hash itself.
+    expect(saved).toEqual(["statement.pdf"]);
     expect(calls).toEqual(["issue_reporting_pack"]);
-    expect(uploads).toEqual([{ issuanceId: "iss-1", fileName: "statement.json", size: bytes.byteLength, form: ["company_id", "file", "issuance_id", "output_ref", "pack_kind", "period_year"] }]);
-    expect(read("src/lib/commercial/reportingPack.ts")).not.toMatch(/consume_reporting_pack_issuance|p_content_sha256|crypto\.subtle/);
-    for (const refusal of ["binding_mismatch", "expired", "already_sealed"]) {
-      const s: string[] = [];
-      expect(await deliverOfficialPack(rpc, upload(refusal), binding, () => new Blob([bytes]), () => s.push("x"))).toBe("failed");
-      expect(s).toEqual([]);
+    const src = read("src/lib/commercial/reportingPack.ts");
+    expect(src).not.toMatch(/consume_reporting_pack_issuance|p_content_sha256|crypto\.subtle|FormData/);
+    for (const [outcome, want] of [["entitlement_required", "locked"], ["capability_required", "not_permitted"], ["workspace_access_denied", "failed"]] as const) {
+      let built = false;
+      expect(await deliverWorkingCopy(async () => ({ data: { outcome }, error: null }), binding, () => { built = true; return new Blob([]); }, () => {})).toBe(want);
+      expect(built).toBe(false);
     }
-    const s2: string[] = [];
-    expect(await deliverOfficialPack(rpc, upload("entitlement_required"), binding, () => new Blob([bytes]), () => s2.push("x"))).toBe("locked");
-    expect(s2).toEqual([]);
-    const locked = async () => ({ data: { outcome: "entitlement_required" }, error: null });
-    let built = false;
-    expect(await deliverOfficialPack(locked, upload("sealed"), binding, () => { built = true; return new Blob([]); }, () => {})).toBe("locked");
-    expect(built).toBe(false);
+    expect(WORKING_COPY_NOTICE).toMatch(/not a sealed official Reporting Pack/);
+    expect(read("src/lib/commercial/requestReportingPack.ts")).toContain('toast("Downloaded as a working copy", { description: WORKING_COPY_NOTICE })');
   });
   it("a saved statement version is named so the server can check it; an unsaved draft is named, never passed off as a version", () => {
     expect(financialStatementsOutputRef({ reportId: "r1", reportVersion: 3, persisted: true, contentHash: "a".repeat(64) })).toBe("fs-report:r1:v3");
@@ -310,7 +299,7 @@ describe("Reporting Pack: the official file is issued, sealed with its exact byt
     ["src/jurisdiction-packs/tz/CapitalAllowancesRegister.tsx", /deliverReportingPack\(\{[\s\S]*?kind: "tax_workpaper"/],
     ["src/jurisdiction-packs/tz/TRAAuditReadinessPanel.tsx", /deliverReportingPack\(\{[\s\S]*?kind: "tax_workpaper"/],
     ["src/components/maono/BoardPackGenerator.tsx", /deliverReportingPack\(\{ companyId, periodYear, kind: "board_pack"/],
-  ] as const)("%s delivers through the sealed path", (file, re) => {
+  ] as const)("%s delivers through the server-issued path", (file, re) => {
     expect(read(file).replace(/\r\n/g, "\n")).toMatch(re);
   });
   it("no reporting deliverable writes a file directly: no doc.save, XLSX.writeFile or ad-hoc download link in any delivering component", () => {
@@ -321,7 +310,7 @@ describe("Reporting Pack: the official file is issued, sealed with its exact byt
       expect(src, f).not.toMatch(/\.save\(|XLSX\.writeFile|createObjectURL|\.download\s*=/);
     }
   });
-  it("the tax computation PDF is delivered through the sealed path at both entry points", () => {
+  it("the tax computation PDF is delivered through the server-issued path at both entry points", () => {
     const src = read("src/jurisdiction-packs/tz/KingaTaxPanel.tsx").replace(/\r\n/g, "\n");
     expect([...src.matchAll(/await deliverReportingPack\(\{\n\s*companyId, periodYear, kind: "tax_computation", outputRef: `upload:\$\{uploadId\}`,\n\s*build: \(\) => generateTaxComputationPDF\(\{/g)].length).toBe(2);
     expect([...src.matchAll(/generateTaxComputationPDF\(\{/g)].length).toBe(2);

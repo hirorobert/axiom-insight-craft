@@ -164,7 +164,7 @@ function exportToExcel(pack: BoardPackData): { blob: Blob; fileName: string } {
   ws4["!cols"] = [{ wch: 22 }, { wch: 12 }, { wch: 60 }, { wch: 40 }, { wch: 20 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, ws4, "Alerts");
 
-  // The bytes of the official pack (delivered by the caller: issued, sealed, then saved)
+  // The bytes of the board pack working copy (delivered by the caller: issued, then saved; never sealed)
   const fileName = `BoardPack_${pack.company_name.replace(/\s/g, "_")}_${pack.period_label.replace(/\s/g, "_")}.xlsx`;
   const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
   return { blob: new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), fileName };
@@ -328,7 +328,7 @@ export function BoardPackGenerator({
   };
 
   // A print cannot be sealed, so it is never an official board pack: every printed page carries the draft marking.
-  // The official board pack is the sealed spreadsheet below.
+  // The board pack spreadsheet below is an issued working copy, never a sealed official pack.
   const handlePrint = async () => {
     if (!printRef.current) return;
     const printRoot = document.getElementById("maono-board-pack-print-root");
