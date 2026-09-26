@@ -30,13 +30,11 @@ describe("migration authority parity", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
     expect(r.ok).toBe(true);
-    // 13 byte-equal mirrors + the six reviewed PR #34 release wrappers (0015, 0017–0021; rule 8). The prerequisite
+    // 13 byte-equal mirrors + the seven reviewed release wrappers (0015, 0017–0022; rule 8). The prerequisite
     // 20260915100000 is recorded as applied out of source order (0016) — see releaseJournal.test.ts.
-    expect(r.mirrored.length).toBe(19);
+    expect(r.mirrored.length).toBe(20);
     // Authored here and not yet applied by the owner: listed, never an error. PR #34 100000–150000 are applied.
-    expect(r.pending).toEqual([
-      "20260926160000_trial_balance_processing_entitlement_wall.sql",
-    ]);
+    expect(r.pending).toEqual([]);   // 20260926160000 applied by 0022 (reviewed release wrapper)
   });
   it("the one historical divergence is RESOLVED forward (never allowlisted): no open drift remains", () => {
     const r = checkMigrationAuthority(ROOT) as Result;

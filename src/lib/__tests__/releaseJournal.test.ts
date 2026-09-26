@@ -1,5 +1,5 @@
 /**
- * The controlled PR #34 release journal (Drizzle 0013–0021) is validated strictly by the migration-authority guard
+ * The controlled PR #34 release journal (Drizzle 0013–0022) is validated strictly by the migration-authority guard
  * (rule 8, scripts/ci/releaseJournal.mjs): every entry is pinned AND structurally re-checked; any mutation — and any
  * unreviewed release entry — fails. Not an allow-list.
  */
@@ -20,9 +20,9 @@ const sha = (b: Buffer | string) => createHash("sha256").update(b).digest("hex")
 type Result = { ok: boolean; errors: string[]; pending: string[]; mirrored: Array<{ tag: string; source: string; how: string }>; releaseApplied: Array<{ tag: string; source: string }> };
 
 describe("the reviewed release journal", () => {
-  it("every entry 0013–0021 validates: exact content, exact template, digest = the source file in this repository", () => {
+  it("every entry 0013–0022 validates: exact content, exact template, digest = the source file in this repository", () => {
     for (const tag of Object.keys(RELEASE_JOURNAL)) expect(checkReleaseEntry(tag, read(tag), srcBytes).problems, tag).toEqual([]);
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(9);
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(10);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -30,15 +30,16 @@ describe("the reviewed release journal", () => {
     expect(RELEASE_JOURNAL["0020_pr34_apply_20260925140000"].digest).toBe("c26e47f3a78b4fd0d47a5a2fab82a69caf13bfe2344e69687f9b30c13a8e5f9a");
     for (const [tag, e] of Object.entries(RELEASE_JOURNAL)) if ("source" in e && e.source) expect(sha(srcBytes(e.source)!), tag).toBe(e.digest);
   });
-  it("the guard accepts the repository: the wrappers apply 100000–150000 (and the prerequisite, out of order on purpose); only the new forward migration is pending", () => {
+  it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 and (out of order on purpose) the prerequisite; nothing is pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20260926160000_trial_balance_processing_entitlement_wall.sql"]);
+    expect(r.pending).toEqual([]);   // 0022 applied the processing correction (reviewed at f21a58f)
     expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" }]);
     expect(r.mirrored.filter((m) => m.how === "release_wrapper").map((m) => m.source)).toEqual([
       "20260925100000_global_capabilities_entitlements_pricing.sql", "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
       "20260925120000_reporting_pack_issuance_binding.sql", "20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
       "20260925140000_workspace_capability_authorization.sql", "20260925150000_can_user_act_on_workspace_minimum_grant.sql",
+      "20260926160000_trial_balance_processing_entitlement_wall.sql",
     ]);
   });
 });
@@ -106,8 +107,8 @@ describe("the guard fails closed on the journal", () => {
     try {
       const w = read("0021_pr34_apply_20260925150000").replace(/20260925150000_can_user_act_on_workspace_minimum_grant\.sql/g, "20260926160000_trial_balance_processing_entitlement_wall.sql")
         .replace("3011c3414d7a0b5811015218ae35f8721663eaa32ddd7e5233f269fcb91daacb", sha(srcBytes("20260926160000_trial_balance_processing_entitlement_wall.sql")!));
-      addEntry(dir, "0022_pr34_apply_20260926160000", w);
-      expect((checkMigrationAuthority(dir) as Result).errors.join("\n")).toMatch(/release: 0022_pr34_apply_20260926160000 is a release entry that has not been reviewed/);
+      addEntry(dir, "0023_pr34_apply_20260926160000_again", w);
+      expect((checkMigrationAuthority(dir) as Result).errors.join("\n")).toMatch(/release: 0023_pr34_apply_20260926160000_again is a release entry that has not been reviewed/);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }, 60_000);
   it("editing a reviewed wrapper, or removing it from the journal, fails", () => {

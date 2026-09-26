@@ -8,6 +8,7 @@
 //   0016  apply prereq     20260915100000_financial_statement_documents.sql (template "verbatim_bytes"; applied out of
 //                          source order on purpose: an older migration first applied in this release)
 //   0017–0021  apply       20260925110000 … 20260925150000 (template "verbatim_once")
+//   0022  apply            20260926160000 processing entitlement wall (template "verbatim_noop"; reviewed at f21a58f)
 //
 // An apply wrapper must be BYTE-IDENTICAL to its reviewed template rendered with its own source name, the SHA-256 of
 // that source file in this repository (and, where pinned, its byte count). The templates below were reviewed once:
@@ -50,7 +51,46 @@ const epilogue = `  EXECUTE v_body;
 END
 $pr34$;`;
 
+// The processing-correction wrapper (0022, reviewed 2026-09-26 against approved head f21a58f): same safety properties
+// (constant name, digest check, one EXECUTE, applied_at only after it, no grants); a second application RETURNs as a
+// no-op instead of raising.
+const noopWrapper = ({ name, digest, head }) => `-- Digest-guarded application of the reviewed, authorized migration
+-- supabase/migrations/${name}
+-- (approved head ${head}, SHA-256
+--  ${digest}).
+-- The body is read verbatim from the staging table public._pr34_migration_bodies and is executed only
+-- when its digest matches exactly. Applying a second time is a no-op (applied_at already set).
+DO $pr34_wrap_${name.slice(0, 14)}$
+DECLARE
+  v_name TEXT := '${name}';
+  v_expected TEXT := '${digest}';
+  v_body TEXT;
+  v_sha TEXT;
+  v_applied TIMESTAMPTZ;
+BEGIN
+  SELECT body, encode(sha256(convert_to(body, 'UTF8')), 'hex'), applied_at
+    INTO v_body, v_sha, v_applied
+  FROM public._pr34_migration_bodies WHERE name = v_name;
+
+  IF v_body IS NULL THEN
+    RAISE EXCEPTION 'refused: reviewed migration body % is not staged', v_name USING ERRCODE = '55000';
+  END IF;
+  IF v_sha IS DISTINCT FROM v_expected THEN
+    RAISE EXCEPTION 'refused: staged body digest % does not match the authorized digest %', v_sha, v_expected USING ERRCODE = '55000';
+  END IF;
+  IF v_applied IS NOT NULL THEN
+    RAISE NOTICE 'already applied at %, nothing to do', v_applied;
+    RETURN;
+  END IF;
+
+  EXECUTE v_body;
+
+  UPDATE public._pr34_migration_bodies SET applied_at = now() WHERE name = v_name;
+END
+$pr34_wrap_${name.slice(0, 14)}$;`;   // (no trailing newline: exactly the reviewed file)
+
 export const TEMPLATES = {
+  verbatim_noop: noopWrapper,
   verbatim: ({ name, digest }) => header(name) + prologue(name, digest, false) + shaCheck("reviewed") + epilogue,
   verbatim_once: ({ name, digest }) => header(name) + prologue(name, digest, false) + shaCheck("reviewed") + `  IF (SELECT applied_at FROM public._pr34_migration_bodies WHERE name = v_name) IS NOT NULL THEN
     RAISE EXCEPTION 'PR34: % is already recorded as applied. Nothing was changed.', v_name USING ERRCODE = '55000';
@@ -87,6 +127,10 @@ export const RELEASE_JOURNAL = {
     digest: "c26e47f3a78b4fd0d47a5a2fab82a69caf13bfe2344e69687f9b30c13a8e5f9a", sha256: "e92be771abd9b197c743032efffbd80a717de720228fe1deb9120dfeb58982e2" },
   "0021_pr34_apply_20260925150000": { kind: "apply", template: "verbatim_once", source: "20260925150000_can_user_act_on_workspace_minimum_grant.sql",
     digest: "3011c3414d7a0b5811015218ae35f8721663eaa32ddd7e5233f269fcb91daacb", sha256: "05b399d1baf6fa502ebfa2a6f89df2536c199699d78a409c52c6eb99337a1188" },
+  // The approved processing correction (release blocker P-1), applied by Lovable after review at f21a58f.
+  "0022_pr34_apply_20260926160000": { kind: "apply", template: "verbatim_noop", source: "20260926160000_trial_balance_processing_entitlement_wall.sql",
+    digest: "d032fb0821210b59937e8f513d5de126fb31bbcffff151a91d459dd33914e868", head: "f21a58f7a8e9e2aa09840e5af716e445f6ab0b8b",
+    sha256: "71f4353f1a599b534fbbf696440c9252d2d7debd64b56a36f83d1d1148c2d5a1" },
 };
 
 const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
@@ -177,7 +221,7 @@ export function checkReleaseEntry(tag, text, srcBytes) {
   if (!src) return { problems: [...problems, `${tag} applies an unknown migration ${entry.source}`] };
   if (sha256(src) !== entry.digest) problems.push(`${tag}: the pinned digest does not match ${entry.source} in this repository`);
   if (entry.bytes !== undefined && src.length !== entry.bytes) problems.push(`${tag}: the pinned byte count ${entry.bytes} does not match ${entry.source} (${src.length})`);
-  const rendered = TEMPLATES[entry.template]?.({ name: entry.source, digest: sha256(src), bytes: src.length, blob: entry.blob });
+  const rendered = TEMPLATES[entry.template]?.({ name: entry.source, digest: sha256(src), bytes: src.length, blob: entry.blob, head: entry.head });
   if (rendered !== text.replace(/\r\n/g, "\n")) problems.push(`${tag} is not exactly the reviewed "${entry.template}" wrapper for ${entry.source}`);
   problems.push(...checkApplyWrapperStructure(text).map((p) => `${tag}: ${p}`));
   return { covers: entry.source, outOfOrder: entry.outOfOrder === true, problems };

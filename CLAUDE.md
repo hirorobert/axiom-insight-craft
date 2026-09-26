@@ -809,14 +809,15 @@ migration is applied by the owner, hosted company creation stays unrestricted.
 
 ### 9.3 CFO Close Capabilities, Walls and Pricing (`20260925100000`–`20260925150000`)
 
-**Production state (2026-09-26, Lovable's controlled release; recorded in Drizzle entries `0013`–`0021`, reviewed by
+**Production state (2026-09-26, Lovable's controlled release; recorded in Drizzle entries `0013`–`0022`, reviewed by
 `scripts/ci/releaseJournal.mjs`, migration-authority rule 8).** The release is NOT complete:
 - APPLIED in production, byte-for-byte as reviewed at `c2c1e8e` (each wrapper verifies the SHA-256 before executing):
   `20260925100000`–`20260925150000`, and the prerequisite `20260915100000_financial_statement_documents.sql`
   (applied out of source order in this release).
-- NOT applied: the forward migration `20260926160000_trial_balance_processing_entitlement_wall.sql`.
-- NOT deployed: the corrected `process-trial-balance` (entitlement refusal before any Storage access; `source_missing`).
-  Production runs the `c2c1e8e` version.
+- APPLIED in production (wrapper `0022`, digest-verified): the forward migration
+  `20260926160000_trial_balance_processing_entitlement_wall.sql`, byte-for-byte as reviewed at `f21a58f`.
+- DEPLOYED: the corrected `process-trial-balance` (entitlement refusal before any Storage access; checked recovery
+  write; `processingSource.ts` classification), identical to `f21a58f`.
 - PENDING CLEANUP (release-only objects, not application schema): `public._pr34_probe`, `public._pr34_migration_bodies`.
 - Applied migrations are never edited (SHA-256 pinned in `src/lib/__tests__/appliedMigrationsImmutable.test.ts`); every
   further change is a new forward migration.
