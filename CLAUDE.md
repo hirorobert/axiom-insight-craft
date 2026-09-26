@@ -869,6 +869,15 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   continue-on-error runner changes nothing (proven with the clean / upgrade convergence in `planCapabilities.mjs`).
   An invitation shows exactly the capabilities it carries and the withdrawn ones a title does not restore
   (`invitation_capability_summary`).
+- **Security corrections M-1 / M-2:** `scripts/ci/atomicEnvelope.mjs` parses an atomic migration FAIL-CLOSED: exactly one
+  `DO $cfoclose_<label>$` envelope with only comments / whitespace outside it, unique `$m<label><aaa>$` segments,
+  no dynamic `EXECUTE` inside a segment, no nested envelope, no unrecognised DO-body content, at least one statement —
+  anything else is an error in `assertMigrationAuthority.mjs` (rule 7) and the trigger-replay guard (mutation tests:
+  `src/lib/__tests__/atomicEnvelope.test.ts`). An EXPLICIT capability revocation is remembered per (workspace, person,
+  capability) in the append-only `workspace_capability_revocations`: removal, re-invitation, acceptance, title changes
+  and repeated invitations never lift it (templates skip it; `has_workspace_capability` refuses it); only an explicit,
+  authorized `grant_member_capability` lifts it (who / when / why recorded). `MEMBERSHIP_REMOVED` / `TITLE_CHANGED` are
+  not explicit revocations. Grants, revocations and template provisioning serialise per (workspace, person).
 - **Security corrections (B-1..B-7):** an invitee can change only `accepted_at` on their own pending membership
   (`firm_members_update_guard`); no UPDATE assigns the owner title or moves a membership; a title change never adds or
   restores a capability. Reconciliation / EFDMS scope bindings are immutable and UPDATE / DELETE are authorized on the

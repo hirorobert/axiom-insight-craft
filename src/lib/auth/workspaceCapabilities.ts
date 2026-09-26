@@ -64,15 +64,22 @@ export const CAPABILITY_LABELS: Readonly<Record<WorkspaceCapability, string>> = 
 
 /**
  * What an invitation carries, in words, from invite-firm-member's structured answer: the capabilities the person holds
- * on acceptance and, on a re-invitation, the ones the title would suggest but the invitation does NOT carry (withdrawn
- * earlier; a title never restores them). Unknown codes are ignored; nothing is inferred from the title.
+ * on acceptance and each capability the title would suggest but the invitation does NOT carry, with the reason —
+ * EXPLICITLY_REVOKED (a revocation still in force; only an explicit grant restores it, never a re-invitation or a
+ * title) or NOT_GRANTED (a title never adds a capability). Unknown codes are ignored; nothing is inferred from the title.
  */
 export function describeInvitationCapabilities(raw: unknown): string {
   const r = (raw && typeof raw === "object" ? raw : {}) as { capabilities?: unknown; withheld?: unknown };
-  const names = (v: unknown) => (Array.isArray(v) ? v : []).filter((c): c is WorkspaceCapability => typeof c === "string" && c in CAPABILITY_LABELS).map((c) => CAPABILITY_LABELS[c]);
-  const held = names(r.capabilities);
-  const withheld = names(r.withheld);
+  const known = (c: unknown): c is WorkspaceCapability => typeof c === "string" && c in CAPABILITY_LABELS;
+  const held = (Array.isArray(r.capabilities) ? r.capabilities : []).filter(known).map((c) => CAPABILITY_LABELS[c]);
+  const withheld = (Array.isArray(r.withheld) ? r.withheld : [])
+    .map((w) => (w && typeof w === "object" ? (w as { capability?: unknown; reason?: unknown }) : { capability: w, reason: "NOT_GRANTED" }))
+    .filter((w) => known(w.capability));
+  const byReason = (reason: string) => withheld.filter((w) => (w.reason === "EXPLICITLY_REVOKED" ? "EXPLICITLY_REVOKED" : "NOT_GRANTED") === reason).map((w) => CAPABILITY_LABELS[w.capability as WorkspaceCapability]);
+  const revoked = byReason("EXPLICITLY_REVOKED");
+  const notGranted = byReason("NOT_GRANTED");
   const parts = [held.length > 0 ? `On acceptance: ${held.join(", ")}.` : "On acceptance: no capabilities (view only)."];
-  if (withheld.length > 0) parts.push(`Not included (withdrawn earlier; grant explicitly if intended): ${withheld.join(", ")}.`);
+  if (revoked.length > 0) parts.push(`Withheld — explicitly revoked earlier; only an explicit grant restores it: ${revoked.join(", ")}.`);
+  if (notGranted.length > 0) parts.push(`Not granted by this invitation (a title never adds a capability): ${notGranted.join(", ")}.`);
   return parts.join(" ");
 }

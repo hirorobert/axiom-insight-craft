@@ -247,20 +247,20 @@ $mentitlementsaay$;
 ALTER TABLE public.entitlement_overrides DROP CONSTRAINT chk_eo_feature_code
 $mentitlementsaaz$;
 
-  EXECUTE $mentitlementsaaa$
+  EXECUTE $mentitlementsaba$
 ALTER TABLE public.entitlement_overrides ADD COLUMN capacity_value INTEGER NULL
-$mentitlementsaaa$;
+$mentitlementsaba$;
 
-  EXECUTE $mentitlementsaab$
+  EXECUTE $mentitlementsabb$
 -- A legacy MULTI_COMPANY override meant "more than one company": carried as Firm capacity (25).
 UPDATE public.entitlement_overrides eo
    SET capacity_value = CASE WHEN eo.feature_code = 'MULTI_COMPANY' THEN 25 END,
        feature_code = a.canonical_code
   FROM public.commercial_capability_aliases a
  WHERE a.legacy_code = eo.feature_code
-$mentitlementsaab$;
+$mentitlementsabb$;
 
-  EXECUTE $mentitlementsaac$
+  EXECUTE $mentitlementsabc$
 ALTER TABLE public.entitlement_overrides
   ADD CONSTRAINT chk_eo_feature_code CHECK (feature_code IN (
     'CLOSE_ASSURANCE','COMPARATIVE_REPORTING','STATEMENT_CERTIFICATION','REPORTING_PACK_EXPORT','CLOSE_INSIGHTS','ENTITY_CAPACITY','NAMED_USER_SEATS')),
@@ -269,16 +269,16 @@ ALTER TABLE public.entitlement_overrides
   ADD CONSTRAINT chk_eo_capacity CHECK (
     (feature_code IN ('ENTITY_CAPACITY','NAMED_USER_SEATS') AND capacity_value IS NOT NULL AND capacity_value > 0)
     OR (feature_code NOT IN ('ENTITY_CAPACITY','NAMED_USER_SEATS') AND capacity_value IS NULL))
-$mentitlementsaac$;
+$mentitlementsabc$;
 
-  EXECUTE $mentitlementsaad$
+  EXECUTE $mentitlementsabd$
 -- ── 4. Offers: retire the $49 / $499 legacy offers; seed Practice and Firm (non-purchasable) ──
 UPDATE public.commercial_offers
    SET is_active = false, is_purchasable = false, effective_end = GREATEST(now(), effective_start + interval '1 second'), updated_at = now()
  WHERE offer_code IN ('CFOCLOSE_PROFESSIONAL_GLOBAL_USD_MONTHLY', 'CFOCLOSE_PROFESSIONAL_GLOBAL_USD_ANNUAL')
-$mentitlementsaad$;
+$mentitlementsabd$;
 
-  EXECUTE $mentitlementsaae$
+  EXECUTE $mentitlementsabe$
 INSERT INTO public.commercial_offers (offer_code, plan_id, market_code, currency_code, amount_minor, currency_exponent, billing_interval, billing_interval_count)
 SELECT v.offer_code, cp.id, 'GLOBAL', 'USD', v.amount, 2, v.billing_interval, 1
   FROM public.commercial_plans cp
@@ -288,9 +288,9 @@ SELECT v.offer_code, cp.id, 'GLOBAL', 'USD', v.amount, 2, v.billing_interval, 1
                ('FIRM',     'CFOCLOSE_FIRM_GLOBAL_USD_MONTHLY',     29900::bigint, 'MONTHLY'),
                ('FIRM',     'CFOCLOSE_FIRM_GLOBAL_USD_ANNUAL',     299000::bigint, 'ANNUAL')) AS v(plan_code, offer_code, amount, billing_interval)
     ON v.plan_code = cp.code
-$mentitlementsaae$;
+$mentitlementsabe$;
 
-  EXECUTE $mentitlementsaaf$
+  EXECUTE $mentitlementsabf$
 -- Additional named-user seat prices: separate from the base-plan offers (a seat is never a plan). USD, per seat,
 -- per interval. Not purchasable: there is no checkout; the purchased quantity lives on the licence.
 CREATE TABLE public.commercial_additional_seat_prices (
@@ -312,33 +312,33 @@ CREATE TABLE public.commercial_additional_seat_prices (
   CONSTRAINT chk_casp_interval CHECK (billing_interval IN ('MONTHLY', 'ANNUAL')),
   CONSTRAINT chk_casp_currency CHECK (currency_code ~ '^[A-Z]{3}$' AND currency_exponent BETWEEN 0 AND 4)
 )
-$mentitlementsaaf$;
+$mentitlementsabf$;
 
-  EXECUTE $mentitlementsaag$
+  EXECUTE $mentitlementsabg$
 CREATE UNIQUE INDEX uq_casp_active_price ON public.commercial_additional_seat_prices (plan_id, market_code, currency_code, billing_interval) WHERE is_active
-$mentitlementsaag$;
+$mentitlementsabg$;
 
-  EXECUTE $mentitlementsaah$
+  EXECUTE $mentitlementsabh$
 ALTER TABLE public.commercial_additional_seat_prices ENABLE ROW LEVEL SECURITY
-$mentitlementsaah$;
+$mentitlementsabh$;
 
-  EXECUTE $mentitlementsaai$
+  EXECUTE $mentitlementsabi$
 CREATE POLICY "casp_select_public" ON public.commercial_additional_seat_prices FOR SELECT USING (true)
-$mentitlementsaai$;
+$mentitlementsabi$;
 
-  EXECUTE $mentitlementsaaj$
+  EXECUTE $mentitlementsabj$
 REVOKE ALL ON public.commercial_additional_seat_prices FROM PUBLIC, anon, authenticated
-$mentitlementsaaj$;
+$mentitlementsabj$;
 
-  EXECUTE $mentitlementsaak$
+  EXECUTE $mentitlementsabk$
 GRANT SELECT ON public.commercial_additional_seat_prices TO anon, authenticated
-$mentitlementsaak$;
+$mentitlementsabk$;
 
-  EXECUTE $mentitlementsaal$
+  EXECUTE $mentitlementsabl$
 GRANT ALL ON public.commercial_additional_seat_prices TO service_role
-$mentitlementsaal$;
+$mentitlementsabl$;
 
-  EXECUTE $mentitlementsaam$
+  EXECUTE $mentitlementsabm$
 INSERT INTO public.commercial_additional_seat_prices (price_code, plan_id, market_code, currency_code, currency_exponent, amount_minor, billing_interval)
 SELECT v.price_code, cp.id, 'GLOBAL', 'USD', 2, v.amount, v.billing_interval
   FROM public.commercial_plans cp
@@ -348,9 +348,9 @@ SELECT v.price_code, cp.id, 'GLOBAL', 'USD', 2, v.amount, v.billing_interval
                ('FIRM',     'CFOCLOSE_FIRM_SEAT_GLOBAL_USD_MONTHLY',      2000::bigint, 'MONTHLY'),
                ('FIRM',     'CFOCLOSE_FIRM_SEAT_GLOBAL_USD_ANNUAL',      20000::bigint, 'ANNUAL')) AS v(plan_code, price_code, amount, billing_interval)
     ON v.plan_code = cp.code
-$mentitlementsaam$;
+$mentitlementsabm$;
 
-  EXECUTE $mentitlementsaan$
+  EXECUTE $mentitlementsabn$
 -- ── 5. The entitlement resolver (supersedes 20260905093408) ─────────────────────────────────
 -- For one billing account and one capability (canonical or legacy code). UNKNOWN != NOT_ENTITLED != ENTITLED.
 -- Included capabilities are ENTITLED for everyone, with or without a billing record.
@@ -410,9 +410,9 @@ BEGIN
   RETURN jsonb_build_object('status','NOT_ENTITLED','reason','PLAN_DOES_NOT_INCLUDE_FEATURE','capability',v_cap,'licence_status',v_licence.licence_status,'plan_code',v_licence.plan_code,'source',NULL);
 END;
 $$
-$mentitlementsaan$;
+$mentitlementsabn$;
 
-  EXECUTE $mentitlementsaao$
+  EXECUTE $mentitlementsabo$
 -- Entity capacity of one billing account: the current plan's capacity (Free when there is no current licence),
 -- raised by an active ENTITY_CAPACITY override. determined = false (and creation refused) when neither a plan
 -- number nor an override exists (e.g. an Enterprise licence whose contract capacity was never recorded).
@@ -455,9 +455,9 @@ BEGIN
   RETURN jsonb_build_object('capacity', v_plan_cap, 'determined', v_plan_cap IS NOT NULL, 'plan_code', v_plan_code, 'source', v_source);
 END;
 $$
-$mentitlementsaao$;
+$mentitlementsabo$;
 
-  EXECUTE $mentitlementsaap$
+  EXECUTE $mentitlementsabp$
 -- Named-user seats of one billing account:
 --   allowed_named_users = included_seats + additional_seats
 -- Free (no billing record, no current licence, or a FREE licence) is ALWAYS one named user with no additional
@@ -512,9 +512,9 @@ BEGIN
     'additional_seats_purchasable', v_lic.additional_seats_purchasable, 'source', v_source);
 END;
 $$
-$mentitlementsaap$;
+$mentitlementsabp$;
 
-  EXECUTE $mentitlementsaaq$
+  EXECUTE $mentitlementsabq$
 -- ── 6. Workspace access and THE paid-action authority ───────────────────────────────────────
 -- How a user reaches a workspace: the account that created it, an accepted membership, or an active explicit
 -- capability grant. A membership's occupational label is never read.
@@ -527,9 +527,9 @@ RETURNS TEXT LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, 
     WHEN EXISTS (SELECT 1 FROM public.workspace_capability_grants g WHERE g.company_id = p_company_id AND g.grantee_user_id = p_user AND g.revoked_at IS NULL) THEN 'capability_grant'
   END;
 $$
-$mentitlementsaaq$;
+$mentitlementsabq$;
 
-  EXECUTE $mentitlementsaar$
+  EXECUTE $mentitlementsabr$
 -- AUTHORIZED = authenticated user AND workspace access AND known capability AND the workspace's billing account is
 -- entitled. Every failure denies with a stable code. Operation-specific invariants (lifecycle state, validation
 -- gates, stage locks) remain the job of the operation itself and are never relaxed by this.
@@ -566,34 +566,34 @@ BEGIN
     'plan_code', v_ent->>'plan_code', 'required_plan', 'PRACTICE', 'reason', v_ent->>'reason');
 END;
 $$
-$mentitlementsaar$;
+$mentitlementsabr$;
 
-  EXECUTE $mentitlementsaas$
+  EXECUTE $mentitlementsabs$
 -- For the signed-in user (authenticated). Explanatory for the UI and callable by clients; never trusted alone.
 CREATE OR REPLACE FUNCTION public.authorize_paid_action(p_company_id UUID, p_capability TEXT)
 RETURNS JSONB LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT public._authorize_paid_action(auth.uid(), p_company_id, p_capability);
 $$
-$mentitlementsaas$;
+$mentitlementsabs$;
 
-  EXECUTE $mentitlementsaat$
+  EXECUTE $mentitlementsabt$
 -- For Edge Functions (service_role), which pass the user id they derived from the verified JWT.
 CREATE OR REPLACE FUNCTION public.authorize_paid_action_for_user(p_user UUID, p_company_id UUID, p_capability TEXT)
 RETURNS JSONB LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT public._authorize_paid_action(p_user, p_company_id, p_capability);
 $$
-$mentitlementsaat$;
+$mentitlementsabt$;
 
-  EXECUTE $mentitlementsaau$
+  EXECUTE $mentitlementsabu$
 -- For scheduled, system-initiated work with no user (service_role): is this workspace's account entitled?
 CREATE OR REPLACE FUNCTION public.workspace_capability_entitled(p_company_id UUID, p_capability TEXT)
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT COALESCE((public._resolve_entitlement_for_owner(
     (SELECT c.user_id FROM public.companies c WHERE c.id = p_company_id), p_capability))->>'status' = 'ENTITLED', false);
 $$
-$mentitlementsaau$;
+$mentitlementsabu$;
 
-  EXECUTE $mentitlementsaav$
+  EXECUTE $mentitlementsabv$
 -- The database-mutation wall used by triggers: the workspace's account must hold the capability. Raises SQLSTATE
 -- PT402 (HTTP 402 through PostgREST) with the capability code as the structured DETAIL.
 CREATE OR REPLACE FUNCTION public._require_workspace_capability(p_company_id UUID, p_capability TEXT)
@@ -605,9 +605,9 @@ BEGIN
   END IF;
 END;
 $$
-$mentitlementsaav$;
+$mentitlementsabv$;
 
-  EXECUTE $mentitlementsaaw$
+  EXECUTE $mentitlementsabw$
 -- What the signed-in user may see about a workspace's commercial state (explanatory only).
 CREATE OR REPLACE FUNCTION public.get_workspace_commercial_state(p_company_id UUID)
 RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -630,9 +630,9 @@ BEGIN
     'capabilities', v_caps);
 END;
 $$
-$mentitlementsaaw$;
+$mentitlementsabw$;
 
-  EXECUTE $mentitlementsaax$
+  EXECUTE $mentitlementsabx$
 -- ── 7. Close Certification wall ──────────────────────────────────────────────────────────────
 -- A NEW sign-off event (a tier newly signed, or the status newly advanced beyond draft) needs the capability.
 -- Drafts, reads and existing sign-offs are untouched.
@@ -650,19 +650,19 @@ BEGIN
   RETURN NEW;
 END;
 $$
-$mentitlementsaax$;
+$mentitlementsabx$;
 
-  EXECUTE $mentitlementsaay$
+  EXECUTE $mentitlementsaby$
 DROP TRIGGER IF EXISTS trg_sso_statement_certification_wall ON public.statement_sign_offs
-$mentitlementsaay$;
+$mentitlementsaby$;
 
-  EXECUTE $mentitlementsaaz$
+  EXECUTE $mentitlementsabz$
 CREATE TRIGGER trg_sso_statement_certification_wall
   BEFORE INSERT OR UPDATE ON public.statement_sign_offs
   FOR EACH ROW EXECUTE FUNCTION public.statement_sign_off_certification_wall()
-$mentitlementsaaz$;
+$mentitlementsabz$;
 
-  EXECUTE $mentitlementsaba$
+  EXECUTE $mentitlementsaca$
 -- A report version newly marked FINAL is a certified close.
 CREATE OR REPLACE FUNCTION public.financial_statement_final_certification_wall()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -673,19 +673,19 @@ BEGIN
   RETURN NEW;
 END;
 $$
-$mentitlementsaba$;
+$mentitlementsaca$;
 
-  EXECUTE $mentitlementsabb$
+  EXECUTE $mentitlementsacb$
 DROP TRIGGER IF EXISTS trg_fsp_statement_certification_wall ON public.financial_statement_publications
-$mentitlementsabb$;
+$mentitlementsacb$;
 
-  EXECUTE $mentitlementsabc$
+  EXECUTE $mentitlementsacc$
 CREATE TRIGGER trg_fsp_statement_certification_wall
   BEFORE INSERT ON public.financial_statement_publications
   FOR EACH ROW EXECUTE FUNCTION public.financial_statement_final_certification_wall()
-$mentitlementsabc$;
+$mentitlementsacc$;
 
-  EXECUTE $mentitlementsabd$
+  EXECUTE $mentitlementsacd$
 -- ── 8. Close Insights wall ───────────────────────────────────────────────────────────────────
 -- Every Close Insights table carries its workspace (company_id NOT NULL).
 CREATE OR REPLACE FUNCTION public.close_insights_wall()
@@ -695,41 +695,41 @@ BEGIN
   RETURN NEW;
 END;
 $$
-$mentitlementsabd$;
+$mentitlementsacd$;
 
-  EXECUTE $mentitlementsabe$
+  EXECUTE $mentitlementsace$
 DROP TRIGGER IF EXISTS trg_close_insights_wall ON public.variance_runs
-$mentitlementsabe$;
+$mentitlementsace$;
 
-  EXECUTE $mentitlementsabf$
+  EXECUTE $mentitlementsacf$
 CREATE TRIGGER trg_close_insights_wall BEFORE INSERT ON public.variance_runs FOR EACH ROW EXECUTE FUNCTION public.close_insights_wall()
-$mentitlementsabf$;
+$mentitlementsacf$;
 
-  EXECUTE $mentitlementsabg$
+  EXECUTE $mentitlementsacg$
 DROP TRIGGER IF EXISTS trg_close_insights_wall ON public.maono_insights
-$mentitlementsabg$;
+$mentitlementsacg$;
 
-  EXECUTE $mentitlementsabh$
+  EXECUTE $mentitlementsach$
 CREATE TRIGGER trg_close_insights_wall BEFORE INSERT ON public.maono_insights FOR EACH ROW EXECUTE FUNCTION public.close_insights_wall()
-$mentitlementsabh$;
+$mentitlementsach$;
 
-  EXECUTE $mentitlementsabi$
+  EXECUTE $mentitlementsaci$
 DROP TRIGGER IF EXISTS trg_close_insights_wall ON public.cashflow_forecasts
-$mentitlementsabi$;
+$mentitlementsaci$;
 
-  EXECUTE $mentitlementsabj$
+  EXECUTE $mentitlementsacj$
 CREATE TRIGGER trg_close_insights_wall BEFORE INSERT ON public.cashflow_forecasts FOR EACH ROW EXECUTE FUNCTION public.close_insights_wall()
-$mentitlementsabj$;
+$mentitlementsacj$;
 
-  EXECUTE $mentitlementsabk$
+  EXECUTE $mentitlementsack$
 DROP TRIGGER IF EXISTS trg_close_insights_wall ON public.variance_alerts
-$mentitlementsabk$;
+$mentitlementsack$;
 
-  EXECUTE $mentitlementsabl$
+  EXECUTE $mentitlementsacl$
 CREATE TRIGGER trg_close_insights_wall BEFORE INSERT ON public.variance_alerts FOR EACH ROW EXECUTE FUNCTION public.close_insights_wall()
-$mentitlementsabl$;
+$mentitlementsacl$;
 
-  EXECUTE $mentitlementsabm$
+  EXECUTE $mentitlementsacm$
 -- ── 9. Reporting Pack wall ───────────────────────────────────────────────────────────────────
 CREATE TABLE public.reporting_pack_issuances (
   id          UUID        NOT NULL DEFAULT gen_random_uuid(),
@@ -746,56 +746,56 @@ CREATE TABLE public.reporting_pack_issuances (
   CONSTRAINT chk_rpi_kind CHECK (pack_kind IN ('financial_statements_pdf', 'financial_statements_spreadsheet', 'financial_statements_data', 'filing_pack', 'client_pack', 'board_pack', 'management_letter', 'disclosure_notes', 'tax_computation', 'tax_workpaper')),
   CONSTRAINT uq_rpi_request UNIQUE (company_id, issued_by, request_id)
 )
-$mentitlementsabm$;
+$mentitlementsacm$;
 
-  EXECUTE $mentitlementsabn$
+  EXECUTE $mentitlementsacn$
 CREATE INDEX idx_rpi_company_period ON public.reporting_pack_issuances (company_id, period_year, issued_at DESC)
-$mentitlementsabn$;
+$mentitlementsacn$;
 
-  EXECUTE $mentitlementsabo$
+  EXECUTE $mentitlementsaco$
 ALTER TABLE public.reporting_pack_issuances ENABLE ROW LEVEL SECURITY
-$mentitlementsabo$;
+$mentitlementsaco$;
 
-  EXECUTE $mentitlementsabp$
+  EXECUTE $mentitlementsacp$
 -- Workspace-scoped read for the signed-in user; used by RLS, so the querying role executes it (it only ever
 -- answers for auth.uid()).
 CREATE OR REPLACE FUNCTION public.can_access_workspace(p_company_id UUID)
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT public._workspace_access_basis(auth.uid(), p_company_id) IS NOT NULL;
 $$
-$mentitlementsabp$;
+$mentitlementsacp$;
 
-  EXECUTE $mentitlementsabq$
+  EXECUTE $mentitlementsacq$
 CREATE POLICY "rpi_select_workspace" ON public.reporting_pack_issuances FOR SELECT USING (public.can_access_workspace(company_id))
-$mentitlementsabq$;
+$mentitlementsacq$;
 
-  EXECUTE $mentitlementsabr$
+  EXECUTE $mentitlementsacr$
 REVOKE ALL ON public.reporting_pack_issuances FROM PUBLIC, anon, authenticated
-$mentitlementsabr$;
+$mentitlementsacr$;
 
-  EXECUTE $mentitlementsabs$
+  EXECUTE $mentitlementsacs$
 GRANT SELECT ON public.reporting_pack_issuances TO authenticated
-$mentitlementsabs$;
+$mentitlementsacs$;
 
-  EXECUTE $mentitlementsabt$
+  EXECUTE $mentitlementsact$
 GRANT SELECT ON public.reporting_pack_issuances TO service_role
-$mentitlementsabt$;
+$mentitlementsact$;
 
-  EXECUTE $mentitlementsabu$
+  EXECUTE $mentitlementsacu$
 CREATE OR REPLACE FUNCTION public.reporting_pack_issuances_immutable()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
   RAISE EXCEPTION 'Iron Dome: reporting_pack_issuances is append-only (% refused).', TG_OP USING ERRCODE = 'P0001';
 END;
 $$
-$mentitlementsabu$;
+$mentitlementsacu$;
 
-  EXECUTE $mentitlementsabv$
+  EXECUTE $mentitlementsacv$
 CREATE TRIGGER trg_rpi_immutable BEFORE UPDATE OR DELETE ON public.reporting_pack_issuances
   FOR EACH ROW EXECUTE FUNCTION public.reporting_pack_issuances_immutable()
-$mentitlementsabv$;
+$mentitlementsacv$;
 
-  EXECUTE $mentitlementsabw$
+  EXECUTE $mentitlementsacw$
 -- The only way to issue a formal Reporting Pack. Idempotent per (workspace, user, request id).
 -- Outcomes: issued | already_issued | entitlement_required | workspace_access_denied | unauthenticated | invalid_request
 CREATE OR REPLACE FUNCTION public.issue_reporting_pack(p_company_id UUID, p_period_year INTEGER, p_pack_kind TEXT, p_request_id UUID)
@@ -828,19 +828,19 @@ BEGIN
   RETURN jsonb_build_object('outcome', 'issued', 'issuance_id', v_id);
 END;
 $$
-$mentitlementsabw$;
+$mentitlementsacw$;
 
-  EXECUTE $mentitlementsabx$
+  EXECUTE $mentitlementsacx$
 -- ── 10. Entity Capacity wall ─────────────────────────────────────────────────────────────────
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS creation_request_id UUID NULL
-$mentitlementsabx$;
+$mentitlementsacx$;
 
-  EXECUTE $mentitlementsaby$
+  EXECUTE $mentitlementsacy$
 CREATE UNIQUE INDEX IF NOT EXISTS uq_companies_creation_request
   ON public.companies (user_id, creation_request_id) WHERE creation_request_id IS NOT NULL
-$mentitlementsaby$;
+$mentitlementsacy$;
 
-  EXECUTE $mentitlementsabz$
+  EXECUTE $mentitlementsacz$
 -- Activating a workspace (insert, reactivation, or moving it to another account) counts against that account's
 -- capacity. Serialised per account with a transaction-scoped advisory lock, so simultaneous requests cannot
 -- exceed it. Deactivation, renaming and every other change are never blocked; nothing is ever hidden or removed.
@@ -869,19 +869,19 @@ BEGIN
   RETURN NEW;
 END;
 $$
-$mentitlementsabz$;
+$mentitlementsacz$;
 
-  EXECUTE $mentitlementsaca$
+  EXECUTE $mentitlementsada$
 DROP TRIGGER IF EXISTS trg_companies_entity_capacity ON public.companies
-$mentitlementsaca$;
+$mentitlementsada$;
 
-  EXECUTE $mentitlementsacb$
+  EXECUTE $mentitlementsadb$
 CREATE TRIGGER trg_companies_entity_capacity
   BEFORE INSERT OR UPDATE OF is_active, user_id ON public.companies
   FOR EACH ROW EXECUTE FUNCTION public.company_entity_capacity_wall()
-$mentitlementsacb$;
+$mentitlementsadb$;
 
-  EXECUTE $mentitlementsacc$
+  EXECUTE $mentitlementsadc$
 -- Capacity of the signed-in user's own account.
 CREATE OR REPLACE FUNCTION public.get_my_entity_capacity()
 RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -897,9 +897,9 @@ BEGIN
     (SELECT count(*) FROM public.companies c WHERE c.user_id = v_user AND COALESCE(c.is_active, true)));
 END;
 $$
-$mentitlementsacc$;
+$mentitlementsadc$;
 
-  EXECUTE $mentitlementsacd$
+  EXECUTE $mentitlementsadd$
 -- Creates a workspace for the signed-in user. Idempotent per request id: a retry returns the same workspace.
 -- Runs as the caller (RLS and every trigger apply). Outcomes: created | already_created | capacity_reached |
 -- capacity_undetermined | unauthenticated | invalid_request
@@ -940,9 +940,9 @@ BEGIN
   RETURN jsonb_build_object('outcome', 'created', 'company_id', v_id);
 END;
 $$
-$mentitlementsacd$;
+$mentitlementsadd$;
 
-  EXECUTE $mentitlementsace$
+  EXECUTE $mentitlementsade$
 -- ── 10b. Named-user seat wall ────────────────────────────────────────────────────────────────
 -- A named user is a distinct HUMAN account (auth.users) with a place on any of the billing account's workspaces:
 --   the account holder itself (always, the included seat) ∪ firm_members (pending invitations reserve a seat) ∪
@@ -962,9 +962,9 @@ RETURNS TABLE (named_user_id UUID) LANGUAGE sql STABLE SECURITY DEFINER SET sear
   SELECT g.grantee_user_id FROM public.workspace_capability_grants g JOIN public.companies c ON c.id = g.company_id
    WHERE c.user_id = p_account AND g.revoked_at IS NULL AND g.id IS DISTINCT FROM p_exclude_grant;
 $$
-$mentitlementsace$;
+$mentitlementsade$;
 
-  EXECUTE $mentitlementsacf$
+  EXECUTE $mentitlementsadf$
 -- Fires when a person is newly invited, added, moved onto a workspace, granted access, or activated (an invitation
 -- accepted). Serialised per billing account with a transaction-scoped advisory lock, so simultaneous invitations,
 -- acceptances and grants cannot exceed the allowance. Removals, revocations, role changes and every other update
@@ -1025,29 +1025,29 @@ BEGIN
   RETURN NEW;
 END;
 $$
-$mentitlementsacf$;
+$mentitlementsadf$;
 
-  EXECUTE $mentitlementsacg$
+  EXECUTE $mentitlementsadg$
 DROP TRIGGER IF EXISTS trg_firm_members_named_user_seats ON public.firm_members
-$mentitlementsacg$;
+$mentitlementsadg$;
 
-  EXECUTE $mentitlementsach$
+  EXECUTE $mentitlementsadh$
 CREATE TRIGGER trg_firm_members_named_user_seats
   BEFORE INSERT OR UPDATE OF user_id, company_id, accepted_at ON public.firm_members
   FOR EACH ROW EXECUTE FUNCTION public.named_user_seat_wall()
-$mentitlementsach$;
+$mentitlementsadh$;
 
-  EXECUTE $mentitlementsaci$
+  EXECUTE $mentitlementsadi$
 DROP TRIGGER IF EXISTS trg_wcg_named_user_seats ON public.workspace_capability_grants
-$mentitlementsaci$;
+$mentitlementsadi$;
 
-  EXECUTE $mentitlementsacj$
+  EXECUTE $mentitlementsadj$
 CREATE TRIGGER trg_wcg_named_user_seats
   BEFORE INSERT OR UPDATE OF grantee_user_id, company_id, revoked_at ON public.workspace_capability_grants
   FOR EACH ROW EXECUTE FUNCTION public.named_user_seat_wall()
-$mentitlementsacj$;
+$mentitlementsadj$;
 
-  EXECUTE $mentitlementsack$
+  EXECUTE $mentitlementsadk$
 -- Seat state of a workspace's billing account, for anyone with access to that workspace (explanatory only).
 CREATE OR REPLACE FUNCTION public.get_workspace_seat_capacity(p_company_id UUID)
 RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -1063,9 +1063,9 @@ BEGIN
     'reserved_named_users', (SELECT count(*) FROM public._account_named_users(v_account, true)));
 END;
 $$
-$mentitlementsack$;
+$mentitlementsadk$;
 
-  EXECUTE $mentitlementsacl$
+  EXECUTE $mentitlementsadl$
 -- Pre-check for the invitation Edge Function (service_role), BEFORE any email is sent or account created. The seat
 -- wall above remains the authority; this only avoids sending an invitation that could never be recorded.
 -- p_invitee NULL = a person without an account yet (always a new named user).
@@ -1097,9 +1097,9 @@ BEGIN
   RETURN jsonb_build_object('allowed', true, 'code', 'ALLOWED');
 END;
 $$
-$mentitlementsacl$;
+$mentitlementsadl$;
 
-  EXECUTE $mentitlementsacm$
+  EXECUTE $mentitlementsadm$
 -- Accepts the signed-in user's pending invitations one by one (runs as the caller; RLS and the seat wall apply).
 -- An invitation the inviting account has no seat for stays pending (nothing is deleted) and is reported by code.
 CREATE OR REPLACE FUNCTION public.accept_workspace_invitations()
@@ -1128,9 +1128,9 @@ BEGIN
   RETURN jsonb_build_object('outcome', 'ok', 'accepted', v_accepted, 'blocked', v_blocked);
 END;
 $$
-$mentitlementsacm$;
+$mentitlementsadm$;
 
-  EXECUTE $mentitlementsacn$
+  EXECUTE $mentitlementsadn$
 -- ── 11. Admin overrides: canonical codes; capacity through its own audited RPC ───────────────
 CREATE OR REPLACE FUNCTION public.admin_grant_entitlement_override(
   p_billing_customer_id UUID, p_feature_code TEXT, p_reason TEXT, p_effective_end TIMESTAMPTZ)
@@ -1159,9 +1159,9 @@ BEGIN
   RETURN jsonb_build_object('override_id', v_override_id);
 END;
 $$
-$mentitlementsacn$;
+$mentitlementsadn$;
 
-  EXECUTE $mentitlementsaco$
+  EXECUTE $mentitlementsado$
 CREATE OR REPLACE FUNCTION public.admin_grant_entity_capacity_override(
   p_billing_customer_id UUID, p_capacity INTEGER, p_reason TEXT, p_effective_end TIMESTAMPTZ)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog AS $$
@@ -1186,9 +1186,9 @@ BEGIN
   RETURN jsonb_build_object('override_id', v_override_id);
 END;
 $$
-$mentitlementsaco$;
+$mentitlementsado$;
 
-  EXECUTE $mentitlementsacp$
+  EXECUTE $mentitlementsadp$
 -- The negotiated included named users of an account (e.g. an Enterprise contract). Ignored on Free.
 CREATE OR REPLACE FUNCTION public.admin_grant_named_user_seats_override(
   p_billing_customer_id UUID, p_included_seats INTEGER, p_reason TEXT, p_effective_end TIMESTAMPTZ)
@@ -1214,9 +1214,9 @@ BEGIN
   RETURN jsonb_build_object('override_id', v_override_id);
 END;
 $$
-$mentitlementsacp$;
+$mentitlementsadp$;
 
-  EXECUTE $mentitlementsacq$
+  EXECUTE $mentitlementsadq$
 -- Records the purchased additional named-user seats on a licence (until a payment provider records them). This does
 -- not take or pretend any payment. Refused on a Free licence; a reduction never removes anyone.
 CREATE OR REPLACE FUNCTION public.admin_set_licence_additional_seats(p_licence_id UUID, p_quantity INTEGER, p_reason TEXT)
@@ -1244,9 +1244,9 @@ BEGIN
   RETURN jsonb_build_object('licence_id', p_licence_id, 'additional_seats', p_quantity);
 END;
 $$
-$mentitlementsacq$;
+$mentitlementsadq$;
 
-  EXECUTE $mentitlementsacr$
+  EXECUTE $mentitlementsadr$
 -- get_effective_entitlement (Ω1 signature kept): access now follows the same neutral workspace basis.
 CREATE OR REPLACE FUNCTION public.get_effective_entitlement(p_company_id UUID, p_feature_code TEXT)
 RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_catalog AS $$
@@ -1266,9 +1266,9 @@ BEGIN
   RETURN public._resolve_entitlement_for_owner(v_account, p_feature_code);
 END;
 $$
-$mentitlementsacr$;
+$mentitlementsadr$;
 
-  EXECUTE $mentitlementsacs$
+  EXECUTE $mentitlementsads$
 -- ── 12. Sign-off gate: neutral wording, identical logic (supersedes 20260713090437) ──────────
 CREATE OR REPLACE FUNCTION public.hesabu_block_signoff()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -1301,202 +1301,202 @@ BEGIN
   RETURN NEW;
 END;
 $$
-$mentitlementsacs$;
-
-  EXECUTE $mentitlementsact$
--- ── 13. Privileges ───────────────────────────────────────────────────────────────────────────
-REVOKE ALL ON FUNCTION public.commercial_canonical_capability(TEXT) FROM PUBLIC, anon, authenticated
-$mentitlementsact$;
-
-  EXECUTE $mentitlementsacu$
-REVOKE ALL ON FUNCTION public._resolve_entitlement_for_owner(UUID, TEXT) FROM PUBLIC, anon, authenticated
-$mentitlementsacu$;
-
-  EXECUTE $mentitlementsacv$
-REVOKE ALL ON FUNCTION public._entity_capacity_for_account(UUID) FROM PUBLIC, anon, authenticated
-$mentitlementsacv$;
-
-  EXECUTE $mentitlementsacw$
-REVOKE ALL ON FUNCTION public._workspace_access_basis(UUID, UUID) FROM PUBLIC, anon, authenticated
-$mentitlementsacw$;
-
-  EXECUTE $mentitlementsacx$
-REVOKE ALL ON FUNCTION public._authorize_paid_action(UUID, UUID, TEXT) FROM PUBLIC, anon, authenticated
-$mentitlementsacx$;
-
-  EXECUTE $mentitlementsacy$
-REVOKE ALL ON FUNCTION public._require_workspace_capability(UUID, TEXT) FROM PUBLIC, anon, authenticated
-$mentitlementsacy$;
-
-  EXECUTE $mentitlementsacz$
-REVOKE ALL ON FUNCTION public.statement_sign_off_certification_wall() FROM PUBLIC, anon, authenticated
-$mentitlementsacz$;
-
-  EXECUTE $mentitlementsada$
-REVOKE ALL ON FUNCTION public.financial_statement_final_certification_wall() FROM PUBLIC, anon, authenticated
-$mentitlementsada$;
-
-  EXECUTE $mentitlementsadb$
-REVOKE ALL ON FUNCTION public.close_insights_wall() FROM PUBLIC, anon, authenticated
-$mentitlementsadb$;
-
-  EXECUTE $mentitlementsadc$
-REVOKE ALL ON FUNCTION public.company_entity_capacity_wall() FROM PUBLIC, anon, authenticated
-$mentitlementsadc$;
-
-  EXECUTE $mentitlementsadd$
-REVOKE ALL ON FUNCTION public.reporting_pack_issuances_immutable() FROM PUBLIC, anon, authenticated
-$mentitlementsadd$;
-
-  EXECUTE $mentitlementsade$
-REVOKE ALL ON FUNCTION public.authorize_paid_action_for_user(UUID, UUID, TEXT) FROM PUBLIC, anon, authenticated
-$mentitlementsade$;
-
-  EXECUTE $mentitlementsadf$
-REVOKE ALL ON FUNCTION public.workspace_capability_entitled(UUID, TEXT) FROM PUBLIC, anon, authenticated
-$mentitlementsadf$;
-
-  EXECUTE $mentitlementsadg$
-GRANT EXECUTE ON FUNCTION public.authorize_paid_action_for_user(UUID, UUID, TEXT) TO service_role
-$mentitlementsadg$;
-
-  EXECUTE $mentitlementsadh$
-GRANT EXECUTE ON FUNCTION public.workspace_capability_entitled(UUID, TEXT) TO service_role
-$mentitlementsadh$;
-
-  EXECUTE $mentitlementsadi$
-REVOKE ALL ON FUNCTION public.authorize_paid_action(UUID, TEXT) FROM PUBLIC, anon
-$mentitlementsadi$;
-
-  EXECUTE $mentitlementsadj$
-GRANT EXECUTE ON FUNCTION public.authorize_paid_action(UUID, TEXT) TO authenticated
-$mentitlementsadj$;
-
-  EXECUTE $mentitlementsadk$
-REVOKE ALL ON FUNCTION public.get_workspace_commercial_state(UUID) FROM PUBLIC, anon
-$mentitlementsadk$;
-
-  EXECUTE $mentitlementsadl$
-GRANT EXECUTE ON FUNCTION public.get_workspace_commercial_state(UUID) TO authenticated
-$mentitlementsadl$;
-
-  EXECUTE $mentitlementsadm$
-REVOKE ALL ON FUNCTION public.can_access_workspace(UUID) FROM PUBLIC, anon
-$mentitlementsadm$;
-
-  EXECUTE $mentitlementsadn$
-GRANT EXECUTE ON FUNCTION public.can_access_workspace(UUID) TO authenticated
-$mentitlementsadn$;
-
-  EXECUTE $mentitlementsado$
-REVOKE ALL ON FUNCTION public.issue_reporting_pack(UUID, INTEGER, TEXT, UUID) FROM PUBLIC, anon
-$mentitlementsado$;
-
-  EXECUTE $mentitlementsadp$
-GRANT EXECUTE ON FUNCTION public.issue_reporting_pack(UUID, INTEGER, TEXT, UUID) TO authenticated
-$mentitlementsadp$;
-
-  EXECUTE $mentitlementsadq$
-REVOKE ALL ON FUNCTION public.get_my_entity_capacity() FROM PUBLIC, anon
-$mentitlementsadq$;
-
-  EXECUTE $mentitlementsadr$
-GRANT EXECUTE ON FUNCTION public.get_my_entity_capacity() TO authenticated
-$mentitlementsadr$;
-
-  EXECUTE $mentitlementsads$
-REVOKE ALL ON FUNCTION public.create_entity(UUID, TEXT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon
 $mentitlementsads$;
 
   EXECUTE $mentitlementsadt$
-GRANT EXECUTE ON FUNCTION public.create_entity(UUID, TEXT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated
+-- ── 13. Privileges ───────────────────────────────────────────────────────────────────────────
+REVOKE ALL ON FUNCTION public.commercial_canonical_capability(TEXT) FROM PUBLIC, anon, authenticated
 $mentitlementsadt$;
 
   EXECUTE $mentitlementsadu$
-REVOKE ALL ON FUNCTION public.admin_grant_entitlement_override(UUID, TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC, anon
+REVOKE ALL ON FUNCTION public._resolve_entitlement_for_owner(UUID, TEXT) FROM PUBLIC, anon, authenticated
 $mentitlementsadu$;
 
   EXECUTE $mentitlementsadv$
-GRANT EXECUTE ON FUNCTION public.admin_grant_entitlement_override(UUID, TEXT, TEXT, TIMESTAMPTZ) TO authenticated
+REVOKE ALL ON FUNCTION public._entity_capacity_for_account(UUID) FROM PUBLIC, anon, authenticated
 $mentitlementsadv$;
 
   EXECUTE $mentitlementsadw$
-REVOKE ALL ON FUNCTION public.admin_grant_entity_capacity_override(UUID, INTEGER, TEXT, TIMESTAMPTZ) FROM PUBLIC, anon
+REVOKE ALL ON FUNCTION public._workspace_access_basis(UUID, UUID) FROM PUBLIC, anon, authenticated
 $mentitlementsadw$;
 
   EXECUTE $mentitlementsadx$
-GRANT EXECUTE ON FUNCTION public.admin_grant_entity_capacity_override(UUID, INTEGER, TEXT, TIMESTAMPTZ) TO authenticated
+REVOKE ALL ON FUNCTION public._authorize_paid_action(UUID, UUID, TEXT) FROM PUBLIC, anon, authenticated
 $mentitlementsadx$;
 
   EXECUTE $mentitlementsady$
-REVOKE ALL ON FUNCTION public.get_effective_entitlement(UUID, TEXT) FROM PUBLIC, anon
+REVOKE ALL ON FUNCTION public._require_workspace_capability(UUID, TEXT) FROM PUBLIC, anon, authenticated
 $mentitlementsady$;
 
   EXECUTE $mentitlementsadz$
-GRANT EXECUTE ON FUNCTION public.get_effective_entitlement(UUID, TEXT) TO authenticated
+REVOKE ALL ON FUNCTION public.statement_sign_off_certification_wall() FROM PUBLIC, anon, authenticated
 $mentitlementsadz$;
 
   EXECUTE $mentitlementsaea$
-REVOKE ALL ON FUNCTION public._seat_capacity_for_account(UUID) FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public.financial_statement_final_certification_wall() FROM PUBLIC, anon, authenticated
 $mentitlementsaea$;
 
   EXECUTE $mentitlementsaeb$
-REVOKE ALL ON FUNCTION public._account_named_users(UUID, BOOLEAN, UUID, UUID) FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public.close_insights_wall() FROM PUBLIC, anon, authenticated
 $mentitlementsaeb$;
 
   EXECUTE $mentitlementsaec$
-REVOKE ALL ON FUNCTION public.named_user_seat_wall() FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public.company_entity_capacity_wall() FROM PUBLIC, anon, authenticated
 $mentitlementsaec$;
 
   EXECUTE $mentitlementsaed$
-REVOKE ALL ON FUNCTION public.seat_check_for_invitation(UUID, UUID) FROM PUBLIC, anon, authenticated
+REVOKE ALL ON FUNCTION public.reporting_pack_issuances_immutable() FROM PUBLIC, anon, authenticated
 $mentitlementsaed$;
 
   EXECUTE $mentitlementsaee$
-GRANT EXECUTE ON FUNCTION public.seat_check_for_invitation(UUID, UUID) TO service_role
+REVOKE ALL ON FUNCTION public.authorize_paid_action_for_user(UUID, UUID, TEXT) FROM PUBLIC, anon, authenticated
 $mentitlementsaee$;
 
   EXECUTE $mentitlementsaef$
-REVOKE ALL ON FUNCTION public.get_workspace_seat_capacity(UUID) FROM PUBLIC, anon
+REVOKE ALL ON FUNCTION public.workspace_capability_entitled(UUID, TEXT) FROM PUBLIC, anon, authenticated
 $mentitlementsaef$;
 
   EXECUTE $mentitlementsaeg$
-GRANT EXECUTE ON FUNCTION public.get_workspace_seat_capacity(UUID) TO authenticated
+GRANT EXECUTE ON FUNCTION public.authorize_paid_action_for_user(UUID, UUID, TEXT) TO service_role
 $mentitlementsaeg$;
 
   EXECUTE $mentitlementsaeh$
-REVOKE ALL ON FUNCTION public.accept_workspace_invitations() FROM PUBLIC, anon
+GRANT EXECUTE ON FUNCTION public.workspace_capability_entitled(UUID, TEXT) TO service_role
 $mentitlementsaeh$;
 
   EXECUTE $mentitlementsaei$
-GRANT EXECUTE ON FUNCTION public.accept_workspace_invitations() TO authenticated
+REVOKE ALL ON FUNCTION public.authorize_paid_action(UUID, TEXT) FROM PUBLIC, anon
 $mentitlementsaei$;
 
   EXECUTE $mentitlementsaej$
-REVOKE ALL ON FUNCTION public.admin_grant_named_user_seats_override(UUID, INTEGER, TEXT, TIMESTAMPTZ) FROM PUBLIC, anon
+GRANT EXECUTE ON FUNCTION public.authorize_paid_action(UUID, TEXT) TO authenticated
 $mentitlementsaej$;
 
   EXECUTE $mentitlementsaek$
-GRANT EXECUTE ON FUNCTION public.admin_grant_named_user_seats_override(UUID, INTEGER, TEXT, TIMESTAMPTZ) TO authenticated
+REVOKE ALL ON FUNCTION public.get_workspace_commercial_state(UUID) FROM PUBLIC, anon
 $mentitlementsaek$;
 
   EXECUTE $mentitlementsael$
-REVOKE ALL ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) FROM PUBLIC, anon
+GRANT EXECUTE ON FUNCTION public.get_workspace_commercial_state(UUID) TO authenticated
 $mentitlementsael$;
 
   EXECUTE $mentitlementsaem$
-GRANT EXECUTE ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) TO authenticated
+REVOKE ALL ON FUNCTION public.can_access_workspace(UUID) FROM PUBLIC, anon
 $mentitlementsaem$;
 
   EXECUTE $mentitlementsaen$
-REVOKE ALL ON FUNCTION public.hesabu_block_signoff() FROM PUBLIC
+GRANT EXECUTE ON FUNCTION public.can_access_workspace(UUID) TO authenticated
 $mentitlementsaen$;
 
   EXECUTE $mentitlementsaeo$
-GRANT EXECUTE ON FUNCTION public.hesabu_block_signoff() TO authenticated
+REVOKE ALL ON FUNCTION public.issue_reporting_pack(UUID, INTEGER, TEXT, UUID) FROM PUBLIC, anon
 $mentitlementsaeo$;
 
   EXECUTE $mentitlementsaep$
+GRANT EXECUTE ON FUNCTION public.issue_reporting_pack(UUID, INTEGER, TEXT, UUID) TO authenticated
+$mentitlementsaep$;
+
+  EXECUTE $mentitlementsaeq$
+REVOKE ALL ON FUNCTION public.get_my_entity_capacity() FROM PUBLIC, anon
+$mentitlementsaeq$;
+
+  EXECUTE $mentitlementsaer$
+GRANT EXECUTE ON FUNCTION public.get_my_entity_capacity() TO authenticated
+$mentitlementsaer$;
+
+  EXECUTE $mentitlementsaes$
+REVOKE ALL ON FUNCTION public.create_entity(UUID, TEXT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon
+$mentitlementsaes$;
+
+  EXECUTE $mentitlementsaet$
+GRANT EXECUTE ON FUNCTION public.create_entity(UUID, TEXT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated
+$mentitlementsaet$;
+
+  EXECUTE $mentitlementsaeu$
+REVOKE ALL ON FUNCTION public.admin_grant_entitlement_override(UUID, TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC, anon
+$mentitlementsaeu$;
+
+  EXECUTE $mentitlementsaev$
+GRANT EXECUTE ON FUNCTION public.admin_grant_entitlement_override(UUID, TEXT, TEXT, TIMESTAMPTZ) TO authenticated
+$mentitlementsaev$;
+
+  EXECUTE $mentitlementsaew$
+REVOKE ALL ON FUNCTION public.admin_grant_entity_capacity_override(UUID, INTEGER, TEXT, TIMESTAMPTZ) FROM PUBLIC, anon
+$mentitlementsaew$;
+
+  EXECUTE $mentitlementsaex$
+GRANT EXECUTE ON FUNCTION public.admin_grant_entity_capacity_override(UUID, INTEGER, TEXT, TIMESTAMPTZ) TO authenticated
+$mentitlementsaex$;
+
+  EXECUTE $mentitlementsaey$
+REVOKE ALL ON FUNCTION public.get_effective_entitlement(UUID, TEXT) FROM PUBLIC, anon
+$mentitlementsaey$;
+
+  EXECUTE $mentitlementsaez$
+GRANT EXECUTE ON FUNCTION public.get_effective_entitlement(UUID, TEXT) TO authenticated
+$mentitlementsaez$;
+
+  EXECUTE $mentitlementsafa$
+REVOKE ALL ON FUNCTION public._seat_capacity_for_account(UUID) FROM PUBLIC, anon, authenticated
+$mentitlementsafa$;
+
+  EXECUTE $mentitlementsafb$
+REVOKE ALL ON FUNCTION public._account_named_users(UUID, BOOLEAN, UUID, UUID) FROM PUBLIC, anon, authenticated
+$mentitlementsafb$;
+
+  EXECUTE $mentitlementsafc$
+REVOKE ALL ON FUNCTION public.named_user_seat_wall() FROM PUBLIC, anon, authenticated
+$mentitlementsafc$;
+
+  EXECUTE $mentitlementsafd$
+REVOKE ALL ON FUNCTION public.seat_check_for_invitation(UUID, UUID) FROM PUBLIC, anon, authenticated
+$mentitlementsafd$;
+
+  EXECUTE $mentitlementsafe$
+GRANT EXECUTE ON FUNCTION public.seat_check_for_invitation(UUID, UUID) TO service_role
+$mentitlementsafe$;
+
+  EXECUTE $mentitlementsaff$
+REVOKE ALL ON FUNCTION public.get_workspace_seat_capacity(UUID) FROM PUBLIC, anon
+$mentitlementsaff$;
+
+  EXECUTE $mentitlementsafg$
+GRANT EXECUTE ON FUNCTION public.get_workspace_seat_capacity(UUID) TO authenticated
+$mentitlementsafg$;
+
+  EXECUTE $mentitlementsafh$
+REVOKE ALL ON FUNCTION public.accept_workspace_invitations() FROM PUBLIC, anon
+$mentitlementsafh$;
+
+  EXECUTE $mentitlementsafi$
+GRANT EXECUTE ON FUNCTION public.accept_workspace_invitations() TO authenticated
+$mentitlementsafi$;
+
+  EXECUTE $mentitlementsafj$
+REVOKE ALL ON FUNCTION public.admin_grant_named_user_seats_override(UUID, INTEGER, TEXT, TIMESTAMPTZ) FROM PUBLIC, anon
+$mentitlementsafj$;
+
+  EXECUTE $mentitlementsafk$
+GRANT EXECUTE ON FUNCTION public.admin_grant_named_user_seats_override(UUID, INTEGER, TEXT, TIMESTAMPTZ) TO authenticated
+$mentitlementsafk$;
+
+  EXECUTE $mentitlementsafl$
+REVOKE ALL ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) FROM PUBLIC, anon
+$mentitlementsafl$;
+
+  EXECUTE $mentitlementsafm$
+GRANT EXECUTE ON FUNCTION public.admin_set_licence_additional_seats(UUID, INTEGER, TEXT) TO authenticated
+$mentitlementsafm$;
+
+  EXECUTE $mentitlementsafn$
+REVOKE ALL ON FUNCTION public.hesabu_block_signoff() FROM PUBLIC
+$mentitlementsafn$;
+
+  EXECUTE $mentitlementsafo$
+GRANT EXECUTE ON FUNCTION public.hesabu_block_signoff() TO authenticated
+$mentitlementsafo$;
+
+  EXECUTE $mentitlementsafp$
 -- ── 14. Deterministic catalogue proof (the migration fails if the state is not exactly this) ──
 DO $assert$
 DECLARE
@@ -1543,6 +1543,6 @@ BEGIN
   END IF;
 END
 $assert$
-$mentitlementsaep$;
+$mentitlementsafp$;
 END
 $cfoclose_entitlements$;

@@ -306,52 +306,52 @@ END;
 $$
 $missuanceaaz$;
 
-  EXECUTE $missuanceaaa$
+  EXECUTE $missuanceaba$
 -- ── 6. Privileges ──────────────────────────────────────────────────────────────────────────────
 REVOKE ALL ON FUNCTION public.reporting_pack_issuance_ttl() FROM PUBLIC, anon
-$missuanceaaa$;
+$missuanceaba$;
 
-  EXECUTE $missuanceaab$
+  EXECUTE $missuanceabb$
 GRANT EXECUTE ON FUNCTION public.reporting_pack_issuance_ttl() TO authenticated, service_role
-$missuanceaab$;
+$missuanceabb$;
 
-  EXECUTE $missuanceaac$
+  EXECUTE $missuanceabc$
 REVOKE ALL ON FUNCTION public._reporting_pack_output_ref_valid(UUID, INTEGER, TEXT, TEXT) FROM PUBLIC, anon, authenticated
-$missuanceaac$;
+$missuanceabc$;
 
-  EXECUTE $missuanceaad$
+  EXECUTE $missuanceabd$
 REVOKE ALL ON FUNCTION public.reporting_pack_issuances_immutable() FROM PUBLIC, anon, authenticated
-$missuanceaad$;
+$missuanceabd$;
 
-  EXECUTE $missuanceaae$
+  EXECUTE $missuanceabe$
 REVOKE ALL ON FUNCTION public.reporting_pack_issuance_events_immutable() FROM PUBLIC, anon, authenticated
-$missuanceaae$;
+$missuanceabe$;
 
-  EXECUTE $missuanceaaf$
+  EXECUTE $missuanceabf$
 REVOKE ALL ON FUNCTION public.issue_reporting_pack(UUID, INTEGER, TEXT, TEXT, UUID) FROM PUBLIC, anon
-$missuanceaaf$;
+$missuanceabf$;
 
-  EXECUTE $missuanceaag$
+  EXECUTE $missuanceabg$
 GRANT EXECUTE ON FUNCTION public.issue_reporting_pack(UUID, INTEGER, TEXT, TEXT, UUID) TO authenticated
-$missuanceaag$;
+$missuanceabg$;
 
-  EXECUTE $missuanceaah$
+  EXECUTE $missuanceabh$
 REVOKE ALL ON FUNCTION public.consume_reporting_pack_issuance(UUID, UUID, INTEGER, TEXT, TEXT, TEXT) FROM PUBLIC, anon
-$missuanceaah$;
+$missuanceabh$;
 
-  EXECUTE $missuanceaai$
+  EXECUTE $missuanceabi$
 GRANT EXECUTE ON FUNCTION public.consume_reporting_pack_issuance(UUID, UUID, INTEGER, TEXT, TEXT, TEXT) TO authenticated
-$missuanceaai$;
+$missuanceabi$;
 
-  EXECUTE $missuanceaaj$
+  EXECUTE $missuanceabj$
 REVOKE ALL ON FUNCTION public.verify_reporting_pack(TEXT) FROM PUBLIC, anon
-$missuanceaaj$;
+$missuanceabj$;
 
-  EXECUTE $missuanceaak$
+  EXECUTE $missuanceabk$
 GRANT EXECUTE ON FUNCTION public.verify_reporting_pack(TEXT) TO authenticated
-$missuanceaak$;
+$missuanceabk$;
 
-  EXECUTE $missuanceaal$
+  EXECUTE $missuanceabl$
 -- ── 7. Durable deployment approvals (the Free-retirement production interlock of 20260925130000) ──────────────
 -- 20260925130000 turns every open Free licence into EXPIRED_READ_ONLY. It runs only against a recorded, unexpired,
 -- unconsumed approval for THIS environment whose inventory matches the licences it would end, and it consumes that
@@ -377,9 +377,9 @@ BEGIN
   RETURN md5(COALESCE(v_sys, '') || ':' || (SELECT d.oid::text FROM pg_database d WHERE d.datname = current_database()) || ':' || current_database());
 END;
 $$
-$missuanceaal$;
+$missuanceabl$;
 
-  EXECUTE $missuanceaam$
+  EXECUTE $missuanceabm$
 -- The open Free licences a retirement would end, as a count and a digest of their ids (an approval must match both).
 CREATE OR REPLACE FUNCTION public._free_plan_inventory()
 RETURNS JSONB LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -387,9 +387,9 @@ RETURNS JSONB LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog,
     FROM public.commercial_licences cl JOIN public.commercial_plans cp ON cp.id = cl.plan_id
    WHERE cp.code = 'FREE' AND cl.status IN ('PENDING', 'ACTIVE', 'GRACE');
 $$
-$missuanceaam$;
+$missuanceabm$;
 
-  EXECUTE $missuanceaan$
+  EXECUTE $missuanceabn$
 CREATE TABLE public.deployment_approvals (
   id                      UUID        NOT NULL DEFAULT gen_random_uuid(),
   purpose                 TEXT        NOT NULL,
@@ -408,9 +408,9 @@ CREATE TABLE public.deployment_approvals (
   CONSTRAINT chk_da_consumed CHECK ((consumed_at IS NULL) = (consumed_by IS NULL)),
   CONSTRAINT fk_da_approved_by FOREIGN KEY (approved_by) REFERENCES public.commercial_admins(user_id) ON DELETE RESTRICT
 )
-$missuanceaan$;
+$missuanceabn$;
 
-  EXECUTE $missuanceaao$
+  EXECUTE $missuanceabo$
 -- Creation only through admin_record_deployment_approval: it marks its own transaction immediately before its INSERT
 -- (and clears the mark after). The approver must be the calling, ACTIVE commercial administrator; the row is created
 -- unconsumed, approved now, for this environment. (A superuser can forge the mark: see the scope note above.)
@@ -432,13 +432,13 @@ BEGIN
   RETURN NEW;
 END;
 $$
-$missuanceaao$;
+$missuanceabo$;
 
-  EXECUTE $missuanceaap$
+  EXECUTE $missuanceabp$
 CREATE TRIGGER trg_da_insert_guard BEFORE INSERT ON public.deployment_approvals FOR EACH ROW EXECUTE FUNCTION public.deployment_approvals_insert_guard()
-$missuanceaap$;
+$missuanceabp$;
 
-  EXECUTE $missuanceaaq$
+  EXECUTE $missuanceabq$
 CREATE OR REPLACE FUNCTION public.deployment_approvals_guard()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
@@ -449,34 +449,34 @@ BEGIN
   RAISE EXCEPTION 'deployment_approvals is append-only (an approval is consumed once, never edited or deleted)' USING ERRCODE = '42501';
 END;
 $$
-$missuanceaaq$;
+$missuanceabq$;
 
-  EXECUTE $missuanceaar$
+  EXECUTE $missuanceabr$
 CREATE TRIGGER trg_da_guard BEFORE UPDATE OR DELETE ON public.deployment_approvals FOR EACH ROW EXECUTE FUNCTION public.deployment_approvals_guard()
-$missuanceaar$;
+$missuanceabr$;
 
-  EXECUTE $missuanceaas$
+  EXECUTE $missuanceabs$
 CREATE TRIGGER trg_da_no_truncate BEFORE TRUNCATE ON public.deployment_approvals FOR EACH STATEMENT EXECUTE FUNCTION public.deployment_approvals_guard()
-$missuanceaas$;
+$missuanceabs$;
 
-  EXECUTE $missuanceaat$
+  EXECUTE $missuanceabt$
 ALTER TABLE public.deployment_approvals ENABLE ROW LEVEL SECURITY
-$missuanceaat$;
+$missuanceabt$;
 
-  EXECUTE $missuanceaau$
+  EXECUTE $missuanceabu$
 CREATE POLICY "da_select_commercial_admin" ON public.deployment_approvals FOR SELECT TO authenticated
   USING (EXISTS (SELECT 1 FROM public.commercial_admins a WHERE a.user_id = auth.uid() AND a.active))
-$missuanceaau$;
+$missuanceabu$;
 
-  EXECUTE $missuanceaav$
+  EXECUTE $missuanceabv$
 REVOKE ALL ON public.deployment_approvals FROM PUBLIC, anon, authenticated, service_role
-$missuanceaav$;
+$missuanceabv$;
 
-  EXECUTE $missuanceaaw$
+  EXECUTE $missuanceabw$
 GRANT SELECT ON public.deployment_approvals TO authenticated
-$missuanceaaw$;
+$missuanceabw$;
 
-  EXECUTE $missuanceaax$
+  EXECUTE $missuanceabx$
 -- A commercial administrator records the approval after the release sequence: the inventory they reviewed must be the
 -- current one, a notification reference and the activation path are required, and it expires within 72 hours.
 CREATE OR REPLACE FUNCTION public.admin_record_deployment_approval(
@@ -511,30 +511,30 @@ BEGIN
   RETURN jsonb_build_object('approval_id', v_id, 'inventory', v_inv);
 END;
 $$
-$missuanceaax$;
+$missuanceabx$;
 
-  EXECUTE $missuanceaay$
+  EXECUTE $missuanceaby$
 REVOKE ALL ON FUNCTION public._environment_fingerprint() FROM PUBLIC, anon, authenticated
-$missuanceaay$;
+$missuanceaby$;
 
-  EXECUTE $missuanceaaz$
+  EXECUTE $missuanceabz$
 REVOKE ALL ON FUNCTION public._free_plan_inventory() FROM PUBLIC, anon, authenticated
-$missuanceaaz$;
+$missuanceabz$;
 
-  EXECUTE $missuanceaba$
+  EXECUTE $missuanceaca$
 REVOKE ALL ON FUNCTION public.deployment_approvals_guard() FROM PUBLIC, anon, authenticated
-$missuanceaba$;
+$missuanceaca$;
 
-  EXECUTE $missuanceabb$
+  EXECUTE $missuanceacb$
 REVOKE ALL ON FUNCTION public.deployment_approvals_insert_guard() FROM PUBLIC, anon, authenticated
-$missuanceabb$;
+$missuanceacb$;
 
-  EXECUTE $missuanceabc$
+  EXECUTE $missuanceacc$
 REVOKE ALL ON FUNCTION public.admin_record_deployment_approval(TEXT, TEXT, INTEGER, TEXT, TEXT, INTEGER) FROM PUBLIC, anon, service_role
-$missuanceabc$;
+$missuanceacc$;
 
-  EXECUTE $missuanceabd$
+  EXECUTE $missuanceacd$
 GRANT EXECUTE ON FUNCTION public.admin_record_deployment_approval(TEXT, TEXT, INTEGER, TEXT, TEXT, INTEGER) TO authenticated
-$missuanceabd$;
+$missuanceacd$;
 END
 $cfoclose_issuance$;

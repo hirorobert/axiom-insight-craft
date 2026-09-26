@@ -240,7 +240,7 @@ serve(async (req) => {
     // What this invitation actually carries, shown to the inviter: a title never grants or restores a capability, so a
     // re-invitation after a withdrawal names the capabilities it does NOT carry.
     const { data: summary } = await admin.rpc("invitation_capability_summary", { p_company_id: company_id, p_user: invitedUserId });
-    const carried = (summary ?? {}) as { capabilities?: string[]; withheld?: string[] };
+    const carried = (summary ?? {}) as { capabilities?: string[]; withheld?: unknown[] };
 
     return new Response(
       JSON.stringify({

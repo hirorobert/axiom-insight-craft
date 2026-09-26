@@ -72,8 +72,10 @@ describe("no job title decides anything in the client or at the Edge", () => {
 
 describe("an invitation shows exactly the capabilities it carries", () => {
   it("names the capabilities held on acceptance and, on a re-invitation, the withdrawn ones the title does not restore", () => {
-    expect(describeInvitationCapabilities({ capabilities: ["issue_reporting_pack", "prepare_close"], withheld: ["approve_certification", "review_close"] }))
-      .toBe("On acceptance: Issue Reporting Pack outputs, Prepare the close. Not included (withdrawn earlier; grant explicitly if intended): Approve certification, Review the close.");
+    expect(describeInvitationCapabilities({ capabilities: ["issue_reporting_pack", "prepare_close"], withheld: [
+      { capability: "approve_certification", reason: "EXPLICITLY_REVOKED", revoked_at: "2026-09-26T00:00:00Z" },
+      { capability: "review_close", reason: "NOT_GRANTED" },
+    ] })).toBe("On acceptance: Issue Reporting Pack outputs, Prepare the close. Withheld — explicitly revoked earlier; only an explicit grant restores it: Approve certification. Not granted by this invitation (a title never adds a capability): Review the close.");
     expect(describeInvitationCapabilities({ capabilities: [], withheld: [] })).toBe("On acceptance: no capabilities (view only).");
     expect(describeInvitationCapabilities({ capabilities: ["owner", "manage_billing", 7], role: "partner" })).toBe("On acceptance: no capabilities (view only).");
     expect(describeInvitationCapabilities(null)).toBe("On acceptance: no capabilities (view only).");

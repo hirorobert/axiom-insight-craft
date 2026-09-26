@@ -24,7 +24,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { unwrapAtomicEnvelope } from "./atomicEnvelope.mjs";
+import { isAtomicEnvelope, parseAtomicEnvelope, unwrapAtomicEnvelope } from "./atomicEnvelope.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -72,7 +72,9 @@ export function splitStatements(sql) {
   return out;
 }
 // An atomic migration (one DO envelope, scripts/ci/atomicEnvelope.mjs) is judged by the statements it executes.
-const statements = (sql) => splitStatements(normalise(unwrapAtomicEnvelope(sql))).map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+// An invalid envelope is reported by rule 7 (never skipped); its raw text is then split as-is, so no statement is lost.
+const unwrapOrRaw = (sql) => { try { return unwrapAtomicEnvelope(sql); } catch { return sql; } };
+const statements = (sql) => splitStatements(normalise(unwrapOrRaw(sql))).map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
 
 export function checkMigrationAuthority(repo = REPO) {
   const errors = [];
@@ -80,6 +82,12 @@ export function checkMigrationAuthority(repo = REPO) {
   const dzDir = path.join(repo, "drizzle/migrations");
   const sources = fs.readdirSync(srcDir).filter((f) => f.endsWith(".sql")).sort();
   const srcText = Object.fromEntries(sources.map((f) => [f, fs.readFileSync(path.join(srcDir, f), "utf8")]));
+  // 7. Every migration that claims the atomic envelope is exactly one valid envelope whose every executable statement is
+  //    visible to this guard (fail closed: text outside it, dynamic SQL, malformed / reused / nested tags are refused).
+  for (const f of sources) {
+    if (!isAtomicEnvelope(srcText[f])) continue;
+    try { parseAtomicEnvelope(srcText[f]); } catch (e) { errors.push(`source: ${f}: ${e.message}`); }
+  }
   const byNormal = new Map(sources.map((f) => [normalise(srcText[f]), f]));
 
   const journal = JSON.parse(fs.readFileSync(path.join(dzDir, "meta/_journal.json"), "utf8"));

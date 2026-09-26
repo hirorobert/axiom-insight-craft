@@ -874,6 +874,101 @@ async function main() {
     return JSON.stringify(await usable(g)) === "[]" ? true : JSON.stringify(await usable(g));
   });
 
+  group("M-2 — an explicit revocation survives remove → re-invite; only an explicit, authorized grant restores it");
+  const reinvite = (who, role) => one(SERVICE, "SELECT public.reserve_workspace_invitation($1,$2,$3,$4,$5) r", [NV.co, who, role, NV.holder, `${who}@example.test`]).then((x) => x.r.outcome);
+  const accept = (who) => one(user(who), "SELECT public.accept_workspace_invitations() r").then((x) => x.r.accepted.length);
+  const remove = (who) => q(user(NV.holder), "DELETE FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [NV.co, who]);
+  const revokeCap = (who, cap, why = "separation of duties") => one(user(NV.holder), "SELECT public.revoke_member_capability($1,$2,$3,$4) r", [NV.co, who, cap, why]).then((x) => x.r.outcome);
+  const grantCap = (who, cap, why = "explicit re-grant") => one(user(NV.holder), "SELECT public.grant_member_capability($1,$2,$3,$4) r", [NV.co, who, cap, why]).then((x) => x.r);
+  const openRevocations = (who) => admin.query("SELECT capability FROM public.workspace_capability_revocations WHERE company_id=$1 AND user_id=$2 AND lifted_at IS NULL ORDER BY capability", [NV.co, who]).then((r) => r.rows.map((x) => x.capability));
+  const summary = (who) => one(SERVICE, "SELECT public.invitation_capability_summary($1,$2) r", [NV.co, who]).then((x) => x.r);
+  await check("revoke → remove → re-invite → accept: the revoked capability stays withheld (pending: nothing usable); the invitation names it EXPLICITLY_REVOKED", async () => {
+    const p = await mkUser("m2-a"); await nvAccepted(p, "partner");
+    const rv = await revokeCap(p, "approve_certification");
+    await remove(p);
+    const ri = await reinvite(p, "partner");
+    const pending = await usable(p);
+    const s = await summary(p);
+    const acc = await accept(p);
+    const after = await usable(p);
+    const withheld = s.withheld.find((w) => w.capability === "approve_certification");
+    return rv === "revoked" && ri === "reserved" && JSON.stringify(pending) === "[]" && acc === 1
+      && JSON.stringify(after) === '["prepare_close","review_close","issue_reporting_pack"]' && withheld?.reason === "EXPLICITLY_REVOKED" && withheld?.revocation_reason === "separation of duties"
+      && !s.capabilities.includes("approve_certification") && JSON.stringify(await openRevocations(p)) === '["approve_certification"]'
+      ? true : JSON.stringify({ rv, ri, pending, acc, after, s });
+  });
+  await check("MEMBERSHIP_REMOVED alone is not an explicit revocation: removing and re-inviting without one restores the title's template", async () => {
+    const p = await mkUser("m2-b"); await nvAccepted(p, "preparer");
+    await remove(p);
+    await reinvite(p, "preparer"); await accept(p);
+    return JSON.stringify(await usable(p)) === '["prepare_close","issue_reporting_pack"]' && (await openRevocations(p)).length === 0 ? true : JSON.stringify(await usable(p));
+  });
+  await check("title changes and repeated invitations never restore it; cancellation then re-invitation does not either", async () => {
+    const p = await mkUser("m2-c"); await nvAccepted(p, "partner");
+    await revokeCap(p, "review_close");
+    const steps = {};
+    for (const role of ["preparer", "partner", "viewer", "partner"]) await q(user(NV.holder), "UPDATE public.firm_members SET role=$3 WHERE company_id=$1 AND user_id=$2", [NV.co, p, role]);
+    steps.retitled = await usable(p);
+    await remove(p);
+    const id = (await q(user(NV.holder), "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'partner',NULL) RETURNING id", [NV.co, p]))[0].id;
+    await one(user(NV.holder), "SELECT public.cancel_workspace_invitation($1)", [id]);
+    await reinvite(p, "partner"); await reinvite(p, "partner"); await reinvite(p, "partner");
+    await accept(p);
+    steps.reinvited = await usable(p);
+    return !steps.retitled.includes("review_close") && !steps.reinvited.includes("review_close") && steps.reinvited.includes("approve_certification")
+      && JSON.stringify(await openRevocations(p)) === '["review_close"]' ? true : JSON.stringify(steps);
+  });
+  await check("an explicit, authorized re-grant restores only the selected capability, lifts exactly that revocation and is audited; unrelated capabilities and revocations are unchanged; a non-manager cannot", async () => {
+    const p = await mkUser("m2-d"); await nvAccepted(p, "partner");
+    await revokeCap(p, "approve_certification"); await revokeCap(p, "review_close");
+    await remove(p); await reinvite(p, "partner"); await accept(p);
+    const before = { usable: await usable(p), rows: (await admin.query("SELECT to_jsonb(c) j FROM public.workspace_member_capabilities c WHERE company_id=$1 AND user_id=$2 AND capability <> 'approve_certification' ORDER BY id", [NV.co, p])).rows.map((r) => r.j) };
+    const byMember = (await one(user(S.preparer), "SELECT public.grant_member_capability($1,$2,'approve_certification','x') r", [NV.co, p])).r.outcome;
+    const g = await grantCap(p, "approve_certification", "restored after review by the partner group");
+    const after = await usable(p);
+    const lift = (await admin.query("SELECT lifted_by, lift_reason, lifted_at IS NOT NULL lifted FROM public.workspace_capability_revocations WHERE company_id=$1 AND user_id=$2 AND capability='approve_certification' ORDER BY revoked_at", [NV.co, p])).rows;
+    const grantRow = (await admin.query("SELECT source, granted_by FROM public.workspace_member_capabilities WHERE company_id=$1 AND user_id=$2 AND capability='approve_certification' AND revoked_at IS NULL", [NV.co, p])).rows[0];
+    const rowsAfter = (await admin.query("SELECT to_jsonb(c) j FROM public.workspace_member_capabilities c WHERE company_id=$1 AND user_id=$2 AND capability <> 'approve_certification' ORDER BY id", [NV.co, p])).rows.map((r) => r.j);
+    return byMember === "forbidden" && g.outcome === "granted" && g.revocation_lifted === true
+      && JSON.stringify(after) === '["prepare_close","approve_certification","issue_reporting_pack"]' && !after.includes("review_close")
+      && lift.length === 1 && lift[0].lifted && lift[0].lifted_by === NV.holder && lift[0].lift_reason === "restored after review by the partner group"
+      && grantRow?.source === "EXPLICIT_GRANT" && grantRow?.granted_by === NV.holder
+      && JSON.stringify(await openRevocations(p)) === '["review_close"]' && JSON.stringify(rowsAfter) === JSON.stringify(before.rows)
+      ? true : JSON.stringify({ byMember, g, after, lift, grantRow });
+  });
+  await check("the revocation memory is append-only history: no client or service-role write, no un-lift, no edit, no delete; a revocation is recorded even for a removed person", async () => {
+    const p = await mkUser("m2-e"); await nvAccepted(p, "preparer");
+    await revokeCap(p, "prepare_close"); await grantCap(p, "prepare_close");
+    const id = (await admin.query("SELECT id FROM public.workspace_capability_revocations WHERE company_id=$1 AND user_id=$2 LIMIT 1", [NV.co, p])).rows[0].id;
+    const out = {
+      clientIns: await codeOf(() => q(user(NV.holder), "INSERT INTO public.workspace_capability_revocations (company_id,user_id,capability,revoked_by,reason) VALUES ($1,$2,'review_close',$1,'x')", [NV.co, p])),
+      svcIns: await codeOf(() => q(SERVICE, "INSERT INTO public.workspace_capability_revocations (company_id,user_id,capability,revoked_by,reason) VALUES ($1,$2,'review_close',$1,'x')", [NV.co, p])),
+      unlift: await codeOf(() => admin.query("UPDATE public.workspace_capability_revocations SET lifted_at=NULL, lifted_by=NULL, lift_reason=NULL WHERE id=$1", [id])),
+      edit: await codeOf(() => admin.query("UPDATE public.workspace_capability_revocations SET reason='changed' WHERE id=$1", [id])),
+      del: await codeOf(() => admin.query("DELETE FROM public.workspace_capability_revocations WHERE id=$1", [id])),
+      trunc: await codeOf(() => admin.query("TRUNCATE public.workspace_capability_revocations")),
+    };
+    const r = await mkUser("m2-f"); await nvAccepted(r, "preparer"); await remove(r);
+    const removedRevoke = await revokeCap(r, "prepare_close");
+    await reinvite(r, "preparer"); await accept(r);
+    return Object.values(out).every((c) => c === "42501") && removedRevoke === "withheld" && !(await usable(r)).includes("prepare_close")
+      ? true : JSON.stringify({ out, removedRevoke, usable: await usable(r) });
+  });
+  await check(`concurrent re-invitation and re-grant (${CONCURRENCY} rounds) resolve deterministically: the capability is held only after a granted re-grant that lifted the revocation; never by the invitation`, async () => {
+    const rounds = [];
+    for (let k = 0; k < CONCURRENCY; k++) {
+      const p = await mkUser(`m2-race-${k}`); await nvAccepted(p, "partner");
+      await revokeCap(p, "approve_certification"); await remove(p);
+      const [ri, g] = await Promise.all([reinvite(p, "partner"), grantCap(p, "approve_certification")]);
+      await accept(p);
+      const held = (await usable(p)).includes("approve_certification");
+      const open = (await openRevocations(p)).includes("approve_certification");
+      const ok = ri === "reserved" && ((g.outcome === "granted" && g.revocation_lifted === true && held && !open) || (g.outcome === "not_a_member" && !held && open));
+      rounds.push(ok ? g.outcome : { ri, g, held, open });
+    }
+    return rounds.every((r) => typeof r === "string") ? true : JSON.stringify(rounds);
+  });
+
   const legacyRef = async () => `upload:${(await admin.query("SELECT id FROM public.trial_balance_uploads WHERE company_id=$1 AND period_year=2025 ORDER BY uploaded_at LIMIT 1", [L.co])).rows[0].id}`;
   group("Plan / capability matrix — one authority, fail closed");
   await check("the matrix has exactly one row for every plan x every non-capacity capability; multi-entity follows capacity; consolidation is on no plan", async () => {
