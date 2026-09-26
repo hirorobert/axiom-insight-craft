@@ -65,10 +65,10 @@ import {
   LANDING_FINAL_CTA,
   LANDING_HERO,
   LANDING_PROCESS,
-  PROPOSED_PLANS,
   SYNTHETIC_PREVIEW,
   SYNTHETIC_PREVIEW_STEPS,
 } from "@/content/landing/landingContent";
+import { PROPOSED_PLANS } from "@/content/landing/proposedPlans";
 
 const ROOT = path.resolve(__dirname, "../../../..");
 const LANDING_COMPONENT_DIR = path.join(ROOT, "src/components/landing");
@@ -340,6 +340,23 @@ describe("commercial structure is presented as proposed, not purchasable", () =>
     expect(PROPOSED_PLANS).toHaveLength(4);
     const text = visibleText(renderIn(createElement(CommercialVerification)));
     for (const plan of PROPOSED_PLANS) expect(text).toContain(plan.name);
+  });
+
+  it("every plan figure is derived from the PR #34 catalogue (no duplicate authority) and renders exactly the reviewed wording", async () => {
+    const { PRICING_CATALOGUE } = await import("@/lib/commercial/pricingCatalogue");
+    expect(PROPOSED_PLANS.map((p) => p.name)).toEqual(PRICING_CATALOGUE.map((p) => p.name));
+    expect(PROPOSED_PLANS).toEqual([
+      { name: "Solo", proposedAmount: "Proposed: USD 49 per month", proposedEntities: "Proposed: 1 entity", proposedUsers: "Proposed: 1 named user", proposedCapabilities: "Close Certification, Reporting Pack, Close Insights" },
+      { name: "Practice", proposedAmount: "Proposed: USD 99 per month", proposedEntities: "Proposed: 5 entities", proposedUsers: "Proposed: 1 named user included", proposedCapabilities: "Close Certification, Reporting Pack, Close Insights" },
+      { name: "Firm", proposedAmount: "Proposed: USD 299 per month", proposedEntities: "Proposed: 25 entities", proposedUsers: "Proposed: 1 named user included", proposedCapabilities: "Close Certification, Reporting Pack, Close Insights" },
+      { name: "Enterprise", proposedAmount: "Proposed: terms agreed separately", proposedEntities: "Proposed: capacity agreed separately", proposedUsers: "Proposed: capacity agreed separately", proposedCapabilities: "Close Certification, Reporting Pack, Close Insights" },
+    ]);
+    const derived = fs.readFileSync(path.join(ROOT, "src/content/landing/proposedPlans.ts"), "utf8");
+    expect(derived).toContain("PRICING_CATALOGUE.map(");
+    expect(derived).not.toMatch(/USD \d/);   // no amount restated
+    const content = fs.readFileSync(path.join(ROOT, "src/content/landing/landingContent.ts"), "utf8");
+    expect(content).not.toMatch(/USD \d|named user included|\d+ entities/);
+    expect(content).not.toMatch(/not enforced by the system/i);
   });
 
   it("offers no checkout, payment or purchase control anywhere on the page", () => {
