@@ -9,7 +9,13 @@
 //
 // Acceptance flow:
 //   Pending members have accepted_at = null. When an invited user
-//   logs in, Dashboard.tsx auto-updates their accepted_at.
+//   signs in, Dashboard.tsx accepts through accept_workspace_invitations.
+//
+// Named-user seats (20260925100000): every plan includes one named user;
+// Practice and Firm add purchased seats. A pending invitation holds a seat.
+// The database seat wall decides; this panel shows the structured state
+// (get_workspace_seat_capacity) and never offers an invitation that the
+// server would refuse. Each person has their own sign-in.
 //
 // Role definitions:
 //   owner   — full access, cannot be removed via UI (DB trigger enforces)
@@ -49,6 +55,19 @@ import {
   Trash2, Building2, Crown, Shield,
 } from "lucide-react";
 import { toast } from "sonner";
+import { describeInvitationCapabilities } from "@/lib/auth/workspaceCapabilities";
+import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
+import {
+  canInviteAnother,
+  functionSeatRefusal,
+  parseNamedUserRoster,
+  parseSeatCapacity,
+  parseSelectionOutcome,
+  seatCopy,
+  selectableSeats,
+  type NamedUserRoster,
+  type SeatCapacityState,
+} from "@/lib/commercial/paidActions";
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -68,6 +87,8 @@ interface FirmMember {
   invitedBy: string | null;
   invitedEmail: string | null;
   acceptedAt: string | null;
+  invitationExpiresAt: string | null;
+  invitationCancelledAt: string | null;
   createdAt: string;
   displayName?: string;
   email?: string;
@@ -108,6 +129,31 @@ export function FirmManagementPanel() {
   const [inviting, setInviting]         = useState(false);
   const [removing, setRemoving]         = useState<string | null>(null);
   const [inviteForm, setInviteForm]     = useState({ email: "", role: "preparer" as MemberRole });
+  const [seats, setSeats]               = useState<SeatCapacityState | null>(null);
+  const [seatsLoaded, setSeatsLoaded]   = useState(false);
+  const [roster, setRoster]             = useState<NamedUserRoster | null>(null);
+  const [selection, setSelection]       = useState<string[]>([]);
+  const [applying, setApplying]         = useState(false);
+
+  // The account holder's roster: who is active, suspended or pending. Only the account holder can read it, and only
+  // their explicit selection ever reactivates anyone (choose_active_named_users).
+  const fetchRoster = async () => {
+    const { data, error } = await supabase.rpc("get_named_user_roster" as never);
+    const parsed = error ? null : parseNamedUserRoster(data);
+    setRoster(parsed);
+    setSelection(parsed ? parsed.people.filter((p) => p.state === "active_candidate").map((p) => p.userId) : []);
+  };
+
+  // Named-user seats of the selected workspace's account (explanatory; the server decides).
+  const fetchSeats = async (companyId: string) => {
+    if (!companyId) return;
+    setSeatsLoaded(false);
+    const { data, error } = await supabase.rpc("get_workspace_seat_capacity" as never, { p_company_id: companyId } as never);
+    const parsed = error ? null : parseSeatCapacity(data);
+    setSeats(parsed);
+    setSeatsLoaded(true);
+    if (parsed?.isAccountHolder) await fetchRoster(); else setRoster(null);
+  };
 
   // Fetch companies the user owns
   const fetchOwned = async () => {
@@ -154,7 +200,7 @@ export function FirmManagementPanel() {
     try {
       const { data: rows, error } = await supabase
         .from("firm_members")
-        .select("id, company_id, user_id, role, invited_by, invited_email, accepted_at, created_at")
+        .select("id, company_id, user_id, role, invited_by, invited_email, accepted_at, invitation_expires_at, invitation_cancelled_at, created_at" as "*")
         .eq("company_id", companyId)
         .order("created_at", { ascending: true });
       if (error) throw error;
@@ -170,7 +216,11 @@ export function FirmManagementPanel() {
 
       const profileMap = new Map((profiles ?? []).map((p) => [p.user_id, p.display_name]));
 
-      const enriched: FirmMember[] = (rows ?? []).map((r) => ({
+      // invitation_* columns come from 20260925110000 (not yet in the generated client types).
+      const enriched: FirmMember[] = ((rows ?? []) as unknown as Array<{
+        id: string; company_id: string; user_id: string; role: string; invited_by: string | null; invited_email: string | null;
+        accepted_at: string | null; invitation_expires_at: string | null; invitation_cancelled_at: string | null; created_at: string;
+      }>).map((r) => ({
         id:           r.id,
         companyId:    r.company_id,
         userId:       r.user_id,
@@ -178,6 +228,8 @@ export function FirmManagementPanel() {
         invitedBy:    r.invited_by,
         invitedEmail: r.invited_email,
         acceptedAt:   r.accepted_at,
+        invitationExpiresAt:   r.invitation_expires_at,
+        invitationCancelledAt: r.invitation_cancelled_at,
         createdAt:    r.created_at,
         displayName:  profileMap.get(r.user_id) ?? undefined,
         email:        r.invited_email ?? undefined,
@@ -191,7 +243,7 @@ export function FirmManagementPanel() {
   };
 
   useEffect(() => { fetchOwned(); }, [user]);
-  useEffect(() => { if (selectedCompany) fetchMembers(selectedCompany); }, [selectedCompany]);
+  useEffect(() => { if (selectedCompany) { fetchMembers(selectedCompany); fetchSeats(selectedCompany); } }, [selectedCompany]);
 
   // ── Invite ────────────────────────────────────────────────────
 
@@ -207,15 +259,25 @@ export function FirmManagementPanel() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        const seatRefusal = await functionSeatRefusal(error);
+        if (seatRefusal) {
+          toast("No named-user seat is free", { description: "The invitation was not sent. See the seat details on this page." });
+          await fetchSeats(selectedCompany);
+          setShowInvite(false);
+          return;
+        }
+        throw error;
+      }
 
       if (data?.ok === false && data?.alreadyMember) {
         toast.warning(data.message);
       } else {
-        toast.success(data?.message ?? "Invitation sent.");
+        toast.success(data?.message ?? "Invitation sent.", { description: describeInvitationCapabilities(data) });
         setShowInvite(false);
         setInviteForm({ email: "", role: "preparer" });
         await fetchMembers(selectedCompany);
+        await fetchSeats(selectedCompany);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -254,12 +316,42 @@ export function FirmManagementPanel() {
       if (error) throw error;
       toast.success("Member removed");
       await fetchMembers(selectedCompany);
+      await fetchSeats(selectedCompany);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Remove failed: ${msg}`);
     } finally {
       setRemoving(null);
     }
+  };
+
+  // ── Cancel a pending invitation (the seat is released; the row is kept as history) ──
+
+  const handleCancelInvitation = async (memberId: string) => {
+    setRemoving(memberId);
+    const { data, error } = await supabase.rpc("cancel_workspace_invitation" as never, { p_member_id: memberId } as never);
+    const outcome = !error && data && typeof data === "object" ? (data as { outcome?: string }).outcome : null;
+    if (outcome === "cancelled" || outcome === "already_cancelled") toast("Invitation cancelled", { description: "The seat it held is free again." });
+    else toast.error("The invitation could not be cancelled.");
+    setRemoving(null);
+    await fetchMembers(selectedCompany);
+    await fetchSeats(selectedCompany);
+  };
+
+  // ── Choose who is active (the only way anyone is reactivated) ──
+
+  const handleApplySelection = async () => {
+    if (!roster) return;
+    setApplying(true);
+    const { data, error } = await supabase.rpc("choose_active_named_users" as never, { p_keep: selection, p_roster_version: roster.rosterVersion } as never);
+    const outcome = error ? null : parseSelectionOutcome(data);
+    if (outcome === "applied") toast("Active named users updated");
+    else if (outcome === "stale_selection") toast("The team changed while you were choosing", { description: "Review the list again and re-apply." });
+    else if (outcome === "selection_exceeds_allowance") toast("That selection is more than your plan's named users");
+    else toast.error("The selection could not be applied.");
+    setApplying(false);
+    await fetchMembers(selectedCompany);
+    await fetchSeats(selectedCompany);
   };
 
   // ── Render ────────────────────────────────────────────────────
@@ -295,6 +387,8 @@ export function FirmManagementPanel() {
                 size="sm"
                 onClick={() => setShowInvite(true)}
                 className="gap-1.5"
+                disabled={!seatsLoaded || !canInviteAnother(seats)}
+                data-testid="invite-member"
               >
                 <UserPlus className="w-3.5 h-3.5" />
                 Invite Member
@@ -326,6 +420,53 @@ export function FirmManagementPanel() {
       </CardHeader>
 
       <CardContent className="pt-0">
+        {selectedCompany && seatsLoaded && (
+          <div className="mb-3 space-y-2" data-testid="named-user-seats">
+            {seats && (
+              <p className="text-xs text-muted-foreground">
+                Named users: {seats.activeNamedUsers} active
+                {seats.reservedNamedUsers > seats.activeNamedUsers ? `, ${seats.reservedNamedUsers - seats.activeNamedUsers} invited` : ""}
+                {seats.allowedNamedUsers !== null ? ` of ${seats.allowedNamedUsers}` : ""}. Each person signs in with their own account.
+              </p>
+            )}
+            {seatCopy(seats) && <PaidActionNotice copy={seatCopy(seats)!} testId="named-user-seats-locked" />}
+            {roster && seats?.isAccountHolder && (roster.overAllowance || roster.people.some((p) => p.state === "suspended")) && (
+              <div className="border border-border p-3" data-testid="named-user-selection">
+                <p className="text-xs font-semibold text-foreground">Choose who is active</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Select up to {selectableSeats(roster).max} {selectableSeats(roster).max === 1 ? "person" : "people"} besides you. Everyone else keeps their
+                  membership and history but has no access until you select them.
+                </p>
+                <ul className="mt-2 space-y-1">
+                  {selectableSeats(roster).choices.map((id) => {
+                    const person = roster.people.find((p) => p.userId === id);
+                    const member = members.find((mm) => mm.userId === id);
+                    const label = member?.displayName || person?.invitedEmail || member?.invitedEmail || id.slice(0, 8) + "…";
+                    const checked = selection.includes(id);
+                    const full = !checked && selection.length >= selectableSeats(roster).max;
+                    return (
+                      <li key={id}>
+                        <label className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={full || applying}
+                            onChange={() => setSelection((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
+                          />
+                          <span className="min-w-0 break-all">{label}</span>
+                          {person?.state === "suspended" && <span className="text-[10px] text-muted-foreground">suspended</span>}
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <Button size="sm" variant="outline" className="mt-2" onClick={() => void handleApplySelection()} disabled={applying || selection.length > selectableSeats(roster).max}>
+                  Apply selection
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
         {loading ? (
           <div className="text-center py-8 text-sm text-muted-foreground">
             <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
@@ -363,6 +504,10 @@ export function FirmManagementPanel() {
 
             {members.map((m) => {
               const isPending = !m.acceptedAt;
+              const invitationClosed = isPending && (m.invitationCancelledAt !== null || (m.invitationExpiresAt !== null && new Date(m.invitationExpiresAt) <= new Date()));
+              const rosterState = roster?.people.find((p) => p.userId === m.userId)?.state;
+              const isSuspended = rosterState === "suspended";
+              const awaitingSelection = !isSuspended && !isPending && rosterState === "active_candidate" && roster?.overAllowance === true;
               const isOwner   = m.role === "owner";
               const isSelf    = m.userId === user?.id;
 
@@ -400,10 +545,16 @@ export function FirmManagementPanel() {
                       </Badge>
                     </div>
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      {isPending ? (
+                      {isSuspended || awaitingSelection ? (
+                        <span className="text-[10px] text-muted-foreground" data-testid="member-suspended">
+                          {isSuspended ? "Suspended: no named-user seat. Membership and history kept." : "Waiting for your selection: no access yet."}
+                        </span>
+                      ) : isPending ? (
                         <>
                           <Clock className="w-2.5 h-2.5 text-amber-500" />
-                          <span className="text-[10px] text-amber-700">Invitation pending</span>
+                          <span className="text-[10px] text-amber-700">
+                            {m.invitationCancelledAt !== null ? "Invitation cancelled" : invitationClosed ? "Invitation expired" : `Invitation pending until ${new Date(m.invitationExpiresAt ?? m.createdAt).toLocaleDateString("en-GB")}`}
+                          </span>
                         </>
                       ) : (
                         <>
@@ -442,7 +593,7 @@ export function FirmManagementPanel() {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 text-muted-foreground hover:text-red-600"
-                            disabled={removing === m.id || isSelf}
+                            disabled={removing === m.id || isSelf || (isPending && m.invitationCancelledAt !== null)}
                           >
                             {removing === m.id
                               ? <RefreshCw className="w-3 h-3 animate-spin" />
@@ -452,19 +603,22 @@ export function FirmManagementPanel() {
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Remove member?</AlertDialogTitle>
+                            <AlertDialogTitle>{isPending ? "Cancel invitation?" : "Remove member?"}</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Remove <strong>{displayLabel}</strong> from <strong>{selectedCo?.name}</strong>?
-                              They will lose all access immediately. This cannot be undone.
+                              {isPending ? (
+                                <>Cancel the invitation for <strong>{displayLabel}</strong>? The seat it holds is released; the record is kept.</>
+                              ) : (
+                                <>Remove <strong>{displayLabel}</strong> from <strong>{selectedCo?.name}</strong>? They will lose all access immediately. Work they recorded stays attributed to them.</>
+                              )}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction
-                              onClick={() => handleRemove(m.id)}
+                              onClick={() => (isPending ? void handleCancelInvitation(m.id) : handleRemove(m.id))}
                               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             >
-                              Remove
+                              {isPending ? "Cancel invitation" : "Remove"}
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>

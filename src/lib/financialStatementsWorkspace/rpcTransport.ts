@@ -40,7 +40,7 @@ export type FsTable =
   | "financial_statement_correction_groups"
   | "financial_statement_publications";
 
-export type FsErrorKind = "FEATURE_DISABLED" | "FORBIDDEN" | "STALE_VERSION" | "REPLAY_CONFLICT" | "NOT_FOUND" | "INVALID" | "BLOCKED" | "NOT_EVALUATED" | "CONFLICT" | "UNKNOWN";
+export type FsErrorKind = "ENTITLEMENT_REQUIRED" | "FEATURE_DISABLED" | "FORBIDDEN" | "STALE_VERSION" | "REPLAY_CONFLICT" | "NOT_FOUND" | "INVALID" | "BLOCKED" | "NOT_EVALUATED" | "CONFLICT" | "UNKNOWN";
 
 export class FsTransportError extends Error {
   constructor(readonly kind: FsErrorKind, message: string, readonly code?: string) {
@@ -57,7 +57,9 @@ export class FsTransportError extends Error {
 export function mapRpcError(e: RpcError): FsTransportError {
   const m = e.message ?? "";
   const kind: FsErrorKind =
-    e.code === "PT403" || /^FEATURE_DISABLED/.test(m) ? "FEATURE_DISABLED"
+    // A paid-capability wall (20260925100000): structured SQLSTATE PT402, capability code in details. Checked first.
+    e.code === "PT402" ? "ENTITLEMENT_REQUIRED"
+    : e.code === "PT403" || /^FEATURE_DISABLED/.test(m) ? "FEATURE_DISABLED"
     : e.code === "42501" || /^FORBIDDEN|permission denied/i.test(m) ? "FORBIDDEN"
     : /^STALE_(REPORT_)?VERSION/.test(m) ? "STALE_VERSION"
     : /^REPLAY_CONFLICT/.test(m) ? "REPLAY_CONFLICT"
@@ -78,6 +80,8 @@ export interface WorkspaceAccess {
   readonly reason: "ENABLED" | "NOT_A_MEMBER" | "KILL_SWITCH" | "NOT_ALLOWLISTED" | "UNKNOWN";
   /** The caller's own membership role, when the server reports one. A display hint: the server still refuses every unauthorised write. */
   readonly role?: string | null;
+  /** The server's answer: may the caller prepare (the prepare_close capability, with a current plan)? Absent = no. */
+  readonly canPrepare?: boolean;
 }
 
 export interface StoredReportRow {
@@ -224,10 +228,10 @@ export class FsRpcTransport {
 
   async access(companyId: string): Promise<WorkspaceAccess> {
     try {
-      const r = await this.call<{ enabled?: boolean; reason?: string; role?: string | null } | null>("financial_statements_workspace_access", { p_company_id: companyId });
+      const r = await this.call<{ enabled?: boolean; reason?: string; role?: string | null; can_prepare?: boolean } | null>("financial_statements_workspace_access", { p_company_id: companyId });
       const reason = (r?.reason ?? "UNKNOWN") as WorkspaceAccess["reason"];
       // Anything other than an explicit server "enabled: true" is a denial.
-      return { enabled: r?.enabled === true, reason, role: typeof r?.role === "string" ? r.role : null };
+      return { enabled: r?.enabled === true, reason, role: typeof r?.role === "string" ? r.role : null, canPrepare: r?.can_prepare === true };
     } catch {
       return { enabled: false, reason: "UNKNOWN" };
     }

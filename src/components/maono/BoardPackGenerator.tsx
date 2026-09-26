@@ -28,6 +28,8 @@ import React, { useState, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 // @ts-expect-error - runtime ESM URL import (loaded via esm.sh at runtime)
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
+import { DRAFT_PRINT_MARK } from "@/lib/commercial/reportingPack";
 
 interface BoardPackData {
   company_name:    string;
@@ -50,6 +52,8 @@ interface BoardPackGeneratorProps {
   runId:           string;
   supabaseUrl:     string;
   supabaseAnonKey: string;
+  /** Fiscal year the board pack is issued for (issue_reporting_pack). */
+  periodYear?:     number;
 }
 
 function fmt(n: number): string {
@@ -60,12 +64,12 @@ function fmt(n: number): string {
 
 // ── Excel export ──────────────────────────────────────────────────────────────
 
-function exportToExcel(pack: BoardPackData) {
+function exportToExcel(pack: BoardPackData): { blob: Blob; fileName: string } {
   const wb = XLSX.utils.book_new();
 
   // Sheet 1: Summary
   const summaryRows = [
-    ["MAONO BOARD PACK"],
+    ["CLOSE INSIGHTS BOARD PACK"],
     ["Company:", pack.company_name],
     ["Period:", pack.period_label],
     ["Generated:", pack.generated_at],
@@ -160,9 +164,10 @@ function exportToExcel(pack: BoardPackData) {
   ws4["!cols"] = [{ wch: 22 }, { wch: 12 }, { wch: 60 }, { wch: 40 }, { wch: 20 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, ws4, "Alerts");
 
-  // Write and trigger download
-  const filename = `BoardPack_${pack.company_name.replace(/\s/g, "_")}_${pack.period_label.replace(/\s/g, "_")}.xlsx`;
-  XLSX.writeFile(wb, filename);
+  // The bytes of the board pack working copy (delivered by the caller: issued, then saved; never sealed)
+  const fileName = `BoardPack_${pack.company_name.replace(/\s/g, "_")}_${pack.period_label.replace(/\s/g, "_")}.xlsx`;
+  const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+  return { blob: new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), fileName };
 }
 
 // ── Print styles injected into document head ──────────────────────────────────
@@ -204,6 +209,7 @@ function PrintablePackSection({ title, children }: { title: string; children: Re
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function BoardPackGenerator({
+  periodYear,
   companyId,
   companyName,
   runId,
@@ -321,10 +327,19 @@ export function BoardPackGenerator({
     setSaving(false);
   };
 
-  const handlePrint = () => {
+  // A print cannot be sealed, so it is never an official board pack: every printed page carries the draft marking.
+  // The board pack spreadsheet below is an issued working copy, never a sealed official pack.
+  const handlePrint = async () => {
     if (!printRef.current) return;
     const printRoot = document.getElementById("maono-board-pack-print-root");
-    if (printRoot) printRoot.innerHTML = printRef.current.outerHTML;
+    if (printRoot) {
+      printRoot.innerHTML = printRef.current.outerHTML;
+      const mark = document.createElement("div");
+      mark.setAttribute("data-testid", "board-pack-draft-mark");
+      mark.style.cssText = "position:fixed;top:0;left:0;right:0;text-align:center;font-weight:700;font-size:8pt;z-index:2147483647;";
+      mark.textContent = DRAFT_PRINT_MARK;
+      printRoot.appendChild(mark);
+    }
     window.print();
   };
 
@@ -348,7 +363,7 @@ export function BoardPackGenerator({
         {!pack && (
           <div className="text-center py-8">
             <p className="text-sm text-gray-600 mb-4">
-              Generate an executive board pack from all Maono analysis for this period.
+              Generate an executive board pack from all Close Insights analysis for this period.
             </p>
             <button
               onClick={generatePack}
@@ -376,13 +391,13 @@ export function BoardPackGenerator({
             {/* Action bar */}
             <div className="flex gap-2 mb-5 flex-wrap">
               <button
-                onClick={handlePrint}
+                onClick={() => void handlePrint()}
                 className="flex items-center gap-2 bg-gray-800 hover:bg-gray-900 text-white text-xs font-medium rounded-lg px-4 py-2 transition-colors"
               >
                 🖨 Export PDF (Print)
               </button>
               <button
-                onClick={() => exportToExcel(pack)}
+                onClick={() => void deliverReportingPack({ companyId, periodYear, kind: "board_pack", outputRef: `variance-run:${runId}`, build: () => exportToExcel(pack) })}
                 className="flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white text-xs font-medium rounded-lg px-4 py-2 transition-colors"
               >
                 📊 Export Excel
@@ -414,7 +429,7 @@ export function BoardPackGenerator({
                 <div className="text-xs text-gray-500 uppercase tracking-widest mb-1">Board Pack · Confidential</div>
                 <h1 className="text-2xl font-bold text-gray-900">{pack.company_name}</h1>
                 <h2 className="text-lg text-gray-600 mt-1">{pack.period_label} Management Accounts</h2>
-                <div className="text-xs text-gray-400 mt-2">Generated: {pack.generated_at} · Powered by Maono Intelligence · Iron Dome Nuclear Design</div>
+                <div className="text-xs text-gray-400 mt-2">Generated: {pack.generated_at} · Powered by Close Insights</div>
               </div>
 
               {/* Section 1: Hoffman KPI Summary */}
@@ -483,7 +498,7 @@ export function BoardPackGenerator({
                 <PrintablePackSection title="3. Root Cause Analysis">
                   <div className="text-xs leading-relaxed text-gray-700 whitespace-pre-wrap">
                     {rootIns.ai_output.substring(0, 2000)}
-                    {rootIns.ai_output.length > 2000 && "\n[…truncated for board pack — full analysis in Maono dashboard]"}
+                    {rootIns.ai_output.length > 2000 && "\n[…truncated for board pack — full analysis in Close Insights]"}
                   </div>
                 </PrintablePackSection>
               )}
@@ -523,7 +538,7 @@ export function BoardPackGenerator({
                   </div>
                   <div className="text-xs leading-relaxed text-gray-700 whitespace-pre-wrap">
                     {decideIns.ai_output.substring(0, 3000)}
-                    {decideIns.ai_output.length > 3000 && "\n[…full decision paths in Maono dashboard]"}
+                    {decideIns.ai_output.length > 3000 && "\n[…full decision paths in Close Insights]"}
                   </div>
                 </PrintablePackSection>
               )}
@@ -544,7 +559,7 @@ export function BoardPackGenerator({
 
               {/* Footer */}
               <div className="mt-8 pt-4 border-t border-gray-200 text-xs text-gray-400">
-                <p>This board pack was generated by Maono Intelligence from Safisha-verified data.</p>
+                <p>This board pack was generated by Close Insights from Close Certification-verified data.</p>
                 <p>All figures are subject to audit and management review. This document is confidential.</p>
                 <p className="mt-1">🛡 Iron Dome Nuclear Design · {pack.generated_at}</p>
               </div>

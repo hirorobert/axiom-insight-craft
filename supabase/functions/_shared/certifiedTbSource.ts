@@ -111,21 +111,21 @@ export function interpretCertification(row: unknown): SourceLoad<CertifiedTb> {
   if (row === null || row === undefined || typeof row !== "object") {
     return {
       state: "CANNOT_ASSESS",
-      reason: "No authoritative SAFISHA certification exists for this company and period.",
+      reason: "No authoritative Close Certification exists for this company and period.",
     };
   }
   const c = row as Record<string, unknown>;
   if (c.is_blocking === true) {
     return {
       state: "CANNOT_ASSESS",
-      reason: "The authoritative SAFISHA certification for this period is blocking — no certified balances exist.",
+      reason: "The authoritative Close Certification for this period is blocking — no certified balances exist.",
     };
   }
   const snapshot = c.rows_snapshot;
   if (!Array.isArray(snapshot) || snapshot.length === 0) {
     return {
       state: "CANNOT_ASSESS",
-      reason: "The authoritative SAFISHA certification carries no certified account rows.",
+      reason: "The authoritative Close Certification carries no certified account rows.",
     };
   }
   const rows: CertifiedTbRow[] = [];

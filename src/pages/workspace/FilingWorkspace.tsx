@@ -79,6 +79,8 @@ export default function FilingWorkspace() {
           uploadId={upload.id}
           existingNotes={result?.disclosureNotes}
           onNotesGenerated={refreshUpload}
+companyId={upload.company_id}
+periodYear={fpYear}
         />
       )}
 
@@ -86,6 +88,7 @@ export default function FilingWorkspace() {
       {mapping && (
         <MgmtLetterPanel
           uploadId={upload.id}
+          companyId={upload.company_id}
           existingLetter={result?.managementLetter ?? null}
           onLetterGenerated={refreshUpload}
         />

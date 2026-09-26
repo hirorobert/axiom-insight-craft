@@ -16,6 +16,7 @@ import { PeriodCloseManager } from "@/components/PeriodCloseManager";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { useBillingSummary } from "@/hooks/useBillingSummary";
 import { PRICING } from "@/constants/copy";
+import { CHECKOUT_AVAILABLE, planByCode } from "@/lib/commercial/pricingCatalogue";
 import {
   displayPlanName,
   displayEntitlement,
@@ -100,10 +101,11 @@ export default function Settings() {
   }, [billing?.planCode, billing?.billingInterval]);
 
   function handleRenewalOfferResolved(data: ResolvedOfferData | null) {
-    const expectedAmountMinor = Math.round(
-      (billing?.billingInterval === "ANNUAL" ? PRICING.ANNUAL_USD : PRICING.MONTHLY_USD) * 100,
-    );
-    if (!billing?.billingInterval) {
+    // Expected amount comes from the one pricing catalogue for the plan actually held; a plan with no current
+    // catalogue price (Free, Enterprise, the grandfathered legacy plan) can never verify.
+    const cataloguePlan = planByCode(billing?.planCode);
+    const expectedAmountMinor = billing?.billingInterval === "ANNUAL" ? cataloguePlan?.annualMinor ?? null : cataloguePlan?.monthlyMinor ?? null;
+    if (!billing?.billingInterval || expectedAmountMinor === null) {
       setRenewalPricingVerification("UNAVAILABLE");
       return;
     }
@@ -323,16 +325,15 @@ export default function Settings() {
                     </div>
                   </div>
                 ) : !billing || !billing.hasBillingCustomer ? (
-                  /* No billing customer — show Free state */
+                  /* No billing customer — no current plan (there is no free plan) */
                   <div className="space-y-6">
                     <div className="border border-border p-6">
                       <div className="flex flex-wrap items-center gap-3 mb-4">
-                        <Badge variant="secondary">{PRICING.FREE_NAME}</Badge>
-                        <Badge variant="default">Active</Badge>
+                        <Badge variant="secondary">{PRICING.NO_PLAN_NAME}</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground leading-relaxed mb-4">
-                        You are currently using the free plan. Review available plans and released
-                        Professional capabilities.
+                        This account has no current plan. Existing data stays readable; new work needs a plan.
+                        Review the available plans.
                       </p>
                       <Button variant="outline" size="sm" asChild className="gap-2">
                         <Link to="/pricing">
@@ -379,9 +380,8 @@ export default function Settings() {
                       {/* Pricing reference */}
                       {billing.planCode === "PAID" && (
                         <p className="text-xs text-muted-foreground mb-4">
-                          {PRICING.PAID_NAME} — {PRICING.CURRENCY_CODE} {PRICING.ANNUAL_USD}/year or{" "}
-                          {PRICING.CURRENCY_CODE} {PRICING.MONTHLY_USD}/month.{" "}
-                          {PRICING.TAX_DISCLAIMER}
+                          {displayPlanName(billing.planCode)} — your existing access is unchanged. Current plans and
+                          prices are listed on the pricing page. {PRICING.TAX_DISCLAIMER}
                         </p>
                       )}
 
@@ -396,7 +396,7 @@ export default function Settings() {
                           available precisely then. commit_verified_
                           commercial_payment extends from the current
                           licence's effective_end automatically. */}
-                      {billing.planCode === "PAID" && billing.billingInterval && (
+                      {CHECKOUT_AVAILABLE && billing.planCode === "PAID" && billing.billingInterval && (
                         <div className="max-w-xs mb-2">
                           {/* Ω∞ A+ closure HIGH-3: identical discipline to
                               Pricing.tsx — CheckoutUpgradeButton stays

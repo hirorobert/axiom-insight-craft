@@ -1,4 +1,4 @@
-import { PRICING } from "@/constants/copy";
+import { displayCataloguePlanName } from "@/lib/commercial/pricingCatalogue";
 import type { LicenceStatus } from "@/lib/commercial/entitlementContract";
 import { isFeatureCode, FEATURE_DESCRIPTIONS } from "@/lib/commercial/featureRegistry";
 
@@ -8,8 +8,8 @@ import { isFeatureCode, FEATURE_DESCRIPTIONS } from "@/lib/commercial/featureReg
  * component itself would pull in React Router, the Supabase client, and
  * other module-scope side effects that have no place in a logic test).
  *
- * The authoritative plan-code vocabulary today is exactly "FREE" and
- * "PAID" (commercial_plans.code, Ω1 commercial foundation). Anything else
+ * The authoritative plan-code vocabulary is SOLO, PRACTICE, FIRM, ENTERPRISE, the grandfathered legacy PAID
+ * and the retired FREE (commercial_plans.code, 20260925130000). Anything else
  * — a future code the UI doesn't know about yet, or a data-integrity
  * issue — fails closed rather than being misrepresented as an active paid
  * plan (CFOClose Ω∞ Execution Charter, Phase 1, item 5).
@@ -17,16 +17,14 @@ import { isFeatureCode, FEATURE_DESCRIPTIONS } from "@/lib/commercial/featureReg
  * IMPORTANT: this function does NOT decide what to show when there is no
  * billing customer at all — that is a separate, distinct state, and
  * Settings.tsx's own `!billing.hasBillingCustomer` branch renders the
- * default Free state for it upstream of this call. By the time
+ * "no current plan" state for it upstream of this call. By the time
  * `displayPlanName` is invoked, a billing customer is already confirmed to
  * exist, so a `null` or empty `planCode` reaching here is itself an
  * anomaly — not "no billing customer" — and must fail closed exactly like
  * any other unrecognized code.
  */
 export function displayPlanName(planCode: string | null): string {
-  if (planCode === "FREE") return PRICING.FREE_NAME;
-  if (planCode === "PAID") return PRICING.PAID_NAME;
-  return "Plan unavailable";
+  return displayCataloguePlanName(planCode) ?? "Plan unavailable";
 }
 
 /**

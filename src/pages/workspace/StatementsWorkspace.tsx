@@ -18,6 +18,9 @@ import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePrefli
 import { computePreflight } from "@/lib/workspace/computePreflight";
 import { ExportStatements, type ProcessingResult } from "@/components/ExportStatements";
 import { FINANCIAL_STATEMENTS_WORKSPACE_ENABLED } from "@/lib/financialStatementsWorkspace/workspaceGate";
+import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState";
+import { paidActionState } from "@/lib/commercial/paidActions";
+import { deliverOfficialReportingPack, deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 
 // Internal-preview workspace: loaded (and therefore evaluated) only when the source-controlled gate is on.
 const FinancialStatementsWorkspace = FINANCIAL_STATEMENTS_WORKSPACE_ENABLED
@@ -26,6 +29,16 @@ const FinancialStatementsWorkspace = FINANCIAL_STATEMENTS_WORKSPACE_ENABLED
 
 export default function StatementsWorkspace() {
   const { upload, uploads, workspaceState, companyId, periodYear, company } = useWorkspace();
+  // Reporting Pack (20260925100000): downloadable statement outputs are issued by the server first. The statements
+  // workspace itself stays database-inert; this page supplies the issuer and the explanatory plan state.
+  const commercial = useWorkspaceCommercialState(companyId);
+  const downloadsLocked = paidActionState(commercial.state, "REPORTING_PACK_EXPORT", commercial.loading).status === "locked";
+  // Structural (the page never imports workspace code statically; the workspace is lazily loaded behind its gate).
+  const deliverStatementsDownload = (file: { readonly fileName: string; readonly mimeType: string; readonly content: string }, outputRef: string) =>
+    deliverReportingPack({
+      companyId, periodYear, kind: "financial_statements_data", outputRef, fileName: file.fileName,
+      build: () => new Blob([file.content], { type: `${file.mimeType};charset=utf-8` }),
+    });
 
   const mission = workspaceState.missions.statements;
   const preflight = computePreflight(
@@ -92,6 +105,9 @@ export default function StatementsWorkspace() {
                 fiscalYearEnd={company?.fiscal_year_end ?? null}
                 currentUpload={upload}
                 uploads={uploads}
+                deliverDownload={deliverStatementsDownload}
+                deliverOfficial={(outputRef: string) => deliverOfficialReportingPack({ companyId, periodYear, outputRef })}
+                downloadsLocked={downloadsLocked}
               />
             </Suspense>
           )}
@@ -113,6 +129,8 @@ export default function StatementsWorkspace() {
                 periodYearEnd={company?.fiscal_year_end ?? ""}
                 companyCurrency={company?.currency ?? "TZS"}
                 taxResult={null}
+                companyId={companyId}
+                periodYear={periodYear}
               />
             </div>
           </div>

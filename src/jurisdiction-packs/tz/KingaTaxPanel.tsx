@@ -5,6 +5,8 @@
 //   → CIT 30% / Minimum Tax 0.5% → Provision vs Computed → Gap
 // ============================================================
 
+import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
+import { CAPABILITY_LABELS, SIGN_OFF_TIER_CAPABILITY, canExercise } from "@/lib/auth/workspaceCapabilities";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -20,7 +22,11 @@ import {
 } from "lucide-react";
 import { TaxLossPanel } from "./TaxLossPanel";
 import { HesabuAssurancePanel } from "@/components/HesabuAssurancePanel";
+import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState";
+import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
+import { entitlementRefusal, lockedCopy, paidActionState } from "@/lib/commercial/paidActions";
 import { generateTaxComputationPDF } from "./generateTaxComputationPDF";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 import { FileDown, ShieldCheck, ShieldX, ShieldAlert } from "lucide-react";
 
 // ── ITA CLASS METADATA — VERIFIED: PwC Tanzania (reviewed 14 Jan 2026) ───
@@ -254,13 +260,6 @@ interface KingaTaxPanelProps {
   onResultChange?: (result: TaxResult | null) => void;
 }
 
-// D6-FIX: role weights for sign-off tier enforcement
-const ROLE_WEIGHT: Record<string, number> = { viewer: 0, preparer: 1, partner: 2, owner: 3 };
-const TIER_MIN_WEIGHT: Record<string, number> = {
-  preparer: 1,  // preparer, partner, owner can sign as Tier 1
-  reviewer: 2,  // only partner or owner for Tier 2
-  approver: 2,  // only partner or owner can lock (Tier 3)
-};
 
 // ── HELPERS ───────────────────────────────────────────────────────────────
 function fmt(n: number): string {
@@ -498,9 +497,14 @@ export function KingaTaxPanel({
   const [stored, setStored]             = useState<StoredComputation | null>(null);
   const [signOff, setSignOff]           = useState<SignOff | null>(null);
   const [signOffLoading, setSignOffLoading] = useState(false);
+  // Close Certification (a paid capability): the plan check only explains; the database refuses the write regardless.
+  const { state: commercialState, loading: commercialLoading } = useWorkspaceCommercialState(companyId);
+  const certificationAction = paidActionState(commercialState, "STATEMENT_CERTIFICATION", commercialLoading);
+  const [certificationRefused, setCertificationRefused] = useState(false);
+  const certificationLocked = certificationRefused || certificationAction.status === "locked";
   const [signOffNote, setSignOffNote]   = useState("");
-  // D6-FIX: current user's firm_members role (for sign-off enforcement)
-  const [firmMemberRole, setFirmMemberRole] = useState<string>("preparer");
+  // What the person may do in this workspace (capabilities, not a job title).
+  const { state: myCapabilities } = useWorkspaceCapabilities(companyId);
   const [firmMemberId, setFirmMemberId]     = useState<string | null>(null);
   // D4-FIX: management inputs (dividends, share capital, loan movements)
   const [mgmtInputs, setMgmtInputs]         = useState({ dividends: "", shareCapital: "", loanRepaid: "", newBorrowings: "", otherEquity: "" });
@@ -555,7 +559,7 @@ export function KingaTaxPanel({
         body: { upload_id: uploadId },
       });
       if (fnErr) throw fnErr;
-      if (data?.status === "BLOCKED") throw new Error(data.message ?? "HESABU blocked — missing input data");
+      if (data?.status === "BLOCKED") throw new Error(data.message ?? "Statement validation blocked — missing input data");
       setHesabuGatePassed(data?.gate_satisfied ?? false);
       setHesabuStale(false);
       setHesabuRefreshKey(k => k + 1);
@@ -582,13 +586,13 @@ export function KingaTaxPanel({
       .eq("company_id", companyId).eq("period_year", periodYear).maybeSingle()
       .then(({ data }) => { if (data) setSignOff(data as SignOff); });
 
-    // D6-FIX: load current user's role in this company
+    // The person's membership id (the sign-off audit trail's actor).
     supabase
       .from("firm_members")
-      .select("id, role")
+      .select("id")
       .eq("company_id", companyId).eq("user_id", userId).maybeSingle()
       .then(({ data }) => {
-        if (data) { setFirmMemberRole(data.role); setFirmMemberId(data.id); }
+        if (data) setFirmMemberId(data.id);
       });
 
     // D4-FIX: load saved management inputs if they exist
@@ -608,14 +612,10 @@ export function KingaTaxPanel({
   }, [companyId, uploadId, periodYear, userId]);
 
   const handleSign = async (tier: "preparer" | "reviewer" | "approver") => {
-    // D6-FIX: enforce minimum role weight for each sign-off tier
-    const userWeight = ROLE_WEIGHT[firmMemberRole] ?? 0;
-    const requiredWeight = TIER_MIN_WEIGHT[tier] ?? 99;
-    if (userWeight < requiredWeight) {
-      setError(
-        `Role "${firmMemberRole}" cannot sign off as ${tier}. ` +
-        `This action requires at least ${tier === "preparer" ? "preparer" : "partner or owner"} role.`
-      );
+    // Each sign-off tier needs its capability in this workspace (never a job title); the database policies decide.
+    const needed = SIGN_OFF_TIER_CAPABILITY[tier];
+    if (!canExercise(myCapabilities, needed)) {
+      setError(`Signing off as ${tier} needs the "${CAPABILITY_LABELS[needed]}" capability in this workspace and a current plan.`);
       return;
     }
 
@@ -643,7 +643,7 @@ export function KingaTaxPanel({
 
     if (!signOff?.id) {
       // Create the sign-off record first
-      const { data: newSO } = await supabase
+      const { data: newSO, error: insertErr } = await supabase
         .from("statement_sign_offs")
         .insert({
           company_id:  companyId,
@@ -654,14 +654,22 @@ export function KingaTaxPanel({
         })
         .select("*")
         .single();
+      if (insertErr) {
+        if (entitlementRefusal(insertErr) === "STATEMENT_CERTIFICATION") setCertificationRefused(true);
+        else setError(insertErr.message);
+      }
       if (newSO) setSignOff(newSO as SignOff);
     } else {
-      const { data: updated } = await supabase
+      const { data: updated, error: updateErr } = await supabase
         .from("statement_sign_offs")
         .update(updates)
         .eq("id", signOff.id)
         .select("*")
         .single();
+      if (updateErr) {
+        if (entitlementRefusal(updateErr) === "STATEMENT_CERTIFICATION") setCertificationRefused(true);
+        else setError(updateErr.message);
+      }
       if (updated) setSignOff(updated as SignOff);
     }
     setSignOffNote("");
@@ -735,7 +743,7 @@ export function KingaTaxPanel({
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-lg flex items-center gap-2 flex-wrap">
             <Calculator className="w-5 h-5 text-primary" />
-            Kinga — Corporate Tax (ITA Chapter 332)
+            Corporate Tax (ITA Chapter 332)
             {companyName && <span className="text-sm font-normal text-muted-foreground">· {companyName}</span>}
             <Badge variant="outline" className="text-xs ml-1">FY {periodYear}</Badge>
             {isLocked && (
@@ -1271,7 +1279,7 @@ export function KingaTaxPanel({
                     <div className="mb-3 rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-1">
                       <div className="font-bold uppercase tracking-wide">⚠ First-Year SCF — Draft Only. Not for Publication.</div>
                       <div>
-                        This Statement of Cash Flows is produced for the <strong>first period</strong> in Kinga for this entity.
+                        This Statement of Cash Flows is produced for the <strong>first period</strong> recorded in CFO Close for this entity.
                         Opening cash, working capital, and balance-sheet movements are <strong>estimated as nil</strong> because
                         no prior-year closing balance is stored in the system. The resulting SCF will not reconcile to the
                         balance sheet and will always show a non-reconciled status.
@@ -1394,13 +1402,13 @@ export function KingaTaxPanel({
                     {hesabuGatePassed === null && (
                       <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
                         <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
-                        No HESABU validation yet — sign-off is blocked until validation passes.
+                        No statement validation yet — sign-off is blocked until validation passes.
                       </div>
                     )}
                     {hesabuGatePassed === false && (
                       <div className="flex items-center gap-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5">
                         <ShieldX className="w-3.5 h-3.5 flex-shrink-0" />
-                        HESABU validation failed — resolve all assertions before signing off.
+                        Statement validation failed — resolve all assertions before signing off.
                       </div>
                     )}
                     {hesabuStale && hesabuGatePassed && (
@@ -1411,7 +1419,7 @@ export function KingaTaxPanel({
                     )}
                     {hesabuError && (
                       <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5">
-                        HESABU error: {hesabuError}
+                        Validation error: {hesabuError}
                       </div>
                     )}
                     <Button
@@ -1423,7 +1431,7 @@ export function KingaTaxPanel({
                     >
                       {hesabuValidating
                         ? <><RefreshCw className="w-3 h-3 animate-spin" />Validating…</>
-                        : <><ShieldCheck className="w-3 h-3" />Run HESABU Validation</>
+                        : <><ShieldCheck className="w-3 h-3" />Run Statement Validation</>
                       }
                     </Button>
                   </div>
@@ -1482,15 +1490,15 @@ export function KingaTaxPanel({
                         {/* Show HESABU gate reason when Tier 1 is blocked */}
                         {tier === "preparer" && !signed && !isLocked && (
                           hesabuGatePassed === null ? (
-                            <span className="ml-2 text-amber-600">— awaiting HESABU validation</span>
+                            <span className="ml-2 text-amber-600">— awaiting statement validation</span>
                           ) : hesabuGatePassed === false ? (
-                            <span className="ml-2 text-red-600">— HESABU gate failed</span>
+                            <span className="ml-2 text-red-600">— statement validation gate failed</span>
                           ) : hesabuStale ? (
-                            <span className="ml-2 text-amber-600">— HESABU validation is stale (rerun required)</span>
+                            <span className="ml-2 text-amber-600">— statement validation is stale (rerun required)</span>
                           ) : null
                         )}
                       </div>
-                      {enabled && !isLocked && (
+                      {enabled && !isLocked && !certificationLocked && (
                         <Button
                           size="sm"
                           variant={tier === "approver" ? "default" : "outline"}
@@ -1504,7 +1512,10 @@ export function KingaTaxPanel({
                       )}
                     </div>
                   ))}
-                  {!isLocked && (
+                  {certificationLocked && !isLocked && (
+                    <PaidActionNotice copy={lockedCopy("STATEMENT_CERTIFICATION")} testId="close-certification-locked" />
+                  )}
+                  {!isLocked && !certificationLocked && (
                     <div className="mt-1">
                       <input
                         className="w-full text-xs border border-input rounded px-2 py-1.5"
@@ -1555,7 +1566,10 @@ export function KingaTaxPanel({
                       .eq("company_id", companyId)
                       .in("status", ["open", "in_progress"]);
                     const [{ data: allowances }, { data: findings }] = await Promise.all([q1, q2]);
-                    generateTaxComputationPDF({
+                    // The tax computation PDF is a Reporting Pack working copy: issued by the server, built, then saved (never sealed).
+                    await deliverReportingPack({
+                      companyId, periodYear, kind: "tax_computation", outputRef: `upload:${uploadId}`,
+                      build: () => generateTaxComputationPDF({
                       result,
                       companyName: companyName ?? "Company",
                       companyTin,
@@ -1563,6 +1577,7 @@ export function KingaTaxPanel({
                       periodEndMonth: periodEndMonth ?? 12,
                       allowances: (allowances ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["allowances"],
                       findings:   (findings   ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["findings"],
+                      }),
                     });
                   }}
                 >
@@ -1614,7 +1629,10 @@ export function KingaTaxPanel({
                       .eq("company_id", companyId)
                       .in("status", ["open", "in_progress"]);
                     const [{ data: allowances }, { data: findings }] = await Promise.all([qa, qf]);
-                    generateTaxComputationPDF({
+                    // The tax computation PDF is a Reporting Pack working copy: issued by the server, built, then saved (never sealed).
+                    await deliverReportingPack({
+                      companyId, periodYear, kind: "tax_computation", outputRef: `upload:${uploadId}`,
+                      build: () => generateTaxComputationPDF({
                       result,
                       companyName: companyName ?? "Company",
                       companyTin,
@@ -1622,6 +1640,7 @@ export function KingaTaxPanel({
                       periodEndMonth: periodEndMonth ?? 12,
                       allowances: (allowances ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["allowances"],
                       findings:   (findings   ?? []) as Parameters<typeof generateTaxComputationPDF>[0]["findings"],
+                      }),
                     });
                   }}
                 >

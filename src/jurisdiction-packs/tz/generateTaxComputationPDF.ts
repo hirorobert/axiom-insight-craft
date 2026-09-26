@@ -139,7 +139,8 @@ const RED   = [180, 30, 30]   as [number, number, number];
 
 // ── Main export ───────────────────────────────────────────────
 
-export function generateTaxComputationPDF(opts: GeneratePDFOptions): void {
+/** Builds the tax computation PDF (the caller delivers it as a Reporting Pack working copy: issued, then saved; never sealed). */
+export function generateTaxComputationPDF(opts: GeneratePDFOptions): { blob: Blob; fileName: string } {
   const {
     result, companyName, companyTin, periodYear, periodEndMonth,
     allowances, findings, preparerName,
@@ -584,5 +585,5 @@ export function generateTaxComputationPDF(opts: GeneratePDFOptions): void {
 
   // ── Download ──────────────────────────────────────────────────
   const safeName = companyName.replace(/[^a-zA-Z0-9\s-]/g, "").replace(/\s+/g, "_");
-  doc.save(`SAFF_CIT_${safeName}_${periodYear}.pdf`);
+  return { blob: doc.output("blob"), fileName: `SAFF_CIT_${safeName}_${periodYear}.pdf` };
 }

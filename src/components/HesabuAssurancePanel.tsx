@@ -192,7 +192,7 @@ export function HesabuAssurancePanel({
                 <div>
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-base font-semibold text-foreground">
-                      HESABU Assurance
+                      Statement Validation
                     </CardTitle>
                     {expanded
                       ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
@@ -237,11 +237,11 @@ export function HesabuAssurancePanel({
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
               <p className="text-xs font-medium text-amber-800 flex items-center gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5" />
-                HESABU validation has not been run for this upload.
+                Statement validation has not been run for this upload.
               </p>
               <p className="text-xs text-amber-700 mt-1">
                 Validation runs automatically after committing a tax computation. The sign-off
-                gate requires a passing HESABU run before Tier 1 can be signed.
+                gate requires a passing statement validation before Tier 1 can be signed.
               </p>
             </div>
           )}

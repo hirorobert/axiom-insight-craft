@@ -117,6 +117,30 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/processingActor.ts",
       "supabase/functions/_shared/sourceSweeper.ts",
       "supabase/functions/trial-balance-source-sweeper/index.ts",
+      // CFO Close capabilities, entitlements and pricing (20260925100000): the forward-only catalogue/authority/walls
+      // migration, the shared paid-action gate for Edge Functions, and the neutral comparative-assurance endpoint whose
+      // one handler both it and the legacy kinga-comparative-engine adapter serve. No financial-statements schema.
+      "supabase/migrations/20260925100000_global_capabilities_entitlements_pricing.sql",
+      "supabase/functions/_shared/paidAction.ts",
+      "supabase/functions/_shared/comparativeAssurance.ts",
+      "supabase/functions/comparative-assurance-engine/index.ts",
+      // Named-user billing suspension and invitation reservations (20260925110000), the official Reporting Pack
+      // issuance binding (20260925120000), and the service-role named-user activity check Edge Functions share. No
+      // financial-statements schema.
+      "supabase/migrations/20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
+      "supabase/migrations/20260925120000_reporting_pack_issuance_binding.sql",
+      "supabase/functions/_shared/namedUserAccess.ts",
+      // No free plan / Solo / plan x capability matrix (20260925130000), capability authorization with the Close
+      // Assurance and reconciliation write walls (20260925140000), and the minimum predicate grant (20260925150000).
+      // No financial-statements schema.
+      "supabase/migrations/20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
+      "supabase/migrations/20260925140000_workspace_capability_authorization.sql",
+      "supabase/migrations/20260925150000_can_user_act_on_workspace_minimum_grant.sql",
+      // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
+      // and its pure handler. No financial-statements schema.
+      "supabase/functions/_shared/reportingPackSeal.mjs",
+      "supabase/functions/_shared/reportingPackSeal.d.mts",
+      "supabase/functions/seal-reporting-pack/index.ts",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
@@ -132,6 +156,28 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/idempotency.ts",
       // The sweeper's verify_jwt = false entry (see the automation-surface test below).
       "supabase/config.toml",
+      // CFO Close walls: the paid-action gate in the Close Insights engines, the filing-pack and management-letter
+      // generators; neutral customer-visible wording (no internal engine names) in their responses and in the shared
+      // certified-trial-balance reader; the disclosure-notes generator's credit line. Accounting logic unchanged.
+      "supabase/functions/maono-compute/index.ts",
+      "supabase/functions/maono-risk/index.ts",
+      "supabase/functions/maono-decide/index.ts",
+      "supabase/functions/maono-cashflow/index.ts",
+      "supabase/functions/maono-root-cause/index.ts",
+      "supabase/functions/maono-monitor/index.ts",
+      "supabase/functions/generate-xbrl/index.ts",
+      "supabase/functions/generate-management-letter/index.ts",
+      "supabase/functions/generate-disclosure-notes/index.ts",
+      "supabase/functions/_shared/certifiedTbSource.ts",
+      // Named-user activity (20260925110000): the shared membership checks and the service-role membership lookups
+      // also require an ACTIVE named user (a billing-suspended member gets an outsider's 403); the invitation function
+      // reserves the seat before any email and releases it when the email fails. Accounting logic unchanged.
+      "supabase/functions/_shared/auth.ts",
+      "supabase/functions/_shared/actor.ts",
+      "supabase/functions/invite-firm-member/index.ts",
+      "supabase/functions/kinga-tax-engine/index.ts",
+      // B-5: the evidence-attachment RPC error is a failure, never ignored.
+      "supabase/functions/safisha-ingest/index.ts",
     ]);
     for (const line of changed) {
       const [status, file] = line.split("	");
@@ -159,7 +205,23 @@ describe("database inertness — schema and functions", () => {
       // PR #32 staging browser acceptance: behind the same stagingGuard; a dependency-free CDP driver (no package.json
       // change), a staging-only frontend build with no readable .env, and pure checks.
       "scripts/browser_acceptance.mjs", "scripts/browser-acceptance/cdp.mjs", "scripts/browser-acceptance/stagingFrontend.mjs",
-      "scripts/browser-acceptance/checks.mjs"]);
+      "scripts/browser-acceptance/checks.mjs",
+      // CFO Close capabilities: the loopback-only real-PostgreSQL entitlement proof and the customer-visible legacy-name
+      // sweep (a read-only source scanner).
+      "scripts/db-proof/entitlements.mjs", "scripts/ci/legacyNameSweep.mjs",
+      // Named-user billing suspension, invitation reservations and the official Reporting Pack: the loopback-only
+      // real-PostgreSQL proof, and the read-only migration-authority parity guard.
+      "scripts/db-proof/billingSuspension.mjs", "scripts/ci/assertMigrationAuthority.mjs",
+      // Disposable-database contract harness, section E only: asserts the CURRENT catalogue (the original offers kept but
+      // retired by 20260925100000, the four current offers non-purchasable) instead of the retired offers being active.
+      "scripts/db-contract-tests/10_static_contract_assertions.sql",
+      // The plan catalogue / capability authorization / minimum-grant proof (disposable PostgreSQL only).
+      "scripts/db-proof/planCapabilities.mjs",
+      // The disposable-database storage stub gains storage.objects.metadata (size, mimetype), as Supabase Storage has it,
+      // so the official Reporting Pack's stored-object check is proven (test shim only; never applied to a hosted project).
+      "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql",
+      // Static-guard helper: guards judge an atomic (one DO envelope) migration by the statements it executes. Read-only.
+      "scripts/ci/atomicEnvelope.mjs"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

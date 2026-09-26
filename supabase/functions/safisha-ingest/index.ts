@@ -492,13 +492,20 @@ serve(async (req: Request) => {
       inserted += batch.length;
     }
 
-    // Append to evidence_files JSONB array via raw SQL (cannot use rpc helper as a value)
-    await supabase.rpc("safisha_append_evidence_file", {
+    // Attach the evidence file record (20260925140000, B-5): the signed-in person's own client, under the
+    // reconciliation write wall (current plan + prepare_close). Any error is a failure, never ignored.
+    const { error: attachErr } = await supabase.rpc("safisha_append_evidence_file", {
       p_recon_id:   reconId,
       p_source_type: sourceType,
       p_filename:   file.name,
       p_rows:       inserted,
-    }).then(() => {}); // fire-and-forget; non-critical tracking
+    });
+    if (attachErr) {
+      console.error("safisha-ingest evidence attachment failed:", (attachErr as { code?: string }).code ?? "unknown");
+      return new Response(JSON.stringify({ error: "evidence_attachment_failed", code: (attachErr as { code?: string }).code ?? null }), {
+        status: (attachErr as { code?: string }).code === "PT402" ? 402 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     return new Response(JSON.stringify({
       success:              true,

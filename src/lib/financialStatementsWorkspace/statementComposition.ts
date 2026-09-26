@@ -51,7 +51,7 @@ export interface StatementComposition {
 }
 
 const SCF_REQUIREMENTS = [
-  "A period-complete cash-movement record classified as operating, investing and financing (this workspace holds no such transaction ledger — DEFECT-SAFISHA-TRANSACTION-LEDGER-GAP-001).",
+  "A period-complete cash-movement record classified as operating, investing and financing (this workspace holds no such transaction ledger).",
   "Opening and closing cash and cash equivalents agreed to the statement of financial position.",
   "Confirmation of the cash-equivalent perimeter through reviewed cash-account flags.",
 ];

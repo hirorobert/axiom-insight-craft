@@ -41,6 +41,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { unwrapAtomicEnvelope } from "../../../scripts/ci/atomicEnvelope.mjs";
 
 const REPO_ROOT = path.join(__dirname, "../../../");
 const MIGRATIONS_DIR = path.join(REPO_ROOT, "supabase/migrations");
@@ -176,8 +177,14 @@ describe("migration directory integrity", () => {
     // receives an event for a company-less personal upload, which had made processing them fail) — forward-only, sorts last.
     // Bumped from 133 -> 134: 20260923170000_upload_binding_and_personal_authority.sql (PR #32 final correction: workspace
     // upload binding immutable, one source-path authority, no workspace event without a workspace) — forward-only, sorts last.
+    // Bumped from 134 -> 135: 20260925100000_global_capabilities_entitlements_pricing.sql (CFO Close capability names, one entitlement authority,
+    // product walls and the pricing catalogue) — forward-only, sorts last.
     const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
-    expect(files.length).toBe(134);
+    // Bumped from 135 -> 137: 20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql (named-user billing suspension and invitation reservations) and
+    // 20260925120000_reporting_pack_issuance_binding.sql (the official Reporting Pack issuance binding).
+    // Bumped from 137 -> 140: 20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql (Solo, no free plan, plan x capability matrix),
+    // 20260925140000_workspace_capability_authorization.sql (capability authorization) and 20260925150000_can_user_act_on_workspace_minimum_grant.sql (minimum grant).
+    expect(files.length).toBe(140);
   });
 });
 
@@ -498,7 +505,8 @@ describe("trigger replay guard — every migration file, keyed by exact trigger 
   const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
   const strippedByFile = new Map<string, string>();
   for (const f of files) {
-    strippedByFile.set(f, stripCommentsStringsAndDollarQuotes(fs.readFileSync(path.join(MIGRATIONS_DIR, f), "utf-8")));
+    // An atomic migration (one DO envelope) is judged by the statements it executes (scripts/ci/atomicEnvelope.mjs).
+    strippedByFile.set(f, stripCommentsStringsAndDollarQuotes(unwrapAtomicEnvelope(fs.readFileSync(path.join(MIGRATIONS_DIR, f), "utf-8"))));
   }
 
   const creatorsByKey = new Map<string, string[]>();
@@ -514,8 +522,11 @@ describe("trigger replay guard — every migration file, keyed by exact trigger 
 
   const duplicateKeys = [...creatorsByKey.entries()].filter(([, fs2]) => fs2.length > 1);
 
-  it("finds exactly 20 duplicate trigger name+relation identities across the repository", () => {
-    expect(duplicateKeys.length).toBe(20);
+  // 20 -> 21: 20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql re-creates the firm_members
+  // seat-wall trigger (trg_firm_members_named_user_seats, now also on the invitation columns) behind its own
+  // DROP TRIGGER IF EXISTS; the grants trigger keeps its definition (only its function is replaced).
+  it("finds exactly 21 duplicate trigger name+relation identities across the repository", () => {
+    expect(duplicateKeys.length).toBe(21);
   });
 
   it("the first creator of any trigger name+relation needs no guard; every later creator of that same name+relation contains its own same-relation DROP TRIGGER IF EXISTS strictly before its corresponding CREATE TRIGGER — evaluated against every migration, no exclusions", () => {

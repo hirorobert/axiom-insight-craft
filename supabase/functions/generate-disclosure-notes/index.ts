@@ -22,6 +22,7 @@
 // ============================================================
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { isNamedUserActive } from "../_shared/namedUserAccess.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -199,7 +200,7 @@ Minimum tax @ 0.5% of turnover:      TZS ${fmt(minTax)}
 Tax payable (higher of CIT / Min):   TZS ${fmt(taxPayable)}
 Income tax provision (booked):        TZS ${fmt(provision)}${gapNote}${deferredSection}
 
-All computation performed by SAFF Kinga Tax Engine (${r.engine_version ?? "v2"}) in accordance with ITA Cap.332 R.E.2023 and Finance Act 2026.`,
+All computation performed by the CFO Close tax computation (${r.engine_version ?? "v2"}) in accordance with ITA Cap.332 R.E.2023 and Finance Act 2026.`,
     accountsReferenced: ["Income Tax Expense", "Income Tax Payable", "Deferred Tax Asset", "Deferred Tax Liability"],
   };
 }
@@ -537,7 +538,8 @@ serve(async (req) => {
         .not("accepted_at", "is", null)
         .limit(1)
         .maybeSingle();
-      if (!member) {
+      // A membership row is history; only an ACTIVE named user has access (20260925110000).
+      if (!member || !(await isNamedUserActive((fn, args) => admin.rpc(fn, args), upload.company_id, userId))) {
         return new Response(
           JSON.stringify({ error: "Forbidden", message: "Not a member of this company" }),
           { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },

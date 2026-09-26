@@ -51,6 +51,7 @@ import { ingestWorkbook, type WorkbookSheetInfo } from "@/lib/financialEvidence/
 import { correctEvidenceCell } from "@/lib/financialEvidence/correction";
 import type { EvidenceBatch, EvidenceDiagnostic, EvidenceType, PeriodRole, ReplayStatus } from "@/lib/financialEvidence/types";
 import { applyEvidence, evidenceOnlyReport, latestPerSeries, type ApplyEvidenceResult, type StoredEvidence } from "@/lib/financialGeneration/applyEvidence";
+import { lockedCopy } from "@/lib/commercial/paidActions";
 
 export interface WorkspaceUploadInput extends ComparativeCandidateUpload {
   readonly file_name: string;
@@ -121,7 +122,7 @@ export interface RestoreState {
   readonly message: string | null;
 }
 
-const VIEWER_MESSAGE = "Read-only access: your role is viewer, so you can read this workspace but not change, save, review or finalise anything.";
+const VIEWER_MESSAGE = "Read-only access: you can read this workspace but not change, save, review or finalise anything (you don't hold the prepare capability here, or the account has no current plan).";
 const READ_ONLY_MESSAGE = (v: number) => `You are viewing saved version ${v} read-only. Return to the working draft to make changes.`;
 
 export interface EvidenceCorrectionRequest {
@@ -189,7 +190,7 @@ export interface FinancialStatementsWorkspaceModel {
   readonly viewing: HistoricalView | null;
   /** True while a stored version is shown, and for a viewer: every mutating control is then unavailable. */
   readonly readOnly: boolean;
-  /** True when the server reports the caller's role as viewer (the workspace is read-only for them, whatever version is shown). */
+  /** True when the server reports the caller may not prepare here (no prepare_close capability or no current plan): read-only, whatever version is shown. */
   readonly readOnlyAccess: boolean;
   readonly openVersion: (reportVersion: number) => Promise<{ readonly ok: boolean; readonly message: string }>;
   readonly closeVersion: () => void;
@@ -257,7 +258,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
     return null;
   };
 
-  const viewerReadOnly = access?.enabled === true && access.role === "viewer";
+  const viewerReadOnly = access?.enabled === true && access.canPrepare !== true;
 
   // Server-authoritative access: the workspace's saving surface follows what the server says, never a client flag.
   useEffect(() => {
@@ -682,6 +683,10 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
         void transport.listSavedVersions(inputs.companyId, inputs.periodYear).then(setVersions, () => undefined);
         return { ok: true, message: `Recorded as ${state}.` };
       } catch (e) {
+        if (e instanceof FsTransportError && e.kind === "ENTITLEMENT_REQUIRED") {
+          const copy = lockedCopy("STATEMENT_CERTIFICATION");
+          return { ok: false, message: `${copy.title}. ${copy.unavailable} ${copy.history}` };
+        }
         const message = e instanceof FsTransportError ? e.message : e instanceof Error ? e.message : String(e);
         return { ok: false, message };
       }

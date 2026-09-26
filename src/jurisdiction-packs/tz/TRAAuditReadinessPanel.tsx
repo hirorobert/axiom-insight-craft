@@ -20,6 +20,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { deliverReportingPack } from "@/lib/commercial/requestReportingPack";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -166,8 +167,8 @@ export function TRAAuditReadinessPanel({
       detail: latestComp?.is_committed
         ? "ITA Chapter 332 tax computation has been committed and locked."
         : latestComp
-        ? "Tax computation exists but has not been committed. Open Kinga Tax Panel and click Commit Computation."
-        : "No tax computation found for this period. Run the Kinga Tax Engine first.",
+        ? "Tax computation exists but has not been committed. Open Compute Tax and click Commit Computation."
+        : "No tax computation found for this period. Run the tax computation first.",
       actionHint: latestComp?.is_committed ? undefined : "Open the Corporate Tax (ITA) panel → Commit Computation",
     };
 
@@ -218,7 +219,7 @@ export function TRAAuditReadinessPanel({
       detail: staleCount === 0
         ? "No findings have been open for more than 30 days without action."
         : `${staleCount} finding${staleCount > 1 ? "s" : ""} have been open for over 30 days: ${(staleFindings ?? []).slice(0, 2).map(f => f.title).join("; ")}${staleCount > 2 ? "…" : ""}`,
-      actionHint: staleCount > 0 ? "Open Kinga Findings → mark each item in_progress or resolved with a note" : undefined,
+      actionHint: staleCount > 0 ? "Open Compliance findings → mark each item in_progress or resolved with a note" : undefined,
     };
 
     // G5 evaluation
@@ -244,7 +245,7 @@ export function TRAAuditReadinessPanel({
       detail: openEvCount === 0
         ? "No open evidence requests — all outstanding evidence has been collected or closed."
         : `${openEvCount} open evidence request${openEvCount > 1 ? "s" : ""} — response pending from client.`,
-      actionHint: openEvCount > 0 ? "Kinga Findings → Evidence Requests → follow up or close each item" : undefined,
+      actionHint: openEvCount > 0 ? "Compliance findings → Evidence Requests → follow up or close each item" : undefined,
     };
 
     setGates([g1, g2, g3, g4, g5, g6]);
@@ -263,7 +264,8 @@ export function TRAAuditReadinessPanel({
   const partialOk = fails === 0 && warns > 0;
 
   // ── Print manifest ─────────────────────────────────────────────────────────
-  const handlePrintManifest = () => {
+  // The audit manifest is a Reporting Pack working copy: issued by the server, built, then saved (never sealed).
+  const handlePrintManifest = async () => {
     const lines = [
       `TRA AUDIT READINESS MANIFEST`,
       `Generated: ${new Date().toLocaleString("en-TZ", { timeZone: "Africa/Dar_es_Salaam" })} (EAT)`,
@@ -282,14 +284,12 @@ export function TRAAuditReadinessPanel({
       `This manifest does not alter any records.`,
     ];
     const text = lines.join("\n");
-    const blob = new Blob([text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `audit_manifest_${companyName?.replace(/\s+/g, "_") ?? companyId}_FY${periodYear}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Audit manifest downloaded");
+    const outcome = await deliverReportingPack({
+      companyId, periodYear, kind: "tax_workpaper", outputRef: `audit-manifest:${companyId}:FY${periodYear}`,
+      fileName: `audit_manifest_${companyName?.replace(/\s+/g, "_") ?? companyId}_FY${periodYear}.txt`,
+      build: () => new Blob([text], { type: "text/plain" }),
+    });
+    if (outcome === "delivered") toast.success("Audit manifest downloaded");
   };
 
   // ── Overall badge ──────────────────────────────────────────────────────────
@@ -417,7 +417,7 @@ export function TRAAuditReadinessPanel({
                     size="sm"
                     variant="outline"
                     className="gap-1.5 text-xs"
-                    onClick={handlePrintManifest}
+                    onClick={() => void handlePrintManifest()}
                     disabled={loading}
                   >
                     <Printer className="w-3.5 h-3.5" />

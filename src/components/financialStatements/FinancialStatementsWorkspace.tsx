@@ -22,6 +22,8 @@ import { FINANCIAL_STATEMENTS_WORKSPACE_ENABLED, isWorkspaceRenderable } from "@
 import { SourcesStage, StatementsStage, StructureStage } from "./SourcesStructureStatements";
 import { NotesStage, PersistenceBanner, ReviewStage, ValidateStage } from "./NotesValidateReview";
 import { OutputsStage } from "./OutputsStage";
+import type { DeliveryOutcome } from "@/lib/commercial/reportingPack";
+import type { ExportFile } from "@/lib/financialStatementsWorkspace/exports";
 import type { FsRpcTransport } from "@/lib/financialStatementsWorkspace/rpcTransport";
 import { SaveBar } from "./EvidenceUi";
 import { ReadOnlyBanner, RestoreBanner, SavedVersionsPanel } from "./SavedWorkUi";
@@ -38,6 +40,11 @@ export interface FinancialStatementsWorkspaceProps {
   readonly uploads: readonly WorkspaceUploadInput[];
   readonly loadAccountMappings?: AccountMappingLoader;
   readonly signatureBlocks?: readonly string[];
+  /** Delivers one browser-rendered output as a working copy; supplied by the host page (this workspace stays database-inert). */
+  readonly deliverDownload?: (file: ExportFile, outputRef: string) => Promise<DeliveryOutcome>;
+  readonly deliverOfficial?: (outputRef: string) => Promise<DeliveryOutcome>;
+  /** The workspace's account cannot issue a Reporting Pack: downloads are replaced by the plan explanation. */
+  readonly downloadsLocked?: boolean;
   /** Injected only by the non-production harness; production builds it behind the source gate. */
   readonly transport?: FsRpcTransport | null;
 }
@@ -193,7 +200,7 @@ function FinancialStatementsWorkspaceEnabled(props: FinancialStatementsWorkspace
         {model.status !== "loading" && stage === "notes" && <NotesStage model={model} />}
         {model.status !== "loading" && stage === "validate" && <ValidateStage model={model} onFocusLine={focusFromAnywhere} />}
         {model.status !== "loading" && stage === "review" && <ReviewStage model={model} onFocusLine={focusFromAnywhere} />}
-        {model.status !== "loading" && stage === "outputs" && <OutputsStage model={model} signatureBlocks={props.signatureBlocks} />}
+        {model.status !== "loading" && stage === "outputs" && <OutputsStage model={model} signatureBlocks={props.signatureBlocks} deliverDownload={props.deliverDownload} deliverOfficial={props.deliverOfficial} downloadsLocked={props.downloadsLocked} />}
       </div>
 
       {stage !== "review" && model.persistence !== "UNSAVED_DRAFT" && <PersistenceBanner state={model.persistence} />}

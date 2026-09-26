@@ -15,7 +15,7 @@
  *   1. Check Safisha gate (abort if any upload blocked)
  *   2. Compute confidence level (seasonal_periods_available formula)
  *   3. Create variance_run record (status='running')
- *   4. Load actuals from the authoritative SAFISHA CertifiedTB
+ *   4. Load actuals from the authoritative Close Certification certified trial balance
  *      (get_authoritative_certification → tb_certifications.rows_snapshot)
  *   5. Load budgets from variance_budgets (latest approved version)
  *   6. Prior comparatives: no per-account authority exists (period_closing_balances
@@ -48,6 +48,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { computeVariance as computeVarianceContract, type AnalyticalValue } from "../_shared/maonoAnalyticalContract.ts";
 import { loadCertifiedTb, certifiedRowKey, type CertifiedTbClient } from "../_shared/certifiedTbSource.ts";
+import { requirePaidActionAsCaller } from "../_shared/paidAction.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -228,6 +229,11 @@ serve(async (req: Request) => {
       return json({ error: "company_id, period_from, period_to are required" }, 400);
     }
 
+    // Close Insights is a paid capability (CFO Close, 20260925100000). Refused before any analysis starts; the
+    // database refuses the same writes (trg_close_insights_wall) whatever the caller.
+    const notEntitled = await requirePaidActionAsCaller((fn, args) => supabase.rpc(fn, args), company_id, "CLOSE_INSIGHTS", corsHeaders);
+    if (notEntitled) return notEntitled;
+
     const periodFrom = new Date(period_from);
     const periodTo   = new Date(period_to);
     if (isNaN(periodFrom.getTime()) || isNaN(periodTo.getTime())) {
@@ -253,7 +259,7 @@ serve(async (req: Request) => {
     if (!uploads || uploads.length === 0) {
       return json({
         error:   "No trial balance uploads found for this company and period",
-        hint:    "Upload and process a TB first, then run Safisha verification before analysis",
+        hint:    "Upload and process a TB first, then run Close Certification checks before analysis",
         company_id, period_from, period_to,
       }, 400);
     }
@@ -264,14 +270,14 @@ serve(async (req: Request) => {
     const { data: gateResult, error: gateErr } = await supabase
       .rpc("maono_check_safisha_gate", { p_upload_ids: uploadIds });
 
-    if (gateErr) throw new Error("Safisha gate check failed: " + gateErr.message);
+    if (gateErr) throw new Error("Close Certification check failed: " + gateErr.message);
 
     const blockedUploads = (gateResult ?? []).filter((r: any) => r.is_blocked);
     if (blockedUploads.length > 0) {
       return json({
-        error:            "IRON DOME: Safisha gate blocked",
+        error:            "Close Certification incomplete",
         message:          `${blockedUploads.length} of ${uploadIds.length} TB uploads are not clean. ` +
-                          "Complete Safisha verification for all uploads before running analysis.",
+                          "Complete Close Certification checks for all uploads before running analysis.",
         blocked_uploads:  blockedUploads.map((u: any) => ({
           upload_id:       u.upload_id,
           safisha_status:  u.safisha_status,
@@ -326,7 +332,7 @@ serve(async (req: Request) => {
         error:            "Analytical variance cannot be assessed",
         analytical_state: "CANNOT_ASSESS",
         reason:           certified.reason,
-        authority:        "SAFISHA CertifiedTB (get_authoritative_certification)",
+        authority:        "Close Certification certified trial balance (get_authoritative_certification)",
         hint:             "Certify the trial balance for this period, then re-run the analysis.",
         iron_dome:        true,
       }, 409);
@@ -572,7 +578,7 @@ serve(async (req: Request) => {
       safisha_gate:    "passed",
       has_budget:      hasBudget,
       actuals_authority: {
-        source:            "SAFISHA CertifiedTB",
+        source:            "Close Certification certified trial balance",
         certification_id:  certifiedTb.certificationId,
         upload_id:         certifiedTb.uploadId,
         source_file_hash:  certifiedTb.sourceFileHash,

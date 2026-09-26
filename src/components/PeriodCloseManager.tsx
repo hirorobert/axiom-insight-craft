@@ -11,11 +11,12 @@
  * Rules (Iron Dome):
  *   - No silent status changes.
  *   - Locked periods are immutable — DB RLS enforces this.
- *   - Sign-off buttons only visible to users with the correct firm_members role.
+ *   - Sign-off buttons only visible to people holding the capability for that step (never a job title).
  *   - Preparer signs first; reviewer signs second; approver locks.
  *   - Once locked_at IS NOT NULL → new TB uploads for that company+year are BLOCKED by DB trigger.
  */
 
+import { canExercise, parseMyWorkspaceCapabilities, type MyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +49,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { toast } from "sonner";
+import { entitlementRefusal, lockedCopy } from "@/lib/commercial/paidActions";
 import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
 import {
   Lock,
@@ -96,7 +98,10 @@ interface CompanyRow {
   name: string;
   tin: string | null;
   signOff: SignOff | null;
+  /** Display metadata only. */
   userRole: "owner" | "partner" | "preparer" | "viewer" | null;
+  /** What the person may exercise in this workspace (get_my_workspace_capabilities). */
+  capabilities: MyWorkspaceCapabilities | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -110,10 +115,10 @@ const STATUS_META: Record<SignOffStatus, { label: string; color: string; step: n
 };
 
 const STEPS = [
-  { key: "preparer_signed",  role: ["preparer", "partner", "owner"], label: "Preparer",  icon: Pen },
-  { key: "reviewer_signed",  role: ["partner", "owner"],             label: "Reviewer",  icon: UserCheck },
-  { key: "approved",         role: ["partner", "owner"],             label: "Approver",  icon: Shield },
-  { key: "locked",           role: ["partner", "owner"],             label: "Locked",    icon: Lock },
+  { key: "preparer_signed",  label: "Preparer",  icon: Pen },
+  { key: "reviewer_signed",  label: "Reviewer",  icon: UserCheck },
+  { key: "approved",         label: "Approver",  icon: Shield },
+  { key: "locked",           label: "Locked",    icon: Lock },
 ];
 
 function stepDone(status: SignOffStatus, stepKey: string): boolean {
@@ -148,13 +153,13 @@ function nextActionLabel(status: SignOffStatus): string {
   }
 }
 
-function canUserAct(status: SignOffStatus, role: string | null): boolean {
-  if (!role || status === "locked") return false;
-  if (status === "draft" && ["preparer", "partner", "owner"].includes(role)) return true;
-  if (status === "preparer_signed" && ["partner", "owner"].includes(role)) return true;
-  if (status === "reviewer_signed" && ["partner", "owner"].includes(role)) return true;
-  if (status === "approved" && ["partner", "owner"].includes(role)) return true;
-  return false;
+// The capability the next step needs: preparer → prepare_close, reviewer → review_close, approve / lock →
+// approve_certification. The database policies decide; this only shows or hides the button.
+function canUserAct(status: SignOffStatus, capabilities: MyWorkspaceCapabilities | null): boolean {
+  if (status === "locked") return false;
+  if (status === "draft") return canExercise(capabilities, "prepare_close");
+  if (status === "preparer_signed") return canExercise(capabilities, "review_close");
+  return canExercise(capabilities, "approve_certification");
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -226,12 +231,20 @@ export function PeriodCloseManager({ userId }: Props) {
     const roleMap = new Map<string, string>();
     (memberships ?? []).forEach(m => roleMap.set(m.company_id, m.role));
 
+    // Capabilities per workspace: the authority for which step the person may take.
+    const capabilityMap = new Map<string, MyWorkspaceCapabilities | null>();
+    await Promise.all(companyIds.map(async (id) => {
+      const { data, error } = await supabase.rpc("get_my_workspace_capabilities" as never, { p_company_id: id } as never);
+      capabilityMap.set(id, error ? null : parseMyWorkspaceCapabilities(data));
+    }));
+
     const rows: CompanyRow[] = companyList.map(c => ({
       id: c.id,
       name: c.name,
       tin: c.tin,
       signOff: signOffMap.get(c.id) ?? null,
       userRole: (roleMap.get(c.id) as CompanyRow["userRole"]) ?? null,
+      capabilities: capabilityMap.get(c.id) ?? null,
     }));
 
     // Sort: non-locked first, then by status step ascending
@@ -263,7 +276,13 @@ export function PeriodCloseManager({ userId }: Props) {
       .eq("id", signDialogCompany.signOff.id);
 
     if (error) {
-      toast.error("Sign-off failed: " + error.message);
+      // A structured Close Certification refusal (PT402 + capability code) gets the plan explanation, not the raw error.
+      if (entitlementRefusal(error) === "STATEMENT_CERTIFICATION") {
+        const copy = lockedCopy("STATEMENT_CERTIFICATION");
+        toast.error(copy.title, { description: `${copy.unavailable} ${copy.history}` });
+      } else {
+        toast.error("Sign-off failed: " + error.message);
+      }
     } else {
       const newStatus = payload.status as string;
       toast.success(newStatus === "locked"
@@ -339,7 +358,7 @@ export function PeriodCloseManager({ userId }: Props) {
               const status: SignOffStatus = so?.status ?? "draft";
               const meta = STATUS_META[status];
               const isExpanded = expandedId === company.id;
-              const canAct = canUserAct(status, company.userRole);
+              const canAct = canUserAct(status, company.capabilities);
               const isLocked = status === "locked";
 
               return (

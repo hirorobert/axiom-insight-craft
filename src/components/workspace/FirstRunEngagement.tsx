@@ -34,7 +34,7 @@
  *   (null, 'ifrs_for_smes', 'full_ifrs', 'ipsas_accrual', 'ipsas_cash')
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,8 @@ import {
 } from "@/components/ui/select";
 import { ArrowRight, AlertCircle, RefreshCw } from "lucide-react";
 import { classifyError } from "./workspaceCreateError";
+import { capacityCopy } from "@/lib/commercial/paidActions";
+import { parseCreateEntityOutcome } from "@/lib/commercial/entityCreation";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -113,6 +115,8 @@ export default function FirstRunEngagement({
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [errorMsg, setErrorMsg]       = useState<string | null>(null);
   const [canRetry, setCanRetry]       = useState(false);
+  // One request id per form: a retry after a network failure returns the SAME workspace (create_entity is idempotent).
+  const creationRequestId = useRef<string>(crypto.randomUUID());
 
   // Phase 3A: currency is required — canSubmit blocks until it is set. (Single-line for test regex.)
   const canSubmit = orgName.trim().length > 0 && currency.length > 0 && submitState !== "submitting";
@@ -168,24 +172,31 @@ export default function FirstRunEngagement({
       const dbFramework = chosen?.dbValue ?? null;
 
       // ── Create workspace ────────────────────────────────────────────────
-      const { data, error } = await supabase
-        .from("companies")
-        .insert({
-          name:               name,
-          fiscal_year_end:    fiscalYearEnd,   // full ISO date — e.g. '2022-12-31'
-          currency:           currency,
-          // null is intentional and correct — reporting_framework has no
-          // NOT NULL DEFAULT after migration 20260903100000. Null means
-          // "not yet declared", never "IFRS for SMEs by default".
-          reporting_framework: dbFramework,
-          user_id:             user.id,
-        } as never)
-        .select("id")
-        .single();
+      // create_entity (20260925100000): the server creates the workspace for the signed-in user, enforces the plan's
+      // entity capacity and is idempotent per request id. reporting_framework may be null ("not yet declared").
+      const { data, error } = await supabase.rpc("create_entity" as never, {
+        p_request_id:          creationRequestId.current,
+        p_name:                name,
+        p_fiscal_year_end:     fiscalYearEnd,   // full ISO date — e.g. '2022-12-31'
+        p_currency:            currency,
+        p_reporting_framework: dbFramework,
+      } as never);
 
       if (error) throw error;
 
-      onCreated(data.id as string, year);
+      const outcome = parseCreateEntityOutcome(data);
+      if (outcome.kind === "created") {
+        onCreated(outcome.companyId, year);
+        return;
+      }
+      if (outcome.kind === "capacity") {
+        const copy = capacityCopy(outcome.capacity);
+        setErrorMsg(`${copy.title}. ${copy.unavailable} ${copy.remains}`);
+        setCanRetry(false);
+        setSubmitState("error");
+        return;
+      }
+      throw new Error("The workspace could not be created.");
     } catch (err) {
       const classified = classifyError(err);
       setErrorMsg(classified.message);

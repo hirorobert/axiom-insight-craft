@@ -36,6 +36,12 @@ describe("migration hygiene", () => {
       "20260923150000_upload_pointer_and_source_binding.sql",
       "20260923160000_personal_upload_lifecycle_audit.sql",
       "20260923170000_upload_binding_and_personal_authority.sql",
+      "20260925100000_global_capabilities_entitlements_pricing.sql",
+      "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
+      "20260925120000_reporting_pack_issuance_binding.sql",
+      "20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
+      "20260925140000_workspace_capability_authorization.sql",
+      "20260925150000_can_user_act_on_workspace_minimum_grant.sql",
     ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);
