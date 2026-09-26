@@ -519,10 +519,18 @@ async function main() {
       return { data: r.r, error: null };
     } catch (e) { return { data: null, error: e }; }
   };
+  // The bucket model records each object in storage.objects with its size, as Supabase Storage does on upload.
+  const storeObject = async (p, b) => {
+    bucket.set(p, b);
+    await admin.query("DELETE FROM storage.objects WHERE bucket_id='reporting-packs' AND name=$1", [p]);
+    await admin.query("INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('reporting-packs', $1, $2::jsonb)", [p, JSON.stringify({ size: b.byteLength, mimetype: "application/json" })]);
+  };
+  const dropObject = async (p) => { bucket.delete(p); await admin.query("DELETE FROM storage.objects WHERE bucket_id='reporting-packs' AND name=$1", [p]); };
   const deps = {
     rpc: serviceRpc,
-    put: async (p, b) => (bucket.has(p) ? { error: { message: "exists" } } : (bucket.set(p, b), { error: null })),
-    remove: async (p) => bucket.delete(p),
+    // No overwrite: check-and-reserve in one tick, then record the object.
+    put: async (p, b) => { if (bucket.has(p)) return { error: { message: "exists" } }; bucket.set(p, b); await storeObject(p, b); return { error: null }; },
+    remove: async (p) => dropObject(p),
     get: async (p) => bucket.get(p) ?? null,
     sha256Hex: async (b) => sha(b),
   };
@@ -619,7 +627,7 @@ async function main() {
     for (const bytes of [pdf, doctored, foreignPeriod, foreignWs]) {
       const j = await issue(pk.uid, pk.co, "financial_statements_data", R);
       const put = deps.put;
-      deps.put = async (p) => { bucket.set(p, new Uint8Array(bytes)); return { error: null }; };
+      deps.put = async (p) => { await storeObject(p, new Uint8Array(bytes)); return { error: null }; };
       const r = await official(pk.uid, j.issuance_id);
       deps.put = put;
       svc.push({ outcome: r.body.outcome, sealed: await sealsOf(j.issuance_id), stored: bucket.has(`${pk.co}/${j.issuance_id}.json`) });
@@ -635,9 +643,77 @@ async function main() {
     bucket.set(p, new Uint8Array(swapped));
     const sub = (await verifyStoredPack(deps, i.issuance_id)).outcome;
     const swappedOfficial = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", [sha(swapped)])).r.official;
-    bucket.delete(p);
+    await dropObject(p);
     const missing = (await verifyStoredPack(deps, i.issuance_id)).outcome;
-    return sub === "substituted" && swappedOfficial === false && missing === "missing" ? true : JSON.stringify({ sub, swappedOfficial, missing });
+    // Without its stored object a seal is never answered official.
+    const noObject = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", [r.body.content_sha256])).r.official;
+    return sub === "substituted" && swappedOfficial === false && missing === "missing" && noObject === false ? true : JSON.stringify({ sub, swappedOfficial, missing, noObject });
+  });
+  await check("no seal without the stored object: sealing before storing (or after it vanished) is refused as object_missing and nothing is sealed", async () => {
+    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const r = (await one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, i.issuance_id, `${pk.co}/${i.issuance_id}.json`])).r.outcome;
+    // An object of the wrong size at the right path is not the canonical object either.
+    await storeObject(`${pk.co}/${i.issuance_id}.json`, new Uint8Array(Buffer.from("x")));
+    const wrongSize = (await one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, i.issuance_id, `${pk.co}/${i.issuance_id}.json`])).r.outcome;
+    await dropObject(`${pk.co}/${i.issuance_id}.json`);
+    return r === "object_missing" && wrongSize === "object_missing" && (await sealsOf(i.issuance_id)) === 0 ? true : JSON.stringify({ r, wrongSize });
+  });
+  await check("SQL callers cannot supply a hash, size or path: the service role has no UPDATE; even the table owner's direct seal must be the canonical document", async () => {
+    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const p = `${pk.co}/${i.issuance_id}.json`;
+    const svc = await codeOf(() => q(SERVICE, "UPDATE public.reporting_pack_issuances SET consumed_at=now(), content_sha256=$2, consumed_plan_code='PRACTICE', storage_path=$3, byte_size=10 WHERE id=$1", [i.issuance_id, "a".repeat(64), p]));
+    const forged = await codeOf(() => admin.query("UPDATE public.reporting_pack_issuances SET consumed_at=now(), content_sha256=$2, consumed_plan_code='PRACTICE', storage_path=$3, byte_size=10 WHERE id=$1", [i.issuance_id, "a".repeat(64), p]));
+    const doc = (await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [pk.uid, i.issuance_id])).r;
+    const wrongPath = await codeOf(() => admin.query("UPDATE public.reporting_pack_issuances SET consumed_at=now(), content_sha256=$2, consumed_plan_code='PRACTICE', storage_path=$3, byte_size=$4 WHERE id=$1", [i.issuance_id, doc.content_sha256, `${other.co}/${i.issuance_id}.json`, doc.byte_size]));
+    const wrongSize = await codeOf(() => admin.query("UPDATE public.reporting_pack_issuances SET consumed_at=now(), content_sha256=$2, consumed_plan_code='PRACTICE', storage_path=$3, byte_size=$4 WHERE id=$1", [i.issuance_id, doc.content_sha256, p, doc.byte_size + 1]));
+    const fnArgs = (await admin.query("SELECT string_agg(pg_get_function_identity_arguments(p.oid), ' | ') a FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('prepare_official_reporting_pack','seal_reporting_pack_server')")).rows[0].a;
+    return svc === "42501" && forged === "P0001" && wrongPath === "P0001" && wrongSize === "P0001" && (await sealsOf(i.issuance_id)) === 0 && !/sha|hash|byte|content|document/.test(fnArgs)
+      ? true : JSON.stringify({ svc, forged, wrongPath, wrongSize, fnArgs });
+  });
+  await check("storage success followed by seal failure leaves no uncontrolled orphan: an interrupted request's object is listed, never official, and a retry reuses exactly-canonical bytes or replaces foreign ones", async () => {
+    const i = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const p = `${pk.co}/${i.issuance_id}.json`;
+    const doc = (await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [pk.uid, i.issuance_id])).r;
+    await storeObject(p, new TextEncoder().encode(doc.document));   // stored, then the request died before sealing
+    const listed = (await q(SERVICE, "SELECT storage_path FROM public.reporting_pack_storage_orphans()")).map((x) => x.storage_path).includes(p);
+    const notOfficial = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", [doc.content_sha256])).r.official === false;
+    const retry = (await official(pk.uid, i.issuance_id)).body.outcome;
+    const cleared = !(await q(SERVICE, "SELECT storage_path FROM public.reporting_pack_storage_orphans()")).map((x) => x.storage_path).includes(p);
+    const j = await issue(pk.uid, pk.co, "financial_statements_data", R);
+    const pj = `${pk.co}/${j.issuance_id}.json`;
+    await storeObject(pj, new Uint8Array(Buffer.from("foreign bytes left behind")));
+    const replaced = (await official(pk.uid, j.issuance_id)).body;
+    const clientOrphans = await codeOf(() => q(user(pk.uid), "SELECT * FROM public.reporting_pack_storage_orphans()"));
+    return listed && notOfficial && retry === "sealed" && cleared && replaced.outcome === "sealed" && sha(bucket.get(pj)) === replaced.content_sha256
+      && (await verifyStoredPack(deps, j.issuance_id)).outcome === "intact" && clientOrphans === "42501"
+      ? true : JSON.stringify({ listed, notOfficial, retry, cleared, replaced: replaced.outcome, clientOrphans });
+  });
+  await check("later live-data changes do not alter an issued document: a new saved version, a new upload and a new period leave the sealed document canonical and official; the saved version itself cannot be changed", async () => {
+    const RL = await savedOutput(pk.uid, pk.co, 2031, DOC);
+    const i = await issue(pk.uid, pk.co, "financial_statements_data", RL);
+    const r = await official(pk.uid, i.issuance_id);
+    const rid = RL.split(":")[1];
+    const member = (await admin.query("SELECT id FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [pk.co, pk.uid])).rows[0].id;
+    await admin.query("BEGIN"); await admin.query("SET LOCAL session_replication_role = replica");
+    await admin.query(`INSERT INTO public.financial_statement_reports (report_id, report_version, company_id, period_year, provenance_origin, report_document, content_hash, document_hash, created_by_firm_member_id)
+      VALUES ($1,2,$2,2031,'TRIAL_BALANCE_DERIVED','{"statements":{"revenue":"1.00"}}'::jsonb,$3, public.fs_sha256_hex('{"statements":{"revenue":"1.00"}}'::jsonb::text), $4)`, [rid, pk.co, "e".repeat(64), member]);
+    await admin.query("COMMIT");
+    await uploadRef(pk.uid, pk.co, 2032);
+    const obj = (await one(SERVICE, "SELECT public.reporting_pack_sealed_object($1) r", [i.issuance_id])).r;
+    const stillOfficial = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", [r.body.content_sha256])).r.official;
+    const ownerEdit = await codeOf(() => admin.query("UPDATE public.financial_statement_reports SET report_document='{}'::jsonb WHERE report_id=$1 AND report_version=1", [rid]));
+    const svcEdit = await codeOf(() => q(SERVICE, "UPDATE public.financial_statement_reports SET report_document='{}'::jsonb WHERE report_id=$1 AND report_version=1", [rid]));
+    const del = await codeOf(() => admin.query("DELETE FROM public.financial_statement_reports WHERE report_id=$1 AND report_version=1", [rid]));
+    return obj.canonical_sha256 === r.body.content_sha256 && obj.object_present === true && stillOfficial === true && ownerEdit !== "ok" && svcEdit !== "ok" && del !== "ok"
+      && (await verifyStoredPack(deps, i.issuance_id)).outcome === "intact" ? true : JSON.stringify({ obj, stillOfficial, ownerEdit, svcEdit, del });
+  });
+  await check("working copies and drafts never verify as official: an issued, unsealed working copy's bytes, and a draft reference, are never official", async () => {
+    const w = await issue(pk.uid, pk.co, "financial_statements_pdf", UP);
+    const bytes = Buffer.from(`%PDF working copy ${w.issuance_id}`);
+    const v = (await one(user(pk.uid), "SELECT public.verify_reporting_pack($1) r", [sha(bytes)])).r.official;
+    const d = (await issue(pk.uid, pk.co, "financial_statements_data", "fs-draft:r1:abcdef0123456789")).outcome;
+    const sealedWorkingCopies = await count("SELECT count(*) n FROM public.reporting_pack_issuances WHERE pack_kind <> 'financial_statements_data' AND consumed_at IS NOT NULL AND storage_path IS NOT NULL");
+    return w.outcome === "issued" && v === false && d === "invalid_request" && sealedWorkingCopies === 0 ? true : JSON.stringify({ w, v, d, sealedWorkingCopies });
   });
   await check("a saved output altered after sealing (superuser forgery) is never official: generation refuses it and verification answers not_canonical / official false", async () => {
     const f = await savedOutput(pk.uid, pk.co, 2031, DOC);

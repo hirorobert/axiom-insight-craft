@@ -216,7 +216,10 @@ describe("database inertness — schema and functions", () => {
       // retired by 20260925100000, the four current offers non-purchasable) instead of the retired offers being active.
       "scripts/db-contract-tests/10_static_contract_assertions.sql",
       // The plan catalogue / capability authorization / minimum-grant proof (disposable PostgreSQL only).
-      "scripts/db-proof/planCapabilities.mjs"]);
+      "scripts/db-proof/planCapabilities.mjs",
+      // The disposable-database storage stub gains storage.objects.metadata (size, mimetype), as Supabase Storage has it,
+      // so the official Reporting Pack's stored-object check is proven (test shim only; never applied to a hosted project).
+      "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

@@ -847,7 +847,11 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   `financial_statements_data` from a saved `fs-report:<id>:v<n>`, source proven by its `document_hash`, timestamps in
   UTC). `seal_reporting_pack_server(user, issuance, storage_path)` takes no hash and no bytes — it regenerates and hashes
   the document itself; `seal-reporting-pack` accepts only `{ action, issuance_id }` JSON, stores the database's bytes and
-  checks the stored object before sealing; `verify_reporting_pack` re-derives the canonical hash. Every browser-rendered
+  checks the stored object before sealing; `verify_reporting_pack` re-derives the canonical hash and requires the stored
+  object (`storage.objects`, exact size). The seal trigger itself refuses any hash, size or path that is not the
+  canonical document's, whoever writes it; a seal needs its stored object (`object_missing`). An object left by an
+  interrupted request is never official, is listed by `reporting_pack_storage_orphans()` (service role) and is reused
+  on retry only when it is exactly the canonical bytes (foreign unsealed bytes are replaced; sealed objects never are). Every browser-rendered
   format is `official_sealing_unavailable` and is delivered as a labelled WORKING COPY after `issue_reporting_pack`.
   `has_workspace_capability` — the one resolver behind every capability-backed policy — requires an accepted
   (`accepted_at IS NOT NULL`), uncancelled membership of that workspace, an active named user and an open grant;

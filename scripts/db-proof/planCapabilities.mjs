@@ -825,6 +825,20 @@ async function main() {
     }
     return outcomes.every((o) => typeof o === "string") ? true : JSON.stringify(outcomes);
   });
+  await check("revocation racing a capability-backed write (12 rounds): each write either committed before the revoke or was refused, and the capability is never usable afterwards", async () => {
+    const out = [];
+    for (let k = 0; k < CONCURRENCY; k++) {
+      const m = await mkUser(`nv-rev-${k}`); await nvAccepted(m, "preparer");
+      const [w, rv] = await Promise.all([
+        addTaxLoss(m, NV.co),
+        one(user(NV.holder), "SELECT public.revoke_member_capability($1,$2,'prepare_close','race') r", [NV.co, m]).then((x) => x.r.outcome),
+      ]);
+      const after = await usable(m);
+      const again = await addTaxLoss(m, NV.co);
+      out.push(["ok", "42501"].includes(w) && rv === "revoked" && !after.includes("prepare_close") && again === "42501" ? w : { w, rv, after, again });
+    }
+    return out.every((o) => typeof o === "string") ? true : JSON.stringify(out);
+  });
   await check("re-invitation after cancellation does not resurrect an explicitly revoked capability; a title change adds none", async () => {
     const v = await mkUser("nv-reinvite"); const id = await nvInvite(v, "partner");
     await one(user(NV.holder), "SELECT public.revoke_member_capability($1,$2,'approve_certification','proof')", [NV.co, v]);
@@ -903,6 +917,9 @@ async function main() {
     const saved = `fs-report:${rid}:v1`;
     const serverSeal = (who, id, co = L.co) => one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3) r", [who, id, `${co}/${id}.json`]);
     const i = (await one(user(L.holder), "SELECT public.issue_reporting_pack($1,2025,'financial_statements_data',$2,$3) r", [L.co, saved, uuid()])).r;
+    // The object the Edge Function stores (Supabase Storage records its size): a seal needs it.
+    const prepared = (await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [L.holder, i.issuance_id])).r;
+    await admin.query("INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('reporting-packs', $1, $2::jsonb)", [`${L.co}/${i.issuance_id}.json`, JSON.stringify({ size: prepared.byte_size })]);
     const sealed = (await serverSeal(L.holder, i.issuance_id)).r;
     const seal = sealed.outcome;
     const sha = sealed.content_sha256;
@@ -1097,6 +1114,42 @@ async function main() {
     const svc = await codeOf(() => q(SERVICE, "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,2027)", [`${L.holder}/svc.csv`, L.co, L.holder]));
     return JSON.stringify(tables) === JSON.stringify(["findings", "hesabu_validations", "period_closing_balances", "safisha_reconciliations", "tax_computations", "trial_balance_uploads"]) && svc === "PT402"
       ? true : JSON.stringify({ tables, svc });
+  });
+
+  group("Migration replay — a clean replay and the upgrade replay above converge to the same schema");
+  await check("an empty database replaying every migration (no approval needed: no open Free licence) reaches exactly the schema, policies, triggers, constraints and privileges of the upgraded legacy database", async () => {
+    const SCHEMA_SQL = `SELECT md5(string_agg(x, '|' ORDER BY x)) fp, count(*) n FROM (
+      SELECT 'c:'||table_name||'.'||column_name||':'||data_type||':'||coalesce(column_default,'')||is_nullable AS x FROM information_schema.columns WHERE table_schema='public'
+      UNION ALL SELECT 'r:'||c.relname||c.relkind::text||':'||coalesce(c.relacl::text,'')||':'||c.relrowsecurity::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
+      UNION ALL SELECT 'f:'||p.oid::regprocedure::text||md5(pg_get_functiondef(p.oid))||':'||coalesce(p.proacl::text,'') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind='f'
+      UNION ALL SELECT 't:'||tgname||':'||tgrelid::regclass::text||':'||tgenabled::text FROM pg_trigger WHERE NOT tgisinternal
+      UNION ALL SELECT 'k:'||conname||':'||conrelid::regclass::text||':'||pg_get_constraintdef(oid) FROM pg_constraint WHERE connamespace='public'::regnamespace
+      UNION ALL SELECT 'p:'||tablename||'.'||policyname||':'||permissive||':'||roles::text||':'||cmd||':'||coalesce(qual,'')||':'||coalesce(with_check,'') FROM pg_policies WHERE schemaname IN ('public','storage')
+    ) s`;
+    const cleanName = `clean_replay_${Date.now()}`;
+    await admin.query(`CREATE DATABASE ${cleanName}`);
+    const cp = admin.connectionParameters;
+    const c2 = new Client({ host: cp.host, port: cp.port, user: cp.user, password: cp.password, database: cleanName });
+    await c2.connect();
+    try {
+      await c2.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));
+      await c2.query(`GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;`);
+      for (const f of files) {
+        let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
+        if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
+        await c2.query(text);
+      }
+      const clean = (await c2.query(SCHEMA_SQL)).rows[0];
+      const upgraded = (await admin.query(SCHEMA_SQL)).rows[0];
+      if (clean.fp === upgraded.fp) return true;
+      // Name the differing entries for the report.
+      const LIST = SCHEMA_SQL.replace("SELECT md5(string_agg(x, '|' ORDER BY x)) fp, count(*) n FROM (", "SELECT x FROM (").replace(/\) s$/, ") s ORDER BY x");
+      const a = new Set((await c2.query(LIST)).rows.map((r) => r.x)); const b = new Set((await admin.query(LIST)).rows.map((r) => r.x));
+      return JSON.stringify({ onlyClean: [...a].filter((x) => !b.has(x)).slice(0, 5), onlyUpgraded: [...b].filter((x) => !a.has(x)).slice(0, 5) });
+    } finally { await c2.end(); await admin.query(`DROP DATABASE ${cleanName}`); }
   });
 
   const failed = results.filter((r) => !r.ok);

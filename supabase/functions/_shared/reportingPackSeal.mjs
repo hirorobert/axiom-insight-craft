@@ -8,7 +8,8 @@
 //      authoritative saved output — the same checks as sealing (user, expiry, closed output reference, format,
 //      entitlement, capability), nothing changed;
 //   2. confirms the UTF-8 bytes hash to the database's canonical hash (no silent re-encoding);
-//   3. stores exactly those bytes in the private reporting-packs bucket at <company>/<issuance>.json, never overwriting;
+//   3. stores exactly those bytes in the private reporting-packs bucket at <company>/<issuance>.json, never overwriting
+//      (an object already there is reused only when it is exactly those bytes; other unsealed bytes are replaced);
 //   4. re-reads the stored object and confirms it is exactly those bytes BEFORE anything is sealed (a mismatch removes
 //      the object and seals nothing);
 //   5. calls seal_reporting_pack_server, which takes NO hash and NO bytes: the database regenerates the document,
@@ -28,7 +29,7 @@ export const OFFICIAL_CONTENT_TYPE = "application/json";
 const STATUS = {
   sealed: 200, invalid_request: 400, not_found: 404, binding_mismatch: 409, already_sealed: 409, expired: 410,
   entitlement_required: 402, capability_required: 403, workspace_access_denied: 403, unauthenticated: 401,
-  official_sealing_unavailable: 422, seal_failed: 500,
+  official_sealing_unavailable: 422, object_missing: 409, seal_failed: 500,
 };
 const refuse = (outcome) => ({ httpStatus: STATUS[outcome] ?? 500, body: { outcome } });
 
@@ -58,11 +59,25 @@ export async function issueOfficialPack(deps, input) {
   }
   const bytes = new TextEncoder().encode(p.document);
   if ((await deps.sha256Hex(bytes)) !== p.content_sha256) return refuse("seal_failed");
-  const stored = await deps.put(path, bytes, OFFICIAL_CONTENT_TYPE);
-  if (stored.error) return refuse("already_sealed");
-  // The stored object must be exactly the canonical bytes BEFORE anything is sealed.
-  const back = await deps.get(path);
-  if (!back || (await deps.sha256Hex(back)) !== p.content_sha256) {
+  const matches = async () => { const b = await deps.get(path); return !!b && (await deps.sha256Hex(b)) === p.content_sha256; };
+  // No seal accounts for this issuance's object yet (a sealed object is never removed or replaced).
+  const unsealed = async () => { const r = await deps.rpc("reporting_pack_sealed_object", { p_issuance_id: input.issuanceId }); return !r.error && !obj(r.data); };
+  let stored = await deps.put(path, bytes, OFFICIAL_CONTENT_TYPE);
+  if (stored.error) {
+    // An object already exists at this issuance's own path: a concurrent request's, or the orphan of an interrupted
+    // one. Exactly the canonical bytes are reused as they are; anything else is never kept — while the issuance is
+    // unsealed it is removed and the canonical bytes are stored in its place.
+    if (!(await matches())) {
+      if (!(await unsealed())) return refuse("already_sealed");
+      await deps.remove(path);
+      stored = await deps.put(path, bytes, OFFICIAL_CONTENT_TYPE);
+      if (stored.error || !(await matches())) {
+        if (await unsealed()) await deps.remove(path);
+        return refuse("seal_failed");
+      }
+    }
+  } else if (!(await matches())) {
+    // The stored object must be exactly the canonical bytes BEFORE anything is sealed.
     await deps.remove(path);
     return refuse("seal_failed");
   }
@@ -70,7 +85,8 @@ export async function issueOfficialPack(deps, input) {
   const s = sealed.error ? null : obj(sealed.data);
   const outcome = typeof s?.outcome === "string" ? s.outcome : "seal_failed";
   if (outcome !== "sealed") {
-    await deps.remove(path);
+    // Nothing unsealed stays behind; an object a concurrent request sealed is left in place.
+    if (await unsealed()) await deps.remove(path);
     return refuse(outcome);
   }
   // The database hashed its own regeneration; it must be the document that was stored (the source is immutable).
