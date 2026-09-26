@@ -53,7 +53,11 @@ describe("migration authority parity", () => {
     const dir = copyRepo();
     try {
       const f = path.join(dir, "supabase/migrations/20260925150000_can_user_act_on_workspace_minimum_grant.sql");
-      fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace("FROM PUBLIC, anon, authenticated;\nGRANT EXECUTE ON FUNCTION public.can_user_act_on_workspace", "FROM PUBLIC, anon;\nGRANT EXECUTE ON FUNCTION public.can_user_act_on_workspace"));
+      // Drop `authenticated` from the corrective REVOKE (the same clause whether or not the file is an atomic envelope).
+      const original = fs.readFileSync(f, "utf8");
+      const tampered = original.replace("public.can_user_act_on_workspace(uuid, uuid, text) FROM PUBLIC, anon, authenticated", "public.can_user_act_on_workspace(uuid, uuid, text) FROM PUBLIC, anon");
+      expect(tampered).not.toBe(original);
+      fs.writeFileSync(f, tampered);
       expect((checkMigrationAuthority(dir) as Result).errors.join("\n")).toMatch(/no longer contains the exact corrective statements/);
       fs.rmSync(f);
       expect((checkMigrationAuthority(dir) as Result).errors.join("\n")).toMatch(/resolving migration 20260925150000_can_user_act_on_workspace_minimum_grant.sql is missing/);

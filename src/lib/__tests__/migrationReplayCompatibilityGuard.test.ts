@@ -41,6 +41,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { unwrapAtomicEnvelope } from "../../../scripts/ci/atomicEnvelope.mjs";
 
 const REPO_ROOT = path.join(__dirname, "../../../");
 const MIGRATIONS_DIR = path.join(REPO_ROOT, "supabase/migrations");
@@ -504,7 +505,8 @@ describe("trigger replay guard — every migration file, keyed by exact trigger 
   const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
   const strippedByFile = new Map<string, string>();
   for (const f of files) {
-    strippedByFile.set(f, stripCommentsStringsAndDollarQuotes(fs.readFileSync(path.join(MIGRATIONS_DIR, f), "utf-8")));
+    // An atomic migration (one DO envelope) is judged by the statements it executes (scripts/ci/atomicEnvelope.mjs).
+    strippedByFile.set(f, stripCommentsStringsAndDollarQuotes(unwrapAtomicEnvelope(fs.readFileSync(path.join(MIGRATIONS_DIR, f), "utf-8"))));
   }
 
   const creatorsByKey = new Map<string, string[]>();

@@ -219,7 +219,9 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/planCapabilities.mjs",
       // The disposable-database storage stub gains storage.objects.metadata (size, mimetype), as Supabase Storage has it,
       // so the official Reporting Pack's stored-object check is proven (test shim only; never applied to a hosted project).
-      "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"]);
+      "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql",
+      // Static-guard helper: guards judge an atomic (one DO envelope) migration by the statements it executes. Read-only.
+      "scripts/ci/atomicEnvelope.mjs"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

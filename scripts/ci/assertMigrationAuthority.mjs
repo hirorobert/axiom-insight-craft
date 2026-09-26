@@ -24,6 +24,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { unwrapAtomicEnvelope } from "./atomicEnvelope.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -70,7 +71,8 @@ export function splitStatements(sql) {
   if (cur.trim()) out.push(cur.trim());
   return out;
 }
-const statements = (sql) => splitStatements(normalise(sql)).map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+// An atomic migration (one DO envelope, scripts/ci/atomicEnvelope.mjs) is judged by the statements it executes.
+const statements = (sql) => splitStatements(normalise(unwrapAtomicEnvelope(sql))).map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
 
 export function checkMigrationAuthority(repo = REPO) {
   const errors = [];
