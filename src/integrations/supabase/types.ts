@@ -1522,6 +1522,53 @@ export type Database = {
         }
         Relationships: []
       }
+      deployment_approvals: {
+        Row: {
+          approved_at: string
+          approved_by: string
+          consumed_at: string | null
+          consumed_by: string | null
+          environment_fingerprint: string
+          environment_label: string
+          evidence: Json
+          expires_at: string
+          id: string
+          purpose: string
+        }
+        Insert: {
+          approved_at?: string
+          approved_by: string
+          consumed_at?: string | null
+          consumed_by?: string | null
+          environment_fingerprint: string
+          environment_label: string
+          evidence: Json
+          expires_at: string
+          id?: string
+          purpose: string
+        }
+        Update: {
+          approved_at?: string
+          approved_by?: string
+          consumed_at?: string | null
+          consumed_by?: string | null
+          environment_fingerprint?: string
+          environment_label?: string
+          evidence?: Json
+          expires_at?: string
+          id?: string
+          purpose?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_da_approved_by"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "commercial_admins"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       efdms_reconciliation: {
         Row: {
           company_id: string
@@ -4237,12 +4284,47 @@ export type Database = {
         }
         Relationships: []
       }
+      reporting_pack_issuance_events: {
+        Row: {
+          actor_user_id: string | null
+          company_id: string | null
+          detail: Json
+          event: string
+          id: string
+          issuance_id: string | null
+          occurred_at: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          company_id?: string | null
+          detail?: Json
+          event: string
+          id?: string
+          issuance_id?: string | null
+          occurred_at?: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          company_id?: string | null
+          detail?: Json
+          event?: string
+          id?: string
+          issuance_id?: string | null
+          occurred_at?: string
+        }
+        Relationships: []
+      }
       reporting_pack_issuances: {
         Row: {
           company_id: string
+          consumed_at: string | null
+          consumed_plan_code: string | null
+          content_sha256: string | null
+          expires_at: string
           id: string
           issued_at: string
           issued_by: string
+          output_ref: string | null
           pack_kind: string
           period_year: number
           plan_code: string | null
@@ -4250,9 +4332,14 @@ export type Database = {
         }
         Insert: {
           company_id: string
+          consumed_at?: string | null
+          consumed_plan_code?: string | null
+          content_sha256?: string | null
+          expires_at: string
           id?: string
           issued_at?: string
           issued_by: string
+          output_ref?: string | null
           pack_kind: string
           period_year: number
           plan_code?: string | null
@@ -4260,9 +4347,14 @@ export type Database = {
         }
         Update: {
           company_id?: string
+          consumed_at?: string | null
+          consumed_plan_code?: string | null
+          content_sha256?: string | null
+          expires_at?: string
           id?: string
           issued_at?: string
           issued_by?: string
+          output_ref?: string | null
           pack_kind?: string
           period_year?: number
           plan_code?: string | null
@@ -6520,6 +6612,8 @@ export type Database = {
         Args: { p_account: string }
         Returns: Json
       }
+      _environment_fingerprint: { Args: never; Returns: string }
+      _free_plan_inventory: { Args: never; Returns: Json }
       _invitation_valid: {
         Args: {
           p_accepted_at: string
@@ -6531,6 +6625,15 @@ export type Database = {
       _named_user_roster: { Args: { p_account: string }; Returns: Json }
       _named_user_suspended: {
         Args: { p_account: string; p_user: string }
+        Returns: boolean
+      }
+      _reporting_pack_output_ref_valid: {
+        Args: {
+          p_company_id: string
+          p_kind: string
+          p_output_ref: string
+          p_period_year: number
+        }
         Returns: boolean
       }
       _require_workspace_capability: {
@@ -6619,6 +6722,17 @@ export type Database = {
           p_keep: string[]
           p_reason: string
           p_roster_version: string
+        }
+        Returns: Json
+      }
+      admin_record_deployment_approval: {
+        Args: {
+          p_activation_path: string
+          p_environment_label: string
+          p_expected_open_free_licences: number
+          p_notification_reference: string
+          p_purpose: string
+          p_valid_hours?: number
         }
         Returns: Json
       }
@@ -6831,6 +6945,17 @@ export type Database = {
           detail: string
           outcome: string
         }[]
+      }
+      consume_reporting_pack_issuance: {
+        Args: {
+          p_company_id: string
+          p_content_sha256: string
+          p_issuance_id: string
+          p_output_ref: string
+          p_pack_kind: string
+          p_period_year: number
+        }
+        Returns: Json
       }
       create_entity: {
         Args: {
@@ -7400,6 +7525,7 @@ export type Database = {
       issue_reporting_pack: {
         Args: {
           p_company_id: string
+          p_output_ref: string
           p_pack_kind: string
           p_period_year: number
           p_request_id: string
@@ -7571,6 +7697,7 @@ export type Database = {
         Args: { p_member_id: string }
         Returns: Json
       }
+      reporting_pack_issuance_ttl: { Args: never; Returns: string }
       reserve_trial_balance_source: {
         Args: { p_company_id: string; p_file_name: string }
         Returns: {
@@ -7899,6 +8026,10 @@ export type Database = {
       tbu_workspace_source_path_shape: {
         Args: { p_company_id: string; p_path: string }
         Returns: boolean
+      }
+      verify_reporting_pack: {
+        Args: { p_content_sha256: string }
+        Returns: Json
       }
       workspace_authority_basis: {
         Args: { p_capability: string; p_company_id: string; p_user_id: string }
