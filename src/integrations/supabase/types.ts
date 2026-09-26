@@ -14,6 +14,18 @@ export type Database = {
   }
   public: {
     Tables: {
+      _pr34_probe: {
+        Row: {
+          id: number | null
+        }
+        Insert: {
+          id?: number | null
+        }
+        Update: {
+          id?: number | null
+        }
+        Relationships: []
+      }
       account_corrections: {
         Row: {
           account_code: string

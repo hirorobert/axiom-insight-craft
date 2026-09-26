@@ -92,6 +92,13 @@
       "when": 1790259894399,
       "tag": "0012_pr32_08_upload_binding_and_personal_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790415122588,
+      "tag": "0013_pr34_probe_session_identity",
+      "breakpoints": true
     }
   ]
 }
