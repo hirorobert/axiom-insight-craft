@@ -118,7 +118,7 @@ const SCHEMA_SQL = `SELECT md5(string_agg(x, '|' ORDER BY x)) fp, count(*) n FRO
       SELECT 'c:'||table_name||'.'||column_name||':'||data_type||':'||coalesce(column_default,'')||is_nullable AS x FROM information_schema.columns WHERE table_schema='public'
       UNION ALL SELECT 'r:'||c.relname||c.relkind::text||':'||coalesce(c.relacl::text,'')||':'||c.relrowsecurity::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
       UNION ALL SELECT 'f:'||p.oid::regprocedure::text||md5(pg_get_functiondef(p.oid))||':'||coalesce(p.proacl::text,'') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind='f'
-      UNION ALL SELECT 't:'||tgname||':'||tgrelid::regclass::text||':'||tgenabled::text FROM pg_trigger WHERE NOT tgisinternal
+      UNION ALL SELECT 't:'||tgname||':'||tgrelid::regclass::text||':'||tgenabled::text||':'||md5(pg_get_triggerdef(oid)) FROM pg_trigger WHERE NOT tgisinternal
       UNION ALL SELECT 'k:'||conname||':'||conrelid::regclass::text||':'||pg_get_constraintdef(oid) FROM pg_constraint WHERE connamespace='public'::regnamespace
       UNION ALL SELECT 'p:'||tablename||'.'||policyname||':'||permissive||':'||roles::text||':'||cmd||':'||coalesce(qual,'')||':'||coalesce(with_check,'') FROM pg_policies WHERE schemaname IN ('public','storage')
     ) s`;
@@ -1236,16 +1236,87 @@ async function main() {
       ? true : JSON.stringify({ tables, svc });
   });
 
+  group("P-1 — processing an existing trial balance needs a current plan; refused attempts change nothing");
+  const authorizeProcessing = (who, uploadId) => one(SERVICE, "SELECT public.authorize_trial_balance_processing($1,$2) r", [who, uploadId]).then((x) => x.r);
+  // The writes process-trial-balance makes (service role), in its order: the status claim, the hash, the results.
+  const processingWrites = (uploadId) => q(SERVICE, `UPDATE public.trial_balance_uploads SET status='validating' WHERE id=$1;`, [uploadId])
+    .then(() => q(SERVICE, "UPDATE public.trial_balance_uploads SET source_file_hash=$2, status='complete', is_valid=true, processing_result='{}'::jsonb, processed_at=now() WHERE id=$1", [uploadId, "a".repeat(64)]));
+  const uploadRow = (id) => admin.query("SELECT to_jsonb(u) - 'updated_at' j FROM public.trial_balance_uploads u WHERE id=$1", [id]).then((r) => r.rows[0].j);
+  const sideEffects = async (co, uploadId) => (await admin.query(`SELECT
+      (SELECT count(*) FROM public.engine_runs WHERE company_id IS NOT DISTINCT FROM $1) runs,
+      (SELECT count(*) FROM public.idempotency_keys) keys,
+      (SELECT count(*) FROM public.trial_balance_upload_lifecycle_events WHERE upload_id = $2) lifecycle`, [co, uploadId])).rows[0];
+  const mkUpload = async (owner, co, period) => (await admin.query(
+    "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'uploaded',$2,$3,$4) RETURNING id",
+    [`${owner}/${uuid()}.csv`, co, owner, period])).rows[0].id;
+  const processingRefusedCleanly = async (label, who, co, uploadId) => {
+    const before = { row: await uploadRow(uploadId), fx: await sideEffects(co, uploadId) };
+    const a = await authorizeProcessing(who, uploadId);
+    const write = await codeOf(() => processingWrites(uploadId));
+    const after = { row: await uploadRow(uploadId), fx: await sideEffects(co, uploadId) };
+    const same = JSON.stringify(after) === JSON.stringify(before);
+    return a.code === "ENTITLEMENT_REQUIRED" && a.capability === "CLOSE_ASSURANCE" && a.required_plan === "SOLO" && write === "PT402" && same
+      ? null : `${label}: ${JSON.stringify({ a, write, same })}`;
+  };
+  await check("the legacy Free account (converted to read-only) cannot process its existing upload: 402 answer, the processing wall refuses (PT402), row and side effects byte-identical", async () => {
+    const up = (await admin.query("SELECT id FROM public.trial_balance_uploads WHERE company_id=$1 ORDER BY uploaded_at LIMIT 1", [L.co])).rows[0].id;
+    const current = (await admin.query("SELECT public._account_current_plan_code($1) c", [L.holder])).rows[0].c;
+    return current === null ? ((await processingRefusedCleanly("legacy", L.holder, L.co, up)) ?? true) : `legacy account unexpectedly has plan ${current}`;
+  });
+  await check("expired → reactivated with Solo → expired again: processing is refused, then permitted, then refused again (workspace AND personal uploads, active and historical)", async () => {
+    const o = await mkUser("p1-owner");
+    const lic1 = await grantPlan(o, "SOLO");
+    const co = await newCompany(o, "P1 Co");
+    const ws = await mkUpload(o, co, 2025);
+    const personal = await mkUpload(o, null, 2025);
+    const blocked = await mkUpload(o, co, 2024);
+    await admin.query("UPDATE public.trial_balance_uploads SET status='blocked', is_valid=false WHERE id=$1", [blocked]);   // a historical, blocked result (while entitled)
+    await expire(lic1);
+    const out = [];
+    for (const [label, id, c] of [["workspace", ws, co], ["personal", personal, null], ["historical/blocked", blocked, co]]) out.push(await processingRefusedCleanly(`expired ${label}`, o, c, id));
+    const lic2 = await grantPlan(o, "SOLO");
+    const allowed = [];
+    for (const id of [ws, personal, blocked]) {
+      const a = await authorizeProcessing(o, id);
+      const w = await codeOf(() => processingWrites(id));
+      allowed.push(a.code === "ALLOWED" && w === "ok" && (await uploadRow(id)).status === "complete");
+    }
+    await expire(lic2);
+    const ws2 = await mkUpload(o, co, 2023).catch(() => null);   // a new upload is refused too (Close Assurance wall)
+    for (const [label, id, c] of [["re-expired workspace", ws, co], ["re-expired personal", personal, null]]) out.push(await processingRefusedCleanly(label, o, c, id));
+    return out.every((x) => x === null) && allowed.every(Boolean) && ws2 === null ? true : JSON.stringify({ out: out.filter(Boolean), allowed, ws2 });
+  });
+  await check("authorization is unchanged and leaks nothing: another person and a missing upload get the same answer; no one is told an upload exists", async () => {
+    const o = await mkUser("p1-own"); await grantPlan(o, "SOLO");
+    const other = await mkUser("p1-other"); await grantPlan(other, "SOLO");
+    const personal = await mkUpload(o, null, 2025);
+    const foreign = await authorizeProcessing(other, personal);
+    const missing = await authorizeProcessing(other, uuid());
+    const anon = (await one(SERVICE, "SELECT public.authorize_trial_balance_processing(NULL, $1) r", [personal])).r;
+    const clientCall = await codeOf(() => q(user(o), "SELECT public.authorize_trial_balance_processing($1,$2)", [o, personal]));
+    return JSON.stringify(foreign) === JSON.stringify(missing) && foreign.code === "WORKSPACE_ACCESS_DENIED" && anon.code === "UNAUTHENTICATED" && clientCall === "42501"
+      ? true : JSON.stringify({ foreign, missing, anon, clientCall });
+  });
+  await check("lifecycle changes and reads are unaffected by the processing wall: an account without a plan still reads its uploads, and retiring is not a processing write", async () => {
+    const o = await mkUser("p1-life"); const lic = await grantPlan(o, "SOLO");
+    const co = await newCompany(o, "P1 Life Co");
+    const up = await mkUpload(o, co, 2025);
+    await expire(lic);
+    const read = (await q(user(o), "SELECT id, status FROM public.trial_balance_uploads WHERE id=$1", [up])).length;
+    const lifecycle = await codeOf(() => admin.query("UPDATE public.trial_balance_uploads SET lifecycle_state=lifecycle_state WHERE id=$1", [up]));
+    return read === 1 && lifecycle === "ok" ? true : JSON.stringify({ read, lifecycle });
+  });
+
   group("X-2 — every pending migration is ONE atomic statement: re-application and continue-on-error change nothing");
-  await check("100000, 110000, 120000, 130000, 140000 and 150000 are each one top-level statement for the repository splitter", async () => {
+  await check("100000, 110000, 120000, 130000, 140000, 150000 and the forward migration 20260926160000 are each one top-level statement for the repository splitter", async () => {
     const counts = {};
-    for (const m of files.filter((x) => /^2026092510|^2026092511|^2026092512|^2026092513|^2026092514|^2026092515/.test(x))) counts[m.slice(0, 14)] = splitStatements(fs.readFileSync(path.join(REPO, "supabase/migrations", m), "utf8")).length;
-    return Object.keys(counts).length === 6 && Object.values(counts).every((n) => n === 1) ? true : JSON.stringify(counts);
+    for (const m of files.filter((x) => /^2026092510|^2026092511|^2026092512|^2026092513|^2026092514|^2026092515|^20260926160000/.test(x))) counts[m.slice(0, 14)] = splitStatements(fs.readFileSync(path.join(REPO, "supabase/migrations", m), "utf8")).length;
+    return Object.keys(counts).length === 7 && Object.values(counts).every((n) => n === 1) ? true : JSON.stringify(counts);
   });
   await check("after the full chain, applying any pending migration again — whole file, or statement by statement continuing after errors — restores nothing: schema, privileges, catalogue and data unchanged", async () => {
     const before = { schema: await schemaFp(), data: await fingerprint() };
     const out = {};
-    for (const m of files.filter((x) => /^202609251[0-5]0000/.test(x))) {
+    for (const m of files.filter((x) => /^202609251[0-5]0000|^20260926160000/.test(x))) {
       const text = fs.readFileSync(path.join(REPO, "supabase/migrations", m), "utf8");
       let whole; try { await admin.query(text); whole = "applied"; } catch (e) { whole = e.code; }
       let errors = 0; const stmts = splitStatements(text); for (const st of stmts) { try { await admin.query(st); } catch { errors++; } }
@@ -1261,8 +1332,59 @@ async function main() {
     };
     const ok = Object.values(out).every((x) => x.same && x.statements === 1 && (x.whole !== "applied" || x.errors === 0))
       && ["20260925100000", "20260925110000", "20260925120000", "20260925130000", "20260925140000"].every((k) => out[k]?.whole === "55000" && out[k]?.errors === 1)
+      // The forward migration is idempotent: applied again it changes nothing.
+      && out["20260926160000"]?.whole === "applied" && out["20260926160000"]?.errors === 0
       && restored.consume === null && restored.verify === null && restored.freeOffered === 0 && restored.predicateAuth === false;
     return ok ? true : JSON.stringify({ out, restored });
+  });
+
+  group("Production upgrade path — the already-applied 100000–150000, live data, then the forward migration 20260926160000");
+  await check("a database at the applied state (through 150000) with existing uploads takes 20260926160000 without touching any row, converges to the clean/upgrade schema, enforces the wall, and a re-application changes nothing", async () => {
+    const name = `prod_path_${Date.now()}`;
+    const FORWARD = "20260926160000_trial_balance_processing_entitlement_wall.sql";
+    await admin.query(`CREATE DATABASE ${name}`);
+    const cp = admin.connectionParameters;
+    const c3 = new Client({ host: cp.host, port: cp.port, user: cp.user, password: cp.password, database: name });
+    await c3.connect();
+    try {
+      await c3.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));
+      await c3.query(`GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;`);
+      const upTo = (sql) => sql;
+      for (const f of files.filter((x) => x < FORWARD)) {
+        let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
+        if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
+        await c3.query(upTo(text));
+      }
+      const pre = (await c3.query("SELECT to_regprocedure('public.authorize_trial_balance_processing(uuid, uuid)') p, (SELECT count(*) FROM pg_trigger WHERE tgname='trg_tbu_processing_wall') t")).rows[0];
+      // Live data as production has it: a no-plan owner's processed personal upload and a blocked one.
+      const owner = uuid();
+      await c3.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [owner, `prod-${owner}@example.test`]);
+      await c3.query("BEGIN"); await c3.query("SET LOCAL session_replication_role = replica");
+      await c3.query(`INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year,is_valid,source_file_hash,processed_at)
+        VALUES ('a.csv',$1,10,'complete',NULL,$2,2025,true,$3,now() - interval '3 days'), ('b.csv',$4,10,'blocked',NULL,$2,2024,false,NULL,now() - interval '9 days')`,
+        [`${owner}/${uuid()}.csv`, owner, "d".repeat(64), `${owner}/${uuid()}.csv`]);
+      await c3.query("COMMIT");
+      const rows = async () => JSON.stringify((await c3.query("SELECT to_jsonb(u) j FROM public.trial_balance_uploads u ORDER BY id")).rows.map((r) => r.j));
+      const beforeRows = await rows();
+      await c3.query(fs.readFileSync(path.join(REPO, "supabase/migrations", FORWARD), "utf8"));
+      const afterRows = await rows();
+      const prodFp = (await c3.query(SCHEMA_SQL)).rows[0].fp;
+      const upgradeFp = await schemaFp();
+      // The wall on the production path: the no-plan owner can neither be authorized nor write a processing column.
+      const up = (await c3.query("SELECT id FROM public.trial_balance_uploads WHERE status='complete' LIMIT 1")).rows[0].id;
+      const auth = (await c3.query("SELECT public.authorize_trial_balance_processing($1,$2) r", [owner, up])).rows[0].r;
+      let wall = "ok"; try { await c3.query("UPDATE public.trial_balance_uploads SET status='validating' WHERE id=$1", [up]); } catch (e) { wall = e.code; }
+      const lifecycle = await c3.query("UPDATE public.trial_balance_uploads SET lifecycle_state=lifecycle_state WHERE id=$1", [up]).then(() => "ok", (e) => e.code);
+      // Re-application: nothing changes.
+      await c3.query(fs.readFileSync(path.join(REPO, "supabase/migrations", FORWARD), "utf8"));
+      const again = (await c3.query(SCHEMA_SQL)).rows[0].fp;
+      const ok = pre.p === null && Number(pre.t) === 0 && beforeRows === afterRows && prodFp === upgradeFp && again === prodFp
+        && auth.code === "ENTITLEMENT_REQUIRED" && wall === "PT402" && lifecycle === "ok" && (await rows()) === beforeRows;
+      return ok ? true : JSON.stringify({ pre, sameRows: beforeRows === afterRows, converged: prodFp === upgradeFp, idempotent: again === prodFp, auth, wall, lifecycle });
+    } finally { await c3.end(); await admin.query(`DROP DATABASE ${name}`); }
   });
 
   group("Migration replay — a clean replay and the upgrade replay above converge to the same schema");

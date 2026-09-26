@@ -42,6 +42,7 @@ describe("migration hygiene", () => {
       "20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
       "20260925140000_workspace_capability_authorization.sql",
       "20260925150000_can_user_act_on_workspace_minimum_grant.sql",
+      "20260926160000_trial_balance_processing_entitlement_wall.sql",
     ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);

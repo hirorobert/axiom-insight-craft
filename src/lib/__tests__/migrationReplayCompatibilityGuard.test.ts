@@ -184,7 +184,9 @@ describe("migration directory integrity", () => {
     // 20260925120000_reporting_pack_issuance_binding.sql (the official Reporting Pack issuance binding).
     // Bumped from 137 -> 140: 20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql (Solo, no free plan, plan x capability matrix),
     // 20260925140000_workspace_capability_authorization.sql (capability authorization) and 20260925150000_can_user_act_on_workspace_minimum_grant.sql (minimum grant).
-    expect(files.length).toBe(140);
+    // Bumped from 140 -> 141: 20260926160000_trial_balance_processing_entitlement_wall.sql, a NEW forward-only migration (the
+    // applied 100000–150000 are never edited; appliedMigrationsImmutable.test.ts pins their bytes).
+    expect(files.length).toBe(141);
   });
 });
 

@@ -59,6 +59,22 @@ export async function requirePaidAction(
   return new Response(JSON.stringify(refusal.body), { status: refusal.httpStatus, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
 
+/**
+ * Processing an EXISTING trial balance (process-trial-balance): the database answers for the upload's governing
+ * account — the workspace account, or for a personal upload its own uploader (authorize_trial_balance_processing).
+ * Returns the refusal (402 Close Assurance, 403, 401, or a fail-closed 500) or null to proceed. Called after the
+ * caller's authorization and BEFORE any source binding, Storage access, status write, hash, parse or engine run.
+ */
+export async function processingEntitlementRefusal(rpc: Rpc, userId: string, uploadId: string): Promise<PaidActionRefusal | null> {
+  const { data, error } = await rpc("authorize_trial_balance_processing", { p_user: userId, p_upload_id: uploadId });
+  return paidActionRefusal("CLOSE_ASSURANCE", error ? null : data);
+}
+
+/** A database wall refusal (SQLSTATE PT402) surfaced by a write: the same structured 402, never the raw error. */
+export function isEntitlementWallError(error: unknown): boolean {
+  return !!error && typeof error === "object" && (error as { code?: unknown }).code === "PT402";
+}
+
 /** For scheduled, system-initiated work with no user: is the workspace's account entitled? Fails closed. */
 export async function workspaceEntitled(rpc: Rpc, companyId: string, capability: PaidCapability): Promise<boolean> {
   const { data, error } = await rpc("workspace_capability_entitled", { p_company_id: companyId, p_capability: capability });

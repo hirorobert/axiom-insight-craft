@@ -30,6 +30,11 @@ import {
 import { classifyPublicSectorAccount } from "./publicSectorClassification.ts";
 import { resolveProcessingActor, type ProcessingActor } from "../_shared/processingActor.ts";
 import { PROCESSING_FORBIDDEN, personalUploadRefusal, processingRefusal, sourceBindingRefusal } from "../_shared/uploadLifecycle.ts";
+import { isEntitlementWallError, paidActionRefusal, processingEntitlementRefusal } from "../_shared/paidAction.ts";
+
+/** Controlled answers (never a raw database or Storage error). */
+const PROCESSING_UNAVAILABLE = { status: "processing_unavailable", error: "Processing Unavailable", message: "The trial balance could not be processed right now. Nothing was changed; try again." } as const;
+const SOURCE_MISSING = { status: "source_missing", error: "Source File Missing", message: "The uploaded source file could not be found. Upload the trial balance again." } as const;
 import { claimIdempotency, failIdempotency } from "../_shared/idempotency.ts";
 import { recordEngineRunFailed } from "../_shared/engine-run.ts";
 import { canonicalJson, sha256Hex, sha256HexBytes, type CanonicalValue } from "../_shared/hash.ts";
@@ -1467,6 +1472,17 @@ serve(async (req) => {
       }
     }
 
+    // P-1 (PR #34): processing needs a current plan for the upload's governing account (the workspace account, or the
+    // uploader of a personal upload). Asked of the database authority right after authorization and BEFORE the
+    // lifecycle and source-binding lookups, any Storage access, any write, hash, parse, validation or engine run, for
+    // every upload (workspace or personal, active or historical). Existing records remain readable.
+    const noPlan = await processingEntitlementRefusal((name, args) => supabase.rpc(name, args), userId, uploadId);
+    if (noPlan) {
+      // A 403 here (authorization changed in between) answers exactly like any other refusal of access.
+      const body = noPlan.httpStatus === 403 ? PROCESSING_FORBIDDEN : noPlan.body;
+      return new Response(JSON.stringify(body), { status: noPlan.httpStatus, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // F-01 (PR #32): only an ACTIVE upload is processed. A retired, superseded, discarded or discard_pending upload
     // is history; the database refuses these writes too (trg_tbu_history_immutable). Refused before any mutation.
     const notActive = processingRefusal((upload as { lifecycle_state?: unknown }).lifecycle_state);
@@ -1483,12 +1499,27 @@ serve(async (req) => {
       return new Response(JSON.stringify(unbound), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Only after ownership is confirmed do we mutate the upload row.
-    await supabase.from("trial_balance_uploads").update({ status: "validating" }).eq("id", uploadId);
+    // Only after ownership AND the plan are confirmed do we mutate the upload row. The database processing wall
+    // (trg_tbu_processing_wall) refuses this write too without a current plan: the error is checked, never ignored,
+    // so a plan that ended in between answers the same structured 402 and Storage is never touched.
+    const { error: claimErr } = await supabase.from("trial_balance_uploads").update({ status: "validating" }).eq("id", uploadId);
+    if (claimErr) {
+      if (isEntitlementWallError(claimErr)) {
+        const wall = paidActionRefusal("CLOSE_ASSURANCE", { allowed: false, code: "ENTITLEMENT_REQUIRED", required_plan: "SOLO" })!;
+        return new Response(JSON.stringify(wall.body), { status: wall.httpStatus, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      console.error("[PTB] status claim failed:", (claimErr as { code?: string }).code ?? "unknown");
+      return new Response(JSON.stringify(PROCESSING_UNAVAILABLE), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("trial-balance-files").download(upload.file_path);
-    if (downloadError || !fileData) throw new Error(`Failed to download file: ${downloadError?.message}`);
+    if (downloadError || !fileData) {
+      // A controlled missing-source answer (entitled account only; never the no-plan refusal): the upload returns to
+      // its previous status and nothing else is written.
+      await supabase.from("trial_balance_uploads").update({ status: upload.status }).eq("id", uploadId);
+      return new Response(JSON.stringify(SOURCE_MISSING), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // ── STEP 1: Format detection + parsing ────────────────────────────────────
     console.log(`[PTB] Detected file: ${upload.file_name}`);
@@ -2087,7 +2118,8 @@ serve(async (req) => {
       }
     }
     return new Response(
-      JSON.stringify({ status: "blocked", error: error instanceof Error ? error.message : "Processing failed", errors: allErrors }),
+      // A controlled answer: the raw error (database or Storage detail) is logged and recorded above, never returned.
+      JSON.stringify({ status: "blocked", error: "Processing failed", message: PROCESSING_UNAVAILABLE.message, errors: allErrors }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

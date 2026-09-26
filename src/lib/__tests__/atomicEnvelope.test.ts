@@ -117,7 +117,7 @@ describe("no false positives", () => {
 
 describe("the six pending migrations", () => {
   it("each parses as one valid envelope with its exact statement count; every body is inspected; statements are unchanged", () => {
-    const want: Record<string, number> = { "20260925100000": 146, "20260925110000": 108, "20260925120000": 56, "20260925130000": 65, "20260925140000": 186, "20260925150000": 6 };
+    const want: Record<string, number> = { "20260925100000": 146, "20260925110000": 108, "20260925120000": 56, "20260925130000": 65, "20260925140000": 186, "20260925150000": 6, "20260926160000": 12 };
     const got: Record<string, number> = {};
     for (const f of fs.readdirSync(MIGRATIONS).filter((x) => x.endsWith(".sql"))) {
       const sql = fs.readFileSync(path.join(MIGRATIONS, f), "utf8");
