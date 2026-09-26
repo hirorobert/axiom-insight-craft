@@ -2446,6 +2446,72 @@ export type Database = {
           },
         ]
       }
+      financial_statement_documents: {
+        Row: {
+          artifact_class: string
+          byte_size: number
+          company_id: string
+          created_at: string
+          id: string
+          mime_type: string
+          original_file_name: string
+          period_year: number
+          sha256: string
+          source_version: number
+          status: string
+          storage_path: string
+          superseded_at: string | null
+          uploaded_by_firm_member_id: string
+        }
+        Insert: {
+          artifact_class: string
+          byte_size: number
+          company_id: string
+          created_at?: string
+          id?: string
+          mime_type: string
+          original_file_name: string
+          period_year: number
+          sha256: string
+          source_version?: number
+          status?: string
+          storage_path: string
+          superseded_at?: string | null
+          uploaded_by_firm_member_id: string
+        }
+        Update: {
+          artifact_class?: string
+          byte_size?: number
+          company_id?: string
+          created_at?: string
+          id?: string
+          mime_type?: string
+          original_file_name?: string
+          period_year?: number
+          sha256?: string
+          source_version?: number
+          status?: string
+          storage_path?: string
+          superseded_at?: string | null
+          uploaded_by_firm_member_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fsd_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_fsd_uploaded_by"
+            columns: ["uploaded_by_firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       financial_statement_evaluations: {
         Row: {
           company_id: string
@@ -6529,6 +6595,31 @@ export type Database = {
         }
         Returns: Json
       }
+      advance_financial_statement_document_status: {
+        Args: { p_document_id: string; p_next_status: string }
+        Returns: {
+          artifact_class: string
+          byte_size: number
+          company_id: string
+          created_at: string
+          id: string
+          mime_type: string
+          original_file_name: string
+          period_year: number
+          sha256: string
+          source_version: number
+          status: string
+          storage_path: string
+          superseded_at: string | null
+          uploaded_by_firm_member_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "financial_statement_documents"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       assert_engagement_write_authority: {
         Args: { p_engagement_id: string }
         Returns: string
@@ -7174,6 +7265,41 @@ export type Database = {
           p_upload_id: string
         }
         Returns: string
+      }
+      intake_financial_statement_document: {
+        Args: {
+          p_artifact_class: string
+          p_byte_size: number
+          p_company_id: string
+          p_mime_type: string
+          p_original_file_name: string
+          p_period_year: number
+          p_sha256: string
+          p_storage_path: string
+          p_uploaded_by_firm_member_id: string
+        }
+        Returns: {
+          artifact_class: string
+          byte_size: number
+          company_id: string
+          created_at: string
+          id: string
+          mime_type: string
+          original_file_name: string
+          period_year: number
+          sha256: string
+          source_version: number
+          status: string
+          storage_path: string
+          superseded_at: string | null
+          uploaded_by_firm_member_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "financial_statement_documents"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       is_commercial_admin: { Args: never; Returns: boolean }
       is_iso_3166_alpha2: { Args: { p_code: string }; Returns: boolean }
