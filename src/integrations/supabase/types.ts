@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      _pr34_migration_bodies: {
+        Row: {
+          applied_at: string | null
+          body: string
+          name: string
+          sha256_hex: string
+          staged_at: string
+        }
+        Insert: {
+          applied_at?: string | null
+          body: string
+          name: string
+          sha256_hex: string
+          staged_at?: string
+        }
+        Update: {
+          applied_at?: string | null
+          body?: string
+          name?: string
+          sha256_hex?: string
+          staged_at?: string
+        }
+        Relationships: []
+      }
       _pr34_probe: {
         Row: {
           id: number | null
