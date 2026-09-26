@@ -36,6 +36,7 @@
 
 import { serve }        from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requirePaidActionAsCaller } from "../_shared/paidAction.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -115,6 +116,11 @@ serve(async (req: Request) => {
     }
 
     const companyId          = upload.company_id;
+
+    // A filing pack is a Reporting Pack deliverable (CFO Close, 20260925100000): refused before anything is generated.
+    const notEntitled = await requirePaidActionAsCaller((fn, args) => supabase.rpc(fn, args), companyId, "REPORTING_PACK_EXPORT", corsHeaders)
+      ?? await requirePaidActionAsCaller((fn, args) => supabase.rpc(fn, args), companyId, "FILING_PACKS", corsHeaders);
+    if (notEntitled) return notEntitled;
     const reportingFramework = upload.reporting_framework ?? "ifrs_for_smes";
 
     // ── IPSAS early block ─────────────────────────────────────────────────────
