@@ -34,10 +34,10 @@ export const BRAND = {
 } as const;
 
 export const CTA = {
-  primary:     "Request access",
+  primary:     "Create account",
   secondary:   "See how it works",
   // No self-serve sign-up reaches a working workspace (there is no free plan and no checkout): the request path.
-  primaryHref: "/request-access",
+  primaryHref: "/auth?mode=signup",
 } as const;
 
 export const HERO = {

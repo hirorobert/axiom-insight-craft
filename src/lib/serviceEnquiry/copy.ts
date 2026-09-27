@@ -87,7 +87,7 @@ export const TAX_TILE_COPY = {
   selectLabel: "Jurisdiction",
   selectPlaceholder: "Select a jurisdiction",
   companyPrefillNote: "Taken from your company setting. Confirm it, or choose a different jurisdiction.",
-  previewState: "Locked — request access",
+  previewState: "Private preview",
   previewDisclosure: "Access is subject to professional assessment and product readiness.",
   generalDisclosure: "Tax availability is assessed jurisdiction by jurisdiction. A specialist can tell you what applies.",
   generalAction: "Ask a jurisdiction specialist →",

@@ -39,7 +39,7 @@ export const LANDING_HERO = {
   headline: "From trial balance to reviewable financial statements.",
   supporting:
     "Import a trial balance, review classification exceptions and prepare framework-aware financial statements with traceable checks and attributable user decisions.",
-  primaryCta: { label: "Request access", href: "/request-access" },
+  primaryCta: { label: "Create account", href: "/auth?mode=signup" },
   secondaryCta: { label: "Explore a sample close", href: "#sample-close" },
 } as const;
 
@@ -346,8 +346,8 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
 
 export const LANDING_FINAL_CTA = {
   heading: "Bring greater control to your next financial close.",
-  supporting: "Workspaces are activated by our team because online payment is not yet available.",
-  primaryCta: { label: "Request access", href: "/request-access" },
+  supporting: "Create an account to view plans. Online payment is not available yet.",
+  primaryCta: { label: "Create account", href: "/auth?mode=signup" },
   secondaryCta: { label: "Sign in", href: "/auth" },
 } as const;
 

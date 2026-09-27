@@ -48,7 +48,7 @@ const queryClient = new QueryClient();
 import PaymentReturn from "@/pages/billing/PaymentReturn";
 import CommercialAdmin from "@/pages/commercial/CommercialAdmin";
 import Pricing from "@/pages/Pricing";
-import RequestAccess from "@/pages/RequestAccess";
+import Plans from "@/pages/Plans";
 import { serviceEnquiryRoutes } from "@/lib/serviceEnquiry/serviceEnquiryRoutes";
 
 function LegacySubRouteRedirect({ to }: { to: string }) {
@@ -69,6 +69,10 @@ const ClassificationStatesAcceptance = import.meta.env.DEV
 // certification/stale-processing/direct-route). Never present in a production build.
 const WorkspaceStatesAcceptance = import.meta.env.DEV
   ? lazy(() => import("@/pages/internal/WorkspaceStatesAcceptance"))
+  : null;
+
+const PlanStatesAcceptance = import.meta.env.DEV
+  ? lazy(() => import("@/pages/internal/PlanStatesAcceptance"))
   : null;
 
 const App = () => (
@@ -130,7 +134,8 @@ const App = () => (
                 {/* ── Auth + utility ── */}
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/pricing" element={<Pricing />} />
-                <Route path="/request-access" element={<RequestAccess />} />
+                <Route path="/request-access" element={<Navigate to="/pricing" replace />} />
+                <Route path="/plans" element={<Plans />} />
                 {/* /contact and /admin/enquiries exist only behind the `service_enquiry_phase1` gate (OFF by default). */}
                 {serviceEnquiryRoutes()}
                 <Route path="/terms" element={<Terms />} />
@@ -158,6 +163,9 @@ const App = () => (
                       </Suspense>
                     }
                   />
+                )}
+                {PlanStatesAcceptance && (
+                  <Route path="/internal/acceptance/plan-states" element={<Suspense fallback={null}><PlanStatesAcceptance /></Suspense>} />
                 )}
                 <Route
                   path="/uploads/status"

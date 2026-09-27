@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { useMyEntityCapacity } from "@/hooks/useMyEntityCapacity";
+import { EntityCapacityNotice } from "@/components/commercial/EntityCapacityNotice";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -183,6 +185,8 @@ export const CompanyManager = () => {
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [tinTouched, setTinTouched] = useState(false);
   const { user } = useAuth();
+  const { capacity, loading: capacityLoading, error: capacityError, retry: retryCapacity } = useMyEntityCapacity(!!user);
+  const canAdd = !capacityLoading && !capacityError && !!capacity?.determined && capacity.capacity !== null && capacity.used !== null && capacity.used < capacity.capacity;
   const { logAction } = useAuditLog();
   const navigate = useNavigate();
 
@@ -367,6 +371,7 @@ export const CompanyManager = () => {
       setFormDialogOpen(false);
       resetForm();
       fetchCompanies();
+      retryCapacity();
     } catch (error) {
       console.error("Company save error:", error);
       toast.error("Failed to save company");
@@ -449,6 +454,7 @@ export const CompanyManager = () => {
 
       toast.success("Company deleted");
       fetchCompanies();
+      retryCapacity();
     } catch (error) {
       console.error("Delete error:", error);
       toast.error("Failed to delete company");
@@ -477,6 +483,7 @@ export const CompanyManager = () => {
               variant="outline"
               size="sm"
               className="gap-2 w-full"
+              disabled={!canAdd}
               onClick={() => {
                 resetForm();
                 setFormDialogOpen(true);
@@ -485,6 +492,7 @@ export const CompanyManager = () => {
               <Plus className="w-4 h-4" />
               Add Company
             </Button>
+            <EntityCapacityNotice capacity={capacity} loading={capacityLoading} error={capacityError} onRetry={retryCapacity} />
 
             {loading ? (
               <p className="text-sm text-muted-foreground text-center py-4">Loading...</p>
