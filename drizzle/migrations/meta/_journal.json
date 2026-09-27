@@ -162,6 +162,13 @@
       "when": 1790445286867,
       "tag": "0022_pr34_apply_20260926160000",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790482217176,
+      "tag": "0023_security_fix_probe_and_xbrl_concept_map",
+      "breakpoints": true
     }
   ]
 }
