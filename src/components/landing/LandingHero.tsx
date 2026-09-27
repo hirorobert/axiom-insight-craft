@@ -18,7 +18,6 @@ import { SyntheticClosePreview } from "@/components/landing/SyntheticClosePrevie
 export function LandingHero() {
   return (
     <section
-      id="sample-close"
       aria-labelledby="hero-title"
       className="border-b border-border bg-background"
     >
@@ -56,7 +55,7 @@ export function LandingHero() {
           </div>
 
           {/* ── Right: synthetic status preview ──────────────────────────── */}
-          <div className="lg:col-span-6 xl:col-span-6">
+          <div id="sample-close" className="scroll-mt-24 lg:col-span-6 xl:col-span-6">
             <SyntheticClosePreview />
           </div>
         </div>
