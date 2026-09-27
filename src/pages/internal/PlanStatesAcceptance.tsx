@@ -30,13 +30,13 @@ export default function PlanStatesAcceptance() {
   const isCapacity = state === "capacity";
   return <div className="min-h-screen bg-background text-foreground">
     <header className="flex h-14 items-center border-b border-border px-6"><CFOCloseWordmark className="text-lg" /></header>
-    <main className="mx-auto max-w-4xl px-5 py-10">
+    <div className="mx-auto max-w-4xl px-5 py-10">
       <p role="status" className="mb-7 border-l-2 border-border bg-muted px-4 py-3 text-xs text-muted-foreground">Internal visual acceptance · synthetic account state · no customer data · not available on the published site</p>
       {state === "new" ? <><h1 className="text-3xl font-semibold">Choose your plan</h1><p className="my-5 text-sm text-muted-foreground">Online payment is not available yet; choosing a plan does not activate it.</p><Button asChild><Link to="/plans">View plans</Link></Button></> : <>
         <CurrentPlanPanel billing={isArchive ? { ...billing, licenceStatus: "EXPIRED" } : billing} capacity={{ determined: true, capacity: isArchive ? 0 : 1, used: 1, planCode: isArchive ? null : "SOLO" }} loading={false} error={false} archiveOnly={isArchive} />
         {isCapacity && <div className="my-8 border-t border-border pt-6"><h2 className="mb-3 text-lg font-semibold">Companies</h2><Button disabled variant="outline">Add Company</Button><div className="mt-3"><EntityCapacityNotice capacity={{ determined: true, capacity: 1, used: 1, planCode: "SOLO" }} loading={false} error={false} /></div></div>}
         <EngagementHub entries={[workspace]} companiesWithoutEngagement={[]} onResume={() => undefined} onStartService={() => undefined} />
       </>}
-    </main>
+    </div>
   </div>;
 }

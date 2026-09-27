@@ -20,6 +20,11 @@ describe("plan presentation is read-only", () => {
     expect(html).toContain("View plans");
     expect(html).toContain("remain readable");
   });
+  it("does not promise archive access to a suspended named user", () => {
+    const html = render(createElement(CurrentPlanPanel, { billing: { ...base, licenceStatus: "SUSPENDED" }, loading: false, error: false, archiveOnly: true }));
+    expect(html).toContain("Workspace access is suspended");
+    expect(html).not.toContain("remain readable");
+  });
   it("fails closed on loading and error", () => {
     expect(render(createElement(CurrentPlanPanel, { billing: null, loading: true, error: false }))).toContain("Loading plan");
     expect(render(createElement(CurrentPlanPanel, { billing: null, loading: false, error: true, onRetry: () => {} }))).toContain("We couldn’t load your plan");
