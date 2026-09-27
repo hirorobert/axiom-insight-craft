@@ -34,7 +34,7 @@ describe("migration authority parity", () => {
     // 20260915100000 is recorded as applied out of source order (0016) — see releaseJournal.test.ts.
     expect(r.mirrored.length).toBe(20);
     // Authored here and not yet applied by the owner: listed, never an error. PR #34 100000–150000 are applied.
-    expect(r.pending).toEqual([]);   // 20260926160000 applied by 0022 (reviewed release wrapper)
+    expect(r.pending).toEqual(["20260927100000_trial_balance_remove_from_active_use.sql"]);   // 20260926160000 applied by 0022; the removal migration awaits the owner
   });
   it("the one historical divergence is RESOLVED forward (never allowlisted): no open drift remains", () => {
     const r = checkMigrationAuthority(ROOT) as Result;

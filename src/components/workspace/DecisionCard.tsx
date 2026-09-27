@@ -69,7 +69,7 @@ export function DecisionCard({ decision, manageUploadHref }: { decision: Decisio
         <p className="mt-6 border-t border-border pt-5 text-[12px] text-muted-foreground" data-testid="replace-file-escape">
           Need to replace this file?{" "}
           <Link to={manageUploadHref} className="underline underline-offset-4 hover:text-foreground">
-            Upload a replacement or remove this upload in Prepare Data <span aria-hidden="true">→</span>
+            Manage Trial Balance: replace or remove it <span aria-hidden="true">→</span>
           </Link>
         </p>
       )}

@@ -30,10 +30,10 @@ describe("the reviewed release journal", () => {
     expect(RELEASE_JOURNAL["0020_pr34_apply_20260925140000"].digest).toBe("c26e47f3a78b4fd0d47a5a2fab82a69caf13bfe2344e69687f9b30c13a8e5f9a");
     for (const [tag, e] of Object.entries(RELEASE_JOURNAL)) if ("source" in e && e.source) expect(sha(srcBytes(e.source)!), tag).toBe(e.digest);
   });
-  it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 and (out of order on purpose) the prerequisite; nothing is pending", () => {
+  it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 and (out of order on purpose) the prerequisite; only the removal migration is pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]);   // 0022 applied the processing correction (reviewed at f21a58f)
+    expect(r.pending).toEqual(["20260927100000_trial_balance_remove_from_active_use.sql"]);   // 0022 applied the processing correction (reviewed at f21a58f); the removal migration is not yet applied
     expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" }]);
     expect(r.mirrored.filter((m) => m.how === "release_wrapper").map((m) => m.source)).toEqual([
       "20260925100000_global_capabilities_entitlements_pricing.sql", "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",

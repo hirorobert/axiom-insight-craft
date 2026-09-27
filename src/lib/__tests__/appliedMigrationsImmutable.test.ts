@@ -16,6 +16,8 @@ const APPLIED: Record<string, string> = {
   "20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql": "f0fb1b2b665a7562f761a2493faebc7f452f1df38844f5bdd49f8f45c6ef2fa1",
   "20260925140000_workspace_capability_authorization.sql": "c26e47f3a78b4fd0d47a5a2fab82a69caf13bfe2344e69687f9b30c13a8e5f9a",
   "20260925150000_can_user_act_on_workspace_minimum_grant.sql": "3011c3414d7a0b5811015218ae35f8721663eaa32ddd7e5233f269fcb91daacb",
+  // Applied in production by Lovable (Drizzle 0022, reviewed at f21a58f).
+  "20260926160000_trial_balance_processing_entitlement_wall.sql": "d032fb0821210b59937e8f513d5de126fb31bbcffff151a91d459dd33914e868",
 };
 
 describe("applied migrations are immutable", () => {
@@ -28,6 +30,13 @@ describe("applied migrations are immutable", () => {
     const forward = "20260926160000_trial_balance_processing_entitlement_wall.sql";
     expect(files).toContain(forward);
     expect(files.indexOf(forward)).toBeGreaterThan(files.indexOf("20260925150000_can_user_act_on_workspace_minimum_grant.sql"));
-    for (const f of Object.keys(APPLIED)) expect(fs.readFileSync(path.join(MIGRATIONS, f), "utf8")).not.toMatch(/tbu_processing_wall|authorize_trial_balance_processing/);
+    for (const f of Object.keys(APPLIED).filter((x) => x !== forward)) expect(fs.readFileSync(path.join(MIGRATIONS, f), "utf8")).not.toMatch(/tbu_processing_wall|authorize_trial_balance_processing/);
+  });
+  it("removing a processed trial balance is a NEW forward migration after every applied one, and not inside any of them", () => {
+    const files = fs.readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql")).sort();
+    const forward = "20260927100000_trial_balance_remove_from_active_use.sql";
+    expect(files).toContain(forward);
+    expect(files.indexOf(forward)).toBeGreaterThan(files.indexOf("20260926160000_trial_balance_processing_entitlement_wall.sql"));
+    for (const f of Object.keys(APPLIED)) expect(fs.readFileSync(path.join(MIGRATIONS, f), "utf8")).not.toMatch(/remove_trial_balance_upload|get_trial_balance_removal_eligibility/);
   });
 });

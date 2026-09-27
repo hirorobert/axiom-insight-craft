@@ -186,7 +186,9 @@ describe("migration directory integrity", () => {
     // 20260925140000_workspace_capability_authorization.sql (capability authorization) and 20260925150000_can_user_act_on_workspace_minimum_grant.sql (minimum grant).
     // Bumped from 140 -> 141: 20260926160000_trial_balance_processing_entitlement_wall.sql, a NEW forward-only migration (the
     // applied 100000–150000 are never edited; appliedMigrationsImmutable.test.ts pins their bytes).
-    expect(files.length).toBe(141);
+    // Bumped from 141 -> 142: 20260927100000_trial_balance_remove_from_active_use.sql, a NEW forward-only migration (remove a processed trial balance from
+    // active use without a successor; 20260926160000 is applied in production and pinned like the others).
+    expect(files.length).toBe(142);
   });
 });
 

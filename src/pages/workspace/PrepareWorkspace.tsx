@@ -47,12 +47,23 @@ import TrialBalanceTemplateGuide from "@/components/workspace/TrialBalanceTempla
 import {
   DiscardError,
   DiscardUploadDialog,
+  cancelReplacement,
   discardUpload,
   retireUpload,
-  isCertifiedRun,
-  isUnprocessedReplacement,
   offerUndo,
 } from "@/components/workspace/DiscardUploadDialog";
+import { ManageTrialBalance } from "@/components/workspace/ManageTrialBalance";
+import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
+import {
+  MANAGE_TRIAL_BALANCE_PARAM,
+  RemoveTrialBalanceError,
+  decideRemoveAction,
+  decideSourceManagementMode,
+  fetchRemovalEligibility,
+  removeTrialBalance,
+  validateReplacementFile,
+  type RemovalEligibility,
+} from "@/lib/workspace/trialBalanceManagement";
 import SafishaGate from "@/components/safisha/SafishaGate";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,12 +72,7 @@ import {
   SurfaceCardBody,
 } from "@/components/workspace/ui/Surface";
 import { ActiveFileProvenance } from "@/components/workspace/ActiveFileProvenance";
-import {
-  Trash2,
-  RefreshCw,
-  Loader2,
-  ChevronDown,
-} from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 import { isPrepareOnly } from "@/lib/workspace/workspaceAccess";
@@ -132,6 +138,25 @@ export default function PrepareWorkspace() {
   // replacement file that is about to be uploaded.
   const keepPendingFileRef = useRef(false);
 
+  // "Manage Trial Balance": what may be offered comes from the server (access + current plan + removal eligibility).
+  const { state: capabilityState } = useWorkspaceCapabilities(companyId);
+  const sourceMode = decideSourceManagementMode(access, capabilityState);
+  const focusManage = searchParams.get(MANAGE_TRIAL_BALANCE_PARAM) === "source";
+  const [removing, setRemoving] = useState(false);
+  const [eligibility, setEligibility] = useState<{ key: string; value: RemovalEligibility } | null>(null);
+  const eligibilityKey = upload ? `${upload.id}:${upload.version ?? ""}:${upload.lifecycle_state ?? ""}` : null;
+  useEffect(() => {
+    if (!upload || !eligibilityKey || sourceMode !== "manage") return;
+    let cancelled = false;
+    void fetchRemovalEligibility(upload.id)
+      .catch((): RemovalEligibility => ({ status: "unavailable" }))
+      .then((value) => { if (!cancelled) setEligibility({ key: eligibilityKey, value }); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eligibilityKey, sourceMode]);
+  const currentEligibility = eligibility && eligibility.key === eligibilityKey ? eligibility.value : null;
+  const removeAction = sourceMode === "manage" ? decideRemoveAction(upload, currentEligibility) : null;
+
   // The replacement created by retireUpload() is processed exactly like a fresh upload and then goes
   // through the same non-skippable SafishaGate that TrialBalanceUpload opens after processing.
   const [safishaUpload, setSafishaUpload] = useState<{ uploadId: string; fileName: string } | null>(null);
@@ -171,57 +196,87 @@ export default function PrepareWorkspace() {
   };
 
   /**
-   * One tap: pick a file. For a genuinely unprocessed upload, the prior trial balance is discarded and
-   * the new file is uploaded immediately (hard delete; nothing to preserve). For a run with processing,
-   * certification or derived history, the new file instead RETIRES the prior upload (retireUpload): the
-   * old row, its certifications and every derived result are preserved exactly as they are and never
-   * deleted (see DiscardUploadDialog.tsx's module doc comment).
-   * The server is the authority on which case applies. If local state believed the upload was
-   * unprocessed but the server answers 'replacement_required', or 'replacement_cancel_required' for an
-   * unprocessed replacement, the same file is retired instead.
+   * Replace Trial Balance: pick a file. The file is checked first, then uploaded, and only then does
+   * retire_trial_balance_upload() swap it in, atomically, in one transaction: the prior upload becomes
+   * 'superseded' (its row, certifications and results preserved, never deleted) and the new one is the period's
+   * single active upload. If the check, the upload or the swap fails, nothing changed and the current Trial Balance
+   * stays active. An unprocessed replacement can still be cancelled afterwards, which restores the prior one.
    */
   const handleReplacePicked = async (file: File | undefined) => {
     if (!file || !upload) return;
+    const invalid = validateReplacementFile(file);
+    if (invalid) {
+      toast.error(`${invalid} The current Trial Balance was not changed.`);
+      return;
+    }
     setPendingFile(file);
     setReplacing(true);
     try {
-      if (isCertifiedRun(upload)) {
-        await retireAndProcess(upload, file);
-        return;
-      }
-      let receipt;
-      try {
-        receipt = await discardUpload(upload);
-      } catch (err) {
-        if (err instanceof DiscardError && (err.code === "replacement_required" || err.code === "replacement_cancel_required")) {
-          await retireAndProcess(upload, file);
-          return;
-        }
-        throw err;
-      }
-      setDiscardedIds((prev) => suppressUpload(prev, upload.id));
-      toast.success(`Prior trial balance discarded. Uploading ${file.name}…`);
-      offerUndo(receipt, () => {
-        // Unsuppress first, then refetch, so the restored run stays on screen for the whole
-        // undo→refresh window and no empty frame appears.
-        setDiscardedIds((prev) => restoreUploadId(prev, receipt.id));
-        setPendingFile(null);
-        setShowUploader(false);
-        navigate(buildPrepareUploadRoute(companyId, periodYear, receipt.id), { replace: true });
-        refreshUpload();
-      });
-      navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
-      setShowUploader(true);
-      refreshUpload();
+      await retireAndProcess(upload, file);
     } catch (err) {
       setPendingFile(null);
       toast.error(
         err instanceof DiscardError
-          ? err.safeMessage
-          : "Could not replace the prior trial balance. Please try again.",
+          ? `${err.safeMessage} The current Trial Balance is still active.`
+          : "Could not replace the Trial Balance. The current Trial Balance is still active.",
       );
     } finally {
       setReplacing(false);
+    }
+  };
+
+  /** After a removal: the removed upload leaves the screen at once and the page shows "Upload Trial Balance". */
+  const showEmptySourceState = (removedId: string) => {
+    setDiscardedIds((prev) => suppressUpload(prev, removedId));
+    navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
+    setShowUploader(true);
+    refreshUpload();
+  };
+
+  /**
+   * Remove Trial Balance (confirmed in ManageTrialBalance). The server's eligibility answer picked the path:
+   * a processed, blocked or failed upload is retired (no Undo: retirement is terminal); an unprocessed one is
+   * discarded through the PR #32 saga (Undo offered); an unprocessed replacement is cancelled (the prior returns).
+   * Nothing with accounting evidence is ever deleted.
+   */
+  const handleRemove = async () => {
+    if (!upload || !removeAction || removeAction.kind === "unavailable") return;
+    const target = upload;
+    setRemoving(true);
+    try {
+      if (removeAction.kind === "remove") {
+        await removeTrialBalance(target);
+        toast.success(`${target.file_name} removed from active use. Its audit history and evidence are preserved.`);
+        showEmptySourceState(target.id);
+      } else if (removeAction.kind === "discard") {
+        const receipt = await discardUpload(target);
+        showEmptySourceState(receipt.id);
+        offerUndo(receipt, () => {
+          setDiscardedIds((prev) => restoreUploadId(prev, receipt.id));
+          setShowUploader(false);
+          navigate(buildPrepareUploadRoute(companyId, periodYear, receipt.id), { replace: true });
+          refreshUpload();
+        });
+      } else {
+        const { storageCleanupPending } = await cancelReplacement(target);
+        setDiscardedIds((prev) => suppressUpload(prev, target.id));
+        toast.success(
+          storageCleanupPending
+            ? "Replacement cancelled. The earlier Trial Balance is active again; file clean-up will finish shortly."
+            : "Replacement cancelled. The earlier Trial Balance is active again.",
+        );
+        navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
+        refreshUpload();
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof RemoveTrialBalanceError || err instanceof DiscardError
+          ? (err instanceof DiscardError ? err.safeMessage : err.message)
+          : "Could not remove this Trial Balance. Nothing was changed. Please try again.",
+      );
+      refreshUpload();
+    } finally {
+      setRemoving(false);
     }
   };
 
@@ -475,41 +530,33 @@ export default function PrepareWorkspace() {
                 />
               </div>
             )}
+            {/* Directly under the file header — never below the pre-flight checklist. */}
+            {upload && !showUploader && (
+              <>
+                <input
+                  ref={replaceInputRef}
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    void handleReplacePicked(file);
+                  }}
+                />
+                <ManageTrialBalance
+                  mode={sourceMode}
+                  removeAction={removeAction}
+                  replacing={replacing}
+                  removing={removing}
+                  focusRequested={focusManage}
+                  onReplace={() => replaceInputRef.current?.click()}
+                  onRemove={handleRemove}
+                />
+              </>
+            )}
             {!prepareOnly && <EntityContextSuggestion reportingFrameworkDbValue={company?.reporting_framework} companyCreatedAt={company?.created_at} />}
           </div>
-          {upload && !showUploader && (
-            <div className="flex flex-wrap gap-2">
-              <input
-                ref={replaceInputRef}
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = "";
-                  void handleReplacePicked(file);
-                }}
-              />
-              <Button variant="outline" size="sm" disabled={replacing} onClick={() => replaceInputRef.current?.click()}>
-                {replacing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
-                {replacing ? "Replacing…" : "Replace trial balance"}
-              </Button>
-              {/* Discard is only ever offered for a genuinely unprocessed upload — one with
-                  processing/certification history has no standalone remove action at all, only
-                  Replace trial balance (above): discard_trial_balance_upload() would refuse it
-                  with 'replacement_required' regardless. */}
-              {!isCertifiedRun(upload) && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setDiscardTarget(upload)}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {isUnprocessedReplacement(upload) ? "Cancel replacement" : "Discard upload"}
-                </Button>
-              )}
-            </div>
-          )}
         </div>
       </header>
 
@@ -535,7 +582,7 @@ export default function PrepareWorkspace() {
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:items-start">
             <SurfaceCard>
               <SurfaceCardHeader
-                label="Upload trial balance"
+                label="Upload Trial Balance"
                 action={
                   upload ? (
                     <Button variant="ghost" size="sm" onClick={() => setShowUploader(false)}>

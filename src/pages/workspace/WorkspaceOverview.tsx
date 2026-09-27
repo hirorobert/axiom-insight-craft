@@ -33,7 +33,8 @@ import EngagementScopeDialog from "@/components/workspace/EngagementScopeDialog"
 import PreviousEngagementWork from "@/components/workspace/PreviousEngagementWork";
 import { ActiveFileProvenance } from "@/components/workspace/ActiveFileProvenance";
 import { useEngagement } from "@/contexts/EngagementContext";
-import { buildPrepareReviewRoute, buildPrepareUploadRoute, canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
+import { buildPrepareReviewRoute, canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
+import { buildManageTrialBalanceRoute } from "@/lib/workspace/trialBalanceManagement";
 import { capabilityTitle, ENGAGEMENT_CAPABILITIES } from "@/lib/workspace/mandate";
 import { readRememberedOutcome } from "@/lib/product/outcomes";
 import { DecisionCard, type Decision } from "@/components/workspace/DecisionCard";
@@ -296,8 +297,8 @@ export default function WorkspaceOverview() {
     };
   }
 
-  // One route to the exact upload on screen, from the existing Prepare route builder.
-  const manageUploadHref = buildPrepareUploadRoute(companyId, periodYear, upload?.id ?? null);
+  // One route to the exact upload on screen that opens and focuses Prepare Data's "Manage Trial Balance" area.
+  const manageUploadHref = buildManageTrialBalanceRoute(companyId, periodYear, upload?.id ?? null);
 
   return (
     <div className="max-w-3xl">
