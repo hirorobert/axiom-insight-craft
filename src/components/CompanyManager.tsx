@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
 import { useMyEntityCapacity } from "@/hooks/useMyEntityCapacity";
 import { EntityCapacityNotice } from "@/components/commercial/EntityCapacityNotice";
 import { useNavigate } from "react-router-dom";
