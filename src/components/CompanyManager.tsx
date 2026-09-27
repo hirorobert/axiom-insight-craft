@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
+import { useMyEntityCapacity } from "@/hooks/useMyEntityCapacity";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -183,6 +185,8 @@ export const CompanyManager = () => {
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [tinTouched, setTinTouched] = useState(false);
   const { user } = useAuth();
+  const { capacity, loading: capacityLoading, error: capacityError, retry: retryCapacity } = useMyEntityCapacity(!!user);
+  const canAdd = !capacityLoading && !capacityError && !!capacity?.determined && capacity.capacity !== null && capacity.used !== null && capacity.used < capacity.capacity;
   const { logAction } = useAuditLog();
   const navigate = useNavigate();
 
@@ -367,6 +371,7 @@ export const CompanyManager = () => {
       setFormDialogOpen(false);
       resetForm();
       fetchCompanies();
+      retryCapacity();
     } catch (error) {
       console.error("Company save error:", error);
       toast.error("Failed to save company");
@@ -449,6 +454,7 @@ export const CompanyManager = () => {
 
       toast.success("Company deleted");
       fetchCompanies();
+      retryCapacity();
     } catch (error) {
       console.error("Delete error:", error);
       toast.error("Failed to delete company");
@@ -477,6 +483,7 @@ export const CompanyManager = () => {
               variant="outline"
               size="sm"
               className="gap-2 w-full"
+              disabled={!canAdd}
               onClick={() => {
                 resetForm();
                 setFormDialogOpen(true);
@@ -485,6 +492,7 @@ export const CompanyManager = () => {
               <Plus className="w-4 h-4" />
               Add Company
             </Button>
+            {!canAdd && <div role="status" className="text-xs text-muted-foreground">{capacityLoading ? "Checking entity capacity…" : capacityError || !capacity ? "Entity capacity unavailable." : capacity.capacity === 0 && capacity.planCode === null ? "No active plan. Existing companies remain accessible." : !capacity.determined || capacity.capacity === null || capacity.used === null ? "Entity capacity unavailable." : "Entity capacity reached. Existing companies remain accessible."} <Link className="underline" to="/plans">View plans</Link>{(capacityError || !capacity) && <Button variant="link" size="sm" onClick={retryCapacity}>Retry</Button>}</div>}
 
             {loading ? (
               <p className="text-sm text-muted-foreground text-center py-4">Loading...</p>

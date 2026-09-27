@@ -24,6 +24,7 @@ interface UseBillingSummaryResult {
   summary: BillingSummary | null;
   loading: boolean;
   error: string | null;
+  retry: () => void;
 }
 
 /**
@@ -36,6 +37,7 @@ export function useBillingSummary(): UseBillingSummaryResult {
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,7 +85,7 @@ export function useBillingSummary(): UseBillingSummaryResult {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
-  return { summary, loading, error };
+  return { summary, loading, error, retry: () => setAttempt((n) => n + 1) };
 }

@@ -68,6 +68,10 @@ function entry(id: string, companyId: string, companyName: string, periodYear = 
 }
 
 const activeEngagementsMock = vi.hoisted(() => ({ value: null as unknown }));
+const billingMock = vi.hoisted(() => ({ value: { summary: { hasBillingCustomer: true, planCode: "SOLO", licenceStatus: "ACTIVE", effectiveStart: null, effectiveEnd: null, entitlements: [], billingInterval: null, billingIntervalCount: null, scheduledEffectiveEnd: null, nextEffectiveStart: null, nextEffectiveEnd: null, nextBillingInterval: null, nextBillingIntervalCount: null }, loading: false, error: null, retry: vi.fn() } }));
+const capacityMock = vi.hoisted(() => ({ value: { capacity: { capacity: 1, used: 0, determined: true, planCode: "SOLO" }, loading: false, error: false, retry: vi.fn() } }));
+vi.mock("@/hooks/useBillingSummary", () => ({ useBillingSummary: () => billingMock.value }));
+vi.mock("@/hooks/useMyEntityCapacity", () => ({ useMyEntityCapacity: () => capacityMock.value }));
 vi.mock("@/hooks/useActiveEngagements", () => ({
   useActiveEngagements: () => activeEngagementsMock.value,
 }));
@@ -91,6 +95,8 @@ afterEach(() => {
   vi.restoreAllMocks();
   navigateSpy.mockClear();
   supaMock.update.mockClear();
+  billingMock.value = { ...billingMock.value, summary: { ...billingMock.value.summary, licenceStatus: "ACTIVE", planCode: "SOLO" }, loading: false, error: null };
+  capacityMock.value = { ...capacityMock.value, capacity: { ...capacityMock.value.capacity, used: 0 }, loading: false, error: false };
 });
 
 describe("Dashboard — returning-user routing never guesses among multiple engagements", () => {
@@ -157,6 +163,49 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     const html = await renderDashboard();
 
     expect(html).toContain("first-run-engagement");
+  });
+
+  it("new no-plan user without entities goes to plans and never mounts setup", async () => {
+    setActiveEngagements({ loading: false, entries: [], companiesWithoutEngagement: [], fetchFailed: false });
+    billingMock.value = { ...billingMock.value, summary: { ...billingMock.value.summary, licenceStatus: null, planCode: null } };
+    const html = await renderDashboard();
+    expect(html).not.toContain("first-run-engagement");
+    expect(html).not.toContain("Your engagements");
+    expect(html).toBe(""); // Navigate renders no HTML before the client router changes location.
+  });
+
+  it("billing loading never mounts setup or redirects", async () => {
+    setActiveEngagements({ loading: false, entries: [], companiesWithoutEngagement: [], fetchFailed: false });
+    billingMock.value = { ...billingMock.value, loading: true };
+    const html = await renderDashboard();
+    expect(html).not.toContain("first-run-engagement");
+    expect(html).not.toContain("/plans");
+  });
+
+  it("billing failure shows controlled retry, not setup or plans", async () => {
+    setActiveEngagements({ loading: false, entries: [], companiesWithoutEngagement: [], fetchFailed: false });
+    billingMock.value = { ...billingMock.value, error: "sensitive server text" };
+    const html = await renderDashboard();
+    expect(html).toContain("We couldn’t load your plan");
+    expect(html).toContain("Retry");
+    expect(html).not.toContain("sensitive server text");
+    expect(html).not.toContain("first-run-engagement");
+  });
+
+  it("historical entity retains workspace routing even without a plan", async () => {
+    setActiveEngagements({ loading: false, entries: [], companiesWithoutEngagement: [company("c1", "Archive Co")], fetchFailed: false });
+    billingMock.value = { ...billingMock.value, summary: { ...billingMock.value.summary, licenceStatus: "EXPIRED" } };
+    const html = await renderDashboard();
+    expect(html).not.toContain("/plans");
+    expect(html).not.toContain("first-run-engagement");
+  });
+
+  it("capacity exhaustion does not hijack an existing workspace", async () => {
+    setActiveEngagements({ loading: false, entries: [entry("e1", "c1", "Acme Ltd")], companiesWithoutEngagement: [], fetchFailed: false });
+    capacityMock.value = { ...capacityMock.value, capacity: { ...capacityMock.value.capacity, used: 1 } };
+    const html = await renderDashboard();
+    expect(html).not.toContain("/plans");
+    expect(html).not.toContain("first-run-engagement");
   });
 
   it("a read failure is shown as a retriable error, never conflated with 'no engagements' or 'no companies'", async () => {

@@ -36,7 +36,7 @@ describe("pathwayPresentation", () => {
     expect(p.heading).toBe("Tanzania expert assessment — private preview");
     expect(p.heading).toBe(`${jurisdictionName("TZ")} expert assessment — private preview`);
     expect(p.locked).toBe(true);
-    expect(p.stateLabel).toBe("Locked — request access");
+    expect(p.stateLabel).toBe("Private preview");
     expect(p.disclosure).toBe("Access is subject to professional assessment and product readiness.");
     expect(p.actionLabel).toBe("Request Tanzania assessment →");
   });

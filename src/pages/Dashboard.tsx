@@ -24,7 +24,11 @@
  */
 
 import { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useBillingSummary } from "@/hooks/useBillingSummary";
+import { useMyEntityCapacity } from "@/hooks/useMyEntityCapacity";
+import { decideEmptyAccountScreen } from "@/lib/commercial/dashboardPlanDecision";
+import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
+import { useNavigate, useLocation, Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useActiveEngagements, type ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
@@ -85,6 +89,8 @@ export default function Dashboard() {
   const forceHub = !!(location.state as { forceHub?: boolean } | null)?.forceHub;
   const { loading: engagementsLoading, entries, companiesWithoutEngagement, sharedWorkspaces, fetchFailed, refresh } = useActiveEngagements();
   const [routing, setRouting] = useState(false);
+  const { summary: billing, loading: billingLoading, error: billingError, retry: retryBilling } = useBillingSummary();
+  const { capacity, loading: capacityLoading, error: capacityError, retry: retryCapacity } = useMyEntityCapacity(!!user);
 
   // ── 1. Auth guard ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -173,7 +179,7 @@ export default function Dashboard() {
   };
 
   // ── Loading / redirect in flight ──────────────────────────────────────────
-  if (authLoading || engagementsLoading || routing || route?.kind === "resume" || route?.kind === "start_single_company" || route?.kind === "open_shared") {
+  if (authLoading || engagementsLoading || (route?.kind === "first_run" && (billingLoading || capacityLoading)) || routing || route?.kind === "resume" || route?.kind === "start_single_company" || route?.kind === "open_shared") {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3">
         <Skeleton className="h-8 w-32" />
@@ -200,6 +206,15 @@ export default function Dashboard() {
 
   // ── First run: no companies yet ────────────────────────────────────────────
   if (route?.kind === "first_run") {
+    if (billingError || capacityError || !billing || !capacity) return (
+      <div className="min-h-screen bg-background px-5 py-16 mx-auto max-w-xl">
+        <CFOCloseWordmark className="text-lg" />
+        <CurrentPlanPanel billing={null} loading={false} error onRetry={() => { retryBilling(); retryCapacity(); }} />
+      </div>
+    );
+    const emptyScreen = decideEmptyAccountScreen(billing, capacity, (sharedWorkspaces?.length ?? 0) > 0);
+    if (emptyScreen === "plans") return <Navigate to="/plans" replace />;
+    if (emptyScreen !== "setup") return <div className="min-h-screen bg-background px-5 py-16 mx-auto max-w-xl"><CurrentPlanPanel billing={billing} capacity={capacity} loading={false} error={emptyScreen === "unavailable"} onRetry={() => { retryBilling(); retryCapacity(); }} /></div>;
     return (
       <div className="min-h-screen bg-background">
         <header className="border-b border-border h-14 flex items-center px-6">
@@ -209,6 +224,7 @@ export default function Dashboard() {
         <main className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-5 py-10">
           {/* One inline form. On success we route straight into the workspace —
               no nested dialogs, no "reload the page" dead end. */}
+          <div className="w-full max-w-2xl"><CurrentPlanPanel billing={billing} capacity={capacity} loading={false} error={false} /></div>
           <FirstRunEngagement
             onCreated={(companyId, year) =>
               navigate(`/workspace/${companyId}/${year}`, { replace: true })

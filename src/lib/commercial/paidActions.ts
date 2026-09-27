@@ -141,7 +141,7 @@ export function capacityCopy(answer: CapacityAnswer): LockedCopy {
   return {
     title: "Entity limit reached",
     unavailable: `Your ${plan} plan includes ${n} active ${n === 1 ? "entity" : "entities"}${answer.used !== null ? `, and ${answer.used} ${answer.used === 1 ? "is" : "are"} in use` : ""}.`,
-    remains: "Every existing entity stays fully accessible. Upgrade, or deactivate an entity you no longer need, to add another.",
+    remains: "Every existing entity stays fully accessible. View plans to add another.",
     history: "Nothing is deleted, hidden or moved when a plan changes.",
   };
 }
