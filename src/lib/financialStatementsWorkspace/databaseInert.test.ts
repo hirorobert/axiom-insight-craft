@@ -142,6 +142,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20260926160000_trial_balance_processing_entitlement_wall.sql",
       // The canonical source of Lovable's hosted entry 0023 (xbrl_concept_map read policy; release-only probe RLS). No financial-statements schema.
       "supabase/migrations/20260927041019_security_fix_probe_and_xbrl_concept_map.sql",
+      // Remove a processed trial balance from active use (retire, no successor): a NEW forward migration. No financial-statements schema.
+      "supabase/migrations/20260927100000_trial_balance_remove_from_active_use.sql",
       // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",

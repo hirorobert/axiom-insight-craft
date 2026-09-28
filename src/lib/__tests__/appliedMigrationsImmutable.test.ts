@@ -32,4 +32,11 @@ describe("applied migrations are immutable", () => {
     expect(files.indexOf(forward)).toBeGreaterThan(files.indexOf("20260925150000_can_user_act_on_workspace_minimum_grant.sql"));
     for (const f of Object.keys(APPLIED).filter((x) => x !== forward)) expect(fs.readFileSync(path.join(MIGRATIONS, f), "utf8")).not.toMatch(/tbu_processing_wall|authorize_trial_balance_processing/);
   });
+  it("removing a processed trial balance is a NEW forward migration after every applied one, and not inside any of them", () => {
+    const files = fs.readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql")).sort();
+    const forward = "20260927100000_trial_balance_remove_from_active_use.sql";
+    expect(files).toContain(forward);
+    expect(files.indexOf(forward)).toBeGreaterThan(files.indexOf("20260926160000_trial_balance_processing_entitlement_wall.sql"));
+    for (const f of Object.keys(APPLIED)) expect(fs.readFileSync(path.join(MIGRATIONS, f), "utf8")).not.toMatch(/remove_trial_balance_upload|get_trial_balance_removal_eligibility/);
+  });
 });

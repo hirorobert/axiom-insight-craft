@@ -374,6 +374,7 @@ src/
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing
       sourceUpload.ts         ← ONLY browser path for a trial balance source: reserve → signed workspace-scoped upload → register
+      trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client
       classificationPresentation.ts   ← Pure deterministic 7-state classification presentation (FAILED/PROCESSING/INCONSISTENT/COMPLETE_WITH_REVIEW/PARTIAL/COMPLETE_NO_REVIEW/NOT_COMPUTED) for WorkspaceOverview. "Classified" means mapping_completeness.mapped_accounts (Tier 1-5) — never summary.auto_classified (Tier 4-5 only).
       classificationAcceptanceFixtures.ts ← Deterministic fixture inputs (one per classification state) for the internal /internal/acceptance/classification-states dev-only page. No Supabase, no randomness.
       classificationAcceptanceGate.ts ← Gate for that page: renderable only in a dev build (import.meta.env.DEV) — no flag, never enabled in production.
@@ -434,6 +435,7 @@ src/
       DataChoiceCard.tsx      ← The one data question
       EngagementScopeDialog.tsx ← "Manage services"
       StageScopeGate.tsx      ← Stage URL cannot bypass scope
+      ManageTrialBalance.tsx  ← "Manage Trial Balance" (Replace / Remove) directly under the Prepare Data file header
       FirstRunEngagement.tsx  ← Zero-company first-run form
     safisha/
       SafishaGate.tsx         ← Post-upload evidence gate. Cannot be skipped.
@@ -825,6 +827,18 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   (policy verbatim; probe RLS only behind `to_regclass`, since a clean replay has no probe table). The guard maps the
   two by exact SHA-256 of both files plus a structural check (`PINNED`, rule `canonical_equivalent`) — not an
   allow-list. Proven on PostgreSQL: `scripts/db-proof/planCapabilities.mjs` group E-0023.
+- NOT APPLIED: `20260927100000_trial_balance_remove_from_active_use.sql` — "Remove Trial Balance" for a processed,
+  blocked or failed upload: `remove_trial_balance_upload()` moves it to the terminal lifecycle state `retired` (no
+  successor; nothing deleted; lifecycle audit event), refused while a sealed Reporting Pack or a FINAL
+  trial-balance-derived publication exists for the period; `get_trial_balance_removal_eligibility()` tells Prepare Data
+  which removal path applies. Until it is applied, Prepare Data offers Remove only for unprocessed uploads (the PR #32
+  discard / cancel-replacement paths) and never guesses about a processed one. Removal, a FINAL publication and a
+  Reporting Pack seal for the same workspace and period are serialized by ONE transaction-scoped advisory lock
+  (`tb_official_output_lock`; removal takes it before its row lock and checks, `trg_fsp_source_trial_balance_guard` and
+  `trg_rpi_seal_source_guard` before theirs); after it, a trial-balance-derived FINAL or seal is refused (PT409
+  `SOURCE_TRIAL_BALANCE_REMOVED`) once the period's trial balance was removed. All three refuse any isolation level
+  but READ COMMITTED (`tb_require_read_committed`, PT412 `READ_COMMITTED_REQUIRED`) before any write or audit, because a
+  snapshot fixed before the lock would check stale state. Proven: `planCapabilities.mjs` R-2 and R-3.
 - Applied migrations are never edited (SHA-256 pinned in `src/lib/__tests__/appliedMigrationsImmutable.test.ts`); every
   further change is a new forward migration.
 

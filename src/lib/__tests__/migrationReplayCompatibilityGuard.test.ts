@@ -188,7 +188,9 @@ describe("migration directory integrity", () => {
     // applied 100000–150000 are never edited; appliedMigrationsImmutable.test.ts pins their bytes).
     // Bumped from 141 -> 142: 20260927041019_security_fix_probe_and_xbrl_concept_map.sql, the canonical source of Lovable's hosted entry 0023
     // (xbrl_concept_map policy; release-only probe RLS behind to_regclass). No applied migration is edited.
-    expect(files.length).toBe(142);
+    // Bumped from 142 -> 143: 20260927100000_trial_balance_remove_from_active_use.sql, a NEW forward-only migration (remove a processed trial balance from
+    // active use without a successor; 20260926160000 is applied in production and pinned like the others).
+    expect(files.length).toBe(143);
   });
 });
 

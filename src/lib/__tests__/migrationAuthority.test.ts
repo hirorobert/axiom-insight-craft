@@ -38,7 +38,7 @@ describe("migration authority parity", () => {
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
     // Authored here and not yet applied by the owner: listed, never an error. PR #34 100000–150000 are applied.
-    expect(r.pending).toEqual([]);   // 20260926160000 applied by 0022 (reviewed release wrapper)
+    expect(r.pending).toEqual(["20260927100000_trial_balance_remove_from_active_use.sql"]);   // 20260926160000 applied by 0022; the removal migration awaits the owner
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {
     const H = "drizzle/migrations/0023_security_fix_probe_and_xbrl_concept_map.sql";
