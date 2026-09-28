@@ -825,6 +825,7 @@ async function main() {
   });
   await check("cancelling during acceptance (12 races): either accepted and usable, or cancelled with nothing usable — never a cancelled person with a usable capability", async () => {
     const outcomes = [];
+    const nvSeatsBefore = Number((await admin.query("SELECT count(*) n FROM public._account_named_users($1, true)", [NV.holder])).rows[0].n);
     for (let i = 0; i < CONCURRENCY; i++) {
       const v = await mkUser(`nv-race-${i}`); const id = await nvInvite(v, "partner");
       await Promise.all([
@@ -834,7 +835,11 @@ async function main() {
       const row = (await admin.query("SELECT accepted_at, invitation_cancelled_at FROM public.firm_members WHERE id=$1", [id])).rows[0];
       const u = await usable(v);
       const ok = (row.accepted_at && !row.invitation_cancelled_at && u.length === TEMPLATE.partner.length) || (!row.accepted_at && row.invitation_cancelled_at && u.length === 0);
-      outcomes.push(ok ? (row.accepted_at ? "accepted" : "cancelled") : { row, u });
+      // Whichever outcome won, the round leaves no seat behind (committed, then verified), so later proofs on this
+      // account start from the same seat state every run.
+      await q(user(NV.holder), "DELETE FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [NV.co, v]);
+      const seatsAfter = Number((await admin.query("SELECT count(*) n FROM public._account_named_users($1, true)", [NV.holder])).rows[0].n);
+      outcomes.push(!ok ? { row, u } : seatsAfter !== nvSeatsBefore ? { seatsAfter, nvSeatsBefore } : (row.accepted_at ? "accepted" : "cancelled"));
     }
     return outcomes.every((o) => typeof o === "string") ? true : JSON.stringify(outcomes);
   });
@@ -961,19 +966,66 @@ async function main() {
     return Object.values(out).every((c) => c === "42501") && removedRevoke === "withheld" && !(await usable(r)).includes("prepare_close")
       ? true : JSON.stringify({ out, removedRevoke, usable: await usable(r) });
   });
+  // The concurrent round runs on its OWN account with its own seat budget, so no earlier race outcome on the shared
+  // membership account can change its seat state (root cause of the former intermittent SEAT_LIMIT_REACHED: rounds that
+  // left a person accepted accumulated on one finite 41-seat account). Every round starts from a proven clean seat
+  // state and ends with a committed, verified cleanup; both race outcomes are proven reachable by forced orderings.
+  const RG = { holder: await mkUser("m2-race-holder") };
+  RG.lic = await grantPlan(RG.holder, "FIRM");
+  await one(user(U.admin), "SELECT public.admin_set_licence_additional_seats($1,2,'proof')", [RG.lic]);
+  RG.co = await newCompany(RG.holder, "M-2 Race Co");
+  const rg = {
+    accepted: (who, role) => q(user(RG.holder), "INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,$3,now())", [RG.co, who, role]),
+    revoke: (who, cap) => one(user(RG.holder), "SELECT public.revoke_member_capability($1,$2,$3,'separation of duties') r", [RG.co, who, cap]).then((x) => x.r.outcome),
+    remove: (who) => q(user(RG.holder), "DELETE FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [RG.co, who]),
+    reinvite: (who, role) => one(SERVICE, "SELECT public.reserve_workspace_invitation($1,$2,$3,$4,$5) r", [RG.co, who, role, RG.holder, `${who}@example.test`]).then((x) => x.r.outcome),
+    grant: (who, cap) => one(user(RG.holder), "SELECT public.grant_member_capability($1,$2,$3,'explicit re-grant') r", [RG.co, who, cap]).then((x) => x.r),
+    held: async (who) => (await one(user(who), "SELECT public.has_workspace_capability($1,$2,'approve_certification') r", [RG.co, who])).r,
+    open: (who) => admin.query("SELECT capability FROM public.workspace_capability_revocations WHERE company_id=$1 AND user_id=$2 AND lifted_at IS NULL ORDER BY capability", [RG.co, who]).then((r) => r.rows.map((x) => x.capability)),
+  };
+  // Everything that decides a seat on this account, read from committed state.
+  const rgSeats = async () => (await admin.query(`SELECT
+      (SELECT count(*) FROM public._account_named_users($1, true))::int AS named_with_pending,
+      (SELECT count(*) FROM public._account_named_users($1, false))::int AS named_active,
+      ((public._seat_capacity_for_account($1))->>'allowed_named_users')::int AS allowed,
+      (SELECT count(*) FROM public.firm_members fm WHERE fm.company_id = $2 AND fm.user_id <> $1)::int AS member_rows,
+      (SELECT count(*) FROM public.workspace_capability_grants g WHERE g.company_id = $2 AND g.revoked_at IS NULL)::int AS grants,
+      (SELECT count(*) FROM public.named_user_billing_suspensions x WHERE x.account_user_id = $1 AND x.lifted_at IS NULL)::int AS suspensions`, [RG.holder, RG.co])).rows[0];
+  const RG_CLEAN = await rgSeats();
+  const provenClean = async () => JSON.stringify(await rgSeats()) === JSON.stringify(RG_CLEAN);
+  // One round, with an optional forced order; the per-round person is removed afterwards and the seat state re-proven.
+  const rgRound = async (label, order) => {
+    const cleanBefore = await provenClean();
+    const p = await mkUser(`m2-race-${label}`);
+    await rg.accepted(p, "partner");
+    const revoked = await rg.revoke(p, "approve_certification");
+    await rg.remove(p);
+    let ri, g;
+    if (order === "reinvite_first") { ri = await rg.reinvite(p, "partner"); g = await rg.grant(p, "approve_certification"); }
+    else if (order === "grant_first") { g = await rg.grant(p, "approve_certification"); ri = await rg.reinvite(p, "partner"); }
+    else [ri, g] = await Promise.all([rg.reinvite(p, "partner"), rg.grant(p, "approve_certification")]);
+    await one(user(p), "SELECT public.accept_workspace_invitations() r");
+    const held = await rg.held(p);
+    const open = (await rg.open(p)).includes("approve_certification");
+    await rg.remove(p);
+    const cleanAfter = await provenClean();
+    const outcome = g.outcome === "granted" && g.revocation_lifted === true && held && !open ? "granted"
+      : g.outcome === "not_a_member" && !held && open ? "not_a_member" : null;
+    return { cleanBefore, cleanAfter, revoked, ri, g: g.outcome, lifted: g.revocation_lifted ?? null, held, open, outcome };
+  };
   await check(`concurrent re-invitation and re-grant (${CONCURRENCY} rounds) resolve deterministically: the capability is held only after a granted re-grant that lifted the revocation; never by the invitation`, async () => {
+    const budget = RG_CLEAN.allowed - RG_CLEAN.named_with_pending;   // a round needs exactly one seat at its peak
+    // Both outcomes are reachable: forced orderings prove each one on the same path the race takes.
+    const reinviteFirst = await rgRound("reinvite-first", "reinvite_first");
+    const grantFirst = await rgRound("grant-first", "grant_first");
     const rounds = [];
-    for (let k = 0; k < CONCURRENCY; k++) {
-      const p = await mkUser(`m2-race-${k}`); await nvAccepted(p, "partner");
-      await revokeCap(p, "approve_certification"); await remove(p);
-      const [ri, g] = await Promise.all([reinvite(p, "partner"), grantCap(p, "approve_certification")]);
-      await accept(p);
-      const held = (await usable(p)).includes("approve_certification");
-      const open = (await openRevocations(p)).includes("approve_certification");
-      const ok = ri === "reserved" && ((g.outcome === "granted" && g.revocation_lifted === true && held && !open) || (g.outcome === "not_a_member" && !held && open));
-      rounds.push(ok ? g.outcome : { ri, g, held, open });
-    }
-    return rounds.every((r) => typeof r === "string") ? true : JSON.stringify(rounds);
+    for (let k = 0; k < CONCURRENCY; k++) rounds.push(await rgRound(String(k), "race"));
+    const valid = (r) => r.cleanBefore && r.cleanAfter && r.revoked === "revoked" && r.ri === "reserved" && r.outcome !== null;
+    const ok = budget >= 1 && RG_CLEAN.named_active === 1 && RG_CLEAN.member_rows === 0 && RG_CLEAN.grants === 0 && RG_CLEAN.suspensions === 0
+      && valid(reinviteFirst) && reinviteFirst.outcome === "granted"
+      && valid(grantFirst) && grantFirst.outcome === "not_a_member"
+      && rounds.every(valid);
+    return ok ? true : JSON.stringify({ RG_CLEAN, budget, reinviteFirst, grantFirst, rounds: rounds.filter((r) => !valid(r)) });
   });
 
   const legacyRef = async () => `upload:${(await admin.query("SELECT id FROM public.trial_balance_uploads WHERE company_id=$1 AND period_year=2025 ORDER BY uploaded_at LIMIT 1", [L.co])).rows[0].id}`;
