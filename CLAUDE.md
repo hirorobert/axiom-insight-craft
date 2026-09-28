@@ -832,7 +832,11 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   successor; nothing deleted; lifecycle audit event), refused while a sealed Reporting Pack or a FINAL
   trial-balance-derived publication exists for the period; `get_trial_balance_removal_eligibility()` tells Prepare Data
   which removal path applies. Until it is applied, Prepare Data offers Remove only for unprocessed uploads (the PR #32
-  discard / cancel-replacement paths) and never guesses about a processed one.
+  discard / cancel-replacement paths) and never guesses about a processed one. Removal, a FINAL publication and a
+  Reporting Pack seal for the same workspace and period are serialized by ONE transaction-scoped advisory lock
+  (`tb_official_output_lock`; removal takes it before its row lock and checks, `trg_fsp_source_trial_balance_guard` and
+  `trg_rpi_seal_source_guard` before theirs); after it, a trial-balance-derived FINAL or seal is refused (PT409
+  `SOURCE_TRIAL_BALANCE_REMOVED`) once the period's trial balance was removed. Proven: `planCapabilities.mjs` R-2.
 - Applied migrations are never edited (SHA-256 pinned in `src/lib/__tests__/appliedMigrationsImmutable.test.ts`); every
   further change is a new forward migration.
 

@@ -154,6 +154,7 @@ const one = async (caller, sql, params) => (await q(caller, sql, params))[0];
 const uuid = () => globalThis.crypto.randomUUID();
 const count = async (sql, params = []) => Number((await admin.query(sql, params)).rows[0].n);
 const codeOf = async (fn) => { try { await fn(); return "ok"; } catch (e) { return e.code; } };
+const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r("timeout"), ms))]);
 const errOf = async (fn) => { try { await fn(); return null; } catch (e) { return e; } };
 
 
@@ -1390,7 +1391,8 @@ async function main() {
   group("R-1 — remove a processed trial balance from active use: retire, never delete; authorized, plan-gated, fail closed");
   // A sanctioned lifecycle move for fixtures only (the admin session is not a client role, as the guard requires).
   const setLifecycle = async (id, state) => { const c = await pool.connect(); try { await c.query("BEGIN"); await c.query("SELECT set_config('axiom.tbu_lifecycle_op','proof',true)");
-    await c.query("UPDATE public.trial_balance_uploads SET lifecycle_state=$2, version=version+1 WHERE id=$1", [id, state]); await c.query("COMMIT"); } finally { c.release(); } };
+    await c.query("UPDATE public.trial_balance_uploads SET lifecycle_state=$2, version=version+1 WHERE id=$1", [id, state]); await c.query("COMMIT"); }
+    catch (e) { await c.query("ROLLBACK").catch(() => {}); throw e; } finally { c.release(); } };
   const eligibility = (who, id) => one(user(who), "SELECT public.get_trial_balance_removal_eligibility($1) r", [id]).then((x) => x.r);
   const removeTb = (who, id, version) => one(user(who), "SELECT * FROM public.remove_trial_balance_upload($1,$2,'proof removal')", [id, version]);
   const replica = async (fn) => { const c = await pool.connect(); try { await c.query("BEGIN"); await c.query("SET LOCAL session_replication_role = replica"); await fn(c); await c.query("COMMIT"); }
@@ -1516,6 +1518,204 @@ async function main() {
     const blockedStill = (await uploadRow(id)).lifecycle_state;
     return directRetire === "42501" && ["42501", "55000"].includes(unretire) && del !== "DELETED" && sanctioned === "23000" && stillRetired === "retired" && blockedStill === "blocked"
       ? true : JSON.stringify({ directRetire, unretire, del, sanctioned, stillRetired, blockedStill });
+  });
+
+  group("R-2 — removal, FINAL publication and Reporting Pack sealing are serialized by ONE lock per workspace and period");
+  // An open transaction as a caller (authenticated with JWT claims, or the admin session), for deliberate interleaving.
+  const openTx = async (caller) => {
+    const c = await pool.connect();
+    await c.query("BEGIN");
+    if (caller) {
+      await c.query("SET LOCAL ROLE authenticated");
+      await c.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [caller]);
+    }
+    return { c, done: async (how) => { try { await c.query(how); } finally { c.release(); } } };
+  };
+  const settle = (p) => p.then((v) => ({ ok: true, v }), (e) => ({ ok: false, code: e.code, message: String(e.message) }));
+  const waitingOnAdvisory = async () => count("SELECT count(*) n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted");
+  const S2 = { owner: await mkUser("r2-owner") };
+  S2.lic = await grantPlan(S2.owner, "PRACTICE");
+  S2.co = await newCompany(S2.owner, "R2 Co");
+  S2.member = (await admin.query("SELECT id FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [S2.co, S2.owner])).rows[0]?.id
+    ?? (await admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'owner',now()) RETURNING id", [S2.co, S2.owner])).rows[0].id;
+  // A trial-balance-derived statements version for the period, REVIEWED (fixture rows; FINAL is always a real INSERT).
+  const tbReport = async (period) => {
+    const rid = `r2-${uuid()}`;
+    await replica(async (c) => {
+      await c.query(`INSERT INTO public.financial_statement_reports (report_id, report_version, company_id, period_year, provenance_origin, report_document, content_hash, document_hash, created_by_firm_member_id)
+        VALUES ($1,1,$2,$3,'TRIAL_BALANCE_DERIVED','{"statements":{}}'::jsonb,$4, public.fs_sha256_hex('{"statements":{}}'::jsonb::text), $5)`, [rid, S2.co, period, "e".repeat(64), S2.member]);
+      for (const st of ["DRAFT", "REVIEWED"]) await c.query("INSERT INTO public.financial_statement_publications (report_id, report_version, company_id, state, reason, actor_firm_member_id) VALUES ($1,1,$2,$3,'proof publication step',$4)", [rid, S2.co, st, S2.member]);
+    });
+    return rid;
+  };
+  const finalSql = "INSERT INTO public.financial_statement_publications (report_id, report_version, company_id, state, reason, actor_firm_member_id) VALUES ($1,1,$2,'FINAL','final sign-off (proof)',$3)";
+  const finals = (rid) => count("SELECT count(*) n FROM public.financial_statement_publications WHERE report_id=$1 AND state='FINAL'", [rid]);
+  const events = async (id) => (await admin.query("SELECT to_state, outcome FROM public.trial_balance_upload_lifecycle_events WHERE upload_id=$1 AND actor_kind='user' ORDER BY occurred_at", [id])).rows;
+  const scenario = async (period) => ({ up: await processed(S2.owner, S2.co, period, "blocked"), rid: await tbReport(period) });
+
+  await check("one canonical key: removal, the FINAL guard and the seal guard all take tb_official_output_lock(company, period), a transaction-scoped advisory lock", async () => {
+    const defs = (await admin.query("SELECT proname, pg_get_functiondef(oid) d FROM pg_proc WHERE proname IN ('remove_trial_balance_upload','fsp_source_trial_balance_guard','rpi_seal_source_guard','tb_official_output_lock') AND pronamespace='public'::regnamespace")).rows;
+    const by = Object.fromEntries(defs.map((r) => [r.proname, r.d]));
+    const ok = /pg_advisory_xact_lock\(hashtextextended\('cfoclose\.tb_official_output:'/.test(by.tb_official_output_lock ?? "")
+      && ["remove_trial_balance_upload", "fsp_source_trial_balance_guard", "rpi_seal_source_guard"].every((f) => /tb_official_output_lock\(/.test(by[f] ?? ""))
+      // Removal takes the lock BEFORE it locks the row and before any issued-output check.
+      && by.remove_trial_balance_upload.indexOf("tb_official_output_lock(") < by.remove_trial_balance_upload.indexOf("FOR UPDATE")
+      && by.remove_trial_balance_upload.indexOf("tb_official_output_lock(") < by.remove_trial_balance_upload.indexOf("tbu_issued_output_binding(");
+    return ok ? true : JSON.stringify(Object.keys(by));
+  });
+
+  await check("removal commits first: a FINAL publication waiting on the lock is then refused (SOURCE_TRIAL_BALANCE_REMOVED, PT409); no FINAL row, no partial audit", async () => {
+    const { up, rid } = await scenario(2031);
+    const a = await openTx(S2.owner);
+    const removed = (await a.c.query("SELECT * FROM public.remove_trial_balance_upload($1,$2,'race: removal first')", [up, await versionOf(up)])).rows[0].outcome;
+    const b = await openTx(null);
+    const pub = settle(b.c.query(finalSql, [rid, S2.co, S2.member]));
+    await sleep(400);
+    const blocked = await waitingOnAdvisory();
+    await a.done("COMMIT");
+    const r = await pub; await b.done(r.ok ? "COMMIT" : "ROLLBACK");
+    const ev = await events(up);
+    const ok = removed === "removed" && blocked >= 1 && !r.ok && r.code === "PT409" && /SOURCE_TRIAL_BALANCE_REMOVED/.test(r.message)
+      && (await finals(rid)) === 0 && ev.length === 1 && ev[0].to_state === "retired" && ev[0].outcome === "applied";
+    return ok ? true : JSON.stringify({ removed, blocked, r, finals: await finals(rid), ev });
+  });
+
+  await check("FINAL publication commits first: a removal waiting on the lock is then refused (issued_output_bound); the upload stays active; one denied event, no retirement", async () => {
+    const { up, rid } = await scenario(2032);
+    const v = await versionOf(up);
+    const a = await openTx(null);
+    await a.c.query(finalSql, [rid, S2.co, S2.member]);
+    const b = await openTx(S2.owner);
+    const rem = settle(b.c.query("SELECT * FROM public.remove_trial_balance_upload($1,$2,'race: publication first')", [up, v]));
+    await sleep(400);
+    const blocked = await waitingOnAdvisory();
+    await a.done("COMMIT");
+    const r = await rem; await b.done("COMMIT");
+    const ev = await events(up);
+    const ok = blocked >= 1 && r.ok && r.v.rows[0].outcome === "issued_output_bound" && (await uploadRow(up)).lifecycle_state === "blocked"
+      && (await finals(rid)) === 1 && ev.length === 1 && ev[0].outcome === "denied" && ev[0].to_state === null;
+    return ok ? true : JSON.stringify({ blocked, r: r.ok ? r.v.rows[0] : r, state: (await uploadRow(up)).lifecycle_state, finals: await finals(rid), ev });
+  });
+
+  await check("simultaneous requests (12 rounds, both fired at once): exactly one wins every time — never both, never neither, never a deadlock", async () => {
+    const results = [];
+    for (let i = 0; i < 12; i++) {
+      const { up, rid } = await scenario(2040 + i);
+      const v = await versionOf(up);
+      const [rem, pub] = await Promise.all([
+        settle(q(user(S2.owner), "SELECT * FROM public.remove_trial_balance_upload($1,$2,'simultaneous')", [up, v])),
+        settle(admin.query("SELECT 1").then(() => pool.query(finalSql, [rid, S2.co, S2.member]))),
+      ]);
+      const removed = rem.ok && rem.v[0].outcome === "removed";
+      const published = pub.ok;
+      results.push({ removed, published, remOut: rem.ok ? rem.v[0].outcome : rem.code, pubCode: pub.ok ? "ok" : pub.code,
+        state: (await uploadRow(up)).lifecycle_state, finals: await finals(rid) });
+    }
+    const ok = results.every((r) => (r.removed !== r.published)
+      && (r.removed ? r.state === "retired" && r.finals === 0 && r.pubCode === "PT409" : r.state === "blocked" && r.finals === 1 && r.remOut === "issued_output_bound"))
+      && !results.some((r) => r.pubCode === "40P01" || r.remOut === "40P01");
+    return ok ? true : JSON.stringify(results);
+  });
+
+  await check("sealing first (the real seal path): the official pack is sealed from its FINAL publication, and a later removal is refused (issued_output_bound)", async () => {
+    const { up, rid } = await scenario(2033);
+    await pool.query(finalSql, [rid, S2.co, S2.member]);
+    const i = (await one(user(S2.owner), "SELECT public.issue_official_reporting_pack($1,2033,$2,$3) r", [S2.co, `fs-report:${rid}:v1`, uuid()])).r;
+    const prepared = (await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [S2.owner, i.issuance_id])).r;
+    await admin.query("INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('reporting-packs', $1, $2::jsonb)", [`${S2.co}/${i.issuance_id}.json`, JSON.stringify({ size: prepared.byte_size })]);
+    const sealed = (await one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3) r", [S2.owner, i.issuance_id, `${S2.co}/${i.issuance_id}.json`])).r.outcome;
+    const rem = (await removeTb(S2.owner, up, await versionOf(up))).outcome;
+    return sealed === "sealed" && rem === "issued_output_bound" && (await uploadRow(up)).lifecycle_state === "blocked" ? true : JSON.stringify({ i, sealed, rem });
+  });
+
+  await check("removal first: a later seal of that period's trial-balance-derived pack is refused by the seal guard (even for a FINAL row written around the publication guard); nothing is sealed", async () => {
+    const { up, rid } = await scenario(2034);
+    const removed = (await removeTb(S2.owner, up, await versionOf(up))).outcome;
+    // A FINAL row that predates the guard (written with triggers off) — the seal must still be refused on its own.
+    await replica((c) => c.query(finalSql, [rid, S2.co, S2.member]));
+    const i = (await one(user(S2.owner), "SELECT public.issue_official_reporting_pack($1,2034,$2,$3) r", [S2.co, `fs-report:${rid}:v1`, uuid()])).r;
+    const prepared = (await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [S2.owner, i.issuance_id])).r;
+    await admin.query("INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('reporting-packs', $1, $2::jsonb)", [`${S2.co}/${i.issuance_id}.json`, JSON.stringify({ size: prepared.byte_size })]);
+    const seal = await settle(one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3) r", [S2.owner, i.issuance_id, `${S2.co}/${i.issuance_id}.json`]));
+    const row = (await admin.query("SELECT consumed_at FROM public.reporting_pack_issuances WHERE id=$1", [i.issuance_id])).rows[0];
+    const sealedEvents = await count("SELECT count(*) n FROM public.reporting_pack_issuance_events WHERE issuance_id=$1 AND event='SEALED'", [i.issuance_id]);
+    return removed === "removed" && !seal.ok && seal.code === "PT409" && /SOURCE_TRIAL_BALANCE_REMOVED/.test(seal.message) && row.consumed_at === null && sealedEvents === 0
+      ? true : JSON.stringify({ removed, seal, row, sealedEvents });
+  });
+
+  await check("removal and a seal interleaved: the seal holds the period lock, the removal waits, then is refused; the seal stands", async () => {
+    const { up, rid } = await scenario(2035);
+    await pool.query(finalSql, [rid, S2.co, S2.member]);
+    const i = (await one(user(S2.owner), "SELECT public.issue_official_reporting_pack($1,2035,$2,$3) r", [S2.co, `fs-report:${rid}:v1`, uuid()])).r;
+    const prepared = (await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [S2.owner, i.issuance_id])).r;
+    await admin.query("INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('reporting-packs', $1, $2::jsonb)", [`${S2.co}/${i.issuance_id}.json`, JSON.stringify({ size: prepared.byte_size })]);
+    const a = await pool.connect();
+    await a.query("BEGIN"); await a.query("SET LOCAL ROLE service_role");
+    const sealed = (await a.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [S2.owner, i.issuance_id, `${S2.co}/${i.issuance_id}.json`])).rows[0].r.outcome;
+    const b = await openTx(S2.owner);
+    const rem = settle(b.c.query("SELECT * FROM public.remove_trial_balance_upload($1,$2,'race: seal first')", [up, await versionOf(up)]));
+    await sleep(400);
+    const blocked = await waitingOnAdvisory();
+    await a.query("COMMIT"); a.release();
+    const r = await rem; await b.done("COMMIT");
+    return sealed === "sealed" && blocked >= 1 && r.ok && r.v.rows[0].outcome === "issued_output_bound" && (await uploadRow(up)).lifecycle_state === "blocked"
+      ? true : JSON.stringify({ sealed, blocked, r: r.ok ? r.v.rows[0] : r });
+  });
+
+  await check("stale version and replay: after FINAL wins, a stale-version removal is still issued_output_bound (binding outranks version); after removal wins, a replayed removal is already_removed and a replayed FINAL is refused again", async () => {
+    const x = await scenario(2036);
+    await pool.query(finalSql, [x.rid, S2.co, S2.member]);
+    const stale = (await removeTb(S2.owner, x.up, 1)).outcome;
+    const y = await scenario(2037);
+    const v = await versionOf(y.up);
+    const first = (await removeTb(S2.owner, y.up, v)).outcome;
+    const replay = (await removeTb(S2.owner, y.up, v)).outcome;
+    const pub1 = await settle(pool.query(finalSql, [y.rid, S2.co, S2.member]));
+    const pub2 = await settle(pool.query(finalSql, [y.rid, S2.co, S2.member]));
+    const retiredEvents = (await events(y.up)).filter((e) => e.to_state === "retired").length;
+    return stale === "issued_output_bound" && first === "removed" && replay === "already_removed" && pub1.code === "PT409" && pub2.code === "PT409"
+      && (await finals(y.rid)) === 0 && retiredEvents === 1 ? true : JSON.stringify({ stale, first, replay, pub1: pub1.code, pub2: pub2.code, retiredEvents });
+  });
+
+  await check("unrelated periods proceed independently: while one period's lock is held, another period's removal and FINAL complete without waiting", async () => {
+    const held = await scenario(2070);
+    const other = await scenario(2071);
+    const otherPub = await scenario(2072);
+    const a = await openTx(S2.owner);
+    await a.c.query("SELECT * FROM public.remove_trial_balance_upload($1,$2,'holding period lock')", [held.up, await versionOf(held.up)]);
+    const t0 = Date.now();
+    const rem = await withTimeout(removeTb(S2.owner, other.up, await versionOf(other.up)), 3000);
+    const pub = await withTimeout(pool.query(finalSql, [otherPub.rid, S2.co, S2.member]).then(() => "published"), 3000);
+    const elapsed = Date.now() - t0;
+    await a.done("ROLLBACK");
+    return rem?.outcome === "removed" && pub === "published" && elapsed < 3000 && (await uploadRow(held.up)).lifecycle_state === "blocked"
+      ? true : JSON.stringify({ rem, pub, elapsed });
+  });
+
+  await check("no deadlock and no partial audit under mixed load: 24 concurrent operations across 8 periods (two removals and one FINAL each); no 40P01; every refused removal left exactly one denied event and no retirement; every refused FINAL left no row", async () => {
+    const sc = [];
+    for (let i = 0; i < 8; i++) sc.push(await scenario(2080 + i));
+    const ops = [];
+    for (const x of sc) {
+      const v = await versionOf(x.up);
+      // Two removals (one is a replay racing itself) and one FINAL; the real publication function adds its own per-report lock
+      // and replay refusal, so a single FINAL write per report is the faithful model here.
+      for (let k = 0; k < 2; k++) ops.push(settle(q(user(S2.owner), "SELECT * FROM public.remove_trial_balance_upload($1,$2,'mixed load')", [x.up, v])).then((r) => ({ kind: "remove", x, r })));
+      ops.push(settle(pool.query(finalSql, [x.rid, S2.co, S2.member])).then((r) => ({ kind: "final", x, r })));
+    }
+    const out = await Promise.all(ops);
+    const deadlocks = out.filter((o) => !o.r.ok && o.r.code === "40P01").length;
+    const perScenario = [];
+    for (const x of sc) {
+      const state = (await uploadRow(x.up)).lifecycle_state;
+      const f = await finals(x.rid);
+      const ev = await events(x.up);
+      perScenario.push({ state, finals: f, retired: ev.filter((e) => e.to_state === "retired").length, applied: ev.filter((e) => e.outcome === "applied").length });
+    }
+    // Each period ends in exactly one of the two consistent states.
+    const consistent = perScenario.every((p) => (p.state === "retired" && p.finals === 0 && p.retired === 1 && p.applied === 1)
+      || (p.state === "blocked" && p.finals === 1 && p.retired === 0 && p.applied === 0));
+    return deadlocks === 0 && consistent ? true : JSON.stringify({ deadlocks, perScenario, codes: out.map((o) => o.r.ok ? "ok" : o.r.code) });
   });
 
   group("X-2 — every pending migration is ONE atomic statement: re-application and continue-on-error change nothing");

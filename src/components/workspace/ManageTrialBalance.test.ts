@@ -128,4 +128,20 @@ describe("the server contract (static; behaviour is proven on real PostgreSQL, p
     expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.remove_trial_balance_upload\(UUID, BIGINT, TEXT\) TO authenticated/);
     expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.tbu_issued_output_binding\(UUID, INTEGER\) FROM PUBLIC, anon, authenticated, service_role/);
   });
+  it("serializes removal, FINAL publication and Reporting Pack sealing with ONE advisory lock per workspace and period (proven: planCapabilities.mjs R-2)", () => {
+    expect(sql).toMatch(/pg_advisory_xact_lock\(hashtextextended\('cfoclose\.tb_official_output:'/);
+    // Removal takes the lock before it locks the row and before it checks issued output.
+    const remove = sql.slice(sql.indexOf("CREATE OR REPLACE FUNCTION public.remove_trial_balance_upload"), sql.indexOf("CREATE OR REPLACE FUNCTION public.fsp_source_trial_balance_guard"));
+    expect(remove.indexOf("tb_official_output_lock(")).toBeGreaterThan(0);
+    expect(remove.indexOf("tb_official_output_lock(")).toBeLessThan(remove.indexOf("FOR UPDATE"));
+    expect(remove.indexOf("tb_official_output_lock(")).toBeLessThan(remove.indexOf("tbu_issued_output_binding("));
+    // FINAL publication and sealing take the identical lock in BEFORE triggers (every write path).
+    expect(sql).toMatch(/CREATE TRIGGER trg_fsp_source_trial_balance_guard\s+BEFORE INSERT ON public\.financial_statement_publications\s+FOR EACH ROW WHEN \(NEW\.state = 'FINAL'\)/);
+    expect(sql).toMatch(/CREATE TRIGGER trg_rpi_seal_source_guard\s+BEFORE UPDATE OF consumed_at ON public\.reporting_pack_issuances/);
+    for (const fn of ["fsp_source_trial_balance_guard", "rpi_seal_source_guard"]) {
+      const body = sql.slice(sql.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}()`));
+      expect(body.indexOf("tb_official_output_lock(")).toBeLessThan(body.indexOf("tb_period_source_removed("));
+    }
+    expect(sql).toMatch(/SOURCE_TRIAL_BALANCE_REMOVED[\s\S]*ERRCODE = 'PT409'/);
+  });
 });
