@@ -836,7 +836,9 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   Reporting Pack seal for the same workspace and period are serialized by ONE transaction-scoped advisory lock
   (`tb_official_output_lock`; removal takes it before its row lock and checks, `trg_fsp_source_trial_balance_guard` and
   `trg_rpi_seal_source_guard` before theirs); after it, a trial-balance-derived FINAL or seal is refused (PT409
-  `SOURCE_TRIAL_BALANCE_REMOVED`) once the period's trial balance was removed. Proven: `planCapabilities.mjs` R-2.
+  `SOURCE_TRIAL_BALANCE_REMOVED`) once the period's trial balance was removed. All three refuse any isolation level
+  but READ COMMITTED (`tb_require_read_committed`, PT412 `READ_COMMITTED_REQUIRED`) before any write or audit, because a
+  snapshot fixed before the lock would check stale state. Proven: `planCapabilities.mjs` R-2 and R-3.
 - Applied migrations are never edited (SHA-256 pinned in `src/lib/__tests__/appliedMigrationsImmutable.test.ts`); every
   further change is a new forward migration.
 

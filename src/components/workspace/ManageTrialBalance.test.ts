@@ -144,4 +144,11 @@ describe("the server contract (static; behaviour is proven on real PostgreSQL, p
     }
     expect(sql).toMatch(/SOURCE_TRIAL_BALANCE_REMOVED[\s\S]*ERRCODE = 'PT409'/);
   });
+  it("refuses any isolation level but READ COMMITTED, centrally, before any write or audit (PT412; proven: planCapabilities.mjs R-3)", () => {
+    expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.tb_require_read_committed\(\)[\s\S]*?current_setting\('transaction_isolation'\) IS DISTINCT FROM 'read committed'[\s\S]*?RAISE EXCEPTION 'READ_COMMITTED_REQUIRED' USING ERRCODE = 'PT412'/);
+    const lock = sql.slice(sql.indexOf("CREATE OR REPLACE FUNCTION public.tb_official_output_lock"));
+    expect(lock.indexOf("tb_require_read_committed()")).toBeLessThan(lock.indexOf("pg_advisory_xact_lock("));
+    const remove = sql.slice(sql.indexOf("CREATE OR REPLACE FUNCTION public.remove_trial_balance_upload"));
+    expect(remove.indexOf("PERFORM public.tb_require_read_committed();")).toBeLessThan(remove.indexOf("SELECT * INTO v_row"));
+  });
 });

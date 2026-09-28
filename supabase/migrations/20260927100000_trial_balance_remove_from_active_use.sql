@@ -38,6 +38,13 @@
 -- period that never had a Prepare Data upload behaves exactly as before. Lock order is always this lock before any
 -- row lock taken by removal; publication and sealing take no trial-balance row lock, so no cycle is possible.
 --
+-- Isolation. The lock only helps if the checks made after it can SEE what committed while the caller waited. Under READ
+-- COMMITTED every statement takes a fresh snapshot, so they do. Under REPEATABLE READ or SERIALIZABLE the snapshot is
+-- fixed at the transaction's first statement and a waiter would check stale state. tb_require_read_committed() is the
+-- ONE rule: tb_official_output_lock() applies it before taking the lock, and removal applies it as its first statement,
+-- so all three operations refuse any other isolation level (SQLSTATE PT412, message READ_COMMITTED_REQUIRED) before any
+-- authoritative write or audit event. Supabase RPC and PostgREST run READ COMMITTED; nothing changes for them.
+--
 -- No existing row is changed: no backfill, no accounting data touched. Idempotent: applying it again changes nothing.
 -- One atomic statement (the repository's atomic envelope).
 -- ════════════════════════════════════════════════════════════════════════════
@@ -70,16 +77,29 @@ SET search_path TO public, pg_catalog
 $mremovalaab$;
 
   EXECUTE $mremovalaac$
--- THE lock for a workspace's trial balance and its official outputs in one reporting period (transaction-scoped).
-CREATE OR REPLACE FUNCTION public.tb_official_output_lock(p_company_id UUID, p_period_year INTEGER)
-RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+-- THE isolation rule for the trial balance and its official outputs: READ COMMITTED only (see the header).
+CREATE OR REPLACE FUNCTION public.tb_require_read_committed()
+RETURNS VOID LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
-  PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose.tb_official_output:' || p_company_id::text || ':' || COALESCE(p_period_year::text, 'none'), 0));
+  IF current_setting('transaction_isolation') IS DISTINCT FROM 'read committed' THEN
+    RAISE EXCEPTION 'READ_COMMITTED_REQUIRED' USING ERRCODE = 'PT412';
+  END IF;
 END;
 $$
 $mremovalaac$;
 
   EXECUTE $mremovalaad$
+-- THE lock for a workspace's trial balance and its official outputs in one reporting period (transaction-scoped).
+CREATE OR REPLACE FUNCTION public.tb_official_output_lock(p_company_id UUID, p_period_year INTEGER)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  PERFORM public.tb_require_read_committed();
+  PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose.tb_official_output:' || p_company_id::text || ':' || COALESCE(p_period_year::text, 'none'), 0));
+END;
+$$
+$mremovalaad$;
+
+  EXECUTE $mremovalaae$
 -- True when the period's trial balance was removed from active use: an upload retired by a person (remove_trial_balance
 -- upload; the legacy backfill and an aborted discard never set retired_by) and no upload active for the period.
 CREATE OR REPLACE FUNCTION public.tb_period_source_removed(p_company_id UUID, p_period_year INTEGER)
@@ -91,9 +111,9 @@ RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalo
                       WHERE t.company_id = p_company_id AND t.period_year = p_period_year
                         AND t.lifecycle_state IN ('active_unprocessed', 'active_processing', 'active_processed', 'blocked'));
 $$
-$mremovalaad$;
+$mremovalaae$;
 
-  EXECUTE $mremovalaae$
+  EXECUTE $mremovalaaf$
 CREATE OR REPLACE FUNCTION public.tbu_issued_output_binding(p_company_id UUID, p_period_year INTEGER)
 RETURNS TEXT LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT CASE
@@ -107,9 +127,9 @@ RETURNS TEXT LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, 
                     AND r.provenance_origin = 'TRIAL_BALANCE_DERIVED') THEN 'final_statements_published'
   END;
 $$
-$mremovalaae$;
+$mremovalaaf$;
 
-  EXECUTE $mremovalaaf$
+  EXECUTE $mremovalaag$
 CREATE OR REPLACE FUNCTION public.get_trial_balance_removal_eligibility(p_upload_id UUID)
 RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
@@ -135,9 +155,9 @@ BEGIN
   RETURN jsonb_build_object('outcome', 'remove', 'version', v_row.version);
 END;
 $$
-$mremovalaaf$;
+$mremovalaag$;
 
-  EXECUTE $mremovalaag$
+  EXECUTE $mremovalaah$
 CREATE OR REPLACE FUNCTION public.remove_trial_balance_upload(p_upload_id UUID, p_expected_version BIGINT, p_reason TEXT DEFAULT NULL)
 RETURNS TABLE (outcome TEXT, removed_upload_id UUID, detail TEXT)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -147,6 +167,8 @@ DECLARE
   v_bound  TEXT;
   v_reason TEXT := COALESCE(NULLIF(btrim(p_reason), ''), 'Removed from active use');
 BEGIN
+  -- Refuse a snapshot isolation level before anything is read, written or audited (the same rule as the lock).
+  PERFORM public.tb_require_read_committed();
   -- The workspace and period are immutable binding columns: read them, take the period's official-output lock, and only
   -- then lock the row. Every check below runs after the lock (fresh snapshot per statement), so a FINAL publication or
   -- a seal that committed while this waited is seen and refuses the removal.
@@ -209,9 +231,9 @@ BEGIN
   RETURN QUERY SELECT 'removed'::text, v_row.id, NULL::text;
 END;
 $$
-$mremovalaag$;
+$mremovalaah$;
 
-  EXECUTE $mremovalaah$
+  EXECUTE $mremovalaai$
 -- FINAL publication of a trial-balance-derived report: same lock, then refuse if the period's trial balance was removed.
 CREATE OR REPLACE FUNCTION public.fsp_source_trial_balance_guard()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -231,20 +253,20 @@ BEGIN
   RETURN NEW;
 END;
 $$
-$mremovalaah$;
-
-  EXECUTE $mremovalaai$
-DROP TRIGGER IF EXISTS trg_fsp_source_trial_balance_guard ON public.financial_statement_publications
 $mremovalaai$;
 
   EXECUTE $mremovalaaj$
+DROP TRIGGER IF EXISTS trg_fsp_source_trial_balance_guard ON public.financial_statement_publications
+$mremovalaaj$;
+
+  EXECUTE $mremovalaak$
 CREATE TRIGGER trg_fsp_source_trial_balance_guard
   BEFORE INSERT ON public.financial_statement_publications
   FOR EACH ROW WHEN (NEW.state = 'FINAL')
   EXECUTE FUNCTION public.fsp_source_trial_balance_guard()
-$mremovalaaj$;
+$mremovalaak$;
 
-  EXECUTE $mremovalaak$
+  EXECUTE $mremovalaal$
 -- Sealing a Reporting Pack: same lock, then refuse a trial-balance-derived output whose source was removed, or an
 -- issuance that names an upload no longer active.
 CREATE OR REPLACE FUNCTION public.rpi_seal_source_guard()
@@ -276,56 +298,60 @@ BEGIN
   RETURN NEW;
 END;
 $$
-$mremovalaak$;
-
-  EXECUTE $mremovalaal$
-DROP TRIGGER IF EXISTS trg_rpi_seal_source_guard ON public.reporting_pack_issuances
 $mremovalaal$;
 
   EXECUTE $mremovalaam$
+DROP TRIGGER IF EXISTS trg_rpi_seal_source_guard ON public.reporting_pack_issuances
+$mremovalaam$;
+
+  EXECUTE $mremovalaan$
 CREATE TRIGGER trg_rpi_seal_source_guard
   BEFORE UPDATE OF consumed_at ON public.reporting_pack_issuances
   FOR EACH ROW WHEN (OLD.consumed_at IS NULL AND NEW.consumed_at IS NOT NULL)
   EXECUTE FUNCTION public.rpi_seal_source_guard()
-$mremovalaam$;
-
-  EXECUTE $mremovalaan$
-REVOKE ALL ON FUNCTION public.tb_official_output_lock(UUID, INTEGER) FROM PUBLIC, anon, authenticated, service_role
 $mremovalaan$;
 
   EXECUTE $mremovalaao$
-REVOKE ALL ON FUNCTION public.tb_period_source_removed(UUID, INTEGER) FROM PUBLIC, anon, authenticated, service_role
+REVOKE ALL ON FUNCTION public.tb_require_read_committed() FROM PUBLIC, anon, authenticated, service_role
 $mremovalaao$;
 
   EXECUTE $mremovalaap$
-REVOKE ALL ON FUNCTION public.fsp_source_trial_balance_guard() FROM PUBLIC, anon, authenticated, service_role
+REVOKE ALL ON FUNCTION public.tb_official_output_lock(UUID, INTEGER) FROM PUBLIC, anon, authenticated, service_role
 $mremovalaap$;
 
   EXECUTE $mremovalaaq$
-REVOKE ALL ON FUNCTION public.rpi_seal_source_guard() FROM PUBLIC, anon, authenticated, service_role
+REVOKE ALL ON FUNCTION public.tb_period_source_removed(UUID, INTEGER) FROM PUBLIC, anon, authenticated, service_role
 $mremovalaaq$;
 
   EXECUTE $mremovalaar$
-REVOKE ALL ON FUNCTION public.tbu_issued_output_binding(UUID, INTEGER) FROM PUBLIC, anon, authenticated, service_role
+REVOKE ALL ON FUNCTION public.fsp_source_trial_balance_guard() FROM PUBLIC, anon, authenticated, service_role
 $mremovalaar$;
 
   EXECUTE $mremovalaas$
-REVOKE ALL ON FUNCTION public.get_trial_balance_removal_eligibility(UUID) FROM PUBLIC, anon
+REVOKE ALL ON FUNCTION public.rpi_seal_source_guard() FROM PUBLIC, anon, authenticated, service_role
 $mremovalaas$;
 
   EXECUTE $mremovalaat$
-GRANT EXECUTE ON FUNCTION public.get_trial_balance_removal_eligibility(UUID) TO authenticated
+REVOKE ALL ON FUNCTION public.tbu_issued_output_binding(UUID, INTEGER) FROM PUBLIC, anon, authenticated, service_role
 $mremovalaat$;
 
   EXECUTE $mremovalaau$
-REVOKE ALL ON FUNCTION public.remove_trial_balance_upload(UUID, BIGINT, TEXT) FROM PUBLIC, anon
+REVOKE ALL ON FUNCTION public.get_trial_balance_removal_eligibility(UUID) FROM PUBLIC, anon
 $mremovalaau$;
 
   EXECUTE $mremovalaav$
-GRANT EXECUTE ON FUNCTION public.remove_trial_balance_upload(UUID, BIGINT, TEXT) TO authenticated
+GRANT EXECUTE ON FUNCTION public.get_trial_balance_removal_eligibility(UUID) TO authenticated
 $mremovalaav$;
 
   EXECUTE $mremovalaaw$
+REVOKE ALL ON FUNCTION public.remove_trial_balance_upload(UUID, BIGINT, TEXT) FROM PUBLIC, anon
+$mremovalaaw$;
+
+  EXECUTE $mremovalaax$
+GRANT EXECUTE ON FUNCTION public.remove_trial_balance_upload(UUID, BIGINT, TEXT) TO authenticated
+$mremovalaax$;
+
+  EXECUTE $mremovalaay$
 DO $post$
 BEGIN
   IF has_function_privilege('anon', 'public.remove_trial_balance_upload(uuid, bigint, text)', 'EXECUTE')
@@ -335,13 +361,14 @@ BEGIN
      OR NOT has_function_privilege('authenticated', 'public.get_trial_balance_removal_eligibility(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'remove-from-active-use postcondition failed: unexpected function privileges' USING ERRCODE = '55000';
   END IF;
-  IF has_function_privilege('authenticated', 'public.tb_official_output_lock(uuid, integer)', 'EXECUTE')
+  IF has_function_privilege('authenticated', 'public.tb_require_read_committed()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.tb_official_output_lock(uuid, integer)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.tb_period_source_removed(uuid, integer)', 'EXECUTE')
      OR (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('trg_fsp_source_trial_balance_guard', 'trg_rpi_seal_source_guard')) <> 2 THEN
     RAISE EXCEPTION 'remove-from-active-use postcondition failed: official-output serialization is incomplete' USING ERRCODE = '55000';
   END IF;
 END
 $post$
-$mremovalaaw$;
+$mremovalaay$;
 END
 $cfoclose_removal$;

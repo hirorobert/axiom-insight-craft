@@ -1718,6 +1718,91 @@ async function main() {
     return deadlocks === 0 && consistent ? true : JSON.stringify({ deadlocks, perScenario, codes: out.map((o) => o.r.ok ? "ok" : o.r.code) });
   });
 
+  group("R-3 — the three authoritative operations run only under READ COMMITTED: a snapshot isolation level is refused before any write or audit");
+  // One transaction at a given isolation level, as a given role; always ended. Returns the SQLSTATE (or "ok").
+  const atIsolation = async (level, role, sql, params, uid) => {
+    const c = await pool.connect();
+    try {
+      await c.query(`BEGIN ISOLATION LEVEL ${level}`);
+      if (role === "service") { await c.query("SET LOCAL ROLE service_role"); await c.query("SELECT set_config('request.jwt.claim.role','service_role',true)"); }
+      if (role === "user") { await c.query("SET LOCAL ROLE authenticated"); await c.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [uid]); }
+      await c.query(sql, params);
+      await c.query("COMMIT");
+      return { code: "ok" };
+    } catch (e) {
+      await c.query("ROLLBACK").catch(() => {});
+      return { code: e.code, message: String(e.message) };
+    } finally { c.release(); }
+  };
+  // Everything the three operations could touch for this workspace, byte for byte.
+  const worldOf = async (co) => (await admin.query(`SELECT
+      (SELECT coalesce(jsonb_agg(to_jsonb(u) - 'updated_at' ORDER BY u.id), '[]') FROM public.trial_balance_uploads u WHERE u.company_id=$1) tb,
+      (SELECT coalesce(jsonb_agg(to_jsonb(e) ORDER BY e.id), '[]') FROM public.trial_balance_upload_lifecycle_events e WHERE e.company_id=$1) ev,
+      (SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY p.id), '[]') FROM public.financial_statement_publications p WHERE p.company_id=$1) pub,
+      (SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.id), '[]') FROM public.financial_statement_reports r WHERE r.company_id=$1) rep,
+      (SELECT coalesce(jsonb_agg(to_jsonb(i) ORDER BY i.id), '[]') FROM public.reporting_pack_issuances i WHERE i.company_id=$1) iss,
+      (SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY x.id), '[]') FROM public.reporting_pack_issuance_events x WHERE x.company_id=$1) iev,
+      (SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY a.id), '[]') FROM public.financial_statement_audit_events a WHERE a.company_id=$1) fsa`, [co])).rows[0];
+  // A sealable issuance for a FINAL trial-balance-derived report, with its stored object (the real seal path's inputs).
+  const sealable = async (period) => {
+    const x = await scenario(period);
+    await pool.query(finalSql, [x.rid, S2.co, S2.member]);
+    const i = (await one(user(S2.owner), "SELECT public.issue_official_reporting_pack($1,$2,$3,$4) r", [S2.co, period, `fs-report:${x.rid}:v1`, uuid()])).r;
+    const prepared = (await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [S2.owner, i.issuance_id])).r;
+    await admin.query("INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('reporting-packs', $1, $2::jsonb)", [`${S2.co}/${i.issuance_id}.json`, JSON.stringify({ size: prepared.byte_size })]);
+    return { ...x, issuance: i.issuance_id };
+  };
+  const I3 = {};
+  I3.plainFinal = await scenario(2090);          // FINAL candidate (REVIEWED, not yet FINAL)
+  I3.removal = await scenario(2091);             // removal candidate (Blocked, no official output)
+  I3.seal = await sealable(2092);                // seal candidate (FINAL, issued, object stored, not sealed)
+  // An already-issued official output that must stay byte-identical throughout.
+  I3.issued = await sealable(2093);
+  I3.issuedSeal = (await one(SERVICE, "SELECT public.seal_reporting_pack_server($1,$2,$3) r", [S2.owner, I3.issued.issuance, `${S2.co}/${I3.issued.issuance}.json`])).r.outcome;
+  const sealSql = "SELECT public.seal_reporting_pack_server($1,$2,$3)";
+  const attempts = (level) => [
+    ["direct service-role FINAL insertion", () => atIsolation(level, "service", finalSql, [I3.plainFinal.rid, S2.co, S2.member])],
+    ["Trial Balance removal", async () => atIsolation(level, "user", "SELECT * FROM public.remove_trial_balance_upload($1,$2,'isolation proof')", [I3.removal.up, await versionOf(I3.removal.up)], S2.owner)],
+    ["Reporting Pack seal (real seal path)", () => atIsolation(level, "service", sealSql, [S2.owner, I3.seal.issuance, `${S2.co}/${I3.seal.issuance}.json`])],
+  ];
+  for (const level of ["REPEATABLE READ", "SERIALIZABLE"]) {
+    await check(`${level}: FINAL insertion, removal and seal are each refused with PT412 READ_COMMITTED_REQUIRED; nothing at all changes — no FINAL row, seal, retirement or audit event`, async () => {
+      const before = await worldOf(S2.co);
+      const out = [];
+      for (const [name, run] of attempts(level)) out.push({ name, ...(await run()) });
+      const after = await worldOf(S2.co);
+      const same = JSON.stringify(after) === JSON.stringify(before);
+      const ok = out.every((o) => o.code === "PT412" && o.message === "READ_COMMITTED_REQUIRED") && same && I3.issuedSeal === "sealed";
+      return ok ? true : JSON.stringify({ out, same, issuedSeal: I3.issuedSeal });
+    });
+  }
+  await check("the refusal is central and early: one rule function; the lock applies it before taking the lock, and removal applies it as its first statement", async () => {
+    const defs = Object.fromEntries((await admin.query("SELECT proname, pg_get_functiondef(oid) d FROM pg_proc WHERE proname IN ('tb_require_read_committed','tb_official_output_lock','remove_trial_balance_upload') AND pronamespace='public'::regnamespace")).rows.map((r) => [r.proname, r.d]));
+    const lock = defs.tb_official_output_lock, rem = defs.remove_trial_balance_upload;
+    const body = rem.slice(rem.indexOf("BEGIN"));
+    const ok = /current_setting\('transaction_isolation'\) IS DISTINCT FROM 'read committed'/.test(defs.tb_require_read_committed)
+      && /ERRCODE = 'PT412'/.test(defs.tb_require_read_committed)
+      && lock.indexOf("tb_require_read_committed()") < lock.indexOf("pg_advisory_xact_lock(")
+      && /^BEGIN\s+(--[^\n]*\n\s*)*PERFORM public\.tb_require_read_committed\(\);/.test(body)
+      && (await admin.query("SELECT has_function_privilege('authenticated','public.tb_require_read_committed()','EXECUTE') a")).rows[0].a === false;
+    return ok ? true : "the isolation rule is not central, early and private";
+  });
+  await check("READ COMMITTED (the default) is unchanged: the same three operations succeed, in order, on the same fixtures", async () => {
+    const fin = await atIsolation("READ COMMITTED", "service", finalSql, [I3.plainFinal.rid, S2.co, S2.member]);
+    const rem = await atIsolation("READ COMMITTED", "user", "SELECT * FROM public.remove_trial_balance_upload($1,$2,'isolation proof')", [I3.removal.up, await versionOf(I3.removal.up)], S2.owner);
+    const seal = await atIsolation("READ COMMITTED", "service", sealSql, [S2.owner, I3.seal.issuance, `${S2.co}/${I3.seal.issuance}.json`]);
+    const sealedAt = (await admin.query("SELECT consumed_at FROM public.reporting_pack_issuances WHERE id=$1", [I3.seal.issuance])).rows[0].consumed_at;
+    const ok = fin.code === "ok" && (await finals(I3.plainFinal.rid)) === 1 && rem.code === "ok" && (await uploadRow(I3.removal.up)).lifecycle_state === "retired" && seal.code === "ok" && sealedAt !== null;
+    return ok ? true : JSON.stringify({ fin, rem, seal, sealedAt });
+  });
+  await check("existing historical rows and the already-issued official output are byte-identical after every refused attempt", async () => {
+    const before = await admin.query("SELECT to_jsonb(i) j FROM public.reporting_pack_issuances i WHERE id=$1", [I3.issued.issuance]);
+    for (const level of ["REPEATABLE READ", "SERIALIZABLE"]) for (const [, run] of attempts(level)) await run();
+    const after = await admin.query("SELECT to_jsonb(i) j FROM public.reporting_pack_issuances i WHERE id=$1", [I3.issued.issuance]);
+    const obj = (await one(SERVICE, "SELECT public.reporting_pack_sealed_object($1) r", [I3.issued.issuance])).r;
+    return JSON.stringify(after.rows) === JSON.stringify(before.rows) && obj.content_sha256 === obj.canonical_sha256 ? true : JSON.stringify({ obj });
+  });
+
   group("X-2 — every pending migration is ONE atomic statement: re-application and continue-on-error change nothing");
   await check("100000, 110000, 120000, 130000, 140000, 150000 and the forward migrations 20260926160000, 20260927041019 and 20260927100000 are each one top-level statement for the repository splitter", async () => {
     const counts = {};
