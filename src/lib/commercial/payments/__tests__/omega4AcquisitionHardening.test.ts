@@ -366,18 +366,12 @@ describe("HIGH-3 — pricing parity fails closed (Pricing.tsx and Settings.tsx)"
     expect(pricingCode).not.toMatch(/CheckoutUpgradeButton|commercial-create-checkout|functions.invoke|createCheckout/);
   });
 
-  for (const [name, code] of [["Settings.tsx", settingsCode]] as const) {
-    it(`${name}: CheckoutUpgradeButton is wrapped in a native hidden={...} guard, not a conditional-render fallback that could race with the resolution effect`, () => {
-      expect(code).toMatch(/<div hidden=\{(pricingVerification|renewalPricingVerification) !== "VERIFIED"\}>/);
-    });
-
-    it(`${name}: delegates the full-field verdict to the shared fail-closed verification function`, () => {
-      expect(code).toMatch(/derivePricingVerificationState\(data,/);
-      expect(code).toMatch(/currencyExponent: 2/);
-      expect(code).toMatch(/billingIntervalCount: 1/);
-      expect(code).toMatch(/marketCode: "GLOBAL"/);
-    });
-  }
+  // Approved plan flow: Plan & Billing (CurrentPlanPanel) carries no checkout or renewal either — nothing to race or verify.
+  it("Settings.tsx: offers no checkout or renewal path — no checkout button, no payment function, no amount sent anywhere", () => {
+    expect(settingsCode).not.toMatch(/CheckoutUpgradeButton|commercial-create-checkout|functions.invoke|createCheckout/);
+    const panel = stripTsComments(fs.readFileSync(path.join(path.dirname(SETTINGS_PATH), "../components/commercial/CurrentPlanPanel.tsx"), "utf-8"));
+    expect(panel).not.toMatch(/CheckoutUpgradeButton|commercial-create-checkout|functions.invoke|createCheckout/);
+  });
 
   it("the shared parity function compares amount, currency, exponent, interval, interval count, and market", () => {
     for (const field of [

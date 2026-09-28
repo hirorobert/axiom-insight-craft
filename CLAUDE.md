@@ -821,15 +821,18 @@ migration is applied by the owner, hosted company creation stays unrestricted.
 - DEPLOYED: the corrected `process-trial-balance` (entitlement refusal before any Storage access; checked recovery
   write; `processingSource.ts` classification), identical to `f21a58f`.
 - PENDING CLEANUP (release-only objects, not application schema): `public._pr34_probe`, `public._pr34_migration_bodies`.
+- APPLIED by Lovable directly (Drizzle `0023_security_fix_probe_and_xbrl_concept_map`, 2026-09-27, SHA-256
+  `351fe7e9…`): RLS on the release-only `_pr34_probe`, and `xbrl_concept_map_read` → `TO authenticated USING
+  (auth.uid() IS NOT NULL)`. Its canonical source is `20260927041019_security_fix_probe_and_xbrl_concept_map.sql`
+  (policy verbatim; probe RLS only behind `to_regclass`, since a clean replay has no probe table). The guard maps the
+  two by exact SHA-256 of both files plus a structural check (`PINNED`, rule `canonical_equivalent`) — not an
+  allow-list. Proven on PostgreSQL: `scripts/db-proof/planCapabilities.mjs` group E-0023.
 - NOT APPLIED: `20260927100000_trial_balance_remove_from_active_use.sql` — "Remove Trial Balance" for a processed,
   blocked or failed upload: `remove_trial_balance_upload()` moves it to the terminal lifecycle state `retired` (no
   successor; nothing deleted; lifecycle audit event), refused while a sealed Reporting Pack or a FINAL
   trial-balance-derived publication exists for the period; `get_trial_balance_removal_eligibility()` tells Prepare Data
   which removal path applies. Until it is applied, Prepare Data offers Remove only for unprocessed uploads (the PR #32
   discard / cancel-replacement paths) and never guesses about a processed one.
-- UNMIRRORED HOSTED ENTRY: Lovable's Drizzle `0023_security_fix_probe_and_xbrl_concept_map` (RLS on `_pr34_probe`,
-  `xbrl_concept_map` read policy) has no source migration, so the migration-authority guard reports drift on `main`.
-  A byte-equal source mirror cannot replay (`_pr34_probe` exists only in production); it needs its own reviewed change.
 - Applied migrations are never edited (SHA-256 pinned in `src/lib/__tests__/appliedMigrationsImmutable.test.ts`); every
   further change is a new forward migration.
 

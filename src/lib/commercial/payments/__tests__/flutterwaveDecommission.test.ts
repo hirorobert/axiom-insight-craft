@@ -248,7 +248,8 @@ describe("Flutterwave decommission — preserved provider-neutral business state
 describe("Flutterwave decommission — honest user-facing copy", () => {
   // The honest notice lives in the pricing catalogue (there is no checkout at all in this build).
   const HONEST = "NO_CHECKOUT_NOTICE";
-  const NOTICE = /export const NO_CHECKOUT_NOTICE = "There is no online checkout. Plans are activated by our team: contact sales to request one.";/;
+  // The approved plan-flow wording (no checkout; choosing a plan activates nothing).
+  const NOTICE = /export const NO_CHECKOUT_NOTICE = "Online payment is not available yet. No plan is activated by choosing one here.";/;
   it("the notice itself states there is no online checkout and names no provider", () => {
     const catalogue = read("src/lib/commercial/pricingCatalogue.ts");
     expect(catalogue).toMatch(NOTICE);

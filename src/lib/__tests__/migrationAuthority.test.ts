@@ -30,19 +30,44 @@ describe("migration authority parity", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
     expect(r.ok).toBe(true);
-    // 13 byte-equal mirrors + the seven reviewed release wrappers (0015, 0017–0022; rule 8). The prerequisite
-    // 20260915100000 is recorded as applied out of source order (0016) — see releaseJournal.test.ts.
-    expect(r.mirrored.length).toBe(20);
+    // 13 byte-equal mirrors + the seven reviewed release wrappers (0015, 0017–0022; rule 8) + 0023 by its canonical
+    // source (rule canonical_equivalent). The prerequisite 20260915100000 is recorded as applied out of source order
+    // (0016) — see releaseJournal.test.ts.
+    expect(r.mirrored.length).toBe(21);
+    expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
+      tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
+    });
     // Authored here and not yet applied by the owner: listed, never an error. PR #34 100000–150000 are applied.
     expect(r.pending).toEqual(["20260927100000_trial_balance_remove_from_active_use.sql"]);   // 20260926160000 applied by 0022; the removal migration awaits the owner
   });
+  it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {
+    const H = "drizzle/migrations/0023_security_fix_probe_and_xbrl_concept_map.sql";
+    const S = "supabase/migrations/20260927041019_security_fix_probe_and_xbrl_concept_map.sql";
+    const run = (mutate: (dir: string) => void) => {
+      const dir = copyRepo();
+      try { mutate(dir); return (checkMigrationAuthority(dir) as Result).errors.join("\n"); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    };
+    // The hosted entry gains a grant, or loses its probe statement: its content pin fails, and the structure is re-checked.
+    const grant = run((d) => fs.appendFileSync(path.join(d, H), "\nGRANT ALL ON public.xbrl_concept_map TO anon;"));
+    expect(grant).toMatch(/0023_security_fix_probe_and_xbrl_concept_map differs from its reviewed content \(SHA-256\)/);
+    expect(grant).toMatch(/statement not in its canonical source and not a registered release-only statement: GRANT ALL ON public\.xbrl_concept_map TO anon/);
+    expect(grant).toMatch(/changes data or grants privileges/);
+    const noProbe = run((d) => fs.writeFileSync(path.join(d, H), fs.readFileSync(path.join(d, H), "utf8").replace("ALTER TABLE public._pr34_probe ENABLE ROW LEVEL SECURITY;", "")));
+    expect(noProbe).toMatch(/the registered release-only statement is no longer present/);
+    // The canonical source changes (any byte), or applies the release-only statement unguarded, or loses the policy.
+    expect(run((d) => fs.appendFileSync(path.join(d, S), "\n-- edited"))).toMatch(/canonical source 20260927041019_security_fix_probe_and_xbrl_concept_map\.sql differs from the reviewed source/);
+    const unguarded = run((d) => fs.writeFileSync(path.join(d, S), fs.readFileSync(path.join(d, S), "utf8").replace("IF to_regclass('public._pr34_probe') IS NOT NULL THEN", "IF true THEN")));
+    expect(unguarded).toMatch(/must apply "ALTER TABLE public\._pr34_probe ENABLE ROW LEVEL SECURITY" only behind to_regclass\('public\._pr34_probe'\)/);
+    const noPolicy = run((d) => fs.writeFileSync(path.join(d, S), fs.readFileSync(path.join(d, S), "utf8").replace("\n  USING (auth.uid() IS NOT NULL)\n", "\n  USING (true)\n")));
+    expect(noPolicy).toMatch(/statement not in its canonical source[^\n]*CREATE POLICY xbrl_concept_map_read/);
+  }, 60_000);
   it("the one historical divergence is RESOLVED forward (never allowlisted): no open drift remains", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.knownDrift).toEqual([]);
     expect(r.resolved).toEqual([
       "0006_pr32_02_upload_lifecycle_retire_and_replace: REVOKE ALL ON FUNCTION public.can_user_act_on_workspace(uuid, uuid, text) FROM PUBLIC, anon -> resolved by 20260925150000_can_user_act_on_workspace_minimum_grant.sql",
     ]);
-    expect(Object.keys(PINNED).sort()).toEqual(["0003_service_enquiry_intake_reconciliation_assert", "0006_pr32_02_upload_lifecycle_retire_and_replace"]);
+    expect(Object.keys(PINNED).sort()).toEqual(["0003_service_enquiry_intake_reconciliation_assert", "0006_pr32_02_upload_lifecycle_retire_and_replace", "0023_security_fix_probe_and_xbrl_concept_map"]);
   });
   it("fails when the resolving migration loses its corrective statement, or is missing", () => {
     const dir = copyRepo();
