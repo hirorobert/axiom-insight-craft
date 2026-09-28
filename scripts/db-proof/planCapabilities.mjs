@@ -1307,16 +1307,96 @@ async function main() {
     return read === 1 && lifecycle === "ok" ? true : JSON.stringify({ read, lifecycle });
   });
 
+  group("E-0023 — Lovable's hosted security fix 0023 and its canonical source converge; the release-only probe stays release-only");
+  const CANON = "20260927041019_security_fix_probe_and_xbrl_concept_map.sql";
+  const POLICY_SQL = "SELECT policyname, cmd, roles::text r, qual FROM pg_policies WHERE schemaname='public' AND tablename='xbrl_concept_map' ORDER BY policyname";
+  const EXPECTED_POLICY = JSON.stringify([{ policyname: "xbrl_concept_map_read", cmd: "SELECT", r: "{authenticated}", qual: "(auth.uid() IS NOT NULL)" }]);
+  // Schema fingerprint without the release-only objects (they exist only where hosted entry 0013 ran).
+  const APP_SCHEMA_SQL = SCHEMA_SQL.replace(") s", ") s WHERE x !~ '_pr34_'");
+  await check("clean replay: the policy is exactly 0023's (TO authenticated, auth.uid() IS NOT NULL), the only one on the table; no probe table is created", async () => {
+    const pol = JSON.stringify((await admin.query(POLICY_SQL)).rows);
+    const probe = (await admin.query("SELECT to_regclass('public._pr34_probe') p")).rows[0].p;
+    return pol === EXPECTED_POLICY && probe === null ? true : JSON.stringify({ pol, probe });
+  });
+  await check("the reference data stays readable to signed-in users only: authenticated reads rows; anon reads none", async () => {
+    const u = await mkUser("e0023");
+    const signedIn = (await q(user(u), "SELECT count(*)::int n FROM public.xbrl_concept_map"))[0].n;
+    const total = await count("SELECT count(*) n FROM public.xbrl_concept_map");
+    const anon = await asCaller(ANON, async (c) => (await c.query("SELECT count(*)::int n FROM public.xbrl_concept_map")).rows[0].n).catch((e) => e.code);
+    return total > 0 && signedIn === total && (anon === 0 || anon === "42501") ? true : JSON.stringify({ total, signedIn, anon });
+  });
+  await check("production path: through 20260926160000, hosted 0013 (probe) and hosted 0023 applied as production ran them; the canonical source then changes nothing but is accepted; clean and production converge on the application schema", async () => {
+    const name = `e0023_${Date.now()}`;
+    await admin.query(`CREATE DATABASE ${name}`);
+    const cp = admin.connectionParameters;
+    const c4 = new Client({ host: cp.host, port: cp.port, user: cp.user, password: cp.password, database: name });
+    await c4.connect();
+    try {
+      await c4.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));
+      await c4.query(`GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;`);
+      for (const f of files.filter((x) => x < CANON)) {
+        let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
+        if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
+        await c4.query(text);
+      }
+      const hosted = (t) => fs.readFileSync(path.join(REPO, "drizzle/migrations", `${t}.sql`), "utf8");
+      await c4.query(hosted("0013_pr34_probe_session_identity"));
+      const beforeFix = (await c4.query("SELECT relrowsecurity r FROM pg_class WHERE oid = 'public._pr34_probe'::regclass")).rows[0].r;
+      await c4.query(hosted("0023_security_fix_probe_and_xbrl_concept_map"));
+      const afterHosted = (await c4.query(SCHEMA_SQL)).rows[0].fp;
+      await c4.query(fs.readFileSync(path.join(REPO, "supabase/migrations", CANON), "utf8"));
+      const afterCanon = (await c4.query(SCHEMA_SQL)).rows[0].fp;
+      await c4.query(fs.readFileSync(path.join(REPO, "supabase/migrations", CANON), "utf8"));
+      const again = (await c4.query(SCHEMA_SQL)).rows[0].fp;
+      const probeRls = (await c4.query("SELECT relrowsecurity r FROM pg_class WHERE oid = 'public._pr34_probe'::regclass")).rows[0].r;
+      const pol = JSON.stringify((await c4.query(POLICY_SQL)).rows);
+      // Everything after 20260927041019 (any later forward migration) is applied to both, so the comparison is like for like.
+      for (const f of files.filter((x) => x > CANON)) await c4.query(fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8"));
+      const prodApp = (await c4.query(APP_SCHEMA_SQL)).rows[0].fp;
+      const cleanApp = (await admin.query(APP_SCHEMA_SQL)).rows[0].fp;
+      const ok = beforeFix === false && afterCanon === afterHosted && again === afterCanon && probeRls === true && pol === EXPECTED_POLICY && prodApp === cleanApp;
+      return ok ? true : JSON.stringify({ beforeFix, canonNoop: afterCanon === afterHosted, idempotent: again === afterCanon, probeRls, pol, converged: prodApp === cleanApp });
+    } finally { await c4.end(); await admin.query(`DROP DATABASE ${name}`); }
+  });
+  await check("a database WITHOUT the hosted 0023 (hosted 0013 only) takes the canonical source and reaches exactly the production state; re-application changes nothing", async () => {
+    const name = `e0023b_${Date.now()}`;
+    await admin.query(`CREATE DATABASE ${name}`);
+    const cp = admin.connectionParameters;
+    const c5 = new Client({ host: cp.host, port: cp.port, user: cp.user, password: cp.password, database: name });
+    await c5.connect();
+    try {
+      await c5.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));
+      await c5.query(`GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;`);
+      for (const f of files.filter((x) => x < CANON)) {
+        let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
+        if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
+        await c5.query(text);
+      }
+      await c5.query(fs.readFileSync(path.join(REPO, "drizzle/migrations/0013_pr34_probe_session_identity.sql"), "utf8"));
+      await c5.query(fs.readFileSync(path.join(REPO, "supabase/migrations", CANON), "utf8"));
+      const viaCanon = (await c5.query(SCHEMA_SQL)).rows[0].fp;
+      await c5.query(fs.readFileSync(path.join(REPO, "drizzle/migrations/0023_security_fix_probe_and_xbrl_concept_map.sql"), "utf8"));
+      const plusHosted = (await c5.query(SCHEMA_SQL)).rows[0].fp;
+      return viaCanon === plusHosted ? true : "the canonical source and the hosted entry do not reach the same state";
+    } finally { await c5.end(); await admin.query(`DROP DATABASE ${name}`); }
+  });
+
   group("X-2 — every pending migration is ONE atomic statement: re-application and continue-on-error change nothing");
-  await check("100000, 110000, 120000, 130000, 140000, 150000 and the forward migration 20260926160000 are each one top-level statement for the repository splitter", async () => {
+  await check("100000, 110000, 120000, 130000, 140000, 150000 and the forward migrations 20260926160000 and 20260927041019 are each one top-level statement for the repository splitter", async () => {
     const counts = {};
-    for (const m of files.filter((x) => /^2026092510|^2026092511|^2026092512|^2026092513|^2026092514|^2026092515|^20260926160000/.test(x))) counts[m.slice(0, 14)] = splitStatements(fs.readFileSync(path.join(REPO, "supabase/migrations", m), "utf8")).length;
-    return Object.keys(counts).length === 7 && Object.values(counts).every((n) => n === 1) ? true : JSON.stringify(counts);
+    for (const m of files.filter((x) => /^2026092510|^2026092511|^2026092512|^2026092513|^2026092514|^2026092515|^20260926160000|^20260927041019/.test(x))) counts[m.slice(0, 14)] = splitStatements(fs.readFileSync(path.join(REPO, "supabase/migrations", m), "utf8")).length;
+    return Object.keys(counts).length === 8 && Object.values(counts).every((n) => n === 1) ? true : JSON.stringify(counts);
   });
   await check("after the full chain, applying any pending migration again — whole file, or statement by statement continuing after errors — restores nothing: schema, privileges, catalogue and data unchanged", async () => {
     const before = { schema: await schemaFp(), data: await fingerprint() };
     const out = {};
-    for (const m of files.filter((x) => /^202609251[0-5]0000|^20260926160000/.test(x))) {
+    for (const m of files.filter((x) => /^202609251[0-5]0000|^20260926160000|^20260927041019/.test(x))) {
       const text = fs.readFileSync(path.join(REPO, "supabase/migrations", m), "utf8");
       let whole; try { await admin.query(text); whole = "applied"; } catch (e) { whole = e.code; }
       let errors = 0; const stmts = splitStatements(text); for (const st of stmts) { try { await admin.query(st); } catch { errors++; } }
@@ -1334,6 +1414,7 @@ async function main() {
       && ["20260925100000", "20260925110000", "20260925120000", "20260925130000", "20260925140000"].every((k) => out[k]?.whole === "55000" && out[k]?.errors === 1)
       // The forward migration is idempotent: applied again it changes nothing.
       && out["20260926160000"]?.whole === "applied" && out["20260926160000"]?.errors === 0
+      && out["20260927041019"]?.whole === "applied" && out["20260927041019"]?.errors === 0
       && restored.consume === null && restored.verify === null && restored.freeOffered === 0 && restored.predicateAuth === false;
     return ok ? true : JSON.stringify({ out, restored });
   });
@@ -1370,6 +1451,7 @@ async function main() {
       const rows = async () => JSON.stringify((await c3.query("SELECT to_jsonb(u) j FROM public.trial_balance_uploads u ORDER BY id")).rows.map((r) => r.j));
       const beforeRows = await rows();
       await c3.query(fs.readFileSync(path.join(REPO, "supabase/migrations", FORWARD), "utf8"));
+      for (const f of files.filter((x) => x > FORWARD)) await c3.query(fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8"));
       const afterRows = await rows();
       const prodFp = (await c3.query(SCHEMA_SQL)).rows[0].fp;
       const upgradeFp = await schemaFp();
@@ -1380,6 +1462,7 @@ async function main() {
       const lifecycle = await c3.query("UPDATE public.trial_balance_uploads SET lifecycle_state=lifecycle_state WHERE id=$1", [up]).then(() => "ok", (e) => e.code);
       // Re-application: nothing changes.
       await c3.query(fs.readFileSync(path.join(REPO, "supabase/migrations", FORWARD), "utf8"));
+      for (const f of files.filter((x) => x > FORWARD)) await c3.query(fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8"));
       const again = (await c3.query(SCHEMA_SQL)).rows[0].fp;
       const ok = pre.p === null && Number(pre.t) === 0 && beforeRows === afterRows && prodFp === upgradeFp && again === prodFp
         && auth.code === "ENTITLEMENT_REQUIRED" && wall === "PT402" && lifecycle === "ok" && (await rows()) === beforeRows;
