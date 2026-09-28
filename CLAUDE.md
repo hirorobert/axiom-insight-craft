@@ -819,6 +819,12 @@ migration is applied by the owner, hosted company creation stays unrestricted.
 - DEPLOYED: the corrected `process-trial-balance` (entitlement refusal before any Storage access; checked recovery
   write; `processingSource.ts` classification), identical to `f21a58f`.
 - PENDING CLEANUP (release-only objects, not application schema): `public._pr34_probe`, `public._pr34_migration_bodies`.
+- APPLIED by Lovable directly (Drizzle `0023_security_fix_probe_and_xbrl_concept_map`, 2026-09-27, SHA-256
+  `351fe7e9…`): RLS on the release-only `_pr34_probe`, and `xbrl_concept_map_read` → `TO authenticated USING
+  (auth.uid() IS NOT NULL)`. Its canonical source is `20260927041019_security_fix_probe_and_xbrl_concept_map.sql`
+  (policy verbatim; probe RLS only behind `to_regclass`, since a clean replay has no probe table). The guard maps the
+  two by exact SHA-256 of both files plus a structural check (`PINNED`, rule `canonical_equivalent`) — not an
+  allow-list. Proven on PostgreSQL: `scripts/db-proof/planCapabilities.mjs` group E-0023.
 - Applied migrations are never edited (SHA-256 pinned in `src/lib/__tests__/appliedMigrationsImmutable.test.ts`); every
   further change is a new forward migration.
 

@@ -24,6 +24,7 @@
 //      else, or re-create them without revoking them from PUBLIC, anon and authenticated in the same file (a
 //      re-created function would otherwise inherit the platform's default EXECUTE grants).
 // It never connects to a database and never writes a file.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -55,6 +56,19 @@ export const PINNED = {
   // The service-enquiry intake was applied through the elevated SQL path; this entry is a pure fail-closed assertion
   // that the live schema matches the source and changes nothing. Verified to contain a single DO block and no DDL/DML.
   "0003_service_enquiry_intake_reconciliation_assert": { source: "20260921100000_service_enquiry_intake.sql", rule: "assertion_only" },
+  // Lovable's security fix, applied directly to production (2026-09-27 04:10:19 UTC). It (1) enables RLS on the
+  // release-only probe table public._pr34_probe, which exists only where hosted entry 0013 ran, and (2) replaces the
+  // xbrl_concept_map_read policy (USING (true) -> USING (auth.uid() IS NOT NULL), TO authenticated). No data, no grant.
+  // A byte-equal source cannot replay (no probe table on a clean database), so its canonical source applies (2)
+  // verbatim and (1) only where the probe exists. Verified by rule canonical_equivalent: BOTH files by exact SHA-256,
+  // every hosted statement present verbatim in the source except exactly the registered release-only statements, and
+  // each of those present in the source only behind to_regclass() of its release object.
+  "0023_security_fix_probe_and_xbrl_concept_map": {
+    source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", rule: "canonical_equivalent",
+    hostedSha256: "351fe7e91dc4bee1c98b119c7febb4806609e38b05477d78628258e3c928fe4e",
+    sourceSha256: "c51a396d1f7a4a48316896b39c3dca4a67306fa06f74440f879de2ebc7873862",
+    releaseOnly: { "ALTER TABLE public._pr34_probe ENABLE ROW LEVEL SECURITY": "public._pr34_probe" },
+  },
 };
 
 // Service-only predicates: EXECUTE for service_role (and the owner) only. See 20260925150000.
@@ -172,6 +186,22 @@ export function checkMigrationAuthority(repo = REPO) {
       if (st.length !== 1 || !/^DO \$/.test(st[0]) || /\b(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|GRANT|REVOKE|TRUNCATE)\b(?![^$]*\$reconcile\$)/.test(st[0].replace(/'[^']*'/g, "''").replace(/RAISE EXCEPTION[^;]*/g, ""))) {
         errors.push(`drizzle: ${t} must be a single DO assertion block that changes nothing`);
       }
+    } else if (pin.rule === "canonical_equivalent") {
+      const sha = (x) => crypto.createHash("sha256").update(x).digest("hex");
+      if (sha(fs.readFileSync(file)) !== pin.hostedSha256) errors.push(`drizzle: ${t} differs from its reviewed content (SHA-256)`);
+      if (sha(fs.readFileSync(path.join(srcDir, pin.source))) !== pin.sourceSha256) errors.push(`drizzle: ${t}: its canonical source ${pin.source} differs from the reviewed source (SHA-256)`);
+      const d = statements(text), src = statements(srcText[pin.source]);
+      const releaseOnly = Object.keys(pin.releaseOnly ?? {});
+      for (const st of d) {
+        if (src.includes(st)) continue;
+        if (!releaseOnly.includes(st)) { errors.push(`drizzle: ${t}: statement not in its canonical source and not a registered release-only statement: ${st}`); continue; }
+        const obj = pin.releaseOnly[st];
+        if (!/^public\._pr34_[a-z_]+$/.test(obj)) errors.push(`drizzle: ${t}: ${obj} is not a release-only object`);
+        const guarded = src.some((x) => /^DO \$/.test(x) && x.includes(`IF to_regclass('${obj}') IS NOT NULL THEN ${st};`));
+        if (!guarded) errors.push(`drizzle: ${t}: the canonical source must apply "${st}" only behind to_regclass('${obj}')`);
+      }
+      for (const st of releaseOnly) if (!d.includes(st)) errors.push(`drizzle: ${t}: the registered release-only statement is no longer present: ${st}`);
+      if (d.some((st) => /\b(INSERT|UPDATE|DELETE|TRUNCATE|GRANT)\b/i.test(st))) errors.push(`drizzle: ${t} changes data or grants privileges`);
     } else errors.push(`drizzle: ${t} has an unknown pin rule`);
     mirrored.push({ tag: t, source: pin.source, how: pin.rule });
   }

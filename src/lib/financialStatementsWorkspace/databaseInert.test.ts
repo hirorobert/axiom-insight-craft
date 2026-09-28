@@ -140,6 +140,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20260925150000_can_user_act_on_workspace_minimum_grant.sql",
       // The processing entitlement wall: a NEW forward migration (the applied chain is never edited). No financial-statements schema.
       "supabase/migrations/20260926160000_trial_balance_processing_entitlement_wall.sql",
+      // The canonical source of Lovable's hosted entry 0023 (xbrl_concept_map read policy; release-only probe RLS). No financial-statements schema.
+      "supabase/migrations/20260927041019_security_fix_probe_and_xbrl_concept_map.sql",
       // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",

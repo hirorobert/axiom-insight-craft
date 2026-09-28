@@ -10,6 +10,8 @@ const migrationPath = path.join(
 );
 const migration = fs.readFileSync(migrationPath, "utf8");
 const settings = fs.readFileSync(path.join(ROOT, "src/pages/Settings.tsx"), "utf8");
+// Plan & Billing is rendered by CurrentPlanPanel (Settings renders it).
+const planPanel = fs.readFileSync(path.join(ROOT, "src/components/commercial/CurrentPlanPanel.tsx"), "utf8");
 const paymentReturn = fs.readFileSync(path.join(ROOT, "src/pages/billing/PaymentReturn.tsx"), "utf8");
 const rpc = fs.readFileSync(path.join(ROOT, "src/lib/commercial/commercialRpc.ts"), "utf8");
 
@@ -78,9 +80,11 @@ describe("current versus future prepaid terms", () => {
   });
 
   it("Settings presents the next term separately rather than relabeling it current", () => {
-    expect(settings).toContain("Prepaid extension scheduled");
-    expect(settings).toContain("billing.nextEffectiveStart");
-    expect(settings).toContain("billing.nextEffectiveEnd");
+    expect(settings).toMatch(/<CurrentPlanPanel\b/);
+    expect(planPanel).toContain("Prepaid extension scheduled");
+    expect(planPanel).toContain("billing.nextEffectiveStart");
+    expect(planPanel).toContain("billing.nextEffectiveEnd");
+    expect(planPanel).not.toMatch(/effectiveEnd\)\.toLocaleDateString/);
   });
 
   it("uses unambiguous UTC-stable customer dates", () => {
@@ -93,7 +97,8 @@ describe("current versus future prepaid terms", () => {
 
 describe("terminal pricing verification states", () => {
   it("neither checkout surface can leave UNAVAILABLE mapped to VERIFYING", () => {
-    expect(settings).toMatch(/renewalPricingVerification === "UNAVAILABLE"/);
-    expect(settings).toContain("renewal is currently unavailable");
+    // Approved plan flow: Settings has no checkout or renewal surface at all, so no verification state can be left
+    // mapped to VERIFYING there; the one remaining checkout component is covered by omega4AcquisitionHardening.
+    for (const src of [settings, planPanel]) expect(src).not.toMatch(/CheckoutUpgradeButton|renewalPricingVerification|commercial-create-checkout/);
   });
 });

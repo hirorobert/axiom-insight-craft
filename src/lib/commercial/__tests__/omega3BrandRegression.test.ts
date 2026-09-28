@@ -193,11 +193,14 @@ describe("Ω3-BRAND · pricing and checkout guards", () => {
     // CORRECTED, same reasoning as test 32: the Plan & Billing panel now
     // legitimately offers a like-for-like manual-renewal action via the
     // SAME shared component, not a bespoke renewal implementation.
-    const src = readSource("src/pages/Settings.tsx");
-    expect(src).not.toMatch(/commercial-create-checkout|payment-status|initiatePayment/i);
-    expect(src).not.toMatch(/supabase\.functions\.invoke/);
-    expect(src).not.toMatch(/\bcreateCheckoutIntent\(/);
-    expect(src).toMatch(/to=["']\/pricing["']/);
+    // Approved plan flow: there is no checkout or renewal at all; Plan & Billing (CurrentPlanPanel) links to /plans.
+    for (const f of ["src/pages/Settings.tsx", "src/components/commercial/CurrentPlanPanel.tsx"]) {
+      const src = readSource(f);
+      expect(src).not.toMatch(/commercial-create-checkout|payment-status|initiatePayment/i);
+      expect(src).not.toMatch(/supabase\.functions\.invoke/);
+      expect(src).not.toMatch(/\bcreateCheckoutIntent\(|CheckoutUpgradeButton/);
+    }
+    expect(readSource("src/components/commercial/CurrentPlanPanel.tsx")).toMatch(/to=["']\/plans["']/);
   });
 });
 
@@ -222,11 +225,11 @@ describe("Ω3-BRAND · Settings section — real billingDisplay.ts functions", (
   it("23 · null plan code fails closed as 'Plan unavailable' — Settings.tsx only calls displayPlanName after confirming a billing customer exists, so null here is an anomaly, not 'no billing customer'", () => {
     expect(displayPlanName(null)).toBe("Plan unavailable");
     expect(displayPlanName(null)).not.toBe("Free");
-    // The distinct "no billing customer at all" state is rendered by Settings.tsx's
-    // own separate `!billing.hasBillingCustomer` branch, upstream of this function —
-    // never inside displayPlanName itself. Confirmed against the real component source.
-    const settingsSrc = readSource("src/pages/Settings.tsx");
-    expect(settingsSrc).toMatch(/!billing(?:\?\.|\.)hasBillingCustomer/);
+    // The distinct "no plan at all" state (no licence status) is rendered by CurrentPlanPanel's own branch — "No active
+    // plan" — upstream of displayPlanName, never inside it. Settings renders that panel. Confirmed against the source.
+    const panelSrc = readSource("src/components/commercial/CurrentPlanPanel.tsx");
+    expect(panelSrc).toMatch(/status \? "Plan unavailable" : "No active plan"/);
+    expect(readSource("src/pages/Settings.tsx")).toMatch(/<CurrentPlanPanel\b/);
   });
 
   it("24 · Raw PAID string is never the customer-facing label", () => {
@@ -621,13 +624,17 @@ describe("Ω3-BRAND · Pricing/Settings — H-2 unenforced commercial limits rem
   });
 
   it("72 · plan names, taglines and features come from the one catalogue, never from page-local copy", () => {
-    expect(pricingSrc).toMatch(/PRICING_CATALOGUE\.map\(/);
-    expect(pricingSrc).not.toMatch(/const (FREE|PAID)_(FEATURES|TAGLINE)\b/);
+    // Pricing and /plans both render the shared PlanCatalogue, which maps the one catalogue.
+    const catalogueSrc = readSource("src/components/commercial/PlanCatalogue.tsx");
+    expect(catalogueSrc).toMatch(/PRICING_CATALOGUE\.map\(/);
+    for (const src of [pricingSrc, readSource("src/pages/Plans.tsx")]) expect(src).toMatch(/<PlanCatalogue\b/);
+    for (const src of [pricingSrc, catalogueSrc]) expect(src).not.toMatch(/const (FREE|PAID)_(FEATURES|TAGLINE)\b/);
   });
 
   it("73 · Settings.tsx Plan & Billing no-plan copy states read-only access, never a free plan", () => {
-    expect(settingsSrc).toContain("This account has no current plan. Existing data stays readable; new work needs a plan.");
-    expect(settingsSrc).not.toMatch(/using the free plan|PRICING.FREE_NAME/i);
+    const panelSrc = readSource("src/components/commercial/CurrentPlanPanel.tsx");
+    expect(panelSrc).toContain("Existing workspaces and issued outputs remain readable for the account holder. New financial work requires an active plan.");
+    for (const src of [settingsSrc, panelSrc]) expect(src).not.toMatch(/using the free plan|PRICING.FREE_NAME/i);
   });
 
   it("74 · neither Pricing.tsx nor Settings.tsx were touched in a way that changes commercial entitlement logic — both still route upgrade/checkout intent through the shared CheckoutUpgradeButton, never a direct call of their own", () => {

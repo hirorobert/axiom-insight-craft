@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
@@ -34,5 +36,20 @@ describe("plan presentation is read-only", () => {
     expect(html).toContain("Close Assurance");
     expect(html).toContain("Choose Solo");
     expect(html).not.toMatch(/selected plan has been saved|deactivation/i);
+  });
+  it('shows a prepaid next term as its own scheduled period, never relabelled as current', () => {
+    const html = render(createElement(CurrentPlanPanel, { billing: { ...base, effectiveEnd: '2026-12-31', nextEffectiveStart: '2027-01-01', nextEffectiveEnd: '2027-12-31', nextBillingInterval: 'ANNUAL' }, loading: false, error: false }));
+    expect(html).toContain('Prepaid extension scheduled');
+    expect(html).toContain('1 Jan 2027');
+    expect(html).toContain('31 Dec 2027');
+    expect(html).toContain('(annual)');
+    expect(render(createElement(CurrentPlanPanel, { billing: base, loading: false, error: false }))).not.toContain('Prepaid extension scheduled');
+  });
+  it('the catalogue links to the contact form only when that route exists (service-enquiry gate), otherwise states how plans are activated', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'PlanCatalogue.tsx'), 'utf8');
+    expect(src).toMatch(/contactAvailable = SERVICE_ENQUIRY_SURFACES\.contactRoute/);
+    expect(src).toContain('{contactAvailable ? <Button asChild><Link to="/contact">');
+    expect(src).not.toMatch(/contactHref\(/);
+    expect(src).toContain('{NO_CHECKOUT_NOTICE}');
   });
 });
