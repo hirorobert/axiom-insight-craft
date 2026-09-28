@@ -18,7 +18,7 @@ export function useMyEntityCapacity(enabled = true) {
       if (rpcError || !value || typeof value.determined !== "boolean" ||
           !Object.prototype.hasOwnProperty.call(value, "capacity") || !Object.prototype.hasOwnProperty.call(value, "used") ||
           (value.capacity !== null && (typeof value.capacity !== "number" || !Number.isSafeInteger(value.capacity) || value.capacity < 0)) ||
-          (value.used !== null && (typeof value.used !== "number" || !Number.isSafeInteger(value.used) || value.used < 0)))) {
+          (value.used !== null && (typeof value.used !== "number" || !Number.isSafeInteger(value.used) || value.used < 0))) {
         setCapacity(null);
         setError(true);
       } else {
