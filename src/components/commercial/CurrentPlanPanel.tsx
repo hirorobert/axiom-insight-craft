@@ -28,7 +28,7 @@ export function CurrentPlanPanel({ billing, capacity, loading, error, onRetry, a
       {billing.effectiveStart && <div><dt className="text-muted-foreground">Effective from</dt><dd className="font-medium">{formatLicenceDate(billing.effectiveStart)}</dd></div>}
       {billing.effectiveEnd && <div><dt className="text-muted-foreground">Effective through</dt><dd className="font-medium">{formatLicenceDate(billing.effectiveEnd)}</dd></div>}
       {capacity && <div><dt className="text-muted-foreground">Entities</dt><dd className="font-medium">{capacity.used ?? "—"} in use · {capacity.determined && capacity.capacity !== null ? `${capacity.capacity} current capacity` : "Capacity unavailable"}</dd></div>}
-      {plan?.includedSeats != null && <div><dt className="text-muted-foreground">Named users included</dt><dd className="font-medium">{plan.includedSeats}{plan.additionalSeat ? " · additional seats depend on your licence" : ""}</dd></div>}
+      {active && plan?.includedSeats != null && <div><dt className="text-muted-foreground">Named users included</dt><dd className="font-medium">{plan.includedSeats}{plan.additionalSeat ? " · additional seats depend on your licence" : ""}</dd></div>}
     </dl>
     {!active && <p className="mt-5 text-sm text-muted-foreground">{status === "SUSPENDED" ? "Workspace access is suspended. Historical identity and audit records remain preserved." : "Existing workspaces and issued outputs remain readable for the account holder. New financial work requires an active plan."}</p>}
   </section>;

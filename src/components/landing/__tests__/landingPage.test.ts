@@ -242,11 +242,11 @@ describe("page structure", () => {
   });
 
   it("asks for sign-up in at most three places across the whole page", () => {
-    // There is no free plan and no checkout: the sign-up action says "Request access", never "Start free" or "Buy".
-    expect(PAGE_TEXT).not.toMatch(/Start free|Get started|\bBuy\b|Subscribe|Start (a )?trial/i);
-    const startFree = PAGE_TEXT.match(/Request access/g) ?? [];
-    expect(startFree.length).toBeLessThanOrEqual(3);
-    expect(startFree.length).toBeGreaterThan(0);
+    // Sign-up is direct; plan selection cannot activate a licence while payment is unavailable.
+    expect(PAGE_TEXT).not.toMatch(/Request access|Send an access request|Start free|Get started|\bBuy\b|Subscribe|Start (a )?trial/i);
+    const signups = PAGE_TEXT.match(/Create account/g) ?? [];
+    expect(signups.length).toBeGreaterThan(0);
+    expect(signups.length).toBeLessThanOrEqual(3);
   });
 });
 
