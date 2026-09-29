@@ -7647,6 +7647,10 @@ export type Database = {
         Returns: Json
       }
       get_named_user_roster: { Args: never; Returns: Json }
+      get_trial_balance_removal_eligibility: {
+        Args: { p_upload_id: string }
+        Returns: Json
+      }
       get_workspace_access: {
         Args: { p_company_id: string }
         Returns: {
@@ -7967,6 +7971,18 @@ export type Database = {
         Args: { p_member_id: string }
         Returns: Json
       }
+      remove_trial_balance_upload: {
+        Args: {
+          p_expected_version: number
+          p_reason?: string
+          p_upload_id: string
+        }
+        Returns: {
+          detail: string
+          outcome: string
+          removed_upload_id: string
+        }[]
+      }
       reporting_pack_issuance_ttl: { Args: never; Returns: string }
       reporting_pack_sealed_object: {
         Args: { p_issuance_id: string }
@@ -8168,6 +8184,15 @@ export type Database = {
         Returns: Json
       }
       submit_service_enquiry: { Args: { p_request: Json }; Returns: Json }
+      tb_official_output_lock: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: undefined
+      }
+      tb_period_source_removed: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: boolean
+      }
+      tb_require_read_committed: { Args: never; Returns: undefined }
       tbu_abort_discard: {
         Args: {
           p_actor: string
@@ -8205,6 +8230,10 @@ export type Database = {
         Args: {
           p_upload: Database["public"]["Tables"]["trial_balance_uploads"]["Row"]
         }
+        Returns: string
+      }
+      tbu_issued_output_binding: {
+        Args: { p_company_id: string; p_period_year: number }
         Returns: string
       }
       tbu_log_event: {
