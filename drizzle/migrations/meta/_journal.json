@@ -169,6 +169,13 @@
       "when": 1790482217176,
       "tag": "0023_security_fix_probe_and_xbrl_concept_map",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790653523715,
+      "tag": "0024_apply_20260927100000_trial_balance_remove_from_active_use",
+      "breakpoints": true
     }
   ]
 }
