@@ -5,7 +5,7 @@
  * production build's only input is index.html). No account reads or writes: nothing calls the server unless a person
  * actively uses the evidence control. Proven by src/dev/devGalleryIsolation.test.ts and the production-bundle scan.
  *
- *   /dev/trial-balance-states.html?state=blocked|accepted|failed|review|home
+ *   /dev/trial-balance-states.html?state=blocked|accepted|accepted-tolerance|failed|review|home
  */
 import { useSearchParams } from "react-router-dom";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
@@ -46,6 +46,11 @@ const STATES: Record<string, { status: string; verdict: PreflightVerdict; blocke
     status: "complete", verdict: "certified", blocker: null,
     checks: [L("l1_structure", "passed"), L("l2_data_quality", "passed"), L("l3_arithmetic", "passed"), L("l4_classification", "passed"), ...INFO],
     tb: { total_debits: 980000, total_credits: 980000, difference: 0 },
+  },
+  "accepted-tolerance": {
+    status: "complete", verdict: "certified", blocker: null,
+    checks: [L("l1_structure", "passed"), L("l2_data_quality", "passed"), L("l3_arithmetic", "passed"), L("l4_classification", "passed"), ...INFO],
+    tb: { total_debits: 980000.6, total_credits: 980000, difference: 0 },
   },
   failed: { status: "error", verdict: "pending", blocker: null, checks: [], tb: null },
   review: {

@@ -106,6 +106,9 @@ export function CurrentTrialBalanceCard({
             <div key={label as string} className={`min-w-0 px-5 py-4 sm:px-7 ${i > 0 ? "border-t border-border sm:border-l sm:border-t-0" : ""}`}>
               <dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</dt>
               <dd className={`mt-1 break-all font-semibold tabular-nums text-[17px] sm:text-lg ${bad ? "text-destructive" : "text-foreground"}`}>{value}</dd>
+              {label === "Difference" && verdict.balanceStatement && (
+                <dd className="mt-0.5 text-[12px] text-muted-foreground" data-testid="trial-balance-balance-statement">{verdict.balanceStatement}</dd>
+              )}
             </div>
           ))}
         </dl>

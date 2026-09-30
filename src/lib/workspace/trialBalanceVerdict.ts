@@ -69,8 +69,10 @@ const RECORDED_DIFFERENCE_SLACK_CENTS = 1;
  * Fail closed — null (NOT COMPUTED) unless: the path is objects all the way; total_debits and total_credits convert
  * to non-negative safe-integer cents (toMinorUnits); and a recorded difference, when present, is a JSON number whose
  * magnitude converts likewise and is within one cent of |debitCents − creditCents| (the engine records it unsigned).
- * An absent difference is derived. A mismatch of more than one cent means the totals are unavailable and the
- * certification's own reason is used.
+ * One normalisation is recognised: the engine's accepted path records difference: 0 whenever the calculated
+ * difference is within its tolerance, so a recorded 0 is valid when |debitCents − creditCents| ≤ 100. An absent
+ * difference is derived. Every other mismatch means the totals are unavailable and the certification's own reason is
+ * used.
  */
 export function readTrialBalanceTotals(processingResult: unknown): TrialBalanceTotals | null {
   const tb = record(record(record(processingResult)?.validation_report)?.tb_balance_check);
@@ -81,7 +83,9 @@ export function readTrialBalanceTotals(processingResult: unknown): TrialBalanceT
   const differenceCents = debitCents - creditCents;
   if (tb.difference !== undefined && tb.difference !== null) {
     const recordedCents = typeof tb.difference === "number" ? toMinorUnits(Math.abs(tb.difference)) : null;
-    if (recordedCents === null || Math.abs(recordedCents - Math.abs(differenceCents)) > RECORDED_DIFFERENCE_SLACK_CENTS) return null;
+    const consistent = recordedCents !== null && Math.abs(recordedCents - Math.abs(differenceCents)) <= RECORDED_DIFFERENCE_SLACK_CENTS;
+    const acceptedWithinTolerance = recordedCents === 0 && Math.abs(differenceCents) <= BALANCE_TOLERANCE_CENTS;
+    if (!consistent && !acceptedWithinTolerance) return null;
   }
   return { debitCents, creditCents, differenceCents };
 }
@@ -103,6 +107,17 @@ export function formatCents(cents: number): string {
   const abs = Math.abs(cents);
   const whole = String((abs - (abs % 100)) / 100).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return `${cents < 0 ? "-" : ""}${whole}.${String(abs % 100).padStart(2, "0")}`;
+}
+
+export const WITHIN_TOLERANCE_TEXT = "Accepted — within the TZS 1.00 tolerance";
+
+/**
+ * How the difference reads when the totals are within the engine's tolerance: exactly zero → "Balanced"; 1–100 cents
+ * → "Accepted — within the TZS 1.00 tolerance". Null when the totals are unknown or out of balance.
+ */
+export function balanceStatement(totals: TrialBalanceTotals | null): string | null {
+  if (!totals || isOutOfBalance(totals)) return null;
+  return totals.differenceCents === 0 ? "Balanced" : WITHIN_TOLERANCE_TEXT;
 }
 
 /** True when the recorded totals differ by more than the engine's tolerance (BALANCE_TOLERANCE_CENTS). */
@@ -170,6 +185,11 @@ export interface TrialBalanceVerdict {
   informational: TrialBalanceCheck[];
   /** The first check that failed or needs review, or null. */
   failedCheckId: string | null;
+  /**
+   * "Balanced" / "Accepted — within the TZS 1.00 tolerance", stated only when the certification's own arithmetic check
+   * (L3) passed for this upload — the local cents never state balance on their own. Null otherwise.
+   */
+  balanceStatement: string | null;
   primaryAction: TrialBalancePrimaryAction | null;
   /** Evidence verification may be offered only when the trial balance is accepted (it stays mandatory before tax). */
   evidenceUnlocked: boolean;
@@ -215,7 +235,8 @@ function plainCheck(c: PreflightCheck, totals: TrialBalanceTotals | null): Trial
   const text = CHECK_TEXT[c.id];
   const label = text?.label ?? INFO_TEXT[c.id] ?? c.label;
   let detail = c.detail;
-  if (c.state === "passed" && text) detail = text.passed;
+  if (c.state === "passed" && c.id === "l3_arithmetic" && totals && totals.differenceCents !== 0 && !isOutOfBalance(totals)) detail = `${WITHIN_TOLERANCE_TEXT}.`;
+  else if (c.state === "passed" && text) detail = text.passed;
   else if (/NO_PRIOR/.test(c.detail)) detail = "No accepted prior-year trial balance to compare with.";
   else if (c.id === "l5_supporting_evidence" && (c.state === "pending" || /NOT_EVALUATED/.test(c.detail))) detail = "Matched after the trial balance is accepted.";
   else if (c.state === "pending" || /NOT_EVALUATED/.test(c.detail)) detail = "Waiting for processing to finish.";
@@ -236,7 +257,8 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
   const informational = layerChecks.filter((c) => c.id in INFO_TEXT).map((c) => plainCheck(c, totals));
   const failed = checks.find((c) => c.state === "failed") ?? checks.find((c) => c.state === "review") ?? null;
   const evidenceCleared = upload?.safisha_status === "clean";
-  const base = { totals, checks, informational, failedCheckId: failed?.id ?? null, evidenceUnlocked: false, evidenceCleared };
+  const l3Passed = checks.some((c) => c.id === "l3_arithmetic" && c.state === "passed");
+  const base = { totals, checks, informational, failedCheckId: failed?.id ?? null, balanceStatement: l3Passed ? balanceStatement(totals) : null, evidenceUnlocked: false, evidenceCleared };
 
   if (!upload) {
     return { ...base, status: "none", statusLabel: "No trial balance", tone: "neutral", reason: "Upload a trial balance to begin.", primaryAction: null };

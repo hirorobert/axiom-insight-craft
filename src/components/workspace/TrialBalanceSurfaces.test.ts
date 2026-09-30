@@ -50,6 +50,14 @@ describe("Current Trial Balance card", () => {
     expect(html).toContain("Accepted");
     expect(html).toContain("Verify against bank and mobile-money evidence");
   });
+  it("the difference reads 'Balanced' at exact zero and 'Accepted — within the TZS 1.00 tolerance' for 1–100 cents; never on a block", () => {
+    expect(card(accepted)).toMatch(/data-testid="trial-balance-balance-statement">Balanced</);
+    const within = deriveTrialBalanceVerdict({ upload: { status: "complete", processing_result: { validation_report: { tb_balance_check: { total_debits: 10.6, total_credits: 10, difference: 0 } } } }, readiness: { verdict: "certified", blocker: null, checks: layers("passed") }, canRetry: true });
+    const html = card(within);
+    expect(html).toContain("0.60");
+    expect(html).toMatch(/data-testid="trial-balance-balance-statement">Accepted — within the TZS 1.00 tolerance</);
+    expect(card(blocked)).not.toContain("trial-balance-balance-statement");
+  });
 });
 
 describe("Trial balance checks", () => {

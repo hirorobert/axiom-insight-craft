@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import type { PreflightCheck } from "./computePreflight";
 import {
-  BALANCE_TOLERANCE_CENTS, deriveTrialBalanceVerdict, formatCents, isOutOfBalance, plainBlockReason, readTrialBalanceTotals, toMinorUnits,
+  BALANCE_TOLERANCE_CENTS, balanceStatement, deriveTrialBalanceVerdict, formatCents, isOutOfBalance, plainBlockReason, readTrialBalanceTotals, toMinorUnits,
 } from "./trialBalanceVerdict";
 
 const pr = (tb: unknown) => ({ validation_report: { tb_balance_check: tb } });
@@ -111,14 +111,74 @@ describe("recorded difference, compared in cents", () => {
   });
   it("more than one cent fails closed; the certification's own reason is then used", () => {
     expect(read({ total_debits: 1000.6, total_credits: 1000, difference: 0.62 })).toBeNull();
-    // The engine records difference: 0 on its balanced path even when the true difference is within its tolerance.
-    expect(read({ total_debits: 1000.6, total_credits: 1000, difference: 0 })).toBeNull();
+    // A recorded 0 is only the accepted-path normalisation within the tolerance; beyond it, it is an inconsistency.
+    expect(read({ total_debits: 1001.01, total_credits: 1000, difference: 0 })).toBeNull();
     const v = deriveTrialBalanceVerdict({
       upload: { status: "blocked", processing_result: pr({ total_debits: 1250000, total_credits: 1247500, difference: 2500.02 }) },
       readiness: { verdict: "blocked", blocker: "L3_TB_IMBALANCE: the trial balance does not balance", checks: [] }, canRetry: true,
     });
     expect(v.totals).toBeNull();
     expect(v.reason).toBe("the trial balance does not balance");
+  });
+});
+
+describe("accepted-within-tolerance normalisation (the engine records difference: 0 on its accepted path)", () => {
+  const L = (id: string, state: PreflightCheck["state"]): PreflightCheck => ({ id, label: id, state, detail: "server detail" });
+  const passed = [L("l1_structure", "passed"), L("l2_data_quality", "passed"), L("l3_arithmetic", "passed"), L("l4_classification", "passed")];
+  const accepted = (tb: unknown) =>
+    deriveTrialBalanceVerdict({ upload: { status: "complete", processing_result: pr(tb) }, readiness: { verdict: "certified", blocker: null, checks: passed }, canRetry: true });
+
+  it.each([
+    ["0 cents", 1000, 0],
+    ["60 cents", 1000.6, 60],
+    ["exactly 100 cents", 1001, 100],
+  ])("a recorded 0 with a calculated difference of %s is valid", (_label, debits, cents) => {
+    expect(read({ total_debits: debits, total_credits: 1000, difference: 0 })?.differenceCents).toBe(cents);
+  });
+  it("a recorded 0 with 101 cents (just beyond the tolerance) fails closed", () => {
+    expect(read({ total_debits: 1001.01, total_credits: 1000, difference: 0 })).toBeNull();
+  });
+  it("above TZS 100 billion: a recorded 0 within the tolerance is valid, beyond it is refused", () => {
+    expect(read({ total_debits: 174776903504.68, total_credits: 174776903504.08, difference: 0 })?.differenceCents).toBe(60);
+    expect(read({ total_debits: 174776903505.09, total_credits: 174776903504.08, difference: 0 })).toBeNull();
+  });
+  it("a non-zero recorded difference still has to agree within one cent (the normalisation is only for 0)", () => {
+    expect(read({ total_debits: 1000.6, total_credits: 1000, difference: 0.3 })).toBeNull();
+    expect(read({ total_debits: 1000.6, total_credits: 1000, difference: -0.62 })).toBeNull();
+  });
+  it("exact zero reads 'Balanced'", () => {
+    const v = accepted({ total_debits: 980000, total_credits: 980000, difference: 0 });
+    expect(v.status).toBe("accepted");
+    expect(v.balanceStatement).toBe("Balanced");
+    expect(v.checks.find((c) => c.id === "l3_arithmetic")?.detail).toBe("Total debits equal total credits.");
+  });
+  it("1–100 cents reads 'Accepted — within the TZS 1.00 tolerance'", () => {
+    for (const debits of [980000.01, 980000.6, 980001]) {
+      const v = accepted({ total_debits: debits, total_credits: 980000, difference: 0 });
+      expect(v.status).toBe("accepted");
+      expect(v.totals).not.toBeNull();
+      expect(v.balanceStatement).toBe("Accepted — within the TZS 1.00 tolerance");
+      expect(v.checks.find((c) => c.id === "l3_arithmetic")?.detail).toBe("Accepted — within the TZS 1.00 tolerance.");
+    }
+    expect(balanceStatement(read({ total_debits: 980001.01, total_credits: 980000 }))).toBeNull();
+  });
+  it("server authority: the statement appears only when the certification's own arithmetic check passed", () => {
+    const within = pr({ total_debits: 1000.6, total_credits: 1000, difference: 0 });
+    const refused = deriveTrialBalanceVerdict({
+      upload: { status: "blocked", processing_result: within },
+      readiness: { verdict: "blocked", blocker: "L3_TB_IMBALANCE: server reason", checks: [L("l3_arithmetic", "failed")] }, canRetry: true,
+    });
+    expect(refused.status).toBe("blocked");
+    expect(refused.balanceStatement).toBeNull();
+    expect(refused.reason).toBe("server reason");
+    const pending = deriveTrialBalanceVerdict({ upload: { status: "complete", processing_result: within }, readiness: { verdict: "pending", blocker: null, checks: [] }, canRetry: true });
+    expect(pending.status).not.toBe("accepted");
+    expect(pending.balanceStatement).toBeNull();
+    const otherSubject = deriveTrialBalanceVerdict({
+      upload: { id: "u2", status: "complete", processing_result: within },
+      readiness: { verdict: "certified", blocker: null, checks: passed }, readinessSubject: "u1||", canRetry: true,
+    });
+    expect(otherSubject.balanceStatement).toBeNull();
   });
 });
 
