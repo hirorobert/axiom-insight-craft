@@ -118,7 +118,8 @@ export function computePreflight(input: PreflightInput | null): PreflightResult 
   // 4 — Every account has a mapping decision
   const mc = report?.mapping_completeness ?? null;
   const total = Number(mc?.total_accounts ?? input.processingResult?.summary?.total_accounts ?? NaN);
-  const mapped = Number(mc?.mapped_accounts ?? mc?.auto_classified ?? NaN);
+  // mapped_accounts only: summary.auto_classified counts Tier 4-5 fuzzy matches, not coverage (classificationPresentation.ts).
+  const mapped = Number(mc?.mapped_accounts ?? NaN);
   const haveMapping = Number.isFinite(total) && Number.isFinite(mapped) && total > 0;
   const unmapped = haveMapping ? total - mapped : null;
   checks.push({

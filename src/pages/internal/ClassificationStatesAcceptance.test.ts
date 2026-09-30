@@ -107,11 +107,11 @@ describe("fixtures — deterministic inputs that produce exactly the labelled st
 
 describe("runtime — every state renders through the real pipeline, with the correct headline, detail and action", () => {
   const EXPECTED: Record<string, { headline: string; detail: string; buttonLabel: string; escape: boolean }> = {
-    FAILED: { headline: "The trial balance could not be processed.", detail: "Re-run processing, or replace the file in Prepare Data.", buttonLabel: "Retry processing", escape: true },
+    FAILED: { headline: "The trial balance could not be processed.", detail: "Re-run processing, or replace the file in Prepare Data.", buttonLabel: "Retry processing", escape: false },
     PROCESSING: { headline: "Trial balance is processing.", detail: "This screen updates itself. The run continues on the server if you leave the page.", buttonLabel: "Open Prepare Data", escape: false },
-    INCONSISTENT: { headline: "Classification status is unavailable.", detail: "Review the uploaded file.", buttonLabel: "Open Prepare Data", escape: true },
-    COMPLETE_WITH_REVIEW: { headline: "85 of 97 accounts classified.", detail: "Review 12 flagged accounts to continue.", buttonLabel: "Review 12 accounts", escape: true },
-    PARTIAL: { headline: "82 of 97 accounts classified.", detail: "Review the remaining 15 accounts.", buttonLabel: "Review 15 accounts", escape: true },
+    INCONSISTENT: { headline: "Classification status is unavailable.", detail: "Review the uploaded file.", buttonLabel: "Open Prepare Data", escape: false },
+    COMPLETE_WITH_REVIEW: { headline: "85 of 97 accounts classified.", detail: "Review 12 flagged accounts to continue.", buttonLabel: "Review 12 accounts", escape: false },
+    PARTIAL: { headline: "82 of 97 accounts classified.", detail: "Review the remaining 15 accounts.", buttonLabel: "Review 15 accounts", escape: false },
     COMPLETE_NO_REVIEW: { headline: "Finish preparing the trial balance.", detail: "97 of 97 accounts classified. No review required.", buttonLabel: "Open Prepare Data", escape: false },
     NOT_COMPUTED: { headline: "Finish preparing the trial balance.", detail: "Later stages open as each one passes.", buttonLabel: "Open Prepare Data", escape: false },
   };

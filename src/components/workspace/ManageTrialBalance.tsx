@@ -40,6 +40,8 @@ export function ManageTrialBalance({
   focusRequested,
   onReplace,
   onRemove,
+  variant = "panel",
+  hideReplace = false,
 }: {
   mode: SourceManagementMode;
   removeAction: RemoveAction | null;
@@ -49,6 +51,10 @@ export function ManageTrialBalance({
   focusRequested: boolean;
   onReplace: () => void;
   onRemove: () => Promise<void> | void;
+  /** "inline": quiet secondary actions inside the Current Trial Balance card (the heading stays for the anchor). */
+  variant?: "panel" | "inline";
+  /** The card's primary action already is the replacement: do not offer it twice. */
+  hideReplace?: boolean;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -70,23 +76,27 @@ export function ManageTrialBalance({
       aria-labelledby={`${MANAGE_TRIAL_BALANCE_ANCHOR}-title`}
       data-testid="manage-trial-balance"
       data-mode={mode}
-      className={`mt-3 rounded-md border px-3 py-3 ${focusRequested ? "border-primary/60 ring-2 ring-primary/20" : "border-border"}`}
+      className={variant === "inline"
+        ? `flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center ${focusRequested ? "outline outline-2 outline-offset-4 outline-primary/40" : ""}`
+        : `mt-3 rounded-md border px-3 py-3 ${focusRequested ? "border-primary/60 ring-2 ring-primary/20" : "border-border"}`}
     >
       <h2
         id={`${MANAGE_TRIAL_BALANCE_ANCHOR}-title`}
         ref={headingRef}
         tabIndex={-1}
-        className="text-[12px] font-semibold uppercase tracking-[0.14em] text-muted-foreground outline-none"
+        className={variant === "inline" ? "sr-only" : "text-[12px] font-semibold uppercase tracking-[0.14em] text-muted-foreground outline-none"}
       >
         Manage Trial Balance
       </h2>
 
       {mode === "manage" && (
-        <div className="mt-2 flex flex-wrap items-start gap-2">
-          <Button variant="outline" size="sm" disabled={busy} onClick={onReplace} data-testid="replace-trial-balance">
-            {replacing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
-            {replacing ? "Replacing…" : "Replace Trial Balance"}
-          </Button>
+        <div className={variant === "inline" ? "flex flex-wrap items-start gap-2" : "mt-2 flex flex-wrap items-start gap-2"}>
+          {!hideReplace && (
+            <Button variant="outline" size="sm" disabled={busy} onClick={onReplace} data-testid="replace-trial-balance" className={variant === "inline" ? "h-11 rounded-none px-4" : undefined}>
+              {replacing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
+              {replacing ? "Replacing…" : "Replace Trial Balance"}
+            </Button>
+          )}
           {removeAction && removeAction.kind !== "unavailable" && (
             <Button
               variant="outline"
@@ -94,7 +104,7 @@ export function ManageTrialBalance({
               disabled={busy}
               onClick={() => setConfirmOpen(true)}
               data-testid="remove-trial-balance"
-              className="text-destructive hover:text-destructive"
+              className={variant === "inline" ? "h-11 rounded-none border-transparent px-4 text-destructive shadow-none hover:bg-destructive/5 hover:text-destructive" : "text-destructive hover:text-destructive"}
             >
               {removing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1.5 h-3.5 w-3.5" />}
               {removing ? "Removing…" : "Remove Trial Balance"}

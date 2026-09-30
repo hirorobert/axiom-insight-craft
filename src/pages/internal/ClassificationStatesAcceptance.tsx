@@ -58,7 +58,7 @@ export default function ClassificationStatesAcceptance() {
                 {fixture.label}
               </p>
               {/* The REAL production component — not duplicated markup. */}
-              <DecisionCard decision={decision} manageUploadHref={FIXTURE_HREF} />
+              <DecisionCard decision={decision} />
             </li>
           );
         })}

@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { Check, X, Loader2, Minus, AlertTriangle } from "lucide-react";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
+import { WITHIN_TOLERANCE_TEXT, formatCents, isOutOfBalance, readTrialBalanceTotals } from "@/lib/workspace/trialBalanceVerdict";
 import {
   SurfaceCard,
   SurfaceCardHeader,
@@ -37,14 +38,29 @@ function pluralAccounts(n: number) {
   return `${n.toLocaleString("en-TZ")} account${n === 1 ? "" : "s"}`;
 }
 
-/** Pure derivation — exported for reuse/testing. */
-export function deriveTrialBalanceSteps(upload: WorkspaceUpload | null): LedgerStep[] {
+/** The verdict's failing check → the ledger step it belongs to (trialBalanceVerdict.ts is the authority). */
+const STEP_FOR_CHECK: Record<string, string> = {
+  l1_structure: "parsed",
+  l2_data_quality: "parsed",
+  l3_arithmetic: "balanced",
+  l4_classification: "classified",
+};
+
+const count = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
+
+/**
+ * Pure derivation — exported for reuse/testing. Classification coverage comes from
+ * validation_report.mapping_completeness (mapped / needs-review), never summary.auto_classified (Tier 4-5 fuzzy matches
+ * only). The balance step reads the recorded totals. When the run is blocked, the failed step is the verdict's failing
+ * check (failedCheckId), never simply "the first step not yet done".
+ */
+export function deriveTrialBalanceSteps(upload: WorkspaceUpload | null, opts: { failedCheckId?: string | null } = {}): LedgerStep[] {
   const base: Array<{ key: string; label: string }> = [
     { key: "received",   label: "File received" },
     { key: "queued",     label: "Queued for processing" },
     { key: "parsed",     label: "Workbook parsed" },
     { key: "classified", label: "Accounts classified" },
-    { key: "balanced",   label: "Trial balance balance check" },
+    { key: "balanced",   label: "Debits equal credits" },
     { key: "statements", label: "Draft statements assembled" },
     { key: "complete",   label: "Validation complete" },
   ];
@@ -59,30 +75,27 @@ export function deriveTrialBalanceSteps(upload: WorkspaceUpload | null): LedgerS
   const isProcessing = PROCESSING_STATES.includes(status);
 
   const pr = (upload.processing_result ?? null) as
-    | { summary?: Record<string, unknown>; statements?: unknown; errors?: unknown[] }
+    | { summary?: Record<string, unknown>; statements?: unknown; validation_report?: Record<string, unknown> }
     | null;
   const summary = pr?.summary ?? null;
-  const errors = Array.isArray(pr?.errors) ? pr!.errors : [];
+  const report = (pr?.validation_report ?? (upload.validation_report as Record<string, unknown> | null) ?? null) as Record<string, unknown> | null;
+  const mc = (report?.mapping_completeness ?? null) as Record<string, unknown> | null;
 
-  const totalAccounts =
-    summary && typeof summary.total_accounts === "number" ? summary.total_accounts : null;
-  const autoClassified =
-    summary && typeof summary.auto_classified === "number" ? summary.auto_classified : null;
+  const totalAccounts = count(mc?.total_accounts) ?? count(summary?.total_accounts);
+  const mapped = count(mc?.mapped_accounts);
+  const needsReview = count(mc?.needs_review);
+  const totals = readTrialBalanceTotals(pr);
+  const outOfBalance = isOutOfBalance(totals);
 
-  const errorCodes = errors
-    .map((e) => (e && typeof e === "object" ? String((e as { code?: unknown }).code ?? "") : ""))
-    .filter(Boolean);
-  const imbalance = errorCodes.some(
-    (c) => c.includes("IMBALANCE") || c.includes("BALANCE_SHEET_EQUATION"),
-  );
+  const classifiedKnown = mapped !== null && totalAccounts !== null;
+  const unresolved = classifiedKnown ? Math.max(needsReview ?? 0, totalAccounts - mapped) : null;
 
-  // Per-step completion signals (null = not yet evidenced).
   const reached: Record<string, boolean> = {
     received: true,
     queued: status !== "pending",
     parsed: totalAccounts !== null,
-    classified: autoClassified !== null,
-    balanced: totalAccounts !== null && !imbalance,
+    classified: classifiedKnown && unresolved === 0,
+    balanced: totals !== null && !outOfBalance,
     statements: !!pr?.statements,
     complete: isDone,
   };
@@ -90,11 +103,10 @@ export function deriveTrialBalanceSteps(upload: WorkspaceUpload | null): LedgerS
   const details: Record<string, string | undefined> = {
     received: upload.file_name,
     parsed: totalAccounts !== null ? pluralAccounts(totalAccounts) : undefined,
-    classified:
-      autoClassified !== null && totalAccounts !== null
-        ? `${autoClassified} of ${totalAccounts} auto-classified`
-        : undefined,
-    balanced: imbalance ? "Balance sheet equation did not hold" : undefined,
+    classified: classifiedKnown ? `${mapped!.toLocaleString("en-TZ")} of ${totalAccounts!.toLocaleString("en-TZ")} accounts classified` : undefined,
+    balanced: totals === null ? undefined : outOfBalance
+      ? `Debits and credits differ by ${formatCents(Math.abs(totals.differenceCents))}`
+      : totals.differenceCents === 0 ? "Total debits equal total credits" : WITHIN_TOLERANCE_TEXT,
     complete: upload.processed_at ? "Processed" : undefined,
   };
 
@@ -104,23 +116,27 @@ export function deriveTrialBalanceSteps(upload: WorkspaceUpload | null): LedgerS
     state: reached[s.key] ? "done" : "pending",
   }));
 
-  // Classification coverage is a real gate, not a footnote. If the classifier
-  // left accounts unresolved, the step is NOT "Done" — every downstream
-  // statement built on an unmapped account is wrong at source.
-  if (autoClassified !== null && totalAccounts !== null && autoClassified < totalAccounts) {
-    const unresolved = totalAccounts - autoClassified;
+  // Classification coverage is a real gate, not a footnote: unresolved accounts mean the step needs review.
+  if (classifiedKnown && unresolved !== null && unresolved > 0) {
     const idx = steps.findIndex((s) => s.key === "classified");
-    if (idx >= 0) {
-      steps[idx].state = "attention";
-      steps[idx].detail = `${unresolved.toLocaleString("en-TZ")} of ${totalAccounts.toLocaleString("en-TZ")} accounts still need a mapping decision`;
-    }
+    steps[idx].state = "attention";
+    steps[idx].detail = `${unresolved.toLocaleString("en-TZ")} of ${totalAccounts!.toLocaleString("en-TZ")} accounts need a classification decision`;
   }
+  // A recorded imbalance is a failure of the balance step itself.
+  if (outOfBalance) steps[steps.findIndex((s) => s.key === "balanced")].state = "failed";
 
-  // First unreached step carries the live marker.
-  const firstOpen = steps.findIndex((s) => s.state !== "done");
-  if (firstOpen >= 0) {
-    if (isFailed) steps[firstOpen].state = "failed";
-    else if (isProcessing && steps[firstOpen].state === "pending") steps[firstOpen].state = "running";
+  if (isFailed) {
+    const verdictStep = opts.failedCheckId ? STEP_FOR_CHECK[opts.failedCheckId] : undefined;
+    const idx = verdictStep ? steps.findIndex((s) => s.key === verdictStep) : -1;
+    if (idx >= 0) steps[idx].state = "failed";
+    else if (!steps.some((s) => s.state === "failed")) {
+      // No authoritative failing check (an engine error): the first step that did not complete is where it stopped.
+      const firstOpen = steps.findIndex((s) => s.state !== "done");
+      if (firstOpen >= 0) steps[firstOpen].state = "failed";
+    }
+  } else if (isProcessing) {
+    const firstOpen = steps.findIndex((s) => s.state === "pending");
+    if (firstOpen >= 0) steps[firstOpen].state = "running";
   }
 
   return steps;
@@ -160,12 +176,13 @@ function formatElapsed(ms: number): string {
 
 export default function TrialBalanceProgressLedger({
   upload,
-  lastRefreshedAt,
+  failedCheckId = null,
 }: {
   upload: WorkspaceUpload | null;
-  lastRefreshedAt?: Date | null;
+  /** The verdict's failing check (trialBalanceVerdict.ts), so the ledger blames the same step the verdict does. */
+  failedCheckId?: string | null;
 }) {
-  const steps = deriveTrialBalanceSteps(upload);
+  const steps = deriveTrialBalanceSteps(upload, { failedCheckId });
   const doneCount = steps.filter((s) => s.state === "done").length;
   const failed = steps.some((s) => s.state === "failed");
   const running = steps.some((s) => s.state === "running");
@@ -214,12 +231,6 @@ export default function TrialBalanceProgressLedger({
         </p>
       )}
 
-      {attention && (
-        <p className="px-5 pt-3 pb-1 text-[12px] text-amber-600">
-          Some accounts have no mapping decision yet. Resolve them in Prepare Data before the
-          statements are trusted — an unmapped account is a wrong statement, not a small gap.
-        </p>
-      )}
 
       <ol className="border-t border-border">
         {steps.map((s, i) => (

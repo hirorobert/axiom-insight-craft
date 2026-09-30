@@ -29,10 +29,9 @@ export interface Decision {
   };
   readonly tone: "primary" | "warn" | "muted";
   /** Set only by decisions about a file the preparer may need to swap out (failed processing, accounts needing review). */
-  readonly offersFileReplacement?: boolean;
 }
 
-export function DecisionCard({ decision, manageUploadHref }: { decision: Decision; manageUploadHref: string }) {
+export function DecisionCard({ decision }: { decision: Decision }) {
   const eyebrowTone = decision.tone === "warn" ? "text-destructive" : decision.tone === "muted" ? "text-muted-foreground" : "text-primary";
 
   return (
@@ -64,15 +63,6 @@ export function DecisionCard({ decision, manageUploadHref }: { decision: Decisio
         )}
       </div>
 
-      {/* Quiet escape: replacing or removing the upload is Prepare Data's existing behaviour, not a second implementation. */}
-      {decision.offersFileReplacement && (
-        <p className="mt-6 border-t border-border pt-5 text-[12px] text-muted-foreground" data-testid="replace-file-escape">
-          Need to replace this file?{" "}
-          <Link to={manageUploadHref} className="underline underline-offset-4 hover:text-foreground">
-            Manage Trial Balance: replace or remove it <span aria-hidden="true">→</span>
-          </Link>
-        </p>
-      )}
     </SurfaceCard>
   );
 }

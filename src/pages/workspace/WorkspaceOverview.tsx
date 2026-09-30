@@ -197,7 +197,10 @@ export default function WorkspaceOverview() {
   // The four non-happy-path classification states each get their own branch below; the two count-bearing "done"
   // states (COMPLETE_WITH_REVIEW / PARTIAL) share the review branch, and COMPLETE_NO_REVIEW / NOT_COMPUTED fall
   // through to the ordinary "finish preparing" branch, where COMPLETE_NO_REVIEW additionally supplies its own detail.
-  const isFailed = classification.state === "FAILED";
+  // "blocked" means the checks ran and failed: the answer is a corrected file (deriveWorkspaceState PATH 4B), never a
+  // retry. Only an engine failure ("error") is a processing failure that re-running can fix.
+  const isBlockedTrialBalance = upload?.status === "blocked";
+  const isFailed = classification.state === "FAILED" && !isBlockedTrialBalance;
   const isProcessing = classification.state === "PROCESSING";
   const isInconsistent = classification.state === "INCONSISTENT";
   // deriveWorkspaceState's PATH 6B — the trial balance's own account classification may be entirely done
@@ -238,6 +241,14 @@ export default function WorkspaceOverview() {
       },
       tone: "muted",
     };
+  } else if (isBlockedTrialBalance) {
+    decision = {
+      eyebrow: STAGE_CONFIGS.prepare.label,
+      headline: "The trial balance is blocked.",
+      detail: nextAction.description,
+      button: { label: nextAction.label, href: buildManageTrialBalanceRoute(companyId, periodYear, upload?.id ?? null), icon: <ArrowRight className="w-4 h-4" /> },
+      tone: "warn",
+    };
   } else if (isFailed) {
     decision = buildClassificationDecision(classification, classificationDecisionOptions);
   } else if (isProcessing) {
@@ -263,7 +274,6 @@ export default function WorkspaceOverview() {
         icon: <ArrowRight className="w-4 h-4" />,
       },
       tone: "warn",
-      offersFileReplacement: true,
     };
   } else if (needsReview) {
     decision = buildClassificationDecision(classification, classificationDecisionOptions);
@@ -405,7 +415,7 @@ export default function WorkspaceOverview() {
               />
             )}
 
-            <DecisionCard decision={decision} manageUploadHref={manageUploadHref} />
+            <DecisionCard decision={decision} />
           </>
         )}
       </section>

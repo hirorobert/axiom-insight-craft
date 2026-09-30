@@ -234,7 +234,10 @@ describe("database inertness — schema and functions", () => {
       // Static-guard helper: guards judge an atomic (one DO envelope) migration by the statements it executes. Read-only.
       "scripts/ci/atomicEnvelope.mjs",
       // Migration-authority rule 8: the reviewed PR #34 release journal (strict validation of Drizzle 0013–0021). Read-only.
-      "scripts/ci/releaseJournal.mjs"]);
+      "scripts/ci/releaseJournal.mjs",
+      // Trial-balance verdict surface: the build-output guard that the development-only gallery (src/dev/, dev/*.html)
+      // and its synthetic fixtures never reach dist/. Read-only file scan; no database, network or deploy behavior.
+      "scripts/ci/assertDevGalleryExcluded.mjs"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

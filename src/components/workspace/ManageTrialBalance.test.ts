@@ -69,11 +69,15 @@ describe("Manage Trial Balance — what each person sees", () => {
 
 describe("placement and wiring on Prepare Data", () => {
   const prep = src("src/pages/workspace/PrepareWorkspace.tsx");
-  it("the management area sits in the file header, before the pre-flight checklist (visible without scrolling past it)", () => {
+  it("the management area sits in the Current Trial Balance card, before the checks (visible without scrolling past them)", () => {
+    const card = prep.indexOf("<CurrentTrialBalanceCard");
     const manage = prep.indexOf("<ManageTrialBalance");
-    expect(manage).toBeGreaterThan(prep.indexOf("<ActiveFileProvenance"));
-    expect(manage).toBeLessThan(prep.indexOf("</header>"));
-    expect(manage).toBeLessThan(prep.indexOf("<TrialBalancePreflight"));
+    expect(card).toBeGreaterThan(0);
+    expect(manage).toBeGreaterThan(card);
+    expect(manage).toBeLessThan(prep.indexOf("<TrialBalanceChecks"));
+    expect(prep).toMatch(/variant="inline"/);
+    // Replace is never offered twice: hidden from the secondary actions when it is already the primary action.
+    expect(prep).toMatch(/hideReplace=\{verdict\.primaryAction\?\.kind === "replace" && sourceMode === "manage"\}/);
   });
   it("Remove is never hidden by processing status: no isCertifiedRun gate; the server's eligibility decides", () => {
     expect(prep).not.toMatch(/isCertifiedRun\(upload\)/);
@@ -108,12 +112,14 @@ describe("placement and wiring on Prepare Data", () => {
 });
 
 describe("the Overview's Manage file link opens the management area", () => {
-  it("both Overview links (Manage file, and the decision card's escape) use the focusing route", () => {
+  it("the Overview has ONE Manage link (the file line's Manage file →), using the focusing route; the decision card has no duplicate", () => {
     const overview = src("src/pages/workspace/WorkspaceOverview.tsx");
     expect(overview).toMatch(/const manageUploadHref = buildManageTrialBalanceRoute\(companyId, periodYear, upload\?\.id \?\? null\);/);
     expect(overview).toMatch(/manageHref=\{manageUploadHref\}/);
-    expect(overview).toMatch(/<DecisionCard decision=\{decision\} manageUploadHref=\{manageUploadHref\} \/>/);
-    expect(src("src/components/workspace/DecisionCard.tsx")).toContain("Manage Trial Balance: replace or remove it");
+    expect(overview).toMatch(/<DecisionCard decision=\{decision\} \/>/);
+    const card = src("src/components/workspace/DecisionCard.tsx");
+    expect(card).not.toContain("replace-file-escape");
+    expect(card).not.toContain("Manage Trial Balance: replace or remove it");
   });
 });
 

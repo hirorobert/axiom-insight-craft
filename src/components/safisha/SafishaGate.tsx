@@ -426,7 +426,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
   // ── Render helpers ─────────────────────────────────────────────────────────
 
   const stepIndicator = (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground mb-4">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-4">
       {[
         { key: "upload_evidence", label: "Evidence" },
         { key: "running_match",   label: "Matching"  },
