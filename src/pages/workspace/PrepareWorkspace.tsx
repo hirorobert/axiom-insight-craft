@@ -34,7 +34,7 @@ import { useEngagement } from "@/contexts/EngagementContext";
 import { CurrentTrialBalanceCard } from "@/components/workspace/CurrentTrialBalanceCard";
 import { TrialBalanceChecks } from "@/components/workspace/TrialBalanceChecks";
 import { UploadHistory } from "@/components/workspace/UploadHistory";
-import { deriveTrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
+import { deriveTrialBalanceVerdict, uploadSubjectKey } from "@/lib/workspace/trialBalanceVerdict";
 import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
 import { useCertificationReadiness } from "@/hooks/useCertificationReadiness";
 import { computeCertificationReadiness } from "@/lib/workspace/computeCertificationReadiness";
@@ -273,7 +273,7 @@ export default function PrepareWorkspace() {
     }
   };
 
-  const certReadiness = useCertificationReadiness(companyId, periodYear, upload?.id);
+  const certReadiness = useCertificationReadiness(companyId, periodYear, upload?.id, uploadSubjectKey(upload));
 
   // PPG-1R HIGH-1 (Codex REJECT — "old CERTIFIED may remain visible while
   // reprocessing is already underway"): PPG-1's fix only invalidated
@@ -426,7 +426,7 @@ export default function PrepareWorkspace() {
   const readiness = readinessInput ? computeCertificationReadiness(readinessInput) : undefined;
   // Presentation only: the row those readiness layers were drawn from, so the card can draw informational layers
   // neutrally from their structured severity (certificationCheckPresentation.ts).
-  const verdict = deriveTrialBalanceVerdict({ upload: upload ?? null, readiness, canRetry: canReprocessUpload(upload) });
+  const verdict = deriveTrialBalanceVerdict({ upload: upload ?? null, readiness, readinessSubject: certReadiness.subjectKey, canRetry: canReprocessUpload(upload) });
 
   // Re-run processing after an engine failure (never offered for a blocked trial balance: its checks ran and the same
   // file would fail again). Only the Edge Function writes; the page makes no financial write.

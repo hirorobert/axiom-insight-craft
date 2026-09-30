@@ -28,7 +28,7 @@
  * already used for post-generation RPCs elsewhere in this codebase.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { TbCertificationRow } from "@/lib/workspace/computeCertificationReadiness";
 
@@ -37,6 +37,11 @@ interface UseCertificationReadinessResult {
   latestForUpload: TbCertificationRow | null;
   fetchFailed: boolean;
   loading: boolean;
+  /**
+   * uploadSubjectKey() of the upload the held rows were read for (null while nothing is held). trialBalanceVerdict
+   * refuses rows whose subject differs from the upload on screen, so a late or stale result is never displayed.
+   */
+  subjectKey: string | null;
   /**
    * Re-runs both authoritative reads against the CURRENT companyId/
    * periodYear/uploadId (captured fresh on every render via a ref, so a
@@ -110,53 +115,96 @@ export async function fetchCertificationReadiness(
   return { authoritative, latestForUpload };
 }
 
+export interface ReadinessState {
+  /** The subject the latest request is for. */
+  requested: string | null;
+  /** The subject the held rows belong to (null while nothing is held). */
+  subjectKey: string | null;
+  authoritative: TbCertificationRow | null;
+  latestForUpload: TbCertificationRow | null;
+  fetchFailed: boolean;
+  loading: boolean;
+}
+export type ReadinessEvent =
+  | { type: "clear" }
+  | { type: "request"; subject: string }
+  | { type: "resolved"; subject: string; uploadId: string; reads: CertificationReadinessReads }
+  | { type: "failed"; subject: string };
+export const EMPTY_READINESS: ReadinessState = { requested: null, subjectKey: null, authoritative: null, latestForUpload: null, fetchFailed: false, loading: false };
+
+/**
+ * Deterministic state transitions for the readiness reads. A new subject clears the held rows at once (never shows the
+ * previous upload's rows while loading); a result or failure for any subject other than the one currently requested is
+ * dropped (a late result for a replaced upload); a per-upload row whose upload_id is not the requested upload is refused.
+ */
+export function readinessReducer(state: ReadinessState, event: ReadinessEvent): ReadinessState {
+  switch (event.type) {
+    case "clear":
+      return EMPTY_READINESS;
+    case "request":
+      return event.subject === state.subjectKey
+        ? { ...state, requested: event.subject, loading: true }
+        : { ...EMPTY_READINESS, requested: event.subject, loading: true };
+    case "resolved": {
+      if (event.subject !== state.requested) return state;
+      const latest = event.reads.latestForUpload && event.reads.latestForUpload.upload_id === event.uploadId ? event.reads.latestForUpload : null;
+      return { requested: event.subject, subjectKey: event.subject, authoritative: event.reads.authoritative, latestForUpload: latest, fetchFailed: false, loading: false };
+    }
+    case "failed":
+      if (event.subject !== state.requested) return state;
+      return { ...EMPTY_READINESS, requested: event.subject, subjectKey: event.subject, fetchFailed: true };
+  }
+}
+
 export function useCertificationReadiness(
   companyId: string | null | undefined,
   periodYear: number | null | undefined,
   uploadId: string | null | undefined,
+  /** uploadSubjectKey(upload): a new version or source hash is a new subject (fresh read, previous rows cleared). */
+  subjectKey?: string | null,
 ): UseCertificationReadinessResult {
-  const [state, setState] = useState<Omit<UseCertificationReadinessResult, "refetch">>({
-    authoritative: null,
-    latestForUpload: null,
-    fetchFailed: false,
-    loading: false,
-  });
+  const [state, dispatch] = useReducer(readinessReducer, EMPTY_READINESS);
 
   // Refetch must always use the LATEST identity args, even if called from a
   // callback created on an earlier render (e.g. a reprocess poll's closure).
-  const argsRef = useRef({ companyId, periodYear, uploadId });
-  argsRef.current = { companyId, periodYear, uploadId };
+  const subject = subjectKey ?? uploadId ?? null;
+  const argsRef = useRef({ companyId, periodYear, uploadId, subject });
+  argsRef.current = { companyId, periodYear, uploadId, subject };
 
   const [refetchToken, setRefetchToken] = useState(0);
   const refetch = useCallback(() => setRefetchToken((t) => t + 1), []);
 
   useEffect(() => {
-    const { companyId, periodYear, uploadId } = argsRef.current;
-    if (!companyId || !periodYear || !uploadId) {
-      setState({ authoritative: null, latestForUpload: null, fetchFailed: false, loading: false });
+    const { companyId, periodYear, uploadId, subject } = argsRef.current;
+    if (!companyId || !periodYear || !uploadId || !subject) {
+      dispatch({ type: "clear" });
       return;
     }
 
     let cancelled = false;
-    setState((prev) => ({ ...prev, loading: true }));
+    dispatch({ type: "request", subject });
 
     (async () => {
       try {
         const reads = await fetchCertificationReadiness(companyId, periodYear, uploadId);
-        if (!cancelled) {
-          setState({ ...reads, fetchFailed: false, loading: false });
-        }
+        // The reducer also drops a result for any subject other than the one requested (belt and braces).
+        if (!cancelled) dispatch({ type: "resolved", subject, uploadId, reads });
       } catch {
-        if (!cancelled) {
-          setState({ authoritative: null, latestForUpload: null, fetchFailed: true, loading: false });
-        }
+        if (!cancelled) dispatch({ type: "failed", subject });
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [companyId, periodYear, uploadId, refetchToken]);
+  }, [companyId, periodYear, uploadId, subject, refetchToken]);
 
-  return { ...state, refetch };
+  return {
+    authoritative: state.authoritative,
+    latestForUpload: state.latestForUpload,
+    fetchFailed: state.fetchFailed,
+    loading: state.loading,
+    subjectKey: state.subjectKey,
+    refetch,
+  };
 }

@@ -45,6 +45,8 @@ export interface WorkspaceUpload {
   lifecycle_state?: string | null;
   /** Optimistic-concurrency counter for discard_trial_balance_upload / retire_trial_balance_upload. */
   version?: number | null;
+  /** SHA-256 of the source file, written by process-trial-balance; part of the certification subject (uploadSubjectKey). */
+  source_file_hash?: string | null;
   /** Set when this upload replaced an earlier one; an unprocessed replacement is removed by cancelling it. */
   replaces_upload_id?: string | null;
 }

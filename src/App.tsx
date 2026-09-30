@@ -75,10 +75,6 @@ const PlanStatesAcceptance = import.meta.env.DEV
   ? lazy(() => import("@/pages/internal/PlanStatesAcceptance"))
   : null;
 
-const TrialBalanceStatesAcceptance = import.meta.env.DEV
-  ? lazy(() => import("@/pages/internal/TrialBalanceStatesAcceptance"))
-  : null;
-
 const App = () => (
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
@@ -170,9 +166,6 @@ const App = () => (
                 )}
                 {PlanStatesAcceptance && (
                   <Route path="/internal/acceptance/plan-states" element={<Suspense fallback={null}><PlanStatesAcceptance /></Suspense>} />
-                )}
-                {TrialBalanceStatesAcceptance && (
-                  <Route path="/internal/acceptance/trial-balance-states" element={<Suspense fallback={null}><TrialBalanceStatesAcceptance /></Suspense>} />
                 )}
                 <Route
                   path="/uploads/status"

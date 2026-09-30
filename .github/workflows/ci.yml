@@ -125,6 +125,8 @@ jobs:
 
       - name: Jurisdiction pack isolation (the pack is a separate lazy chunk; entry chunks carry no statutory wording)
         run: node scripts/ci/assertPackIsolation.mjs dist
+      - name: Development gallery excluded from the production bundle
+        run: node scripts/ci/assertDevGalleryExcluded.mjs dist
 
   golden-tests:
     name: Golden Fixture Tests (vitest)

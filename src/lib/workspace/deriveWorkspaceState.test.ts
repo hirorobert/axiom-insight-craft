@@ -137,13 +137,13 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
   it("PATH 4B: status=blocked → replace with a corrected file (never 'Resolve Upload Error' / retry); the reason is plain and stated from the recorded totals", () => {
     const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({
       status: "blocked",
-      certificationBlocker: "Debits 174776903504.08 != Credits 174677256055.37 (difference: 99647448.71)",
-      trialBalanceTotals: { debits: 174776903504.08, credits: 174677256055.37, difference: 99647448.71 },
+      certificationBlocker: "Debits 1250000.00 != Credits 1247500.00 (difference: 2500.00)",
+      trialBalanceTotals: { debits: 1250000.00, credits: 1247500.00, difference: 2500.00 },
     }));
 
     expect(result.nextAction.id).toBe("replace-blocked-trial-balance");
     expect(result.nextAction.label).toBe("Replace with corrected Trial Balance");
-    expect(result.nextAction.description).toBe("Debits exceed credits by 99,647,448.71. Correct the file and replace it.");
+    expect(result.nextAction.description).toBe("Debits exceed credits by 2,500.00. Correct the file and replace it.");
     expect(result.nextAction.href).toBe(`/workspace/${CID}/${PY}/prepare?manage=source#manage-trial-balance`);
     expect(result.missions.prepare.status).toBe("blocked");
     expect(result.missions.prepare.blocker).toBe(result.nextAction.description);

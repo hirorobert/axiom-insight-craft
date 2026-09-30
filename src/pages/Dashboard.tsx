@@ -253,7 +253,6 @@ export default function Dashboard() {
         capacityError: !!capacityError,
         onRetry: () => { retryBilling(); retryCapacity(); },
         onSignOut: () => { void signOut().then(() => navigate("/auth", { replace: true })); },
-        addCompanyForm: <FirstRunEngagement onCreated={(companyId, year) => navigate(`/workspace/${companyId}/${year}`, { replace: true })} />,
       }}
     />
   );

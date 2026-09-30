@@ -9,6 +9,22 @@
  * coverage is never read from `summary.auto_classified` (Tier 4–5 fuzzy matches only): the certification's L4 layer is
  * the classification verdict, and mapped/needs-review counts come from validation_report.mapping_completeness.
  *
+ * Identity. A certification result is only ever applied to the upload it was read for: the reader records the subject
+ * (uploadSubjectKey: upload id, version and source-file hash) and the verdict refuses any result whose subject differs
+ * from the upload on screen — a late result for a replaced or re-processed upload shows "Checking", never its verdict.
+ *
+ * Failure precedence (deterministic; first match wins):
+ *   1. no upload                                  → none
+ *   2. upload status running                      → processing        (no action)
+ *   3. upload status "error" (engine failure)     → processing_failed (Retry if active, else Replace)
+ *   4. certification subject ≠ upload on screen   → checking          (no action; never a stale verdict)
+ *   5. certification verdict:
+ *        certified  → accepted     (Verify evidence; Continue once evidence is clean)
+ *        blocked    → blocked      (the failing check, by CHECK_PRECEDENCE: file → amounts → balance → classification;
+ *                                   Replace, except a classification-only block → Resolve classifications)
+ *        review     → needs_review (Resolve classifications)
+ *        superseded → not_current · stale → checking (Retry if active) · unknown → unavailable · otherwise → checking
+ *
  * Pure: no I/O, no clock, no randomness. NULL means NOT COMPUTED — never zero, never passed.
  */
 
@@ -20,22 +36,37 @@ export interface TrialBalanceTotals {
   difference: number;
 }
 
-const finite = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
+const record = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+const amount = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-/** Debit / credit totals exactly as the engine recorded them (validation_report.tb_balance_check). null = not computed. */
+/**
+ * Debit / credit totals exactly as the engine recorded them (processing_result.validation_report.tb_balance_check).
+ * Fail closed — null (NOT COMPUTED) unless: the path is objects all the way; total_debits and total_credits are finite,
+ * non-negative JSON numbers (a numeric string is refused, not coerced); and a recorded difference, when present, is a
+ * finite number equal in magnitude to |debits − credits| within half a cent. An absent difference is derived.
+ */
 export function readTrialBalanceTotals(processingResult: unknown): TrialBalanceTotals | null {
-  const pr = processingResult && typeof processingResult === "object" ? (processingResult as Record<string, unknown>) : null;
-  const report = pr?.validation_report && typeof pr.validation_report === "object" ? (pr.validation_report as Record<string, unknown>) : null;
-  const tb = report?.tb_balance_check && typeof report.tb_balance_check === "object" ? (report.tb_balance_check as Record<string, unknown>) : null;
+  const tb = record(record(record(processingResult)?.validation_report)?.tb_balance_check);
   if (!tb) return null;
-  const debits = finite(tb.total_debits);
-  const credits = finite(tb.total_credits);
-  if (debits === null || credits === null) return null;
-  const difference = finite(tb.difference) ?? Math.round((debits - credits) * 100) / 100;
-  return { debits, credits, difference };
+  const debits = amount(tb.total_debits);
+  const credits = amount(tb.total_credits);
+  if (debits === null || credits === null || debits < 0 || credits < 0) return null;
+  const derived = Math.round((debits - credits) * 100) / 100;
+  if (tb.difference === undefined || tb.difference === null) return { debits, credits, difference: derived };
+  const recorded = amount(tb.difference);
+  if (recorded === null || Math.abs(Math.abs(recorded) - Math.abs(derived)) >= 0.005) return null;
+  return { debits, credits, difference: derived };
 }
 
-/** 174,776,903,504.08 — grouped, two decimals, no currency symbol (the workspace currency is shown elsewhere). */
+/** The identity a certification result is bound to: upload id, optimistic-concurrency version and source-file hash. */
+export function uploadSubjectKey(upload: { id: string; version?: number | null; source_file_hash?: string | null } | null | undefined): string | null {
+  return upload ? `${upload.id}|${upload.version ?? ""}|${upload.source_file_hash ?? ""}` : null;
+}
+
+/** The order in which a failing check is named (earlier = more fundamental). */
+export const CHECK_PRECEDENCE = ["l1_structure", "l2_data_quality", "l3_arithmetic", "l4_classification"] as const;
+
+/** 1,250,000.00 — grouped, two decimals, no currency symbol (the workspace currency is shown elsewhere). */
 export function formatAmount(n: number): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -116,12 +147,21 @@ export interface TrialBalanceVerdict {
 
 export interface TrialBalanceVerdictInput {
   upload: {
+    id?: string;
+    version?: number | null;
+    source_file_hash?: string | null;
     status?: string | null;
     processing_result?: unknown;
     safisha_status?: string | null;
   } | null;
   /** computeCertificationReadiness(...) for the upload on screen (undefined while no upload). */
   readiness: { verdict: PreflightVerdict; blocker: string | null; checks: PreflightCheck[] } | undefined;
+  /**
+   * uploadSubjectKey() of the upload the readiness was READ for (useCertificationReadiness().subjectKey). When given and
+   * different from the upload on screen, the readiness is refused (a late or stale result). Omitted only where the
+   * readiness and the upload come from one atomic read (the workspace snapshot).
+   */
+  readinessSubject?: string | null;
   /** canReprocessUpload(upload): only an active upload may be re-run. */
   canRetry: boolean;
 }
@@ -156,8 +196,11 @@ function plainCheck(c: PreflightCheck, totals: TrialBalanceTotals | null): Trial
 export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): TrialBalanceVerdict {
   const upload = input.upload;
   const totals = upload ? readTrialBalanceTotals(upload.processing_result) : null;
-  const layerChecks = input.readiness?.checks ?? [];
-  const checks = layerChecks.filter((c) => c.id in CHECK_TEXT).map((c) => plainCheck(c, totals));
+  const subjectMismatch = !!upload?.id && input.readinessSubject !== undefined
+    && input.readinessSubject !== uploadSubjectKey({ id: upload.id, version: upload.version, source_file_hash: upload.source_file_hash });
+  // A result read for another upload (or an earlier version of this one) is never shown as this upload's checks.
+  const layerChecks = subjectMismatch ? [] : input.readiness?.checks ?? [];
+  const checks = CHECK_PRECEDENCE.flatMap((id) => layerChecks.filter((c) => c.id === id)).map((c) => plainCheck(c, totals));
   const informational = layerChecks.filter((c) => c.id in INFO_TEXT).map((c) => plainCheck(c, totals));
   const failed = checks.find((c) => c.state === "failed") ?? checks.find((c) => c.state === "review") ?? null;
   const evidenceCleared = upload?.safisha_status === "clean";
@@ -178,6 +221,10 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
     };
   }
 
+  if (subjectMismatch) {
+    return { ...base, status: "checking", statusLabel: "Checking", tone: "neutral", reason: "The result for this file is being confirmed.", primaryAction: null };
+  }
+
   const verdict = input.readiness?.verdict;
   switch (verdict) {
     case "certified":
@@ -192,7 +239,10 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
       return {
         ...base, status: "blocked", statusLabel: "Blocked", tone: "danger",
         reason: plainBlockReason({ blocker: input.readiness?.blocker, totals, failedCheckId: failed?.id ?? null }),
-        primaryAction: { kind: "replace", label: "Replace with corrected Trial Balance" },
+        // A block that is only about classification is fixed by classification decisions, not by a new file.
+        primaryAction: failed?.id === "l4_classification"
+          ? { kind: "review_classifications", label: "Resolve account classifications" }
+          : { kind: "replace", label: "Replace with corrected Trial Balance" },
       };
     case "review":
       return {

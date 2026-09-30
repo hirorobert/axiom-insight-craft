@@ -88,7 +88,9 @@ describe("Prepare Data wiring", () => {
     expect(prep).toMatch(/evidenceGateHandledByParent/);
   });
   it("one verdict feeds the card, the checks and the technical ledger", () => {
-    expect(prep).toMatch(/const verdict = deriveTrialBalanceVerdict\(\{ upload: upload \?\? null, readiness, canRetry: canReprocessUpload\(upload\) \}\);/);
+    expect(prep).toContain("const verdict = deriveTrialBalanceVerdict({ upload: upload ?? null, readiness, readinessSubject: certReadiness.subjectKey, canRetry: canReprocessUpload(upload) });");
+    // The read is keyed on the upload's subject (id, version, source hash), so a new version is a fresh read.
+    expect(prep).toContain("useCertificationReadiness(companyId, periodYear, upload?.id, uploadSubjectKey(upload))");
     expect(prep).toMatch(/<TrialBalanceProgressLedger upload=\{upload\} failedCheckId=\{verdict\.failedCheckId\} \/>/);
   });
   it("retry only re-runs the Edge Function; the page makes no financial write", () => {
@@ -111,29 +113,32 @@ describe("Account home (the CFOClose logo from inside a workspace)", () => {
   const account = (capacity: { capacity: number | null; used: number | null; determined: boolean }) => ({
     billing: null, billingLoading: false, billingError: true,
     capacity: { ...capacity, planCode: "PRACTICE" }, capacityLoading: false, capacityError: false,
-    onRetry: () => {}, onSignOut: () => {}, addCompanyForm: createElement("div", { "data-testid": "add-form" }),
+    onRetry: () => {}, onSignOut: () => {},
   });
-  const hub = (acc: ReturnType<typeof account> | undefined, entries: never[] = []) =>
-    render(createElement(EngagementHub, { entries, companiesWithoutEngagement: [], onResume: () => {}, onStartService: () => {}, account: acc }));
-  it("offers Plans, Settings and Sign out, the plan, and adding a company within capacity", () => {
+  const hub = (acc: ReturnType<typeof account> | undefined) =>
+    render(createElement(EngagementHub, { entries: [], companiesWithoutEngagement: [], onResume: () => {}, onStartService: () => {}, account: acc }));
+  it("existing navigation only: Plans, Settings, Sign out, the existing company flow in Settings and the current plan", () => {
     const html = hub(account({ capacity: 5, used: 2, determined: true }));
-    expect(html).toContain('href="/plans"');
-    expect(html).toContain('href="/settings"');
+    for (const href of ['href="/plans"', 'href="/settings"']) expect(html).toContain(href);
     expect(html).toContain("Sign out");
-    expect(html).toContain('data-testid="add-company"');
-    expect(html).toContain("2 of 5 in use");
+    expect(html).toContain('data-testid="manage-companies"');
     expect(html).toContain('data-testid="account-plan"');
     expect(html).toContain("No open engagements");
   });
-  it("at capacity (or unknown), no add-company action — the capacity notice with View plans instead", () => {
-    for (const c of [{ capacity: 1, used: 1, determined: true }, { capacity: null, used: null, determined: false }]) {
-      const html = hub(account(c));
-      expect(html).not.toContain('data-testid="add-company"');
-      expect(html).toContain("View plans");
-    }
+  it("capacity is stated by the existing notice (it hides itself when there is room); no client-side creation logic", () => {
+    expect(hub(account({ capacity: 5, used: 2, determined: true }))).not.toContain("Entity capacity reached");
+    expect(hub(account({ capacity: 1, used: 1, determined: true }))).toContain("Entity capacity reached");
+    const src2 = src("src/pages/workspace/EngagementHub.tsx").replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(src2).not.toMatch(/FirstRunEngagement|create_entity|canAddCompany|capacity\.used\s*</);
+    expect(src("src/lib/commercial/paidActions.ts")).not.toContain("canAddCompany");
+  });
+  it("the plain chooser (no account) is unchanged", () => {
+    const html = hub(undefined);
+    expect(html).not.toContain("Sign out");
+    expect(html).not.toContain('data-testid="manage-companies"');
   });
   it("the workspace logo leads here (forced hub), and Dashboard supplies the account home", () => {
     expect(src("src/pages/workspace/WorkspaceLayout.tsx")).toMatch(/to="\/dashboard"[\s\S]{0,400}state=\{\{ forceHub: true \}\}/);
-    expect(src("src/pages/Dashboard.tsx")).toMatch(/account=\{\{[\s\S]*onSignOut:[\s\S]*addCompanyForm: <FirstRunEngagement/);
+    expect(src("src/pages/Dashboard.tsx")).toMatch(/account=\{\{[\s\S]*onSignOut:/);
   });
 });

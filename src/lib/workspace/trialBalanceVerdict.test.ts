@@ -1,8 +1,8 @@
 /**
- * trialBalanceVerdict — one model for every trial-balance surface. The regression at the centre is the live Arusha Dc
- * case: 252 accounts all classified by deterministic tiers (auto_classified = 0, which counts Tier 4-5 fuzzy matches
- * only), out of balance by 99,647,448.71. Before, the pre-flight said "all accounts are classified" while the ledger
- * said "252 of 252 still need a mapping decision" and blamed classification for an arithmetic block.
+ * trialBalanceVerdict — one model for every trial-balance surface. The regression at the centre is a synthetic
+ * reproduction of the reported defect (neutral company and figures): 180 accounts all classified by deterministic tiers (auto_classified = 0, which counts Tier 4-5 fuzzy matches
+ * only), out of balance by 2,500.00. Before, the pre-flight said "all accounts are classified" while the ledger
+ * said "180 of 180 still need a mapping decision" and blamed classification for an arithmetic block.
  */
 import { describe, expect, it } from "vitest";
 import type { PreflightCheck } from "./computePreflight";
@@ -11,33 +11,33 @@ import {
   deriveTrialBalanceVerdict, formatAmount, lifecycleLabel, plainBlockReason, readTrialBalanceTotals, resultLabel, stripEngineCode,
 } from "./trialBalanceVerdict";
 
-const ARUSHA_RESULT = {
-  summary: { total_accounts: 252, auto_classified: 0 },
+const SAMPLE_RESULT = {
+  summary: { total_accounts: 180, auto_classified: 0 },
   validation_report: {
-    mapping_completeness: { total_accounts: 252, mapped_accounts: 252, needs_review: 0 },
-    tb_balance_check: { total_debits: 174776903504.08, total_credits: 174677256055.37, difference: 99647448.71 },
+    mapping_completeness: { total_accounts: 180, mapped_accounts: 180, needs_review: 0 },
+    tb_balance_check: { total_debits: 1250000.00, total_credits: 1247500.00, difference: 2500.00 },
   },
 };
 const layer = (id: string, label: string, state: PreflightCheck["state"], detail: string): PreflightCheck => ({ id, label, state, detail });
 const LAYERS_BLOCKED: PreflightCheck[] = [
   layer("l1_structure", "File read and structured", "passed", "Every row in the file was read and totalled."),
   layer("l2_data_quality", "Data quality", "passed", "No data-quality errors raised."),
-  layer("l3_arithmetic", "Arithmetic integrity", "failed", "Debits 174776903504.08 != Credits 174677256055.37 (difference: 99647448.71)"),
+  layer("l3_arithmetic", "Arithmetic integrity", "failed", "Debits 1250000.00 != Credits 1247500.00 (difference: 2500.00)"),
   layer("l4_classification", "Classification completeness", "passed", "All accounts are classified."),
   layer("l5_supporting_evidence", "Supporting evidence", "pending", "NOT_EVALUATED: no supporting-evidence reconciliation has been run for this upload"),
   layer("l6_prior_period", "Prior-period signal", "pending", "NO_PRIOR: no authoritative certification exists for period 2024"),
 ];
 const passedLayers = LAYERS_BLOCKED.map((c) => (c.id === "l3_arithmetic" ? { ...c, state: "passed" as const, detail: "The trial balance and statement equation both hold." } : c));
-const upload = (status: string, extra: Record<string, unknown> = {}) => ({ id: "u1", file_name: "ArushaDC_TrialBalance_30Jun2025.xlsx", status, processing_result: ARUSHA_RESULT, ...extra });
+const upload = (status: string, extra: Record<string, unknown> = {}) => ({ id: "u1", file_name: "sample_trial_balance_FY2025.xlsx", status, processing_result: SAMPLE_RESULT, ...extra });
 
-describe("the Arusha Dc contradiction is resolved at the source — every surface agrees", () => {
+describe("the reported contradiction is resolved at the source — every surface agrees", () => {
   const verdict = deriveTrialBalanceVerdict({ upload: upload("blocked"), readiness: { verdict: "blocked", blocker: LAYERS_BLOCKED[2].detail, checks: LAYERS_BLOCKED }, canRetry: true });
 
   it("status, reason, totals and the one action", () => {
     expect(verdict.status).toBe("blocked");
     expect(verdict.statusLabel).toBe("Blocked");
-    expect(verdict.reason).toBe("Debits exceed credits by 99,647,448.71. Correct the file and replace it.");
-    expect(verdict.totals).toEqual({ debits: 174776903504.08, credits: 174677256055.37, difference: 99647448.71 });
+    expect(verdict.reason).toBe("Debits exceed credits by 2,500.00. Correct the file and replace it.");
+    expect(verdict.totals).toEqual({ debits: 1250000.00, credits: 1247500.00, difference: 2500.00 });
     expect(verdict.primaryAction).toEqual({ kind: "replace", label: "Replace with corrected Trial Balance" });
     expect(verdict.failedCheckId).toBe("l3_arithmetic");
     expect(verdict.evidenceUnlocked).toBe(false);   // no evidence verification on a trial balance that does not balance
@@ -46,15 +46,15 @@ describe("the Arusha Dc contradiction is resolved at the source — every surfac
   it("the checks: classification PASSED (from the certification), arithmetic FAILED with formatted figures", () => {
     const byId = Object.fromEntries(verdict.checks.map((c) => [c.id, c]));
     expect(byId.l4_classification).toMatchObject({ label: "Every account classified", state: "passed", detail: "Every account has a classification." });
-    expect(byId.l3_arithmetic).toMatchObject({ label: "Debits equal credits", state: "failed", detail: "Debits 174,776,903,504.08 and credits 174,677,256,055.37 differ by 99,647,448.71." });
+    expect(byId.l3_arithmetic).toMatchObject({ label: "Debits equal credits", state: "failed", detail: "Debits 1,250,000.00 and credits 1,247,500.00 differ by 2,500.00." });
     expect(verdict.checks.map((c) => c.id)).toEqual(["l1_structure", "l2_data_quality", "l3_arithmetic", "l4_classification"]);
   });
 
-  it("the technical ledger says the same: 252 of 252 classified (never auto_classified = 0), the balance step failed — not classification", () => {
+  it("the technical ledger says the same: 180 of 180 classified (never auto_classified = 0), the balance step failed — not classification", () => {
     const steps = deriveTrialBalanceSteps(upload("blocked") as never, { failedCheckId: verdict.failedCheckId });
     const step = (k: string) => steps.find((s) => s.key === k)!;
-    expect(step("classified")).toMatchObject({ state: "done", detail: "252 of 252 accounts classified" });
-    expect(step("balanced")).toMatchObject({ state: "failed", detail: "Debits and credits differ by 99,647,448.71" });
+    expect(step("classified")).toMatchObject({ state: "done", detail: "180 of 180 accounts classified" });
+    expect(step("balanced")).toMatchObject({ state: "failed", detail: "Debits and credits differ by 2,500.00" });
     expect(steps.filter((s) => s.state === "failed").map((s) => s.key)).toEqual(["balanced"]);
     expect(JSON.stringify(steps)).not.toMatch(/need a (mapping|classification) decision/);
   });
@@ -106,7 +106,7 @@ describe("each status has one failure-appropriate action", () => {
 
 describe("helpers", () => {
   it("reads the recorded totals; missing or non-numeric totals are NOT COMPUTED (null), never zero", () => {
-    expect(readTrialBalanceTotals(ARUSHA_RESULT)?.difference).toBe(99647448.71);
+    expect(readTrialBalanceTotals(SAMPLE_RESULT)?.difference).toBe(2500.00);
     expect(readTrialBalanceTotals({})).toBeNull();
     expect(readTrialBalanceTotals({ validation_report: { tb_balance_check: { total_debits: "x", total_credits: 1 } } })).toBeNull();
   });

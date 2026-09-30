@@ -1,10 +1,11 @@
 /**
- * Development-only gallery of the Prepare Data trial-balance surfaces, rendered by the REAL components from synthetic
- * certification results (the live Arusha Dc figures for the blocked state). No account reads or writes: nothing here
- * calls the server unless a person actively uses the evidence control. Absent from production builds (same
- * import.meta.env.DEV boundary as the other acceptance galleries).
+ * Development-only gallery of the Prepare Data trial-balance surfaces and the account home, rendered by the REAL
+ * components from neutral synthetic data. Not part of the application: no route in App.tsx, not imported by anything
+ * under src/ outside src/dev/, and served only by the Vite dev server through dev/trial-balance-states.html (the
+ * production build's only input is index.html). No account reads or writes: nothing calls the server unless a person
+ * actively uses the evidence control. Proven by src/dev/devGalleryIsolation.test.ts and the production-bundle scan.
  *
- *   /internal/acceptance/trial-balance-states?state=blocked|accepted|failed|review|home   (home: the account home)
+ *   /dev/trial-balance-states.html?state=blocked|accepted|failed|review|home
  */
 import { useSearchParams } from "react-router-dom";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
@@ -26,43 +27,43 @@ const HOME_BILLING: BillingSummary = {
   nextBillingInterval: null, nextBillingIntervalCount: null, entitlements: [],
 };
 const HOME_ENTRY: ActiveEngagementEntry = {
-  engagementId: "synthetic-engagement", companyId: "synthetic-company", companyName: "Arusha Dc", periodYear: 2025,
+  engagementId: "synthetic-engagement", companyId: "synthetic-company", companyName: "Sample Trading Ltd", periodYear: 2025,
   engagementType: "tax_computation", framework: "IPSAS accrual", capabilities: ["TAX_COMPUTATION"], openedAt: "2026-09-20T00:00:00Z",
-  workspaceState: deriveWorkspaceState("synthetic-company", "Arusha Dc", 2025, null),
+  workspaceState: deriveWorkspaceState("synthetic-company", "Sample Trading Ltd", 2025, null),
 };
 
 const L = (id: string, state: PreflightCheck["state"], detail = ""): PreflightCheck => ({ id, label: id, state, detail });
 const INFO = [L("l5_supporting_evidence", "pending", "NOT_EVALUATED: no supporting-evidence reconciliation has been run for this upload"), L("l6_prior_period", "pending", "NO_PRIOR: no authoritative certification exists for period 2024")];
-const MAPPED = { mapping_completeness: { total_accounts: 252, mapped_accounts: 252, needs_review: 0 } };
+const MAPPED = { mapping_completeness: { total_accounts: 180, mapped_accounts: 180, needs_review: 0 } };
 
 const STATES: Record<string, { status: string; verdict: PreflightVerdict; blocker: string | null; checks: PreflightCheck[]; tb: { total_debits: number; total_credits: number; difference: number } | null; mapping?: object }> = {
   blocked: {
-    status: "blocked", verdict: "blocked", blocker: "Debits 174776903504.08 != Credits 174677256055.37 (difference: 99647448.71)",
-    checks: [L("l1_structure", "passed"), L("l2_data_quality", "passed"), L("l3_arithmetic", "failed", "Debits 174776903504.08 != Credits 174677256055.37 (difference: 99647448.71)"), L("l4_classification", "passed"), ...INFO],
-    tb: { total_debits: 174776903504.08, total_credits: 174677256055.37, difference: 99647448.71 },
+    status: "blocked", verdict: "blocked", blocker: "Debits 1250000.00 != Credits 1247500.00 (difference: 2500.00)",
+    checks: [L("l1_structure", "passed"), L("l2_data_quality", "passed"), L("l3_arithmetic", "failed", "Debits 1250000.00 != Credits 1247500.00 (difference: 2500.00)"), L("l4_classification", "passed"), ...INFO],
+    tb: { total_debits: 1250000.00, total_credits: 1247500.00, difference: 2500.00 },
   },
   accepted: {
     status: "complete", verdict: "certified", blocker: null,
     checks: [L("l1_structure", "passed"), L("l2_data_quality", "passed"), L("l3_arithmetic", "passed"), L("l4_classification", "passed"), ...INFO],
-    tb: { total_debits: 17371317215, total_credits: 17371317215, difference: 0 },
+    tb: { total_debits: 980000, total_credits: 980000, difference: 0 },
   },
   failed: { status: "error", verdict: "pending", blocker: null, checks: [], tb: null },
   review: {
     status: "needs_review", verdict: "review", blocker: "12 accounts still need a classification decision.",
     checks: [L("l1_structure", "passed"), L("l2_data_quality", "passed"), L("l3_arithmetic", "passed"), L("l4_classification", "review", "12 accounts still need a classification decision."), ...INFO],
-    tb: { total_debits: 17371317215, total_credits: 17371317215, difference: 0 },
-    mapping: { mapping_completeness: { total_accounts: 252, mapped_accounts: 240, needs_review: 12 } },
+    tb: { total_debits: 980000, total_credits: 980000, difference: 0 },
+    mapping: { mapping_completeness: { total_accounts: 180, mapped_accounts: 168, needs_review: 12 } },
   },
 };
 
 const HISTORY = [
-  { id: "h1", file_name: "ArushaDC_TrialBalance_30Jun2025.xlsx", uploaded_at: "2026-09-30T10:40:00Z", status: "blocked", lifecycle_state: "blocked" },
-  { id: "h2", file_name: "FAStdTrialBalance.xls", uploaded_at: "2026-09-30T10:36:00Z", status: "blocked", lifecycle_state: "superseded" },
+  { id: "h1", file_name: "sample_trial_balance_FY2025.xlsx", uploaded_at: "2026-09-30T10:40:00Z", status: "blocked", lifecycle_state: "blocked" },
+  { id: "h2", file_name: "sample_trial_balance_v1.xls", uploaded_at: "2026-09-30T10:36:00Z", status: "blocked", lifecycle_state: "superseded" },
   { id: "h3", file_name: "TB.xlsx", uploaded_at: "2026-09-27T15:02:00Z", status: "blocked", lifecycle_state: "retired" },
-  { id: "h4", file_name: "KAMANGA_MEDICS_TB_2025.csv", uploaded_at: "2026-09-20T05:13:00Z", status: "complete", lifecycle_state: "superseded" },
+  { id: "h4", file_name: "sample_trial_balance_draft.csv", uploaded_at: "2026-09-20T05:13:00Z", status: "complete", lifecycle_state: "superseded" },
 ];
 
-export default function TrialBalanceStatesAcceptance() {
+export default function TrialBalanceStatesGallery() {
   const [params] = useSearchParams();
   if (!import.meta.env.DEV) return null;
   const key = params.get("state") ?? "blocked";
@@ -76,7 +77,7 @@ export default function TrialBalanceStatesAcceptance() {
         account={{
           billing: HOME_BILLING, billingLoading: false, billingError: false,
           capacity: { capacity: 5, used: 2, planCode: "PRACTICE", determined: true }, capacityLoading: false, capacityError: false,
-          onRetry: () => undefined, onSignOut: () => undefined, addCompanyForm: <p className="text-[13px] text-muted-foreground">(the add-company form)</p>,
+          onRetry: () => undefined, onSignOut: () => undefined,
         }}
       />
     );
@@ -91,7 +92,7 @@ export default function TrialBalanceStatesAcceptance() {
     <div className="min-h-screen bg-background">
       <header className="flex h-14 items-center gap-3 border-b border-border px-4 sm:px-6">
         <CFOCloseWordmark className="text-base" />
-        <span className="truncate text-[13px] font-semibold text-foreground">Arusha Dc</span>
+        <span className="truncate text-[13px] font-semibold text-foreground">Sample Trading Ltd</span>
         <span className="hidden text-[12px] text-muted-foreground sm:inline">FY2025 · IPSAS accrual</span>
       </header>
       <main className="mx-auto max-w-5xl space-y-5 px-4 pb-10 pt-6 sm:px-6">
@@ -100,7 +101,7 @@ export default function TrialBalanceStatesAcceptance() {
           <h1 className="mt-1 text-xl font-semibold text-foreground">Trial balance</h1>
         </header>
         <CurrentTrialBalanceCard
-          fileName="ArushaDC_TrialBalance_30Jun2025.xlsx"
+          fileName="sample_trial_balance_FY2025.xlsx"
           uploadedAt="2026-09-30T10:40:00Z"
           fileSize={21_000}
           verdict={verdict}
@@ -117,7 +118,7 @@ export default function TrialBalanceStatesAcceptance() {
               <h2 className="text-[15px] font-semibold text-foreground">Evidence verification</h2>
               <p className="mt-1 text-[13px] text-muted-foreground">Required before tax: match the accepted trial balance to bank statements, mobile-money exports or subledgers.</p>
             </div>
-            <div className="px-5 py-4 sm:px-7"><SafishaGate uploadId="synthetic-upload" fileName="ArushaDC_TrialBalance_30Jun2025.xlsx" onCleared={() => undefined} onBlocked={() => undefined} /></div>
+            <div className="px-5 py-4 sm:px-7"><SafishaGate uploadId="synthetic-upload" fileName="sample_trial_balance_FY2025.xlsx" onCleared={() => undefined} onBlocked={() => undefined} /></div>
           </section>
         )}
         <section className="border border-border bg-card px-5 py-3.5 text-[13px] font-semibold text-foreground sm:px-7">Technical processing details</section>

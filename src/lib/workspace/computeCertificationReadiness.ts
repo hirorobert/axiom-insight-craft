@@ -245,7 +245,7 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
     };
   }
 
-  if (input.latestForUpload) {
+  if (input.latestForUpload && input.latestForUpload.upload_id === input.currentUploadId) {
     const row = input.latestForUpload;
     const checks = buildLayerChecks(row);
     const passedCount = countPassed(checks);
