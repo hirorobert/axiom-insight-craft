@@ -30,15 +30,15 @@ describe("migration authority parity", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
     expect(r.ok).toBe(true);
-    // 13 byte-equal mirrors + the seven reviewed release wrappers (0015, 0017–0022; rule 8) + 0023 by its canonical
+    // 13 byte-equal mirrors + the eight reviewed release wrappers (0015, 0017–0022, 0024; rule 8) + 0023 by its canonical
     // source (rule canonical_equivalent). The prerequisite 20260915100000 is recorded as applied out of source order
     // (0016) — see releaseJournal.test.ts.
-    expect(r.mirrored.length).toBe(21);
+    expect(r.mirrored.length).toBe(22);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
     // Authored here and not yet applied by the owner: listed, never an error. PR #34 100000–150000 are applied.
-    expect(r.pending).toEqual(["20260927100000_trial_balance_remove_from_active_use.sql"]);   // 20260926160000 applied by 0022; the removal migration awaits the owner
+    expect(r.pending).toEqual([]);   // 20260926160000 applied by 0022; 20260927100000 by 0024
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {
     const H = "drizzle/migrations/0023_security_fix_probe_and_xbrl_concept_map.sql";

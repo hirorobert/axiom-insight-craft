@@ -827,11 +827,12 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   (policy verbatim; probe RLS only behind `to_regclass`, since a clean replay has no probe table). The guard maps the
   two by exact SHA-256 of both files plus a structural check (`PINNED`, rule `canonical_equivalent`) — not an
   allow-list. Proven on PostgreSQL: `scripts/db-proof/planCapabilities.mjs` group E-0023.
-- NOT APPLIED: `20260927100000_trial_balance_remove_from_active_use.sql` — "Remove Trial Balance" for a processed,
+- APPLIED by Lovable (Drizzle `0024`, digest-verified f512988f…, reviewed at main `0d2a09e`; release-journal entry, template
+  `verbatim_noop_main`): `20260927100000_trial_balance_remove_from_active_use.sql` — "Remove Trial Balance" for a processed,
   blocked or failed upload: `remove_trial_balance_upload()` moves it to the terminal lifecycle state `retired` (no
   successor; nothing deleted; lifecycle audit event), refused while a sealed Reporting Pack or a FINAL
   trial-balance-derived publication exists for the period; `get_trial_balance_removal_eligibility()` tells Prepare Data
-  which removal path applies. Until it is applied, Prepare Data offers Remove only for unprocessed uploads (the PR #32
+  which removal path applies (if the eligibility read is ever unavailable, Prepare Data offers Remove only for unprocessed uploads — the PR #32
   discard / cancel-replacement paths) and never guesses about a processed one. Removal, a FINAL publication and a
   Reporting Pack seal for the same workspace and period are serialized by ONE transaction-scoped advisory lock
   (`tb_official_output_lock`; removal takes it before its row lock and checks, `trg_fsp_source_trial_balance_guard` and
