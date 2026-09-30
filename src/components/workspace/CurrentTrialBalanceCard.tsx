@@ -119,7 +119,7 @@ export function CurrentTrialBalanceCard({
               disabled={busy}
               onClick={() => onPrimary(verdict.primaryAction!.kind)}
               data-testid="trial-balance-primary-action"
-              className="h-11 w-full rounded-none px-5 text-[14px] font-semibold shadow-none sm:w-auto"
+              className="h-auto min-h-11 w-full whitespace-normal rounded-none px-5 py-2.5 text-left text-[14px] font-semibold leading-snug shadow-none sm:w-auto"
             >
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : ACTION_ICON[verdict.primaryAction.kind]}
               {verdict.primaryAction.label}

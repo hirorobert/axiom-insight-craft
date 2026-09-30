@@ -72,7 +72,8 @@ export default function EngagementHub({
             <Link to="/plans" className="px-2 py-1.5 text-[13px] text-muted-foreground hover:text-foreground">Plans</Link>
             <Link to="/settings" className="px-2 py-1.5 text-[13px] text-muted-foreground hover:text-foreground">Settings</Link>
             <Button variant="ghost" size="sm" onClick={account.onSignOut} className="h-8 rounded-none px-2 text-[13px]" data-testid="account-sign-out">
-              <LogOut className="mr-1.5 h-3.5 w-3.5" /> Sign out
+              <LogOut className="h-3.5 w-3.5 sm:mr-1.5" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">Sign out</span>
             </Button>
           </nav>
         )}
