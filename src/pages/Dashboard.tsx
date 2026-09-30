@@ -80,7 +80,7 @@ async function resolveEntryPeriodYear(company: Pick<WorkspaceCompany, "id" | "fi
 }
 
 export default function Dashboard() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   // Set only by the authenticated header's logo (WorkspaceLayout.tsx) — an explicit "take me to the
@@ -244,6 +244,17 @@ export default function Dashboard() {
       onResume={resumeEntry}
       onStartService={startService}
       onOpenShared={openShared}
+      account={{
+        billing,
+        billingLoading,
+        billingError: !!billingError,
+        capacity,
+        capacityLoading,
+        capacityError: !!capacityError,
+        onRetry: () => { retryBilling(); retryCapacity(); },
+        onSignOut: () => { void signOut().then(() => navigate("/auth", { replace: true })); },
+        addCompanyForm: <FirstRunEngagement onCreated={(companyId, year) => navigate(`/workspace/${companyId}/${year}`, { replace: true })} />,
+      }}
     />
   );
 }

@@ -1,12 +1,14 @@
 /**
- * SafishaWorkspace — TB Verification & Certification.
+ * Prepare Data — the trial balance, stated once.
  *
- * Re-homes from Dashboard:
- *   UploadsStatusPanel, CertificationHeader, CertificationSummaryStrip,
- *   TrialBalanceIntegrityCard, BalanceSheetEquationCard, ClassificationBreakdown,
- *   ValidationReport, AccountReviewPanel, Account Classifications card
+ *   Current Trial Balance card   file, result, totals, one plain reason, one failure-appropriate action; Replace / Remove
+ *   Trial balance checks          the four checks that decide acceptance (+ informational items apart)
+ *   Account review                only when classifications need a decision
+ *   Evidence verification         only once the trial balance is accepted; mandatory before tax
+ *   Technical processing details  engine telemetry for auditors, collapsed
+ *   Upload history                read-only, lifecycle-labelled, collapsed
  *
- * EFDMSReconciliationPanel moved to ReconcileWorkspace (Phase C).
+ * Everything that states the result reads one model: trialBalanceVerdict.ts (the certification ledger).
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -18,10 +20,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { buildPrepareUploadRoute, buildPrepareReviewRoute, canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
 import { toast } from "sonner";
 
-import { UploadsStatusPanel } from "@/components/UploadsStatusPanel";
-import { CertificationHeader } from "@/components/certification/CertificationHeader";
-import { CertificationSummaryStrip } from "@/components/certification/CertificationSummaryStrip";
-import { TrialBalanceIntegrityCard } from "@/components/certification/TrialBalanceIntegrityCard";
 import { BalanceSheetEquationCard } from "@/components/certification/BalanceSheetEquationCard";
 import { ClassificationBreakdown } from "@/components/certification/ClassificationBreakdown";
 import { ValidationReport } from "@/components/ValidationReport";
@@ -33,11 +31,13 @@ import {
 } from "@/lib/workspace/discardSuppression";
 import { TrialBalanceUpload } from "@/components/TrialBalanceUpload";
 import { useEngagement } from "@/contexts/EngagementContext";
-import { TrialBalancePreflight } from "@/components/workspace/TrialBalancePreflight";
+import { CurrentTrialBalanceCard } from "@/components/workspace/CurrentTrialBalanceCard";
+import { TrialBalanceChecks } from "@/components/workspace/TrialBalanceChecks";
+import { UploadHistory } from "@/components/workspace/UploadHistory";
+import { deriveTrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
 import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
 import { useCertificationReadiness } from "@/hooks/useCertificationReadiness";
 import { computeCertificationReadiness } from "@/lib/workspace/computeCertificationReadiness";
-import { certificationRowForDisplay } from "@/lib/workspace/certificationCheckPresentation";
 import {
   reduceCertificationRevalidationGuard,
   canInitiateCertificationAffectingMutation,
@@ -46,7 +46,6 @@ import TrialBalanceProgressLedger from "@/components/workspace/TrialBalanceProgr
 import TrialBalanceTemplateGuide from "@/components/workspace/TrialBalanceTemplateGuide";
 import {
   DiscardError,
-  DiscardUploadDialog,
   cancelReplacement,
   discardUpload,
   retireUpload,
@@ -71,7 +70,6 @@ import {
   SurfaceCardHeader,
   SurfaceCardBody,
 } from "@/components/workspace/ui/Surface";
-import { ActiveFileProvenance } from "@/components/workspace/ActiveFileProvenance";
 import { ChevronDown } from "lucide-react";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
@@ -126,17 +124,13 @@ export default function PrepareWorkspace() {
   const focusUnresolved = searchParams.get("review") === "unresolved";
   const reviewRef = useRef<HTMLDivElement>(null);
   const [processingOpen, setProcessingOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
-  const [discardTarget, setDiscardTarget] = useState<WorkspaceUpload | null>(null);
+  const [retryingProcess, setRetryingProcess] = useState(false);
   // One-tap replace: the file the user picked to take over from the prior run.
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [replacing, setReplacing] = useState(false);
   const replaceInputRef = useRef<HTMLInputElement>(null);
-  // Set when the dialog discard succeeded, so closing it does not drop the
-  // replacement file that is about to be uploaded.
-  const keepPendingFileRef = useRef(false);
 
   // "Manage Trial Balance": what may be offered comes from the server (access + current plan + removal eligibility).
   const { state: capabilityState } = useWorkspaceCapabilities(companyId);
@@ -157,9 +151,9 @@ export default function PrepareWorkspace() {
   const currentEligibility = eligibility && eligibility.key === eligibilityKey ? eligibility.value : null;
   const removeAction = sourceMode === "manage" ? decideRemoveAction(upload, currentEligibility) : null;
 
-  // The replacement created by retireUpload() is processed exactly like a fresh upload and then goes
-  // through the same non-skippable SafishaGate that TrialBalanceUpload opens after processing.
-  const [safishaUpload, setSafishaUpload] = useState<{ uploadId: string; fileName: string } | null>(null);
+  // The replacement created by retireUpload() is processed exactly like a fresh upload. Evidence verification (the
+  // non-skippable SafishaGate) is offered by the page itself once the verdict says the trial balance is accepted —
+  // never on a trial balance that failed its own checks. It stays mandatory: tax is locked until evidence is clean.
 
   const processReplacement = async (uploadId: string, fileName: string) => {
     try {
@@ -168,8 +162,7 @@ export default function PrepareWorkspace() {
         body: { uploadId, clientRequestId: crypto.randomUUID() },
       });
       if (error) throw error;
-      if (prepareOnly) toast.success(`${fileName} validated. Evidence verification is completed by someone with Reconcile access. Later stages stay locked until it clears.`);
-      else setSafishaUpload({ uploadId, fileName });
+      toast.success(`Processing ${fileName}. The result appears on this page.`);
     } catch (err) {
       console.error("[processReplacement]", err);
       // A 403 means the caller lacks validation authority (owner or explicit grant); a retry cannot succeed.
@@ -433,7 +426,39 @@ export default function PrepareWorkspace() {
   const readiness = readinessInput ? computeCertificationReadiness(readinessInput) : undefined;
   // Presentation only: the row those readiness layers were drawn from, so the card can draw informational layers
   // neutrally from their structured severity (certificationCheckPresentation.ts).
-  const certificationRow = readinessInput ? certificationRowForDisplay(readinessInput) : null;
+  const verdict = deriveTrialBalanceVerdict({ upload: upload ?? null, readiness, canRetry: canReprocessUpload(upload) });
+
+  // Re-run processing after an engine failure (never offered for a blocked trial balance: its checks ran and the same
+  // file would fail again). Only the Edge Function writes; the page makes no financial write.
+  const handleRetry = async () => {
+    if (!upload?.id || retryingProcess || !canReprocessUpload(upload)) return;
+    setRetryingProcess(true);
+    try {
+      await ensureFreshSession();
+      const { error } = await supabase.functions.invoke("process-trial-balance", { body: { uploadId: upload.id, clientRequestId: crypto.randomUUID() } });
+      if (error) throw error;
+      toast.success("Processing started. The result appears on this page.");
+    } catch (err) {
+      console.error("[handleRetry]", err);
+      toast.error("Processing did not start. Please try again.");
+    } finally {
+      setRetryingProcess(false);
+      refreshUpload();
+      certReadiness.refetch();
+    }
+  };
+
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const onPrimary = (kind: NonNullable<typeof verdict.primaryAction>["kind"]) => {
+    if (kind === "replace") replaceInputRef.current?.click();
+    else if (kind === "retry") void handleRetry();
+    else if (kind === "review_classifications") {
+      if (reviewRef.current) reviewRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      else navigate(buildPrepareReviewRoute(companyId, periodYear, upload?.id ?? null));
+    }
+    else if (kind === "verify_evidence") scrollTo("evidence-verification");
+    else if (kind === "continue") navigate(`/workspace/${companyId}/${periodYear}/reconcile`);
+  };
 
   // PPG-1 Finding 1 (defense in depth for the upload/replace path):
   // useWorkspaceData already holds a realtime `postgres_changes` UPDATE
@@ -519,62 +544,49 @@ export default function PrepareWorkspace() {
             <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
               Prepare data · FY{periodYear}
             </p>
-            <h1 className="mt-1 text-xl font-semibold text-foreground">Trial balance preparation</h1>
-            {upload && (
-              <div className="mt-2">
-                <ActiveFileProvenance
-                  fileName={upload.file_name}
-                  fileSize={upload.file_size}
-                  uploadedAt={upload.uploaded_at}
-                  status={upload.status}
-                />
-              </div>
-            )}
-            {/* Directly under the file header — never below the pre-flight checklist. */}
-            {upload && !showUploader && (
-              <>
-                <input
-                  ref={replaceInputRef}
-                  type="file"
-                  accept=".csv,.xlsx,.xls"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = "";
-                    void handleReplacePicked(file);
-                  }}
-                />
-                <ManageTrialBalance
-                  mode={sourceMode}
-                  removeAction={removeAction}
-                  replacing={replacing}
-                  removing={removing}
-                  focusRequested={focusManage}
-                  onReplace={() => replaceInputRef.current?.click()}
-                  onRemove={handleRemove}
-                />
-              </>
-            )}
+            <h1 className="mt-1 text-xl font-semibold text-foreground">Trial balance</h1>
             {!prepareOnly && <EntityContextSuggestion reportingFrameworkDbValue={company?.reporting_framework} companyCreatedAt={company?.created_at} />}
           </div>
         </div>
       </header>
 
       <div className="space-y-5">
-          {/* A replacement goes through the same evidence gate as a fresh upload (non-skippable). */}
-          {safishaUpload && (
-            <SafishaGate
-              uploadId={safishaUpload.uploadId}
-              fileName={safishaUpload.fileName}
-              onCleared={() => {
-                toast.success("TB verified — tax engine unlocked for " + safishaUpload.fileName);
-                refreshUpload();
-              }}
-              onBlocked={() => {
-                toast.error("Reconciliation blocked — re-upload a corrected TB to proceed.");
-                refreshUpload();
-              }}
-            />
+          {/* The Current Trial Balance card: file, result, totals, one reason, one action. Replace / Remove live here. */}
+          {upload && !showUploader && (
+            <>
+              <input
+                ref={replaceInputRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  void handleReplacePicked(file);
+                }}
+              />
+              <CurrentTrialBalanceCard
+                fileName={upload.file_name}
+                uploadedAt={upload.uploaded_at}
+                fileSize={upload.file_size}
+                verdict={verdict}
+                busy={replacing || retryingProcess}
+                onPrimary={onPrimary}
+                management={
+                  <ManageTrialBalance
+                    variant="inline"
+                    hideReplace={verdict.primaryAction?.kind === "replace" && sourceMode === "manage"}
+                    mode={sourceMode}
+                    removeAction={removeAction}
+                    replacing={replacing}
+                    removing={removing}
+                    focusRequested={focusManage}
+                    onReplace={() => replaceInputRef.current?.click()}
+                    onRemove={handleRemove}
+                  />
+                }
+              />
+            </>
           )}
 
           {/* Upload surface — the one thing to do when nothing is here yet. */}
@@ -602,6 +614,7 @@ export default function PrepareWorkspace() {
                   initialFile={pendingFile}
                   autoProcess={!!pendingFile}
                   evidenceByReconcileOnly={prepareOnly}
+                  evidenceGateHandledByParent
                   onUploaded={() => {
                     setShowUploader(false);
                     setPendingFile(null);
@@ -621,16 +634,7 @@ export default function PrepareWorkspace() {
 
           {upload ? (
             <>
-              <TrialBalancePreflight
-                upload={upload}
-                readiness={readiness}
-                certificationRow={certificationRow}
-                resolveHref={
-                  showReviewPanel
-                    ? buildPrepareReviewRoute(companyId, periodYear, upload.id)
-                    : undefined
-                }
-              />
+              <TrialBalanceChecks verdict={verdict} />
 
               {/* Account review — only when classifier has unresolved accounts */}
               {prepareOnly && showReviewPanel && (
@@ -700,7 +704,38 @@ export default function PrepareWorkspace() {
                 </div>
               )}
 
-              {/* Evidence is available without competing with the decision. */}
+              {verdict.evidenceUnlocked && !verdict.evidenceCleared && canReprocessUpload(upload) && (
+                <section id="evidence-verification" aria-labelledby="evidence-verification-title" className="border border-border bg-card" data-testid="evidence-verification">
+                  <div className="border-b border-border px-5 py-4 sm:px-7">
+                    <h2 id="evidence-verification-title" className="text-[15px] font-semibold text-foreground">Evidence verification</h2>
+                    <p className="mt-1 text-[13px] text-muted-foreground">
+                      Required before tax: match the accepted trial balance to bank statements, mobile-money exports or subledgers.
+                    </p>
+                  </div>
+                  {prepareOnly ? (
+                    <p className="px-5 py-4 text-[13px] text-muted-foreground sm:px-7" data-testid="evidence-by-reconcile">
+                      Evidence verification is completed by someone with Reconcile access. Later stages stay locked until it clears.
+                    </p>
+                  ) : (
+                    <div className="px-5 py-4 sm:px-7">
+                      <SafishaGate
+                        uploadId={upload.id}
+                        fileName={upload.file_name}
+                        onCleared={() => {
+                          toast.success("Evidence verified — the trial balance can move on to tax.");
+                          refreshUpload();
+                        }}
+                        onBlocked={() => {
+                          toast.error("Evidence did not match. Review the exceptions, or replace the trial balance.");
+                          refreshUpload();
+                        }}
+                      />
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* Engine telemetry for auditors, collapsed. The result itself is stated once, above. */}
               <SurfaceCard>
                 <Button
                   type="button"
@@ -709,17 +744,14 @@ export default function PrepareWorkspace() {
                   aria-expanded={processingOpen}
                   className="h-auto w-full justify-between rounded-none px-5 py-3"
                 >
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Evidence and processing details</span>
+                  <span className="text-[13px] font-semibold text-foreground">Technical processing details</span>
                   <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${processingOpen ? "rotate-180" : ""}`} />
                 </Button>
                 {processingOpen && (
                   <div className="space-y-4 border-t border-border p-4">
                     <div data-testid="certification-ledger" data-active-upload-id={upload.id}>
-                      <CertificationHeader upload={upload} />
-                      <CertificationSummaryStrip upload={upload} />
+                      <TrialBalanceProgressLedger upload={upload} failedCheckId={verdict.failedCheckId} />
                     </div>
-                    <TrialBalanceProgressLedger upload={upload} />
-                    <TrialBalanceIntegrityCard upload={upload} />
                     <BalanceSheetEquationCard upload={upload} />
                     <ClassificationBreakdown upload={upload} />
                     <ValidationReport
@@ -740,34 +772,17 @@ export default function PrepareWorkspace() {
                 )}
               </SurfaceCard>
 
-              <SurfaceCard>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setHistoryOpen((v) => !v)}
-                  aria-expanded={historyOpen}
-                  className="h-auto w-full justify-between rounded-none px-5 py-3"
-                >
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Previous trial balances · {uploads.length}</span>
-                  <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${historyOpen ? "rotate-180" : ""}`} />
-                </Button>
-                {historyOpen && (
-                  <div className="border-t border-border p-4">
-                    <UploadsStatusPanel
-                      uploads={uploads}
-                      selectedId={upload.id}
-                      onSelect={(u) => {
-                        const selected = u as WorkspaceUpload;
-                        const { periodYear: newPY } = deriveFiscalPeriod(selected, company?.fiscal_year_end ?? null);
-                        setShowUploader(false);
-                        navigate(buildPrepareUploadRoute(companyId, newPY, selected.id));
-                      }}
-                      onRefresh={async () => { await refreshUpload(); }}
-                      onDiscard={(u) => setDiscardTarget(u as WorkspaceUpload)}
-                    />
-                  </div>
-                )}
-              </SurfaceCard>
+              <UploadHistory
+                uploads={rawUploads}
+                currentId={rawUpload?.id ?? null}
+                viewingId={upload.id}
+                onOpen={(u) => {
+                  const selected = u as WorkspaceUpload;
+                  const { periodYear: newPY } = deriveFiscalPeriod(selected, company?.fiscal_year_end ?? null);
+                  setShowUploader(false);
+                  navigate(buildPrepareUploadRoute(companyId, newPY, selected.id));
+                }}
+              />
             </>
           ) : null}
       </div>
@@ -781,45 +796,6 @@ export default function PrepareWorkspace() {
         />
       )}
 
-      <DiscardUploadDialog
-        target={discardTarget}
-        open={!!discardTarget}
-        replacementFileName={discardTarget?.id === upload?.id ? pendingFile?.name ?? null : null}
-        onOpenChange={(o) => {
-          if (!o) {
-            setDiscardTarget(null);
-            if (keepPendingFileRef.current) {
-              keepPendingFileRef.current = false;
-            } else {
-              setPendingFile(null);
-            }
-          }
-        }}
-        onReplacementCancelled={(cancelledId) => {
-          setDiscardedIds((prev) => suppressUpload(prev, cancelledId));
-          setDiscardTarget(null);
-          setPendingFile(null);
-          navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
-          refreshUpload();
-        }}
-        onDiscarded={(_id, receipt) => {
-          keepPendingFileRef.current = !!pendingFile;
-          setDiscardedIds((prev) => suppressUpload(prev, receipt.id));
-          setDiscardTarget(null);
-          offerUndo(receipt, () => {
-            setDiscardedIds((prev) => restoreUploadId(prev, receipt.id));
-            setPendingFile(null);
-            setShowUploader(false);
-            navigate(buildPrepareUploadRoute(companyId, periodYear, receipt.id), { replace: true });
-            refreshUpload();
-          });
-          // Drop any pinned ?upload=<id> so the list resolves to what remains,
-          // then open the uploader — the one next action after a discard.
-          navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
-          setShowUploader(true);
-          refreshUpload();
-        }}
-      />
     </div>
   );
 }

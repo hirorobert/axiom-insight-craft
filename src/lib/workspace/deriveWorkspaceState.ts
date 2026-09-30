@@ -13,7 +13,8 @@
  *  1.  No upload                            → Import Trial Balance
  *  2.  Upload processing                    → Wait / Refresh
  *  3.  Upload needs_review                  → Resolve Account Classifications
- *  4.  Upload error/blocked                 → Resolve Upload Error
+ *  4.  Upload error (engine failure)        → Resolve Upload Error (retry)
+ *  4B. Upload blocked by its checks         → Replace with corrected Trial Balance (plain reason from the certification)
  *  5.  Upload invalid (is_valid=false)      → Fix Validation Errors
  *  6.  Safisha blocked/exceptions           → Resolve Reconciliation Exceptions
  *  6B. Certification not "certified"        → Certify the trial balance / Resolve trial-balance difference
@@ -37,6 +38,7 @@ import type {
   NextAction,
   MissionStatus,
 } from "./types";
+import { plainBlockReason } from "./trialBalanceVerdict";
 
 function base(companyId: string, periodYear: number) {
   return `/workspace/${companyId}/${periodYear}`;
@@ -167,8 +169,10 @@ export function deriveWorkspaceState(
     };
   }
 
-  // ── PATH 4: Error / blocked ───────────────────────────────────────────────
-  if (upload.status === "error" || upload.status === "blocked") {
+  // ── PATH 4: Engine failure ─────────────────────────────────────────────────
+  // "error" means processing stopped before the checks finished; re-running can succeed. A "blocked" upload is
+  // different: the checks ran and failed, so re-running the same file cannot change the answer (PATH 4B).
+  if (upload.status === "error") {
     return {
       ...uploadCommon,
       missions: {
@@ -185,6 +189,34 @@ export function deriveWorkspaceState(
         label: "Resolve Upload Error",
         description: "Processing failed — review the validation report and reprocess or upload a corrected file",
         href: `${b}/prepare`,
+        blocked: false,
+        mission: "prepare",
+        priority: 4,
+      },
+    };
+  }
+
+  // ── PATH 4B: Blocked by its own checks ───────────────────────────────────────
+  // The same plain reason the Prepare Data card shows (trialBalanceVerdict.ts): the certification's blocker, stated from
+  // the recorded totals when debits and credits differ. The one useful action is a corrected file.
+  if (upload.status === "blocked") {
+    const reason = plainBlockReason({ blocker: upload.certificationBlocker, totals: upload.trialBalanceTotals ?? null });
+    return {
+      ...uploadCommon,
+      missions: {
+        prepare:    { status: "blocked", label: "Prepare Data", summary: "Trial balance blocked by its checks", href: `${b}/prepare`, blocker: reason },
+        reconcile:  na("Reconcile",      "reconcile",  companyId, periodYear, "Available — reconciliation and journal review"),
+        statements: locked("Prepare Statements", "statements", companyId, periodYear, "Replace the blocked trial balance first"),
+        tax:        locked("Compute Tax",        "tax",        companyId, periodYear, "Complete Prepare Data first"),
+        compliance: na("Compliance Review", "compliance", companyId, periodYear, "Available after tax computation"),
+        filing:     locked("Prepare Outputs",    "filing",     companyId, periodYear, "Complete Compute Tax first"),
+        monitor:    na("Monitor", "monitor", companyId, periodYear),
+      },
+      nextAction: {
+        id: "replace-blocked-trial-balance",
+        label: "Replace with corrected Trial Balance",
+        description: reason,
+        href: `${b}/prepare?manage=source#manage-trial-balance`,
         blocked: false,
         mission: "prepare",
         priority: 4,

@@ -87,4 +87,6 @@ export interface UploadSnapshot {
   certificationVerdict?: "certified" | "review" | "blocked" | "pending" | "stale" | "unknown" | "superseded";
   /** Plain-language reason for the verdict, straight from computeCertificationReadiness — never re-derived here. */
   certificationBlocker?: string | null;
+  /** Recorded debit/credit totals (validation_report.tb_balance_check); null = not computed. */
+  trialBalanceTotals?: { debits: number; credits: number; difference: number } | null;
 }

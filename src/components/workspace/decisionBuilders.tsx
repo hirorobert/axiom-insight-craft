@@ -49,7 +49,6 @@ export function buildClassificationDecision(classification: ClassificationPresen
             }
           : { label: "Open Prepare Data", href: opts.prepareHref, icon: <ArrowRight className="w-4 h-4" /> },
         tone: "warn",
-        offersFileReplacement: true,
       };
 
     case "PROCESSING":
@@ -70,7 +69,6 @@ export function buildClassificationDecision(classification: ClassificationPresen
         detail: classification.detail,
         button: { label: "Open Prepare Data", href: opts.prepareHref, icon: <ArrowRight className="w-4 h-4" /> },
         tone: "warn",
-        offersFileReplacement: true,
       };
 
     case "COMPLETE_WITH_REVIEW":
@@ -83,7 +81,6 @@ export function buildClassificationDecision(classification: ClassificationPresen
         detail: classification.detail,
         button: { label: `Review ${num(reviewCount)} ${reviewCount === 1 ? "account" : "accounts"}`, href: opts.reviewHref, icon: <ArrowRight className="w-4 h-4" /> },
         tone: "primary",
-        offersFileReplacement: true,
       };
     }
 
@@ -125,7 +122,6 @@ export function buildNextActionDecision(workspaceState: WorkspaceState): Decisio
       detail: nextAction.description,
       button: { label: nextAction.label, href: nextAction.href, icon: <ArrowRight className="w-4 h-4" /> },
       tone: "warn",
-      offersFileReplacement: true,
     };
   }
 

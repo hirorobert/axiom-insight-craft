@@ -65,6 +65,11 @@ export interface TrialBalanceUploadProps {
    * safisha_status stays uncleared and every later stage stays locked until someone with Reconcile access clears it.
    */
   evidenceByReconcileOnly?: boolean;
+  /**
+   * The parent page opens evidence verification itself, from the authoritative verdict (Prepare Data: only once the
+   * trial balance is accepted). The gate is NOT bypassed: tax stays locked until safisha_status is clean.
+   */
+  evidenceGateHandledByParent?: boolean;
 }
 
 export const TrialBalanceUpload = ({
@@ -77,6 +82,7 @@ export const TrialBalanceUpload = ({
   initialFile = null,
   autoProcess = false,
   evidenceByReconcileOnly = false,
+  evidenceGateHandledByParent = false,
   onUploaded,
 }: TrialBalanceUploadProps = {}) => {
   const [files, setFiles] = useState<FileUpload[]>([]);
@@ -259,7 +265,9 @@ export const TrialBalanceUpload = ({
 
       // SAFISHA GATE: open the evidence verification gate for this upload
       // The tax engine is locked until Safisha clears it (safisha_status = 'clean')
-      if (evidenceByReconcileOnly) {
+      if (evidenceGateHandledByParent) {
+        // The page states the result and offers evidence verification once the trial balance is accepted.
+      } else if (evidenceByReconcileOnly) {
         toast.success(`${file.name} validated. Evidence verification is completed by someone with Reconcile access. Later stages stay locked until it clears.`);
       } else {
         setSafishaUpload({ uploadId: uploadRecord.id, fileName: file.name });

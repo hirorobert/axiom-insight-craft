@@ -146,8 +146,14 @@ describe("the shell and Prepare narrow to the grant (source contract)", () => {
     expect(prep).toMatch(/\{!prepareOnly && showReviewPanel && upload\.company_id && user && \(/);
     expect(prep).toMatch(/\{!prepareOnly && <EntityContextSuggestion/);
     expect(prep).toMatch(/disabled=\{prepareOnly\} onClick=\{\(\) => setMappingModalOpen\(true\)\}/);
-    expect(prep).toMatch(/if \(prepareOnly\) toast\.success\([^\n]*\n\s+else setSafishaUpload/);
+    // The page opens evidence verification itself, only for an accepted trial balance; a Prepare-only person sees a note.
+    const gate = prep.slice(prep.indexOf("{verdict.evidenceUnlocked && !verdict.evidenceCleared"));
+    expect(gate.indexOf('data-testid="evidence-by-reconcile"')).toBeGreaterThan(0);
+    expect(gate.indexOf('data-testid="evidence-by-reconcile"')).toBeLessThan(gate.indexOf("<SafishaGate"));
+    expect(gate).toMatch(/\{prepareOnly \? \(/);
+    expect(prep.match(/<SafishaGate/g)?.length).toBe(1);
     expect(prep).toMatch(/evidenceByReconcileOnly=\{prepareOnly\}/);
+    expect(prep).toMatch(/evidenceGateHandledByParent\n/);
     const up = src("src/components/TrialBalanceUpload.tsx");
     expect(up).toMatch(/if \(evidenceByReconcileOnly\) \{[\s\S]{0,200}\} else \{\s+setSafishaUpload/);
   });

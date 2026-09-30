@@ -62,7 +62,7 @@ export default function WorkspaceStatesAcceptance() {
               <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground" data-testid="fixture-label">
                 {fixture.label}
               </p>
-              <DecisionCard decision={decision} manageUploadHref="#fixture-destination-not-a-real-route" />
+              <DecisionCard decision={decision} />
             </li>
           );
         })}

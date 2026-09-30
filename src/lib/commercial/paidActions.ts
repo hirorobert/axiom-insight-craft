@@ -118,6 +118,11 @@ export interface CapacityAnswer {
   readonly determined: boolean;
 }
 
+/** A new company may be offered only when capacity is known and not used up (the create path re-checks on the server). */
+export function canAddCompany(capacity: CapacityAnswer | null): boolean {
+  return !!capacity && capacity.determined && capacity.capacity !== null && capacity.used !== null && capacity.used < capacity.capacity;
+}
+
 /** Customer copy when a new entity cannot be created (structured outcome of create_entity). */
 export function capacityCopy(answer: CapacityAnswer): LockedCopy {
   const plan = displayCataloguePlanName(answer.planCode) ?? "current";

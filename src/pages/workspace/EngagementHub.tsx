@@ -10,9 +10,15 @@
  * "Start another service" (a company with no open engagement) is a clearly separate action from
  * resuming an existing engagement — distinct section, distinct verb — so starting one can never be
  * mistaken for, or accidentally mutate, an engagement already in progress.
+ *
+ * It is also the ACCOUNT HOME the CFOClose logo leads to from inside a workspace: the person's entitled engagements
+ * and shared workspaces, adding a company (offered only within the plan's entity capacity; the server's create path
+ * stays the authority), the current plan, Plans, Settings and Sign out.
  */
 
-import { ArrowRight, Building2 } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
+import { ArrowRight, Building2, LogOut, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
@@ -21,6 +27,25 @@ import { capabilityTitle } from "@/lib/workspace/mandate";
 import type { ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
+import type { BillingSummary } from "@/hooks/useBillingSummary";
+import { canAddCompany, type CapacityAnswer } from "@/lib/commercial/paidActions";
+import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
+import { EntityCapacityNotice } from "@/components/commercial/EntityCapacityNotice";
+
+/** What the account home adds around the chooser. Absent (e.g. acceptance fixtures): the plain chooser. */
+export interface AccountHome {
+  billing: BillingSummary | null;
+  billingLoading: boolean;
+  billingError: boolean;
+  capacity: CapacityAnswer | null;
+  capacityLoading: boolean;
+  capacityError: boolean;
+  onRetry: () => void;
+  onSignOut: () => void;
+  /** The add-company form (FirstRunEngagement), shown when the person chooses to add one within capacity. */
+  addCompanyForm: ReactNode;
+}
+
 
 export default function EngagementHub({
   entries,
@@ -29,6 +54,7 @@ export default function EngagementHub({
   onStartService,
   sharedWorkspaces = [],
   onOpenShared,
+  account,
 }: {
   entries: ActiveEngagementEntry[];
   companiesWithoutEngagement: WorkspaceCompany[];
@@ -37,14 +63,31 @@ export default function EngagementHub({
   /** Workspaces shared through an explicit Prepare grant (PR #32). They open into Prepare Data only. */
   sharedWorkspaces?: SharedWorkspace[];
   onOpenShared?: (workspace: SharedWorkspace) => void;
+  account?: AccountHome;
 }) {
+  const [adding, setAdding] = useState(false);
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-border h-14 flex items-center px-6">
+      <header className="border-b border-border h-14 flex items-center justify-between gap-3 px-4 sm:px-6">
         <CFOCloseWordmark className="text-lg" />
+        {account && (
+          <nav aria-label="Account" className="flex items-center gap-1 sm:gap-2">
+            <Link to="/plans" className="px-2 py-1.5 text-[13px] text-muted-foreground hover:text-foreground">Plans</Link>
+            <Link to="/settings" className="px-2 py-1.5 text-[13px] text-muted-foreground hover:text-foreground">Settings</Link>
+            <Button variant="ghost" size="sm" onClick={account.onSignOut} className="h-8 rounded-none px-2 text-[13px]" data-testid="account-sign-out">
+              <LogOut className="mr-1.5 h-3.5 w-3.5" /> Sign out
+            </Button>
+          </nav>
+        )}
       </header>
 
       <main className="max-w-3xl mx-auto px-5 py-10 sm:py-14">
+        {account && entries.length === 0 && (
+          <section className="mb-10">
+            <h1 className="text-2xl sm:text-[1.75rem] font-semibold tracking-tight text-foreground mb-1">Your engagements</h1>
+            <p className="text-[13px] text-muted-foreground">No open engagements. Start a service for a company below.</p>
+          </section>
+        )}
         {entries.length > 0 && (
           <section className="mb-10">
             <h1 className="text-2xl sm:text-[1.75rem] font-semibold tracking-tight text-foreground mb-1">
@@ -141,6 +184,39 @@ export default function EngagementHub({
                 </li>
               ))}
             </ul>
+          </section>
+        )}
+        {account && (
+          <section className="mt-10" data-testid="account-add-company">
+            <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-3">Add a company</h2>
+            {canAddCompany(account.capacity) ? (
+              adding ? (
+                account.addCompanyForm
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAdding(true)}
+                  data-testid="add-company"
+                  className="w-full text-left p-3.5 border border-dashed border-border hover:border-primary/60 transition-colors flex items-center gap-3"
+                >
+                  <Plus className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <span className="text-[13px] font-medium text-foreground flex-1">
+                    Add a company
+                    {account.capacity?.capacity != null && account.capacity.used != null && (
+                      <span className="ml-2 font-normal text-muted-foreground">{account.capacity.used} of {account.capacity.capacity} in use</span>
+                    )}
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                </button>
+              )
+            ) : (
+              <EntityCapacityNotice capacity={account.capacity} loading={account.capacityLoading} error={account.capacityError} onRetry={account.onRetry} />
+            )}
+          </section>
+        )}
+        {account && (
+          <section className="mt-10" data-testid="account-plan">
+            <CurrentPlanPanel billing={account.billing} capacity={account.capacity} loading={account.billingLoading} error={account.billingError} onRetry={account.onRetry} />
           </section>
         )}
       </main>

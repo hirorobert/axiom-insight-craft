@@ -374,6 +374,7 @@ src/
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing
       sourceUpload.ts         ← ONLY browser path for a trial balance source: reserve → signed workspace-scoped upload → register
+      trialBalanceVerdict.ts          ← THE trial balance presentation model (status, reason, totals, checks, primary action, evidence unlock) from the certification ledger; card, checks, ledger, Overview and workspace state all read it
       trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client
       classificationPresentation.ts   ← Pure deterministic 7-state classification presentation (FAILED/PROCESSING/INCONSISTENT/COMPLETE_WITH_REVIEW/PARTIAL/COMPLETE_NO_REVIEW/NOT_COMPUTED) for WorkspaceOverview. "Classified" means mapping_completeness.mapped_accounts (Tier 1-5) — never summary.auto_classified (Tier 4-5 only).
       classificationAcceptanceFixtures.ts ← Deterministic fixture inputs (one per classification state) for the internal /internal/acceptance/classification-states dev-only page. No Supabase, no randomness.

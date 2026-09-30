@@ -134,12 +134,30 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
 
   // ── PATH 4b: Blocked status ──────────────────────────────────────────────
 
-  it("PATH 4b: status=blocked → resolve-upload-error, SAFISHA blocked", () => {
-    const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({ status: "blocked" }));
+  it("PATH 4B: status=blocked → replace with a corrected file (never 'Resolve Upload Error' / retry); the reason is plain and stated from the recorded totals", () => {
+    const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({
+      status: "blocked",
+      certificationBlocker: "Debits 174776903504.08 != Credits 174677256055.37 (difference: 99647448.71)",
+      trialBalanceTotals: { debits: 174776903504.08, credits: 174677256055.37, difference: 99647448.71 },
+    }));
 
-    expect(result.nextAction.id).toBe("resolve-upload-error");
+    expect(result.nextAction.id).toBe("replace-blocked-trial-balance");
+    expect(result.nextAction.label).toBe("Replace with corrected Trial Balance");
+    expect(result.nextAction.description).toBe("Debits exceed credits by 99,647,448.71. Correct the file and replace it.");
+    expect(result.nextAction.href).toBe(`/workspace/${CID}/${PY}/prepare?manage=source#manage-trial-balance`);
     expect(result.missions.prepare.status).toBe("blocked");
+    expect(result.missions.prepare.blocker).toBe(result.nextAction.description);
     assertInvariants(result);
+  });
+
+  it("PATH 4B: a block that is not arithmetic uses the certification's own reason without engine codes", () => {
+    const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({ status: "blocked", certificationBlocker: "L2_BAD_NUMBER: Row 14 has a non-numeric amount.", trialBalanceTotals: null }));
+    expect(result.nextAction.description).toBe("Row 14 has a non-numeric amount.");
+    assertInvariants(result);
+  });
+
+  it("PATH 4: status=error (engine failure) is still 'Resolve Upload Error' — retry can succeed there", () => {
+    expect(deriveWorkspaceState(CID, "Acme Ltd", PY, snap({ status: "error" })).nextAction.id).toBe("resolve-upload-error");
   });
 
   // ── PATH 5: Invalid TB ───────────────────────────────────────────────────

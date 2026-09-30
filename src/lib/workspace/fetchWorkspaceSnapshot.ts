@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { deriveWorkspaceState } from "./deriveWorkspaceState";
 import { resolveActiveUpload } from "./resolveActiveUpload";
 import { computeCertificationReadiness } from "./computeCertificationReadiness";
+import { readTrialBalanceTotals } from "./trialBalanceVerdict";
 import { fetchCertificationReadiness } from "@/hooks/useCertificationReadiness";
 import type { WorkspaceState, UploadSnapshot } from "./types";
 
@@ -124,6 +125,7 @@ function toUploadSnapshot(
     filingSubmittedAt,
     certificationVerdict,
     certificationBlocker,
+    trialBalanceTotals: readTrialBalanceTotals(upload.processing_result),
   };
 }
 
