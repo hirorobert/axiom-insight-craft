@@ -138,7 +138,7 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({
       status: "blocked",
       certificationBlocker: "Debits 1250000.00 != Credits 1247500.00 (difference: 2500.00)",
-      trialBalanceTotals: { debits: 1250000.00, credits: 1247500.00, difference: 2500.00 },
+      trialBalanceTotals: { debitCents: 125_000_000, creditCents: 124_750_000, differenceCents: 250_000 },
     }));
 
     expect(result.nextAction.id).toBe("replace-blocked-trial-balance");

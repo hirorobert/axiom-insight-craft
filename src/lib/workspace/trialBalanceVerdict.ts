@@ -30,32 +30,60 @@
 
 import type { PreflightCheck, PreflightCheckState, PreflightVerdict } from "./computePreflight";
 
+/**
+ * Recorded totals in integer minor units (cents). Every subtraction and comparison is done on these safe integers —
+ * never on floating-point amounts. differenceCents = debitCents − creditCents: positive = debit excess, negative =
+ * credit excess, zero = equal.
+ */
 export interface TrialBalanceTotals {
-  debits: number;
-  credits: number;
-  difference: number;
+  debitCents: number;
+  creditCents: number;
+  differenceCents: number;
 }
 
 const record = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
-const amount = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 /**
- * Debit / credit totals exactly as the engine recorded them (processing_result.validation_report.tb_balance_check).
- * Fail closed — null (NOT COMPUTED) unless: the path is objects all the way; total_debits and total_credits are finite,
- * non-negative JSON numbers (a numeric string is refused, not coerced); and a recorded difference, when present, is a
- * finite number equal in magnitude to |debits − credits| within half a cent. An absent difference is derived.
+ * One stored amount → integer cents, converted exactly once. Null (refused) unless the value is a finite JSON number
+ * (a numeric string is refused, never coerced) whose cents are a non-negative safe integer.
+ */
+export function toMinorUnits(v: unknown): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  const cents = Math.round(v * 100);
+  return Number.isSafeInteger(cents) && cents >= 0 ? cents : null;
+}
+
+/**
+ * The engine's own balance tolerance (process-trial-balance STEP 4: TOLERANCE = 1.00 TZS): a difference of at most
+ * 100 cents is balanced, more than 100 cents is out of balance. Matched exactly so the explanation can never disagree
+ * with the engine. This arithmetic only EXPLAINS the server's certification verdict — it never grants acceptance and
+ * never overrides a refusal (the verdict's status comes from the certification readiness alone).
+ */
+export const BALANCE_TOLERANCE_CENTS = 100;
+
+/** Independent rounding of the recorded difference may disagree with the cents derived here by at most one cent. */
+const RECORDED_DIFFERENCE_SLACK_CENTS = 1;
+
+/**
+ * Debit / credit totals as the engine recorded them (processing_result.validation_report.tb_balance_check), in cents.
+ * Fail closed — null (NOT COMPUTED) unless: the path is objects all the way; total_debits and total_credits convert
+ * to non-negative safe-integer cents (toMinorUnits); and a recorded difference, when present, is a JSON number whose
+ * magnitude converts likewise and is within one cent of |debitCents − creditCents| (the engine records it unsigned).
+ * An absent difference is derived. A mismatch of more than one cent means the totals are unavailable and the
+ * certification's own reason is used.
  */
 export function readTrialBalanceTotals(processingResult: unknown): TrialBalanceTotals | null {
   const tb = record(record(record(processingResult)?.validation_report)?.tb_balance_check);
   if (!tb) return null;
-  const debits = amount(tb.total_debits);
-  const credits = amount(tb.total_credits);
-  if (debits === null || credits === null || debits < 0 || credits < 0) return null;
-  const derived = Math.round((debits - credits) * 100) / 100;
-  if (tb.difference === undefined || tb.difference === null) return { debits, credits, difference: derived };
-  const recorded = amount(tb.difference);
-  if (recorded === null || Math.abs(Math.abs(recorded) - Math.abs(derived)) >= 0.005) return null;
-  return { debits, credits, difference: derived };
+  const debitCents = toMinorUnits(tb.total_debits);
+  const creditCents = toMinorUnits(tb.total_credits);
+  if (debitCents === null || creditCents === null) return null;
+  const differenceCents = debitCents - creditCents;
+  if (tb.difference !== undefined && tb.difference !== null) {
+    const recordedCents = typeof tb.difference === "number" ? toMinorUnits(Math.abs(tb.difference)) : null;
+    if (recordedCents === null || Math.abs(recordedCents - Math.abs(differenceCents)) > RECORDED_DIFFERENCE_SLACK_CENTS) return null;
+  }
+  return { debitCents, creditCents, differenceCents };
 }
 
 /** The identity a certification result is bound to: upload id, optimistic-concurrency version and source-file hash. */
@@ -66,16 +94,20 @@ export function uploadSubjectKey(upload: { id: string; version?: number | null; 
 /** The order in which a failing check is named (earlier = more fundamental). */
 export const CHECK_PRECEDENCE = ["l1_structure", "l2_data_quality", "l3_arithmetic", "l4_classification"] as const;
 
-/** 1,250,000.00 — grouped, two decimals, no currency symbol (the workspace currency is shown elsewhere). */
-export function formatAmount(n: number): string {
-  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/**
+ * 1,250,000.00 from 125000000 cents — grouped, two decimals, no currency symbol (the workspace currency is shown
+ * elsewhere). Integer string arithmetic only; a non-safe-integer input is refused rather than rounded.
+ */
+export function formatCents(cents: number): string {
+  if (!Number.isSafeInteger(cents)) throw new RangeError("formatCents: not a safe integer number of cents");
+  const abs = Math.abs(cents);
+  const whole = String((abs - (abs % 100)) / 100).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${cents < 0 ? "-" : ""}${whole}.${String(abs % 100).padStart(2, "0")}`;
 }
 
-const OUT_OF_BALANCE_TOLERANCE = 0.005;
-
-/** True when the recorded totals show debits and credits do not agree. */
+/** True when the recorded totals differ by more than the engine's tolerance (BALANCE_TOLERANCE_CENTS). */
 export function isOutOfBalance(totals: TrialBalanceTotals | null): boolean {
-  return !!totals && Math.abs(totals.difference) >= OUT_OF_BALANCE_TOLERANCE;
+  return !!totals && Math.abs(totals.differenceCents) > BALANCE_TOLERANCE_CENTS;
 }
 
 /** Removes engine codes ("NOT_EVALUATED: …", "L3_TB_IMBALANCE: …") from a message; never invents text. */
@@ -90,8 +122,8 @@ export function stripEngineCode(message: string): string {
 export function plainBlockReason(args: { blocker: string | null | undefined; totals: TrialBalanceTotals | null; failedCheckId?: string | null }): string {
   const arithmetic = args.failedCheckId === undefined || args.failedCheckId === null || args.failedCheckId === "l3_arithmetic";
   if (arithmetic && args.totals && isOutOfBalance(args.totals)) {
-    const higher = args.totals.debits > args.totals.credits ? "Debits" : "Credits";
-    return `${higher} exceed ${higher === "Debits" ? "credits" : "debits"} by ${formatAmount(Math.abs(args.totals.difference))}. Correct the file and replace it.`;
+    const higher = args.totals.differenceCents > 0 ? "Debits" : "Credits";
+    return `${higher} exceed ${higher === "Debits" ? "credits" : "debits"} by ${formatCents(Math.abs(args.totals.differenceCents))}. Correct the file and replace it.`;
   }
   if (args.blocker && args.blocker.trim()) return stripEngineCode(args.blocker);
   return "The trial balance did not pass its checks.";
@@ -188,7 +220,7 @@ function plainCheck(c: PreflightCheck, totals: TrialBalanceTotals | null): Trial
   else if (c.id === "l5_supporting_evidence" && (c.state === "pending" || /NOT_EVALUATED/.test(c.detail))) detail = "Matched after the trial balance is accepted.";
   else if (c.state === "pending" || /NOT_EVALUATED/.test(c.detail)) detail = "Waiting for processing to finish.";
   else if (c.id === "l3_arithmetic" && totals && isOutOfBalance(totals)) {
-    detail = `Debits ${formatAmount(totals.debits)} and credits ${formatAmount(totals.credits)} differ by ${formatAmount(Math.abs(totals.difference))}.`;
+    detail = `Debits ${formatCents(totals.debitCents)} and credits ${formatCents(totals.creditCents)} differ by ${formatCents(Math.abs(totals.differenceCents))}.`;
   } else detail = stripEngineCode(c.detail);
   return { id: c.id, label, state: c.state, detail };
 }

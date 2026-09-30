@@ -12,7 +12,7 @@
 import { useEffect, useState } from "react";
 import { Check, X, Loader2, Minus, AlertTriangle } from "lucide-react";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
-import { formatAmount, isOutOfBalance, readTrialBalanceTotals } from "@/lib/workspace/trialBalanceVerdict";
+import { formatCents, isOutOfBalance, readTrialBalanceTotals } from "@/lib/workspace/trialBalanceVerdict";
 import {
   SurfaceCard,
   SurfaceCardHeader,
@@ -105,7 +105,7 @@ export function deriveTrialBalanceSteps(upload: WorkspaceUpload | null, opts: { 
     parsed: totalAccounts !== null ? pluralAccounts(totalAccounts) : undefined,
     classified: classifiedKnown ? `${mapped!.toLocaleString("en-TZ")} of ${totalAccounts!.toLocaleString("en-TZ")} accounts classified` : undefined,
     balanced: totals === null ? undefined : outOfBalance
-      ? `Debits and credits differ by ${formatAmount(Math.abs(totals.difference))}`
+      ? `Debits and credits differ by ${formatCents(Math.abs(totals.differenceCents))}`
       : "Total debits equal total credits",
     complete: upload.processed_at ? "Processed" : undefined,
   };

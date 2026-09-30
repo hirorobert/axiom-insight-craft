@@ -113,9 +113,9 @@ describe("fail-closed tb_balance_check parsing", () => {
     expect(readTrialBalanceTotals(input)).toBeNull();
   });
   it("valid shapes: a consistent recorded difference (either sign) or an absent one", () => {
-    expect(readTrialBalanceTotals(pr({ total_debits: 12.5, total_credits: 10, difference: 2.5 }))).toEqual({ debits: 12.5, credits: 10, difference: 2.5 });
-    expect(readTrialBalanceTotals(pr({ total_debits: 10, total_credits: 12.5, difference: 2.5 }))).toEqual({ debits: 10, credits: 12.5, difference: -2.5 });
-    expect(readTrialBalanceTotals(pr({ total_debits: 7, total_credits: 7 }))).toEqual({ debits: 7, credits: 7, difference: 0 });
+    expect(readTrialBalanceTotals(pr({ total_debits: 12.5, total_credits: 10, difference: 2.5 }))).toEqual({ debitCents: 1_250, creditCents: 1_000, differenceCents: 250 });
+    expect(readTrialBalanceTotals(pr({ total_debits: 10, total_credits: 12.5, difference: 2.5 }))).toEqual({ debitCents: 1_000, creditCents: 1_250, differenceCents: -250 });
+    expect(readTrialBalanceTotals(pr({ total_debits: 7, total_credits: 7 }))).toEqual({ debitCents: 700, creditCents: 700, differenceCents: 0 });
   });
   it("a refused totals block never produces an arithmetic sentence; the certification's own reason is used", () => {
     const v = deriveTrialBalanceVerdict({

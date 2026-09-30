@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { PreflightCheck } from "./computePreflight";
 import { deriveTrialBalanceSteps } from "@/components/workspace/TrialBalanceProgressLedger";
 import {
-  deriveTrialBalanceVerdict, formatAmount, lifecycleLabel, plainBlockReason, readTrialBalanceTotals, resultLabel, stripEngineCode,
+  deriveTrialBalanceVerdict, formatCents, lifecycleLabel, plainBlockReason, readTrialBalanceTotals, resultLabel, stripEngineCode,
 } from "./trialBalanceVerdict";
 
 const SAMPLE_RESULT = {
@@ -37,7 +37,7 @@ describe("the reported contradiction is resolved at the source — every surface
     expect(verdict.status).toBe("blocked");
     expect(verdict.statusLabel).toBe("Blocked");
     expect(verdict.reason).toBe("Debits exceed credits by 2,500.00. Correct the file and replace it.");
-    expect(verdict.totals).toEqual({ debits: 1250000.00, credits: 1247500.00, difference: 2500.00 });
+    expect(verdict.totals).toEqual({ debitCents: 125_000_000, creditCents: 124_750_000, differenceCents: 250_000 });
     expect(verdict.primaryAction).toEqual({ kind: "replace", label: "Replace with corrected Trial Balance" });
     expect(verdict.failedCheckId).toBe("l3_arithmetic");
     expect(verdict.evidenceUnlocked).toBe(false);   // no evidence verification on a trial balance that does not balance
@@ -106,16 +106,16 @@ describe("each status has one failure-appropriate action", () => {
 
 describe("helpers", () => {
   it("reads the recorded totals; missing or non-numeric totals are NOT COMPUTED (null), never zero", () => {
-    expect(readTrialBalanceTotals(SAMPLE_RESULT)?.difference).toBe(2500.00);
+    expect(readTrialBalanceTotals(SAMPLE_RESULT)?.differenceCents).toBe(250_000);
     expect(readTrialBalanceTotals({})).toBeNull();
     expect(readTrialBalanceTotals({ validation_report: { tb_balance_check: { total_debits: "x", total_credits: 1 } } })).toBeNull();
   });
   it("states which side is higher, and falls back to the certification's reason without codes", () => {
-    expect(plainBlockReason({ blocker: null, totals: { debits: 10, credits: 12.5, difference: -2.5 } })).toBe("Credits exceed debits by 2.50. Correct the file and replace it.");
+    expect(plainBlockReason({ blocker: null, totals: { debitCents: 1_000, creditCents: 1_250, differenceCents: -250 } })).toBe("Credits exceed debits by 2.50. Correct the file and replace it.");
     expect(plainBlockReason({ blocker: "L2_BAD_NUMBER: Row 14 has a non-numeric amount.", totals: null })).toBe("Row 14 has a non-numeric amount.");
-    expect(plainBlockReason({ blocker: "x", totals: { debits: 1, credits: 2, difference: -1 }, failedCheckId: "l2_data_quality" })).toBe("x");
+    expect(plainBlockReason({ blocker: "x", totals: { debitCents: 100, creditCents: 300, differenceCents: -200 }, failedCheckId: "l2_data_quality" })).toBe("x");
     expect(stripEngineCode("NOT_EVALUATED: no reconciliation")).toBe("no reconciliation");
-    expect(formatAmount(1234567.8)).toBe("1,234,567.80");
+    expect(formatCents(123_456_780)).toBe("1,234,567.80");
   });
   it("history rows in words: lifecycle and recorded result", () => {
     expect(lifecycleLabel({ id: "a", file_name: "", uploaded_at: "", lifecycle_state: "superseded" }, "b")).toBe("Replaced");
