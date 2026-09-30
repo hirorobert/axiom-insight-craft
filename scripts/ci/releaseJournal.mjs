@@ -9,6 +9,8 @@
 //                          source order on purpose: an older migration first applied in this release)
 //   0017–0021  apply       20260925110000 … 20260925150000 (template "verbatim_once")
 //   0022  apply            20260926160000 processing entitlement wall (template "verbatim_noop"; reviewed at f21a58f)
+//   0024  apply            20260927100000 Trial Balance removal + official-output serialization (template
+//                          "verbatim_noop_main": verbatim_noop with "approved main head"; reviewed at main 0d2a09e)
 //
 // An apply wrapper must be BYTE-IDENTICAL to its reviewed template rendered with its own source name, the SHA-256 of
 // that source file in this repository (and, where pinned, its byte count). The templates below were reviewed once:
@@ -54,9 +56,9 @@ $pr34$;`;
 // The processing-correction wrapper (0022, reviewed 2026-09-26 against approved head f21a58f): same safety properties
 // (constant name, digest check, one EXECUTE, applied_at only after it, no grants); a second application RETURNs as a
 // no-op instead of raising.
-const noopWrapper = ({ name, digest, head }) => `-- Digest-guarded application of the reviewed, authorized migration
+const noopWrapper = ({ name, digest, head, headLabel = "approved head" }) => `-- Digest-guarded application of the reviewed, authorized migration
 -- supabase/migrations/${name}
--- (approved head ${head}, SHA-256
+-- (${headLabel} ${head}, SHA-256
 --  ${digest}).
 -- The body is read verbatim from the staging table public._pr34_migration_bodies and is executed only
 -- when its digest matches exactly. Applying a second time is a no-op (applied_at already set).
@@ -91,6 +93,8 @@ $pr34_wrap_${name.slice(0, 14)}$;`;   // (no trailing newline: exactly the revie
 
 export const TEMPLATES = {
   verbatim_noop: noopWrapper,
+  // 0024 (reviewed 2026-09-30): byte-identical to verbatim_noop except that the header names the approved MAIN head.
+  verbatim_noop_main: (p) => noopWrapper({ ...p, headLabel: "approved main head" }),
   verbatim: ({ name, digest }) => header(name) + prologue(name, digest, false) + shaCheck("reviewed") + epilogue,
   verbatim_once: ({ name, digest }) => header(name) + prologue(name, digest, false) + shaCheck("reviewed") + `  IF (SELECT applied_at FROM public._pr34_migration_bodies WHERE name = v_name) IS NOT NULL THEN
     RAISE EXCEPTION 'PR34: % is already recorded as applied. Nothing was changed.', v_name USING ERRCODE = '55000';
@@ -131,6 +135,12 @@ export const RELEASE_JOURNAL = {
   "0022_pr34_apply_20260926160000": { kind: "apply", template: "verbatim_noop", source: "20260926160000_trial_balance_processing_entitlement_wall.sql",
     digest: "d032fb0821210b59937e8f513d5de126fb31bbcffff151a91d459dd33914e868", head: "f21a58f7a8e9e2aa09840e5af716e445f6ab0b8b",
     sha256: "71f4353f1a599b534fbbf696440c9252d2d7debd64b56a36f83d1d1148c2d5a1" },
+  // Trial Balance removal with official-output serialization and the READ COMMITTED rule (PR #35), applied by Lovable
+  // after review at main 0d2a09e (PR #37 merged; main push CI green).
+  "0024_apply_20260927100000_trial_balance_remove_from_active_use": { kind: "apply", template: "verbatim_noop_main",
+    source: "20260927100000_trial_balance_remove_from_active_use.sql",
+    digest: "f512988f8998e8db8b814ca3d92b2cc52281cff6a1333a4e5b5b0279ac4c3157", head: "0d2a09eaed9cd6f96790d57bfeb4cf681877b743",
+    sha256: "34f384b86caee59af34dfcd766e8f1cfc424051f4830e980394f9edd558a05ab" },
 };
 
 const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
@@ -227,4 +237,4 @@ export function checkReleaseEntry(tag, text, srcBytes) {
   return { covers: entry.source, outOfOrder: entry.outOfOrder === true, problems };
 }
 
-export const isReleaseTag = (tag) => /^\d{4}_pr34_/.test(tag);
+export const isReleaseTag = (tag) => /^\d{4}_pr34_/.test(tag) || Object.prototype.hasOwnProperty.call(RELEASE_JOURNAL, tag);

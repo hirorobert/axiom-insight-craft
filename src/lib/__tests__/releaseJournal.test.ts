@@ -20,9 +20,9 @@ const sha = (b: Buffer | string) => createHash("sha256").update(b).digest("hex")
 type Result = { ok: boolean; errors: string[]; pending: string[]; mirrored: Array<{ tag: string; source: string; how: string }>; releaseApplied: Array<{ tag: string; source: string }> };
 
 describe("the reviewed release journal", () => {
-  it("every entry 0013–0022 validates: exact content, exact template, digest = the source file in this repository", () => {
+  it("every entry 0013–0022 and 0024 validates: exact content, exact template, digest = the source file in this repository", () => {
     for (const tag of Object.keys(RELEASE_JOURNAL)) expect(checkReleaseEntry(tag, read(tag), srcBytes).problems, tag).toEqual([]);
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(10);
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(11);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -30,17 +30,32 @@ describe("the reviewed release journal", () => {
     expect(RELEASE_JOURNAL["0020_pr34_apply_20260925140000"].digest).toBe("c26e47f3a78b4fd0d47a5a2fab82a69caf13bfe2344e69687f9b30c13a8e5f9a");
     for (const [tag, e] of Object.entries(RELEASE_JOURNAL)) if ("source" in e && e.source) expect(sha(srcBytes(e.source)!), tag).toBe(e.digest);
   });
-  it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 and (out of order on purpose) the prerequisite; only the removal migration is pending", () => {
+  it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 , the removal migration 20260927100000 (0024) and (out of order on purpose) the prerequisite; nothing is pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20260927100000_trial_balance_remove_from_active_use.sql"]);   // 0022 applied the processing correction (reviewed at f21a58f); the removal migration is not yet applied
+    expect(r.pending).toEqual([]);   // 0022 applied the processing correction (f21a58f); 0024 the removal migration (main 0d2a09e)
     expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" }]);
     expect(r.mirrored.filter((m) => m.how === "release_wrapper").map((m) => m.source)).toEqual([
       "20260925100000_global_capabilities_entitlements_pricing.sql", "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
       "20260925120000_reporting_pack_issuance_binding.sql", "20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
       "20260925140000_workspace_capability_authorization.sql", "20260925150000_can_user_act_on_workspace_minimum_grant.sql",
-      "20260926160000_trial_balance_processing_entitlement_wall.sql",
+      "20260926160000_trial_balance_processing_entitlement_wall.sql", "20260927100000_trial_balance_remove_from_active_use.sql",
     ]);
+  });
+  it("0024 is recognised by its exact reviewed tag only, pinned by SHA-256 and re-rendered from its template; any change fails closed", () => {
+    const T = "0024_apply_20260927100000_trial_balance_remove_from_active_use";
+    expect(RELEASE_JOURNAL[T]).toMatchObject({ template: "verbatim_noop_main", digest: "f512988f8998e8db8b814ca3d92b2cc52281cff6a1333a4e5b5b0279ac4c3157", head: "0d2a09eaed9cd6f96790d57bfeb4cf681877b743" });
+    expect(sha(srcBytes("20260927100000_trial_balance_remove_from_active_use.sql")!)).toBe("f512988f8998e8db8b814ca3d92b2cc52281cff6a1333a4e5b5b0279ac4c3157");
+    const text = read(T);
+    expect(checkReleaseEntry(T, text, srcBytes).problems).toEqual([]);
+    // The template differs from verbatim_noop in exactly the header's "approved main head".
+    expect(text).toContain("-- (approved main head 0d2a09eaed9cd6f96790d57bfeb4cf681877b743, SHA-256");
+    for (const [label, mutated] of [
+      ["an extra grant", text.replace("  EXECUTE v_body;", "  EXECUTE v_body;\n  GRANT ALL ON public.companies TO anon;")],
+      ["another digest", text.replace(/f512988f8998e8db8b814ca3d92b2cc52281cff6a1333a4e5b5b0279ac4c3157/g, "0".repeat(64))],
+      ["another head", text.replace("0d2a09eaed9cd6f96790d57bfeb4cf681877b743", "a".repeat(40))],
+      ["a trailing edit", text + "\n-- edited"],
+    ] as const) expect(checkReleaseEntry(T, mutated, srcBytes).problems.length, label).toBeGreaterThan(0);
   });
 });
 
