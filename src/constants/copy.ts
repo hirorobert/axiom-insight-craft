@@ -269,7 +269,7 @@ export const PRICING = {
 
 export const PRICING_TABLE = [
   { term: "Plans",     value: "Solo, Practice, Firm and Enterprise. Plans differ by entity capacity and named users. There is no free plan and no trial." },
-  { term: "Named users", value: `Every plan includes 1 named user. Practice and Firm can add named users at ${formatCatalogueAmount(ADDITIONAL_SEAT_PRICE.monthlyMinor)} per user per month or ${formatCatalogueAmount(ADDITIONAL_SEAT_PRICE.annualMinor)} per user per year. Solo includes 1 named user and cannot add users; Enterprise is negotiated.` },
+  { term: "Named users", value: `Every plan includes 1 named user. Practice and Firm can add named users at ${formatCatalogueAmount(ADDITIONAL_SEAT_PRICE.annualMinor)} per user per year. Solo includes 1 named user and cannot add users; Enterprise is negotiated.` },
   { term: "Sign-in",   value: "Each named user is one person with their own sign-in, so the work recorded under a sign-in belongs to that person. Accounts are never shared." },
   { term: "Included",  value: "Every plan includes Close Assurance, comparative reporting, Close Certification, Reporting Pack and Close Insights. Comparative periods are never charged separately." },
   { term: "Multi-entity", value: "Multi-entity reporting from Practice upwards. Consolidation is not offered." },

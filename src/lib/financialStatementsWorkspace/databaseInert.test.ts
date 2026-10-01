@@ -78,6 +78,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20260922100000_service_enquiry_activation_readiness.sql",
       "supabase/migrations/20260922180000_discard_trial_balance_authority.sql",
       "supabase/migrations/20260923100000_upload_lifecycle_retire_and_replace.sql",
+      // One 12-month commercial term (forward-only; retires the self-serve monthly offers, adds INSERT-only guards and stop-renewal).
+      "supabase/migrations/20261001120000_annual_commercial_term.sql",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryChallenge.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",

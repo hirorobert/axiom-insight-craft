@@ -22,6 +22,9 @@
 -- defaults to RENEWS (no existing licence has a cancellation of renewal to represent). Suspension (payment failure)
 -- and expiry keep their existing semantics: new privileged actions are refused, existing records stay readable.
 --
+-- Re-runnable: applying it again changes nothing (CREATE OR REPLACE, ADD COLUMN IF NOT EXISTS, a retirement UPDATE that
+-- matches only still-active offers).
+--
 -- Not applied by this PR. Authored forward-only; no applied migration is modified.
 
 -- ── 1. Retire the MONTHLY offers for the self-serve plans ───────────────────────────────────────────────────────────
@@ -55,7 +58,7 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.commercial_annual_term_intent_guard() FROM PUBLIC, anon, authenticated;
 
-CREATE TRIGGER trg_commercial_annual_term_intent_guard
+CREATE OR REPLACE TRIGGER trg_commercial_annual_term_intent_guard
   BEFORE INSERT ON public.payment_checkout_intents
   FOR EACH ROW EXECUTE FUNCTION public.commercial_annual_term_intent_guard();
 
@@ -77,13 +80,13 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.commercial_annual_term_licence_guard() FROM PUBLIC, anon, authenticated;
 
-CREATE TRIGGER trg_commercial_annual_term_licence_guard
+CREATE OR REPLACE TRIGGER trg_commercial_annual_term_licence_guard
   BEFORE INSERT ON public.commercial_licences
   FOR EACH ROW EXECUTE FUNCTION public.commercial_annual_term_licence_guard();
 
 -- ── 4. Renewal is represented; stopping it changes nothing else ─────────────────────────────────────────────────────
 ALTER TABLE public.commercial_licences
-  ADD COLUMN renewal_status TEXT NOT NULL DEFAULT 'RENEWS'
+  ADD COLUMN IF NOT EXISTS renewal_status TEXT NOT NULL DEFAULT 'RENEWS'
     CONSTRAINT chk_cl_renewal_status CHECK (renewal_status IN ('RENEWS', 'NON_RENEWING'));
 
 -- The account holder stops renewal of their current licence. Status, period, seats and entitlement are untouched: the

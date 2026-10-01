@@ -45,6 +45,7 @@ describe("migration hygiene", () => {
       "20260926160000_trial_balance_processing_entitlement_wall.sql",
       "20260927041019_security_fix_probe_and_xbrl_concept_map.sql",
       "20260927100000_trial_balance_remove_from_active_use.sql",
+      "20261001120000_annual_commercial_term.sql",
     ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);

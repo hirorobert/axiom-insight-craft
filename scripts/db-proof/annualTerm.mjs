@@ -10,6 +10,7 @@
 //   T-06  no client-side action grants or changes an entitlement;
 //   T-07  every licence that existed before the migration is unchanged (every pre-existing column, byte for byte);
 //         only the self-serve MONTHLY offers change, and only to retired;
+//   T-09  the migration is re-runnable: a second application changes nothing;
 //   T-08  the read-only preflight audit (scripts/db-preflight/annualTermPreflight.sql) runs without writing and finds
 //         the monthly-paid licence.
 //
@@ -326,6 +327,15 @@ async function main() {
   await check("the guard functions are not callable by clients", async () => {
     const c1 = await codeOf(() => q(user(P.expired.uid), "SELECT public.commercial_annual_term_licence_guard()"));
     return c1 !== "ok" ? true : c1;
+  });
+
+  // ── T-09 ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+  group("T-09 · re-application changes nothing");
+  await check("applying the migration a second time leaves every licence, renewal status and offer exactly as it was", async () => {
+    const full = async () => (await admin.query("SELECT to_jsonb(l) AS row FROM public.commercial_licences l ORDER BY id")).rows;
+    const lic = await full(); const off = await snapOffers();
+    await applyMigration(MIGRATION);
+    return JSON.stringify(await full()) === JSON.stringify(lic) && JSON.stringify(await snapOffers()) === JSON.stringify(off) ? true : "changed on re-application";
   });
 
   const failed = results.filter((r) => !r.ok);

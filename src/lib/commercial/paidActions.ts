@@ -218,7 +218,8 @@ export function canInviteAnother(state: SeatCapacityState | null): boolean {
 export function seatCopy(state: SeatCapacityState | null): LockedCopy | null {
   if (canInviteAnother(state)) return null;
   const seat = ADDITIONAL_SEAT_PRICE;
-  const seatPrice = `${formatCatalogueAmount(seat.monthlyMinor)} / month or ${formatCatalogueAmount(seat.annualMinor)} / year`;
+  // One 12-month term (20261001120000): seats are priced per year only, like the plans.
+  const seatPrice = `${formatCatalogueAmount(seat.annualMinor)} / year`;
   if (!state || !state.determined) {
     return {
       title: "Named-user seats need confirming",
