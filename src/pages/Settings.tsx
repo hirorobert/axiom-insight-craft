@@ -255,7 +255,7 @@ export default function Settings() {
             {activeSection === "billing" && (
               <div>
                 <SectionDivider title="Plan & Billing" />
-                <CurrentPlanPanel billing={billing} capacity={capacity} loading={billingLoading || capacityLoading} error={!!billingError || capacityError} onRetry={() => { retryBilling(); retryCapacity(); }} archiveOnly={!!billing && (billing.licenceStatus === "EXPIRED" || billing.licenceStatus === "CANCELLED" || !billing.licenceStatus) && (capacity?.used ?? 0) > 0} />
+                <CurrentPlanPanel billing={billing} capacity={capacity} loading={billingLoading || capacityLoading} error={!!billingError} onRetry={() => { retryBilling(); retryCapacity(); }} archiveOnly={!!billing && (billing.licenceStatus === "EXPIRED" || billing.licenceStatus === "CANCELLED" || !billing.licenceStatus) && (capacity?.used ?? 0) > 0} />
 
 
               </div>

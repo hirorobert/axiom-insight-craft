@@ -15,7 +15,10 @@ export function CurrentPlanPanel({ billing, capacity, loading, error, onRetry, a
   archiveOnly?: boolean;
 }) {
   if (loading) return <div aria-label="Loading plan" className="space-y-3 py-4"><Skeleton className="h-6 w-40" /><Skeleton className="h-4 w-64" /><Skeleton className="h-4 w-48" /></div>;
-  if (error || !billing) return <section aria-label="Current plan" className="space-y-3 border-t border-border py-5"><h2 className="text-lg font-semibold">We couldn’t load your plan</h2><p className="text-sm text-muted-foreground">Your account information is temporarily unavailable.</p>{onRetry && <Button variant="outline" onClick={onRetry}>Retry</Button>}</section>;
+  // The dead-end error screen is only for a missing/unreadable plan. When the plan
+  // loaded but an auxiliary read (e.g. capacity) failed, render the plan normally —
+  // the capacity cell already degrades to "Capacity unavailable".
+  if (!billing || (error && !billing.planCode && !billing.licenceStatus)) return <section aria-label="Current plan" className="space-y-3 border-t border-border py-5"><h2 className="text-lg font-semibold">We couldn’t load your plan</h2><p className="text-sm text-muted-foreground">Your account information is temporarily unavailable.</p>{onRetry && <Button variant="outline" onClick={onRetry}>Retry</Button>}</section>;
   const active = billing.licenceStatus === "ACTIVE" || billing.licenceStatus === "GRACE";
   const plan = planByCode(billing.planCode);
   const status = billing.licenceStatus;
