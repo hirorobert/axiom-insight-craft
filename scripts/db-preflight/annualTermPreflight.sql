@@ -1,29 +1,39 @@
--- annualTermPreflight.sql — MANDATORY zero-state gate, READ-ONLY, to run against production BEFORE
--- 20261001120000_annual_commercial_term.sql is applied. SELECT statements only; run inside
--- `BEGIN READ ONLY; … ROLLBACK;`. Proven read-only, and its PASS proven meaningful, by scripts/db-proof/annualTerm.mjs.
+-- annualTermPreflight.sql — READ-ONLY mirror of the zero-state gate in 20261001120000_annual_commercial_term.sql, for
+-- planning the reconciliation BEFORE the migration is applied. SELECT statements only; run inside
+-- `BEGIN READ ONLY; … ROLLBACK;`. The MIGRATION ITSELF enforces the same two conditions and refuses to apply
+-- (SQLSTATE PT422: INVALID_OPEN_CHECKOUT_INTENTS / UNRECONCILED_PROVIDER_CHECKOUTS), so skipping this file cannot bypass
+-- the gate. scripts/db-proof/annualTerm.mjs proves this file read-only and its gate identical to the migration's.
 --
 -- Definitions (identical to the migration's gate):
 --   invalid intent   — a CFOCLOSE SOLO/PRACTICE/FIRM checkout intent with
 --                      billing_interval IS DISTINCT FROM 'ANNUAL' OR billing_interval_count IS DISTINCT FROM 1;
---   fulfillable      — any status other than the terminal SUCCEEDED, FAILED, CANCELLED, EXPIRED (derived from the live
---                      functions: PENDING and MANUAL_REVIEW are committed directly; CREATING and PROVIDER_CREATING move
---                      into them; expires_at is ignored because the commit does not re-check it);
---   provider session — provider_checkout_ref IS NOT NULL (a checkout was created at the provider);
---   reconciled       — the intent carries a provider-verified outcome: a payment_events row written for it by
---                      commit_verified_commercial_payment (a SUCCEEDED commit with its licence, or a verified non-success).
+--   fulfillable      — any status other than the terminal SUCCEEDED, FAILED, CANCELLED, EXPIRED;
+--   provider-backed  — provider_checkout_ref IS NOT NULL;
+--   reconciled       — a payment_events row for that intent, verification_method PROVIDER_API_VERIFY or MANUAL_ADMIN,
+--                      verified_at set, non-blank provider_transaction_id and payload_hash (the provider evidence), and a
+--                      final outcome: normalized_status CANCELLED, EXPIRED or REFUNDED (a void is a provider
+--                      cancellation), or SUCCEEDED with its licence existing (fulfilled before the migration; preserved,
+--                      expires naturally). Nothing else reconciles: not WEBHOOK_ONLY, not FAILED, not PARTIALLY_REFUNDED,
+--                      not UNKNOWN, not PENDING, not CHECKOUT_CREATED, not an event without evidence.
 --
--- Procedure:
---   1. Run this file. A–C are the record; D is the gate.
---   2. For every row in B: look the session up at the provider (provider, provider_environment, provider_checkout_ref,
---      saff_reference). Paid → commit it through the normal verified-payment path BEFORE the migration (its licence is
---      created under the current rules). Not paid → have the provider session expired/cancelled and record the verified
---      non-success through the same path. Either way the intent ends terminal WITH a provider-verified outcome.
---   3. Re-run. Apply only when D reads GATE = PASS. The migration itself refuses to apply while any invalid intent is
---      still fulfillable (SQLSTATE PT422, INVALID_OPEN_CHECKOUT_INTENTS). Rows in C (terminal, provider session, no
---      verified outcome) are pre-existing exposures the migration neither creates nor fixes; they must be cleared by a
---      reviewed decision before PASS.
+-- An invalid checkout is NEVER fulfilled. Do NOT commit it through commit_verified_commercial_payment as SUCCEEDED: a
+-- MONTHLY × 1 checkout would create a one-month licence, an ANNUAL × 2 checkout a 24-month one. Treatment, per row of B
+-- and C, after looking the session up at the provider (provider, provider_environment, provider_checkout_ref,
+-- saff_reference):
 --
--- Existing monthly-paid licences (A) are NOT changed by the migration: they keep their period and expire naturally.
+--   Provider state         Required action
+--   ─────────────────────  ──────────────────────────────────────────────────────────────────────────────────────────
+--   unpaid / open          cancel or expire it AT THE PROVIDER, then record the provider-verified CANCELLED / EXPIRED
+--                          outcome (the verified non-success path, PROVIDER_API_VERIFY, with its evidence).
+--   paid, not fulfilled    do NOT fulfil it. Refund or void AT THE PROVIDER and record the verified REFUNDED / CANCELLED
+--                          outcome — or, with the customer's explicit consent, refund/void it AND sell a new, valid
+--                          ANNUAL × 1 checkout (the invalid one still ends REFUNDED / CANCELLED).
+--   already fulfilled      inventory the licence (A) and record an explicit grandfather or refund decision. The
+--                          migration leaves the licence unchanged (it expires naturally).
+--   cannot verify          STOP. Do not apply the migration; investigate with the provider. A reviewed MANUAL_ADMIN
+--                          outcome is acceptable only with the provider's evidence (transaction id and evidence hash).
+--
+-- Apply only when D reads GATE = PASS; the migration re-checks both conditions atomically and refuses otherwise.
 
 -- A. Licences that came from an invalid checkout, or that a payment created for anything but the 12-month term.
 SELECT 'A_invalid_term_licence' AS section, l.id AS licence_id, p.code AS product_code, cp.code AS plan_code, l.status,
@@ -39,8 +49,7 @@ SELECT 'A_invalid_term_licence' AS section, l.id AS licence_id, p.code AS produc
         AND (l.effective_end IS NULL OR l.effective_end <> l.effective_start + interval '12 months'))
  ORDER BY l.effective_start;
 
--- B. Every INVALID CFOCLOSE self-serve intent that can still be fulfilled — each must be reconciled at the provider and
---    resolved before the migration.
+-- B. Gate condition (1): invalid intents that can still be fulfilled.
 SELECT 'B_invalid_fulfillable_intent' AS section, i.id AS checkout_intent_id, cp.code AS plan_code, i.billing_interval,
        i.billing_interval_count, i.status, i.provider, i.provider_environment, i.provider_checkout_ref, i.saff_reference,
        i.created_at, i.expires_at
@@ -52,23 +61,34 @@ SELECT 'B_invalid_fulfillable_intent' AS section, i.id AS checkout_intent_id, cp
    AND i.status NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED')
  ORDER BY i.created_at;
 
--- C. Every INVALID intent that reached a provider session and is terminal WITHOUT a provider-verified outcome.
-SELECT 'C_unreconciled_provider_session' AS section, i.id AS checkout_intent_id, cp.code AS plan_code, i.billing_interval,
-       i.billing_interval_count, i.status, i.provider, i.provider_environment, i.provider_checkout_ref, i.saff_reference
+-- C. Gate condition (2): invalid provider-backed intents without an authoritative verified terminal outcome, with the
+--    events they do have (for the investigation).
+SELECT 'C_unreconciled_provider_checkout' AS section, i.id AS checkout_intent_id, cp.code AS plan_code, i.billing_interval,
+       i.billing_interval_count, i.status, i.provider, i.provider_environment, i.provider_checkout_ref, i.saff_reference,
+       (SELECT jsonb_agg(jsonb_build_object('normalized_status', e.normalized_status, 'verification_method', e.verification_method,
+                                            'verified_at', e.verified_at, 'event_type', e.event_type) ORDER BY e.recorded_at)
+          FROM public.payment_events e WHERE e.checkout_intent_id = i.id) AS events_present
   FROM public.payment_checkout_intents i
   JOIN public.commercial_plans cp ON cp.id = i.plan_id
   JOIN public.commercial_products p ON p.id = cp.product_id
  WHERE p.code = 'CFOCLOSE' AND cp.code IN ('SOLO', 'PRACTICE', 'FIRM')
    AND (i.billing_interval IS DISTINCT FROM 'ANNUAL' OR i.billing_interval_count IS DISTINCT FROM 1)
-   AND i.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED')
    AND i.provider_checkout_ref IS NOT NULL
-   AND NOT EXISTS (SELECT 1 FROM public.payment_events e WHERE e.checkout_intent_id = i.id)
+   AND NOT EXISTS (
+     SELECT 1 FROM public.payment_events e
+      WHERE e.checkout_intent_id = i.id
+        AND e.verification_method IN ('PROVIDER_API_VERIFY', 'MANUAL_ADMIN')
+        AND e.verified_at IS NOT NULL
+        AND nullif(btrim(e.provider_transaction_id), '') IS NOT NULL
+        AND nullif(btrim(e.payload_hash), '') IS NOT NULL
+        AND (e.normalized_status IN ('CANCELLED', 'EXPIRED', 'REFUNDED')
+             OR (e.normalized_status = 'SUCCEEDED' AND e.licence_id IS NOT NULL
+                 AND EXISTS (SELECT 1 FROM public.commercial_licences l WHERE l.id = e.licence_id))))
  ORDER BY i.created_at;
 
--- D. The gate. PASS only when no invalid intent can be fulfilled AND every invalid intent that reached a provider session
---    carries a provider-verified outcome. Platform payment state is shown for the record (must stay PAYMENTS_DISABLED).
-SELECT 'D_gate' AS section, b.invalid_fulfillable_intents, c.unreconciled_provider_sessions, s.platform_state,
-       CASE WHEN b.invalid_fulfillable_intents = 0 AND c.unreconciled_provider_sessions = 0 THEN 'PASS' ELSE 'FAIL' END AS gate
+-- D. The gate — exactly the migration's two conditions. Platform payment state shown for the record (PAYMENTS_DISABLED).
+SELECT 'D_gate' AS section, b.invalid_fulfillable_intents, c.unreconciled_provider_checkouts, s.platform_state,
+       CASE WHEN b.invalid_fulfillable_intents = 0 AND c.unreconciled_provider_checkouts = 0 THEN 'PASS' ELSE 'FAIL' END AS gate
   FROM (SELECT count(*) AS invalid_fulfillable_intents
           FROM public.payment_checkout_intents i
           JOIN public.commercial_plans cp ON cp.id = i.plan_id
@@ -76,13 +96,21 @@ SELECT 'D_gate' AS section, b.invalid_fulfillable_intents, c.unreconciled_provid
          WHERE p.code = 'CFOCLOSE' AND cp.code IN ('SOLO', 'PRACTICE', 'FIRM')
            AND (i.billing_interval IS DISTINCT FROM 'ANNUAL' OR i.billing_interval_count IS DISTINCT FROM 1)
            AND i.status NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED')) b,
-       (SELECT count(*) AS unreconciled_provider_sessions
+       (SELECT count(*) AS unreconciled_provider_checkouts
           FROM public.payment_checkout_intents i
           JOIN public.commercial_plans cp ON cp.id = i.plan_id
           JOIN public.commercial_products p ON p.id = cp.product_id
          WHERE p.code = 'CFOCLOSE' AND cp.code IN ('SOLO', 'PRACTICE', 'FIRM')
            AND (i.billing_interval IS DISTINCT FROM 'ANNUAL' OR i.billing_interval_count IS DISTINCT FROM 1)
-           AND i.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED')
            AND i.provider_checkout_ref IS NOT NULL
-           AND NOT EXISTS (SELECT 1 FROM public.payment_events e WHERE e.checkout_intent_id = i.id)) c,
+           AND NOT EXISTS (
+             SELECT 1 FROM public.payment_events e
+              WHERE e.checkout_intent_id = i.id
+                AND e.verification_method IN ('PROVIDER_API_VERIFY', 'MANUAL_ADMIN')
+                AND e.verified_at IS NOT NULL
+                AND nullif(btrim(e.provider_transaction_id), '') IS NOT NULL
+                AND nullif(btrim(e.payload_hash), '') IS NOT NULL
+                AND (e.normalized_status IN ('CANCELLED', 'EXPIRED', 'REFUNDED')
+                     OR (e.normalized_status = 'SUCCEEDED' AND e.licence_id IS NOT NULL
+                         AND EXISTS (SELECT 1 FROM public.commercial_licences l WHERE l.id = e.licence_id))))) c,
        (SELECT string_agg(state, ',') AS platform_state FROM public.commercial_platform_state) s;

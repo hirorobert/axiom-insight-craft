@@ -17,8 +17,11 @@
 --      fulfil PENDING and MANUAL_REVIEW; CREATING and PROVIDER_CREATING move into those (persist_checkout_provider_result,
 --      mark_checkout_attempt_uncertain, acquire_checkout_attempt); SUCCEEDED, FAILED, CANCELLED and EXPIRED have no
 --      transition out. expires_at is ignored: the commit deliberately does not re-check it. Such an intent could be paid
---      at the provider and then fail to commit under the term guard below — paid, without a licence. The operator
---      reconciles each with the provider and resolves it first (scripts/db-preflight/annualTermPreflight.sql).
+--      at the provider and then fail to commit under the term guard below — paid, without a licence. The migration ALSO
+--      refuses while any invalid provider-backed intent lacks an authoritative verified terminal outcome (defined at the
+--      gate). The gate is the whole zero-state condition: the read-only preflight (scripts/db-preflight/annualTermPreflight.sql)
+--      mirrors it for planning and cannot be bypassed by skipping it. An invalid checkout is NEVER fulfilled: it is
+--      cancelled, expired, refunded or voided at the provider (or replaced, with consent, by a valid ANNUAL × 1 checkout).
 --   1. the CFOCLOSE SOLO / PRACTICE / FIRM MONTHLY offers are retired (inactive, non-purchasable, effective_end set) —
 --      the precedent of 20260925100000 §4; nothing else about any offer changes;
 --   2. a checkout intent for those plans must be exactly ANNUAL × 1, on INSERT and on any UPDATE of plan_id,
@@ -41,11 +44,13 @@
 -- Re-runnable: a second application changes nothing. Not applied by this PR; forward-only; no applied migration is
 -- modified.
 
--- ── 0. Zero-state gate ──────────────────────────────────────────────────────────────────────────────────────────────
+-- ── 0. Zero-state gate (both conditions; nothing below runs unless both are zero) ───────────────────────────────────
 DO $gate$
 DECLARE
-  v_open INTEGER;
+  v_open         INTEGER;
+  v_unreconciled INTEGER;
 BEGIN
+  -- (1) An invalid self-serve intent that can still be fulfilled.
   SELECT count(*) INTO v_open
     FROM public.payment_checkout_intents i
     JOIN public.commercial_plans cp ON cp.id = i.plan_id
@@ -56,7 +61,36 @@ BEGIN
   IF v_open > 0 THEN
     RAISE EXCEPTION 'INVALID_OPEN_CHECKOUT_INTENTS'
       USING ERRCODE = 'PT422',
-            DETAIL = format('%s invalid self-serve checkout intent(s) can still be fulfilled; reconcile and resolve them first (scripts/db-preflight/annualTermPreflight.sql)', v_open);
+            DETAIL = format('%s invalid self-serve checkout intent(s) can still be fulfilled', v_open);
+  END IF;
+
+  -- (2) An invalid self-serve intent that reached a provider session (provider_checkout_ref) and is terminal WITHOUT an
+  --     authoritative reconciliation: a payment event for that intent, verified by the provider API or by a reviewed
+  --     admin decision (verified_at, a non-blank provider_transaction_id and an evidence payload_hash all present), whose
+  --     outcome is final — CANCELLED, EXPIRED or REFUNDED (a void is a provider cancellation), or SUCCEEDED with its
+  --     licence existing (fulfilled before this migration; that licence is preserved and expires naturally). WEBHOOK_ONLY,
+  --     FAILED, PARTIALLY_REFUNDED, UNKNOWN, PENDING and CHECKOUT_CREATED never reconcile.
+  SELECT count(*) INTO v_unreconciled
+    FROM public.payment_checkout_intents i
+    JOIN public.commercial_plans cp ON cp.id = i.plan_id
+    JOIN public.commercial_products p ON p.id = cp.product_id
+   WHERE p.code = 'CFOCLOSE' AND cp.code IN ('SOLO', 'PRACTICE', 'FIRM')
+     AND (i.billing_interval IS DISTINCT FROM 'ANNUAL' OR i.billing_interval_count IS DISTINCT FROM 1)
+     AND i.provider_checkout_ref IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM public.payment_events e
+        WHERE e.checkout_intent_id = i.id
+          AND e.verification_method IN ('PROVIDER_API_VERIFY', 'MANUAL_ADMIN')
+          AND e.verified_at IS NOT NULL
+          AND nullif(btrim(e.provider_transaction_id), '') IS NOT NULL
+          AND nullif(btrim(e.payload_hash), '') IS NOT NULL
+          AND (e.normalized_status IN ('CANCELLED', 'EXPIRED', 'REFUNDED')
+               OR (e.normalized_status = 'SUCCEEDED' AND e.licence_id IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM public.commercial_licences l WHERE l.id = e.licence_id))));
+  IF v_unreconciled > 0 THEN
+    RAISE EXCEPTION 'UNRECONCILED_PROVIDER_CHECKOUTS'
+      USING ERRCODE = 'PT422',
+            DETAIL = format('%s invalid provider-backed checkout(s) lack an authoritative verified terminal outcome', v_unreconciled);
   END IF;
 END
 $gate$;

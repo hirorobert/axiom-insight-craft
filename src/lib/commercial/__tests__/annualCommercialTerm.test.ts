@@ -13,7 +13,7 @@ const SQL = MIGRATION.replace(/--[^\n]*/g, "");
 describe("annual commercial term migration", () => {
   it("raises only controlled application errors: SQLSTATE PT422 with a fixed code, never internal wording", () => {
     const messages = [...SQL.matchAll(/RAISE EXCEPTION '([^']+)'/g)].map((m) => m[1]);
-    expect(new Set(messages)).toEqual(new Set(["INVALID_OPEN_CHECKOUT_INTENTS", "ANNUAL_TERM_REQUIRED", "INVALID_COMMERCIAL_TERM"]));
+    expect(new Set(messages)).toEqual(new Set(["INVALID_OPEN_CHECKOUT_INTENTS", "UNRECONCILED_PROVIDER_CHECKOUTS", "ANNUAL_TERM_REQUIRED", "INVALID_COMMERCIAL_TERM"]));
     expect([...SQL.matchAll(/ERRCODE = '([^']+)'/g)].map((m) => m[1]).every((c) => c === "PT422")).toBe(true);
     expect(SQL).not.toMatch(/iron dome/i);
   });
@@ -37,9 +37,23 @@ describe("annual commercial term migration", () => {
     // scripts/db-proof/annualTerm.mjs.
     expect(SQL).toContain("AND (i.billing_interval IS DISTINCT FROM 'ANNUAL' OR i.billing_interval_count IS DISTINCT FROM 1)");
     expect(SQL).toContain("AND i.status NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED')");
+    // Both zero-state conditions are enforced by the migration itself, before any mutation; reconciliation is an exact
+    // predicate (never "some payment event exists").
+    expect(SQL.indexOf("UNRECONCILED_PROVIDER_CHECKOUTS")).toBeLessThan(SQL.indexOf("UPDATE public.commercial_offers"));
+    expect(SQL).toContain("e.verification_method IN ('PROVIDER_API_VERIFY', 'MANUAL_ADMIN')");
+    expect(SQL).toContain("e.normalized_status IN ('CANCELLED', 'EXPIRED', 'REFUNDED')");
+    expect(SQL).toContain("nullif(btrim(e.payload_hash), '') IS NOT NULL");
     expect(SQL).not.toMatch(/commercial_platform_state/);
     expect(SQL).not.toMatch(/\bDROP\b|DELETE FROM|TRUNCATE/i);
     expect(SQL).not.toMatch(/FUNCTION public\.commit_verified_commercial_payment/);
+  });
+
+  it("the preflight never advises fulfilling an invalid checkout, and mirrors the migration's two conditions", () => {
+    const pre = fs.readFileSync(path.join(ROOT, "scripts/db-preflight/annualTermPreflight.sql"), "utf8");
+    expect(pre).toMatch(/An invalid checkout is NEVER fulfilled/);
+    expect(pre).not.toMatch(/commit it through the normal verified-payment path/i);
+    expect(pre).toContain("invalid_fulfillable_intents");
+    expect(pre).toContain("unreconciled_provider_checkouts");
   });
 
   it("the downgrade-at-purchase prerequisite is registered before any checkout activation", () => {

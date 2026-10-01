@@ -9,6 +9,9 @@
 //             self-serve monthly offers are retired; an existing monthly-paid licence can end earlier, never be extended;
 //   Intents   exactly ANNUAL × 1 on INSERT and on UPDATE of plan/interval/count; the CFOCLOSE product boundary holds
 //             (a same-code plan of another product is outside it, and cannot be moved inside);
+//   Recon     reconciliation is an exact predicate (provider-verified or reviewed-with-evidence CANCELLED / EXPIRED /
+//             REFUNDED, or SUCCEEDED with its licence); every non-final outcome refuses the migration with Section B empty;
+//             a paid MONTHLY × 1 or ANNUAL × 2 checkout never creates a licence, even forced past the intent guard;
 //   Licences  a payment-created self-serve licence is exactly 12 months (NULL, 11, 13 and 24 months refused); after
 //             insertion it may only end earlier; no row becomes one by an UPDATE; Enterprise is untouched;
 //   Payments  an annual payment yields one exact 12-month entitled licence; an upgrade still ends the current one early;
@@ -141,7 +144,7 @@ async function main() {
   await check("the migration raises only controlled application errors — no internal implementation wording", async () => {
     const sql = fs.readFileSync(path.join(REPO, "supabase/migrations", MIGRATION), "utf8").replace(/--[^\n]*/g, "");
     const raised = [...sql.matchAll(/RAISE EXCEPTION '([^']+)'/g)].map((m) => m[1]);
-    const ok = raised.length >= 4 && raised.every((m) => ["ANNUAL_TERM_REQUIRED", "INVALID_COMMERCIAL_TERM", "INVALID_OPEN_CHECKOUT_INTENTS"].includes(m))
+    const ok = raised.length >= 4 && raised.every((m) => ["ANNUAL_TERM_REQUIRED", "INVALID_COMMERCIAL_TERM", "INVALID_OPEN_CHECKOUT_INTENTS", "UNRECONCILED_PROVIDER_CHECKOUTS"].includes(m))
       && [...sql.matchAll(/ERRCODE = '([^']+)'/g)].every((m) => m[1] === "PT422") && !/iron dome|renewal/i.test(sql);
     return ok ? true : raised.join(",");
   });
@@ -187,8 +190,12 @@ async function main() {
        over.billing_interval ?? o.billing_interval, ("billing_interval_count" in over) ? over.billing_interval_count : o.billing_interval_count, `SAFF-${uuid()}`, acct.uid, over.product_id ?? product,
        over.status ?? 'PENDING', over.provider_checkout_ref ?? null])).rows[0].id;
   const intent = async (acct, offerCode, over) => intentRow(acct, await offer(offerCode), over);
-  const commit = async (intentId, amount, status = "SUCCEEDED") => (await admin.query(`SELECT public.commit_verified_commercial_payment($1,'STRIPE',$2,$3,$4,$5,'USD',$6,now(),'PROVIDER_API_VERIFY',$7,$8,'sandbox') r`,
-    [intentId, `tx-${uuid()}`, status.toLowerCase(), status, amount, "h".repeat(64), `idem-${uuid()}`, `SAFF-${uuid()}`])).rows[0].r;
+  const commit = async (intentId, amount, status = "SUCCEEDED", method = "PROVIDER_API_VERIFY") => (await admin.query(`SELECT public.commit_verified_commercial_payment($1,'STRIPE',$2,$3,$4,$5,'USD',$6,now(),$9,$7,$8,'sandbox') r`,
+    [intentId, `tx-${uuid()}`, status.toLowerCase(), status, amount, "h".repeat(64), `idem-${uuid()}`, `SAFF-${uuid()}`, method])).rows[0].r;
+  const commitAs = async (intentId, status, method) => {
+    const amount = (await admin.query("SELECT expected_amount_minor a FROM public.payment_checkout_intents WHERE id=$1", [intentId])).rows[0].a;
+    return commit(intentId, Number(amount), status, method);
+  };
   const licenceInsert = (bc, plan, start, end, source = "STRIPE_VERIFIED_PAYMENT", status = "PENDING") =>
     admin.query(`INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, effective_end)
       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`, [bc, plan, status, source, start, end]).then((r) => r.rows[0].id);
@@ -314,13 +321,6 @@ async function main() {
     const ok = Number(gate.invalid_fulfillable_intents) === 1;   // only the pre-existing PENDING monthly fixture remains open
     return ok ? true : JSON.stringify(gate);
   });
-  await check("the preflight's PASS also requires reconciliation: a terminal invalid intent with a provider session and no verified outcome reads unreconciled", async () => {
-    const a = await account("unreconciled", null);
-    const id = await intent(a, "CFOCLOSE_SOLO_GLOBAL_USD_MONTHLY", { status: "EXPIRED", provider_checkout_ref: `prov-${uuid()}` });
-    const gate = (await runPreflight()).at(-1)[0];
-    await admin.query("DELETE FROM public.payment_checkout_intents WHERE id=$1", [id]);   // fixture cleanup
-    return Number(gate.unreconciled_provider_sessions) === 1 && gate.gate === "FAIL" ? true : JSON.stringify(gate);
-  });
 
   // ── Zero-state gate ──────────────────────────────────────────────────────────────────────────────────────────────
   group("Zero-state gate · an open monthly intent blocks the migration");
@@ -344,11 +344,72 @@ async function main() {
     const lic = (await admin.query("SELECT count(*)::int n FROM public.commercial_licences WHERE billing_customer_id=$1", [pending.bc])).rows[0].n;
     return r.committed === false && st === "CANCELLED" && lic === 0 ? true : { r, st, lic };
   });
-  await check("the preflight now reads GATE = PASS: no invalid fulfillable intent, no unreconciled provider session", async () => {
+  await check("the preflight now reads GATE = PASS: no invalid fulfillable intent, no unreconciled provider checkout", async () => {
     const sets = await runPreflight();
     const gate = sets[sets.length - 1][0];
-    return gate.gate === "PASS" && Number(gate.invalid_fulfillable_intents) === 0 && Number(gate.unreconciled_provider_sessions) === 0 ? true : JSON.stringify(gate);
+    return gate.gate === "PASS" && Number(gate.invalid_fulfillable_intents) === 0 && Number(gate.unreconciled_provider_checkouts) === 0 ? true : JSON.stringify(gate);
   });
+
+  // ── Reconciliation: the exact authoritative predicate, enforced by the migration itself ──────────────────────────
+  group("Reconciliation · Section B empty, Section C decides — enforced by the migration, not only the preflight");
+  const evidenceEvent = (intentId, { normalized, method = "MANUAL_ADMIN", payloadHash = "e".repeat(64), txId = `tx-${uuid()}` }) =>
+    admin.query(`INSERT INTO public.payment_events (billing_customer_id, provider, external_event_id, idempotency_key, event_type, amount, currency,
+        amount_minor, provider_transaction_id, provider_status, normalized_status, saff_reference, payload_hash, verified_at, verification_method,
+        checkout_intent_id, commercial_offer_id, plan_id, event_time, metadata)
+      SELECT i.billing_customer_id, 'STRIPE', $2, $3, CASE WHEN $4 = 'REFUNDED' THEN 'REFUND' ELSE 'CANCELLATION' END, i.expected_amount_minor / 100.0,
+             i.currency_code, i.expected_amount_minor, $2, lower($4), $4, i.saff_reference, $5, now(), $6, i.id, i.commercial_offer_id, i.plan_id, now(),
+             '{"reviewed_decision":true}'::jsonb
+        FROM public.payment_checkout_intents i WHERE i.id = $1`, [intentId, txId, `idem-${uuid()}`, normalized, payloadHash, method]);
+  const providerBacked = async (label) => {
+    const a = await account(`recon-${label}`, null);
+    return intent(a, "CFOCLOSE_SOLO_GLOBAL_USD_MONTHLY", { provider_checkout_ref: `prov-${uuid()}` });
+  };
+  const migrationOutcome = async () => { try { await admin.query(migrationText); return null; } catch (e) { return e; } };
+  const NON_FINAL = [
+    ["no event at all (locally expired)", async (id) => { await admin.query("UPDATE public.payment_checkout_intents SET status='EXPIRED' WHERE id=$1", [id]); }],
+    ["a WEBHOOK_ONLY cancellation", (id) => commitAs(id, "CANCELLED", "WEBHOOK_ONLY")],
+    ["a provider-verified FAILED attempt (transient)", (id) => commitAs(id, "FAILED")],
+    ["a provider-verified UNKNOWN outcome", (id) => commitAs(id, "UNKNOWN")],
+    ["a provider-verified PARTIALLY_REFUNDED outcome", (id) => commitAs(id, "PARTIALLY_REFUNDED")],
+    ["a provider-verified PENDING (non-final) outcome", (id) => commitAs(id, "PENDING")],
+    ["a MANUAL_ADMIN refund WITHOUT provider evidence (no payload hash)", async (id) => {
+      await admin.query("UPDATE public.payment_checkout_intents SET status='FAILED' WHERE id=$1", [id]);
+      await evidenceEvent(id, { normalized: "REFUNDED", payloadHash: null });
+    }],
+  ];
+  for (const [label, setup] of NON_FINAL) {
+    await check(`${label} does NOT reconcile: B empty, C non-empty → the migration refuses (PT422 UNRECONCILED_PROVIDER_CHECKOUTS), byte-identical`, async () => {
+      const id = await providerBacked(label.slice(0, 12));
+      await setup(id);
+      const gate = (await runPreflight()).at(-1)[0];
+      const before = await fingerprint();
+      const err = await migrationOutcome();
+      const after = await fingerprint();
+      // Close the case the way an operator must: a reviewed decision recorded WITH the provider's evidence.
+      await evidenceEvent(id, { normalized: "REFUNDED" });
+      const ok = Number(gate.invalid_fulfillable_intents) === 0 && Number(gate.unreconciled_provider_checkouts) === 1 && gate.gate === "FAIL"
+        && isPT422(err, "UNRECONCILED_PROVIDER_CHECKOUTS") && before === after;
+      return ok ? true : { gate, code: err?.code, msg: err?.message, same: before === after };
+    });
+  }
+  const FINAL = [
+    ["a provider-verified CANCELLED outcome (unpaid, cancelled at the provider)", (id) => commitAs(id, "CANCELLED")],
+    ["a provider-verified EXPIRED outcome (unpaid, expired at the provider)", (id) => commitAs(id, "EXPIRED")],
+    ["a provider-verified REFUNDED outcome (paid, refunded — never fulfilled)", (id) => commitAs(id, "REFUNDED")],
+    ["a MANUAL_ADMIN refund/void decision WITH the provider's evidence", async (id) => {
+      await admin.query("UPDATE public.payment_checkout_intents SET status='CANCELLED' WHERE id=$1", [id]);
+      await evidenceEvent(id, { normalized: "CANCELLED" });
+    }],
+  ];
+  for (const [label, setup] of FINAL) {
+    await check(`${label} reconciles: no licence created, the preflight gate stays PASS`, async () => {
+      const id = await providerBacked(`f-${label.slice(0, 10)}`);
+      await setup(id);
+      const gate = (await runPreflight()).at(-1)[0];
+      const licences = (await admin.query("SELECT count(*)::int n FROM public.payment_events WHERE checkout_intent_id=$1 AND licence_id IS NOT NULL", [id])).rows[0].n;
+      return gate.gate === "PASS" && licences === 0 ? true : { gate, licences };
+    });
+  }
 
   const licBefore = await fullLic();
   const offersBefore = await snapOffers();
@@ -493,6 +554,27 @@ async function main() {
     const now = await platformState();
     return now === platformBefore && now === "PAYMENTS_DISABLED" ? true : { platformBefore, now };
   });
+  // ── Backstop: a paid invalid checkout never creates a licence ────────────────────────────────────────────────────
+  group("Backstop · a paid MONTHLY × 1 or ANNUAL × 2 checkout never creates a licence");
+  for (const shape of SHAPES) {
+    await check(`paid ${shape.label}: even forced past the intent guard, the verified-payment commit creates no licence and writes nothing (licences, intents, events byte-identical)`, async () => {
+      const a = await account(`paid-${shape.label.slice(0, 7)}`, null);
+      // Simulate an invalid intent that slipped past the intent guard (e.g. hand-inserted): the licence guard is the backstop.
+      await admin.query("ALTER TABLE public.payment_checkout_intents DISABLE TRIGGER trg_commercial_annual_term_intent_guard");
+      let id;
+      try { id = await intent(a, shape.offer, shape.over); } finally {
+        await admin.query("ALTER TABLE public.payment_checkout_intents ENABLE TRIGGER trg_commercial_annual_term_intent_guard");
+      }
+      const amount = (await admin.query("SELECT expected_amount_minor a FROM public.payment_checkout_intents WHERE id=$1", [id])).rows[0].a;
+      const before = await fingerprint();
+      const err = await errOf(() => commit(id, Number(amount)));
+      const after = await fingerprint();
+      const lic = (await admin.query("SELECT count(*)::int n FROM public.commercial_licences WHERE billing_customer_id=$1", [a.bc])).rows[0].n;
+      await admin.query("DELETE FROM public.payment_checkout_intents WHERE id=$1", [id]);   // fixture cleanup (no event was written)
+      return isPT422(err, "INVALID_COMMERCIAL_TERM") && before === after && lic === 0 ? true : { code: err?.code, msg: err?.message, same: before === after, lic };
+    });
+  }
+
   await check("applying the migration a second time changes nothing", async () => {
     const lic = await fullLic(); const off = await snapOffers();
     await applyMigration(MIGRATION);
