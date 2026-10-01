@@ -3,10 +3,10 @@
  * service; plans differ in entities and named users. Every figure comes from PRICING_CATALOGUE through
  * PROPOSED_PLANS; prices stay labelled "Proposed" (an explicit commercial decision is needed to change that).
  *
- * Each action carries the selected service and the plan preference into sign-up as validated identifiers — Enterprise
- * included (its terms are agreed with the team at activation). Nothing here activates a plan: activation is completed
- * by the team, and online payment is off. No contact link is rendered here: contact entry points exist only behind the
- * service-enquiry gate (Header, Footer, workspace layout).
+ * Solo, Practice and Firm carry the selected service and the plan preference into sign-up as validated identifiers.
+ * Enterprise is never self-activated: "Discuss Enterprise" opens the enquiry page (the registered contact_page entry
+ * point) only while the service-enquiry gate's contactRoute surface is on; otherwise a plain statement, no link.
+ * Nothing here activates a plan, and online payment is off.
  *
  * One structure for every width: an ARIA table that lays out as rows on wide screens and as stacked cards on phones.
  */
@@ -15,6 +15,8 @@ import { Link } from "react-router-dom";
 import { LANDING_PLANS_COPY } from "@/content/landing/landingContent";
 import { PROPOSED_PLANS } from "@/content/landing/proposedPlans";
 import { serviceAuthHref } from "@/lib/commercial/serviceIntent";
+import { CONTACT_ROUTE } from "@/lib/serviceEnquiry/entryPoints";
+import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import { useLandingIntent } from "@/components/landing/landingIntentContext";
 
 const C = LANDING_PLANS_COPY.columns;
@@ -54,9 +56,19 @@ export function CapacityPlans() {
                 <span role="cell" className={`${CELL} text-foreground md:col-span-2`}><span className={MOBILE_LABEL}>{C.users}</span>{p.namedUsers}</span>
                 <span role="cell" className={`${CELL} col-span-2 text-foreground md:col-span-2`}><span className={MOBILE_LABEL}>{C.price}</span>{p.proposedAmount}</span>
                 <span role="cell" className={`${CELL} col-span-2 md:col-span-2`}>
-                  <Link to={serviceAuthHref("signup", service, p.code)} data-testid={`plan-action-${p.name}`} className="inline-flex whitespace-nowrap text-[13px] font-semibold text-foreground underline underline-offset-4 hover:no-underline">
-                    {LANDING_PLANS_COPY.choosePrefix} {p.name}
-                  </Link>
+                  {!p.contactSales && (
+                    <Link to={serviceAuthHref("signup", service, p.code)} data-testid={`plan-action-${p.name}`} className="inline-flex whitespace-nowrap text-[13px] font-semibold text-foreground underline underline-offset-4 hover:no-underline">
+                      {LANDING_PLANS_COPY.choosePrefix} {p.name}
+                    </Link>
+                  )}
+                  {p.contactSales && SERVICE_ENQUIRY_SURFACES.contactRoute && (
+                    <Link to={CONTACT_ROUTE} data-testid={`plan-action-${p.name}`} className="inline-flex whitespace-nowrap text-[13px] font-semibold text-foreground underline underline-offset-4 hover:no-underline">
+                      {LANDING_PLANS_COPY.enterpriseAction}
+                    </Link>
+                  )}
+                  {p.contactSales && !SERVICE_ENQUIRY_SURFACES.contactRoute && (
+                    <span data-testid="enterprise-unavailable" className="text-[12px] text-muted-foreground">{LANDING_PLANS_COPY.enterpriseUnavailable}</span>
+                  )}
                 </span>
               </div>
             ))}

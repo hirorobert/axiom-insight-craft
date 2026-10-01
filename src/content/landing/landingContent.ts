@@ -143,6 +143,10 @@ export const LANDING_PLANS_COPY = {
   intro: "Plans differ in how many entities and named users they cover. Pricing shown is proposed.",
   columns: { plan: "Plan", bestFor: "Best for", entities: "Entities", users: "Named users", price: "Proposed price", action: "Action" },
   choosePrefix: "Choose",
+  /** Enterprise is never self-activated: it opens the enquiry page when that surface is enabled. */
+  enterpriseAction: "Discuss Enterprise",
+  /** Shown instead when the enquiry surface is off: no link, no activation implied. */
+  enterpriseUnavailable: "Terms are agreed directly with our team.",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────

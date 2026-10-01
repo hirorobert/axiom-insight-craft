@@ -29,9 +29,6 @@ export default function Auth() {
   // intent only — the Dashboard gateway checks the account's server entitlement before routing on it.
   const selectedService = parseServiceIntent(searchParams.get("service"));
   const selectedPlan = selectedService ? parsePlanIntent(searchParams.get("plan")) : null;
-  const serviceReturnPath = selectedService
-    ? `/?service=${selectedService}${selectedPlan ? `&plan=${selectedPlan.toLowerCase()}` : ""}`
-    : "/";
 
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState("");
@@ -204,7 +201,7 @@ export default function Auth() {
           navigate("/");
         }
       } else {
-        const { error } = await signUp(email, password, displayName, serviceReturnPath);
+        const { error } = await signUp(email, password, displayName, selectedService ? { service: selectedService, plan: selectedPlan ? selectedPlan.toLowerCase() : null } : null);
         if (error) {
           // PPG-1 Finding 2: centralized translation boundary.
           toast.error(translateAuthError(error).message);
@@ -340,7 +337,7 @@ export default function Auth() {
                           type: "signup",
                           email: signupEmail,
                           options: {
-                            emailRedirectTo: `${window.location.origin}${serviceReturnPath}`,
+                            emailRedirectTo: `${window.location.origin}/`,
                           },
                         });
                         if (error) {

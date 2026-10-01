@@ -42,7 +42,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { parseAcceptInvitations } from "@/lib/commercial/paidActions";
-import { clearServiceIntent, currentServiceIntent, resolveServiceDestination } from "@/lib/commercial/serviceIntent";
+import { clearServiceIntent, currentServiceIntent, intentFromUserMetadata, resolveServiceDestination } from "@/lib/commercial/serviceIntent";
 
 /**
  * Return the most recently completed fiscal year for a company.
@@ -97,7 +97,7 @@ export default function Dashboard() {
   // navigational intent only: entitlement comes from the server's billing read; while that read is in flight we wait,
   // and if it fails the intent is ignored for this visit. Not entitled → /plans (intent preserved); entitled → the
   // service's workflow stage. A forced return to the hub (the workspace logo) never follows an intent.
-  const serviceIntent = useMemo(() => (forceHub ? null : currentServiceIntent(location.search)), [forceHub, location.search]);
+  const serviceIntent = useMemo(() => (forceHub ? null : currentServiceIntent(location.search, user?.user_metadata)), [forceHub, location.search, user?.user_metadata]);
   const serviceDestination = resolveServiceDestination(serviceIntent, { loading: billingLoading, error: !!billingError, summary: billing });
   const stageSuffix = serviceDestination.kind === "workflow" ? `/${serviceDestination.stage}` : "";
 
@@ -146,7 +146,12 @@ export default function Dashboard() {
 
     let cancelled = false;
 
-    if (stageSuffix) clearServiceIntent();
+    if (stageSuffix) {
+      // Used once: clear this tab's copy and the account's own metadata copy (its profile, not financial data), so later
+      // sign-ins resume normally. A failed clear is harmless — the intent only ever routes to a stage it is entitled to.
+      clearServiceIntent();
+      if (intentFromUserMetadata(user?.user_metadata)) void supabase.auth.updateUser({ data: { service_intent: null } });
+    }
     if (route.kind === "resume") {
       navigate(`/workspace/${route.entry.companyId}/${route.entry.periodYear}${stageSuffix}`, { replace: true });
     } else if (route.kind === "open_shared") {

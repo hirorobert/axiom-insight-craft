@@ -6,6 +6,13 @@
  * (unknown, mixed case, padded, an object) is null. The same holds for the optional plan preference, which is
  * validated against PRICING_CATALOGUE.
  *
+ * Carrying it across authentication — never only in the browser tab:
+ *   · the URL (`?service=…&plan=…`) on every call to action and on Auth;
+ *   · sessionStorage for the same-tab round trip (OAuth);
+ *   · the new account's OWN server-stored user metadata (`service_intent`, written by signUp), which survives the
+ *     confirmation link opened in any browser or tab. The confirmation link itself returns to the site root.
+ * Every source is re-validated on read; the metadata is user-writable, so it is treated as untrusted input like the URL.
+ *
  * After authentication (resolveServiceDestination, used by the Dashboard gateway):
  *   1. the identifier is re-validated here;
  *   2. the account's entitlement is read from the SERVER (get_my_billing_summary — the current licence and its
@@ -116,12 +123,21 @@ export function clearServiceIntent(): void {
   }
 }
 
-/** The intent for this visit: a valid URL value wins over a remembered one. */
-export function currentServiceIntent(search: string): StoredServiceIntent | null {
+/** The intent stored in the account's own user metadata at sign-up ({ v: 1, service, plan }), re-validated. */
+export function intentFromUserMetadata(metadata: unknown): StoredServiceIntent | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const raw = (metadata as Record<string, unknown>).service_intent;
+  if (!raw || typeof raw !== "object" || (raw as Record<string, unknown>).v !== 1) return null;
+  const service = parseServiceIntent((raw as Record<string, unknown>).service);
+  return service ? { service, plan: parsePlanIntent((raw as Record<string, unknown>).plan) } : null;
+}
+
+/** The intent for this visit: a valid URL value, else this tab's remembered one, else the account's own metadata. */
+export function currentServiceIntent(search: string, userMetadata?: unknown): StoredServiceIntent | null {
   const params = new URLSearchParams(search);
   const service = parseServiceIntent(params.get("service"));
   if (service) return { service, plan: parsePlanIntent(params.get("plan")) };
-  return readRememberedServiceIntent();
+  return readRememberedServiceIntent() ?? intentFromUserMetadata(userMetadata);
 }
 
 // ── Where an authenticated visitor with an intent goes ────────────────────────────────────────────────────────────

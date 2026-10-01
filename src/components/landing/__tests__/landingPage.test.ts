@@ -259,14 +259,13 @@ describe("choose your capacity", () => {
     expect((visibleText(PAGE).match(/USD \d+/g) ?? []).length).toBe(3);   // prices appear once, only here
   });
 
-  it("each plan action carries the selected service and the plan preference into sign-up (no contact link on the landing page)", () => {
+  it("each self-serve plan action carries the selected service and the plan preference into sign-up; Enterprise is discussed, never self-activated", () => {
     const markup = page("reporting-pack");
     expect(hrefOf(markup, "plan-action-Solo")).toBe("/auth?mode=signup&service=reporting-pack&plan=solo");
     expect(hrefOf(markup, "plan-action-Practice")).toBe("/auth?mode=signup&service=reporting-pack&plan=practice");
     expect(hrefOf(markup, "plan-action-Firm")).toBe("/auth?mode=signup&service=reporting-pack&plan=firm");
-    expect(hrefOf(markup, "plan-action-Enterprise")).toBe("/auth?mode=signup&service=reporting-pack&plan=enterprise");
-    expect(visibleText(section(markup, "plans"))).toMatch(/Choose Solo.*Choose Practice.*Choose Firm.*Choose Enterprise/);
-    expect(section(markup, "plans")).not.toMatch(/\/contact/);
+    expect(visibleText(section(markup, "plans"))).toMatch(/Choose Solo.*Choose Practice.*Choose Firm.*Discuss Enterprise/);
+    expect(visibleText(section(markup, "plans"))).not.toMatch(/Choose Enterprise/);
   });
 });
 
@@ -282,7 +281,32 @@ describe("trust strip", () => {
   });
 });
 
+describe("Enterprise", () => {
+  it("with the enquiry surface on (the committed state), 'Discuss Enterprise' opens the registered contact page — no sign-up, no plan link", async () => {
+    const { SERVICE_ENQUIRY_SURFACES } = await import("@/lib/serviceEnquiry/serviceEnquiryGate");
+    expect(SERVICE_ENQUIRY_SURFACES.contactRoute).toBe(true);
+    const { CONTACT_ROUTE, ENTRY_POINTS } = await import("@/lib/serviceEnquiry/entryPoints");
+    expect(ENTRY_POINTS.find((e) => e.id === "contact_page")?.route).toBe(CONTACT_ROUTE);
+    expect(hrefOf(PAGE, "plan-action-Enterprise")).toBe("/contact");
+  });
+  it("the link exists only behind the contactRoute surface; otherwise a plain statement", () => {
+    const src = fs.readFileSync(path.join(LANDING_COMPONENT_DIR, "CapacityPlans.tsx"), "utf8");
+    const at = src.indexOf("to={CONTACT_ROUTE}");
+    expect(at).toBeGreaterThan(0);
+    expect(src.slice(Math.max(0, at - 200), at)).toMatch(/p\.contactSales && SERVICE_ENQUIRY_SURFACES\.contactRoute && \(/);
+    expect(src).toMatch(/p\.contactSales && !SERVICE_ENQUIRY_SURFACES\.contactRoute && \(/);
+    expect(src).not.toMatch(/contactHref\(/);
+  });
+});
+
 describe("commercial honesty", () => {
+  it("the page states once, plainly, that activation is completed by the team", () => {
+    expect((PAGE_TEXT.match(/activated by our team/g) ?? []).length).toBe(1);
+  });
+  it("no activation, payment-complete or self-serve claim", () => {
+    expect(PAGE_TEXT).not.toMatch(/payment (is )?complete|activate (it )?(yourself|instantly|now)|instant activation|activated instantly|self-activat/i);
+  });
+
   it("the closing action states activation by the team and no online payment", () => {
     expect(LANDING_FINAL_CTA.supporting).toMatch(/Online payment is not available yet/);
     expect(PAGE_TEXT).toContain(LANDING_FINAL_CTA.supporting);

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CAPABILITIES } from "./featureRegistry";
 import { PRICING_CATALOGUE } from "./pricingCatalogue";
 import {
-  SERVICE_INTENTS, SERVICE_INTENT_IDS, SERVICE_INTENT_STORAGE_KEY, clearServiceIntent, currentServiceIntent, parsePlanIntent,
+  SERVICE_INTENTS, SERVICE_INTENT_IDS, SERVICE_INTENT_STORAGE_KEY, clearServiceIntent, currentServiceIntent, intentFromUserMetadata, parsePlanIntent,
   parseServiceIntent, plansHref, readRememberedServiceIntent, rememberServiceIntent, resolveServiceDestination,
   serviceAuthHref, serviceAvailabilityLabel, type BillingSnapshot,
 } from "./serviceIntent";
@@ -82,6 +82,38 @@ describe("remembered intent is re-validated on every read", () => {
   });
 });
 
+describe("the intent survives the confirmation link in ANOTHER browser or tab (no URL, no sessionStorage)", () => {
+  // signUp stores { v: 1, service, plan } in the new account's own user metadata; the confirmation link returns to the
+  // site root. A fresh browser has an empty sessionStorage and a bare URL — the metadata alone must carry the intent.
+  const meta = { display_name: "A", service_intent: { v: 1, service: "reporting-pack", plan: "practice" } };
+  it("a fresh browser (empty storage, bare URL) recovers both service and plan from the account's metadata", () => {
+    store.clear();
+    expect(currentServiceIntent("", meta)).toEqual({ service: "reporting-pack", plan: "PRACTICE" });
+    expect(currentServiceIntent("?", meta)).toEqual({ service: "reporting-pack", plan: "PRACTICE" });
+  });
+  it("service without a plan survives too", () => {
+    expect(currentServiceIntent("", { service_intent: { v: 1, service: "close-insights", plan: null } })).toEqual({ service: "close-insights", plan: null });
+  });
+  it("precedence: a valid URL value, then this tab's remembered value, then the metadata", () => {
+    rememberServiceIntent("close-certification", null);
+    expect(currentServiceIntent("?service=prepare-review", meta)).toEqual({ service: "prepare-review", plan: null });
+    expect(currentServiceIntent("", meta)).toEqual({ service: "close-certification", plan: null });
+  });
+  it.each([
+    ["no metadata", undefined],
+    ["metadata without an intent", { display_name: "A" }],
+    ["wrong version", { service_intent: { v: 2, service: "reporting-pack", plan: "practice" } }],
+    ["unknown service", { service_intent: { v: 1, service: "admin", plan: "practice" } }],
+    ["array", { service_intent: ["reporting-pack"] }],
+    ["string", { service_intent: "reporting-pack" }],
+  ])("metadata is untrusted input: %s → no intent", (_label, m) => {
+    expect(intentFromUserMetadata(m)).toBeNull();
+  });
+  it("a tampered plan in metadata is dropped, the service kept", () => {
+    expect(intentFromUserMetadata({ service_intent: { v: 1, service: "reporting-pack", plan: "platinum" } })).toEqual({ service: "reporting-pack", plan: null });
+  });
+});
+
 describe("where an authenticated account with an intent goes", () => {
   const intent = { service: "reporting-pack" as const, plan: "PRACTICE" as const };
   const snap = (over: Partial<BillingSnapshot>): BillingSnapshot => ({ hasBillingCustomer: true, planCode: "PRACTICE", licenceStatus: "ACTIVE", entitlements: [], ...over });
@@ -131,14 +163,16 @@ describe("wiring: the intent survives authentication and never grants", () => {
   it("the registry module reaches no backend", () => {
     expect(read("src/lib/commercial/serviceIntent.ts")).not.toMatch(/supabase|\.rpc\(|fetch\(|commercialRpc/);
   });
-  it("Auth validates the identifier, remembers it, and carries it through the confirmation link", () => {
+  it("Auth validates the identifier, remembers it in the tab, and stores it in the new account's own metadata; the confirmation link returns to the site root", () => {
     const auth = read("src/pages/Auth.tsx");
     expect(auth).toContain('parseServiceIntent(searchParams.get("service"))');
     expect(auth).toContain("rememberServiceIntent(selectedService, selectedPlan)");
-    expect(auth).toContain("await signUp(email, password, displayName, serviceReturnPath)");
-    expect(auth).toContain("emailRedirectTo: `${window.location.origin}${serviceReturnPath}`");
+    expect(auth).toContain("await signUp(email, password, displayName, selectedService ? { service: selectedService, plan: selectedPlan ? selectedPlan.toLowerCase() : null } : null)");
+    expect(auth).toContain("emailRedirectTo: `${window.location.origin}/`,");
+    expect(auth).not.toContain("serviceReturnPath");   // never a query-bearing redirect
     const ctx = read("src/contexts/AuthContext.tsx");
-    expect(ctx).toMatch(/returnPath\.startsWith\("\/"\) && !returnPath\.startsWith\("\/\/"\)/);   // same-origin paths only
+    expect(ctx).toContain("const redirectUrl = `${window.location.origin}/`;");
+    expect(ctx).toContain("service_intent: { v: 1, service: serviceIntent.service, plan: serviceIntent.plan }");
   });
   it("the gateway routes on the server billing read: waits while loading, /plans when not entitled, the stage when entitled", () => {
     const dash = read("src/pages/Dashboard.tsx");
@@ -147,7 +181,8 @@ describe("wiring: the intent survives authentication and never grants", () => {
     expect(dash).toContain("<Navigate to={serviceDestination.href} replace />");
     expect(dash).toMatch(/!fetchFailed && serviceDestination\.kind !== "wait"/);
     expect(dash).toContain("${route.entry.periodYear}${stageSuffix}");
-    expect(dash).toContain("forceHub ? null : currentServiceIntent(location.search)");
+    expect(dash).toContain("forceHub ? null : currentServiceIntent(location.search, user?.user_metadata)");
+    expect(dash).toContain("supabase.auth.updateUser({ data: { service_intent: null } })");   // used once, then cleared
   });
   it("Index forwards only a validated intent; Plans shows only a validated one", () => {
     expect(read("src/pages/Index.tsx")).toContain("currentServiceIntent(window.location.search)");
