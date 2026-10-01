@@ -10,6 +10,10 @@ export function decideEmptyAccountScreen(
   if (hasSharedWorkspaces) return "shared";
   if (!billing || !capacity) return "unavailable";
   if (billing.licenceStatus !== "ACTIVE" && billing.licenceStatus !== "GRACE") return "plans";
-  if (!capacity.determined || capacity.capacity === null || capacity.used === null || capacity.used >= capacity.capacity) return "unavailable";
+  // Undetermined capacity is a normal server answer for "by agreement" plans
+  // (e.g. Enterprise, whose entity_capacity is NULL) — not a read failure.
+  // Mount setup and let the server remain the enforcement authority at create_entity.
+  if (!capacity.determined || capacity.capacity === null) return "setup";
+  if (capacity.used === null || capacity.used >= capacity.capacity) return "unavailable";
   return "setup";
 }
