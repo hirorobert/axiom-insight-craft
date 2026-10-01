@@ -13,6 +13,8 @@ export interface ProposedPlan {
   readonly proposedEntities: string;
   readonly proposedUsers: string;
   readonly proposedCapabilities: string;
+  /** The monthly-billing alternative, or null (Enterprise). Never structured data. */
+  readonly proposedMonthly: string | null;
   /** Catalogue plan code, for the plan-preference link (validated again by parsePlanIntent). */
   readonly code: PlanCode;
   /** The catalogue tagline. */
@@ -30,7 +32,9 @@ const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : 
 
 export const PROPOSED_PLANS: readonly ProposedPlan[] = PRICING_CATALOGUE.map((p) => ({
   name: p.name,
-  proposedAmount: p.monthlyMinor === null ? "Proposed: terms agreed separately" : `Proposed: USD ${p.monthlyMinor / 100} per month`,
+  // The close is mostly an annual event per entity: the annual term leads, monthly billing is the alternative.
+  proposedAmount: p.annualMinor === null ? "Proposed: terms agreed separately" : `Proposed: USD ${(p.annualMinor / 100).toLocaleString("en-US")} per year`,
+  proposedMonthly: p.monthlyMinor === null ? null : `or USD ${p.monthlyMinor / 100} per month, billed monthly`,
   proposedEntities: p.entityCapacity === null ? "Proposed: capacity agreed separately" : `Proposed: ${count(p.entityCapacity, "entity", "entities")}`,
   proposedUsers: p.includedSeats === null
     ? "Proposed: capacity agreed separately"
