@@ -54,7 +54,7 @@ export function CapacityPlans() {
                 <span role="cell" className={`${CELL} col-span-2 text-muted-foreground md:col-span-3`}>{p.bestFor}</span>
                 <span role="cell" className={`${CELL} text-foreground md:col-span-1`}><span className={MOBILE_LABEL}>{C.entities}</span>{p.entities}</span>
                 <span role="cell" className={`${CELL} text-foreground md:col-span-2`}><span className={MOBILE_LABEL}>{C.users}</span>{p.namedUsers}</span>
-                <span role="cell" className={`${CELL} col-span-2 text-foreground md:col-span-2`}><span className={MOBILE_LABEL}>{C.price}</span>{p.proposedAmount}{p.proposedMonthly && <span className="block text-[12px] text-muted-foreground">{p.proposedMonthly}</span>}</span>
+                <span role="cell" className={`${CELL} col-span-2 text-foreground md:col-span-2`}><span className={MOBILE_LABEL}>{C.price}</span>{p.proposedAmount}</span>
                 <span role="cell" className={`${CELL} col-span-2 md:col-span-2`}>
                   {!p.contactSales && (
                     <Link to={serviceAuthHref("signup", service, p.code)} data-testid={`plan-action-${p.name}`} className="inline-flex whitespace-nowrap text-[13px] font-semibold text-foreground underline underline-offset-4 hover:no-underline">

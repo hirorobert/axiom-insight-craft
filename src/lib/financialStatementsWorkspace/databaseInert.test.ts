@@ -237,7 +237,10 @@ describe("database inertness — schema and functions", () => {
       "scripts/ci/releaseJournal.mjs",
       // Trial-balance verdict surface: the build-output guard that the development-only gallery (src/dev/, dev/*.html)
       // and its synthetic fixtures never reach dist/. Read-only file scan; no database, network or deploy behavior.
-      "scripts/ci/assertDevGalleryExcluded.mjs"]);
+      "scripts/ci/assertDevGalleryExcluded.mjs",
+      // One 12-month commercial term (20261001120000): the loopback-only real-PostgreSQL proof and the READ-ONLY
+      // production preflight audit (SELECT statements only; proven read-only by that proof, T-08).
+      "scripts/db-proof/annualTerm.mjs", "scripts/db-preflight/annualTermPreflight.sql"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

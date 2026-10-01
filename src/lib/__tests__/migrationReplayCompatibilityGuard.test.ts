@@ -190,7 +190,8 @@ describe("migration directory integrity", () => {
     // (xbrl_concept_map policy; release-only probe RLS behind to_regclass). No applied migration is edited.
     // Bumped from 142 -> 143: 20260927100000_trial_balance_remove_from_active_use.sql, a NEW forward-only migration (remove a processed trial balance from
     // active use without a successor; 20260926160000 is applied in production and pinned like the others).
-    expect(files.length).toBe(143);
+    // Bumped from 143 -> 144: 20261001120000_annual_commercial_term.sql, a NEW forward-only migration (one 12-month term).
+    expect(files.length).toBe(144);
   });
 });
 

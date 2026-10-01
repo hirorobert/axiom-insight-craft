@@ -256,9 +256,8 @@ describe("choose your capacity", () => {
     expect(derived).not.toMatch(/USD \d/);
     expect(fs.readFileSync(path.join(ROOT, "src/content/landing/landingContent.ts"), "utf8")).not.toMatch(/USD \d|named user included|\d+ entities/);
     for (const p of PROPOSED_PLANS) expect(visibleText(plans)).toContain(p.proposedAmount);
-    expect(PROPOSED_PLANS.map((p) => p.proposedMonthly)).toEqual(["or USD 49 per month, billed monthly", "or USD 99 per month, billed monthly", "or USD 299 per month, billed monthly", null]);
-    expect((visibleText(PAGE).match(/USD [\d,]+/g) ?? []).length).toBe(6);   // annual + monthly, once each, only here
-    expect(visibleText(plans)).toMatch(/Proposed: USD 490 per year or USD 49 per month, billed monthly/);   // annual leads
+    expect((visibleText(PAGE).match(/USD [\d,]+/g) ?? []).length).toBe(3);   // annual prices, once each, only here
+    expect(visibleText(PAGE)).not.toMatch(/per month|monthly|instalment/i);   // no monthly price or instalment claim
   });
 
   it("each self-serve plan action carries the selected service and the plan preference into sign-up; Enterprise is discussed, never self-activated", () => {

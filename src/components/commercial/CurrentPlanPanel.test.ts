@@ -37,15 +37,19 @@ describe("plan presentation is read-only", () => {
     expect(html).toContain("View plans");
     expect(html).toContain("Active");
   });
-  it("catalogue lists the services each plan includes (from the matrix), annual first, proposed, and never claims saved selection or activation", () => {
+  it("catalogue states the common services once, annual pricing only, proposed, and never claims saved selection or activation", () => {
     const html = render(createElement(PlanCatalogue));
-    for (const name of ["Prepare &amp; Review", "Close Certification", "Reporting Pack", "Close Insights"]) expect(html).toContain(name);
+    const common = html.slice(html.indexOf('data-testid="common-services"'), html.indexOf('aria-label="Plans"'));
+    for (const name of ["Prepare &amp; Review", "Close Certification", "Reporting Pack", "Close Insights"]) {
+      expect(common).toContain(name);
+      expect(html.split(name).length - 1).toBe(1);   // once, not repeated under every plan
+    }
+    expect(html).not.toMatch(/per month|\/ month|monthly|instalment/i);   // no monthly pricing until the server represents instalments
     expect(html).toContain("Choose Solo");
     expect(html).toContain("Discuss Enterprise");
     expect(html).not.toMatch(/Talk to sales|XBRL|filing pack|Management letters|Regional packs/i);   // no unreachable output is advertised
-    expect(html).toContain("Proposed pricing · annual term");
+    expect(html).toContain("Proposed pricing · 12-month term");
     expect(html).toMatch(/data-testid="price-SOLO">\$490<span[^>]*> \/ year/);
-    expect(html).toContain("or $49 / month, billed monthly");
     expect(html).not.toMatch(/selected plan has been saved|deactivation/i);
   });
   it('shows a prepaid next term as its own scheduled period, never relabelled as current', () => {

@@ -33,7 +33,9 @@ describe("the reviewed release journal", () => {
   it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 , the removal migration 20260927100000 (0024) and (out of order on purpose) the prerequisite; nothing is pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]);   // 0022 applied the processing correction (f21a58f); 0024 the removal migration (main 0d2a09e)
+    // 0022 applied the processing correction (f21a58f); 0024 the removal migration (main 0d2a09e). The annual-term migration
+    // (20261001120000) is authored, not yet applied: the one pending source.
+    expect(r.pending).toEqual(["20261001120000_annual_commercial_term.sql"]);
     expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" }]);
     expect(r.mirrored.filter((m) => m.how === "release_wrapper").map((m) => m.source)).toEqual([
       "20260925100000_global_capabilities_entitlements_pricing.sql", "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
