@@ -103,9 +103,10 @@ describe("Ω3-BRAND · public brand", () => {
   // protects is unchanged and still asserted: commercial information stays reachable from the
   // public navigation, and the /pricing route itself is untouched.
   it("09 · commercial information is reachable from the public navigation", () => {
-    const commercialNav = NAV.find((n) => n.href === "#commercial");
-    expect(commercialNav, "the public navigation must reach the commercial section").toBeDefined();
-    expect(commercialNav?.label).toBe("Commercial");
+    // The proposed plan sizes live inside the service chooser (#plans) since the landing redesign.
+    const commercialNav = NAV.find((n) => n.href === "#plans");
+    expect(commercialNav, "the public navigation must reach the plan sizes").toBeDefined();
+    expect(commercialNav?.label).toBe("Plans");
     expect(NAV.every((n) => n.href.startsWith("#")), "landing navigation is in-page only").toBe(true);
   });
 

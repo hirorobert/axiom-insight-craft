@@ -3,27 +3,18 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { LandingHero } from "@/components/landing/LandingHero";
-import { CoreCapabilities } from "@/components/landing/CoreCapabilities";
-import { ControlledCloseAndAssurance } from "@/components/landing/ControlledCloseAndAssurance";
-import { VerifiedDeliverables } from "@/components/landing/VerifiedDeliverables";
-import { CommercialVerification } from "@/components/landing/CommercialVerification";
+import { ServiceChooser } from "@/components/landing/ServiceChooser";
 import { LandingFAQ } from "@/components/landing/LandingFAQ";
-import { LandingFinalCTA } from "@/components/landing/LandingFinalCTA";
 import { Footer } from "@/components/Footer";
 import { AuthLinkErrorScreen, getAuthLinkError } from "@/components/AuthLinkErrorScreen";
 
 // ─── Page composition ────────────────────────────────────────────────────────
 //  1. Header
-//  2. Hero — proposition and actions on the left, synthetic status preview on the right,
-//            so product proof sits inside the first viewport rather than below a tall
-//            text-only band.
-//  3. Core capabilities
-//  4. Controlled-close process, combined with the Close Assurance control layer
-//  5. Verified deliverables — only outputs reachable in the current interface
-//  6. Commercial structure, under final enforcement verification
-//  7. FAQ — the same data the FAQPage structured data in index.html is built from
-//  8. Final call to action
-//  9. Footer
+//  2. Hero — the proposition, two actions and the four services named once
+//  3. Service chooser — the one decision: services (included / paid), what they produce,
+//     the proposed plan sizes and the single closing action
+//  4. FAQ — the same data the FAQPage structured data in index.html is built from
+//  5. Footer — the disclosures, stated once, at the foot of the page
 // ─────────────────────────────────────────────────────────────────────────────
 
 const Index = () => {
@@ -61,12 +52,8 @@ const Index = () => {
       <Header />
       <main id="main-content">
         <LandingHero />
-        <CoreCapabilities />
-        <ControlledCloseAndAssurance />
-        <VerifiedDeliverables />
-        <CommercialVerification />
+        <ServiceChooser />
         <LandingFAQ />
-        <LandingFinalCTA />
       </main>
       <Footer />
     </div>

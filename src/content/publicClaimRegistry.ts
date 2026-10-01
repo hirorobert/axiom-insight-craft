@@ -91,50 +91,16 @@ export const PUBLIC_CLAIM_REGISTRY: readonly PublicClaim[] = [
     verifiedDate: "2026-09-24",
   },
   {
-    id: "controlled-access",
-    claimText: "Access decisions are evaluated through authenticated workspace permissions.",
-    evidenceSource:
-      "src/lib/workspace/workspaceAccess.ts + src/components/workspace/WorkspaceAccessGate.tsx reading the server resolver get_workspace_access(workspace); supabase/migrations/20260923130000 defines it (owner / accepted member / explicit capability grant) and it fails closed on an unresolved state",
-    evidenceScope:
-      "Proves access is decided by a server resolver over authenticated identity, and that an unresolved answer denies. Does NOT prove the absence of defects, is not a penetration-test result, and is not a security certification of any kind.",
-    approvedWording: "Access decisions are evaluated through authenticated workspace permissions.",
-    prohibitedWording: ["soc 2", "soc2", "hipaa", "guaranteed", "zero errors"],
-    verifiedDate: "2026-09-24",
-  },
-  {
-    id: "workspace-separation",
-    claimText: "Workspace access rules separate entity and engagement data.",
-    evidenceSource:
-      "Row-level security policies on the tenant tables plus assertCompanyMembership() in supabase/functions/_shared/auth.ts, which every financial-write function calls before touching a company's rows",
-    evidenceScope:
-      "Proves per-workspace scoping is enforced in the database and re-checked in server functions. Does NOT claim physical or infrastructure-level isolation, and does not claim encryption of any store.",
-    approvedWording: "Workspace access rules separate entity and engagement data.",
-    prohibitedWording: ["encrypted storage", "air-gapped", "physically isolated"],
-    verifiedDate: "2026-09-24",
-  },
-  {
-    id: "controlled-upload-lifecycle",
-    claimText:
-      "Uploads follow defined active, replacement, retirement, discard and recovery states.",
-    evidenceSource:
-      "supabase/migrations/20260923100000_upload_lifecycle_retire_and_replace.sql — trial_balance_uploads.lifecycle_state is CHECK-constrained to 8 server-authoritative states, changed only by the migration backfill, the certification trigger, the processing-start derivation and the SECURITY DEFINER lifecycle RPCs (retire / cancel replacement / restore); client roles are refused (42501)",
-    evidenceScope:
-      "Proves the state set and that transitions are server-controlled. Does NOT prove indefinite retention of a discarded source, and does not promise recovery after a discard has become terminal.",
-    approvedWording:
-      "Uploads follow defined active, replacement, retirement, discard and recovery states.",
-    prohibitedWording: ["never deleted", "permanent archive", "impossible to overwrite"],
-    verifiedDate: "2026-09-24",
-  },
-  {
     id: "historical-output-protection",
+    // Stated in the FAQ answer on lapsed subscriptions (the Close Assurance grid that also carried it was retired).
     claimText:
-      "Supported historical outputs remain readable under defined lifecycle and subscription rules.",
+      "Supported historical outputs remain readable under the defined lifecycle and subscription rules",
     evidenceSource:
       "src/lib/financialStatementsWorkspace/savedVersions.ts + exports.ts (a persisted report version keeps its own evaluation lineage and content hash) and src/lib/commercial/entitlementContract.ts, whose resolution gates new privileged actions rather than reads of already-persisted versions",
     evidenceScope:
       "Proves persisted versions are addressable and retain their lineage under the current rules. Does NOT promise perpetual availability independent of those rules, and is not a data-retention or escrow commitment.",
     approvedWording:
-      "Supported historical outputs remain readable under defined lifecycle and subscription rules.",
+      "Supported historical outputs remain readable under the defined lifecycle and subscription rules",
     prohibitedWording: ["forever", "perpetual access", "guaranteed retention"],
     verifiedDate: "2026-09-24",
   },

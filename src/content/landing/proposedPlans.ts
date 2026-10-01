@@ -13,6 +13,8 @@ export interface ProposedPlan {
   readonly proposedEntities: string;
   readonly proposedUsers: string;
   readonly proposedCapabilities: string;
+  /** One-line capacity summary for the service chooser: "5 entities · 1 named user included". */
+  readonly capacitySummary: string;
 }
 
 const PUBLIC_CAPABILITIES = "Close Certification, Reporting Pack, Close Insights";
@@ -26,4 +28,7 @@ export const PROPOSED_PLANS: readonly ProposedPlan[] = PRICING_CATALOGUE.map((p)
     ? "Proposed: capacity agreed separately"
     : `Proposed: ${count(p.includedSeats, "named user", "named users")}${p.additionalSeat ? " included" : ""}`,
   proposedCapabilities: PUBLIC_CAPABILITIES,
+  capacitySummary: p.entityCapacity === null || p.includedSeats === null
+    ? "Capacity agreed separately"
+    : `${count(p.entityCapacity, "entity", "entities")} · ${count(p.includedSeats, "named user", "named users")}${p.additionalSeat ? " included" : ""}`,
 }));
