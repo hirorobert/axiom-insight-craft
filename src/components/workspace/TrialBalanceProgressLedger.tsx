@@ -84,11 +84,15 @@ export function deriveTrialBalanceSteps(upload: WorkspaceUpload | null, opts: { 
   const totalAccounts = count(mc?.total_accounts) ?? count(summary?.total_accounts);
   const mapped = count(mc?.mapped_accounts);
   const needsReview = count(mc?.needs_review);
+  // Non-reporting accounts are counted in total_accounts but are legitimately
+  // excluded from mapped_accounts (engine: process-trial-balance certified path).
+  // They are not unresolved classification work — subtract them from the gap.
+  const nonReporting = count(mc?.non_reporting) ?? 0;
   const totals = readTrialBalanceTotals(pr);
   const outOfBalance = isOutOfBalance(totals);
 
   const classifiedKnown = mapped !== null && totalAccounts !== null;
-  const unresolved = classifiedKnown ? Math.max(needsReview ?? 0, totalAccounts - mapped) : null;
+  const unresolved = classifiedKnown ? Math.max(needsReview ?? 0, totalAccounts - mapped - nonReporting) : null;
 
   const reached: Record<string, boolean> = {
     received: true,

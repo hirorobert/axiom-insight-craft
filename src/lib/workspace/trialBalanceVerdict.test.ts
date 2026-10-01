@@ -59,6 +59,25 @@ describe("the reported contradiction is resolved at the source — every surface
     expect(JSON.stringify(steps)).not.toMatch(/need a (mapping|classification) decision/);
   });
 
+  it("non-reporting accounts are not unresolved classification work (certified path)", () => {
+    // Engine certified path: total includes non-reporting rows, mapped excludes them, needs_review = 0.
+    const certified = upload("complete", {
+      processing_result: {
+        summary: { total_accounts: 240, auto_classified: 0 },
+        validation_report: {
+          mapping_completeness: { passed: true, total_accounts: 240, mapped_accounts: 234, non_reporting: 6, unmapped: [], auto_classified: 0 },
+          tb_balance_check: { total_debits: 100, total_credits: 100, difference: 0 },
+        },
+        statements: { balance_sheet: {} },
+      },
+      processed_at: "2026-01-01T00:00:00Z",
+    });
+    const steps = deriveTrialBalanceSteps(certified as never, {});
+    const classified = steps.find((s) => s.key === "classified")!;
+    expect(classified.state).toBe("done");
+    expect(JSON.stringify(steps)).not.toMatch(/need a classification decision/);
+  });
+
   it("no engine code or raw 'x != y' text reaches the person", () => {
     const text = JSON.stringify([verdict.reason, verdict.checks, verdict.informational]);
     expect(text).not.toMatch(/NOT_EVALUATED|NO_PRIOR|!=/);
