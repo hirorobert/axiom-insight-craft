@@ -31,6 +31,12 @@ describe("plan presentation is read-only", () => {
     expect(render(createElement(CurrentPlanPanel, { billing: null, loading: true, error: false }))).toContain("Loading plan");
     expect(render(createElement(CurrentPlanPanel, { billing: null, loading: false, error: true, onRetry: () => {} }))).toContain("We couldn’t load your plan");
   });
+  it("an auxiliary-read error never hides a loaded plan", () => {
+    const html = render(createElement(CurrentPlanPanel, { billing: base, loading: false, error: true, capacity: null, onRetry: () => {} }));
+    expect(html).not.toContain("We couldn’t load your plan");
+    expect(html).toContain("View plans");
+    expect(html).toContain("Active");
+  });
   it("catalogue uses matrix and never claims saved selection or activation", () => {
     const html = render(createElement(PlanCatalogue));
     expect(html).toContain("Close Assurance");
