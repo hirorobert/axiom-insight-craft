@@ -3,18 +3,25 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { LandingHero } from "@/components/landing/LandingHero";
+import { LandingIntentProvider } from "@/components/landing/LandingIntent";
 import { ServiceChooser } from "@/components/landing/ServiceChooser";
+import { CapacityPlans } from "@/components/landing/CapacityPlans";
+import { TrustStrip } from "@/components/landing/TrustStrip";
 import { LandingFAQ } from "@/components/landing/LandingFAQ";
+import { LandingFinalCTA } from "@/components/landing/LandingFinalCTA";
+import { currentServiceIntent } from "@/lib/commercial/serviceIntent";
 import { Footer } from "@/components/Footer";
 import { AuthLinkErrorScreen, getAuthLinkError } from "@/components/AuthLinkErrorScreen";
 
 // ─── Page composition ────────────────────────────────────────────────────────
 //  1. Header
-//  2. Hero — the proposition, two actions and the four services named once
-//  3. Service chooser — the one decision: services (included / paid), what they produce,
-//     the proposed plan sizes and the single closing action
-//  4. FAQ — the same data the FAQPage structured data in index.html is built from
-//  5. Footer — the disclosures, stated once, at the foot of the page
+//  2. Hero — the proposition, two actions and a compact service selector
+//  3. Choose your outcome + what you receive (single-select service; three outputs; one action)
+//  4. Choose your capacity — plans, derived from the catalogue (a separate decision)
+//  5. Trust — three assurances in registered wording
+//  6. FAQ — the same data the FAQPage structured data in index.html is built from — then the final action
+//  7. Footer — the disclosures, stated once, at the foot of the page
+// The selected service travels with every call to action as a validated `service=` identifier.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const Index = () => {
@@ -28,7 +35,9 @@ const Index = () => {
   // Authenticated users go directly to the workspace — never see the marketing page.
   useEffect(() => {
     if (!loading && user) {
-      navigate("/dashboard", { replace: true });
+      // A validated service intent (e.g. from the confirmation link) is forwarded to the gateway.
+      const intent = currentServiceIntent(window.location.search);
+      navigate(intent ? `/dashboard?service=${intent.service}${intent.plan ? `&plan=${intent.plan.toLowerCase()}` : ""}` : "/dashboard", { replace: true });
     }
   }, [user, loading, navigate]);
 
@@ -50,11 +59,17 @@ const Index = () => {
         Skip to main content
       </a>
       <Header />
-      <main id="main-content">
-        <LandingHero />
-        <ServiceChooser />
-        <LandingFAQ />
-      </main>
+      {/* A validated ?service= (a shared link, or a return from sign-in) preselects the outcome. */}
+      <LandingIntentProvider initial={currentServiceIntent(window.location.search)?.service}>
+        <main id="main-content">
+          <LandingHero />
+          <ServiceChooser />
+          <CapacityPlans />
+          <TrustStrip />
+          <LandingFAQ />
+          <LandingFinalCTA />
+        </main>
+      </LandingIntentProvider>
       <Footer />
     </div>
   );

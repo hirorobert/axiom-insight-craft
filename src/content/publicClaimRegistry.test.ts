@@ -23,7 +23,12 @@ const LANDING_FILES = [
   "src/components/Footer.tsx",
   "src/components/landing/LandingHero.tsx",
   "src/components/landing/ServiceChooser.tsx",
+  "src/components/landing/CapacityPlans.tsx",
+  "src/components/landing/TrustStrip.tsx",
   "src/components/landing/LandingFAQ.tsx",
+  "src/components/landing/LandingFinalCTA.tsx",
+  "src/components/landing/LandingIntent.tsx",
+  "src/pages/Plans.tsx",
   "src/content/landing/landingContent.ts",
   "src/constants/copy.ts",
   "index.html",
@@ -82,45 +87,46 @@ describe("no prohibited stronger wording appears anywhere on the landing page (c
   });
 });
 
+const ABSOLUTE_PROHIBITED = [
+  "soc 2",
+  "soc2",
+  "hipaa",
+  "asc 606",
+  "asc 958",
+  "bulletproof",
+  "tamper-proof",
+  "zero errors",
+  "guaranteed", // outside code comments — checked against the landing surface only, which has none
+  "cancel anytime",
+  "money-back guarantee",
+  // Absolute / unverifiable assurance language.
+  "immutable",
+  "every action",
+  "all actions",
+  "audit assurance",
+  "integrity guarantee",
+  "encrypted storage",
+  "statutory compliance",
+  // Carried over from the retired controlled-access / workspace-separation / upload-lifecycle claim rows, so
+  // retiring those claims never relaxes what the page may say.
+  "air-gapped",
+  "physically isolated",
+  "never deleted",
+  "permanent archive",
+  "impossible to overwrite",
+  "complete financial statements",
+  "every balance is tied",
+  "100%",
+  "zero ai guesswork",
+  "audit-ready",
+  "audit ready",
+  "no credit card",
+  "in minutes",
+  "four-eye",
+  "four eyes",
+];
+
 describe("absolute prohibited claims never appear anywhere on the landing page, registered or not", () => {
-  const ABSOLUTE_PROHIBITED = [
-    "soc 2",
-    "soc2",
-    "hipaa",
-    "asc 606",
-    "asc 958",
-    "bulletproof",
-    "tamper-proof",
-    "zero errors",
-    "guaranteed", // outside code comments — checked against the landing surface only, which has none
-    "cancel anytime",
-    "money-back guarantee",
-    // Absolute / unverifiable assurance language.
-    "immutable",
-    "every action",
-    "all actions",
-    "audit assurance",
-    "integrity guarantee",
-    "encrypted storage",
-    "statutory compliance",
-    // Carried over from the retired controlled-access / workspace-separation / upload-lifecycle claim rows, so
-    // retiring those claims never relaxes what the page may say.
-    "air-gapped",
-    "physically isolated",
-    "never deleted",
-    "permanent archive",
-    "impossible to overwrite",
-    "complete financial statements",
-    "every balance is tied",
-    "100%",
-    "zero ai guesswork",
-    "audit-ready",
-    "audit ready",
-    "no credit card",
-    "in minutes",
-    "four-eye",
-    "four eyes",
-  ];
 
   it.each(ABSOLUTE_PROHIBITED)("\"%s\" is absent from the live landing-page source", (phrase) => {
     expect(LANDING_SOURCE_NO_COMMENTS.toLowerCase()).not.toContain(phrase);
@@ -150,5 +156,15 @@ describe("absolute prohibited claims never appear anywhere on the landing page, 
   it.each(ABSOLUTE_PROHIBITED_WORDS)("the word \"%s\" is absent from the live landing-page source", (word) => {
     const pattern = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
     expect(pattern.test(LANDING_SOURCE_NO_COMMENTS)).toBe(false);
+  });
+});
+
+describe("prohibited-claim coverage never shrinks", () => {
+  // Frozen 2026-10-01 from main f22248b (registry prohibitedWording ∪ ABSOLUTE_PROHIBITED): retiring a claim row moves
+  // its bans to ABSOLUTE_PROHIBITED; it never drops one. Add phrases freely; removing one needs a reviewed reason.
+  const BASELINE = ["100%","12 independent audit opinions","air-gapped","all actions","any format","any spreadsheet","asc 606","asc 958","audit assurance","audit ready","audit-ready","audited under ifrs","auditor-certified","automatic with no review","biometric verification","blockchain-verified identity","bulletproof","cancel anytime","complete financial statements","cryptographically immutable evidence","direct invoicing available","encrypted storage","every action","every balance is tied","every decision","filing-ready","forever","four eyes","four-eye","fully compliant","guaranteed","guaranteed retention","hipaa","ifrs-certified","immutable","impossible to overwrite","in minutes","integrity guarantee","ixbrl","money-back guarantee","never deleted","no credit card","permanent archive","perpetual access","physically isolated","provides an audit opinion","soc 2","soc2","start in seconds","statutory compliance","tamper-proof","unbroken audit trail","xbrl","zero ai guesswork","zero errors"];
+  it("every baseline phrase is still enforced", () => {
+    const enforced = new Set([...PUBLIC_CLAIM_REGISTRY.flatMap((c) => c.prohibitedWording.map((w) => w.toLowerCase())), ...ABSOLUTE_PROHIBITED.map((w) => w.toLowerCase())]);
+    expect(BASELINE.filter((w) => !enforced.has(w))).toEqual([]);
   });
 });

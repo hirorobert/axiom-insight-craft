@@ -20,6 +20,7 @@
 export const LANDING_SECTION_IDS = [
   "main-content",
   "services",
+  "outputs",
   "plans",
   "faq",
 ] as const;
@@ -32,23 +33,18 @@ export type LandingSectionId = (typeof LANDING_SECTION_IDS)[number];
 
 export const LANDING_HERO = {
   eyebrow: "FINANCIAL CLOSE WORKSPACE",
-  headline: "From trial balance to reviewable financial statements.",
+  headline: "Close the books. Produce review-ready financial statements.",
   supporting:
-    "Import a trial balance, resolve the accounts that need a decision, and prepare framework-aware statements you can review, certify and export.",
+    "Import a trial balance, resolve the accounts that need a decision and prepare framework-aware statements, with a traceable source and attributed decisions.",
   primaryCta: { label: "Create account", href: "/auth?mode=signup" },
-  secondaryCta: { label: "Choose a service", href: "#services" },
+  secondaryCta: { label: "Explore a sample close", href: "#services" },
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Services — what CFOCLOSE prepares, what each produces, and how it is charged
+// Services — the OUTCOME decision (what the customer needs). Plans are a separate decision (capacity) below.
+// Identifiers are the closed service-intent registry (src/lib/commercial/serviceIntent.ts); availability labels are
+// derived there from the plan × capability matrix, never written here.
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * "included": part of every plan, never charged separately (Close Assurance / preparation).
- * "paid":     a paid capability (featureRegistry kind "paid"). Every current plan includes all of them.
- * There is no free plan: every service needs a plan (featureRegistry: "included … but never free").
- */
-export type LandingServiceTier = "included" | "paid";
 
 export interface LandingServiceOutput {
   readonly name: string;
@@ -59,56 +55,53 @@ export interface LandingServiceOutput {
 }
 
 export interface LandingService {
-  readonly id: "preparation" | "certification" | "reporting" | "insights";
+  readonly id: "prepare-review" | "close-certification" | "reporting-pack" | "close-insights";
   readonly name: string;
-  readonly tier: LandingServiceTier;
-  readonly tierLabel: string;
+  /** One sentence: the outcome. */
   readonly outcome: string;
-  readonly outputs: readonly LandingServiceOutput[];
-  /** Controls stated in their registered wording (publicClaimRegistry). */
-  readonly controls?: readonly string[];
+  /** One short business benefit. */
+  readonly value: string;
+  /** At most three, shown by default. */
+  readonly primaryOutputs: readonly LandingServiceOutput[];
+  /** Shown only behind "See all included outputs". */
+  readonly moreOutputs: readonly LandingServiceOutput[];
+  /** A scope statement in registered wording, when the outcome needs one. */
   readonly note?: string;
 }
 
 export const LANDING_SERVICES: readonly LandingService[] = [
   {
-    id: "preparation",
-    name: "Preparation and review",
-    tier: "included",
-    tierLabel: "Included in every plan",
-    outcome:
-      "Import a trial balance, screen for duplicate sources and record a decision on each account the workspace cannot classify confidently.",
-    outputs: [
+    id: "prepare-review",
+    name: "Prepare & Review",
+    outcome: "Turn an imported trial balance into a reviewed one, with a decision recorded on every account that needs one.",
+    value: "Statements start from a trial balance you have already reviewed.",
+    primaryOutputs: [
       { name: "Account mapping schedule", formats: "XLSX · CSV" },
       { name: "Preparation check summary", formats: "On screen" },
       { name: "Decision history", formats: "On screen" },
     ],
-    controls: [
-      "A SHA-256 fingerprint is recorded for supported trial-balance imports.",
-      "Review decisions are associated with authenticated user accounts.",
-    ],
+    moreOutputs: [],
   },
   {
-    id: "certification",
+    id: "close-certification",
     name: "Close Certification",
-    tier: "paid",
-    tierLabel: "Paid",
-    outcome:
-      "Record a preparation certification for a reviewed trial balance once the required checks and outstanding classification decisions are resolved.",
-    outputs: [{ name: "Preparation certification record", formats: "On screen" }],
-    note: "An internal preparation record. It is not an external audit, an audit opinion, or any form of statutory assurance.",
+    outcome: "Record a preparation certification once the required checks and outstanding classification decisions are resolved.",
+    value: "Reviewers can see that preparation was complete before statements were issued.",
+    primaryOutputs: [{ name: "Preparation certification record", formats: "On screen" }],
+    moreOutputs: [],
+    note: "It is not an external audit, an audit opinion, or any form of statutory assurance.",
   },
   {
-    id: "reporting",
+    id: "reporting-pack",
     name: "Reporting Pack",
-    tier: "paid",
-    tierLabel: "Paid",
-    outcome:
-      "Prepare framework-aware statements with supporting schedules, then export them for review and circulation outside the workspace.",
-    outputs: [
+    outcome: "Prepare framework-aware statements with supporting schedules, then export them for review and circulation.",
+    value: "Statements reach reviewers in the formats they already use.",
+    primaryOutputs: [
       { name: "Statement of financial position", formats: "XLSX · PDF" },
       { name: "Statement of profit or loss and other comprehensive income", formats: "XLSX · PDF" },
       { name: "Statement of cash flows", formats: "XLSX · PDF", condition: "Where prior-period balances are present" },
+    ],
+    moreOutputs: [
       { name: "Statement of changes in equity", formats: "XLSX · PDF", condition: "Where opening balances are present" },
       { name: "Disclosure notes", formats: "On screen" },
       { name: "Comparative presentation", formats: "XLSX · PDF", condition: "Where a prior period is present" },
@@ -116,28 +109,51 @@ export const LANDING_SERVICES: readonly LandingService[] = [
     ],
   },
   {
-    id: "insights",
+    id: "close-insights",
     name: "Close Insights",
-    tier: "paid",
-    tierLabel: "Paid",
-    outcome:
-      "Compare a reporting period with a prior one: movement, variance and cash indicators, shown where the prior-period data is present.",
-    outputs: [
+    outcome: "Compare a reporting period with a prior one: movement, variance and cash indicators.",
+    value: "See what moved between periods before the close is reviewed.",
+    primaryOutputs: [
       { name: "Period movement and variance", formats: "On screen", condition: "Where prior-period data is present" },
       { name: "Cash indicators", formats: "On screen", condition: "Where prior-period data is present" },
     ],
+    moreOutputs: [],
   },
 ];
 
 export const LANDING_SERVICES_COPY = {
   eyebrow: "Services",
-  heading: "Choose what you need to deliver.",
-  intro: "Every plan includes all four services. Plans differ in how many entities and named users they cover.",
+  heading: "Choose your outcome.",
+  intro: "A plan is required. Every plan includes all four services; plans differ in capacity.",
   outputsHeading: "What you receive",
-  plansHeading: "Proposed plan sizes",
+  seeAll: "See all included outputs",
+  startPrefix: "Start with",
+  signInPrompt: "Already have an account?",
+  signInLabel: "Sign in",
   frameworks: "Frameworks: IFRS for SMEs, IFRS, IPSAS accrual and IPSAS cash.",
-  comparePlans: { label: "Compare plans in detail", href: "/pricing" },
 } as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plans — the CAPACITY decision. Every figure is derived from PRICING_CATALOGUE in ./proposedPlans.ts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const LANDING_PLANS_COPY = {
+  eyebrow: "Plans",
+  heading: "Choose your capacity.",
+  intro: "Plans differ in how many entities and named users they cover. Pricing shown is proposed.",
+  columns: { plan: "Plan", bestFor: "Best for", entities: "Entities", users: "Named users", price: "Proposed price", action: "Action" },
+  choosePrefix: "Choose",
+} as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trust — three assurances, each in its registered wording (publicClaimRegistry)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const LANDING_TRUST: readonly { readonly title: string; readonly text: string }[] = [
+  { title: "Traceable source", text: "A SHA-256 fingerprint is recorded for supported trial-balance imports." },
+  { title: "Attributed decisions", text: "Review decisions are associated with authenticated user accounts." },
+  { title: "Protected history", text: "Supported historical outputs remain readable under the defined lifecycle and subscription rules." },
+];
 
 // The proposed plans are derived from the PR #34 commercial catalogue in ./proposedPlans.ts (this module stays data
 // only: no imports, no logic).
@@ -204,14 +220,14 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The one closing action — rendered at the foot of the service chooser
+// Final call to action
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LANDING_FINAL_CTA = {
-  heading: "Ready when your next close is.",
+  heading: "Bring your financial close under control.",
   supporting: "Plans are activated by our team. Online payment is not available yet.",
   primaryCta: { label: "Create account", href: "/auth?mode=signup" },
-  secondaryCta: { label: "Sign in", href: "/auth" },
+  secondaryCta: { label: "View plans", href: "#plans" },
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────

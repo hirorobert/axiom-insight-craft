@@ -4,21 +4,21 @@
  * Rendering convention: this repository runs vitest in the `node` environment with no jsdom and no
  * @testing-library, so sections are rendered with renderToStaticMarkup — the honest fidelity level
  * for this surface: its server-rendered markup IS what a visitor and a crawler receive. Interaction
- * (service and plan selection, the mobile menu) is asserted at the mechanism level here and verified
- * in a browser at 1366px and 375px.
+ * (choosing a service, the mobile menu) is asserted at the mechanism level here and verified in a
+ * browser at 1366px and 375px.
  *
  * What is protected, each because getting it wrong is a real failure rather than a style regression:
  *
- *  1. One decision surface. Hero → service chooser → questions → footer. The retired sections (the
- *     fictional status panel, process steps, the control grid, the deliverables table, the separate
- *     plan grid and the separate closing call to action) stay retired.
- *  2. Truthful tiers. Each service states whether it is included in every plan or paid, mirroring the
- *     capability registry. Nothing is labelled free: there is no free plan.
- *  3. The landing surface reaches no backend; selection is local presentation state.
- *  4. Prices are derived from the one catalogue, always beside "Proposed", and nothing on the page
- *     can be mistaken for a purchase while entity limits, named-user capacity and payment are
- *     unenforced. The commercial-status disclosure is stated once, in the footer.
- *  5. Every in-page link resolves to a section that renders.
+ *  1. Two distinct decisions. The OUTCOME (which service) and the CAPACITY (which plan) are separate
+ *     sections; services carry no price and are never a basket (single choice, no counters, no locks).
+ *  2. Truthful availability, derived from the plan × capability matrix: "Included in every plan" or
+ *     "Plan required" — never "free", never "paid capability".
+ *  3. Low cognitive load: at most three outputs by default, the rest behind one disclosure.
+ *  4. Intent survives: every sign-up / sign-in action carries the selected service as a closed-registry
+ *     identifier. The page grants nothing.
+ *  5. Commercial honesty: plan figures derive from the one catalogue and stay "Proposed"; no checkout,
+ *     Buy or Subscribe; the commercial-status disclosure is stated once, in the footer.
+ *  6. The landing surface reaches no backend; every in-page link resolves.
  */
 
 import fs from "node:fs";
@@ -44,9 +44,13 @@ vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: null, session
 
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
+import { CapacityPlans } from "@/components/landing/CapacityPlans";
 import { LandingFAQ } from "@/components/landing/LandingFAQ";
+import { LandingFinalCTA } from "@/components/landing/LandingFinalCTA";
 import { LandingHero } from "@/components/landing/LandingHero";
+import { LandingIntentProvider } from "@/components/landing/LandingIntent";
 import { ServiceChooser } from "@/components/landing/ServiceChooser";
+import { TrustStrip } from "@/components/landing/TrustStrip";
 import { NAV } from "@/constants/copy";
 import {
   COMMERCIAL_NOTICE,
@@ -55,9 +59,11 @@ import {
   LANDING_HERO,
   LANDING_SECTION_IDS,
   LANDING_SERVICES,
+  LANDING_TRUST,
 } from "@/content/landing/landingContent";
 import { PROPOSED_PLANS } from "@/content/landing/proposedPlans";
-import { CAPABILITIES } from "@/lib/commercial/featureRegistry";
+import { SERVICE_INTENT_IDS, type ServiceIntentId } from "@/lib/commercial/serviceIntent";
+import { PUBLIC_CLAIM_REGISTRY } from "@/content/publicClaimRegistry";
 
 const ROOT = path.resolve(__dirname, "../../../..");
 const LANDING_COMPONENT_DIR = path.join(ROOT, "src/components/landing");
@@ -65,7 +71,7 @@ const LANDING_COMPONENT_DIR = path.join(ROOT, "src/components/landing");
 function readLandingSources(): { file: string; source: string }[] {
   return fs
     .readdirSync(LANDING_COMPONENT_DIR)
-    .filter((f) => f.endsWith(".tsx"))
+    .filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"))
     .map((f) => ({ file: f, source: fs.readFileSync(path.join(LANDING_COMPONENT_DIR, f), "utf8") }));
 }
 
@@ -85,187 +91,222 @@ function visibleText(markup: string): string {
     .trim();
 }
 
-const renderIn = (node: ReturnType<typeof createElement>) => renderToStaticMarkup(createElement(MemoryRouter, null, node));
-
-const CHOOSER = renderIn(createElement(ServiceChooser));
-const CHOOSER_TEXT = visibleText(CHOOSER);
-const PAGE = renderIn(
-  createElement(
-    "div",
-    null,
-    createElement(Header),
-    createElement("main", { id: "main-content" }, createElement(LandingHero), createElement(ServiceChooser), createElement(LandingFAQ)),
-    createElement(Footer),
-  ),
-);
+const page = (initial: ServiceIntentId = "prepare-review") =>
+  renderToStaticMarkup(
+    createElement(
+      MemoryRouter,
+      null,
+      createElement(
+        LandingIntentProvider,
+        { initial },
+        createElement(Header),
+        createElement(
+          "main",
+          { id: "main-content" },
+          createElement(LandingHero),
+          createElement(ServiceChooser),
+          createElement(CapacityPlans),
+          createElement(TrustStrip),
+          createElement(LandingFAQ),
+          createElement(LandingFinalCTA),
+        ),
+        createElement(Footer),
+      ),
+    ),
+  );
+const PAGE = page();
 const PAGE_TEXT = visibleText(PAGE);
+const section = (markup: string, id: string) => {
+  const start = markup.indexOf(`id="${id}"`);
+  const open = markup.lastIndexOf("<section", start);
+  return markup.slice(open, markup.indexOf("</section>", start) + 10);
+};
+const hrefOf = (markup: string, testid: string) =>
+  (markup.match(new RegExp(`<a\\s[^>]*data-testid="${testid}"[^>]*>`))?.[0].match(/href="([^"]*)"/)?.[1] ?? "").replace(/&amp;/g, "&");
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. One decision surface
+// 1. Structure
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("page structure", () => {
-  it("renders exactly one level-1 heading, carrying the value proposition", () => {
+  it("one level-1 heading carrying the value proposition", () => {
     expect(PAGE.match(/<h1\b/g) ?? []).toHaveLength(1);
     expect(PAGE_TEXT).toContain(LANDING_HERO.headline);
   });
 
-  it("renders exactly the declared sections: hero, the service chooser and the questions", () => {
-    for (const id of LANDING_SECTION_IDS) expect(PAGE, `section #${id} is missing`).toContain(`id="${id}"`);
+  it("renders exactly the declared sections, in order: outcome → what you receive → capacity → questions", () => {
+    const at = LANDING_SECTION_IDS.map((id) => PAGE.indexOf(`id="${id}"`));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
     for (const retired of ["capabilities", "process", "deliverables", "commercial", "sample-close"]) {
       expect(PAGE, `retired section #${retired} is back`).not.toContain(`id="${retired}"`);
     }
   });
 
   it("every in-page navigation link points at a section that exists", () => {
-    const inPageTargets = [...NAV.map((i) => i.href), LANDING_HERO.secondaryCta.href].filter((h) => h.startsWith("#"));
-    expect(inPageTargets.length).toBeGreaterThan(0);
-    for (const href of inPageTargets) expect(PAGE, `dead anchor: ${href}`).toContain(`id="${href.slice(1)}"`);
+    const targets = [...NAV.map((i) => i.href), LANDING_HERO.secondaryCta.href, LANDING_FINAL_CTA.secondaryCta.href].filter((h) => h.startsWith("#"));
+    expect(targets.length).toBeGreaterThan(0);
+    for (const href of targets) expect(PAGE, `dead anchor: ${href}`).toContain(`id="${href.slice(1)}"`);
   });
 
-  it("the hero offers exactly two actions, names the four services, and carries no fictional status panel", () => {
-    const heroText = visibleText(renderIn(createElement(LandingHero)));
-    expect(heroText).toContain(LANDING_HERO.primaryCta.label);
-    expect(heroText).toContain(LANDING_HERO.secondaryCta.label);
-    for (const s of LANDING_SERVICES) expect(heroText).toContain(s.name);
-    expect(heroText).not.toMatch(/Meridian|Preparation status|Illustrative synthetic|7-stage|firms trust/i);
+  it("the hero offers exactly two actions plus a compact service selector, and no fictional status panel", () => {
+    const hero = visibleText(renderToStaticMarkup(createElement(MemoryRouter, null, createElement(LandingHero))));
+    expect(hero).toContain(LANDING_HERO.primaryCta.label);
+    expect(hero).toContain(LANDING_HERO.secondaryCta.label);
+    for (const s of LANDING_SERVICES) expect(hero).toContain(s.name);
+    expect(hero).not.toMatch(/Meridian|Preparation status|Illustrative synthetic|7-stage|firms trust/i);
   });
 
-  it("asks for sign-up in at most three places, always as 'Create account'", () => {
+  it("asks for sign-up as 'Create account' in at most three places; no acquisition wording the guards forbid", () => {
     expect(PAGE_TEXT).not.toMatch(/Request access|Send an access request|Start free|Get started|\bBuy\b|Subscribe|Start (a )?trial/i);
     const signups = PAGE_TEXT.match(/Create account/g) ?? [];
     expect(signups.length).toBeGreaterThan(0);
     expect(signups.length).toBeLessThanOrEqual(3);
   });
 
-  it("hero copy stays within 35 words; each service outcome within 30", () => {
+  it("copy budgets: hero ≤ 35 words; each outcome ≤ 30; each value ≤ 15; final CTA ≤ 25", () => {
     expect(wordCount(LANDING_HERO.supporting)).toBeLessThanOrEqual(35);
-    for (const s of LANDING_SERVICES) expect(wordCount(s.outcome), s.name).toBeLessThanOrEqual(30);
+    for (const s of LANDING_SERVICES) {
+      expect(wordCount(s.outcome), s.name).toBeLessThanOrEqual(30);
+      expect(wordCount(s.value), s.name).toBeLessThanOrEqual(15);
+    }
+    expect(wordCount(`${LANDING_FINAL_CTA.heading} ${LANDING_FINAL_CTA.supporting}`)).toBeLessThanOrEqual(25);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. Services: truthful tiers, outputs per service, selection
+// 2. The outcome decision
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("service chooser", () => {
-  it("lists the four services, each as a selectable control stating its tier", () => {
-    expect(LANDING_SERVICES.map((s) => s.name)).toEqual(["Preparation and review", "Close Certification", "Reporting Pack", "Close Insights"]);
+describe("choose your outcome", () => {
+  const services = section(PAGE, "services");
+
+  it("four services, ids = the closed intent registry, as ONE single-select radio group", () => {
+    expect(LANDING_SERVICES.map((s) => s.id)).toEqual([...SERVICE_INTENT_IDS]);
+    const radios = services.match(/<input[^>]*type="radio"[^>]*>/g) ?? [];
+    expect(radios).toHaveLength(4);
+    expect(new Set(radios.map((r) => r.match(/name="([^"]+)"/)?.[1])).size).toBe(1);
+    expect(radios.filter((r) => /checked=""/.test(r))).toHaveLength(1);
+  });
+
+  it("no basket: no checkbox, no toggle button, no lock, no counter, no price", () => {
+    expect(services).not.toMatch(/type="checkbox"|aria-pressed|Always included|lock|\d+ outputs?\b|Selected ·/i);
+    expect(visibleText(services)).not.toMatch(/USD|per month|Proposed:/);
+  });
+
+  it("availability comes only from the matrix: 'Included in every plan' / 'Plan required'; never free or paid capability", () => {
     for (const s of LANDING_SERVICES) {
-      expect(CHOOSER).toMatch(new RegExp(`<button[^>]*aria-pressed="(true|false)"[^>]*data-testid="service-${s.id}"`));
-      expect(CHOOSER).toContain(`data-testid="tier-${s.id}"`);
+      const label = services.match(new RegExp(`data-testid="availability-${s.id}"[^>]*>([^<]+)<`))?.[1];
+      expect(["Included in every plan", "Plan required"]).toContain(label);
     }
+    expect(PAGE_TEXT).not.toMatch(/\bfree\b|paid capability|proposed for paid capacity|premium feature/i);
+    const sources = readLandingSources().map((s) => s.source).join("\n") + fs.readFileSync(path.join(ROOT, "src/content/landing/landingContent.ts"), "utf8");
+    expect(sources).not.toMatch(/"Included in every plan"|"Plan required"/);   // derived, never written in copy
   });
 
-  it("tiers mirror the capability registry; nothing is called free, because there is no free plan", () => {
-    const registryCode = { certification: "STATEMENT_CERTIFICATION", reporting: "REPORTING_PACK_EXPORT", insights: "CLOSE_INSIGHTS" } as const;
-    for (const s of LANDING_SERVICES) {
-      if (s.id === "preparation") {
-        expect(s.tier).toBe("included");
-        expect(CAPABILITIES.CLOSE_ASSURANCE.kind).toBe("included");
-      } else {
-        expect(s.tier).toBe("paid");
-        expect(CAPABILITIES[registryCode[s.id]].kind).toBe("paid");
-        expect(CAPABILITIES[registryCode[s.id]].name).toBe(s.name);
-      }
+  it.each(SERVICE_INTENT_IDS)("selected '%s': at most three outputs by default, the rest behind one disclosure, and one start action carrying the service", (id) => {
+    const markup = page(id);
+    const preview = markup.slice(markup.indexOf('data-testid="service-preview"'));
+    const svc = LANDING_SERVICES.find((s) => s.id === id)!;
+    const primary = preview.slice(0, preview.indexOf("</ul>"));
+    expect((primary.match(/<li\b/g) ?? []).length).toBe(svc.primaryOutputs.length);
+    expect(svc.primaryOutputs.length).toBeLessThanOrEqual(3);
+    for (const o of svc.primaryOutputs) expect(visibleText(primary)).toContain(o.name);
+    if (svc.moreOutputs.length) {
+      expect(preview).toMatch(/<details[^>]*data-testid="more-outputs"[^>]*>/);
+      expect(preview).not.toMatch(/<details[^>]*\bopen\b/);
+      expect(visibleText(preview)).toContain("See all included outputs");
+    } else {
+      expect(preview).not.toContain('data-testid="more-outputs"');
     }
-    expect(PAGE_TEXT).not.toMatch(/\bfree\b/i);
+    expect(hrefOf(markup, "service-start")).toBe(`/auth?mode=signup&service=${id}`);
+    expect(hrefOf(markup, "service-sign-in")).toBe(`/auth?service=${id}`);
+    expect(hrefOf(markup, "hero-create-account")).toBe(`/auth?mode=signup&service=${id}`);
+    expect(hrefOf(markup, "final-create-account")).toBe(`/auth?mode=signup&service=${id}`);
   });
 
-  it("preparation is always included and cannot be deselected; paid services toggle", () => {
-    expect(CHOOSER).toMatch(/aria-pressed="true"[^>]*data-testid="service-preparation"/);
-    const source = fs.readFileSync(path.join(LANDING_COMPONENT_DIR, "ServiceChooser.tsx"), "utf8");
-    expect(source).toMatch(/if \(service\.tier === "included"\) return;/);
-  });
-
-  it("'What you receive' lists the outputs of the selected services, with formats and conditions", () => {
-    const selected = LANDING_SERVICES.filter((s) => new RegExp(`aria-pressed="true"[^>]*data-testid="service-${s.id}"`).test(CHOOSER));
-    expect(selected.map((s) => s.id)).toEqual(["preparation", "reporting"]);
-    for (const s of selected) for (const o of s.outputs) {
-      expect(CHOOSER_TEXT).toContain(o.name);
-      expect(CHOOSER_TEXT).toContain(o.formats);
-    }
-    expect(CHOOSER_TEXT).toContain("Where prior-period balances are present");
-    expect(CHOOSER).toContain(`>${selected.reduce((n, s) => n + s.outputs.length, 0)} outputs<`);
-  });
-
-  it("advertises no regulatory filing format, audit package or 'Full IFRS'", () => {
-    const text = CHOOSER_TEXT.toLowerCase();
-    for (const forbidden of ["xbrl", "audit package", "full ifrs"]) expect(text).not.toContain(forbidden);
-  });
-
-  it("certification is stated as an internal record, never an audit", () => {
-    const cert = LANDING_SERVICES.find((s) => s.id === "certification")!;
-    expect(cert.note).toContain("It is not an external audit, an audit opinion, or any form of statutory assurance.");
+  it("advertises no regulatory filing format, audit package or 'Full IFRS'; certification is stated as an internal record", () => {
+    const all = LANDING_SERVICES.flatMap((s) => [...s.primaryOutputs, ...s.moreOutputs].map((o) => o.name)).join(" ").toLowerCase();
+    for (const forbidden of ["xbrl", "audit package", "full ifrs"]) expect(all).not.toContain(forbidden);
+    expect(LANDING_SERVICES.find((s) => s.id === "close-certification")!.note).toBe(
+      "It is not an external audit, an audit opinion, or any form of statutory assurance.",
+    );
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. Commercial honesty
+// 3. The capacity decision
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("plan sizes are proposed, derived and not purchasable", () => {
-  it("every plan figure is derived from the PR #34 catalogue (no duplicate authority) and renders exactly the reviewed wording", async () => {
+describe("choose your capacity", () => {
+  const plans = section(PAGE, "plans");
+
+  it("a separate section; every figure derived from the catalogue; prices stay 'Proposed'", async () => {
     const { PRICING_CATALOGUE } = await import("@/lib/commercial/pricingCatalogue");
-    expect(PROPOSED_PLANS.map((p) => p.name)).toEqual(PRICING_CATALOGUE.map((p) => p.name));
-    expect(PROPOSED_PLANS.map(({ name, proposedAmount, capacitySummary }) => ({ name, proposedAmount, capacitySummary }))).toEqual([
-      { name: "Solo", proposedAmount: "Proposed: USD 49 per month", capacitySummary: "1 entity · 1 named user" },
-      { name: "Practice", proposedAmount: "Proposed: USD 99 per month", capacitySummary: "5 entities · 1 named user included" },
-      { name: "Firm", proposedAmount: "Proposed: USD 299 per month", capacitySummary: "25 entities · 1 named user included" },
-      { name: "Enterprise", proposedAmount: "Proposed: terms agreed separately", capacitySummary: "Capacity agreed separately" },
+    expect(PROPOSED_PLANS.map((p) => p.code)).toEqual(PRICING_CATALOGUE.map((p) => p.code));
+    expect(PROPOSED_PLANS.map(({ name, entities, namedUsers, proposedAmount, contactSales }) => ({ name, entities, namedUsers, proposedAmount, contactSales }))).toEqual([
+      { name: "Solo", entities: "1", namedUsers: "1", proposedAmount: "Proposed: USD 49 per month", contactSales: false },
+      { name: "Practice", entities: "5", namedUsers: "1 included · more available", proposedAmount: "Proposed: USD 99 per month", contactSales: false },
+      { name: "Firm", entities: "25", namedUsers: "1 included · more available", proposedAmount: "Proposed: USD 299 per month", contactSales: false },
+      { name: "Enterprise", entities: "Negotiated", namedUsers: "Negotiated", proposedAmount: "Proposed: terms agreed separately", contactSales: true },
     ]);
+    for (const p of PRICING_CATALOGUE) expect(PROPOSED_PLANS.find((x) => x.code === p.code)!.bestFor).toBe(p.tagline);
     const derived = fs.readFileSync(path.join(ROOT, "src/content/landing/proposedPlans.ts"), "utf8");
     expect(derived).toContain("PRICING_CATALOGUE.map(");
     expect(derived).not.toMatch(/USD \d/);
-    const content = fs.readFileSync(path.join(ROOT, "src/content/landing/landingContent.ts"), "utf8");
-    expect(content).not.toMatch(/USD \d|named user included|\d+ entities/);
+    expect(fs.readFileSync(path.join(ROOT, "src/content/landing/landingContent.ts"), "utf8")).not.toMatch(/USD \d|named user included|\d+ entities/);
+    for (const p of PROPOSED_PLANS) expect(visibleText(plans)).toContain(p.proposedAmount);
+    expect((visibleText(PAGE).match(/USD \d+/g) ?? []).length).toBe(3);   // prices appear once, only here
   });
 
-  it("the chooser shows every plan size, each amount beside 'Proposed', as a radio choice", () => {
-    for (const p of PROPOSED_PLANS) {
-      expect(CHOOSER).toContain(`data-testid="plan-${p.name}"`);
-      expect(CHOOSER_TEXT).toContain(p.proposedAmount);
-    }
-    expect(CHOOSER_TEXT.match(/USD \d+/g)?.length).toBe(PROPOSED_PLANS.filter((p) => /USD/.test(p.proposedAmount)).length);
-    expect((CHOOSER.match(/type="radio"/g) ?? []).length).toBe(PROPOSED_PLANS.length);
+  it("each plan action carries the selected service and the plan preference into sign-up (no contact link on the landing page)", () => {
+    const markup = page("reporting-pack");
+    expect(hrefOf(markup, "plan-action-Solo")).toBe("/auth?mode=signup&service=reporting-pack&plan=solo");
+    expect(hrefOf(markup, "plan-action-Practice")).toBe("/auth?mode=signup&service=reporting-pack&plan=practice");
+    expect(hrefOf(markup, "plan-action-Firm")).toBe("/auth?mode=signup&service=reporting-pack&plan=firm");
+    expect(hrefOf(markup, "plan-action-Enterprise")).toBe("/auth?mode=signup&service=reporting-pack&plan=enterprise");
+    expect(visibleText(section(markup, "plans"))).toMatch(/Choose Solo.*Choose Practice.*Choose Firm.*Choose Enterprise/);
+    expect(section(markup, "plans")).not.toMatch(/\/contact/);
   });
+});
 
-  it("one closing action: Create account, with the activation note — choosing a plan activates nothing", () => {
-    const cta = CHOOSER.match(/<a\s[^>]*data-testid="chooser-create-account"[^>]*>/)?.[0] ?? "";
-    expect(cta).toContain('href="/auth?mode=signup"');
-    expect(CHOOSER_TEXT).toContain(LANDING_FINAL_CTA.supporting);
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. Trust, commercial honesty, FAQ
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("trust strip", () => {
+  it("exactly three assurances, each a registered claim verbatim", () => {
+    expect(LANDING_TRUST.map((t) => t.title)).toEqual(["Traceable source", "Attributed decisions", "Protected history"]);
+    const registered = PUBLIC_CLAIM_REGISTRY.map((c) => c.approvedWording);
+    for (const t of LANDING_TRUST) expect(registered.some((w) => t.text.startsWith(w)), t.title).toBe(true);
+  });
+});
+
+describe("commercial honesty", () => {
+  it("the closing action states activation by the team and no online payment", () => {
     expect(LANDING_FINAL_CTA.supporting).toMatch(/Online payment is not available yet/);
+    expect(PAGE_TEXT).toContain(LANDING_FINAL_CTA.supporting);
   });
-
   it("the commercial-status disclosure is stated once, in the footer", () => {
     expect(PAGE_TEXT.split(COMMERCIAL_NOTICE).length - 1).toBe(1);
-    expect(visibleText(renderIn(createElement(Footer)))).toContain(COMMERCIAL_NOTICE);
-    expect(CHOOSER_TEXT).not.toContain(COMMERCIAL_NOTICE);
+    expect(visibleText(renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Footer))))).toContain(COMMERCIAL_NOTICE);
   });
-
-  it("offers no checkout, payment or purchase control anywhere on the page", () => {
+  it("no checkout, payment or purchase control anywhere on the page", () => {
     expect(PAGE_TEXT.toLowerCase()).not.toMatch(/buy now|subscribe|checkout|pay now|upgrade now|add to cart|contact sales to buy/);
     expect(PAGE_TEXT.toLowerCase()).not.toContain("direct invoic");
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 4. FAQ
-// ─────────────────────────────────────────────────────────────────────────────
-
 describe("FAQ", () => {
   it("renders all eight questions, collapsed, from the one source", () => {
     expect(LANDING_FAQ).toHaveLength(8);
-    const faqMarkup = renderIn(createElement(LandingFAQ));
-    const faqText = visibleText(faqMarkup);
-    for (const entry of LANDING_FAQ) expect(faqText, `missing question: ${entry.question}`).toContain(entry.question);
+    const faqMarkup = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(LandingFAQ)));
+    for (const entry of LANDING_FAQ) expect(visibleText(faqMarkup)).toContain(entry.question);
     expect((faqMarkup.match(/data-state="closed"/g) ?? []).length).toBeGreaterThanOrEqual(LANDING_FAQ.length);
   });
-
   it.each(LANDING_FAQ)("FAQ answer to '$question' stays within 80 words", (entry) => {
     expect(wordCount(entry.answer)).toBeLessThanOrEqual(80);
   });
-
   it("explains attribution without inventing an approval hierarchy, and states pricing is not purchasable", () => {
     expect(LANDING_FAQ.find((e) => /attributed/i.test(e.question))!.answer).not.toMatch(/\b(junior|manager|partner|four-eye)\b/i);
     expect(LANDING_FAQ.find((e) => /pricing/i.test(e.question))!.answer).toMatch(/proposed|not enforced|switched off/i);
@@ -355,7 +396,6 @@ describe("the superseded landing sections are gone and unreferenced", () => {
     "src/components/landing/ControlledCloseAndAssurance.tsx": "@/components/landing/ControlledCloseAndAssurance",
     "src/components/landing/VerifiedDeliverables.tsx": "@/components/landing/VerifiedDeliverables",
     "src/components/landing/CommercialVerification.tsx": "@/components/landing/CommercialVerification",
-    "src/components/landing/LandingFinalCTA.tsx": "@/components/landing/LandingFinalCTA",
   };
 
   it.each(Object.keys(REMOVED))("%s no longer exists", (relative) => {
