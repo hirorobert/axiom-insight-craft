@@ -37,10 +37,15 @@ describe("plan presentation is read-only", () => {
     expect(html).toContain("View plans");
     expect(html).toContain("Active");
   });
-  it("catalogue uses matrix and never claims saved selection or activation", () => {
+  it("catalogue lists the services each plan includes (from the matrix), annual first, proposed, and never claims saved selection or activation", () => {
     const html = render(createElement(PlanCatalogue));
-    expect(html).toContain("Close Assurance");
+    for (const name of ["Prepare &amp; Review", "Close Certification", "Reporting Pack", "Close Insights"]) expect(html).toContain(name);
     expect(html).toContain("Choose Solo");
+    expect(html).toContain("Discuss Enterprise");
+    expect(html).not.toMatch(/Talk to sales|XBRL|filing pack|Management letters|Regional packs/i);   // no unreachable output is advertised
+    expect(html).toContain("Proposed pricing · annual term");
+    expect(html).toMatch(/data-testid="price-SOLO">\$490<span[^>]*> \/ year/);
+    expect(html).toContain("or $49 / month, billed monthly");
     expect(html).not.toMatch(/selected plan has been saved|deactivation/i);
   });
   it('shows a prepaid next term as its own scheduled period, never relabelled as current', () => {
