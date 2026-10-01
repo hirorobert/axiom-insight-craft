@@ -1,17 +1,15 @@
 import { Link } from "react-router-dom";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { FOOTER, BRAND } from "@/constants/copy";
-import { LANDING_FOOTER_NOTE } from "@/content/landing/landingContent";
+import { COMMERCIAL_NOTICE, LANDING_FOOTER_NOTE } from "@/content/landing/landingContent";
 import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
-// Landing-section anchors only. No price is rendered in the footer: the commercial structure is
-// proposed and under enforcement verification, so it is stated in exactly one place on the page.
+// No price is rendered in the footer: proposed plan sizes appear in exactly one place, the service
+// chooser. The footer carries the disclosures instead (commercial status and the scope note).
 const PRODUCT_LINKS = [
-  { label: "Capabilities", href: "/#capabilities" },
-  { label: "Process",      href: "/#process"      },
-  { label: "Deliverables", href: "/#deliverables" },
-  { label: "Commercial",   href: "/#commercial"   },
+  { label: "Services", href: "/#services" },
+  { label: "Plans",    href: "/pricing"   },
 ] as const;
 
 const ACCOUNT_LINKS = [
@@ -79,6 +77,16 @@ export function Footer() {
             </ul>
           </div>
         </div>
+      </div>
+
+      {/* ── Commercial status — a disclosure, stated once, at the foot of the page ── */}
+      <div className="border-t border-border">
+        <p
+          data-testid="commercial-verification-notice"
+          className="mx-auto max-w-7xl px-6 py-4 text-[11px] leading-5 text-muted-foreground lg:px-10"
+        >
+          {COMMERCIAL_NOTICE}
+        </p>
       </div>
 
       {/* ── Legal bar ─────────────────────────────────────────────────── */}

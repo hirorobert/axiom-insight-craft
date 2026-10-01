@@ -8,7 +8,12 @@ interface AuthContextType {
   session: Session | null;
   loading: boolean;
   emailVerified: boolean;
-  signUp: (email: string, password: string, displayName?: string) => Promise<{ error: Error | null }>;
+  /**
+   * serviceIntent: the validated service (and plan preference) chosen on the public page. Stored in the new account's
+   * own user metadata so it survives the confirmation link in any browser or tab; re-validated on every read and never
+   * an entitlement.
+   */
+  signUp: (email: string, password: string, displayName?: string, serviceIntent?: { service: string; plan: string | null } | null) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   checkEmailVerification: () => Promise<boolean>;
@@ -60,7 +65,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signUp = async (email: string, password: string, displayName?: string) => {
+  const signUp = async (email: string, password: string, displayName?: string, serviceIntent?: { service: string; plan: string | null } | null) => {
+    // The confirmation link always returns to the site root (the redirect production already accepts); the chosen
+    // service travels in the account's own metadata instead of the URL.
     const redirectUrl = `${window.location.origin}/`;
     
     const { error } = await supabase.auth.signUp({
@@ -70,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         emailRedirectTo: redirectUrl,
         data: {
           display_name: displayName,
+          ...(serviceIntent ? { service_intent: { v: 1, service: serviceIntent.service, plan: serviceIntent.plan } } : {}),
         },
       },
     });

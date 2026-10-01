@@ -13,6 +13,8 @@ import { useLoginRateLimit } from "@/hooks/useLoginRateLimit";
 import { lovable } from "@/integrations/lovable/index";
 import { translateAuthError } from "@/lib/auth/translateAuthError";
 import { getOutcome, rememberOutcome } from "@/lib/product/outcomes";
+import { SERVICE_INTENTS, parsePlanIntent, parseServiceIntent, rememberServiceIntent } from "@/lib/commercial/serviceIntent";
+import { planByCode } from "@/lib/commercial/pricingCatalogue";
 
 const emailSchema = z.string().email("Please enter a valid email address");
 const passwordSchema = z.string().min(6, "Password must be at least 6 characters");
@@ -23,6 +25,10 @@ export default function Auth() {
   const [searchParams] = useSearchParams();
   const initialMode = searchParams.get("mode") as AuthMode || "login";
   const selectedOutcome = getOutcome(searchParams.get("intent"));
+  // The service chosen on the public page: validated against the closed registry, never trusted as-is. Navigational
+  // intent only — the Dashboard gateway checks the account's server entitlement before routing on it.
+  const selectedService = parseServiceIntent(searchParams.get("service"));
+  const selectedPlan = selectedService ? parsePlanIntent(searchParams.get("plan")) : null;
 
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState("");
@@ -49,6 +55,10 @@ export default function Auth() {
   useEffect(() => {
     if (selectedOutcome) rememberOutcome(selectedOutcome.id);
   }, [selectedOutcome]);
+
+  useEffect(() => {
+    if (selectedService) rememberServiceIntent(selectedService, selectedPlan);
+  }, [selectedService, selectedPlan]);
 
   useEffect(() => {
     if (user && mode !== "reset-password" && mode !== "verify-email") {
@@ -191,7 +201,7 @@ export default function Auth() {
           navigate("/");
         }
       } else {
-        const { error } = await signUp(email, password, displayName);
+        const { error } = await signUp(email, password, displayName, selectedService ? { service: selectedService, plan: selectedPlan ? selectedPlan.toLowerCase() : null } : null);
         if (error) {
           // PPG-1 Finding 2: centralized translation boundary.
           toast.error(translateAuthError(error).message);
@@ -248,7 +258,16 @@ export default function Auth() {
           </Link>
           <h1 className="text-2xl font-bold text-foreground">{getTitle()}</h1>
           <p className="text-muted-foreground mt-2">{getSubtitle()}</p>
-          {selectedOutcome && (
+          {selectedService && (
+            <div className="mt-5 border-y border-border py-3 text-left" data-testid="selected-service">
+              <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">Selected service</p>
+              <p className="mt-1 text-sm font-semibold text-foreground">
+                {SERVICE_INTENTS[selectedService].name}
+                {selectedPlan && <span className="font-normal text-muted-foreground"> · {planByCode(selectedPlan)?.name} plan</span>}
+              </p>
+            </div>
+          )}
+          {!selectedService && selectedOutcome && (
             <div className="mt-5 border-y border-border py-3 text-left">
               <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">
                 Selected outcome

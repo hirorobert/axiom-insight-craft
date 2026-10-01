@@ -4,7 +4,7 @@
  * landing page can never drift from what the product enforces. Amounts are always shown beside the word "Proposed" and
  * never enter structured data.
  */
-import { PRICING_CATALOGUE } from "@/lib/commercial/pricingCatalogue";
+import { PRICING_CATALOGUE, type PlanCode } from "@/lib/commercial/pricingCatalogue";
 
 export interface ProposedPlan {
   readonly name: string;
@@ -13,6 +13,16 @@ export interface ProposedPlan {
   readonly proposedEntities: string;
   readonly proposedUsers: string;
   readonly proposedCapabilities: string;
+  /** Catalogue plan code, for the plan-preference link (validated again by parsePlanIntent). */
+  readonly code: PlanCode;
+  /** The catalogue tagline. */
+  readonly bestFor: string;
+  /** "1", "25" — or "Negotiated" (Enterprise). */
+  readonly entities: string;
+  /** "1", "1 included · more available", or "Negotiated". */
+  readonly namedUsers: string;
+  /** Contact-sales plans get "Talk to sales"; self-serve plans get "Choose <plan>". */
+  readonly contactSales: boolean;
 }
 
 const PUBLIC_CAPABILITIES = "Close Certification, Reporting Pack, Close Insights";
@@ -26,4 +36,9 @@ export const PROPOSED_PLANS: readonly ProposedPlan[] = PRICING_CATALOGUE.map((p)
     ? "Proposed: capacity agreed separately"
     : `Proposed: ${count(p.includedSeats, "named user", "named users")}${p.additionalSeat ? " included" : ""}`,
   proposedCapabilities: PUBLIC_CAPABILITIES,
+  code: p.code,
+  bestFor: p.tagline,
+  entities: p.entityCapacity === null ? "Negotiated" : String(p.entityCapacity),
+  namedUsers: p.includedSeats === null ? "Negotiated" : `${p.includedSeats}${p.additionalSeat ? " included · more available" : ""}`,
+  contactSales: p.salesMode === "contact_sales",
 }));

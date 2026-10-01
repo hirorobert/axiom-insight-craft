@@ -3,8 +3,7 @@
  * landing page (src/pages/Index.tsx and the components under src/components/landing/).
  *
  * Discipline enforced by src/content/landing/__tests__/landingCopyDiscipline.test.ts:
- *   - strict per-item word limits (hero 35, capability 30, process step 30, control 24,
- *     FAQ answer 80, final CTA 25);
+ *   - strict per-item word limits (hero 35, service outcome 30, FAQ answer 80);
  *   - no forbidden claim vocabulary (see FORBIDDEN_LANDING_PHRASES in the test);
  *   - no internal engine names, no jurisdiction-specific terminology;
  *   - every anchor referenced by navigation exists as a section id below.
@@ -20,261 +19,145 @@
 /** Every section id the page renders, and therefore every valid in-page anchor target. */
 export const LANDING_SECTION_IDS = [
   "main-content",
-  "sample-close",
-  "capabilities",
-  "process",
-  "deliverables",
-  "commercial",
+  "services",
+  "outputs",
+  "plans",
   "faq",
 ] as const;
 
 export type LandingSectionId = (typeof LANDING_SECTION_IDS)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hero
+// Hero — one proposition, two actions
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LANDING_HERO = {
-  eyebrow: "CONTROLLED FINANCIAL CLOSE WORKSPACE",
-  headline: "From trial balance to reviewable financial statements.",
+  eyebrow: "FINANCIAL CLOSE WORKSPACE",
+  headline: "Close the books. Produce review-ready financial statements.",
   supporting:
-    "Import a trial balance, review classification exceptions and prepare framework-aware financial statements with traceable checks and attributable user decisions.",
+    "Import a trial balance, resolve the accounts that need a decision and prepare framework-aware statements, with a traceable source and attributed decisions.",
   primaryCta: { label: "Create account", href: "/auth?mode=signup" },
-  secondaryCta: { label: "Explore a sample close", href: "#sample-close" },
+  secondaryCta: { label: "Explore a sample close", href: "#services" },
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Synthetic status preview — illustrative only, no customer information
+// Services — the OUTCOME decision (what the customer needs). Plans are a separate decision (capacity) below.
+// Identifiers are the closed service-intent registry (src/lib/commercial/serviceIntent.ts); availability labels are
+// derived there from the plan × capability matrix, never written here.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const SYNTHETIC_PREVIEW = {
-  entityLabel: "Entity",
-  entity: "Meridian Holdings",
-  periodLabel: "Period",
-  period: "FY2025",
-  frameworkLabel: "Framework",
-  framework: "IFRS for SMEs",
-  notice: "Illustrative synthetic data—no customer information",
-  caption: "Preparation status",
-} as const;
-
-export type SyntheticStepState = "completed" | "current";
-
-export interface SyntheticStep {
-  readonly index: string;
-  readonly title: string;
-  readonly detail: string;
-  readonly state: SyntheticStepState;
-}
-
-export const SYNTHETIC_PREVIEW_STEPS: readonly SyntheticStep[] = [
-  { index: "01", title: "Trial balance received", detail: "Source recorded", state: "completed" },
-  { index: "02", title: "Two exceptions identified", detail: "Review required", state: "completed" },
-  { index: "03", title: "Two review decisions recorded", detail: "Attributed to a named user", state: "completed" },
-  { index: "04", title: "Required preparation checks completed", detail: "Preparation status updated", state: "completed" },
-  { index: "05", title: "Statements ready for review", detail: "Draft outputs available", state: "current" },
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Core capabilities
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface LandingCapability {
-  readonly index: string;
-  readonly title: string;
-  readonly description: string;
-  /** Plain-language availability note. Never a promise of enforcement. */
-  readonly availability: string;
-}
-
-export const LANDING_CAPABILITIES: readonly LandingCapability[] = [
-  {
-    index: "01",
-    title: "Preparation and review",
-    description:
-      "Import a trial balance, screen for duplicate sources, work through graded classification suggestions and record a decision on each account that needs one.",
-    availability: "Available on every plan",
-  },
-  {
-    index: "02",
-    title: "Close Certification",
-    description:
-      "Record a preparation certification for a reviewed trial balance once the required checks and outstanding classification decisions are resolved.",
-    availability: "Proposed for paid capacity",
-  },
-  {
-    index: "03",
-    title: "Reporting Pack",
-    description:
-      "Prepare framework-aware statements with supporting schedules, then export them for review and circulation outside the workspace.",
-    availability: "Proposed for paid capacity",
-  },
-  {
-    index: "04",
-    title: "Close Insights",
-    description:
-      "Compare a reporting period with a prior one: movement, variance and cash indicators, shown where the prior-period data is present.",
-    availability: "Proposed for paid capacity",
-  },
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Controlled-close process
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface LandingProcessStep {
-  readonly index: string;
-  readonly title: string;
-  readonly description: string;
-}
-
-export const LANDING_PROCESS: readonly LandingProcessStep[] = [
-  {
-    index: "01",
-    title: "Establish the source",
-    description:
-      "Import a CSV or XLSX trial balance. A fingerprint is recorded for the file and a repeated source name is flagged before the import is accepted.",
-  },
-  {
-    index: "02",
-    title: "Resolve exceptions",
-    description:
-      "Accounts the workspace cannot classify confidently are held as exceptions. Each waits for a recorded decision before preparation continues.",
-  },
-  {
-    index: "03",
-    title: "Prepare outputs",
-    description:
-      "Framework rules and preparation checks run against the reviewed balances, producing draft statements and supporting schedules for review.",
-  },
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Close Assurance — the baseline control layer, present on every plan
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const CLOSE_ASSURANCE_INTRO =
-  "Close Assurance is the control layer the workspace applies throughout. It is not a separate product and not a paid upgrade." as const;
-
-export interface AssuranceControl {
-  readonly title: string;
-  readonly description: string;
-}
-
-export const CLOSE_ASSURANCE_CONTROLS: readonly AssuranceControl[] = [
-  {
-    title: "Controlled access",
-    description: "Access decisions are evaluated through authenticated workspace permissions.",
-  },
-  {
-    title: "Workspace separation",
-    description: "Workspace access rules separate entity and engagement data.",
-  },
-  {
-    title: "Source-file fingerprinting",
-    description: "A SHA-256 fingerprint is recorded for supported trial-balance imports.",
-  },
-  {
-    title: "Attributable decisions",
-    description: "Review decisions are associated with authenticated user accounts.",
-  },
-  {
-    title: "Controlled upload lifecycle",
-    description: "Uploads follow defined active, replacement, retirement, discard and recovery states.",
-  },
-  {
-    title: "Historical-output protection",
-    description: "Supported historical outputs remain readable under defined lifecycle and subscription rules.",
-  },
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Verified deliverables — reachable in the current interface only
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface LandingDeliverable {
+export interface LandingServiceOutput {
   readonly name: string;
-  /** How it is reached today: on screen, or exported. */
-  readonly access: string;
-  /** Export formats reachable from the current interface, or a plain note. */
+  /** Formats reachable from the current interface, or "On screen". */
   readonly formats: string;
-  readonly note: string;
+  /** Condition under which the output appears, when there is one. */
+  readonly condition?: string;
 }
 
-export const LANDING_DELIVERABLES: readonly LandingDeliverable[] = [
+export interface LandingService {
+  readonly id: "prepare-review" | "close-certification" | "reporting-pack" | "close-insights";
+  readonly name: string;
+  /** One sentence: the outcome. */
+  readonly outcome: string;
+  /** One short business benefit. */
+  readonly value: string;
+  /** At most three, shown by default. */
+  readonly primaryOutputs: readonly LandingServiceOutput[];
+  /** Shown only behind "See all included outputs". */
+  readonly moreOutputs: readonly LandingServiceOutput[];
+  /** A scope statement in registered wording, when the outcome needs one. */
+  readonly note?: string;
+}
+
+export const LANDING_SERVICES: readonly LandingService[] = [
   {
-    name: "Statement of financial position",
-    access: "On screen and export",
-    formats: "XLSX · PDF",
-    note: "Prepared from the reviewed trial balance.",
+    id: "prepare-review",
+    name: "Prepare & Review",
+    outcome: "Turn an imported trial balance into a reviewed one, with a decision recorded on every account that needs one.",
+    value: "Statements start from a trial balance you have already reviewed.",
+    primaryOutputs: [
+      { name: "Account mapping schedule", formats: "XLSX · CSV" },
+      { name: "Preparation check summary", formats: "On screen" },
+      { name: "Decision history", formats: "On screen" },
+    ],
+    moreOutputs: [],
   },
   {
-    name: "Statement of profit or loss and other comprehensive income",
-    access: "On screen and export",
-    formats: "XLSX · PDF",
-    note: "Prepared from the reviewed trial balance.",
+    id: "close-certification",
+    name: "Close Certification",
+    outcome: "Record a preparation certification once the required checks and outstanding classification decisions are resolved.",
+    value: "Reviewers can see that preparation was complete before statements were issued.",
+    primaryOutputs: [{ name: "Preparation certification record", formats: "On screen" }],
+    moreOutputs: [],
+    note: "It is not an external audit, an audit opinion, or any form of statutory assurance.",
   },
   {
-    name: "Statement of cash flows",
-    access: "On screen and export",
-    formats: "XLSX · PDF",
-    note: "Shown where the required prior-period balances are present.",
+    id: "reporting-pack",
+    name: "Reporting Pack",
+    outcome: "Prepare framework-aware statements with supporting schedules, then export them for review and circulation.",
+    value: "Statements reach reviewers in the formats they already use.",
+    primaryOutputs: [
+      { name: "Statement of financial position", formats: "XLSX · PDF" },
+      { name: "Statement of profit or loss and other comprehensive income", formats: "XLSX · PDF" },
+      { name: "Statement of cash flows", formats: "XLSX · PDF", condition: "Where prior-period balances are present" },
+    ],
+    moreOutputs: [
+      { name: "Statement of changes in equity", formats: "XLSX · PDF", condition: "Where opening balances are present" },
+      { name: "Disclosure notes", formats: "On screen" },
+      { name: "Comparative presentation", formats: "XLSX · PDF", condition: "Where a prior period is present" },
+      { name: "Canonical report data", formats: "JSON · CSV" },
+    ],
   },
   {
-    name: "Statement of changes in equity",
-    access: "On screen and export",
-    formats: "XLSX · PDF",
-    note: "Shown where the required opening balances are present.",
-  },
-  {
-    name: "Disclosure notes",
-    access: "On screen",
-    formats: "Screen only",
-    note: "Prepared alongside the statements for review.",
-  },
-  {
-    name: "Account mapping schedule",
-    access: "On screen and export",
-    formats: "XLSX · CSV",
-    note: "Lists each account with its classification and decision state.",
-  },
-  {
-    name: "Preparation check summary",
-    access: "On screen",
-    formats: "Screen only",
-    note: "Lists the preparation checks and their current result.",
-  },
-  {
-    name: "Decision history",
-    access: "On screen",
-    formats: "Screen only",
-    note: "Lists recorded review decisions with their user account.",
-  },
-  {
-    name: "Comparative presentation",
-    access: "On screen and export",
-    formats: "XLSX · PDF",
-    note: "Current against prior period, where a prior period is present.",
-  },
-  {
-    name: "Canonical report data",
-    access: "Export",
-    formats: "JSON · CSV",
-    note: "The structured report data behind a prepared output.",
+    id: "close-insights",
+    name: "Close Insights",
+    outcome: "Compare a reporting period with a prior one: movement, variance and cash indicators.",
+    value: "See what moved between periods before the close is reviewed.",
+    primaryOutputs: [
+      { name: "Period movement and variance", formats: "On screen", condition: "Where prior-period data is present" },
+      { name: "Cash indicators", formats: "On screen", condition: "Where prior-period data is present" },
+    ],
+    moreOutputs: [],
   },
 ];
 
-export const LANDING_DELIVERABLES_NOTE =
-  "Reporting frameworks selectable today: IFRS for SMEs, IFRS, IPSAS accrual and IPSAS cash. Structured regulatory filing formats are not part of this preview." as const;
+export const LANDING_SERVICES_COPY = {
+  eyebrow: "Services",
+  heading: "Choose your outcome.",
+  intro: "A plan is required. Every plan includes all four services; plans differ in capacity.",
+  outputsHeading: "What you receive",
+  seeAll: "See all included outputs",
+  startPrefix: "Start with",
+  signInPrompt: "Already have an account?",
+  signInLabel: "Sign in",
+  frameworks: "Frameworks: IFRS for SMEs, IFRS, IPSAS accrual and IPSAS cash.",
+} as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Commercial structure — under final enforcement verification
+// Plans — the CAPACITY decision. Every figure is derived from PRICING_CATALOGUE in ./proposedPlans.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const COMMERCIAL_HEADING = "Commercial structure under final enforcement verification" as const;
+export const LANDING_PLANS_COPY = {
+  eyebrow: "Plans",
+  heading: "Choose your capacity.",
+  intro: "Plans differ in how many entities and named users they cover. Pricing shown is proposed.",
+  columns: { plan: "Plan", bestFor: "Best for", entities: "Entities", users: "Named users", price: "Proposed price", action: "Action" },
+  choosePrefix: "Choose",
+  /** Enterprise is never self-activated: it opens the enquiry page when that surface is enabled. */
+  enterpriseAction: "Discuss Enterprise",
+  /** Shown instead when the enquiry surface is off: no link, no activation implied. */
+  enterpriseUnavailable: "Terms are agreed directly with our team.",
+} as const;
 
-export const COMMERCIAL_NOTICE =
-  "Entity limits, named-user capacity and self-serve payment activation are undergoing final enforcement verification. This preview is not a public commercial offer." as const;
+// ─────────────────────────────────────────────────────────────────────────────
+// Trust — three assurances, each in its registered wording (publicClaimRegistry)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const LANDING_TRUST: readonly { readonly title: string; readonly text: string }[] = [
+  { title: "Traceable source", text: "A SHA-256 fingerprint is recorded for supported trial-balance imports." },
+  { title: "Attributed decisions", text: "Review decisions are associated with authenticated user accounts." },
+  { title: "Protected history", text: "Supported historical outputs remain readable under the defined lifecycle and subscription rules." },
+];
 
 // The proposed plans are derived from the PR #34 commercial catalogue in ./proposedPlans.ts (this module stays data
 // only: no imports, no logic).
@@ -345,15 +228,18 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LANDING_FINAL_CTA = {
-  heading: "Bring greater control to your next financial close.",
-  supporting: "Create an account to view plans. Online payment is not available yet.",
+  heading: "Bring your financial close under control.",
+  supporting: "Plans are activated by our team. Online payment is not available yet.",
   primaryCta: { label: "Create account", href: "/auth?mode=signup" },
-  secondaryCta: { label: "Sign in", href: "/auth" },
+  secondaryCta: { label: "View plans", href: "#plans" },
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Footer supporting note
+// Footer — the disclosures, stated once, at the foot of the page
 // ─────────────────────────────────────────────────────────────────────────────
+
+export const COMMERCIAL_NOTICE =
+  "Entity limits, named-user capacity and self-serve payment activation are undergoing final enforcement verification. This preview is not a public commercial offer." as const;
 
 export const LANDING_FOOTER_NOTE =
   "CFOCLOSE is a financial close preparation and review workspace. It does not provide an audit, an audit opinion or legal advice." as const;

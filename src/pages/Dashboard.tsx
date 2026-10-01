@@ -23,7 +23,7 @@
  * Those live in their respective workspace stage pages.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useBillingSummary } from "@/hooks/useBillingSummary";
 import { useMyEntityCapacity } from "@/hooks/useMyEntityCapacity";
 import { decideEmptyAccountScreen } from "@/lib/commercial/dashboardPlanDecision";
@@ -42,6 +42,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { parseAcceptInvitations } from "@/lib/commercial/paidActions";
+import { clearServiceIntent, currentServiceIntent, intentFromUserMetadata, resolveServiceDestination } from "@/lib/commercial/serviceIntent";
 
 /**
  * Return the most recently completed fiscal year for a company.
@@ -92,6 +93,14 @@ export default function Dashboard() {
   const { summary: billing, loading: billingLoading, error: billingError, retry: retryBilling } = useBillingSummary();
   const { capacity, loading: capacityLoading, error: capacityError, retry: retryCapacity } = useMyEntityCapacity(!!user);
 
+  // A service chosen on the public page (validated `service=` from the URL, or remembered by Auth in this tab). It is
+  // navigational intent only: entitlement comes from the server's billing read; while that read is in flight we wait,
+  // and if it fails the intent is ignored for this visit. Not entitled → /plans (intent preserved); entitled → the
+  // service's workflow stage. A forced return to the hub (the workspace logo) never follows an intent.
+  const serviceIntent = useMemo(() => (forceHub ? null : currentServiceIntent(location.search, user?.user_metadata)), [forceHub, location.search, user?.user_metadata]);
+  const serviceDestination = resolveServiceDestination(serviceIntent, { loading: billingLoading, error: !!billingError, summary: billing });
+  const stageSuffix = serviceDestination.kind === "workflow" ? `/${serviceDestination.stage}` : "";
+
   // ── 1. Auth guard ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!authLoading && !user) {
@@ -126,7 +135,7 @@ export default function Dashboard() {
   // covers it directly) — computed on every render, not stashed in state, so "chooser" and
   // "first_run" show up on first paint rather than waiting on an effect.
   const route =
-    !authLoading && !engagementsLoading && !fetchFailed
+    !authLoading && !engagementsLoading && !fetchFailed && serviceDestination.kind !== "wait"
       ? applyForceHub(decideReturningUserRoute(entries, companiesWithoutEngagement, sharedWorkspaces), forceHub)
       : null;
 
@@ -137,8 +146,14 @@ export default function Dashboard() {
 
     let cancelled = false;
 
+    if (stageSuffix) {
+      // Used once: clear this tab's copy and the account's own metadata copy (its profile, not financial data), so later
+      // sign-ins resume normally. A failed clear is harmless — the intent only ever routes to a stage it is entitled to.
+      clearServiceIntent();
+      if (intentFromUserMetadata(user?.user_metadata)) void supabase.auth.updateUser({ data: { service_intent: null } });
+    }
     if (route.kind === "resume") {
-      navigate(`/workspace/${route.entry.companyId}/${route.entry.periodYear}`, { replace: true });
+      navigate(`/workspace/${route.entry.companyId}/${route.entry.periodYear}${stageSuffix}`, { replace: true });
     } else if (route.kind === "open_shared") {
       setRouting(true);
       resolveEntryPeriodYear(route.workspace).then((year) => {
@@ -149,7 +164,7 @@ export default function Dashboard() {
       setRouting(true);
       resolveEntryPeriodYear(route.company).then((year) => {
         if (cancelled) return;
-        navigate(`/workspace/${route.company.id}/${year}`, { replace: true });
+        navigate(`/workspace/${route.company.id}/${year}${stageSuffix}`, { replace: true });
       });
     }
 
@@ -157,7 +172,7 @@ export default function Dashboard() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route?.kind, route?.kind === "resume" ? route.entry.companyId : null, route?.kind === "start_single_company" ? route.company.id : null, route?.kind === "open_shared" ? route.workspace.id : null]);
+  }, [stageSuffix, route?.kind, route?.kind === "resume" ? route.entry.companyId : null, route?.kind === "start_single_company" ? route.company.id : null, route?.kind === "open_shared" ? route.workspace.id : null]);
 
   const resumeEntry = (entry: ActiveEngagementEntry) => {
     navigate(`/workspace/${entry.companyId}/${entry.periodYear}`);
@@ -178,8 +193,13 @@ export default function Dashboard() {
     navigate(`/workspace/${company.id}/${year}`);
   };
 
+  // ── A chosen service the account is not entitled to: choose a plan first (the service is preserved) ──
+  if (!authLoading && user && serviceDestination.kind === "plans") {
+    return <Navigate to={serviceDestination.href} replace />;
+  }
+
   // ── Loading / redirect in flight ──────────────────────────────────────────
-  if (authLoading || engagementsLoading || (route?.kind === "first_run" && (billingLoading || capacityLoading)) || routing || route?.kind === "resume" || route?.kind === "start_single_company" || route?.kind === "open_shared") {
+  if (serviceDestination.kind === "wait" || authLoading || engagementsLoading || (route?.kind === "first_run" && (billingLoading || capacityLoading)) || routing || route?.kind === "resume" || route?.kind === "start_single_company" || route?.kind === "open_shared") {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3">
         <Skeleton className="h-8 w-32" />

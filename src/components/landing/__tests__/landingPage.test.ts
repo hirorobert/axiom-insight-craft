@@ -2,28 +2,23 @@
  * landingPage.test.ts — acceptance gates for the public landing page.
  *
  * Rendering convention: this repository runs vitest in the `node` environment with no jsdom and no
- * @testing-library (see vitest.config.ts and WorkspaceAccessGate.test.ts), so sections are rendered
- * with renderToStaticMarkup — which is also the honest fidelity level for this surface: the landing
- * page is static, so its server-rendered markup IS what a visitor and a crawler receive. Behaviour
- * that genuinely needs a live DOM (mobile-menu focus movement) is asserted here at the mechanism
- * level and verified for real in a browser at 390px; see the browser acceptance run.
+ * @testing-library, so sections are rendered with renderToStaticMarkup — the honest fidelity level
+ * for this surface: its server-rendered markup IS what a visitor and a crawler receive. Interaction
+ * (choosing a service, the mobile menu) is asserted at the mechanism level here and verified in a
+ * browser at 1366px and 375px.
  *
- * Five things are protected, each because getting it wrong is a real failure rather than a style
- * regression:
+ * What is protected, each because getting it wrong is a real failure rather than a style regression:
  *
- *  1. The synthetic preview shows exactly the five approved states of a fictional entity. It is the
- *     only product proof a stranger can read, so it must never drift into invented ledger figures,
- *     invented roles, or anything mistakable for real customer data.
- *  2. The landing surface reaches no backend. It renders for an anonymous visitor with no session;
- *     one Supabase, auth, storage or workspace import would turn static marketing into a failing
- *     network call in the first viewport.
- *  3. Copy carries no internal engine name, no occupational hierarchy the product does not
- *     implement, and no absolute claim. (Phrase enforcement lives in publicClaimRegistry.test.ts;
- *     this file guards structure and word budgets.)
- *  4. Every in-page link resolves to a section that actually renders — a dead anchor in the primary
- *     navigation is the most visible possible defect on a marketing page.
- *  5. The commercial section can never be mistaken for a purchasable offer while entity limits,
- *     named-user capacity and self-serve payment remain unenforced.
+ *  1. Two distinct decisions. The OUTCOME (which service) and the CAPACITY (which plan) are separate
+ *     sections; services carry no price and are never a basket (single choice, no counters, no locks).
+ *  2. Truthful availability, derived from the plan × capability matrix: "Included in every plan" or
+ *     "Plan required" — never "free", never "paid capability".
+ *  3. Low cognitive load: at most three outputs by default, the rest behind one disclosure.
+ *  4. Intent survives: every sign-up / sign-in action carries the selected service as a closed-registry
+ *     identifier. The page grants nothing.
+ *  5. Commercial honesty: plan figures derive from the one catalogue and stay "Proposed"; no checkout,
+ *     Buy or Subscribe; the commercial-status disclosure is stated once, in the footer.
+ *  6. The landing surface reaches no backend; every in-page link resolves.
  */
 
 import fs from "node:fs";
@@ -47,28 +42,28 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: null, session: null, signOut: vi.fn() }) }));
 
+import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
-import { CommercialVerification } from "@/components/landing/CommercialVerification";
-import { ControlledCloseAndAssurance } from "@/components/landing/ControlledCloseAndAssurance";
-import { CoreCapabilities } from "@/components/landing/CoreCapabilities";
+import { CapacityPlans } from "@/components/landing/CapacityPlans";
 import { LandingFAQ } from "@/components/landing/LandingFAQ";
 import { LandingFinalCTA } from "@/components/landing/LandingFinalCTA";
 import { LandingHero } from "@/components/landing/LandingHero";
-import { SyntheticClosePreview } from "@/components/landing/SyntheticClosePreview";
-import { VerifiedDeliverables } from "@/components/landing/VerifiedDeliverables";
+import { LandingIntentProvider } from "@/components/landing/LandingIntent";
+import { ServiceChooser } from "@/components/landing/ServiceChooser";
+import { TrustStrip } from "@/components/landing/TrustStrip";
 import { NAV } from "@/constants/copy";
 import {
-  CLOSE_ASSURANCE_CONTROLS,
-  LANDING_CAPABILITIES,
-  LANDING_DELIVERABLES,
+  COMMERCIAL_NOTICE,
   LANDING_FAQ,
   LANDING_FINAL_CTA,
   LANDING_HERO,
-  LANDING_PROCESS,
-  SYNTHETIC_PREVIEW,
-  SYNTHETIC_PREVIEW_STEPS,
+  LANDING_SECTION_IDS,
+  LANDING_SERVICES,
+  LANDING_TRUST,
 } from "@/content/landing/landingContent";
 import { PROPOSED_PLANS } from "@/content/landing/proposedPlans";
+import { SERVICE_INTENT_IDS, type ServiceIntentId } from "@/lib/commercial/serviceIntent";
+import { PUBLIC_CLAIM_REGISTRY } from "@/content/publicClaimRegistry";
 
 const ROOT = path.resolve(__dirname, "../../../..");
 const LANDING_COMPONENT_DIR = path.join(ROOT, "src/components/landing");
@@ -76,7 +71,7 @@ const LANDING_COMPONENT_DIR = path.join(ROOT, "src/components/landing");
 function readLandingSources(): { file: string; source: string }[] {
   return fs
     .readdirSync(LANDING_COMPONENT_DIR)
-    .filter((f) => f.endsWith(".tsx"))
+    .filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"))
     .map((f) => ({ file: f, source: fs.readFileSync(path.join(LANDING_COMPONENT_DIR, f), "utf8") }));
 }
 
@@ -96,72 +91,255 @@ function visibleText(markup: string): string {
     .trim();
 }
 
-const renderIn = (node: Parameters<typeof createElement>[1] extends never ? never : ReturnType<typeof createElement>) =>
-  renderToStaticMarkup(createElement(MemoryRouter, null, node));
-
-const PREVIEW = renderToStaticMarkup(createElement(SyntheticClosePreview));
-const PAGE = renderIn(
-  createElement(
-    "div",
-    null,
-    createElement(Header),
-    createElement(LandingHero),
-    createElement(CoreCapabilities),
-    createElement(ControlledCloseAndAssurance),
-    createElement(VerifiedDeliverables),
-    createElement(CommercialVerification),
-    createElement(LandingFAQ),
-    createElement(LandingFinalCTA),
-  ),
-);
+const page = (initial: ServiceIntentId = "prepare-review") =>
+  renderToStaticMarkup(
+    createElement(
+      MemoryRouter,
+      null,
+      createElement(
+        LandingIntentProvider,
+        { initial },
+        createElement(Header),
+        createElement(
+          "main",
+          { id: "main-content" },
+          createElement(LandingHero),
+          createElement(ServiceChooser),
+          createElement(CapacityPlans),
+          createElement(TrustStrip),
+          createElement(LandingFAQ),
+          createElement(LandingFinalCTA),
+        ),
+        createElement(Footer),
+      ),
+    ),
+  );
+const PAGE = page();
 const PAGE_TEXT = visibleText(PAGE);
+const section = (markup: string, id: string) => {
+  const start = markup.indexOf(`id="${id}"`);
+  const open = markup.lastIndexOf("<section", start);
+  return markup.slice(open, markup.indexOf("</section>", start) + 10);
+};
+const hrefOf = (markup: string, testid: string) =>
+  (markup.match(new RegExp(`<a\\s[^>]*data-testid="${testid}"[^>]*>`))?.[0].match(/href="([^"]*)"/)?.[1] ?? "").replace(/&amp;/g, "&");
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. Synthetic preview
+// 1. Structure
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("synthetic close preview", () => {
-  it("renders exactly the five approved states, in the approved order", () => {
-    const items = PREVIEW.match(/<li\b/g) ?? [];
-    expect(items).toHaveLength(5);
-    const text = visibleText(PREVIEW);
-    let cursor = 0;
-    for (const step of SYNTHETIC_PREVIEW_STEPS) {
-      const at = text.indexOf(step.title, cursor);
-      expect(at, `out of order or missing: ${step.title}`).toBeGreaterThan(-1);
-      expect(text).toContain(step.detail);
-      cursor = at;
+describe("page structure", () => {
+  it("one level-1 heading carrying the value proposition", () => {
+    expect(PAGE.match(/<h1\b/g) ?? []).toHaveLength(1);
+    expect(PAGE_TEXT).toContain(LANDING_HERO.headline);
+  });
+
+  it("renders exactly the declared sections, in order: outcome → what you receive → capacity → questions", () => {
+    const at = LANDING_SECTION_IDS.map((id) => PAGE.indexOf(`id="${id}"`));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    for (const retired of ["capabilities", "process", "deliverables", "commercial", "sample-close"]) {
+      expect(PAGE, `retired section #${retired} is back`).not.toContain(`id="${retired}"`);
     }
   });
 
-  it("marks four states complete and the fifth as the current one", () => {
-    expect(SYNTHETIC_PREVIEW_STEPS.filter((s) => s.state === "completed")).toHaveLength(4);
-    const current = SYNTHETIC_PREVIEW_STEPS.filter((s) => s.state === "current");
-    expect(current).toHaveLength(1);
-    expect(current[0].title).toBe("Statements ready for review");
-    // Exactly one row is announced as the current step.
-    expect(PREVIEW.match(/aria-current="step"/g) ?? []).toHaveLength(1);
+  it("every in-page navigation link points at a section that exists", () => {
+    const targets = [...NAV.map((i) => i.href), LANDING_HERO.secondaryCta.href, LANDING_FINAL_CTA.secondaryCta.href].filter((h) => h.startsWith("#"));
+    expect(targets.length).toBeGreaterThan(0);
+    for (const href of targets) expect(PAGE, `dead anchor: ${href}`).toContain(`id="${href.slice(1)}"`);
   });
 
-  it("names the fictional entity, period and framework, and always discloses synthetic data", () => {
-    const text = visibleText(PREVIEW);
-    expect(text).toContain(SYNTHETIC_PREVIEW.entity);
-    expect(text).toContain(SYNTHETIC_PREVIEW.period);
-    expect(text).toContain(SYNTHETIC_PREVIEW.framework);
-    expect(text).toContain(SYNTHETIC_PREVIEW.notice);
-    expect(SYNTHETIC_PREVIEW.notice.toLowerCase()).toContain("synthetic");
+  it("the hero offers exactly two actions plus a compact service selector, and no fictional status panel", () => {
+    const hero = visibleText(renderToStaticMarkup(createElement(MemoryRouter, null, createElement(LandingHero))));
+    expect(hero).toContain(LANDING_HERO.primaryCta.label);
+    expect(hero).toContain(LANDING_HERO.secondaryCta.label);
+    for (const s of LANDING_SERVICES) expect(hero).toContain(s.name);
+    expect(hero).not.toMatch(/Meridian|Preparation status|Illustrative synthetic|7-stage|firms trust/i);
   });
 
-  it("shows no monetary amount: it demonstrates workflow state, never figures", () => {
-    const text = visibleText(PREVIEW);
-    expect(text).not.toMatch(/[$€£]\s?[\d,]/);
-    expect(text).not.toMatch(/\d[\d,]{3,}\.\d{2}/);
+  it("asks for sign-up as 'Create account' in at most three places; no acquisition wording the guards forbid", () => {
+    expect(PAGE_TEXT).not.toMatch(/Request access|Send an access request|Start free|Get started|\bBuy\b|Subscribe|Start (a )?trial/i);
+    const signups = PAGE_TEXT.match(/Create account/g) ?? [];
+    expect(signups.length).toBeGreaterThan(0);
+    expect(signups.length).toBeLessThanOrEqual(3);
   });
 
-  it("uses a fictional entity name that cannot be read as a customer", () => {
-    expect(SYNTHETIC_PREVIEW.entity).toBe("Meridian Holdings");
+  it("copy budgets: hero ≤ 35 words; each outcome ≤ 30; each value ≤ 15; final CTA ≤ 25", () => {
+    expect(wordCount(LANDING_HERO.supporting)).toBeLessThanOrEqual(35);
+    for (const s of LANDING_SERVICES) {
+      expect(wordCount(s.outcome), s.name).toBeLessThanOrEqual(30);
+      expect(wordCount(s.value), s.name).toBeLessThanOrEqual(15);
+    }
+    expect(wordCount(`${LANDING_FINAL_CTA.heading} ${LANDING_FINAL_CTA.supporting}`)).toBeLessThanOrEqual(25);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. The outcome decision
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("choose your outcome", () => {
+  const services = section(PAGE, "services");
+
+  it("four services, ids = the closed intent registry, as ONE single-select radio group", () => {
+    expect(LANDING_SERVICES.map((s) => s.id)).toEqual([...SERVICE_INTENT_IDS]);
+    const radios = services.match(/<input[^>]*type="radio"[^>]*>/g) ?? [];
+    expect(radios).toHaveLength(4);
+    expect(new Set(radios.map((r) => r.match(/name="([^"]+)"/)?.[1])).size).toBe(1);
+    expect(radios.filter((r) => /checked=""/.test(r))).toHaveLength(1);
+  });
+
+  it("no basket: no checkbox, no toggle button, no lock, no counter, no price", () => {
+    expect(services).not.toMatch(/type="checkbox"|aria-pressed|Always included|lock|\d+ outputs?\b|Selected ·/i);
+    expect(visibleText(services)).not.toMatch(/USD|per month|Proposed:/);
+  });
+
+  it("availability comes only from the matrix: 'Included in every plan' / 'Plan required'; never free or paid capability", () => {
+    for (const s of LANDING_SERVICES) {
+      const label = services.match(new RegExp(`data-testid="availability-${s.id}"[^>]*>([^<]+)<`))?.[1];
+      expect(["Included in every plan", "Plan required"]).toContain(label);
+    }
+    expect(PAGE_TEXT).not.toMatch(/\bfree\b|paid capability|proposed for paid capacity|premium feature/i);
+    const sources = readLandingSources().map((s) => s.source).join("\n") + fs.readFileSync(path.join(ROOT, "src/content/landing/landingContent.ts"), "utf8");
+    expect(sources).not.toMatch(/"Included in every plan"|"Plan required"/);   // derived, never written in copy
+  });
+
+  it.each(SERVICE_INTENT_IDS)("selected '%s': at most three outputs by default, the rest behind one disclosure, and one start action carrying the service", (id) => {
+    const markup = page(id);
+    const preview = markup.slice(markup.indexOf('data-testid="service-preview"'));
+    const svc = LANDING_SERVICES.find((s) => s.id === id)!;
+    const primary = preview.slice(0, preview.indexOf("</ul>"));
+    expect((primary.match(/<li\b/g) ?? []).length).toBe(svc.primaryOutputs.length);
+    expect(svc.primaryOutputs.length).toBeLessThanOrEqual(3);
+    for (const o of svc.primaryOutputs) expect(visibleText(primary)).toContain(o.name);
+    if (svc.moreOutputs.length) {
+      expect(preview).toMatch(/<details[^>]*data-testid="more-outputs"[^>]*>/);
+      expect(preview).not.toMatch(/<details[^>]*\bopen\b/);
+      expect(visibleText(preview)).toContain("See all included outputs");
+    } else {
+      expect(preview).not.toContain('data-testid="more-outputs"');
+    }
+    expect(hrefOf(markup, "service-start")).toBe(`/auth?mode=signup&service=${id}`);
+    expect(hrefOf(markup, "service-sign-in")).toBe(`/auth?service=${id}`);
+    expect(hrefOf(markup, "hero-create-account")).toBe(`/auth?mode=signup&service=${id}`);
+    expect(hrefOf(markup, "final-create-account")).toBe(`/auth?mode=signup&service=${id}`);
+  });
+
+  it("advertises no regulatory filing format, audit package or 'Full IFRS'; certification is stated as an internal record", () => {
+    const all = LANDING_SERVICES.flatMap((s) => [...s.primaryOutputs, ...s.moreOutputs].map((o) => o.name)).join(" ").toLowerCase();
+    for (const forbidden of ["xbrl", "audit package", "full ifrs"]) expect(all).not.toContain(forbidden);
+    expect(LANDING_SERVICES.find((s) => s.id === "close-certification")!.note).toBe(
+      "It is not an external audit, an audit opinion, or any form of statutory assurance.",
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. The capacity decision
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("choose your capacity", () => {
+  const plans = section(PAGE, "plans");
+
+  it("a separate section; every figure derived from the catalogue; prices stay 'Proposed'", async () => {
+    const { PRICING_CATALOGUE } = await import("@/lib/commercial/pricingCatalogue");
+    expect(PROPOSED_PLANS.map((p) => p.code)).toEqual(PRICING_CATALOGUE.map((p) => p.code));
+    expect(PROPOSED_PLANS.map(({ name, entities, namedUsers, proposedAmount, contactSales }) => ({ name, entities, namedUsers, proposedAmount, contactSales }))).toEqual([
+      { name: "Solo", entities: "1", namedUsers: "1", proposedAmount: "Proposed: USD 49 per month", contactSales: false },
+      { name: "Practice", entities: "5", namedUsers: "1 included · more available", proposedAmount: "Proposed: USD 99 per month", contactSales: false },
+      { name: "Firm", entities: "25", namedUsers: "1 included · more available", proposedAmount: "Proposed: USD 299 per month", contactSales: false },
+      { name: "Enterprise", entities: "Negotiated", namedUsers: "Negotiated", proposedAmount: "Proposed: terms agreed separately", contactSales: true },
+    ]);
+    for (const p of PRICING_CATALOGUE) expect(PROPOSED_PLANS.find((x) => x.code === p.code)!.bestFor).toBe(p.tagline);
+    const derived = fs.readFileSync(path.join(ROOT, "src/content/landing/proposedPlans.ts"), "utf8");
+    expect(derived).toContain("PRICING_CATALOGUE.map(");
+    expect(derived).not.toMatch(/USD \d/);
+    expect(fs.readFileSync(path.join(ROOT, "src/content/landing/landingContent.ts"), "utf8")).not.toMatch(/USD \d|named user included|\d+ entities/);
+    for (const p of PROPOSED_PLANS) expect(visibleText(plans)).toContain(p.proposedAmount);
+    expect((visibleText(PAGE).match(/USD \d+/g) ?? []).length).toBe(3);   // prices appear once, only here
+  });
+
+  it("each self-serve plan action carries the selected service and the plan preference into sign-up; Enterprise is discussed, never self-activated", () => {
+    const markup = page("reporting-pack");
+    expect(hrefOf(markup, "plan-action-Solo")).toBe("/auth?mode=signup&service=reporting-pack&plan=solo");
+    expect(hrefOf(markup, "plan-action-Practice")).toBe("/auth?mode=signup&service=reporting-pack&plan=practice");
+    expect(hrefOf(markup, "plan-action-Firm")).toBe("/auth?mode=signup&service=reporting-pack&plan=firm");
+    expect(visibleText(section(markup, "plans"))).toMatch(/Choose Solo.*Choose Practice.*Choose Firm.*Discuss Enterprise/);
+    expect(visibleText(section(markup, "plans"))).not.toMatch(/Choose Enterprise/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. Trust, commercial honesty, FAQ
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("trust strip", () => {
+  it("exactly three assurances, each a registered claim verbatim", () => {
+    expect(LANDING_TRUST.map((t) => t.title)).toEqual(["Traceable source", "Attributed decisions", "Protected history"]);
+    const registered = PUBLIC_CLAIM_REGISTRY.map((c) => c.approvedWording);
+    for (const t of LANDING_TRUST) expect(registered.some((w) => t.text.startsWith(w)), t.title).toBe(true);
+  });
+});
+
+describe("Enterprise", () => {
+  it("with the enquiry surface on (the committed state), 'Discuss Enterprise' opens the registered contact page — no sign-up, no plan link", async () => {
+    const { SERVICE_ENQUIRY_SURFACES } = await import("@/lib/serviceEnquiry/serviceEnquiryGate");
+    expect(SERVICE_ENQUIRY_SURFACES.contactRoute).toBe(true);
+    const { CONTACT_ROUTE, ENTRY_POINTS } = await import("@/lib/serviceEnquiry/entryPoints");
+    expect(ENTRY_POINTS.find((e) => e.id === "contact_page")?.route).toBe(CONTACT_ROUTE);
+    expect(hrefOf(PAGE, "plan-action-Enterprise")).toBe("/contact");
+  });
+  it("the link exists only behind the contactRoute surface; otherwise a plain statement", () => {
+    const src = fs.readFileSync(path.join(LANDING_COMPONENT_DIR, "CapacityPlans.tsx"), "utf8");
+    const at = src.indexOf("to={CONTACT_ROUTE}");
+    expect(at).toBeGreaterThan(0);
+    expect(src.slice(Math.max(0, at - 200), at)).toMatch(/p\.contactSales && SERVICE_ENQUIRY_SURFACES\.contactRoute && \(/);
+    expect(src).toMatch(/p\.contactSales && !SERVICE_ENQUIRY_SURFACES\.contactRoute && \(/);
+    expect(src).not.toMatch(/contactHref\(/);
+  });
+});
+
+describe("commercial honesty", () => {
+  it("the page states once, plainly, that activation is completed by the team", () => {
+    expect((PAGE_TEXT.match(/activated by our team/g) ?? []).length).toBe(1);
+  });
+  it("no activation, payment-complete or self-serve claim", () => {
+    expect(PAGE_TEXT).not.toMatch(/payment (is )?complete|activate (it )?(yourself|instantly|now)|instant activation|activated instantly|self-activat/i);
+  });
+
+  it("the closing action states activation by the team and no online payment", () => {
+    expect(LANDING_FINAL_CTA.supporting).toMatch(/Online payment is not available yet/);
+    expect(PAGE_TEXT).toContain(LANDING_FINAL_CTA.supporting);
+  });
+  it("the commercial-status disclosure is stated once, in the footer", () => {
+    expect(PAGE_TEXT.split(COMMERCIAL_NOTICE).length - 1).toBe(1);
+    expect(visibleText(renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Footer))))).toContain(COMMERCIAL_NOTICE);
+  });
+  it("no checkout, payment or purchase control anywhere on the page", () => {
+    expect(PAGE_TEXT.toLowerCase()).not.toMatch(/buy now|subscribe|checkout|pay now|upgrade now|add to cart|contact sales to buy/);
+    expect(PAGE_TEXT.toLowerCase()).not.toContain("direct invoic");
+  });
+});
+
+describe("FAQ", () => {
+  it("renders all eight questions, collapsed, from the one source", () => {
+    expect(LANDING_FAQ).toHaveLength(8);
+    const faqMarkup = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(LandingFAQ)));
+    for (const entry of LANDING_FAQ) expect(visibleText(faqMarkup)).toContain(entry.question);
+    expect((faqMarkup.match(/data-state="closed"/g) ?? []).length).toBeGreaterThanOrEqual(LANDING_FAQ.length);
+  });
+  it.each(LANDING_FAQ)("FAQ answer to '$question' stays within 80 words", (entry) => {
+    expect(wordCount(entry.answer)).toBeLessThanOrEqual(80);
+  });
+  it("explains attribution without inventing an approval hierarchy, and states pricing is not purchasable", () => {
+    expect(LANDING_FAQ.find((e) => /attributed/i.test(e.question))!.answer).not.toMatch(/\b(junior|manager|partner|four-eye)\b/i);
+    expect(LANDING_FAQ.find((e) => /pricing/i.test(e.question))!.answer).toMatch(/proposed|not enforced|switched off/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. No backend; mobile navigation
+// ─────────────────────────────────────────────────────────────────────────────
 
 describe("the landing surface reaches no backend, session or workspace code", () => {
   const FORBIDDEN_IMPORTS = [
@@ -200,177 +378,6 @@ describe("the landing surface reaches no backend, session or workspace code", ()
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 2. Structure, anchors, copy budgets
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("page structure", () => {
-  it("renders exactly one level-1 heading, carrying the value proposition", () => {
-    const h1s = PAGE.match(/<h1\b/g) ?? [];
-    expect(h1s).toHaveLength(1);
-    expect(PAGE_TEXT).toContain(LANDING_HERO.headline);
-  });
-
-  it("renders every required section", () => {
-    for (const id of ["capabilities", "process", "deliverables", "commercial", "faq"]) {
-      expect(PAGE, `section #${id} is missing`).toContain(`id="${id}"`);
-    }
-  });
-
-  it("every in-page navigation link points at a section that exists", () => {
-    const inPageTargets = [...NAV.map((i) => i.href), LANDING_HERO.secondaryCta.href].filter((h) => h.startsWith("#"));
-    expect(inPageTargets.length).toBeGreaterThan(0);
-    for (const href of inPageTargets) {
-      expect(PAGE, `dead anchor: ${href}`).toContain(`id="${href.slice(1)}"`);
-    }
-  });
-
-  it("puts product proof in the hero itself, not in a section below the fold", () => {
-    const heroMarkup = renderIn(createElement(LandingHero));
-    const heroText = visibleText(heroMarkup);
-    expect(heroText).toContain(LANDING_HERO.headline);
-    expect(heroText).toContain(SYNTHETIC_PREVIEW.entity);
-    expect(heroText).toContain(SYNTHETIC_PREVIEW_STEPS[0].title);
-  });
-
-  it("the hero offers exactly two actions and no trust strip", () => {
-    const heroText = visibleText(renderIn(createElement(LandingHero)));
-    expect(heroText).toContain(LANDING_HERO.primaryCta.label);
-    expect(heroText).toContain(LANDING_HERO.secondaryCta.label);
-    // The retired four-item trust strip claimed unverifiable metrics; it must not come back.
-    expect(heroText).not.toMatch(/7-stage|12 assurance|SHA-256 evidence|firms trust/i);
-  });
-
-  it("asks for sign-up in at most three places across the whole page", () => {
-    // Sign-up is direct; plan selection cannot activate a licence while payment is unavailable.
-    expect(PAGE_TEXT).not.toMatch(/Request access|Send an access request|Start free|Get started|\bBuy\b|Subscribe|Start (a )?trial/i);
-    const signups = PAGE_TEXT.match(/Create account/g) ?? [];
-    expect(signups.length).toBeGreaterThan(0);
-    expect(signups.length).toBeLessThanOrEqual(3);
-  });
-});
-
-describe("copy budgets keep the page scannable rather than essayistic", () => {
-  it("hero copy stays within 35 words", () => {
-    expect(wordCount(LANDING_HERO.supporting)).toBeLessThanOrEqual(35);
-  });
-
-  it.each(LANDING_CAPABILITIES)("capability '$title' stays within 30 words", (c) => {
-    expect(wordCount(c.description)).toBeLessThanOrEqual(30);
-  });
-
-  it.each(LANDING_PROCESS)("process step '$title' stays within 30 words", (s) => {
-    expect(wordCount(s.description)).toBeLessThanOrEqual(30);
-  });
-
-  it.each(CLOSE_ASSURANCE_CONTROLS)("control '$title' stays within 24 words", (c) => {
-    expect(wordCount(c.description)).toBeLessThanOrEqual(24);
-  });
-
-  it.each(LANDING_FAQ)("FAQ answer to '$question' stays within 80 words", (entry) => {
-    expect(wordCount(entry.answer)).toBeLessThanOrEqual(80);
-  });
-
-  it("the final call to action stays within 25 words", () => {
-    expect(wordCount(`${LANDING_FINAL_CTA.heading} ${LANDING_FINAL_CTA.supporting}`)).toBeLessThanOrEqual(25);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. FAQ, deliverables and commercial honesty
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("FAQ", () => {
-  it("renders all eight questions and answers", () => {
-    expect(LANDING_FAQ).toHaveLength(8);
-    const faqMarkup = renderIn(createElement(LandingFAQ));
-    const faqText = visibleText(faqMarkup);
-    for (const entry of LANDING_FAQ) {
-      expect(faqText, `missing question: ${entry.question}`).toContain(entry.question);
-      // Answers live in a disclosure panel, so they are not in the collapsed static markup. What
-      // matters for parity with the FAQPage structured data is that the rendered list is sourced
-      // from LANDING_FAQ itself — asserted by the trigger count below and by
-      // src/content/landing/__tests__/faqStructuredData.test.ts's byte-for-byte check.
-    }
-    expect((faqMarkup.match(/data-state="closed"/g) ?? []).length).toBeGreaterThanOrEqual(LANDING_FAQ.length);
-  });
-
-  it("explains how preparation decisions are attributed, without inventing an approval hierarchy", () => {
-    const attribution = LANDING_FAQ.find((e) => /attributed/i.test(e.question));
-    expect(attribution, "the attribution question is missing").toBeDefined();
-    expect(attribution!.answer).not.toMatch(/\b(junior|manager|partner|four-eye)\b/i);
-  });
-
-  it("answers truthfully that the shown pricing cannot be purchased yet", () => {
-    const pricing = LANDING_FAQ.find((e) => /pricing/i.test(e.question));
-    expect(pricing, "the pricing-status question is missing").toBeDefined();
-    expect(pricing!.answer).toMatch(/proposed|not enforced|switched off/i);
-  });
-});
-
-describe("verified deliverables", () => {
-  it("advertises no regulatory filing format, audit package, or 'Full IFRS'", () => {
-    const text = visibleText(renderIn(createElement(VerifiedDeliverables))).toLowerCase();
-    for (const forbidden of ["xbrl", "audit package", "full ifrs"]) {
-      expect(text, `deliverables claim "${forbidden}"`).not.toContain(forbidden);
-    }
-  });
-
-  it("lists only deliverables reachable in the current interface, each naming where it is produced", () => {
-    expect(LANDING_DELIVERABLES.length).toBeGreaterThan(0);
-    for (const d of LANDING_DELIVERABLES) {
-      expect(d.name.length).toBeGreaterThan(0);
-      expect(d.access.length, `${d.name} does not say where it is reachable`).toBeGreaterThan(0);
-      expect(d.formats.length, `${d.name} does not say in which formats`).toBeGreaterThan(0);
-      expect(d.note.length, `${d.name} has no qualifying note`).toBeGreaterThan(10);
-    }
-  });
-});
-
-describe("commercial structure is presented as proposed, not purchasable", () => {
-  it("heads the section with the enforcement-verification wording and carries the notice", () => {
-    const text = visibleText(renderIn(createElement(CommercialVerification)));
-    expect(text).toContain("Commercial structure under final enforcement verification");
-    expect(text).toContain(
-      "Entity limits, named-user capacity and self-serve payment activation are undergoing final enforcement verification. This preview is not a public commercial offer.",
-    );
-  });
-
-  it("names four proposed plans", () => {
-    expect(PROPOSED_PLANS).toHaveLength(4);
-    const text = visibleText(renderIn(createElement(CommercialVerification)));
-    for (const plan of PROPOSED_PLANS) expect(text).toContain(plan.name);
-  });
-
-  it("every plan figure is derived from the PR #34 catalogue (no duplicate authority) and renders exactly the reviewed wording", async () => {
-    const { PRICING_CATALOGUE } = await import("@/lib/commercial/pricingCatalogue");
-    expect(PROPOSED_PLANS.map((p) => p.name)).toEqual(PRICING_CATALOGUE.map((p) => p.name));
-    expect(PROPOSED_PLANS).toEqual([
-      { name: "Solo", proposedAmount: "Proposed: USD 49 per month", proposedEntities: "Proposed: 1 entity", proposedUsers: "Proposed: 1 named user", proposedCapabilities: "Close Certification, Reporting Pack, Close Insights" },
-      { name: "Practice", proposedAmount: "Proposed: USD 99 per month", proposedEntities: "Proposed: 5 entities", proposedUsers: "Proposed: 1 named user included", proposedCapabilities: "Close Certification, Reporting Pack, Close Insights" },
-      { name: "Firm", proposedAmount: "Proposed: USD 299 per month", proposedEntities: "Proposed: 25 entities", proposedUsers: "Proposed: 1 named user included", proposedCapabilities: "Close Certification, Reporting Pack, Close Insights" },
-      { name: "Enterprise", proposedAmount: "Proposed: terms agreed separately", proposedEntities: "Proposed: capacity agreed separately", proposedUsers: "Proposed: capacity agreed separately", proposedCapabilities: "Close Certification, Reporting Pack, Close Insights" },
-    ]);
-    const derived = fs.readFileSync(path.join(ROOT, "src/content/landing/proposedPlans.ts"), "utf8");
-    expect(derived).toContain("PRICING_CATALOGUE.map(");
-    expect(derived).not.toMatch(/USD \d/);   // no amount restated
-    const content = fs.readFileSync(path.join(ROOT, "src/content/landing/landingContent.ts"), "utf8");
-    expect(content).not.toMatch(/USD \d|named user included|\d+ entities/);
-    expect(content).not.toMatch(/not enforced by the system/i);
-  });
-
-  it("offers no checkout, payment or purchase control anywhere on the page", () => {
-    expect(PAGE_TEXT.toLowerCase()).not.toMatch(/buy now|subscribe|checkout|pay now|upgrade now|add to cart|contact sales to buy/);
-  });
-
-  it("claims no direct-invoicing arrangement", () => {
-    expect(PAGE_TEXT.toLowerCase()).not.toContain("direct invoic");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 4. Keyboard operability of the mobile menu (mechanism level; behaviour verified in a browser)
-// ─────────────────────────────────────────────────────────────────────────────
 
 describe("mobile navigation keyboard operability", () => {
   const HEADER_SOURCE = fs.readFileSync(path.join(ROOT, "src/components/Header.tsx"), "utf8");
@@ -399,18 +406,23 @@ describe("mobile navigation keyboard operability", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Retired sections stay retired
+// 6. Retired sections stay retired
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("the superseded landing sections are gone and unreferenced", () => {
-  const REMOVED = [
-    "src/components/Hero.tsx",
-    "src/components/PainPoints.tsx",
-    "src/components/Features.tsx",
-    "src/components/ClosingCTA.tsx",
-  ];
+  const REMOVED: Record<string, string> = {
+    "src/components/Hero.tsx": "@/components/Hero",
+    "src/components/PainPoints.tsx": "@/components/PainPoints",
+    "src/components/Features.tsx": "@/components/Features",
+    "src/components/ClosingCTA.tsx": "@/components/ClosingCTA",
+    "src/components/landing/SyntheticClosePreview.tsx": "@/components/landing/SyntheticClosePreview",
+    "src/components/landing/CoreCapabilities.tsx": "@/components/landing/CoreCapabilities",
+    "src/components/landing/ControlledCloseAndAssurance.tsx": "@/components/landing/ControlledCloseAndAssurance",
+    "src/components/landing/VerifiedDeliverables.tsx": "@/components/landing/VerifiedDeliverables",
+    "src/components/landing/CommercialVerification.tsx": "@/components/landing/CommercialVerification",
+  };
 
-  it.each(REMOVED)("%s no longer exists", (relative) => {
+  it.each(Object.keys(REMOVED))("%s no longer exists", (relative) => {
     expect(fs.existsSync(path.join(ROOT, relative))).toBe(false);
   });
 
@@ -422,9 +434,7 @@ describe("the superseded landing sections are gone and unreferenced", () => {
         if (entry.isDirectory()) walk(full);
         else if (/\.tsx?$/.test(entry.name)) {
           const source = fs.readFileSync(full, "utf8");
-          for (const removed of ["@/components/Hero", "@/components/PainPoints", "@/components/Features", "@/components/ClosingCTA"]) {
-            if (source.includes(`from "${removed}"`)) offenders.push(`${full} → ${removed}`);
-          }
+          for (const removed of Object.values(REMOVED)) if (source.includes(`from "${removed}"`)) offenders.push(`${full} → ${removed}`);
         }
       }
     };
