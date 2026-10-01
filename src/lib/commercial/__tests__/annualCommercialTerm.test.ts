@@ -13,7 +13,7 @@ const SQL = MIGRATION.replace(/--[^\n]*/g, "");
 describe("annual commercial term migration", () => {
   it("raises only controlled application errors: SQLSTATE PT422 with a fixed code, never internal wording", () => {
     const messages = [...SQL.matchAll(/RAISE EXCEPTION '([^']+)'/g)].map((m) => m[1]);
-    expect(new Set(messages)).toEqual(new Set(["OPEN_MONTHLY_CHECKOUT_INTENTS", "ANNUAL_TERM_REQUIRED", "INVALID_COMMERCIAL_TERM"]));
+    expect(new Set(messages)).toEqual(new Set(["INVALID_OPEN_CHECKOUT_INTENTS", "ANNUAL_TERM_REQUIRED", "INVALID_COMMERCIAL_TERM"]));
     expect([...SQL.matchAll(/ERRCODE = '([^']+)'/g)].map((m) => m[1]).every((c) => c === "PT422")).toBe(true);
     expect(SQL).not.toMatch(/iron dome/i);
   });
@@ -31,7 +31,12 @@ describe("annual commercial term migration", () => {
   });
 
   it("opens with the zero-state gate, never touches platform payment state, and rewrites no applied migration", () => {
-    expect(SQL.indexOf("OPEN_MONTHLY_CHECKOUT_INTENTS")).toBeLessThan(SQL.indexOf("UPDATE public.commercial_offers"));
+    expect(SQL.indexOf("INVALID_OPEN_CHECKOUT_INTENTS")).toBeLessThan(SQL.indexOf("UPDATE public.commercial_offers"));
+    // The gate counts every invalid shape in every status that is not terminal (the terminal set is named; any other
+    // status — including one added later — counts as fulfillable). The committable set is derived and proven by
+    // scripts/db-proof/annualTerm.mjs.
+    expect(SQL).toContain("AND (i.billing_interval IS DISTINCT FROM 'ANNUAL' OR i.billing_interval_count IS DISTINCT FROM 1)");
+    expect(SQL).toContain("AND i.status NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED')");
     expect(SQL).not.toMatch(/commercial_platform_state/);
     expect(SQL).not.toMatch(/\bDROP\b|DELETE FROM|TRUNCATE/i);
     expect(SQL).not.toMatch(/FUNCTION public\.commit_verified_commercial_payment/);

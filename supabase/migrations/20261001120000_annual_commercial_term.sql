@@ -9,11 +9,16 @@
 -- cannot represent an instalment schedule (no contract term separate from billing cadence, no contract value). Until it
 -- can, monthly is not offered and the server refuses every non-annual term:
 --
---   0. ZERO-STATE GATE — the migration refuses to apply while any self-serve MONTHLY checkout intent is still open
---      (CREATED, PENDING or MANUAL_REVIEW, whatever its expires_at: commit_verified_commercial_payment deliberately does
---      not re-check expiry). Such an intent could be paid at the provider and then fail to commit under the term guard
---      below — paid, without a licence. The operator reconciles each with the provider and resolves it first
---      (scripts/db-preflight/annualTermPreflight.sql).
+--   0. ZERO-STATE GATE — the migration refuses to apply, before any mutation, while any INVALID self-serve checkout
+--      intent can still be fulfilled. Invalid: billing_interval IS DISTINCT FROM ANNUAL OR billing_interval_count IS
+--      DISTINCT FROM 1. Still fulfillable: every status that is not terminal. The terminal set is named, never the open
+--      set, so a status added later counts as open until it is proven terminal. Derived from the live functions
+--      (proven by scripts/db-proof/annualTerm.mjs): commit_verified_commercial_payment and claim_verification_attempt
+--      fulfil PENDING and MANUAL_REVIEW; CREATING and PROVIDER_CREATING move into those (persist_checkout_provider_result,
+--      mark_checkout_attempt_uncertain, acquire_checkout_attempt); SUCCEEDED, FAILED, CANCELLED and EXPIRED have no
+--      transition out. expires_at is ignored: the commit deliberately does not re-check it. Such an intent could be paid
+--      at the provider and then fail to commit under the term guard below — paid, without a licence. The operator
+--      reconciles each with the provider and resolves it first (scripts/db-preflight/annualTermPreflight.sql).
 --   1. the CFOCLOSE SOLO / PRACTICE / FIRM MONTHLY offers are retired (inactive, non-purchasable, effective_end set) —
 --      the precedent of 20260925100000 §4; nothing else about any offer changes;
 --   2. a checkout intent for those plans must be exactly ANNUAL × 1, on INSERT and on any UPDATE of plan_id,
@@ -46,12 +51,12 @@ BEGIN
     JOIN public.commercial_plans cp ON cp.id = i.plan_id
     JOIN public.commercial_products p ON p.id = cp.product_id
    WHERE p.code = 'CFOCLOSE' AND cp.code IN ('SOLO', 'PRACTICE', 'FIRM')
-     AND i.billing_interval IS DISTINCT FROM 'ANNUAL'
-     AND i.status IN ('CREATED', 'PENDING', 'MANUAL_REVIEW');
+     AND (i.billing_interval IS DISTINCT FROM 'ANNUAL' OR i.billing_interval_count IS DISTINCT FROM 1)
+     AND i.status NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED');
   IF v_open > 0 THEN
-    RAISE EXCEPTION 'OPEN_MONTHLY_CHECKOUT_INTENTS'
+    RAISE EXCEPTION 'INVALID_OPEN_CHECKOUT_INTENTS'
       USING ERRCODE = 'PT422',
-            DETAIL = format('%s open self-serve monthly checkout intent(s); reconcile and resolve them first (scripts/db-preflight/annualTermPreflight.sql)', v_open);
+            DETAIL = format('%s invalid self-serve checkout intent(s) can still be fulfilled; reconcile and resolve them first (scripts/db-preflight/annualTermPreflight.sql)', v_open);
   END IF;
 END
 $gate$;

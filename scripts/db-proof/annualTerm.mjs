@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Real-PostgreSQL proof of the 12-month commercial term (20261001120000_annual_commercial_term.sql).
 //
-//   Gate      the migration refuses to apply while an open self-serve monthly checkout intent exists; the read-only
+//   Gate      the committable statuses are DERIVED from the live functions; every invalid shape (MONTHLY × 1, ANNUAL × 2;
+//             ANNUAL × NULL cannot exist) in every committable status refuses the migration with schema and business rows
+//             byte-identical; terminal statuses do not block; the migration refuses while an invalid intent can be fulfilled; the read-only
 //             preflight lists it and reads FAIL, then PASS once it is resolved through the existing failure path;
 //   Existing  every pre-existing licence is unchanged in every column; no renewal state is introduced; only the CFOCLOSE
 //             self-serve monthly offers are retired; an existing monthly-paid licence can end earlier, never be extended;
@@ -12,7 +14,7 @@
 //   Payments  an annual payment yields one exact 12-month entitled licence; an upgrade still ends the current one early;
 //   Access    suspension and expiry refuse new privileged actions and keep the workspace readable;
 //   Contract  every refusal is SQLSTATE PT422 with ANNUAL_TERM_REQUIRED / INVALID_COMMERCIAL_TERM /
-//             OPEN_MONTHLY_CHECKOUT_INTENTS — no internal wording; no client grant; checkout stays disabled; re-runnable.
+//             INVALID_OPEN_CHECKOUT_INTENTS — no internal wording; no client grant; checkout stays disabled; re-runnable.
 //
 //   DB_PROOF_MODULES_DIR=<dir whose node_modules has pg + embedded-postgres> node scripts/db-proof/annualTerm.mjs
 //
@@ -139,7 +141,7 @@ async function main() {
   await check("the migration raises only controlled application errors — no internal implementation wording", async () => {
     const sql = fs.readFileSync(path.join(REPO, "supabase/migrations", MIGRATION), "utf8").replace(/--[^\n]*/g, "");
     const raised = [...sql.matchAll(/RAISE EXCEPTION '([^']+)'/g)].map((m) => m[1]);
-    const ok = raised.length >= 4 && raised.every((m) => ["ANNUAL_TERM_REQUIRED", "INVALID_COMMERCIAL_TERM", "OPEN_MONTHLY_CHECKOUT_INTENTS"].includes(m))
+    const ok = raised.length >= 4 && raised.every((m) => ["ANNUAL_TERM_REQUIRED", "INVALID_COMMERCIAL_TERM", "INVALID_OPEN_CHECKOUT_INTENTS"].includes(m))
       && [...sql.matchAll(/ERRCODE = '([^']+)'/g)].every((m) => m[1] === "PT422") && !/iron dome|renewal/i.test(sql);
     return ok ? true : raised.join(",");
   });
@@ -179,10 +181,11 @@ async function main() {
   };
   const intentRow = async (acct, o, over = {}) => (await admin.query(`INSERT INTO public.payment_checkout_intents
         (billing_customer_id, commercial_offer_id, plan_id, market_code, expected_amount_minor, currency_code, currency_exponent,
-         billing_interval, billing_interval_count, provider, saff_reference, status, created_by_user_id, provider_environment, product_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'STRIPE',$10,'PENDING',$11,'sandbox',$12) RETURNING id`,
+         billing_interval, billing_interval_count, provider, saff_reference, status, created_by_user_id, provider_environment, product_id, provider_checkout_ref)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'STRIPE',$10,$13,$11,'sandbox',$12,$14) RETURNING id`,
       [acct.bc, o.id, over.plan_id ?? o.plan_id, o.market_code, o.amount_minor, o.currency_code, o.currency_exponent,
-       over.billing_interval ?? o.billing_interval, over.billing_interval_count ?? o.billing_interval_count, `SAFF-${uuid()}`, acct.uid, over.product_id ?? product])).rows[0].id;
+       over.billing_interval ?? o.billing_interval, ("billing_interval_count" in over) ? over.billing_interval_count : o.billing_interval_count, `SAFF-${uuid()}`, acct.uid, over.product_id ?? product,
+       over.status ?? 'PENDING', over.provider_checkout_ref ?? null])).rows[0].id;
   const intent = async (acct, offerCode, over) => intentRow(acct, await offer(offerCode), over);
   const commit = async (intentId, amount, status = "SUCCEEDED") => (await admin.query(`SELECT public.commit_verified_commercial_payment($1,'STRIPE',$2,$3,$4,$5,'USD',$6,now(),'PROVIDER_API_VERIFY',$7,$8,'sandbox') r`,
     [intentId, `tx-${uuid()}`, status.toLowerCase(), status, amount, "h".repeat(64), `idem-${uuid()}`, `SAFF-${uuid()}`])).rows[0].r;
@@ -214,21 +217,126 @@ async function main() {
     } finally { c.release(); }
   };
 
+  // ── Committable statuses, derived from the live database ─────────────────────────────────────────────────────────
+  group("Committable statuses · derived from the live functions, not assumed");
+  const vocabulary = async () => {
+    const def = (await admin.query("SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conname='chk_pci_status'")).rows[0].d;
+    return [...def.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]);
+  };
+  const fnDef = async (name) => (await admin.query("SELECT string_agg(pg_get_functiondef(p.oid), E'\\n') d FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname=$1", [name])).rows[0].d ?? "";
+  const listIn = (text) => [...text.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]);
+  let FULFILLABLE = [];
+  let TERMINAL = [];
+  await check("derive: vocabulary − (statuses the commit/claim guards accept, closed under every status transition into them) = the migration's terminal set", async () => {
+    const vocab = await vocabulary();
+    const direct = new Set();
+    for (const fn of ["commit_verified_commercial_payment", "claim_verification_attempt"]) {
+      for (const m of (await fnDef(fn)).matchAll(/status\s+NOT\s+IN\s*\(([^)]*)\)/gi)) listIn(m[1]).forEach((s) => direct.add(s));
+    }
+    // Every UPDATE of payment_checkout_intents.status in every public function, with its source-status filter. A statement
+    // without an inline filter takes the status literals its function selects on (e.g. acquire_checkout_attempt's
+    // v_existing lookup) — never "any status".
+    const transitions = [];
+    const fns = (await admin.query("SELECT p.proname, pg_get_functiondef(p.oid) d FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind='f'")).rows;
+    for (const { proname, d } of fns) {
+      if (!/UPDATE\s+public\.payment_checkout_intents/i.test(d)) continue;
+      const fnFilters = [...d.matchAll(/status\s+(?:=\s*'([A-Z_]+)'|IN\s*\(([^)]*)\))/gi)].flatMap((m) => (m[1] ? [m[1]] : listIn(m[2])));
+      for (const stmt of d.split(";").filter((x) => /UPDATE\s+public\.payment_checkout_intents/i.test(x))) {
+        const to = stmt.match(/SET[\s\S]*?\bstatus\s*=\s*(?:CASE[\s\S]*?END|'([A-Z_]+)')/i);
+        if (!to) continue;
+        const targets = to[1] ? [to[1]] : listIn(to[0]);
+        const where = stmt.split(/\bWHERE\b/i)[1] ?? "";
+        const inline = [...where.matchAll(/status\s+(?:=\s*'([A-Z_]+)'|IN\s*\(([^)]*)\))/gi)].flatMap((m) => (m[1] ? [m[1]] : listIn(m[2])));
+        transitions.push({ proname, from: inline.length ? inline : fnFilters, to: targets });
+      }
+    }
+    const closure = new Set(direct);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const t of transitions) if (t.to.some((s) => closure.has(s))) for (const f of t.from) if (!closure.has(f)) { closure.add(f); grew = true; }
+    }
+    FULFILLABLE = vocab.filter((s) => closure.has(s));
+    TERMINAL = vocab.filter((s) => !closure.has(s));
+    const sql = fs.readFileSync(path.join(REPO, "supabase/migrations", MIGRATION), "utf8").replace(/--[^\n]*/g, "");
+    const gateTerminal = listIn(sql.match(/i\.status NOT IN \(([^)]*)\)/)[1]);
+    const ok = [...direct].sort().join() === "MANUAL_REVIEW,PENDING"
+      && JSON.stringify([...TERMINAL].sort()) === JSON.stringify([...gateTerminal].sort())
+      && FULFILLABLE.length >= 4;
+    return ok ? true : { vocab, direct: [...direct], FULFILLABLE, TERMINAL, gateTerminal };
+  });
+  console.log(`        committable (fulfillable): ${FULFILLABLE.join(", ")}   terminal: ${TERMINAL.join(", ")}`);
+
+  // ── Every invalid shape × every committable status refuses the migration, atomically ─────────────────────────────
+  group("Zero-state refusal · every invalid shape × every committable status, atomic");
+  const BUSINESS_FP = `SELECT md5(string_agg(x, '|' ORDER BY x)) AS fp FROM (
+    SELECT 'c:'||table_name||'.'||column_name||':'||data_type||':'||coalesce(column_default,'')||is_nullable AS x FROM information_schema.columns WHERE table_schema='public'
+    UNION ALL SELECT 'f:'||p.oid::regprocedure::text||md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind='f'
+    UNION ALL SELECT 't:'||tgname||':'||tgrelid::regclass::text FROM pg_trigger WHERE NOT tgisinternal
+    UNION ALL SELECT 'k:'||conname||':'||conrelid::regclass::text||':'||pg_get_constraintdef(oid) FROM pg_constraint WHERE connamespace='public'::regnamespace
+    UNION ALL SELECT 'o:'||to_jsonb(o)::text FROM public.commercial_offers o
+    UNION ALL SELECT 'l:'||to_jsonb(l)::text FROM public.commercial_licences l
+    UNION ALL SELECT 'i:'||to_jsonb(i)::text FROM public.payment_checkout_intents i
+    UNION ALL SELECT 'e:'||to_jsonb(e)::text FROM public.payment_events e
+    UNION ALL SELECT 'a:'||to_jsonb(a)::text FROM public.billing_audit_events a
+    UNION ALL SELECT 's:'||to_jsonb(s)::text FROM public.commercial_platform_state s
+  ) z`;
+  const fingerprint = async () => (await admin.query(BUSINESS_FP)).rows[0].fp;
+  const migrationText = fs.readFileSync(path.join(REPO, "supabase/migrations", MIGRATION), "utf8");
+  const SHAPES = [
+    { label: "MONTHLY × 1", offer: "CFOCLOSE_SOLO_GLOBAL_USD_MONTHLY", over: {} },
+    { label: "ANNUAL × 2", offer: "CFOCLOSE_PRACTICE_GLOBAL_USD_ANNUAL", over: { billing_interval_count: 2 } },
+  ];
+  for (const shape of SHAPES) {
+    for (const status of FULFILLABLE) {
+      await check(`existing ${shape.label} intent in ${status}: the migration refuses (PT422 INVALID_OPEN_CHECKOUT_INTENTS) and schema + business rows are byte-identical`, async () => {
+        const a = await account(`gate-${status}`, null);
+        const id = await intent(a, shape.offer, { ...shape.over, status });
+        const before = await fingerprint();
+        let err = null;
+        try { await admin.query(migrationText); } catch (e) { err = e; }
+        const after = await fingerprint();
+        await admin.query("DELETE FROM public.payment_checkout_intents WHERE id=$1", [id]);   // fixture cleanup
+        return isPT422(err, "INVALID_OPEN_CHECKOUT_INTENTS") && before === after ? true : { code: err?.code, msg: err?.message, same: before === after };
+      });
+    }
+  }
+  await check("ANNUAL × NULL cannot exist: billing_interval_count is NOT NULL (23502) — and the predicate would catch it anyway (NULL IS DISTINCT FROM 1)", async () => {
+    const a = await account("gate-null", null);
+    const e = await errOf(() => intent(a, "CFOCLOSE_SOLO_GLOBAL_USD_ANNUAL", { billing_interval_count: null, forceNull: true }));
+    const distinct = (await admin.query("SELECT (NULL::smallint IS DISTINCT FROM 1) AS d")).rows[0].d;
+    return e?.code === "23502" && distinct === true ? true : { code: e?.code, msg: e?.message, distinct };
+  });
+  await check("an invalid intent in a TERMINAL status does not block (it can no longer be fulfilled)", async () => {
+    const ids = [];
+    for (const status of TERMINAL) { const a = await account(`term-${status}`, null); ids.push(await intent(a, "CFOCLOSE_SOLO_GLOBAL_USD_MONTHLY", { status })); }
+    const sets = await runPreflight();
+    const gate = sets[sets.length - 1][0];
+    const ok = Number(gate.invalid_fulfillable_intents) === 1;   // only the pre-existing PENDING monthly fixture remains open
+    return ok ? true : JSON.stringify(gate);
+  });
+  await check("the preflight's PASS also requires reconciliation: a terminal invalid intent with a provider session and no verified outcome reads unreconciled", async () => {
+    const a = await account("unreconciled", null);
+    const id = await intent(a, "CFOCLOSE_SOLO_GLOBAL_USD_MONTHLY", { status: "EXPIRED", provider_checkout_ref: `prov-${uuid()}` });
+    const gate = (await runPreflight()).at(-1)[0];
+    await admin.query("DELETE FROM public.payment_checkout_intents WHERE id=$1", [id]);   // fixture cleanup
+    return Number(gate.unreconciled_provider_sessions) === 1 && gate.gate === "FAIL" ? true : JSON.stringify(gate);
+  });
+
   // ── Zero-state gate ──────────────────────────────────────────────────────────────────────────────────────────────
   group("Zero-state gate · an open monthly intent blocks the migration");
   await check("the preflight runs READ ONLY, lists the monthly-paid licence and the open monthly intent, and reads GATE = FAIL", async () => {
     const sets = await runPreflight();
     const flat = JSON.stringify(sets);
     const gate = sets[sets.length - 1][0];
-    return flat.includes(P.monthlyPaid.lic) && flat.includes(pendingMonthlyIntent) && gate.gate === "FAIL" && Number(gate.open_self_serve_monthly_intents) === 1 ? true : JSON.stringify(gate);
+    return flat.includes(P.monthlyPaid.lic) && flat.includes(pendingMonthlyIntent) && gate.gate === "FAIL" && Number(gate.invalid_fulfillable_intents) === 1 ? true : JSON.stringify(gate);
   });
   const offersBeforeGate = await snapOffers();
-  await check("the migration REFUSES to apply while the open monthly intent exists (PT422 OPEN_MONTHLY_CHECKOUT_INTENTS) and changes nothing", async () => {
+  await check("the migration REFUSES to apply while the open monthly intent exists (PT422 INVALID_OPEN_CHECKOUT_INTENTS) and changes nothing", async () => {
     let err = null;
     try { await admin.query(fs.readFileSync(path.join(REPO, "supabase/migrations", MIGRATION), "utf8")); } catch (e) { err = e; }
     const triggers = (await admin.query("SELECT count(*)::int n FROM pg_trigger WHERE tgname LIKE 'trg_commercial_annual_term_%'")).rows[0].n;
     const offersSame = JSON.stringify(await snapOffers()) === JSON.stringify(offersBeforeGate);
-    return isPT422(err, "OPEN_MONTHLY_CHECKOUT_INTENTS") && triggers === 0 && offersSame ? true : { code: err?.code, msg: err?.message, triggers, offersSame };
+    return isPT422(err, "INVALID_OPEN_CHECKOUT_INTENTS") && triggers === 0 && offersSame ? true : { code: err?.code, msg: err?.message, triggers, offersSame };
   });
   await check("the operator resolves it through the existing failure path (provider reported not paid): no licence, intent CANCELLED", async () => {
     const r = await commit(pendingMonthlyIntent, 4900, "CANCELLED");
@@ -236,10 +344,10 @@ async function main() {
     const lic = (await admin.query("SELECT count(*)::int n FROM public.commercial_licences WHERE billing_customer_id=$1", [pending.bc])).rows[0].n;
     return r.committed === false && st === "CANCELLED" && lic === 0 ? true : { r, st, lic };
   });
-  await check("the preflight now reads GATE = PASS with zero open intents", async () => {
+  await check("the preflight now reads GATE = PASS: no invalid fulfillable intent, no unreconciled provider session", async () => {
     const sets = await runPreflight();
     const gate = sets[sets.length - 1][0];
-    return gate.gate === "PASS" && Number(gate.open_intents_any_interval) === 0 ? true : JSON.stringify(gate);
+    return gate.gate === "PASS" && Number(gate.invalid_fulfillable_intents) === 0 && Number(gate.unreconciled_provider_sessions) === 0 ? true : JSON.stringify(gate);
   });
 
   const licBefore = await fullLic();

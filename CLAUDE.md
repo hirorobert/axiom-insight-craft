@@ -1057,7 +1057,10 @@ PAYMENTS_DISABLED`). Correcting downgrade-at-purchase to downgrade-at-renewal is
 checkout activation**; do not enable SANDBOX_ONLY / LIVE_ACCEPTANCE / CUSTOMER_PAYMENTS_ENABLED for customers before it lands
 with its own proof. Before applying `20261001120000` in production, run the zero-state gate
 `scripts/db-preflight/annualTermPreflight.sql` (read-only) and reconcile every open provider session; the migration itself
-refuses to apply while an open self-serve monthly intent exists (SQLSTATE PT422).
+refuses to apply while any invalid self-serve intent (not exactly ANNUAL × 1) is in a status that can still be fulfilled
+(anything but SUCCEEDED / FAILED / CANCELLED / EXPIRED) — SQLSTATE PT422, INVALID_OPEN_CHECKOUT_INTENTS. **Do not merge
+PR #41 before the production preflight reads PASS and every listed provider session is reconciled**: Lovable syncs
+`main` and may apply hosted migrations.
 
 ---
 
