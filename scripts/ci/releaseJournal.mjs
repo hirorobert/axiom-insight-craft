@@ -141,6 +141,12 @@ export const RELEASE_JOURNAL = {
     source: "20260927100000_trial_balance_remove_from_active_use.sql",
     digest: "f512988f8998e8db8b814ca3d92b2cc52281cff6a1333a4e5b5b0279ac4c3157", head: "0d2a09eaed9cd6f96790d57bfeb4cf681877b743",
     sha256: "34f384b86caee59af34dfcd766e8f1cfc424051f4830e980394f9edd558a05ab" },
+  // The 12-month commercial term (PR #41), applied by Lovable as a byte-for-byte copy of its source (kind
+  // "release_verbatim"): exact tag, source path, byte count and SHA-256 pinned; the entry must equal the source exactly.
+  "0025_apply_20261001120000_annual_commercial_term": { kind: "release_verbatim",
+    source: "20261001120000_annual_commercial_term.sql", bytes: 19294,
+    digest: "621f55c35bdadf3c7baa8c259056712dbfbbedbd25417a2a5d6a92fd4a1d38fa",
+    sha256: "621f55c35bdadf3c7baa8c259056712dbfbbedbd25417a2a5d6a92fd4a1d38fa" },
 };
 
 const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
@@ -223,6 +229,16 @@ export function checkReleaseEntry(tag, text, srcBytes) {
   if (!entry) return { problems: [`${tag} is a release entry that has not been reviewed (add it to RELEASE_JOURNAL after review)`] };
   const problems = [];
   if (sha256(Buffer.from(text, "utf8")) !== entry.sha256) problems.push(`${tag} differs from its reviewed content (SHA-256)`);
+  if (entry.kind === "release_verbatim") {
+    const src = srcBytes(entry.source);
+    if (!src) return { problems: [...problems, `${tag} applies an unknown migration ${entry.source}`] };
+    const hosted = Buffer.from(text, "utf8");
+    if (sha256(src) !== entry.digest) problems.push(`${tag}: the pinned digest does not match ${entry.source} in this repository`);
+    if (src.length !== entry.bytes) problems.push(`${tag}: the pinned byte count ${entry.bytes} does not match ${entry.source} (${src.length})`);
+    if (hosted.length !== entry.bytes) problems.push(`${tag}: has ${hosted.length} bytes, expected ${entry.bytes}`);
+    if (!hosted.equals(src)) problems.push(`${tag} is not byte-for-byte identical to ${entry.source}`);
+    return { covers: entry.source, how: "release_verbatim", outOfOrder: false, problems };
+  }
   if (entry.kind === "probe" || entry.kind === "staging_table") {
     problems.push(...checkReleaseInfrastructure(entry.kind, text).map((p) => `${tag}: ${p}`));
     return { problems };
