@@ -16,14 +16,10 @@ export default function Terms() {
             <p>
               CFOClose is accounting-workflow software for audit and finance
               teams: trial balance preparation, bank reconciliation,
-              financial statement drafting, compliance
-              review, filing pack preparation, and analytical monitoring. It is a
+              financial statement drafting and analytical monitoring. It is a
               tool that assists a firm's own professionals — it does not replace
-              professional judgment, and it is not itself a licensed audit, tax, or
-              accounting firm. Jurisdiction-specific compliance capabilities
-              (including regulatory filing packs) are
-              available as configuration packs and apply only when explicitly
-              enabled for an engagement.
+              professional judgment, and it is not itself a licensed audit or
+              accounting firm.
             </p>
           </div>
 
@@ -51,8 +47,9 @@ export default function Terms() {
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">4. Your data</h2>
             <p>
-              Trial balances, reconciliation evidence, and the statements, tax
-              computations, and filings you prepare belong to you and your firm.
+              Trial balances, reconciliation evidence, statements and every other
+              record you prepare with the service — including records created with
+              services that are no longer offered — belong to you and your firm.
               We do not sell your data. See the <Link to="/privacy" className="underline hover:text-foreground">Privacy Policy</Link> for how it is
               handled.
             </p>
@@ -61,7 +58,7 @@ export default function Terms() {
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-2">5. No warranty of statutory accuracy</h2>
             <p>
-              Accounting and tax rules applied by the service are updated on a
+              Accounting rules applied by the service are updated on a
               best-effort basis. The service does not warrant that every
               computation is free of error or that it reflects the most recent
               regulatory change at all times. A qualified professional must review

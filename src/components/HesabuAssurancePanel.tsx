@@ -240,7 +240,7 @@ export function HesabuAssurancePanel({
                 Statement validation has not been run for this upload.
               </p>
               <p className="text-xs text-amber-700 mt-1">
-                Validation runs automatically once its inputs are committed. The sign-off
+                No statement validation has been recorded for this trial balance. The sign-off
                 gate requires a passing statement validation before Tier 1 can be signed.
               </p>
             </div>

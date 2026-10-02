@@ -11,7 +11,8 @@ import { ArrowRight, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 import { CUSTOMER_CAPABILITY_OUTCOMES, type EngagementCapability } from "@/lib/workspace/mandate";
-import { serviceAvailability } from "@/lib/jurisdiction/registry";
+import { isCapabilityCustomerVisible } from "@/lib/workspace/moduleAvailability";
+import { serviceAvailability, JURISDICTION_DEPENDENT } from "@/lib/jurisdiction/registry";
 import FilingJurisdictionSetting from "@/components/jurisdiction/FilingJurisdictionSetting";
 import { LAUNCH_COPY } from "@/lib/workspace/onboardingState";
 
@@ -90,9 +91,12 @@ export default function ServiceLaunchpad({
         })}
       </ul>
 
-      <div className="mt-6 border-t border-border pt-5 max-w-xl">
-        <FilingJurisdictionSetting companyId={companyId} jurisdiction={jurisdiction} canChange={canChoose} />
-      </div>
+      {/* Only when a service a customer can choose needs a filing jurisdiction (none does while those are withheld). */}
+      {JURISDICTION_DEPENDENT.some(isCapabilityCustomerVisible) && (
+        <div className="mt-6 border-t border-border pt-5 max-w-xl">
+          <FilingJurisdictionSetting companyId={companyId} jurisdiction={jurisdiction} canChange={canChoose} />
+        </div>
+      )}
 
       {!canChoose && (
         <p className="mt-5 text-[13px] text-muted-foreground" data-testid="launchpad-readonly">

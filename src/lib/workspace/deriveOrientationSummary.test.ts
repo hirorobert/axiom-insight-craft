@@ -40,11 +40,11 @@ describe("deriveOrientationSummary", () => {
 
   it("granted capabilities are joined via the SAME capabilityTitle authority used elsewhere", () => {
     const state = deriveWorkspaceState(CID, CNAME, PY, null);
-    const summary = deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS", "COMPLIANCE_REVIEW"]);
-    expect(summary.service).toBe("Financial statements, Compliance review");
+    const summary = deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS", "MONITORING"]);
+    expect(summary.service).toBe("Financial statements, Ongoing monitoring");
     // A service withheld from customers (moduleAvailability.ts) is never named, even when granted.
-    expect(deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]).service).toBe("Financial statements");
-    expect(deriveOrientationSummary(state, ["TAX_COMPUTATION"]).service).toBeNull();
+    expect(deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION"]).service).toBe("Financial statements");
+    expect(deriveOrientationSummary(state, ["TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION"]).service).toBeNull();
   });
 
   it("current stage/status are read from workspaceState.nextAction — the same single authority the dominant CTA uses", () => {
@@ -87,7 +87,7 @@ describe("deriveOrientationSummary", () => {
     expect(summary.lastCompletedMilestone).toBeNull();
   });
 
-  it("engagement complete: the milestone is the final signed filing stage", () => {
+  it("engagement complete: the milestone is the most advanced customer-visible signed stage (filing is withheld)", () => {
     const state = deriveWorkspaceState(
       CID,
       CNAME,
@@ -99,7 +99,7 @@ describe("deriveOrientationSummary", () => {
       }),
     );
     const summary = deriveOrientationSummary(state, null);
-    expect(summary.lastCompletedMilestone?.stageLabel).toBe("Prepare Outputs");
+    expect(summary.lastCompletedMilestone?.stageLabel).toBe("Prepare Statements");
     expect(summary.lastCompletedMilestone?.at).toBe("2026-04-01T00:00:00.000Z");
   });
 });

@@ -1078,17 +1078,26 @@ PR #41 before the production preflight reads PASS and every listed provider sess
 `main` and may apply hosted migrations.
 
 **TAX_MODULE_WITHHELD_FROM_CUSTOMERS** — product containment (2026-10-02, branch `fix/hide-tax-module-surfaces`). The Tax
-computation module is absent from the customer-facing application. `src/lib/workspace/moduleAvailability.ts` is the ONE
-boundary (`TAX_MODULE_CUSTOMER_VISIBLE = false`, a source constant — no env var, so it fails closed): the `tax` stage and
-`TAX_COMPUTATION` service are not projected by `projectMandate`, never listed in navigation, the launchpad or the scope
-dialogs; the `tax-compliance` public outcome is never offered or accepted; `/workspace/:id/:year/tax` (and the legacy
-`kinga` alias, which redirects there) renders the neutral `WorkspaceUnavailable` boundary and `App.tsx` does not import
-`TaxWorkspace`; an engagement whose every service is withheld (Tax-only) stays untouched in the database but is not listed
-or resumed and its workspace never mounts. Client-side only: no edge function, table, RPC, migration, jurisdiction pack,
-tax record, entitlement or audit history was changed or deleted, and `deriveWorkspaceState` gates are unchanged — so
-Compliance and Filing still require a signed tax computation and stay locked for new engagements. Tax-related ACCOUNTS
-(income tax expense, deferred tax, VAT/payroll taxes payable, withholding tax) are accounting data and are never filtered.
-Re-enabling is a reviewed code change: flip the constant and restore the `tax` route in `App.tsx`.
+computation module, and with it Compliance review and Filing package (their gates require signed Tax output), are absent
+from the customer-facing application. `src/lib/workspace/moduleAvailability.ts` is the ONE boundary
+(`TAX_MODULE_CUSTOMER_VISIBLE = false`, a source constant — no env var, so it fails closed): the `tax`/`compliance`/`filing`
+stages and `TAX_COMPUTATION`/`COMPLIANCE_REVIEW`/`FILING_PREPARATION` are not projected by `projectMandate`, never listed in
+navigation, the launchpad or the scope dialogs; the `tax-compliance` and `full-close` public outcomes are never offered or
+accepted; those stage URLs (and the legacy `kinga`/`issues` aliases that redirect there) render the neutral
+`WorkspaceUnavailable` boundary and `App.tsx` imports none of those pages; the Monitor stage renders the compliance
+scorecard, filing calendar, tax payment ledger and firm compliance dashboard only through
+`WITHHELD_SERVICE_SURFACES_VISIBLE`; an engagement whose every service is withheld stays untouched in the database but is
+not listed or resumed and never mounts. Client-side only in this change: no edge function, table, RPC, migration,
+jurisdiction pack, tax record, entitlement or audit history was changed or deleted, and `deriveWorkspaceState` gates are
+unchanged. Tax-related ACCOUNTS (income tax expense, deferred tax, VAT/payroll taxes payable, withholding tax) are
+accounting data and are never filtered.
+Open blockers recorded by `moduleAvailability.test.ts`: (1) HESABU statement validation (`hesabu-validate`) requires a
+tax computation and is invoked only from the Tax panel, so the legacy "Statements validated" milestone is unreachable;
+(2) a statement sign-off (Close Certification) can be CREATED only from the Tax panel; (3) the evidence-based FINAL /
+official Reporting Pack workspace is switched off in production (`FINANCIAL_STATEMENTS_WORKSPACE_ENABLED = false`), so only
+a working-copy statement set (no SOCIE, no cash-flow statement) can be produced; (4) the FINAL gate checks SOCIE presence,
+EQUITY_MOVEMENTS evidence and stored tie findings, but the document, findings and evidence status are client-supplied and
+not recomputed server-side. Re-enabling is a reviewed code change: flip the constant and restore the routes in `App.tsx`.
 
 ---
 

@@ -755,11 +755,11 @@ export function ExportStatements({
     } else {
       doc.setFontSize(8); doc.setTextColor(120);
       doc.text(
-        `${cfg.statementNames.equity} will appear here once its source data has been recorded for this period.`,
+        `${cfg.statementNames.equity} will appear here only when it is generated from validated equity-movement evidence.`,
         14, y + 6
       );
       doc.setFontSize(6.5); doc.setTextColor(160);
-      doc.text("No data has been recorded for this statement.", 14, y + 12);
+      doc.text("Not included in this working copy. A statement set without it is incomplete and is not an official Reporting Pack.", 14, y + 12);
     }
 
     // ── PAGE 5: Statement of Cash Flows (Indirect Method) ────────────────────
@@ -882,9 +882,11 @@ export function ExportStatements({
     } else {
       doc.setFontSize(8); doc.setTextColor(120);
       doc.text(
-        `${cfg.statementNames.cashFlow} will appear here once the tax analysis has been run and committed.`,
+        `${cfg.statementNames.cashFlow} will appear here only when it is generated from a validated, period-complete cash ledger.`,
         14, y + 6
       );
+      doc.setFontSize(6.5); doc.setTextColor(160);
+      doc.text("Not included in this working copy. A statement set without it is incomplete and is not an official Reporting Pack.", 14, y + 12);
     }
 
     // ── APPENDIX A: Trial Balance Listing ─────────────────────────────────────

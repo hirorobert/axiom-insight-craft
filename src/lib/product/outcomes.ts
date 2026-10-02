@@ -70,7 +70,7 @@ export const PRODUCT_OUTCOMES: readonly ProductOutcome[] = [
     promise: "Build a complete, framework-aware statement set from a reviewed trial balance.",
     input: "Reviewed trial balance or CSV/XLSX trial balance",
     deliverable: "Financial statements, notes and validation record",
-    scope: "Prepare · Statements · Filing output",
+    scope: "Prepare · Statements",
     availability: "Workflow available",
     ctaLabel: "Prepare statements",
     inputKind: "trial_balance",

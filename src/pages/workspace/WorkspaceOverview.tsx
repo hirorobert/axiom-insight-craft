@@ -170,7 +170,7 @@ export default function WorkspaceOverview() {
   // A tax-profile warning needs (1) an active tax/filing service, (2) a configured jurisdiction that requires the field
   // and (3) the field actually missing. No jurisdiction is configured for a workspace today, so it never fires by inference.
   const jurisdiction = company?.filing_jurisdiction ?? null;
-  const taxProfile = evaluateTaxProfile({ granted, jurisdiction, taxIdentifier: effectiveTin });
+  const taxProfile = evaluateTaxProfile({ granted: granted ? customerVisibleCapabilities(granted) : null, jurisdiction, taxIdentifier: effectiveTin });
 
   const prepareStatus = missions.prepare.status;
   const prepareDone = prepareStatus === "passed" || prepareStatus === "signed";

@@ -21,6 +21,9 @@
 // withGate(false) path after the Tax computation module was withheld from customers (moduleAvailability.ts). The only
 // difference from the previous capture is the removed "Assess tax and compliance" outcome card and the word "tax" in the
 // complete-close promise; with that card gone, the gate-ON donor and tax tiles (rendered in its slot) are absent too.
+// RE-CAPTURED again the same way when Compliance and Filing were withheld with Tax: the only further difference is the
+// removed complete-close card (its outcome promises compliance and filing outputs) and the statements outcome scope no
+// longer naming a filing output.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -161,7 +164,7 @@ describe("the gate cannot be turned on from the browser or by deployment configu
 });
 
 describe("4/9. OFF: every public entry point is absent and existing behaviour is byte-identical to current main", () => {
-  it("ProductTour renders EXACTLY the captured markup: no tax card (withheld module), no donor tile, same layout", async () => {
+  it("ProductTour renders EXACTLY the captured markup: no tax or complete-close card (withheld), no donor tile, same layout", async () => {
     const { ProductTour } = await withGate(false, () => import("@/components/ProductTour"));
     const html = renderComponent(ProductTour);
     expect(html).toBe(fixture("main-ProductTour.html"));

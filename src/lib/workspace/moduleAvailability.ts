@@ -1,7 +1,9 @@
 /**
  * moduleAvailability — the ONE customer-facing availability boundary for product modules. Pure.
  *
- * The Tax computation module is withheld from every customer-facing surface. Every route, navigation item, service
+ * The Tax computation module is withheld from every customer-facing surface, and with it the two services that cannot
+ * complete without signed Tax output: Compliance review and Filing package (deriveWorkspaceState keeps both locked until
+ * a tax computation is signed; those accounting gates are NOT weakened here — the services are withheld instead). Every route, navigation item, service
  * chooser, engagement list, next-action and outcome decision derives from TAX_MODULE_CUSTOMER_VISIBLE through the
  * helpers below; nothing else may hard-code its own check.
  *
@@ -24,20 +26,32 @@ export const TAX_MODULE_CUSTOMER_VISIBLE: boolean = false;
 
 const WITHHELD = !TAX_MODULE_CUSTOMER_VISIBLE;
 
-/** Engagement services withheld from customers. */
+/**
+ * Engagement services withheld from customers: Tax computation, and the services whose workflow gates require its
+ * signed output (Compliance review, Filing package). Their stages, routes and surfaces follow.
+ */
 export const CUSTOMER_HIDDEN_CAPABILITIES: ReadonlySet<EngagementCapability> = new Set<EngagementCapability>(
-  WITHHELD ? ["TAX_COMPUTATION"] : [],
+  WITHHELD ? ["TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION"] : [],
 );
 
 /** Workspace stages withheld from customers (never listed, never mounted). */
-export const CUSTOMER_HIDDEN_STAGES: ReadonlySet<WorkspaceMission> = new Set<WorkspaceMission>(WITHHELD ? ["tax"] : []);
+export const CUSTOMER_HIDDEN_STAGES: ReadonlySet<WorkspaceMission> = new Set<WorkspaceMission>(WITHHELD ? ["tax", "compliance", "filing"] : []);
 
-/** Public landing outcomes withheld from customers (never offered, never accepted from a link or storage). */
-export const CUSTOMER_HIDDEN_OUTCOMES: ReadonlySet<OutcomeId> = new Set<OutcomeId>(WITHHELD ? ["tax-compliance"] : []);
+/**
+ * Public landing outcomes withheld from customers (never offered, never accepted from a link or storage): the tax and
+ * compliance outcome, and the complete close, which promises compliance and filing outputs.
+ */
+export const CUSTOMER_HIDDEN_OUTCOMES: ReadonlySet<OutcomeId> = new Set<OutcomeId>(WITHHELD ? ["tax-compliance", "full-close"] : []);
+
+/**
+ * Surfaces of the withheld services that are rendered on OTHER stages (e.g. Monitor's compliance scorecard, filing
+ * calendar and tax payment ledger). One flag, derived — never decided separately.
+ */
+export const WITHHELD_SERVICE_SURFACES_VISIBLE: boolean = !WITHHELD;
 
 /**
  * Workspace sub-routes (/workspace/:companyId/:periodYear/<segment>) that render the neutral unavailable boundary and
- * never mount or load a module component. The legacy engine-named alias of the tax stage redirects here (App.tsx).
+ * never mount or load a module component. Legacy aliases (kinga → tax, issues → compliance) redirect here (App.tsx).
  */
 export const WITHHELD_WORKSPACE_ROUTE_SEGMENTS: readonly string[] = [...CUSTOMER_HIDDEN_STAGES];
 
