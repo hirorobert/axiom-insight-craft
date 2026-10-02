@@ -841,6 +841,11 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   `SOURCE_TRIAL_BALANCE_REMOVED`) once the period's trial balance was removed. All three refuse any isolation level
   but READ COMMITTED (`tb_require_read_committed`, PT412 `READ_COMMITTED_REQUIRED`) before any write or audit, because a
   snapshot fixed before the lock would check stale state. Proven: `planCapabilities.mjs` R-2 and R-3.
+- APPLIED by Lovable (Drizzle `0025`, kind `release_verbatim`: a byte-for-byte copy of its source, pinned by exact tag,
+  source path, byte count 19294 and SHA-256 621f55c3…): `20261001120000_annual_commercial_term.sql` (12-month term,
+  monthly self-serve offers retired, `admin_cancel_future_licence`). The zero-state gate passed in production; the one
+  pre-existing future-dated monthly sandbox term was cancelled through `admin_cancel_future_licence` (audited, dates and
+  payment evidence preserved). No migration is pending hosted apply. Checkout remains disabled (§9.2 prerequisite open).
 - Applied migrations are never edited (SHA-256 pinned in `src/lib/__tests__/appliedMigrationsImmutable.test.ts`); every
   further change is a new forward migration.
 
