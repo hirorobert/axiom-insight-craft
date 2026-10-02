@@ -19,10 +19,14 @@ const srcBytes = (name: string) => (fs.existsSync(path.join(SRC, name)) ? fs.rea
 const sha = (b: Buffer | string) => createHash("sha256").update(b).digest("hex");
 type Result = { ok: boolean; errors: string[]; pending: string[]; mirrored: Array<{ tag: string; source: string; how: string }>; releaseApplied: Array<{ tag: string; source: string }> };
 
+const T25 = "0025_apply_20261001120000_annual_commercial_term";
+const S25 = "20261001120000_annual_commercial_term.sql";
+const D25 = "621f55c35bdadf3c7baa8c259056712dbfbbedbd25417a2a5d6a92fd4a1d38fa";
+
 describe("the reviewed release journal", () => {
   it("every entry 0013–0022 and 0024 validates: exact content, exact template, digest = the source file in this repository", () => {
     for (const tag of Object.keys(RELEASE_JOURNAL)) expect(checkReleaseEntry(tag, read(tag), srcBytes).problems, tag).toEqual([]);
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(11);
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(12);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -33,9 +37,10 @@ describe("the reviewed release journal", () => {
   it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 , the removal migration 20260927100000 (0024) and (out of order on purpose) the prerequisite; nothing is pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    // 0022 applied the processing correction (f21a58f); 0024 the removal migration (main 0d2a09e). The annual-term migration
-    // (20261001120000) is authored, not yet applied: the one pending source.
-    expect(r.pending).toEqual(["20261001120000_annual_commercial_term.sql"]);
+    // 0022 applied the processing correction (f21a58f); 0024 the removal migration (main 0d2a09e); 0025 the annual term
+    // (release_verbatim). PENDING_MIGRATIONS=NONE.
+    expect(r.pending).toEqual([]);
+    expect(r.mirrored.find((m) => m.tag === T25)).toEqual({ tag: T25, source: S25, how: "release_verbatim" });
     expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" }]);
     expect(r.mirrored.filter((m) => m.how === "release_wrapper").map((m) => m.source)).toEqual([
       "20260925100000_global_capabilities_entitlements_pricing.sql", "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
@@ -142,4 +147,73 @@ describe("the guard fails closed on the journal", () => {
       expect((checkMigrationAuthority(dir) as Result).errors.join("\n")).toMatch(/0020_pr34_apply_20260925140000: the pinned digest does not match 20260925140000/);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }, 60_000);
+});
+
+describe("0025 release_verbatim: exact tag, path, bytes, SHA-256 and byte-for-byte equality", () => {
+  const text = () => read(T25);
+  const copy = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-0025-"));
+    fs.cpSync(SRC, path.join(dir, "supabase/migrations"), { recursive: true });
+    fs.cpSync(path.join(ROOT, "drizzle"), path.join(dir, "drizzle"), { recursive: true });
+    return dir;
+  };
+  const errs = (mutate: (dir: string) => void) => {
+    const dir = copy();
+    try { mutate(dir); return (checkMigrationAuthority(dir) as Result).errors.join("\n"); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  };
+  const withEntry = <T>(patch: Record<string, unknown>, fn: () => T): T => {
+    const e = RELEASE_JOURNAL[T25] as Record<string, unknown>;
+    const saved = { ...e };
+    Object.assign(e, patch);
+    try { return fn(); } finally { for (const k of Object.keys(patch)) delete e[k]; Object.assign(e, saved); }
+  };
+  it("is pinned exactly and equals its source byte for byte", () => {
+    expect(RELEASE_JOURNAL[T25]).toEqual({ kind: "release_verbatim", source: S25, bytes: 19294, digest: D25, sha256: D25 });
+    const src = srcBytes(S25)!;
+    expect(sha(src)).toBe(D25);
+    expect(src.length).toBe(19294);
+    expect(Buffer.from(text(), "utf8").equals(src)).toBe(true);
+    expect(checkReleaseEntry(T25, text(), srcBytes).problems).toEqual([]);
+  });
+  it("rejects a whitespace change", () => {
+    expect(checkReleaseEntry(T25, text().replace("\n", "\n "), srcBytes).problems.join("\n")).toMatch(/differs from its reviewed content|not byte-for-byte/);
+    expect(checkReleaseEntry(T25, `${text()}\n`, srcBytes).problems.join("\n")).toMatch(/not byte-for-byte/);
+  });
+  it("rejects an added comment", () => {
+    expect(checkReleaseEntry(T25, `-- note\n${text()}`, srcBytes).problems.join("\n")).toMatch(/not byte-for-byte/);
+  });
+  it("rejects a changed digest", () => {
+    withEntry({ digest: "0".repeat(64) }, () => expect(checkReleaseEntry(T25, text(), srcBytes).problems.join("\n")).toMatch(/pinned digest does not match/));
+    withEntry({ sha256: "0".repeat(64) }, () => expect(checkReleaseEntry(T25, text(), srcBytes).problems.join("\n")).toMatch(/differs from its reviewed content/));
+  });
+  it("rejects a changed byte count", () => {
+    withEntry({ bytes: 19295 }, () => expect(checkReleaseEntry(T25, text(), srcBytes).problems.join("\n")).toMatch(/pinned byte count 19295/));
+  });
+  it("rejects a changed path", () => {
+    withEntry({ source: "20261001120001_annual_commercial_term.sql" }, () => expect(checkReleaseEntry(T25, text(), srcBytes).problems.join("\n")).toMatch(/unknown migration/));
+    expect(errs((d) => fs.renameSync(path.join(d, "supabase/migrations", S25), path.join(d, "supabase/migrations/20261001120001_annual_commercial_term.sql")))).toMatch(/0025_apply_20261001120000_annual_commercial_term applies an unknown migration/);
+  }, 60_000);
+  it("rejects removal from the journal", () => {
+    expect(errs((d) => {
+      const j = path.join(d, "drizzle/migrations/meta/_journal.json");
+      const journal = JSON.parse(fs.readFileSync(j, "utf8"));
+      journal.entries = journal.entries.filter((e: { tag: string }) => e.tag !== T25);
+      fs.writeFileSync(j, JSON.stringify(journal));
+      fs.rmSync(path.join(d, `drizzle/migrations/${T25}.sql`));
+    })).toMatch(/reviewed entry 0025_apply_20261001120000_annual_commercial_term is missing from the journal/);
+  }, 60_000);
+  it("rejects duplication", () => {
+    expect(errs((d) => {
+      const j = path.join(d, "drizzle/migrations/meta/_journal.json");
+      const journal = JSON.parse(fs.readFileSync(j, "utf8"));
+      const last = journal.entries[journal.entries.length - 1];
+      journal.entries.push({ ...last, idx: journal.entries.length });
+      fs.writeFileSync(j, JSON.stringify(journal));
+    })).toMatch(/duplicate tags/);
+  }, 60_000);
+  it("rejects an unknown entry (no wildcard, no prefix rule)", () => {
+    expect(checkReleaseEntry("0026_apply_20261001120000_annual_commercial_term", text(), srcBytes).problems.join("\n")).toMatch(/has not been reviewed/);
+    expect(checkReleaseEntry("0025_apply_20261001120000_annual_commercial_term_v2", text(), srcBytes).problems.join("\n")).toMatch(/has not been reviewed/);
+    expect(Object.keys(RELEASE_JOURNAL).filter((k) => k.startsWith("0025"))).toEqual([T25]);
+  });
 });
