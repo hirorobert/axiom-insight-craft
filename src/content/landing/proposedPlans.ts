@@ -30,7 +30,8 @@ const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : 
 
 export const PROPOSED_PLANS: readonly ProposedPlan[] = PRICING_CATALOGUE.map((p) => ({
   name: p.name,
-  proposedAmount: p.monthlyMinor === null ? "Proposed: terms agreed separately" : `Proposed: USD ${p.monthlyMinor / 100} per month`,
+  // One 12-month term (20261001120000): annual pricing only; no monthly figure is published.
+  proposedAmount: p.annualMinor === null ? "Proposed: terms agreed separately" : `Proposed: USD ${(p.annualMinor / 100).toLocaleString("en-US")} per year`,
   proposedEntities: p.entityCapacity === null ? "Proposed: capacity agreed separately" : `Proposed: ${count(p.entityCapacity, "entity", "entities")}`,
   proposedUsers: p.includedSeats === null
     ? "Proposed: capacity agreed separately"

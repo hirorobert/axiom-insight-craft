@@ -245,9 +245,9 @@ describe("choose your capacity", () => {
     const { PRICING_CATALOGUE } = await import("@/lib/commercial/pricingCatalogue");
     expect(PROPOSED_PLANS.map((p) => p.code)).toEqual(PRICING_CATALOGUE.map((p) => p.code));
     expect(PROPOSED_PLANS.map(({ name, entities, namedUsers, proposedAmount, contactSales }) => ({ name, entities, namedUsers, proposedAmount, contactSales }))).toEqual([
-      { name: "Solo", entities: "1", namedUsers: "1", proposedAmount: "Proposed: USD 49 per month", contactSales: false },
-      { name: "Practice", entities: "5", namedUsers: "1 included · more available", proposedAmount: "Proposed: USD 99 per month", contactSales: false },
-      { name: "Firm", entities: "25", namedUsers: "1 included · more available", proposedAmount: "Proposed: USD 299 per month", contactSales: false },
+      { name: "Solo", entities: "1", namedUsers: "1", proposedAmount: "Proposed: USD 490 per year", contactSales: false },
+      { name: "Practice", entities: "5", namedUsers: "1 included · more available", proposedAmount: "Proposed: USD 990 per year", contactSales: false },
+      { name: "Firm", entities: "25", namedUsers: "1 included · more available", proposedAmount: "Proposed: USD 2,990 per year", contactSales: false },
       { name: "Enterprise", entities: "Negotiated", namedUsers: "Negotiated", proposedAmount: "Proposed: terms agreed separately", contactSales: true },
     ]);
     for (const p of PRICING_CATALOGUE) expect(PROPOSED_PLANS.find((x) => x.code === p.code)!.bestFor).toBe(p.tagline);
@@ -256,7 +256,8 @@ describe("choose your capacity", () => {
     expect(derived).not.toMatch(/USD \d/);
     expect(fs.readFileSync(path.join(ROOT, "src/content/landing/landingContent.ts"), "utf8")).not.toMatch(/USD \d|named user included|\d+ entities/);
     for (const p of PROPOSED_PLANS) expect(visibleText(plans)).toContain(p.proposedAmount);
-    expect((visibleText(PAGE).match(/USD \d+/g) ?? []).length).toBe(3);   // prices appear once, only here
+    expect((visibleText(PAGE).match(/USD [\d,]+/g) ?? []).length).toBe(3);   // annual prices, once each, only here
+    expect(visibleText(PAGE)).not.toMatch(/per month|monthly|instalment/i);   // no monthly price or instalment claim
   });
 
   it("each self-serve plan action carries the selected service and the plan preference into sign-up; Enterprise is discussed, never self-activated", () => {

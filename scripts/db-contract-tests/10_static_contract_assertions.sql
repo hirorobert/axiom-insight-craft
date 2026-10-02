@@ -383,10 +383,19 @@ BEGIN
     JOIN public.commercial_plans cp ON cp.id = co.plan_id
     JOIN public.commercial_products cprod ON cprod.id = cp.product_id
    WHERE cprod.code = 'CFOCLOSE' AND co.is_active = true AND co.is_purchasable = false
-     AND (cp.code, co.offer_code) IN (('PRACTICE', 'CFOCLOSE_PRACTICE_GLOBAL_USD_MONTHLY'), ('PRACTICE', 'CFOCLOSE_PRACTICE_GLOBAL_USD_ANNUAL'),
-                                      ('FIRM', 'CFOCLOSE_FIRM_GLOBAL_USD_MONTHLY'), ('FIRM', 'CFOCLOSE_FIRM_GLOBAL_USD_ANNUAL'));
-  IF v_current != 4 THEN
-    RAISE EXCEPTION 'FAIL: expected 4 current CFOClose offers bound to PRACTICE / FIRM, active and non-purchasable, found %', v_current;
+     AND (cp.code, co.offer_code) IN (('PRACTICE', 'CFOCLOSE_PRACTICE_GLOBAL_USD_ANNUAL'), ('FIRM', 'CFOCLOSE_FIRM_GLOBAL_USD_ANNUAL'));
+  IF v_current != 2 THEN
+    RAISE EXCEPTION 'FAIL: expected the 2 annual CFOClose offers bound to PRACTICE / FIRM, active and non-purchasable, found %', v_current;
+  END IF;
+  -- 20261001120000 (one 12-month term): the monthly offers are kept but retired — inactive and non-purchasable.
+  SELECT count(*) INTO v_current
+    FROM public.commercial_offers co
+    JOIN public.commercial_plans cp ON cp.id = co.plan_id
+    JOIN public.commercial_products cprod ON cprod.id = cp.product_id
+   WHERE cprod.code = 'CFOCLOSE' AND co.is_active = false AND co.is_purchasable = false AND co.effective_end IS NOT NULL
+     AND (cp.code, co.offer_code) IN (('PRACTICE', 'CFOCLOSE_PRACTICE_GLOBAL_USD_MONTHLY'), ('FIRM', 'CFOCLOSE_FIRM_GLOBAL_USD_MONTHLY'));
+  IF v_current != 2 THEN
+    RAISE EXCEPTION 'FAIL: expected the 2 PRACTICE / FIRM monthly offers retained but retired, found %', v_current;
   END IF;
   IF EXISTS (SELECT 1 FROM public.commercial_offers WHERE is_purchasable) THEN
     RAISE EXCEPTION 'FAIL: an offer is purchasable although no checkout is activated';

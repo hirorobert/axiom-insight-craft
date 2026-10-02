@@ -78,6 +78,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20260922100000_service_enquiry_activation_readiness.sql",
       "supabase/migrations/20260922180000_discard_trial_balance_authority.sql",
       "supabase/migrations/20260923100000_upload_lifecycle_retire_and_replace.sql",
+      // One 12-month commercial term (forward-only; retires the self-serve monthly offers, adds INSERT-only guards and stop-renewal).
+      "supabase/migrations/20261001120000_annual_commercial_term.sql",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryChallenge.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
@@ -237,7 +239,10 @@ describe("database inertness — schema and functions", () => {
       "scripts/ci/releaseJournal.mjs",
       // Trial-balance verdict surface: the build-output guard that the development-only gallery (src/dev/, dev/*.html)
       // and its synthetic fixtures never reach dist/. Read-only file scan; no database, network or deploy behavior.
-      "scripts/ci/assertDevGalleryExcluded.mjs"]);
+      "scripts/ci/assertDevGalleryExcluded.mjs",
+      // One 12-month commercial term (20261001120000): the loopback-only real-PostgreSQL proof and the READ-ONLY
+      // production preflight audit (SELECT statements only; proven read-only by that proof, T-08).
+      "scripts/db-proof/annualTerm.mjs", "scripts/db-preflight/annualTermPreflight.sql"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 

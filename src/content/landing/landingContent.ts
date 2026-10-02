@@ -140,7 +140,7 @@ export const LANDING_SERVICES_COPY = {
 export const LANDING_PLANS_COPY = {
   eyebrow: "Plans",
   heading: "Choose your capacity.",
-  intro: "Plans differ in how many entities and named users they cover. Pricing shown is proposed.",
+  intro: "Plans differ in how many entities and named users they cover. One 12-month term; pricing shown is proposed.",
   columns: { plan: "Plan", bestFor: "Best for", entities: "Entities", users: "Named users", price: "Proposed price", action: "Action" },
   choosePrefix: "Choose",
   /** Enterprise is never self-activated: it opens the enquiry page when that surface is enabled. */

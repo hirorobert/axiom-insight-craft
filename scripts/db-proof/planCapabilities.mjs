@@ -401,13 +401,14 @@ async function main() {
   const expire = (licId) => admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end = now() WHERE id=$1", [licId]);
 
   group("No permanent free plan — the catalogue");
-  await check("public plans are exactly Solo $49/$490 (1 entity, 1 user, no seats), Practice $99/$990 (5), Firm $299/$2,990 (25) and Enterprise (negotiated); Free is retired", async () => {
+  // 20261001120000 (one 12-month term) retires the self-serve MONTHLY offers: only the annual offers remain active.
+  await check("public plans are exactly Solo $490/year (1 entity, 1 user, no seats), Practice $990 (5), Firm $2,990 (25) and Enterprise (negotiated); monthly offers are retired; Free is retired", async () => {
     const plans = (await admin.query(`SELECT code, is_active, is_public, sales_mode, entity_capacity, included_seats, additional_seats_purchasable b FROM public.commercial_plans WHERE product_id=$1 ORDER BY display_order NULLS LAST, code`, [product])).rows;
     const pub = plans.filter((p) => p.is_public).map((p) => `${p.code}:${p.entity_capacity}:${p.included_seats}:${p.b}`);
     const offers = (await admin.query(`SELECT cp.code, o.billing_interval i, o.amount_minor a, o.is_purchasable p FROM public.commercial_offers o JOIN public.commercial_plans cp ON cp.id=o.plan_id WHERE o.is_active ORDER BY 1,2`)).rows.map((r) => `${r.code}:${r.i}:${r.a}:${r.p}`);
     const free = plans.find((p) => p.code === "FREE");
     return JSON.stringify(pub) === JSON.stringify(["SOLO:1:1:false", "PRACTICE:5:1:true", "FIRM:25:1:true", "ENTERPRISE:null:null:false"])
-      && JSON.stringify(offers) === JSON.stringify(["FIRM:ANNUAL:299000:false", "FIRM:MONTHLY:29900:false", "PRACTICE:ANNUAL:99000:false", "PRACTICE:MONTHLY:9900:false", "SOLO:ANNUAL:49000:false", "SOLO:MONTHLY:4900:false"])
+      && JSON.stringify(offers) === JSON.stringify(["FIRM:ANNUAL:299000:false", "PRACTICE:ANNUAL:99000:false", "SOLO:ANNUAL:49000:false"])
       && free.is_active === false && free.is_public === false && free.sales_mode === "retired" && plans.every((p) => p.sales_mode !== "free")
       ? true : JSON.stringify({ pub, offers, free });
   });

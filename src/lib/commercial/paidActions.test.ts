@@ -191,7 +191,8 @@ describe("named-user seats in the UI (structured state only)", () => {
     const c = seatCopy(parseSeatCapacity(raw({ plan_code: "SOLO", included_seats: 1, additional_seats: 0, allowed_named_users: 1, additional_seats_purchasable: false, active_named_users: 1, reserved_named_users: 1 })))!;
     expect(c.title).toBe("Available with Practice or Firm");
     expect(c.unavailable).toMatch(/one named user: you/);
-    expect(c.remains).toContain("$20 / month or $200 / year");
+    expect(c.remains).toContain("$200 / year");
+    expect(c.remains).not.toMatch(/month/i);
     expect(c.history).toMatch(/never deleted/);
     expect(c.history).not.toMatch(/keeps? access/i);
   });

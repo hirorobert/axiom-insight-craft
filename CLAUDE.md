@@ -1046,6 +1046,31 @@ configure custom SMTP under Supabase Dashboard → Authentication → Email
 Settings (or the equivalent Lovable-managed path) with a transactional
 email provider; do not invent or commit SMTP credentials here.
 
+**COMMERCIAL_DOWNGRADE_AT_RENEWAL_REQUIRED_BEFORE_CHECKOUT** — registered 2026-10-01 with the 12-month
+commercial term (`20261001120000_annual_commercial_term.sql`, PR #41). Solo, Practice and Firm have one 12-month term;
+monthly is retired (not an instalment option) until the schema can represent contract term, billing cadence, total contract
+value, effective dates, renewal status and suspension status separately. **Known defect, not fixed by that PR:**
+`commit_verified_commercial_payment` (live definition in `20260913000000`) truncates the current licence and starts the new
+plan immediately whenever the purchased plan differs — so a DOWNGRADE takes effect at purchase instead of at renewal
+(upgrades applying immediately is intended). Self-serve checkout stays disabled (`commercial_platform_state =
+PAYMENTS_DISABLED`). Correcting downgrade-at-purchase to downgrade-at-renewal is a **mandatory prerequisite before any
+checkout activation**; do not enable SANDBOX_ONLY / LIVE_ACCEPTANCE / CUSTOMER_PAYMENTS_ENABLED for customers before it lands
+with its own proof. Before applying `20261001120000` in production, run the zero-state gate
+`scripts/db-preflight/annualTermPreflight.sql` (read-only) and reconcile every open provider session; the migration itself
+refuses to apply (SQLSTATE PT422) while any invalid self-serve intent (not exactly ANNUAL × 1) can still be fulfilled
+(any status but SUCCEEDED / FAILED / CANCELLED / EXPIRED — INVALID_OPEN_CHECKOUT_INTENTS), or any invalid provider-backed
+intent lacks an authoritative verified terminal outcome (UNRECONCILED_PROVIDER_CHECKOUTS). An invalid checkout is NEVER
+fulfilled: cancel / expire / refund / void it at the provider (or, with consent, replace it with a valid ANNUAL × 1 sale).
+A licence that has not started is cancelled only through `admin_cancel_future_licence(licence_id, reason, idempotency_key)`
+(commercial admins; status CANCELLED, dates preserved, audited, idempotent, irreversible) — never by direct SQL;
+`admin_transition_licence_status` cannot cancel a future licence (it would end it before it starts). The idempotency key
+is bound to licence + reason + actor (any other reuse: `idempotency_conflict`, nothing written). Generate the key ONCE,
+record it, and pass that literal on every retry — never `gen_random_uuid()` inside the call. It must be executed in an
+authenticated session of an active commercial admin (service_role is revoked; a database-owner session has no
+auth.uid()); there is no in-app admin UI for licence RPCs. **Do not merge
+PR #41 before the production preflight reads PASS and every listed provider session is reconciled**: Lovable syncs
+`main` and may apply hosted migrations.
+
 ---
 
 ## 10. Current Project State (as of 2026-07-25)
