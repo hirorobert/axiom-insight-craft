@@ -41,6 +41,9 @@
 -- and starts the new plan immediately) must be corrected so downgrades apply at renewal — a registered prerequisite
 -- (CLAUDE.md §9.2, COMMERCIAL_DOWNGRADE_AT_RENEWAL_REQUIRED_BEFORE_CHECKOUT).
 --
+--   4. admin_cancel_future_licence — a generic, server-authoritative cancellation of a licence that has not started
+--      (status CANCELLED, dates preserved, audited, idempotent, irreversible); see section 4. It cancels nothing here.
+--
 -- Re-runnable: a second application changes nothing. Not applied by this PR; forward-only; no applied migration is
 -- modified.
 
@@ -171,3 +174,117 @@ REVOKE ALL ON FUNCTION public.commercial_annual_term_licence_guard() FROM PUBLIC
 CREATE OR REPLACE TRIGGER trg_commercial_annual_term_licence_guard
   BEFORE INSERT OR UPDATE OF plan_id, source, effective_start, effective_end ON public.commercial_licences
   FOR EACH ROW EXECUTE FUNCTION public.commercial_annual_term_licence_guard();
+
+-- ── 4. Cancelling a licence that has not started ────────────────────────────────────────────────────────────────────
+-- admin_transition_licence_status (20260905093408) cannot cancel a FUTURE licence: it moves effective_end to now(),
+-- which precedes effective_start and violates chk_cl_effective_window. admin_cancel_future_licence is the generic,
+-- server-authoritative replacement for that case. Authorization boundary: the repository's established commercial-admin
+-- boundary — EXECUTE for authenticated only, and the caller must be an active commercial_admins row (exactly as
+-- admin_transition_licence_status); PUBLIC, anon and service_role cannot execute it.
+--
+-- Contract: one transaction; the target row is locked FOR UPDATE; a missing licence answers exactly like an
+-- unauthorised call (forbidden); refused unless the licence has not started (effective_start > transaction_timestamp()),
+-- is ACTIVE or PENDING, and belongs to the CFOCLOSE product; sets status CANCELLED and nothing else (dates preserved
+-- exactly); one append-only billing_audit_events row (account, actor, licence, previous and new status, dates, reason,
+-- correlation/idempotency key, timestamp); idempotent per key; controlled outcomes only — cancelled, already_cancelled,
+-- forbidden, not_future, invalid_state, invalid_request. No licence is cancelled by this migration.
+
+-- One cancellation per idempotency key; the licence lookup used by the irreversibility guard.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bae_future_licence_cancellation_key
+  ON public.billing_audit_events (correlation_id)
+  WHERE action = 'FUTURE_LICENCE_CANCELLED';
+CREATE INDEX IF NOT EXISTS idx_bae_future_licence_cancellation_licence
+  ON public.billing_audit_events ((new_state ->> 'licence_id'))
+  WHERE action = 'FUTURE_LICENCE_CANCELLED';
+
+CREATE OR REPLACE FUNCTION public.admin_cancel_future_licence(p_licence_id UUID, p_reason TEXT, p_idempotency_key UUID)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_catalog AS $$
+DECLARE
+  v_actor   UUID := auth.uid();
+  v_lic     RECORD;
+  v_prior   RECORD;
+  v_event   UUID;
+BEGIN
+  IF v_actor IS NULL OR NOT EXISTS (SELECT 1 FROM public.commercial_admins WHERE user_id = v_actor AND active) THEN
+    RETURN jsonb_build_object('outcome', 'forbidden');
+  END IF;
+  IF p_licence_id IS NULL OR p_idempotency_key IS NULL OR p_reason IS NULL OR p_reason !~ '^[A-Z][A-Z0-9_]{2,127}$' THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+
+  SELECT l.id, l.billing_customer_id, l.plan_id, l.status, l.source, l.effective_start, l.effective_end
+    INTO v_lic
+    FROM public.commercial_licences l
+   WHERE l.id = p_licence_id
+     FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('outcome', 'forbidden');   -- indistinguishable from an unauthorised call
+  END IF;
+
+  -- Replay of the same request (serialised behind the row lock): the original result, no second audit event.
+  SELECT e.id, e.new_state INTO v_prior
+    FROM public.billing_audit_events e
+   WHERE e.action = 'FUTURE_LICENCE_CANCELLED' AND e.correlation_id = p_idempotency_key;
+  IF FOUND THEN
+    IF v_prior.new_state ->> 'licence_id' = p_licence_id::text THEN
+      RETURN jsonb_build_object('outcome', 'cancelled', 'licence_id', p_licence_id, 'audit_event_id', v_prior.id, 'replayed', true);
+    END IF;
+    RETURN jsonb_build_object('outcome', 'invalid_request');   -- the key already belongs to another cancellation
+  END IF;
+
+  IF v_lic.status = 'CANCELLED' THEN
+    RETURN jsonb_build_object('outcome', 'already_cancelled', 'licence_id', p_licence_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.commercial_plans cp JOIN public.commercial_products p ON p.id = cp.product_id
+                  WHERE cp.id = v_lic.plan_id AND p.code = 'CFOCLOSE') THEN
+    RETURN jsonb_build_object('outcome', 'invalid_state');
+  END IF;
+  IF v_lic.effective_start <= transaction_timestamp() THEN
+    RETURN jsonb_build_object('outcome', 'not_future');
+  END IF;
+  IF v_lic.status NOT IN ('ACTIVE', 'PENDING') THEN
+    RETURN jsonb_build_object('outcome', 'invalid_state');
+  END IF;
+
+  BEGIN
+    UPDATE public.commercial_licences SET status = 'CANCELLED', updated_at = now() WHERE id = p_licence_id;
+    INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason, correlation_id)
+    VALUES (v_lic.billing_customer_id, v_actor, 'FUTURE_LICENCE_CANCELLED',
+            jsonb_build_object('licence_id', p_licence_id, 'account_id', v_lic.billing_customer_id, 'status', v_lic.status,
+                               'effective_start', v_lic.effective_start, 'effective_end', v_lic.effective_end),
+            jsonb_build_object('licence_id', p_licence_id, 'account_id', v_lic.billing_customer_id, 'status', 'CANCELLED',
+                               'effective_start', v_lic.effective_start, 'effective_end', v_lic.effective_end),
+            p_reason, p_idempotency_key)
+    RETURNING id INTO v_event;
+  EXCEPTION WHEN unique_violation THEN
+    -- A concurrent cancellation of ANOTHER licence claimed the same key first: this one is undone (subtransaction).
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END;
+  RETURN jsonb_build_object('outcome', 'cancelled', 'licence_id', p_licence_id, 'audit_event_id', v_event, 'replayed', false);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.admin_cancel_future_licence(UUID, TEXT, UUID) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.admin_cancel_future_licence(UUID, TEXT, UUID) TO authenticated;
+
+-- A licence cancelled through admin_cancel_future_licence is terminal: its status, plan, source, account, seats and
+-- dates can never change again (no return to ACTIVE, no extension, no re-plan, no reuse) — whoever attempts it.
+CREATE OR REPLACE FUNCTION public.commercial_cancelled_future_licence_guard()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_catalog AS $$
+BEGIN
+  IF OLD.status = 'CANCELLED'
+     AND (NEW.status, NEW.plan_id, NEW.source, NEW.billing_customer_id, NEW.additional_seats, NEW.effective_start, NEW.effective_end)
+         IS DISTINCT FROM (OLD.status, OLD.plan_id, OLD.source, OLD.billing_customer_id, OLD.additional_seats, OLD.effective_start, OLD.effective_end)
+     AND EXISTS (SELECT 1 FROM public.billing_audit_events e
+                  WHERE e.action = 'FUTURE_LICENCE_CANCELLED' AND e.new_state ->> 'licence_id' = OLD.id::text) THEN
+    RAISE EXCEPTION 'CANCELLED_LICENCE_IMMUTABLE' USING ERRCODE = 'PT422';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.commercial_cancelled_future_licence_guard() FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE TRIGGER trg_commercial_cancelled_future_licence_guard
+  BEFORE UPDATE ON public.commercial_licences
+  FOR EACH ROW EXECUTE FUNCTION public.commercial_cancelled_future_licence_guard();

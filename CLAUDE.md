@@ -1060,7 +1060,10 @@ with its own proof. Before applying `20261001120000` in production, run the zero
 refuses to apply (SQLSTATE PT422) while any invalid self-serve intent (not exactly ANNUAL × 1) can still be fulfilled
 (any status but SUCCEEDED / FAILED / CANCELLED / EXPIRED — INVALID_OPEN_CHECKOUT_INTENTS), or any invalid provider-backed
 intent lacks an authoritative verified terminal outcome (UNRECONCILED_PROVIDER_CHECKOUTS). An invalid checkout is NEVER
-fulfilled: cancel / expire / refund / void it at the provider (or, with consent, replace it with a valid ANNUAL × 1 sale). **Do not merge
+fulfilled: cancel / expire / refund / void it at the provider (or, with consent, replace it with a valid ANNUAL × 1 sale).
+A licence that has not started is cancelled only through `admin_cancel_future_licence(licence_id, reason, idempotency_key)`
+(commercial admins; status CANCELLED, dates preserved, audited, idempotent, irreversible) — never by direct SQL;
+`admin_transition_licence_status` cannot cancel a future licence (it would end it before it starts). **Do not merge
 PR #41 before the production preflight reads PASS and every listed provider session is reconciled**: Lovable syncs
 `main` and may apply hosted migrations.
 

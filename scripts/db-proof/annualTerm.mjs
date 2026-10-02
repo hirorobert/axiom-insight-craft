@@ -12,6 +12,9 @@
 //   Recon     reconciliation is an exact predicate (provider-verified or reviewed-with-evidence CANCELLED / EXPIRED /
 //             REFUNDED, or SUCCEEDED with its licence); every non-final outcome refuses the migration with Section B empty;
 //             a paid MONTHLY × 1 or ANNUAL × 2 checkout never creates a licence, even forced past the intent guard;
+//   Cancel    admin_cancel_future_licence: future-only, CFOCLOSE-only, ACTIVE/PENDING-only; CANCELLED with dates
+//             byte-identical; one immutable audit event; idempotent per key; irreversible; controlled outcomes; client
+//             roles refused; evidence, the current licence and every other row untouched; concurrency and rollback proven;
 //   Licences  a payment-created self-serve licence is exactly 12 months (NULL, 11, 13 and 24 months refused); after
 //             insertion it may only end earlier; no row becomes one by an UPDATE; Enterprise is untouched;
 //   Payments  an annual payment yields one exact 12-month entitled licence; an upgrade still ends the current one early;
@@ -101,6 +104,9 @@ async function asCaller(caller, fn) {
     if (caller.kind === "anon") {
       await c.query("SET LOCAL ROLE anon");
       await c.query("SELECT set_config('request.jwt.claim.role','anon',true), set_config('request.jwt.claim.sub','',true)");
+    } else if (caller.kind === "service") {
+      await c.query("SET LOCAL ROLE service_role");
+      await c.query("SELECT set_config('request.jwt.claim.role','service_role',true), set_config('request.jwt.claim.sub','',true)");
     } else {
       await c.query("SET LOCAL ROLE authenticated");
       await c.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [caller.uid]);
@@ -144,7 +150,7 @@ async function main() {
   await check("the migration raises only controlled application errors — no internal implementation wording", async () => {
     const sql = fs.readFileSync(path.join(REPO, "supabase/migrations", MIGRATION), "utf8").replace(/--[^\n]*/g, "");
     const raised = [...sql.matchAll(/RAISE EXCEPTION '([^']+)'/g)].map((m) => m[1]);
-    const ok = raised.length >= 4 && raised.every((m) => ["ANNUAL_TERM_REQUIRED", "INVALID_COMMERCIAL_TERM", "INVALID_OPEN_CHECKOUT_INTENTS", "UNRECONCILED_PROVIDER_CHECKOUTS"].includes(m))
+    const ok = raised.length >= 4 && raised.every((m) => ["ANNUAL_TERM_REQUIRED", "INVALID_COMMERCIAL_TERM", "INVALID_OPEN_CHECKOUT_INTENTS", "UNRECONCILED_PROVIDER_CHECKOUTS", "CANCELLED_LICENCE_IMMUTABLE"].includes(m))
       && [...sql.matchAll(/ERRCODE = '([^']+)'/g)].every((m) => m[1] === "PT422") && !/iron dome|renewal/i.test(sql);
     return ok ? true : raised.join(",");
   });
@@ -209,6 +215,16 @@ async function main() {
   };
   const pending = await account("pending-monthly", null);
   const pendingMonthlyIntent = await intent(pending, "CFOCLOSE_SOLO_GLOBAL_USD_MONTHLY");
+  // The production scenario, built BEFORE the migration through the real verified-payment path: a current annual Solo
+  // licence, then a MONTHLY purchase that stacks a one-month licence after it (start = the annual licence's end).
+  const stacked = await account("stacked", null);
+  await commit(await intent(stacked, "CFOCLOSE_SOLO_GLOBAL_USD_ANNUAL"), 49000);
+  const stackedCo = (await q(user(stacked.uid), "INSERT INTO public.companies (user_id,name) VALUES ($1,'Stacked Co') RETURNING id", [stacked.uid]))[0].id;
+  const stackedMonthlyIntent = await intent(stacked, "CFOCLOSE_SOLO_GLOBAL_USD_MONTHLY");
+  await commit(stackedMonthlyIntent, 4900);
+  const stackedLic = async () => (await admin.query(`SELECT l.id, l.status, l.effective_start, l.effective_end, l.effective_start > now() AS future
+      FROM public.commercial_licences l WHERE l.billing_customer_id=$1 ORDER BY l.effective_start`, [stacked.bc])).rows;
+  const [stackedAnnual, stackedFuture] = await stackedLic();
   const fullLic = async () => (await admin.query("SELECT to_jsonb(l) AS row FROM public.commercial_licences l ORDER BY id")).rows;
   const snapOffers = async () => (await admin.query("SELECT offer_code, to_jsonb(o) AS row FROM public.commercial_offers o ORDER BY offer_code")).rows;
   const platformState = async () => (await admin.query("SELECT state FROM public.commercial_platform_state")).rows.map((r) => r.state).join(",");
@@ -554,6 +570,251 @@ async function main() {
     const now = await platformState();
     return now === platformBefore && now === "PAYMENTS_DISABLED" ? true : { platformBefore, now };
   });
+  // ── admin_cancel_future_licence ──────────────────────────────────────────────────────────────────────────────────
+  group("admin_cancel_future_licence · contract");
+  const OUTSIDER = await mkUser("outsider");
+  const REASON = "FUTURE_SANDBOX_MONTHLY_TERM_CANCELLED_BEFORE_ANNUAL_ONLY_ENFORCEMENT";
+  const cancelAs = async (who, licId, key = uuid(), reason = REASON) => (await one(user(who), "SELECT public.admin_cancel_future_licence($1,$2,$3) r", [licId, reason, key])).r;
+  const licRow = async (id) => (await admin.query("SELECT to_jsonb(l) - 'updated_at' AS row FROM public.commercial_licences l WHERE id=$1", [id])).rows[0]?.row;
+  const auditCount = async (licId) => (await admin.query("SELECT count(*)::int n FROM public.billing_audit_events WHERE action='FUTURE_LICENCE_CANCELLED' AND new_state->>'licence_id'=$1", [licId])).rows[0].n;
+  const otherTables = async () => {
+    const tables = (await admin.query(`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'
+      AND table_name NOT IN ('commercial_licences','billing_audit_events') ORDER BY 1`)).rows.map((r) => r.table_name);
+    const parts = [];
+    for (const t of tables) parts.push(`${t}:${(await admin.query(`SELECT md5(coalesce(string_agg(to_jsonb(x)::text, '|' ORDER BY to_jsonb(x)::text), '')) h FROM public."${t}" x`)).rows[0].h}`);
+    return parts.join("|");
+  };
+  const futureLicence = async (label, { status = "ACTIVE", startDays = 30, plan = PLAN.SOLO } = {}) => {
+    const b = await account(`cf-${label}`, null);
+    return licenceInsert(b.bc, plan, new Date(Date.now() + startDays * 86_400_000), new Date(Date.now() + (startDays + 30) * 86_400_000), "ADMIN_GRANT", status);
+  };
+  const summary = async (who) => (await one(user(who), "SELECT public.get_my_billing_summary() r")).r;
+
+  await check("the stacked fixture is the production shape: a current annual licence and a future one-month licence starting at its end", async () =>
+    stackedAnnual.status === "ACTIVE" && stackedAnnual.future === false && stackedFuture.status === "ACTIVE" && stackedFuture.future === true
+      && +stackedFuture.effective_start === +stackedAnnual.effective_end ? true : { stackedAnnual, stackedFuture });
+  await check("before cancellation the future licence is inventoried in preflight Section A and is the account's scheduled next licence", async () => {
+    const a = (await runPreflight())[0].map((r) => r.licence_id);
+    const s = await summary(stacked.uid);
+    return a.includes(stackedFuture.id) && s?.next_effective_start !== null && s?.next_effective_start !== undefined ? true : { a, s };
+  });
+
+  const annualBefore = await licRow(stackedAnnual.id);
+  const futureBefore = await licRow(stackedFuture.id);
+  const evidenceBefore = JSON.stringify((await admin.query("SELECT to_jsonb(i) AS i FROM public.payment_checkout_intents i WHERE id=$1", [stackedMonthlyIntent])).rows)
+    + JSON.stringify((await admin.query("SELECT to_jsonb(e) AS e FROM public.payment_events e WHERE checkout_intent_id=$1 ORDER BY id", [stackedMonthlyIntent])).rows);
+  const othersBefore = await otherTables();
+  const KEY = uuid();
+  let first;
+  await check("valid future ACTIVE licence → cancelled; status CANCELLED and every other column (both dates included) byte-identical", async () => {
+    first = await cancelAs(ADMIN, stackedFuture.id, KEY);
+    const after = await licRow(stackedFuture.id);
+    const sameExceptStatus = JSON.stringify({ ...after, status: futureBefore.status }) === JSON.stringify(futureBefore);
+    return first.outcome === "cancelled" && first.replayed === false && after.status === "CANCELLED" && sameExceptStatus
+      && after.effective_start === futureBefore.effective_start && after.effective_end === futureBefore.effective_end ? true : { first, after, futureBefore };
+  });
+  await check("one immutable audit event: account, actor, licence, previous → new status, dates, reason, idempotency key, timestamp", async () => {
+    const e = (await admin.query("SELECT * FROM public.billing_audit_events WHERE action='FUTURE_LICENCE_CANCELLED' AND correlation_id=$1", [KEY])).rows;
+    const ev = e[0];
+    const ok = e.length === 1 && ev.id === first.audit_event_id && ev.billing_customer_id === stacked.bc && ev.actor_user_id === ADMIN && ev.reason === REASON
+      && ev.previous_state.status === "ACTIVE" && ev.new_state.status === "CANCELLED" && ev.new_state.licence_id === stackedFuture.id
+      && ev.new_state.account_id === stacked.bc && ev.created_at instanceof Date;
+    const immutable = (await errOf(() => admin.query("UPDATE public.billing_audit_events SET reason='x' WHERE id=$1", [ev.id]))) !== null
+      && (await errOf(() => admin.query("DELETE FROM public.billing_audit_events WHERE id=$1", [ev.id]))) !== null;
+    return ok && immutable ? true : { e, immutable };
+  });
+  await check("idempotent: the same key returns the original result and writes no second audit event; a new key reads already_cancelled", async () => {
+    const replay = await cancelAs(ADMIN, stackedFuture.id, KEY);
+    const again = await cancelAs(ADMIN, stackedFuture.id, uuid());
+    return replay.outcome === "cancelled" && replay.replayed === true && replay.audit_event_id === first.audit_event_id
+      && again.outcome === "already_cancelled" && (await auditCount(stackedFuture.id)) === 1 ? true : { replay, again };
+  });
+  await check("evidence untouched: the checkout intent and its payment events (transaction reference, evidence hash) are byte-identical", async () => {
+    const now = JSON.stringify((await admin.query("SELECT to_jsonb(i) AS i FROM public.payment_checkout_intents i WHERE id=$1", [stackedMonthlyIntent])).rows)
+      + JSON.stringify((await admin.query("SELECT to_jsonb(e) AS e FROM public.payment_events e WHERE checkout_intent_id=$1 ORDER BY id", [stackedMonthlyIntent])).rows);
+    return now === evidenceBefore ? true : "evidence changed";
+  });
+  await check("the current annual licence is byte-identical and still entitles; no company, upload, statement, certification, engine-run or other row changed", async () => {
+    const annualNow = await licRow(stackedAnnual.id);
+    const entitled = (await authz(stacked.uid, stackedCo)).allowed === true;
+    const others = (await otherTables()) === othersBefore;
+    return JSON.stringify(annualNow) === JSON.stringify(annualBefore) && entitled && others ? true : { entitled, others };
+  });
+  await check("the entitlement resolver never treats it as effective: no longer the scheduled next licence; preflight A no longer lists it; gate PASS", async () => {
+    const s = await summary(stacked.uid);
+    const sets = await runPreflight();
+    const a = sets[0].map((r) => r.licence_id);
+    return (s?.next_effective_start ?? null) === null && !a.includes(stackedFuture.id) && sets.at(-1)[0].gate === "PASS" ? true : { s, a, gate: sets.at(-1)[0] };
+  });
+  await check("irreversible: return to ACTIVE, extension, re-plan, re-source and re-dating are refused (PT422 CANCELLED_LICENCE_IMMUTABLE), by admin RPC or direct write", async () => {
+    const tries = [
+      () => one(user(ADMIN), "SELECT public.admin_transition_licence_status($1,'ACTIVE','reactivate') r", [stackedFuture.id]),
+      () => admin.query("UPDATE public.commercial_licences SET status='ACTIVE' WHERE id=$1", [stackedFuture.id]),
+      () => admin.query("UPDATE public.commercial_licences SET effective_end = effective_end + interval '1 year' WHERE id=$1", [stackedFuture.id]),
+      () => admin.query("UPDATE public.commercial_licences SET plan_id=$2 WHERE id=$1", [stackedFuture.id, PLAN.FIRM]),
+      () => admin.query("UPDATE public.commercial_licences SET source='ADMIN_GRANT' WHERE id=$1", [stackedFuture.id]),
+      () => admin.query("UPDATE public.commercial_licences SET effective_start = effective_start - interval '1 day' WHERE id=$1", [stackedFuture.id]),
+    ];
+    const out = [];
+    // On this payment-created licence the term guard may answer first (INVALID_COMMERCIAL_TERM); either is a PT422 refusal.
+    for (const t of tries) { const e = await errOf(t); out.push(e?.code === "PT422" && /CANCELLED_LICENCE_IMMUTABLE|INVALID_COMMERCIAL_TERM/.test(e.message)); }
+    const row = await licRow(stackedFuture.id);
+    return out.every(Boolean) && row.status === "CANCELLED" && row.effective_end === futureBefore.effective_end ? true : out.join(",");
+  });
+
+  group("admin_cancel_future_licence · refusals (controlled outcomes, no SQL details)");
+  const startedLic = await futureLicence("started", { startDays: -5 });
+  const cases = [
+    ["a currently effective licence", startedLic, "not_future"],
+    ["a future SUSPENDED licence", await futureLicence("susp", { status: "SUSPENDED" }), "invalid_state"],
+    ["a future EXPIRED licence", await futureLicence("exp", { status: "EXPIRED" }), "invalid_state"],
+    ["a licence of another product (same plan code)", await futureLicence("other", { plan: OTHER_SOLO }), "invalid_state"],
+  ];
+  for (const [label, id, expected] of cases) {
+    await check(`${label} → ${expected}; nothing changes`, async () => {
+      const before = await licRow(id);
+      const r = await cancelAs(ADMIN, id);
+      return r.outcome === expected && Object.keys(r).length <= 2 && JSON.stringify(await licRow(id)) === JSON.stringify(before) && (await auditCount(id)) === 0 ? true : r;
+    });
+  }
+  const pendingFuture = await futureLicence("pending", { status: "PENDING" });
+  await check("a future PENDING licence → cancelled", async () => (await cancelAs(ADMIN, pendingFuture)).outcome === "cancelled");
+  await check("irreversible on its own: on a non-payment licence (no term guard) every resurrection is refused by CANCELLED_LICENCE_IMMUTABLE", async () => {
+    const tries = [
+      () => one(user(ADMIN), "SELECT public.admin_transition_licence_status($1,'ACTIVE','reactivate') r", [pendingFuture]),
+      () => admin.query("UPDATE public.commercial_licences SET status='PENDING' WHERE id=$1", [pendingFuture]),
+      () => admin.query("UPDATE public.commercial_licences SET effective_end = effective_end + interval '1 year' WHERE id=$1", [pendingFuture]),
+      () => admin.query("UPDATE public.commercial_licences SET plan_id=$2 WHERE id=$1", [pendingFuture, PLAN.FIRM]),
+      () => admin.query("UPDATE public.commercial_licences SET source='ADMIN_REGRANT' WHERE id=$1", [pendingFuture]),
+      () => admin.query("UPDATE public.commercial_licences SET additional_seats = 5 WHERE id=$1", [pendingFuture]),
+    ];
+    const out = [];
+    for (const t of tries) { const e = await errOf(t); out.push(e?.code === "PT422" && /CANCELLED_LICENCE_IMMUTABLE/.test(e.message)); }
+    return out.every(Boolean) && (await licRow(pendingFuture)).status === "CANCELLED" ? true : out.join(",");
+  });
+  await check("an uncontrolled reason or missing key → invalid_request", async () => {
+    const id = await futureLicence("reason");
+    const a = await cancelAs(ADMIN, id, uuid(), "free text reason");
+    const b = (await one(user(ADMIN), "SELECT public.admin_cancel_future_licence($1,$2,NULL) r", [id, REASON])).r;
+    return a.outcome === "invalid_request" && b.outcome === "invalid_request" && (await auditCount(id)) === 0 ? true : { a, b };
+  });
+  await check("outsider → forbidden; a missing ID is indistinguishable (identical answer for outsider and admin)", async () => {
+    const realId = await futureLicence("victim");
+    const a = await cancelAs(OUTSIDER, realId);
+    const b = await cancelAs(OUTSIDER, uuid());
+    const c = await cancelAs(ADMIN, uuid());
+    const same = [a, b, c].every((r) => JSON.stringify(r) === JSON.stringify({ outcome: "forbidden" }));
+    return same && (await licRow(realId)).status === "ACTIVE" ? true : { a, b, c };
+  });
+  await check("client roles cannot execute it: anon and service_role are refused by privilege", async () => {
+    const anon = await errOf(() => q(ANON, "SELECT public.admin_cancel_future_licence($1,$2,$3)", [uuid(), REASON, uuid()]));
+    const svc = await errOf(() => asCaller({ kind: "service" }, (c) => c.query("SELECT public.admin_cancel_future_licence($1,$2,$3)", [uuid(), REASON, uuid()])));
+    const grants = (await admin.query(`SELECT grantee FROM information_schema.routine_privileges WHERE routine_schema='public'
+      AND routine_name='admin_cancel_future_licence' AND privilege_type='EXECUTE' ORDER BY 1`)).rows.map((r) => r.grantee);
+    return anon?.code === "42501" && svc?.code === "42501" && !grants.includes("PUBLIC") && !grants.includes("anon") && !grants.includes("service_role") ? true : { anon: anon?.code, svc: svc?.code, grants };
+  });
+
+  group("admin_cancel_future_licence · concurrency, boundary and rollback");
+  const session = async (who) => {
+    const c = await pool.connect();
+    await c.query("BEGIN");
+    await c.query("SET LOCAL ROLE authenticated");
+    await c.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [who]);
+    return c;
+  };
+  const call = (c, id, key) => c.query("SELECT public.admin_cancel_future_licence($1,$2,$3) r", [id, REASON, key]).then((r) => r.rows[0].r);
+  await check("two simultaneous cancellations (different keys): one transition, one audit event; the other reads already_cancelled", async () => {
+    const id = await futureLicence("race-2");
+    const c1 = await session(ADMIN), c2 = await session(ADMIN);
+    try {
+      const r1 = await call(c1, id, uuid());
+      const p2 = call(c2, id, uuid());                 // blocks on the row lock
+      await new Promise((r) => setTimeout(r, 300));
+      await c1.query("COMMIT");
+      const r2 = await p2; await c2.query("COMMIT");
+      return r1.outcome === "cancelled" && r2.outcome === "already_cancelled" && (await auditCount(id)) === 1 ? true : { r1, r2 };
+    } finally { c1.release(); c2.release(); }
+  });
+  await check("two simultaneous cancellations with the SAME key: one audit event; the second returns the original result", async () => {
+    const id = await futureLicence("race-same");
+    const key = uuid();
+    const c1 = await session(ADMIN), c2 = await session(ADMIN);
+    try {
+      const r1 = await call(c1, id, key);
+      const p2 = call(c2, id, key);
+      await new Promise((r) => setTimeout(r, 300));
+      await c1.query("COMMIT");
+      const r2 = await p2; await c2.query("COMMIT");
+      return r1.outcome === "cancelled" && r2.outcome === "cancelled" && r2.replayed === true && r2.audit_event_id === r1.audit_event_id && (await auditCount(id)) === 1 ? true : { r1, r2 };
+    } finally { c1.release(); c2.release(); }
+  });
+  await check("cancellation racing a re-activation / re-plan: the blocked write is refused after the cancellation commits — no resurrection", async () => {
+    const id = await futureLicence("race-replan");
+    const c1 = await session(ADMIN);
+    const c2 = await pool.connect();
+    try {
+      const r1 = await call(c1, id, uuid());
+      const p2 = errOf(() => c2.query("UPDATE public.commercial_licences SET status='ACTIVE', plan_id=$2, effective_end = effective_end + interval '1 year' WHERE id=$1", [id, PLAN.FIRM]));
+      await new Promise((r) => setTimeout(r, 300));
+      await c1.query("COMMIT");
+      const e2 = await p2;
+      const row = await licRow(id);
+      return r1.outcome === "cancelled" && e2?.code === "PT422" && row.status === "CANCELLED" && row.plan_id === PLAN.SOLO ? true : { r1, e2: e2?.message, row };
+    } finally { c1.release(); c2.release(); }
+  });
+  await check("cancellation racing another admin transition: the first lock holder wins deterministically (both orders)", async () => {
+    // Order 1: the cancellation holds the lock; the SUSPEND transition then fails (immutable).
+    const a = await futureLicence("race-adm-1");
+    const c1 = await session(ADMIN), c2 = await session(ADMIN);
+    let o1;
+    try {
+      const r1 = await call(c1, a, uuid());
+      const p2 = errOf(() => c2.query("SELECT public.admin_transition_licence_status($1,'SUSPENDED','race') r", [a]));
+      await new Promise((r) => setTimeout(r, 300));
+      await c1.query("COMMIT");
+      const e2 = await p2; try { await c2.query("ROLLBACK"); } catch { /* aborted */ }
+      o1 = r1.outcome === "cancelled" && /CANCELLED_LICENCE_IMMUTABLE/.test(e2?.message ?? "") && (await licRow(a)).status === "CANCELLED";
+    } finally { c1.release(); c2.release(); }
+    // Order 2: the SUSPEND transition holds the lock; the cancellation then reads invalid_state.
+    const b = await futureLicence("race-adm-2");
+    const d1 = await session(ADMIN), d2 = await session(ADMIN);
+    let o2;
+    try {
+      await d1.query("SELECT public.admin_transition_licence_status($1,'SUSPENDED','race') r", [b]);
+      const p2 = call(d2, b, uuid());
+      await new Promise((r) => setTimeout(r, 300));
+      await d1.query("COMMIT");
+      const r2 = await p2; await d2.query("COMMIT");
+      o2 = r2.outcome === "invalid_state" && (await licRow(b)).status === "SUSPENDED" && (await auditCount(b)) === 0;
+    } finally { d1.release(); d2.release(); }
+    return o1 && o2 ? true : { o1, o2 };
+  });
+  await check("start boundary: a licence starting exactly at the transaction timestamp (and one already started) → not_future", async () => {
+    const b = await account("boundary", null);
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN");
+      const id = (await c.query(`INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, effective_end)
+        VALUES ($1,$2,'ACTIVE','ADMIN_GRANT',transaction_timestamp(), transaction_timestamp() + interval '1 month') RETURNING id`, [b.bc, PLAN.SOLO])).rows[0].id;
+      await c.query("SET LOCAL ROLE authenticated");
+      await c.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [ADMIN]);
+      const r = await call(c, id, uuid());
+      await c.query("ROLLBACK");
+      return r.outcome === "not_future" ? true : r;
+    } finally { c.release(); }
+  });
+  await check("rollback: a cancellation inside a rolled-back transaction leaves the licence, the audit log and every other row unchanged", async () => {
+    const id = await futureLicence("rollback");
+    const before = await licRow(id);
+    const othersPre = await otherTables();
+    const c = await session(ADMIN);
+    try {
+      const r = await call(c, id, uuid());
+      await c.query("ROLLBACK");
+      return r.outcome === "cancelled" && JSON.stringify(await licRow(id)) === JSON.stringify(before) && (await auditCount(id)) === 0 && (await otherTables()) === othersPre ? true : r;
+    } finally { c.release(); }
+  });
+
   // ── Backstop: a paid invalid checkout never creates a licence ────────────────────────────────────────────────────
   group("Backstop · a paid MONTHLY × 1 or ANNUAL × 2 checkout never creates a licence");
   for (const shape of SHAPES) {

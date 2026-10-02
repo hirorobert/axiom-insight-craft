@@ -13,7 +13,7 @@ const SQL = MIGRATION.replace(/--[^\n]*/g, "");
 describe("annual commercial term migration", () => {
   it("raises only controlled application errors: SQLSTATE PT422 with a fixed code, never internal wording", () => {
     const messages = [...SQL.matchAll(/RAISE EXCEPTION '([^']+)'/g)].map((m) => m[1]);
-    expect(new Set(messages)).toEqual(new Set(["INVALID_OPEN_CHECKOUT_INTENTS", "UNRECONCILED_PROVIDER_CHECKOUTS", "ANNUAL_TERM_REQUIRED", "INVALID_COMMERCIAL_TERM"]));
+    expect(new Set(messages)).toEqual(new Set(["INVALID_OPEN_CHECKOUT_INTENTS", "UNRECONCILED_PROVIDER_CHECKOUTS", "ANNUAL_TERM_REQUIRED", "INVALID_COMMERCIAL_TERM", "CANCELLED_LICENCE_IMMUTABLE"]));
     expect([...SQL.matchAll(/ERRCODE = '([^']+)'/g)].map((m) => m[1]).every((c) => c === "PT422")).toBe(true);
     expect(SQL).not.toMatch(/iron dome/i);
   });
@@ -54,6 +54,18 @@ describe("annual commercial term migration", () => {
     expect(pre).not.toMatch(/commit it through the normal verified-payment path/i);
     expect(pre).toContain("invalid_fulfillable_intents");
     expect(pre).toContain("unreconciled_provider_checkouts");
+  });
+
+  it("admin_cancel_future_licence: commercial-admin boundary only, cancels nothing by itself, names no customer or licence", () => {
+    expect(SQL).toContain("REVOKE ALL ON FUNCTION public.admin_cancel_future_licence(UUID, TEXT, UUID) FROM PUBLIC, anon, service_role;");
+    expect(SQL).toContain("GRANT EXECUTE ON FUNCTION public.admin_cancel_future_licence(UUID, TEXT, UUID) TO authenticated;");
+    expect(SQL).toContain("FROM public.commercial_admins WHERE user_id = v_actor AND active");
+    expect(SQL).toMatch(/WHERE l\.id = p_licence_id\s+FOR UPDATE/);
+    expect(SQL).toContain("v_lic.effective_start <= transaction_timestamp()");
+    // The only call sites are its own definition and grants: the migration cancels no licence.
+    expect(SQL.split("admin_cancel_future_licence(").length - 1).toBe(3);
+    // No UUID literal (customer, licence or checkout identifier) anywhere in the migration.
+    expect(MIGRATION).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
   });
 
   it("the downgrade-at-purchase prerequisite is registered before any checkout activation", () => {

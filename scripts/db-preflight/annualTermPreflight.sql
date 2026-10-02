@@ -35,7 +35,9 @@
 --
 -- Apply only when D reads GATE = PASS; the migration re-checks both conditions atomically and refuses otherwise.
 
--- A. Licences that came from an invalid checkout, or that a payment created for anything but the 12-month term.
+-- A. Licences that came from an invalid checkout, or that a payment created for anything but the 12-month term, and that
+--    are effective or can still become effective (not CANCELLED, not EXPIRED, period not over). A future licence cancelled
+--    through admin_cancel_future_licence is terminal and immutable, so it leaves this list; its row is preserved.
 SELECT 'A_invalid_term_licence' AS section, l.id AS licence_id, p.code AS product_code, cp.code AS plan_code, l.status,
        l.source, l.effective_start, l.effective_end, (l.effective_end - l.effective_start) AS authorised_span,
        i.id AS checkout_intent_id, i.billing_interval, i.billing_interval_count
@@ -44,9 +46,10 @@ SELECT 'A_invalid_term_licence' AS section, l.id AS licence_id, p.code AS produc
   JOIN public.commercial_products p ON p.id = cp.product_id
   LEFT JOIN public.payment_events e ON e.licence_id = l.id
   LEFT JOIN public.payment_checkout_intents i ON i.id = e.checkout_intent_id
- WHERE (i.id IS NOT NULL AND (i.billing_interval IS DISTINCT FROM 'ANNUAL' OR i.billing_interval_count IS DISTINCT FROM 1))
+ WHERE l.status NOT IN ('CANCELLED', 'EXPIRED') AND (l.effective_end IS NULL OR l.effective_end > now())
+   AND ((i.id IS NOT NULL AND (i.billing_interval IS DISTINCT FROM 'ANNUAL' OR i.billing_interval_count IS DISTINCT FROM 1))
     OR (l.source LIKE '%\_VERIFIED\_PAYMENT' ESCAPE '\'
-        AND (l.effective_end IS NULL OR l.effective_end <> l.effective_start + interval '12 months'))
+        AND (l.effective_end IS NULL OR l.effective_end <> l.effective_start + interval '12 months')))
  ORDER BY l.effective_start;
 
 -- B. Gate condition (1): invalid intents that can still be fulfilled.
