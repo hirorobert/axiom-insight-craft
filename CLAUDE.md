@@ -1063,7 +1063,11 @@ intent lacks an authoritative verified terminal outcome (UNRECONCILED_PROVIDER_C
 fulfilled: cancel / expire / refund / void it at the provider (or, with consent, replace it with a valid ANNUAL × 1 sale).
 A licence that has not started is cancelled only through `admin_cancel_future_licence(licence_id, reason, idempotency_key)`
 (commercial admins; status CANCELLED, dates preserved, audited, idempotent, irreversible) — never by direct SQL;
-`admin_transition_licence_status` cannot cancel a future licence (it would end it before it starts). **Do not merge
+`admin_transition_licence_status` cannot cancel a future licence (it would end it before it starts). The idempotency key
+is bound to licence + reason + actor (any other reuse: `idempotency_conflict`, nothing written). Generate the key ONCE,
+record it, and pass that literal on every retry — never `gen_random_uuid()` inside the call. It must be executed in an
+authenticated session of an active commercial admin (service_role is revoked; a database-owner session has no
+auth.uid()); there is no in-app admin UI for licence RPCs. **Do not merge
 PR #41 before the production preflight reads PASS and every listed provider session is reconciled**: Lovable syncs
 `main` and may apply hosted migrations.
 

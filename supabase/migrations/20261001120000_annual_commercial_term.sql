@@ -186,8 +186,9 @@ CREATE OR REPLACE TRIGGER trg_commercial_annual_term_licence_guard
 -- unauthorised call (forbidden); refused unless the licence has not started (effective_start > transaction_timestamp()),
 -- is ACTIVE or PENDING, and belongs to the CFOCLOSE product; sets status CANCELLED and nothing else (dates preserved
 -- exactly); one append-only billing_audit_events row (account, actor, licence, previous and new status, dates, reason,
--- correlation/idempotency key, timestamp); idempotent per key; controlled outcomes only — cancelled, already_cancelled,
--- forbidden, not_future, invalid_state, invalid_request. No licence is cancelled by this migration.
+-- correlation/idempotency key, timestamp); idempotent per key, the key bound to the whole request (licence, reason,
+-- actor); controlled outcomes only — cancelled, already_cancelled, forbidden, not_future, invalid_state,
+-- invalid_request, idempotency_conflict. No licence is cancelled by this migration.
 
 -- One cancellation per idempotency key; the licence lookup used by the irreversibility guard.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_bae_future_licence_cancellation_key
@@ -222,15 +223,19 @@ BEGIN
     RETURN jsonb_build_object('outcome', 'forbidden');   -- indistinguishable from an unauthorised call
   END IF;
 
-  -- Replay of the same request (serialised behind the row lock): the original result, no second audit event.
-  SELECT e.id, e.new_state INTO v_prior
+  -- Replay (serialised behind the row lock). The key is bound to the WHOLE original request — licence, controlled reason
+  -- and the authorised actor (the account follows from the licence). Only an identical request gets the original result
+  -- back, with no second audit event; any other use of the key is an idempotency_conflict and writes nothing.
+  SELECT e.id, e.new_state, e.reason, e.actor_user_id INTO v_prior
     FROM public.billing_audit_events e
    WHERE e.action = 'FUTURE_LICENCE_CANCELLED' AND e.correlation_id = p_idempotency_key;
   IF FOUND THEN
-    IF v_prior.new_state ->> 'licence_id' = p_licence_id::text THEN
+    IF v_prior.new_state ->> 'licence_id' = p_licence_id::text
+       AND v_prior.reason = p_reason
+       AND v_prior.actor_user_id = v_actor THEN
       RETURN jsonb_build_object('outcome', 'cancelled', 'licence_id', p_licence_id, 'audit_event_id', v_prior.id, 'replayed', true);
     END IF;
-    RETURN jsonb_build_object('outcome', 'invalid_request');   -- the key already belongs to another cancellation
+    RETURN jsonb_build_object('outcome', 'idempotency_conflict');
   END IF;
 
   IF v_lic.status = 'CANCELLED' THEN
@@ -259,7 +264,7 @@ BEGIN
     RETURNING id INTO v_event;
   EXCEPTION WHEN unique_violation THEN
     -- A concurrent cancellation of ANOTHER licence claimed the same key first: this one is undone (subtransaction).
-    RETURN jsonb_build_object('outcome', 'invalid_request');
+    RETURN jsonb_build_object('outcome', 'idempotency_conflict');
   END;
   RETURN jsonb_build_object('outcome', 'cancelled', 'licence_id', p_licence_id, 'audit_event_id', v_event, 'replayed', false);
 END;

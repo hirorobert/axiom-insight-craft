@@ -62,6 +62,9 @@ describe("annual commercial term migration", () => {
     expect(SQL).toContain("FROM public.commercial_admins WHERE user_id = v_actor AND active");
     expect(SQL).toMatch(/WHERE l\.id = p_licence_id\s+FOR UPDATE/);
     expect(SQL).toContain("v_lic.effective_start <= transaction_timestamp()");
+    // The key is bound to the whole request: licence, controlled reason and authorised actor; any other reuse conflicts.
+    expect(SQL).toMatch(/IF v_prior\.new_state ->> 'licence_id' = p_licence_id::text\s+AND v_prior\.reason = p_reason\s+AND v_prior\.actor_user_id = v_actor THEN/);
+    expect(SQL.split("'idempotency_conflict'").length - 1).toBe(2);
     // The only call sites are its own definition and grants: the migration cancels no licence.
     expect(SQL.split("admin_cancel_future_licence(").length - 1).toBe(3);
     // No UUID literal (customer, licence or checkout identifier) anywhere in the migration.

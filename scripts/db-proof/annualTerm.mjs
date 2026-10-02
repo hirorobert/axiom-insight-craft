@@ -15,6 +15,7 @@
 //   Cancel    admin_cancel_future_licence: future-only, CFOCLOSE-only, ACTIVE/PENDING-only; CANCELLED with dates
 //             byte-identical; one immutable audit event; idempotent per key; irreversible; controlled outcomes; client
 //             roles refused; evidence, the current licence and every other row untouched; concurrency and rollback proven;
+//             the idempotency key is bound to licence + reason + actor (any other reuse: idempotency_conflict, no write);
 //   Licences  a payment-created self-serve licence is exactly 12 months (NULL, 11, 13 and 24 months refused); after
 //             insertion it may only end earlier; no row becomes one by an UPDATE; Enterprise is untouched;
 //   Payments  an annual payment yields one exact 12-month entitled licence; an upgrade still ends the current one early;
@@ -813,6 +814,67 @@ async function main() {
       await c.query("ROLLBACK");
       return r.outcome === "cancelled" && JSON.stringify(await licRow(id)) === JSON.stringify(before) && (await auditCount(id)) === 0 && (await otherTables()) === othersPre ? true : r;
     } finally { c.release(); }
+  });
+
+  group("admin_cancel_future_licence · the idempotency key is bound to the whole request (licence, reason, actor)");
+  const ADMIN2 = await mkUser("admin2");
+  await admin.query("INSERT INTO public.commercial_admins (user_id) VALUES ($1)", [ADMIN2]);
+  const ledger = async () => (await admin.query(`SELECT md5(coalesce((SELECT string_agg(to_jsonb(l)::text, '|' ORDER BY l.id) FROM public.commercial_licences l), '')
+      || coalesce((SELECT string_agg(to_jsonb(e)::text, '|' ORDER BY e.id) FROM public.billing_audit_events e), '')) h`)).rows[0].h;
+  const REASON_B = "SECOND_CONTROLLED_REASON";
+  const bLic = await futureLicence("bind-a");
+  const bOther = await futureLicence("bind-b");
+  const BKEY = uuid();
+  const original = await cancelAs(ADMIN, bLic, BKEY, REASON);
+  await check("1. same key + same licence + same reason + same actor → the original result; no second audit event", async () => {
+    const r = await cancelAs(ADMIN, bLic, BKEY, REASON);
+    return original.outcome === "cancelled" && r.outcome === "cancelled" && r.replayed === true && r.audit_event_id === original.audit_event_id
+      && (await auditCount(bLic)) === 1 ? true : { original, r };
+  });
+  const conflictCase = async (label, fn) => check(label, async () => {
+    const before = await ledger();
+    const r = await fn();
+    const after = await ledger();
+    return JSON.stringify(r) === JSON.stringify({ outcome: "idempotency_conflict" }) && before === after ? true : { r, same: before === after };
+  });
+  await conflictCase("2. same key + a DIFFERENT licence → idempotency_conflict; licences and audit events byte-identical (the other licence stays ACTIVE)",
+    async () => { const r = await cancelAs(ADMIN, bOther, BKEY, REASON); return (await licRow(bOther)).status === "ACTIVE" ? r : { r, status: "changed" }; });
+  await conflictCase("3. same key + same licence + a DIFFERENT reason → idempotency_conflict; byte-identical",
+    () => cancelAs(ADMIN, bLic, BKEY, REASON_B));
+  await conflictCase("3b. same key + same licence + same reason from a DIFFERENT commercial admin → idempotency_conflict; byte-identical",
+    () => cancelAs(ADMIN2, bLic, BKEY, REASON));
+  await check("4. an unauthorised caller reusing a valid key → exactly {outcome: forbidden}: no original result, no audit id; byte-identical", async () => {
+    const before = await ledger();
+    const r = await cancelAs(OUTSIDER, bLic, BKEY, REASON);
+    return JSON.stringify(r) === JSON.stringify({ outcome: "forbidden" }) && (await ledger()) === before ? true : r;
+  });
+  await check("5a. concurrent same key, two DIFFERENT licences: exactly one accepted, the other idempotency_conflict; one audit event; the loser untouched", async () => {
+    const x = await futureLicence("cc-x"), y = await futureLicence("cc-y");
+    const key = uuid();
+    const c1 = await session(ADMIN), c2 = await session(ADMIN);
+    try {
+      const r1 = await call(c1, x, key);
+      const p2 = call(c2, y, key);                      // blocks on the key's unique index until c1 resolves
+      await new Promise((r) => setTimeout(r, 300));
+      await c1.query("COMMIT");
+      const r2 = await p2; await c2.query("COMMIT");
+      const events = (await admin.query("SELECT count(*)::int n FROM public.billing_audit_events WHERE action='FUTURE_LICENCE_CANCELLED' AND correlation_id=$1", [key])).rows[0].n;
+      return r1.outcome === "cancelled" && r2.outcome === "idempotency_conflict" && events === 1 && (await licRow(y)).status === "ACTIVE" ? true : { r1, r2, events };
+    } finally { c1.release(); c2.release(); }
+  });
+  await check("5b. concurrent same key, same licence, DIFFERENT reasons: exactly one accepted, the other idempotency_conflict; one audit event", async () => {
+    const z = await futureLicence("cc-z");
+    const key = uuid();
+    const c1 = await session(ADMIN), c2 = await session(ADMIN);
+    try {
+      const r1 = (await c1.query("SELECT public.admin_cancel_future_licence($1,$2,$3) r", [z, REASON, key])).rows[0].r;
+      const p2 = c2.query("SELECT public.admin_cancel_future_licence($1,$2,$3) r", [z, REASON_B, key]).then((r) => r.rows[0].r);
+      await new Promise((r) => setTimeout(r, 300));
+      await c1.query("COMMIT");
+      const r2 = await p2; await c2.query("COMMIT");
+      const ev = (await admin.query("SELECT reason FROM public.billing_audit_events WHERE action='FUTURE_LICENCE_CANCELLED' AND correlation_id=$1", [key])).rows;
+      return r1.outcome === "cancelled" && r2.outcome === "idempotency_conflict" && ev.length === 1 && ev[0].reason === REASON ? true : { r1, r2, ev };
+    } finally { c1.release(); c2.release(); }
   });
 
   // ── Backstop: a paid invalid checkout never creates a licence ────────────────────────────────────────────────────
