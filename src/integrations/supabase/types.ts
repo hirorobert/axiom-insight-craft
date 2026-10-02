@@ -6905,6 +6905,14 @@ export type Database = {
         Returns: Json
       }
       admin_billing_lookup: { Args: { p_company_id: string }; Returns: Json }
+      admin_cancel_future_licence: {
+        Args: {
+          p_idempotency_key: string
+          p_licence_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       admin_ensure_billing_customer: {
         Args: { p_owner_user_id: string; p_reason: string }
         Returns: Json
@@ -7139,6 +7147,10 @@ export type Database = {
       commercial_canonical_capability: {
         Args: { p_code: string }
         Returns: string
+      }
+      commercial_is_cfoclose_self_serve_plan: {
+        Args: { p_plan_id: string }
+        Returns: boolean
       }
       commit_tb_certification: {
         Args: {

@@ -176,6 +176,13 @@
       "when": 1790653523715,
       "tag": "0024_apply_20260927100000_trial_balance_remove_from_active_use",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790920391757,
+      "tag": "0025_apply_20261001120000_annual_commercial_term",
+      "breakpoints": true
     }
   ]
 }
