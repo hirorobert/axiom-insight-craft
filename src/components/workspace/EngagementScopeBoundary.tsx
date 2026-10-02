@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 import EngagementScopeDialog from "@/components/workspace/EngagementScopeDialog";
 import { useEngagement } from "@/contexts/EngagementContext";
-import { capabilityTitle, owningCapability } from "@/lib/workspace/mandate";
+import { customerCapabilityTitle, owningCapability } from "@/lib/workspace/mandate";
 import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import type { WorkspaceMission } from "@/lib/workspace/types";
 import { FileLock2 } from "lucide-react";
@@ -28,7 +28,7 @@ export default function EngagementScopeBoundary({
   const [open, setOpen] = useState(false);
 
   const cap = owningCapability(stage);
-  const outcome = cap ? capabilityTitle(cap) : STAGE_CONFIGS[stage].label;
+  const outcome = cap ? customerCapabilityTitle(cap) : STAGE_CONFIGS[stage].label;
 
   return (
     <div className="max-w-2xl">

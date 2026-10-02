@@ -38,25 +38,21 @@ const EDGE_FN_SCAN_PATH = "supabase/functions/financial-statement-intake/scanFor
 describe("routing contract — statement review is a distinct route, never merged into an existing workflow", () => {
   const appSrc = readSource("src/App.tsx");
 
-  it("adds an explicit statements/review route protected by StageScopeGate stage=\"statements\"", () => {
-    expect(appSrc).toMatch(
-      /<Route path="statements\/review" element=\{<StageScopeGate stage="statements"><StatementReviewWorkspace \/><\/StageScopeGate>\} \/>/,
-    );
+  // The statements stage is withheld from customers (src/lib/workspace/moduleAvailability.ts): statements/review is a
+  // distinct path that renders the neutral unavailable boundary — never PrepareWorkspace, never a statements page. The
+  // StatementReviewWorkspace implementation is kept, unmounted, until the stage is released.
+  it("statements/review is a distinct withheld path rendered by the neutral boundary", () => {
+    expect(readSource("src/lib/workspace/moduleAvailability.ts")).toMatch(/"statements", "statements\/review"/);
+    expect(appSrc).toMatch(/WITHHELD_WORKSPACE_ROUTE_SEGMENTS\.map\(\(segment\) => \(\s*<Route key=\{segment\} path=\{segment\} element=\{<WorkspaceUnavailable \/>\} \/>/);
   });
 
-  it("does not route document review to PrepareWorkspace or the existing StatementsWorkspace", () => {
-    const reviewRouteLine = appSrc.split("\n").find((l) => l.includes('path="statements/review"'));
-    expect(reviewRouteLine).toBeTruthy();
-    expect(reviewRouteLine).not.toMatch(/PrepareWorkspace/);
-    expect(reviewRouteLine).toMatch(/StatementReviewWorkspace/);
-    expect(reviewRouteLine).not.toMatch(/<StatementsWorkspace \/>/);
+  it("does not route document review to PrepareWorkspace or any statements page", () => {
+    expect(appSrc).not.toMatch(/path="statements\/review"/);
+    expect(appSrc).not.toMatch(/StatementReviewWorkspace|StatementsWorkspace/);
   });
 
-  it("the statements/review route sits after the plain statements route (never replaces it)", () => {
-    const statementsIndex = appSrc.indexOf('path="statements"');
-    const reviewIndex = appSrc.indexOf('path="statements/review"');
-    expect(statementsIndex).toBeGreaterThan(-1);
-    expect(reviewIndex).toBeGreaterThan(statementsIndex);
+  it("the review page implementation is preserved for its release", () => {
+    expect(readSource("src/pages/workspace/StatementReviewWorkspace.tsx").length).toBeGreaterThan(0);
   });
 });
 

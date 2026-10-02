@@ -22,7 +22,7 @@ vi.mock("@/hooks/useDataStart", () => ({
 
 const engagementValue = {
   engagement: { id: "eng-1" },
-  mandate: { granted: ["financial_statements"] },
+  mandate: { granted: ["FINANCIAL_STATEMENTS"] },
   authorities: [],
   events: [],
   canAmend: true,
@@ -89,12 +89,14 @@ function contradictionSnapshot(): UploadSnapshot {
 
 function mockWorkspace(snapshot: UploadSnapshot | null): UseWorkspaceDataReturn {
   const workspaceState = deriveWorkspaceState(CID, company.name, PY, snapshot);
+  // In production the snapshot and the upload row come from the same trial_balance_uploads row.
+  const row = { ...upload, safisha_status: snapshot?.safishaStatus ?? null };
   return {
     companyId: CID,
     periodYear: PY,
     company,
-    upload,
-    uploads: [upload],
+    upload: row,
+    uploads: [row],
     workspaceState,
     loading: false,
     refreshing: false,
@@ -131,11 +133,19 @@ describe("WorkspaceOverview — certification is the single authority for whethe
     expect(html).toContain("275580.00");
   });
 
-  it("a genuinely certified upload (verdict='certified') is unaffected — still reaches 'TB is valid — cross-validate the draft financial statements'", async () => {
+  it("a genuinely certified upload (verdict='certified') moves on to the customer's next trial-balance-review step (statements are withheld)", async () => {
     const certified: UploadSnapshot = { ...contradictionSnapshot(), certificationVerdict: "certified", certificationBlocker: null };
     const html = await renderOverview(certified);
 
-    expect(html).toContain("TB is valid");
+    expect(html).toContain("Reconcile supporting evidence.");
+    expect(html).not.toMatch(/TB is valid|draft financial statements|Validate Draft Statements/);
+  });
+
+  it("with its evidence reconciled, the trial balance is presented as ready — and only then", async () => {
+    const ready: UploadSnapshot = { ...contradictionSnapshot(), certificationVerdict: "certified", certificationBlocker: null, safishaStatus: "clean" };
+    const html = await renderOverview(ready);
+    expect(html).toContain("Trial balance ready.");
+    expect(html).not.toMatch(/statement/i);
   });
 
   it("a certification verdict that has not resolved yet (undefined) is treated identically to 'not certified' — never a silent pass", async () => {
@@ -188,6 +198,7 @@ describe("WorkspaceOverview — orientation strip (requirement: visibly identify
     };
     const html = await renderOverview(completed);
     expect(html).toContain("last completed:");
-    expect(html).toContain("Prepare Statements");
+    expect(html).toContain("Prepare Data");
+    expect(html).not.toContain("Prepare Statements");
   });
 });

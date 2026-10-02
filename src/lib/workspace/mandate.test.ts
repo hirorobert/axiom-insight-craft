@@ -21,7 +21,7 @@ function missions(
 describe("projectMandate", () => {
   it("treats an unknown mandate as fully in scope (never hides on unknown) — except the stages withheld from customers", () => {
     const views = projectMandate(missions(), null);
-    expect(views.map((v) => v.stage)).toEqual(["prepare", "reconcile", "statements", "monitor"]);
+    expect(views.map((v) => v.stage)).toEqual(["prepare", "reconcile"]);
     expect(views.every((v) => v.mandateStatus === "in_scope")).toBe(true);
     expect(views.every((v) => v.visible)).toBe(true);
   });
@@ -32,74 +32,41 @@ describe("projectMandate", () => {
       { engagementId: "e1", granted: ["FINANCIAL_STATEMENTS"] },
     );
     expect(findMissionView(views, "prepare")!.workflowStatus).toBe("review_required");
-    const monitor = findMissionView(views, "monitor")!;
-    expect(monitor.workflowStatus).toBe("locked");
-    expect(monitor.mandateStatus).toBe("out_of_scope");
+    const reconcile = findMissionView(views, "reconcile")!;
+    expect(reconcile.workflowStatus).toBe("locked");
+    expect(reconcile.mandateStatus).toBe("in_scope");
+    for (const s of ["statements", "tax", "compliance", "filing", "monitor"] as const) expect(findMissionView(views, s)).toBeUndefined();
   });
 
-  it("statements-only mandate hides tax, compliance, filing and monitor", () => {
+  it("the trial-balance-review mandate (FINANCIAL_STATEMENTS) shows Prepare and Reconcile only", () => {
     const views = projectMandate(missions(), {
       engagementId: "e1",
       granted: ["FINANCIAL_STATEMENTS"],
     });
     const visible = views.filter((v) => v.visible).map((v) => v.stage);
-    expect(visible).toEqual(["prepare", "reconcile", "statements"]);
+    expect(visible).toEqual(["prepare", "reconcile"]);
   });
 
-  it("monitoring-only mandate shows monitor in scope and its source stage as evidence only", () => {
-    const views = projectMandate(missions(), {
-      engagementId: "e1",
-      granted: ["MONITORING"],
-    });
-    const monitor = findMissionView(views, "monitor")!;
-    expect(monitor.mandateStatus).toBe("in_scope");
-    expect(monitor.prerequisiteOnly).toBe(false);
-
-    const prepare = findMissionView(views, "prepare")!;
-    expect(prepare.visible).toBe(true);
-    expect(prepare.prerequisiteOnly).toBe(true);
-    // Evidence never asserts a prepare mandate.
-    expect(prepare.mandateStatus).toBe("out_of_scope");
-
-    expect(findMissionView(views, "statements")!.visible).toBe(false);
-  });
-
-  it("a withheld mandate (tax, compliance, filing) projects nothing: no view, and it activates not even its evidence stages", () => {
-    const sets: EngagementCapability[][] = [["TAX_COMPUTATION"], ["COMPLIANCE_REVIEW"], ["FILING_PREPARATION"], ["TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION"]];
+  it("a withheld mandate (tax, compliance, filing, monitoring) projects nothing: no view, and it activates not even its evidence stages", () => {
+    const sets: EngagementCapability[][] = [["TAX_COMPUTATION"], ["COMPLIANCE_REVIEW"], ["FILING_PREPARATION"], ["MONITORING"], ["TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION", "MONITORING"]];
     for (const granted of sets) {
-      const views = projectMandate(missions({ tax: "signed", statements: "passed", compliance: "passed", filing: "signed" }), { engagementId: "e1", granted });
-      for (const s of ["tax", "compliance", "filing"] as const) expect(findMissionView(views, s)).toBeUndefined();
+      const views = projectMandate(missions({ tax: "signed", statements: "passed", compliance: "passed", filing: "signed", monitor: "passed" }), { engagementId: "e1", granted });
+      for (const s of ["statements", "tax", "compliance", "filing", "monitor"] as const) expect(findMissionView(views, s)).toBeUndefined();
       expect(views.some((v) => v.visible)).toBe(false);
     }
   });
 
-  it("retains completed work after a capability is withdrawn", () => {
-    const views = projectMandate(missions({ monitor: "passed" }), {
-      engagementId: "e1",
-      granted: ["FINANCIAL_STATEMENTS"],
-    });
-    const monitor = findMissionView(views, "monitor")!;
-    expect(monitor.mandateStatus).toBe("out_of_scope");
-    expect(monitor.visible).toBe(false);
-    expect(monitor.retainedWork).toBe(true);
+  it("a withheld stage carries no retained-work entry, even with completed work (its records are untouched)", () => {
+    const views = projectMandate(missions({ monitor: "passed", statements: "passed" }), { engagementId: "e1", granted: ["FINANCIAL_STATEMENTS"] });
+    expect(views.some((v) => v.retainedWork)).toBe(false);
+    expect(findMissionView(views, "monitor")).toBeUndefined();
   });
 
-  it("does not claim retained work for an out-of-scope stage that never ran", () => {
-    const views = projectMandate(missions({ monitor: "locked" }), {
-      engagementId: "e1",
-      granted: ["FINANCIAL_STATEMENTS"],
-    });
-    expect(findMissionView(views, "monitor")!.retainedWork).toBe(false);
-  });
-
-  it("a stage shown as evidence is never counted as retained work", () => {
-    const views = projectMandate(missions({ prepare: "passed" }), {
-      engagementId: "e1",
-      granted: ["MONITORING"],
-    });
-    const prepare = findMissionView(views, "prepare")!;
-    expect(prepare.prerequisiteOnly).toBe(true);
-    expect(prepare.retainedWork).toBe(false);
+  it("a visible stage outside the mandate keeps its completed work reachable as retained work", () => {
+    const views = projectMandate(missions({ reconcile: "passed" }), { engagementId: "e1", granted: [] });
+    const reconcile = findMissionView(views, "reconcile")!;
+    expect(reconcile.mandateStatus).toBe("out_of_scope");
+    expect(reconcile.retainedWork).toBe(true);
   });
 
   it("an empty mandate leaves nothing active", () => {

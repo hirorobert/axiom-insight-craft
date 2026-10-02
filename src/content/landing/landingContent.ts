@@ -32,12 +32,12 @@ export type LandingSectionId = (typeof LANDING_SECTION_IDS)[number];
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LANDING_HERO = {
-  eyebrow: "FINANCIAL CLOSE WORKSPACE",
-  headline: "Close the books. Produce review-ready financial statements.",
+  eyebrow: "TRIAL BALANCE REVIEW",
+  headline: "A trial balance you can stand behind.",
   supporting:
-    "Import a trial balance, resolve the accounts that need a decision and prepare framework-aware statements, with a traceable source and attributed decisions.",
+    "Upload a trial balance, check it, review the accounts that need attention and reconcile it to supporting evidence, with a traceable source and attributed decisions.",
   primaryCta: { label: "Create account", href: "/auth?mode=signup" },
-  secondaryCta: { label: "Explore a sample close", href: "#services" },
+  secondaryCta: { label: "See how it works", href: "#services" },
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,68 +69,45 @@ export interface LandingService {
   readonly note?: string;
 }
 
+/**
+ * Only the service a customer can complete today is described here (src/lib/workspace/moduleAvailability.ts withholds the
+ * rest). Withheld services are not kept as copy: they return with their own reviewed wording when their engines are
+ * complete.
+ */
 export const LANDING_SERVICES: readonly LandingService[] = [
   {
     id: "prepare-review",
-    name: "Prepare & Review",
-    outcome: "Turn an imported trial balance into a reviewed one, with a decision recorded on every account that needs one.",
-    value: "Statements start from a trial balance you have already reviewed.",
+    name: "Trial balance review",
+    outcome: "Upload, check and review the accounts in your trial balance.",
+    value: "A checked, reviewed trial balance, reconciled to its supporting evidence, with each review decision recorded.",
     primaryOutputs: [
-      { name: "Account mapping schedule", formats: "XLSX · CSV" },
-      { name: "Preparation check summary", formats: "On screen" },
-      { name: "Decision history", formats: "On screen" },
-    ],
-    moreOutputs: [],
-  },
-  {
-    id: "close-certification",
-    name: "Close Certification",
-    outcome: "Record a preparation certification once the required checks and outstanding classification decisions are resolved.",
-    value: "Reviewers can see that preparation was complete before statements were issued.",
-    primaryOutputs: [{ name: "Preparation certification record", formats: "On screen" }],
-    moreOutputs: [],
-    note: "It is not an external audit, an audit opinion, or any form of statutory assurance.",
-  },
-  {
-    id: "reporting-pack",
-    name: "Reporting Pack",
-    outcome: "Prepare framework-aware statements with supporting schedules, then export them for review and circulation.",
-    value: "Statements reach reviewers in the formats they already use.",
-    primaryOutputs: [
-      { name: "Statement of financial position", formats: "XLSX · PDF" },
-      { name: "Statement of profit or loss and other comprehensive income", formats: "XLSX · PDF" },
-      { name: "Statement of cash flows", formats: "XLSX · PDF", condition: "Where prior-period balances are present" },
-    ],
-    moreOutputs: [
-      { name: "Statement of changes in equity", formats: "XLSX · PDF", condition: "Where opening balances are present" },
-      { name: "Disclosure notes", formats: "On screen" },
-      { name: "Comparative presentation", formats: "XLSX · PDF", condition: "Where a prior period is present" },
-      { name: "Canonical report data", formats: "JSON · CSV" },
-    ],
-  },
-  {
-    id: "close-insights",
-    name: "Close Insights",
-    outcome: "Compare a reporting period with a prior one: movement, variance and cash indicators.",
-    value: "See what moved between periods before the close is reviewed.",
-    primaryOutputs: [
-      { name: "Period movement and variance", formats: "On screen", condition: "Where prior-period data is present" },
-      { name: "Cash indicators", formats: "On screen", condition: "Where prior-period data is present" },
+      { name: "Trial balance checks", formats: "On screen" },
+      { name: "Account review decisions", formats: "On screen" },
+      { name: "Evidence reconciliation status", formats: "On screen" },
     ],
     moreOutputs: [],
   },
 ];
 
+/** The four steps of the one customer workflow. */
+export const LANDING_WORKFLOW: readonly string[] = [
+  "Upload trial balance",
+  "Review accounts needing attention",
+  "Reconcile supporting evidence",
+  "Trial balance ready",
+];
+
 export const LANDING_SERVICES_COPY = {
   eyebrow: "Services",
-  heading: "Choose your outcome.",
-  intro: "A plan is required. Every plan includes all four services; plans differ in capacity.",
+  heading: "Start with your trial balance.",
+  intro: "A plan is required. Every plan includes Trial balance review; plans differ in capacity.",
   outputsHeading: "What you receive",
+  workflowHeading: "How it works",
   seeAll: "See all included outputs",
   startPrefix: "Start with",
   signInPrompt: "Already have an account?",
   signInLabel: "Sign in",
-  frameworks: "Frameworks: IFRS for SMEs, IFRS, IPSAS accrual and IPSAS cash.",
+  frameworks: "A workspace records its reporting framework: IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash.",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,21 +152,21 @@ export interface LandingFaqEntry {
 export const LANDING_FAQ: readonly LandingFaqEntry[] = [
   {
     id: "what-it-prepares",
-    question: "What does CFOCLOSE help prepare?",
+    question: "What does CFOCLOSE do today?",
     answer:
-      "CFOCLOSE takes an imported trial balance through classification review and preparation checks, then prepares framework-aware financial statements and supporting schedules for review. It is a preparation and review workspace: the professional using it remains responsible for the conclusions reached and for anything filed outside the workspace.",
+      "CFOCLOSE checks an imported trial balance, holds the accounts that need a decision for review, and reconciles the trial balance to supporting evidence such as bank statements, mobile-money exports or subledgers. It is a preparation and review workspace: the professional using it remains responsible for the conclusions reached.",
   },
   {
     id: "frameworks",
     question: "Which reporting frameworks can be selected?",
     answer:
-      "A workspace can be set to IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash. The selected framework governs how prepared statements are presented and which preparation checks apply.",
+      "A workspace records its reporting framework: IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash.",
   },
   {
     id: "professional-judgement",
     question: "Does CFOCLOSE replace professional judgement?",
     answer:
-      "No. Classification suggestions are graded, and accounts the workspace cannot resolve confidently are held as exceptions for a recorded decision. Preparation checks report what they find rather than concluding that a set of statements is correct. The professional preparing or reviewing the work remains responsible for it.",
+      "No. Classification suggestions are graded, and accounts the workspace cannot resolve confidently are held as exceptions for a recorded decision. Checks report what they find rather than concluding that the accounts are correct. The professional preparing or reviewing the work remains responsible for it.",
   },
   {
     id: "attribution",
@@ -201,19 +178,13 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
     id: "lapsed-subscription",
     question: "What happens to supported historical outputs after a subscription lapses?",
     answer:
-      "Supported historical outputs remain readable under the defined lifecycle and subscription rules, so work already prepared does not disappear when a paid capacity ends. Preparing new outputs and exporting again depend on the capacity then in force.",
+      "Supported historical outputs remain readable under the defined lifecycle and subscription rules, so work already prepared does not disappear when a paid capacity ends. Preparing new work depends on the capacity then in force.",
   },
   {
     id: "formats",
-    question: "Which import and export formats are currently available?",
+    question: "Which import formats are currently available?",
     answer:
-      "Trial balances import from CSV and XLSX. Prepared outputs are viewed in the workspace and exported as XLSX, PDF, CSV and structured JSON. Structured regulatory filing formats are not part of this preview.",
-  },
-  {
-    id: "close-certification",
-    question: "What is Close Certification?",
-    answer:
-      "Close Certification records that a reviewed trial balance has passed the required preparation checks and that its outstanding classification decisions were resolved. It is an internal preparation record kept inside the workspace. It is not an external audit, an audit opinion, or any form of statutory assurance.",
+      "Trial balances import from CSV and XLSX. Checks, review decisions and evidence reconciliation are shown in the workspace.",
   },
   {
     id: "pricing-status",
@@ -228,7 +199,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LANDING_FINAL_CTA = {
-  heading: "Bring your financial close under control.",
+  heading: "Start with a trial balance you can stand behind.",
   supporting: "Plans are activated by our team. Online payment is not available yet.",
   primaryCta: { label: "Create account", href: "/auth?mode=signup" },
   secondaryCta: { label: "View plans", href: "#plans" },
@@ -242,4 +213,4 @@ export const COMMERCIAL_NOTICE =
   "Entity limits, named-user capacity and self-serve payment activation are undergoing final enforcement verification. This preview is not a public commercial offer." as const;
 
 export const LANDING_FOOTER_NOTE =
-  "CFOCLOSE is a financial close preparation and review workspace. It does not provide an audit, an audit opinion or legal advice." as const;
+  "CFOCLOSE is a trial balance preparation and review workspace. It does not provide an audit, an audit opinion or legal advice." as const;

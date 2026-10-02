@@ -61,7 +61,7 @@ export function deriveTrialBalanceSteps(upload: WorkspaceUpload | null, opts: { 
     { key: "parsed",     label: "Workbook parsed" },
     { key: "classified", label: "Accounts classified" },
     { key: "balanced",   label: "Debits equal credits" },
-    { key: "statements", label: "Draft statements assembled" },
+    { key: "statements", label: "Account totals assembled" },
     { key: "complete",   label: "Validation complete" },
   ];
 

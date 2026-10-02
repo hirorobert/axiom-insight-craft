@@ -35,9 +35,10 @@ import { ActiveFileProvenance } from "@/components/workspace/ActiveFileProvenanc
 import { useEngagement } from "@/contexts/EngagementContext";
 import { buildPrepareReviewRoute, canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
 import { buildManageTrialBalanceRoute } from "@/lib/workspace/trialBalanceManagement";
-import { capabilityTitle, CUSTOMER_CAPABILITY_OUTCOMES } from "@/lib/workspace/mandate";
+import { customerCapabilityTitle, CUSTOMER_CAPABILITY_OUTCOMES } from "@/lib/workspace/mandate";
 import { customerVisibleCapabilities, isStageCustomerVisible } from "@/lib/workspace/moduleAvailability";
-import { NO_VISIBLE_NEXT_ACTION } from "@/lib/workspace/deriveOrientationSummary";
+import { NO_VISIBLE_NEXT_ACTION, trialBalanceReviewStep } from "@/lib/workspace/deriveOrientationSummary";
+import { TRIAL_BALANCE_REVIEW } from "@/lib/workspace/moduleAvailability";
 import { readRememberedOutcome } from "@/lib/product/outcomes";
 import { DecisionCard, type Decision } from "@/components/workspace/DecisionCard";
 import { buildClassificationDecision } from "@/components/workspace/decisionBuilders";
@@ -166,7 +167,7 @@ export default function WorkspaceOverview() {
 
   const effectiveTin = tinOverride ?? company?.tin ?? null;
   const granted = mandate?.granted ?? null;
-  const orientation = deriveOrientationSummary(workspaceState, granted);
+  const orientation = deriveOrientationSummary(workspaceState, granted, upload?.safisha_status ?? null);
   // A tax-profile warning needs (1) an active tax/filing service, (2) a configured jurisdiction that requires the field
   // and (3) the field actually missing. No jurisdiction is configured for a workspace today, so it never fires by inference.
   const jurisdiction = company?.filing_jurisdiction ?? null;
@@ -286,15 +287,23 @@ export default function WorkspaceOverview() {
     // Same mapping function the internal classification-states acceptance page uses — one semantic authority.
     decision = buildClassificationDecision(classification, classificationDecisionOptions);
   } else if (!isStageCustomerVisible(nextAction.mission)) {
-    // The engine's next step lies in a stage withheld from customers (moduleAvailability.ts). It is never named or linked;
-    // the one action is the most advanced completed stage on this engagement's own path.
-    const lastDone = [...pathStages].reverse().find((s) => missions[s].status === "passed" || missions[s].status === "signed") ?? "prepare";
-    decision = {
-      eyebrow: "Workspace",
-      headline: NO_VISIBLE_NEXT_ACTION,
-      button: { label: `Open ${STAGE_CONFIGS[lastDone].label}`, href: `${basePath}/${lastDone}`, icon: <ArrowRight className="w-4 h-4" /> },
-      tone: "muted",
-    };
+    // The engine's next step lies in a stage withheld from customers (moduleAvailability.ts). It is never named or linked:
+    // the customer's own trial-balance-review step is the one decision.
+    const step = trialBalanceReviewStep(workspaceState, upload?.safisha_status ?? null);
+    decision = step
+      ? {
+          eyebrow: TRIAL_BALANCE_REVIEW.title,
+          headline: `${step.label}.`,
+          detail: step.detail,
+          button: { label: step.ready ? "Open trial balance" : step.label, href: `${basePath}/prepare`, icon: <ArrowRight className="w-4 h-4" /> },
+          tone: step.ready ? "muted" : "primary",
+        }
+      : {
+          eyebrow: TRIAL_BALANCE_REVIEW.title,
+          headline: NO_VISIBLE_NEXT_ACTION,
+          button: { label: "Open trial balance", href: `${basePath}/prepare`, icon: <ArrowRight className="w-4 h-4" /> },
+          tone: "muted",
+        };
   } else {
     const activeSlug = activeIndex >= 0 ? pathStages[activeIndex] : null;
     const destination = resolveNextActionDestination({
@@ -439,7 +448,7 @@ export default function WorkspaceOverview() {
         <div className="mt-6 flex items-start justify-between gap-4 border-t border-border pt-5" data-testid="engagement-services">
           <p className="min-w-0 text-[12px] text-muted-foreground">
             <span className="mr-2 text-[10px] font-semibold uppercase tracking-[0.18em]">Services</span>
-            {customerVisibleCapabilities(mandate.granted).map((cap) => capabilityTitle(cap)).join(", ")}
+            {customerVisibleCapabilities(mandate.granted).map((cap) => customerCapabilityTitle(cap)).join(", ")}
           </p>
           {canAmend && (
             <div className="flex shrink-0 items-center gap-4">

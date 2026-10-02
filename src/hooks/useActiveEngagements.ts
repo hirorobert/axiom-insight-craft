@@ -56,6 +56,8 @@ export interface ActiveEngagementEntry {
   /** Granted capabilities, via fold_engagement_mandate — the same authority the workspace itself uses. */
   capabilities: EngagementCapability[];
   workspaceState: WorkspaceState;
+  /** The current upload's evidence-reconciliation status (trial_balance_uploads.safisha_status), read-only. */
+  safishaStatus?: string | null;
   openedAt: string;
 }
 
@@ -219,6 +221,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
             framework: company?.reporting_framework ?? null,
             capabilities,
             workspaceState: snapshot.workspaceState,
+            safishaStatus: snapshot.upload?.safisha_status ?? null,
             openedAt: eng.opened_at,
           };
         },

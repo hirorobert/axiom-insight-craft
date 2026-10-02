@@ -13,7 +13,7 @@
 
 import type { MissionState, MissionStatus, WorkspaceMission } from "./types";
 import { STAGE_SEQUENCE } from "./stageMetadata";
-import { customerVisibleCapabilities, isCapabilityCustomerVisible, isStageCustomerVisible } from "./moduleAvailability";
+import { customerVisibleCapabilities, isCapabilityCustomerVisible, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
 
 export type EngagementCapability =
   | "FINANCIAL_STATEMENTS"
@@ -76,8 +76,20 @@ export const CAPABILITY_OUTCOMES: {
   },
 ];
 
-/** The services a customer may choose or see (moduleAvailability.ts). The registry above stays complete. */
-export const CUSTOMER_CAPABILITY_OUTCOMES = CAPABILITY_OUTCOMES.filter((o) => isCapabilityCustomerVisible(o.capability));
+/**
+ * The services a customer may choose or see (moduleAvailability.ts). The registry above stays complete. While only its
+ * Prepare and Reconcile stages are customer-reachable, FINANCIAL_STATEMENTS is presented as "Trial balance review".
+ */
+export const CUSTOMER_CAPABILITY_OUTCOMES = CAPABILITY_OUTCOMES
+  .filter((o) => isCapabilityCustomerVisible(o.capability))
+  .map((o) => (o.capability === "FINANCIAL_STATEMENTS" && !isStageCustomerVisible("statements")
+    ? { ...o, title: TRIAL_BALANCE_REVIEW.title, description: TRIAL_BALANCE_REVIEW.description }
+    : o));
+
+/** The name a customer sees for a service (the customer projection, else the registry title). */
+export function customerCapabilityTitle(cap: EngagementCapability): string {
+  return CUSTOMER_CAPABILITY_OUTCOMES.find((o) => o.capability === cap)?.title ?? capabilityTitle(cap);
+}
 
 /**
  * Stages a capability *activates* — the capability owns them.

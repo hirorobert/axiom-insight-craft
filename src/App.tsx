@@ -22,13 +22,10 @@ import WorkspaceLayout from "./pages/workspace/WorkspaceLayout";
 import WorkspaceOverview from "./pages/workspace/WorkspaceOverview";
 
 // Stage workspaces (sequence: prepare → reconcile → statements → tax → compliance → filing → monitor). The tax stage is
-// withheld from customers with Compliance and Filing (src/lib/workspace/moduleAvailability.ts); their pages are deliberately
-// not imported here.
+// and the Statements, Compliance, Filing and Monitor stages are withheld from customers (src/lib/workspace/moduleAvailability.ts);
+// their pages are deliberately not imported here. Customers reach Prepare and Reconcile only.
 import PrepareWorkspace from "./pages/workspace/PrepareWorkspace";
 import ReconcileWorkspace from "./pages/workspace/ReconcileWorkspace";
-import StatementsWorkspace from "./pages/workspace/StatementsWorkspace";
-import StatementReviewWorkspace from "./pages/workspace/StatementReviewWorkspace";
-import MonitorWorkspace from "./pages/workspace/MonitorWorkspace";
 // IssuesWorkspace is retired — /issues redirects to /compliance (Phase D removes file)
 import IssuesWorkspace from "./pages/workspace/IssuesWorkspace";
 
@@ -106,9 +103,6 @@ const App = () => (
                   {/* Architecture v3.1 canonical routes */}
                   <Route path="prepare"    element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />
                   <Route path="reconcile"  element={<StageScopeGate stage="reconcile"><ReconcileWorkspace /></StageScopeGate>} />
-                  <Route path="statements" element={<StageScopeGate stage="statements"><StatementsWorkspace /></StageScopeGate>} />
-                  <Route path="statements/review" element={<StageScopeGate stage="statements"><StatementReviewWorkspace /></StageScopeGate>} />
-                  <Route path="monitor"    element={<StageScopeGate stage="monitor"><MonitorWorkspace /></StageScopeGate>} />
 
                   {/* Compatibility redirects — engine-named sub-routes → accounting slugs */}
                   <Route path="safisha"   element={<LegacySubRouteRedirect to="prepare" />} />

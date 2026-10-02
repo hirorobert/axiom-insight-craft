@@ -24,6 +24,10 @@
 // RE-CAPTURED again the same way when Compliance and Filing were withheld with Tax: the only further difference is the
 // removed complete-close card (its outcome promises compliance and filing outputs) and the statements outcome scope no
 // longer naming a filing output.
+// RE-CAPTURED again (2026-10-02) when the customer scope was reduced to Trial balance review: main-ProductTour.html loses
+// the statements and performance outcome cards; main-Footer.html reads "trial balance preparation and review workspace".
+// Both differences are exactly those; nothing else changed. main-Footer.html was then re-captured once more for the brand
+// tagline ("Trial balance review for accountants, finance teams, and firms."), its only difference.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -170,7 +174,7 @@ describe("4/9. OFF: every public entry point is absent and existing behaviour is
     expect(html).toBe(fixture("main-ProductTour.html"));
     expect(html).not.toMatch(/Assess tax and compliance|intent=tax-compliance|tax computation/i);
     expect(html).not.toMatch(/Expert-led|Report to a donor or funder|Jurisdiction required|Select jurisdiction|data-testid="(donor|tax)-tile"/);
-    expect([...html.matchAll(/>(0\d)</g)].map((m) => m[1])).toEqual(["01", "02", "05"]);
+    expect([...html.matchAll(/>(0\d)</g)].map((m) => m[1])).toEqual(["01"]);
   });
 
   it("the public Header renders EXACTLY main's markup (landing and inner pages): no Contact link", async () => {

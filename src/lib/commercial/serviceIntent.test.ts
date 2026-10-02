@@ -8,8 +8,7 @@ import { PRICING_CATALOGUE } from "./pricingCatalogue";
 import {
   SERVICE_INTENTS, SERVICE_INTENT_IDS, SERVICE_INTENT_STORAGE_KEY, clearServiceIntent, currentServiceIntent, intentFromUserMetadata, parsePlanIntent,
   parseServiceIntent, plansHref, readRememberedServiceIntent, rememberServiceIntent, resolveServiceDestination,
-  serviceAuthHref, serviceAvailabilityLabel, type BillingSnapshot,
-} from "./serviceIntent";
+  serviceAuthHref, serviceAvailabilityLabel, type BillingSnapshot, CUSTOMER_SERVICE_INTENT_IDS } from "./serviceIntent";
 
 const store = new Map<string, string>();
 (globalThis as { window?: unknown }).window = {
@@ -24,15 +23,19 @@ afterEach(() => store.clear());
 describe("closed registry", () => {
   it("exactly four services, each bound to a real capability and a real stage", () => {
     expect(SERVICE_INTENT_IDS).toEqual(["prepare-review", "close-certification", "reporting-pack", "close-insights"]);
+    expect(CUSTOMER_SERVICE_INTENT_IDS).toEqual(["prepare-review"]);
+    expect(SERVICE_INTENTS["prepare-review"].name).toBe("Trial balance review");
     for (const id of SERVICE_INTENT_IDS) {
       expect(CAPABILITIES[SERVICE_INTENTS[id].capability]).toBeDefined();
       expect(["prepare", "statements", "monitor"]).toContain(SERVICE_INTENTS[id].stage);
     }
   });
   it.each([
-    ["reporting-pack", "reporting-pack"],
-    ["Reporting-Pack", null], [" reporting-pack", null], ["reporting-pack ", null], ["reporting_pack", null],
-    ["REPORTING_PACK_EXPORT", null], ["", null], [null, null], [undefined, null], [42, null], [{ toString: () => "reporting-pack" }, null],
+    ["prepare-review", "prepare-review"],
+    // Withheld from customers (moduleAvailability.ts): registry identifiers that no longer parse from any source.
+    ["reporting-pack", null], ["close-certification", null], ["close-insights", null],
+    ["Prepare-Review", null], [" prepare-review", null], ["prepare-review ", null], ["prepare_review", null],
+    ["REPORTING_PACK_EXPORT", null], ["", null], [null, null], [undefined, null], [42, null], [{ toString: () => "prepare-review" }, null],
     ["__proto__", null], ["constructor", null],
   ])("service %j → %j", (input, expected) => {
     expect(parseServiceIntent(input)).toBe(expected);
@@ -64,58 +67,58 @@ describe("links carry validated identifiers only", () => {
 
 describe("remembered intent is re-validated on every read", () => {
   it("round trip; a tampered value is dropped", () => {
-    rememberServiceIntent("close-insights", "SOLO");
-    expect(readRememberedServiceIntent()).toEqual({ service: "close-insights", plan: "SOLO" });
+    rememberServiceIntent("prepare-review", "SOLO");
+    expect(readRememberedServiceIntent()).toEqual({ service: "prepare-review", plan: "SOLO" });
     store.set(SERVICE_INTENT_STORAGE_KEY, JSON.stringify({ service: "admin", plan: "solo" }));
     expect(readRememberedServiceIntent()).toBeNull();
     store.set(SERVICE_INTENT_STORAGE_KEY, "{not json");
     expect(readRememberedServiceIntent()).toBeNull();
-    store.set(SERVICE_INTENT_STORAGE_KEY, JSON.stringify({ service: "reporting-pack", plan: "platinum" }));
-    expect(readRememberedServiceIntent()).toEqual({ service: "reporting-pack", plan: null });
+    store.set(SERVICE_INTENT_STORAGE_KEY, JSON.stringify({ service: "prepare-review", plan: "platinum" }));
+    expect(readRememberedServiceIntent()).toEqual({ service: "prepare-review", plan: null });
     clearServiceIntent();
     expect(readRememberedServiceIntent()).toBeNull();
   });
   it("a valid URL value wins over a remembered one; an invalid URL value falls back to the remembered one", () => {
-    rememberServiceIntent("close-insights", null);
-    expect(currentServiceIntent("?service=reporting-pack&plan=firm")).toEqual({ service: "reporting-pack", plan: "FIRM" });
-    expect(currentServiceIntent("?service=hack")).toEqual({ service: "close-insights", plan: null });
+    rememberServiceIntent("prepare-review", null);
+    expect(currentServiceIntent("?service=prepare-review&plan=firm")).toEqual({ service: "prepare-review", plan: "FIRM" });
+    expect(currentServiceIntent("?service=hack")).toEqual({ service: "prepare-review", plan: null });
   });
 });
 
 describe("the intent survives the confirmation link in ANOTHER browser or tab (no URL, no sessionStorage)", () => {
   // signUp stores { v: 1, service, plan } in the new account's own user metadata; the confirmation link returns to the
   // site root. A fresh browser has an empty sessionStorage and a bare URL — the metadata alone must carry the intent.
-  const meta = { display_name: "A", service_intent: { v: 1, service: "reporting-pack", plan: "practice" } };
+  const meta = { display_name: "A", service_intent: { v: 1, service: "prepare-review", plan: "practice" } };
   it("a fresh browser (empty storage, bare URL) recovers both service and plan from the account's metadata", () => {
     store.clear();
-    expect(currentServiceIntent("", meta)).toEqual({ service: "reporting-pack", plan: "PRACTICE" });
-    expect(currentServiceIntent("?", meta)).toEqual({ service: "reporting-pack", plan: "PRACTICE" });
+    expect(currentServiceIntent("", meta)).toEqual({ service: "prepare-review", plan: "PRACTICE" });
+    expect(currentServiceIntent("?", meta)).toEqual({ service: "prepare-review", plan: "PRACTICE" });
   });
   it("service without a plan survives too", () => {
-    expect(currentServiceIntent("", { service_intent: { v: 1, service: "close-insights", plan: null } })).toEqual({ service: "close-insights", plan: null });
+    expect(currentServiceIntent("", { service_intent: { v: 1, service: "prepare-review", plan: null } })).toEqual({ service: "prepare-review", plan: null });
   });
   it("precedence: a valid URL value, then this tab's remembered value, then the metadata", () => {
-    rememberServiceIntent("close-certification", null);
+    rememberServiceIntent("prepare-review", "FIRM");
     expect(currentServiceIntent("?service=prepare-review", meta)).toEqual({ service: "prepare-review", plan: null });
-    expect(currentServiceIntent("", meta)).toEqual({ service: "close-certification", plan: null });
+    expect(currentServiceIntent("", meta)).toEqual({ service: "prepare-review", plan: "FIRM" });
   });
   it.each([
     ["no metadata", undefined],
     ["metadata without an intent", { display_name: "A" }],
-    ["wrong version", { service_intent: { v: 2, service: "reporting-pack", plan: "practice" } }],
+    ["wrong version", { service_intent: { v: 2, service: "prepare-review", plan: "practice" } }],
     ["unknown service", { service_intent: { v: 1, service: "admin", plan: "practice" } }],
-    ["array", { service_intent: ["reporting-pack"] }],
-    ["string", { service_intent: "reporting-pack" }],
+    ["array", { service_intent: ["prepare-review"] }],
+    ["string", { service_intent: "prepare-review" }],
   ])("metadata is untrusted input: %s → no intent", (_label, m) => {
     expect(intentFromUserMetadata(m)).toBeNull();
   });
   it("a tampered plan in metadata is dropped, the service kept", () => {
-    expect(intentFromUserMetadata({ service_intent: { v: 1, service: "reporting-pack", plan: "platinum" } })).toEqual({ service: "reporting-pack", plan: null });
+    expect(intentFromUserMetadata({ service_intent: { v: 1, service: "prepare-review", plan: "platinum" } })).toEqual({ service: "prepare-review", plan: null });
   });
 });
 
 describe("where an authenticated account with an intent goes", () => {
-  const intent = { service: "reporting-pack" as const, plan: "PRACTICE" as const };
+  const intent = { service: "prepare-review" as const, plan: "PRACTICE" as const };
   const snap = (over: Partial<BillingSnapshot>): BillingSnapshot => ({ hasBillingCustomer: true, planCode: "PRACTICE", licenceStatus: "ACTIVE", entitlements: [], ...over });
   const go = (summary: BillingSnapshot | null, extra: { loading?: boolean; error?: boolean } = {}) =>
     resolveServiceDestination(intent, { loading: !!extra.loading, error: !!extra.error, summary });
@@ -128,9 +131,10 @@ describe("where an authenticated account with an intent goes", () => {
     expect(go(snap({}), { error: true })).toEqual({ kind: "ignore" });
   });
   it("entitled (active or grace licence on a catalogue plan) → the service's workflow stage", () => {
-    expect(go(snap({}))).toEqual({ kind: "workflow", stage: "statements" });
-    expect(go(snap({ licenceStatus: "GRACE", planCode: "SOLO" }))).toEqual({ kind: "workflow", stage: "statements" });
-    expect(resolveServiceDestination({ service: "close-insights", plan: null }, { loading: false, error: false, summary: snap({}) })).toEqual({ kind: "workflow", stage: "monitor" });
+    expect(go(snap({}))).toEqual({ kind: "workflow", stage: "prepare" });
+    expect(go(snap({ licenceStatus: "GRACE", planCode: "SOLO" }))).toEqual({ kind: "workflow", stage: "prepare" });
+    // A withheld service carried from an older link or record routes nowhere (ordinary routing applies).
+    expect(resolveServiceDestination({ service: "close-insights" as never, plan: null }, { loading: false, error: false, summary: snap({}) })).toEqual({ kind: "none" });
     expect(resolveServiceDestination({ service: "prepare-review", plan: null }, { loading: false, error: false, summary: snap({}) })).toEqual({ kind: "workflow", stage: "prepare" });
   });
   it.each([
@@ -143,10 +147,10 @@ describe("where an authenticated account with an intent goes", () => {
     ["unknown plan", { planCode: "PLATINUM" }],
     ["unknown licence status", { licenceStatus: "WHATEVER" }],
   ])("not entitled (%s) → /plans with the service and plan preserved", (_label, over) => {
-    expect(go(snap(over as Partial<BillingSnapshot>))).toEqual({ kind: "plans", href: "/plans?service=reporting-pack&plan=practice" });
+    expect(go(snap(over as Partial<BillingSnapshot>))).toEqual({ kind: "plans", href: "/plans?service=prepare-review&plan=practice" });
   });
   it("no summary at all → /plans (never assumed entitled)", () => {
-    expect(go(null)).toEqual({ kind: "plans", href: "/plans?service=reporting-pack&plan=practice" });
+    expect(go(null)).toEqual({ kind: "plans", href: "/plans?service=prepare-review&plan=practice" });
   });
   it("a tampered intent object is re-validated: an unknown service routes nowhere", () => {
     expect(resolveServiceDestination({ service: "admin" as never, plan: null }, { loading: false, error: false, summary: snap({}) })).toEqual({ kind: "none" });

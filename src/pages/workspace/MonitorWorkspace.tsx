@@ -13,7 +13,6 @@ import { MaonoDashboard } from "@/components/maono/MaonoDashboard";
 import { ComplianceScorecard } from "@/components/ComplianceScorecard";
 import { FirmDashboardPanel } from "@/components/FirmDashboardPanel";
 import { JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
-import { WITHHELD_SERVICE_SURFACES_VISIBLE } from "@/lib/workspace/moduleAvailability";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
@@ -37,23 +36,17 @@ export default function MonitorWorkspace() {
         />
       )}
 
-      {/* Compliance scorecard, filing calendar, tax payment ledger and the compliance firm dashboard are surfaces of the
-          services withheld from customers (moduleAvailability.ts); their data is untouched. */}
-      {WITHHELD_SERVICE_SURFACES_VISIBLE && (
-        <>
-          {/* Compliance Scorecard — all-company view */}
-          <ComplianceScorecard />
+      {/* Compliance Scorecard — all-company view */}
+      <ComplianceScorecard />
 
-          {/* Filing Calendar — multi-company deadline view */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <JurisdictionPanel jurisdiction={company?.filing_jurisdiction ?? null} panel="filingCalendar" companyId={companyId} uploadId={upload?.id ?? ""} periodYear={periodYear} userId="" />
-            <JurisdictionPanel jurisdiction={company?.filing_jurisdiction ?? null} panel="paymentLedger" companyId={companyId} uploadId={upload?.id ?? ""} periodYear={periodYear} userId="" />
-          </div>
+      {/* Filing Calendar — multi-company deadline view */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <JurisdictionPanel jurisdiction={company?.filing_jurisdiction ?? null} panel="filingCalendar" companyId={companyId} uploadId={upload?.id ?? ""} periodYear={periodYear} userId="" />
+        <JurisdictionPanel jurisdiction={company?.filing_jurisdiction ?? null} panel="paymentLedger" companyId={companyId} uploadId={upload?.id ?? ""} periodYear={periodYear} userId="" />
+      </div>
 
-          {/* Firm Dashboard — partner-level overview */}
-          <FirmDashboardPanel />
-        </>
-      )}
+      {/* Firm Dashboard — partner-level overview */}
+      <FirmDashboardPanel />
     </div>
   );
 }

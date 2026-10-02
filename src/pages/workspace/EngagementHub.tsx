@@ -23,9 +23,9 @@ import { Button } from "@/components/ui/button";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
-import { capabilityTitle } from "@/lib/workspace/mandate";
-import { customerVisibleCapabilities, isStageCustomerVisible } from "@/lib/workspace/moduleAvailability";
-import { NO_VISIBLE_NEXT_ACTION } from "@/lib/workspace/deriveOrientationSummary";
+import { customerCapabilityTitle } from "@/lib/workspace/mandate";
+import { customerVisibleCapabilities, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "@/lib/workspace/moduleAvailability";
+import { NO_VISIBLE_NEXT_ACTION, trialBalanceReviewStep } from "@/lib/workspace/deriveOrientationSummary";
 import type { ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
@@ -100,12 +100,14 @@ export default function EngagementHub({
             <ul className="grid gap-3" data-testid="engagement-hub-list">
               {entries.map((entry) => {
                 const nextVisible = isStageCustomerVisible(entry.workspaceState.nextAction.mission);
-                const stageLabel = nextVisible ? STAGE_CONFIGS[entry.workspaceState.nextAction.mission].label : "Workspace";
-                const nextLabel = nextVisible ? entry.workspaceState.nextAction.label : NO_VISIBLE_NEXT_ACTION;
+                const stageLabel = nextVisible ? STAGE_CONFIGS[entry.workspaceState.nextAction.mission].label : TRIAL_BALANCE_REVIEW.title;
+                const nextLabel = nextVisible
+                  ? entry.workspaceState.nextAction.label
+                  : trialBalanceReviewStep(entry.workspaceState, entry.safishaStatus)?.label ?? NO_VISIBLE_NEXT_ACTION;
                 const services = customerVisibleCapabilities(entry.capabilities);
                 const serviceLabel =
                   services.length > 0
-                    ? services.map((c) => capabilityTitle(c)).join(", ")
+                    ? services.map((c) => customerCapabilityTitle(c)).join(", ")
                     : "No service selected yet";
 
                 return (
