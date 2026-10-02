@@ -351,7 +351,7 @@ jobs:
           createdb plan_capabilities_proof
           node scripts/db-proof/planCapabilities.mjs
 
-      - name: Annual commercial term proof (no monthly entitlement, 12-month payment licences, renewal, suspension, archive, existing licences unchanged, on the same throwaway container)
+      - name: Annual commercial term proof (zero-state gate, exact 12-month payment licences, future-licence cancellation, suspension, archive, existing licences unchanged, on the same throwaway container)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/annual_term_proof
