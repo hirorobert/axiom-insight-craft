@@ -21,6 +21,9 @@ const REPO = path.resolve(HERE, "../..");
 const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
 const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const MODE = process.env.DB_PROOF_MODE ?? "embedded";
+// The withheld-service refusal (proven by serviceWithholding.mjs) is applied AFTER this proof's matrix, on top of the
+// history it creates: the matrix exercises grants the refusal forbids for new data.
+const WITHHOLDING = "20261002100000_refuse_withheld_service_grants.sql";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
 const CONCURRENCY = 25;
 
@@ -91,7 +94,7 @@ async function stopDatabase() {
 async function replay() {
   await admin.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));
   const dir = path.join(REPO, "supabase/migrations");
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sql") && f !== WITHHOLDING).sort();
   for (const f of files) {
     let text = fs.readFileSync(path.join(dir, f), "utf8");
     if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
@@ -144,7 +147,7 @@ async function main() {
 
   group("Replay from zero");
   let files;
-  await check("every repository migration (including 20260920100000) applies on an empty PostgreSQL 16", async () => { files = await replay(); return files.includes("20260920100000_workspace_setup_authority.sql"); });
+  await check("every repository migration before 20261002100000 (including 20260920100000) applies on an empty PostgreSQL 16", async () => { files = await replay(); return files.includes("20260920100000_workspace_setup_authority.sql"); });
 
   for (const [k, id] of Object.entries(U)) await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [id, `${k}@example.test`]);
   // Named-user seats (20260925100000): Company A has four other people, so the account holds a Practice licence with 4 purchased
@@ -297,24 +300,10 @@ async function main() {
   await refused("another company's owner cannot select it", "42501", () => q(user(U.ownerB), "SELECT public.set_company_filing_jurisdiction($1,'TZ')", [A]));
   await refused("a malformed code is rejected (22023)", "22023", () => q(user(U.owner), "SELECT public.set_company_filing_jurisdiction($1,'Tanzania')", [A]));
   await check("a partner selects it explicitly", async () => (await one(user(U.partner), "SELECT public.set_company_filing_jurisdiction($1,'TZ') j", [A])).j === "TZ");
-  // Tax computation is withheld (20261002100000_refuse_withheld_service_grants.sql): a NEW grant is refused even with a
-  // jurisdiction. The jurisdiction lock still protects every HISTORICAL Tax grant, so one is recorded exactly as it was
-  // stored before that migration (triggers suspended for this single superuser write only), then the lock is proven.
-  await check("with a jurisdiction, a NEW Tax grant is refused (PT422 SERVICE_NOT_AVAILABLE) and writes nothing", async () => {
-    const n0 = await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE engagement_id=$1", [winner]);
-    try { await openScope(user(U.owner), A, 2026, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]); return "no error"; } catch (e) {
-      return e.code === "PT422" && e.message === "SERVICE_NOT_AVAILABLE" && (await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE engagement_id=$1", [winner])) === n0;
-    }
-  });
-  await check("a historical Tax grant (recorded before 20261002100000) is in scope", async () => {
-    await admin.query("BEGIN");
-    try {
-      await admin.query("SET LOCAL session_replication_role = replica");
-      await admin.query("INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id,reason) SELECT $1,'TAX_COMPUTATION','GRANT',public.next_engagement_sequence($1),fm.id,'historical' FROM public.firm_members fm WHERE fm.company_id=$2 AND fm.user_id=$3", [winner, A, U.owner]);
-      await admin.query("COMMIT");
-    } catch (e) { await admin.query("ROLLBACK"); throw e; }
-    const r = await openScope(user(U.owner), A, 2026, ["FINANCIAL_STATEMENTS"]);
-    return r.created === false && r.granted.includes("TAX_COMPUTATION");
+  await check("with a jurisdiction, Tax can be added — idempotently", async () => {
+    const r = await openScope(user(U.owner), A, 2026, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]);
+    const again = await openScope(user(U.owner), A, 2026, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]);
+    return r.granted.includes("TAX_COMPUTATION") && again.created === false && r.engagementId === again.engagementId;
   });
   await refused("the jurisdiction cannot be changed while Tax is in scope (via the RPC)", "PT409", () => q(user(U.partner), "SELECT public.set_company_filing_jurisdiction($1,'KE')", [A]));
   await refused("…nor by a direct UPDATE, even by a superuser (the trigger guards every writer, including the owner's RLS path)", "PT409", () => admin.query("UPDATE public.companies SET filing_jurisdiction='KE' WHERE id=$1", [A]));
@@ -322,6 +311,24 @@ async function main() {
   await check("after Tax is withdrawn the jurisdiction can change", async () => {
     await q(user(U.owner), "SELECT public.revoke_engagement_capability($1,'TAX_COMPUTATION','client withdrew')", [winner]);
     return (await one(user(U.owner), "SELECT public.set_company_filing_jurisdiction($1,'KE') j", [A])).j === "KE";
+  });
+
+  group("The withheld-service refusal applied on top of this history (20261002100000)");
+  const events = async () => (await admin.query("SELECT * FROM public.engagement_mandate_events ORDER BY engagement_id, sequence_no")).rows;
+  const before = JSON.stringify(await events());
+  await check("it applies after every other migration, on the history this proof created", async () => {
+    let text = fs.readFileSync(path.join(REPO, "supabase/migrations", WITHHOLDING), "utf8");
+    await admin.query(text);
+    return true;
+  });
+  await check("every mandate event recorded above — Tax, Monitoring and the rest — is byte-identical", async () => JSON.stringify(await events()) === before);
+  await check("a NEW Monitoring grant is now refused (PT422 SERVICE_NOT_AVAILABLE) and writes nothing", async () => {
+    try { await openScope(user(U.owner), A, 2029, ["FINANCIAL_STATEMENTS", "MONITORING"]); return "no error"; }
+    catch (e) { return e.code === "PT422" && e.message === "SERVICE_NOT_AVAILABLE" && JSON.stringify(await events()) === before; }
+  });
+  await check("Financial statements (Prepare and Reconcile) still opens a workspace", async () => {
+    const r = await openScope(user(U.owner), A, 2029, ["FINANCIAL_STATEMENTS"]);
+    return r.created === true && JSON.stringify(r.granted) === JSON.stringify(["FINANCIAL_STATEMENTS"]);
   });
 
   group("Privileges");

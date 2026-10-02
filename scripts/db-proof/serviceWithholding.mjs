@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 // Real-PostgreSQL proof of 20261002100000_refuse_withheld_service_grants.sql: the database refuses every NEW grant of
-// Tax computation, Compliance review and Filing package, and changes nothing that already exists.
+// Tax computation, Compliance review, Filing package and Monitoring, keeps FINANCIAL_STATEMENTS (Prepare and Reconcile)
+// grantable, and changes nothing that already exists.
 //
 //   Install    a clean database applies every migration from zero, this one included;
 //   Upgrade    a database holding historical grants of all three services (and accounting records) applies it with every
 //              row of every table byte-identical;
 //   Refusal    open_engagement_with_scope and grant_engagement_capability refuse each withheld service with SQLSTATE PT422
 //              SERVICE_NOT_AVAILABLE, atomically (no engagement, period or event is left behind); a withdrawn service
-//              cannot be re-granted; every other service still opens and grants;
+//              cannot be re-granted; REVOKE stays allowed; FINANCIAL_STATEMENTS still opens and grants;
+//   Monitoring every existing Monitoring grant (in a mixed and in a Monitoring-only engagement) is preserved and readable;
+//              a new one is refused on every path; it can be revoked, and once revoked it cannot be granted again;
 //   Boundary   anon cannot call or write; authenticated cannot write the table directly; service_role and the table owner
 //              are refused by the trigger itself; the trigger function is executable by no client role;
 //   Replay     a refused request refused again writes nothing; a historical grant replayed creates nothing new;
@@ -31,7 +34,7 @@ const REPO = path.resolve(HERE, "../..");
 const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
 const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const MIGRATION = "20261002100000_refuse_withheld_service_grants.sql";
-const WITHHELD = ["TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION"];
+const WITHHELD = ["TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION", "MONITORING"];
 const CONCURRENCY = 25;
 const MODE = process.env.DB_PROOF_MODE ?? "embedded";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
@@ -227,14 +230,15 @@ async function main() {
   const B = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Company B') RETURNING id", [U.ownerB])).rows[0].id;
   for (const [k, role] of [["partner", "partner"], ["preparer", "preparer"]]) await admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,$3,now())", [A, U[k], role]);
 
-  let E2026; let E2024; let ETAX;
-  await check("historical grants exist through the real commands: all five services (A 2026), a Tax-only engagement (A 2025), a withdrawn Tax grant (A 2024)", async () => {
+  let E2026; let E2024; let ETAX; let EMON;
+  await check("historical grants exist through the real commands: all five services (A 2026), a Tax-only engagement (A 2025), a withdrawn Tax grant (A 2024), a Monitoring-only engagement (A 2023)", async () => {
     await one(user(U.partner), "SELECT public.set_company_filing_jurisdiction($1,'TZ') j", [A]);
     E2026 = (await openScope(user(U.owner), A, 2026, ["FINANCIAL_STATEMENTS", "MONITORING", ...WITHHELD])).engagementId;
     ETAX = (await openScope(user(U.owner), A, 2025, ["TAX_COMPUTATION"])).engagementId;
     E2024 = (await openScope(user(U.owner), A, 2024, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"])).engagementId;
     await q(user(U.owner), "SELECT public.revoke_engagement_capability($1,'TAX_COMPUTATION','client withdrew')", [E2024]);
-    return (await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE action='GRANT' AND capability = ANY($1)", [WITHHELD])) === 5;
+    EMON = (await openScope(user(U.owner), A, 2023, ["MONITORING"])).engagementId;
+    return (await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE action='GRANT' AND capability = ANY($1)", [WITHHELD])) === 7;
   });
   await check("accounting records exist: a trial balance upload and a committed tax computation for company A", async () => {
     const up = (await admin.query("INSERT INTO public.trial_balance_uploads (user_id, company_id, file_name, file_path, file_size, status, period_year) VALUES ($1,$2,'tb.csv','u/tb.csv',100,'complete',2025) RETURNING id", [U.owner, A])).rows[0].id;
@@ -263,9 +267,9 @@ async function main() {
       return isWithheld(err) && d.length === 0 ? true : { code: err?.code, msg: err?.message, changed: d };
     });
   }
-  await check("Financial statements and Monitoring still open a workspace (A 2027)", async () => {
-    const r = await openScope(user(U.owner), A, 2027, ["FINANCIAL_STATEMENTS", "MONITORING"]);
-    return r.created === true && JSON.stringify(r.granted) === JSON.stringify(["FINANCIAL_STATEMENTS", "MONITORING"]);
+  await check("Financial statements (Prepare and Reconcile) still opens a workspace (A 2027)", async () => {
+    const r = await openScope(user(U.owner), A, 2027, ["FINANCIAL_STATEMENTS"]);
+    return r.created === true && JSON.stringify(r.granted) === JSON.stringify(["FINANCIAL_STATEMENTS"]);
   });
 
   group("Direct RPC refusal — grant_engagement_capability");
@@ -274,10 +278,25 @@ async function main() {
   for (const cap of WITHHELD) await refusedWithheld(`granting ${cap} on an existing engagement is refused`, () => grant(user(U.owner), E2027, cap));
   await refusedWithheld("a withdrawn Tax grant (A 2024) cannot be granted again", () => grant(user(U.owner), E2024, "TAX_COMPUTATION"));
   await check("the refused grants wrote no event", async () => (await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE engagement_id = ANY($1)", [[E2027, E2024]])) === eventsBeforeGrants);
-  await check("another service is still granted normally on the same engagement path (A 2024: Monitoring)", async () => {
-    await grant(user(U.owner), E2024, "MONITORING");
-    return (await fold(user(U.owner), E2024)).some((r) => r.capability === "MONITORING" && r.granted === true);
+  await check("FINANCIAL_STATEMENTS stays grantable through grant_engagement_capability (revoked, then granted again, on A 2027)", async () => {
+    await q(user(U.owner), "SELECT public.revoke_engagement_capability($1,'FINANCIAL_STATEMENTS','scope check')", [E2027]);
+    await grant(user(U.owner), E2027, "FINANCIAL_STATEMENTS");
+    return (await fold(user(U.owner), E2027)).some((r) => r.capability === "FINANCIAL_STATEMENTS" && r.granted === true);
   });
+
+  group("Monitoring — existing grants preserved; new grants refused; REVOKE allowed; no re-grant");
+  await check("existing Monitoring grants (A 2026 mixed, A 2023 Monitoring-only) are readable and still granted", async () =>
+    (await fold(user(U.owner), E2026)).some((r) => r.capability === "MONITORING" && r.granted === true)
+    && JSON.stringify(await fold(user(U.partner), EMON)) === JSON.stringify([{ capability: "MONITORING", granted: true }]));
+  await refusedWithheld("a new Monitoring workspace (A 2028) is refused", () => openScope(user(U.owner), A, 2028, ["MONITORING"]));
+  await refusedWithheld("adding Monitoring to an engagement without it (A 2027) is refused", () => grant(user(U.owner), E2027, "MONITORING"));
+  await check("REVOKE of an existing Monitoring grant is allowed (A 2026) and appends exactly one REVOKE event", async () => {
+    const n0 = await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE engagement_id=$1", [E2026]);
+    await q(user(U.owner), "SELECT public.revoke_engagement_capability($1,'MONITORING','withheld from customers')", [E2026]);
+    const last = (await admin.query("SELECT action, capability FROM public.engagement_mandate_events WHERE engagement_id=$1 ORDER BY sequence_no DESC LIMIT 1", [E2026])).rows[0];
+    return (await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE engagement_id=$1", [E2026])) === n0 + 1 && last.action === "REVOKE" && last.capability === "MONITORING";
+  });
+  await refusedWithheld("…and once revoked, Monitoring cannot be granted again (A 2026)", () => grant(user(U.owner), E2026, "MONITORING"));
 
   group("Role boundaries");
   await refused("anonymous cannot call open_engagement_with_scope (42501)", "42501", () => openScope(ANON, A, 2030, ["TAX_COMPUTATION"]));
@@ -298,9 +317,9 @@ async function main() {
   }
   await refusedWithheld("the table owner (superuser session) is refused too", () =>
     admin.query("INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id) VALUES ($1,'FILING_PREPARATION','GRANT',99,$2)", [E2027, member]));
-  await check("a REVOKE and a grant of another service are not affected by the trigger (service_role direct write)", async () => {
-    await q(SERVICE, "INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id) VALUES ($1,'MONITORING','REVOKE',public.next_engagement_sequence($1),$2)", [E2027, member]);
-    await q(SERVICE, "INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id) VALUES ($1,'MONITORING','GRANT',public.next_engagement_sequence($1),$2)", [E2027, member]);
+  await check("REVOKE and a FINANCIAL_STATEMENTS grant are not affected by the trigger (service_role direct write)", async () => {
+    await q(SERVICE, "INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id) VALUES ($1,'FINANCIAL_STATEMENTS','REVOKE',public.next_engagement_sequence($1),$2)", [E2027, member]);
+    await q(SERVICE, "INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id) VALUES ($1,'FINANCIAL_STATEMENTS','GRANT',public.next_engagement_sequence($1),$2)", [E2027, member]);
     return true;
   });
   await check("the trigger function is executable by no client role", async () => {
@@ -320,34 +339,34 @@ async function main() {
     for (let i = 0; i < 3; i++) { try { await openScope(user(U.owner), A, 2031, ["TAX_COMPUTATION"]); codes.push("ok"); } catch (e) { codes.push(isWithheld(e) ? "withheld" : e.code); } }
     return codes.every((c) => c === "withheld") && diff(s0, await snapshot()).length === 0 ? true : codes;
   });
-  await check("replaying the historical set on A 2026 creates nothing new and reports the existing grants", async () => {
+  await check("replaying the historical set on A 2025 (Tax-only) creates nothing new and reports the existing grant", async () => {
     const s0 = await snapshot();
-    const r = await openScope(user(U.owner), A, 2026, ["FINANCIAL_STATEMENTS", "MONITORING", ...WITHHELD]);
-    return r.created === false && r.engagementId === E2026 && r.granted.length === 5 && diff(s0, await snapshot()).length === 0 ? true : r;
+    const r = await openScope(user(U.owner), A, 2025, ["TAX_COMPUTATION"]);
+    return r.created === false && r.engagementId === ETAX && JSON.stringify(r.granted) === JSON.stringify(["TAX_COMPUTATION"]) && diff(s0, await snapshot()).length === 0 ? true : r;
   });
 
   group(`Concurrency — ${CONCURRENCY} simultaneous requests, separate connections and transactions`);
   await check(`${CONCURRENCY} concurrent opens naming a withheld service are ALL refused; no period, engagement or event for that year`, async () => {
     const s0 = await snapshot();
-    const out = await Promise.allSettled(Array.from({ length: CONCURRENCY }, (_, i) => openScope(user(i % 2 ? U.partner : U.owner), A, 2032, ["FINANCIAL_STATEMENTS", WITHHELD[i % 3]])));
+    const out = await Promise.allSettled(Array.from({ length: CONCURRENCY }, (_, i) => openScope(user(i % 2 ? U.partner : U.owner), A, 2032, ["FINANCIAL_STATEMENTS", WITHHELD[i % WITHHELD.length]])));
     return out.every((o) => o.status === "rejected" && isWithheld(o.reason)) && diff(s0, await snapshot()).length === 0;
   });
   await check(`${CONCURRENCY} concurrent grants of withheld services on one engagement are ALL refused; its history is unchanged`, async () => {
     const n0 = await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE engagement_id=$1", [E2027]);
-    const out = await Promise.allSettled(Array.from({ length: CONCURRENCY }, (_, i) => grant(user(i % 2 ? U.partner : U.owner), E2027, WITHHELD[i % 3])));
+    const out = await Promise.allSettled(Array.from({ length: CONCURRENCY }, (_, i) => grant(user(i % 2 ? U.partner : U.owner), E2027, WITHHELD[i % WITHHELD.length])));
     return out.every((o) => o.status === "rejected" && isWithheld(o.reason)) && (await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE engagement_id=$1", [E2027])) === n0;
   });
   await check(`${CONCURRENCY} concurrent allowed opens (A 2033) still converge on ONE engagement with one grant per service`, async () => {
-    const out = await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => openScope(user(i % 2 ? U.partner : U.owner), A, 2033, i % 2 ? ["FINANCIAL_STATEMENTS"] : ["FINANCIAL_STATEMENTS", "MONITORING"])));
+    const out = await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => openScope(user(i % 2 ? U.partner : U.owner), A, 2033, ["FINANCIAL_STATEMENTS"])));
     const id = out[0].engagementId;
     return out.every((o) => o.engagementId === id) && out.filter((o) => o.created).length === 1
-      && (await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE engagement_id=$1", [id])) === 2;
+      && (await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE engagement_id=$1", [id])) === 1;
   });
   await check(`${CONCURRENCY} concurrent mixed requests on company B (no jurisdiction): withheld ones refused, the rest converge`, async () => {
-    const out = await Promise.allSettled(Array.from({ length: CONCURRENCY }, (_, i) => openScope(user(U.ownerB), B, 2026, i % 2 ? ["MONITORING"] : ["MONITORING", "TAX_COMPUTATION"])));
+    const out = await Promise.allSettled(Array.from({ length: CONCURRENCY }, (_, i) => openScope(user(U.ownerB), B, 2026, i % 2 ? ["FINANCIAL_STATEMENTS"] : ["FINANCIAL_STATEMENTS", i % 4 ? "MONITORING" : "TAX_COMPUTATION"])));
     const ok = out.filter((o) => o.status === "fulfilled");
     const bad = out.filter((o) => o.status === "rejected");
-    // With no jurisdiction the jurisdiction check refuses first (PT422 JURISDICTION_REQUIRED); either way nothing is granted.
+    // Monitoring is refused SERVICE_NOT_AVAILABLE; with no jurisdiction, Tax is refused JURISDICTION_REQUIRED first (both PT422).
     return ok.length > 0 && bad.every((o) => o.reason?.code === "PT422") && new Set(ok.map((o) => o.value.engagementId)).size === 1
       && (await count("SELECT count(*) n FROM public.engagement_mandate_events e JOIN public.engagements g ON g.id=e.engagement_id WHERE g.company_id=$1 AND e.capability = ANY($2)", [B, WITHHELD])) === 0;
   });
@@ -357,8 +376,11 @@ async function main() {
     const now = (await admin.query("SELECT * FROM public.engagement_mandate_events WHERE id = ANY($1) ORDER BY engagement_id, sequence_no", [historicalEvents.map((e) => e.id)])).rows;
     return JSON.stringify(now) === JSON.stringify(historicalEvents);
   });
-  await check("fold_engagement_mandate still reports all five services granted on A 2026, as before", async () =>
-    JSON.stringify(await fold(user(U.owner), E2026)) === foldBefore && (await fold(user(U.owner), E2026)).filter((r) => r.granted).length === 5);
+  await check("fold_engagement_mandate on A 2026 reports every historical grant as before — Monitoring now withdrawn by the explicit REVOKE above", async () => {
+    const now = await fold(user(U.owner), E2026);
+    const was = JSON.parse(foldBefore).map((r) => (r.capability === "MONITORING" ? { ...r, granted: false } : r));
+    return JSON.stringify(now) === JSON.stringify(was) && now.filter((r) => r.granted).length === 4;
+  });
   await check("the Tax-only engagement (A 2025) still folds to Tax granted, readable by its member", async () =>
     JSON.stringify(await fold(user(U.partner), ETAX)) === JSON.stringify([{ capability: "TAX_COMPUTATION", granted: true }]));
   await check("accounting data is unchanged: trial balance uploads, tax computations, account mappings and closing balances are byte-identical", async () => {

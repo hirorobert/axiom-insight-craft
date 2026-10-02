@@ -1079,12 +1079,13 @@ PR #41 before the production preflight reads PASS and every listed provider sess
 
 **WITHHELD_SERVICE_GRANTS_REFUSED_BY_THE_DATABASE** — `20261002100000_refuse_withheld_service_grants.sql` (branch
 `fix/refuse-withheld-service-grants`; authored, NOT applied — only Lovable/the owner applies it). One `BEFORE INSERT` trigger on
-`engagement_mandate_events` refuses every NEW `GRANT` of `TAX_COMPUTATION`, `COMPLIANCE_REVIEW` and `FILING_PREPARATION`
+`engagement_mandate_events` refuses every NEW `GRANT` of `TAX_COMPUTATION`, `COMPLIANCE_REVIEW`, `FILING_PREPARATION` and `MONITORING`
 with SQLSTATE PT422 `SERVICE_NOT_AVAILABLE`, whatever the path (`open_engagement_with_scope`, `grant_engagement_capability`,
-service_role or owner writes). Every existing row stays byte-identical and readable; REVOKE events and the other services
-are unaffected; a refused `open_engagement_with_scope` is atomic (no engagement, period or grant). Replaying an existing
-historical grant creates nothing. Proven by `scripts/db-proof/serviceWithholding.mjs`. It pairs with the frontend boundary
-(`TAX_MODULE_WITHHELD_FROM_CUSTOMERS`). Re-enabling a service is a separate, reviewed migration.
+service_role or owner writes). Every existing row stays byte-identical and readable; REVOKE stays allowed and a revoked
+withheld service cannot be granted again; `FINANCIAL_STATEMENTS` (Prepare and Reconcile) stays grantable; a refused
+`open_engagement_with_scope` is atomic (no engagement, period or grant). Replaying an existing historical grant creates
+nothing. Proven by `scripts/db-proof/serviceWithholding.mjs`. It pairs with the frontend boundary
+(`CUSTOMER_SCOPE_TRIAL_BALANCE_REVIEW_ONLY`). Re-enabling a service is a separate, reviewed migration.
 
 ---
 

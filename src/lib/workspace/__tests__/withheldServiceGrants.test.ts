@@ -12,11 +12,12 @@ const MIGRATION = fs.readFileSync(path.join(ROOT, "supabase/migrations/202610021
 const SQL = MIGRATION.replace(/--[^\n]*/g, "");
 
 describe("withheld-service grant refusal migration", () => {
-  it("refuses exactly the three withheld services, on GRANT only, at the one table every grant path writes", () => {
-    expect(SQL).toContain("IF NEW.action = 'GRANT' AND NEW.capability IN ('TAX_COMPUTATION', 'COMPLIANCE_REVIEW', 'FILING_PREPARATION') THEN");
+  it("refuses exactly the four withheld services, on GRANT only, at the one table every grant path writes", () => {
+    expect(SQL).toContain("IF NEW.action = 'GRANT' AND NEW.capability IN ('TAX_COMPUTATION', 'COMPLIANCE_REVIEW', 'FILING_PREPARATION', 'MONITORING') THEN");
     expect(SQL).toMatch(/CREATE OR REPLACE TRIGGER trg_refuse_withheld_service_grant\s+BEFORE INSERT ON public\.engagement_mandate_events\s+FOR EACH ROW/);
     expect(SQL).not.toMatch(/BEFORE (INSERT OR )?UPDATE|BEFORE DELETE/);
-    expect(SQL).not.toMatch(/FINANCIAL_STATEMENTS|MONITORING/);
+    // FINANCIAL_STATEMENTS (Prepare and Reconcile) stays grantable: it is never named in the refusal.
+    expect(SQL).not.toMatch(/FINANCIAL_STATEMENTS/);
   });
 
   it("raises only the controlled SERVICE_NOT_AVAILABLE (PT422), with no internal wording", () => {
