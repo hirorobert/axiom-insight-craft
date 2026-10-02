@@ -33,13 +33,15 @@ describe("migration authority parity", () => {
     // 13 byte-equal mirrors + the eight reviewed release wrappers (0015, 0017–0022, 0024; rule 8) + 0023 by its canonical
     // source (rule canonical_equivalent). The prerequisite 20260915100000 is recorded as applied out of source order
     // (0016) — see releaseJournal.test.ts.
-    expect(r.mirrored.length).toBe(22);
+    // RELEASE_JOURNAL_ENTRIES=23: 0025 is the release_verbatim annual-term entry.
+    expect(r.mirrored.length).toBe(23);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
     // Authored here and not yet applied by the owner: listed, never an error. PR #34 100000–150000 are applied.
-    // 20260926160000 applied by 0022; 20260927100000 by 0024. 20261001120000 (annual term) is authored and not yet applied.
-    expect(r.pending).toEqual(["20261001120000_annual_commercial_term.sql"]);
+    // 20260926160000 applied by 0022; 20260927100000 by 0024; 20261001120000 by 0025. PENDING_MIGRATIONS=NONE.
+    expect(r.pending).toEqual([]);
+    expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {
     const H = "drizzle/migrations/0023_security_fix_probe_and_xbrl_concept_map.sql";

@@ -156,7 +156,7 @@ export function checkMigrationAuthority(repo = REPO) {
       for (const p of r.problems) errors.push(`release: ${p}`);
       if (r.covers && r.problems.length === 0) {
         if (r.outOfOrder) releaseApplied.push({ tag: t, source: r.covers });
-        else mirrored.push({ tag: t, source: r.covers, how: "release_wrapper" });
+        else mirrored.push({ tag: t, source: r.covers, how: r.how ?? "release_wrapper" });
       }
       continue;
     }
