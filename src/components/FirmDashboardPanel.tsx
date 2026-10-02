@@ -25,6 +25,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { TAX_MODULE_CUSTOMER_VISIBLE } from "@/lib/workspace/moduleAvailability";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
 import {
@@ -290,17 +291,20 @@ export function FirmDashboardPanel() {
 
           {/* Aggregate strip */}
           {!loading && rows.length > 0 && (
-            <div className="mt-3 grid grid-cols-4 gap-2">
+            <div className={`mt-3 grid ${TAX_MODULE_CUSTOMER_VISIBLE ? "grid-cols-4" : "grid-cols-3"} gap-2`}>
               <div className="rounded-lg bg-muted/30 border border-border px-3 py-2 text-center">
                 <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
                   <Users className="w-3 h-3" /> Companies
                 </div>
                 <p className="text-lg font-bold text-foreground">{rows.length}</p>
               </div>
+              {/* Tax computation outputs are shown only while that module is customer-visible (moduleAvailability.ts). */}
+              {TAX_MODULE_CUSTOMER_VISIBLE && (
               <div className="rounded-lg bg-muted/30 border border-border px-3 py-2 text-center">
                 <p className="text-xs text-muted-foreground">Total CIT</p>
                 <p className="text-sm font-semibold text-foreground mt-0.5">{fmt(totalCIT)}</p>
               </div>
+              )}
               <div className={`rounded-lg border px-3 py-2 text-center ${totalExposure > 0 ? "bg-amber-50 border-amber-200" : "bg-muted/30 border-border"}`}>
                 <p className="text-xs text-muted-foreground">Open Exposure</p>
                 <p className={`text-sm font-semibold mt-0.5 ${totalExposure > 0 ? "text-amber-700" : "text-foreground"}`}>
@@ -338,7 +342,7 @@ export function FirmDashboardPanel() {
                       <th className="text-center py-2.5 px-3 font-medium">Score</th>
                       <th className="text-center py-2.5 px-3 font-medium">Period</th>
                       <th className="text-center py-2.5 px-3 font-medium">Sign-off</th>
-                      <th className="text-right py-2.5 px-3 font-medium">CIT Payable</th>
+                      {TAX_MODULE_CUSTOMER_VISIBLE && <th className="text-right py-2.5 px-3 font-medium">CIT Payable</th>}
                       <th className="text-right py-2.5 px-3 font-medium">Open Exposure</th>
                       <th className="text-left py-2.5 px-3 font-medium">Next Deadline</th>
                     </tr>
@@ -376,9 +380,11 @@ export function FirmDashboardPanel() {
                             {row.signOffStatus ? SIGN_OFF_LABEL[row.signOffStatus] ?? row.signOffStatus : "Not started"}
                           </span>
                         </td>
+                        {TAX_MODULE_CUSTOMER_VISIBLE && (
                         <td className="py-2.5 px-3 text-right font-mono">
                           {row.citPayable > 0 ? fmt(row.citPayable) : "—"}
                         </td>
+                        )}
                         <td className={`py-2.5 px-3 text-right font-mono ${row.openExposure > 0 ? "text-amber-700 font-semibold" : "text-muted-foreground"}`}>
                           {row.openExposure > 0 ? fmt(row.openExposure) : "Nil"}
                           {row.criticalFindings > 0 && (
@@ -406,7 +412,7 @@ export function FirmDashboardPanel() {
 
             {!loading && rows.length > 0 && (
               <p className="text-[10px] text-muted-foreground/60 mt-2">
-                Scores computed via canonical lib: findings (30%), TP risk (20%), payment coverage (20%), filing deadlines (15%), sign-off status (15%). All CIT from committed computations.
+                Scores computed via canonical lib: findings (30%), TP risk (20%), payment coverage (20%), filing deadlines (15%), sign-off status (15%).
               </p>
             )}
           </CardContent>

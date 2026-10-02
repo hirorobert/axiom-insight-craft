@@ -47,8 +47,8 @@ export default function FilingWorkspace() {
       <WorkspaceGate
         mission="Prepare Outputs"
         blocker={mission.blocker ?? "Complete prerequisites first"}
-        prerequisiteHref={workspaceState.missions.tax.href}
-        prerequisiteLabel="Go to Compute Tax"
+        prerequisiteHref={workspaceState.missions.statements.href}
+        prerequisiteLabel="Go to Prepare Statements"
       />
     );
   }

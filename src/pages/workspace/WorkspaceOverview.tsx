@@ -35,7 +35,9 @@ import { ActiveFileProvenance } from "@/components/workspace/ActiveFileProvenanc
 import { useEngagement } from "@/contexts/EngagementContext";
 import { buildPrepareReviewRoute, canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
 import { buildManageTrialBalanceRoute } from "@/lib/workspace/trialBalanceManagement";
-import { capabilityTitle, ENGAGEMENT_CAPABILITIES } from "@/lib/workspace/mandate";
+import { capabilityTitle, CUSTOMER_CAPABILITY_OUTCOMES } from "@/lib/workspace/mandate";
+import { customerVisibleCapabilities, isStageCustomerVisible } from "@/lib/workspace/moduleAvailability";
+import { NO_VISIBLE_NEXT_ACTION } from "@/lib/workspace/deriveOrientationSummary";
 import { readRememberedOutcome } from "@/lib/product/outcomes";
 import { DecisionCard, type Decision } from "@/components/workspace/DecisionCard";
 import { buildClassificationDecision } from "@/components/workspace/decisionBuilders";
@@ -283,6 +285,16 @@ export default function WorkspaceOverview() {
     // fabricated count, and never a claim that this stage is finished (prepareDone still governs that separately).
     // Same mapping function the internal classification-states acceptance page uses — one semantic authority.
     decision = buildClassificationDecision(classification, classificationDecisionOptions);
+  } else if (!isStageCustomerVisible(nextAction.mission)) {
+    // The engine's next step lies in a stage withheld from customers (moduleAvailability.ts). It is never named or linked;
+    // the one action is the most advanced completed stage on this engagement's own path.
+    const lastDone = [...pathStages].reverse().find((s) => missions[s].status === "passed" || missions[s].status === "signed") ?? "prepare";
+    decision = {
+      eyebrow: "Workspace",
+      headline: NO_VISIBLE_NEXT_ACTION,
+      button: { label: `Open ${STAGE_CONFIGS[lastDone].label}`, href: `${basePath}/${lastDone}`, icon: <ArrowRight className="w-4 h-4" /> },
+      tone: "muted",
+    };
   } else {
     const activeSlug = activeIndex >= 0 ? pathStages[activeIndex] : null;
     const destination = resolveNextActionDestination({
@@ -427,11 +439,11 @@ export default function WorkspaceOverview() {
         <div className="mt-6 flex items-start justify-between gap-4 border-t border-border pt-5" data-testid="engagement-services">
           <p className="min-w-0 text-[12px] text-muted-foreground">
             <span className="mr-2 text-[10px] font-semibold uppercase tracking-[0.18em]">Services</span>
-            {mandate.granted.map((cap) => capabilityTitle(cap)).join(", ")}
+            {customerVisibleCapabilities(mandate.granted).map((cap) => capabilityTitle(cap)).join(", ")}
           </p>
           {canAmend && (
             <div className="flex shrink-0 items-center gap-4">
-              {mandate.granted.length < ENGAGEMENT_CAPABILITIES.length && (
+              {customerVisibleCapabilities(mandate.granted).length < CUSTOMER_CAPABILITY_OUTCOMES.length && (
                 <button
                   type="button"
                   onClick={() => setScopeDialogMode("add")}

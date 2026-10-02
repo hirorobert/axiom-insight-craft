@@ -805,7 +805,7 @@ export const TrialBalanceUpload = ({
 
         {/* ── SAFISHA GATE ─────────────────────────────────────────────────────
              Appears immediately after a TB upload completes.
-             The tax engine is locked until this gate clears.
+             Later stages are locked until this gate clears.
              Iron Dome: this panel cannot be skipped or dismissed.
         ──────────────────────────────────────────────────────────────────── */}
         {safishaUpload && (
@@ -814,7 +814,7 @@ export const TrialBalanceUpload = ({
               uploadId={safishaUpload.uploadId}
               fileName={safishaUpload.fileName}
               onCleared={() => {
-                toast.success("TB verified — tax engine unlocked for " + safishaUpload.fileName);
+                toast.success("TB verified — later stages unlocked for " + safishaUpload.fileName);
               }}
               onBlocked={() => {
                 toast.error("Reconciliation blocked — re-upload a corrected TB to proceed.");
@@ -824,7 +824,7 @@ export const TrialBalanceUpload = ({
         )}
 
         {/* Trust indicator — one fact that is true at import time.
-            Tax-output claims belong to the Tax stage, not to this screen. */}
+            Output claims belong to their own stages, not to this screen. */}
         <div className="mt-6 flex items-center justify-center gap-2 text-xs text-muted-foreground">
           <CheckCircle className="w-3.5 h-3.5 text-accent" />
           <span>Encrypted storage · your file is never shared</span>

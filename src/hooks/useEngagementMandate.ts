@@ -16,7 +16,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { EngagementAuthorityType, EngagementCapability, EngagementMandate } from "@/lib/workspace/mandate";
-import { openEngagementWithScope, type RpcClient } from "@/lib/workspace/workspaceSetupClient";
+import { openEngagementWithScope, SERVICE_NOT_AVAILABLE_MESSAGE, type RpcClient } from "@/lib/workspace/workspaceSetupClient";
+import { isCapabilityCustomerVisible } from "@/lib/workspace/moduleAvailability";
 
 export interface EngagementRecord {
   id: string;
@@ -186,6 +187,7 @@ export function useEngagementMandate(
   const grantCapability = useCallback(
     async (cap: EngagementCapability, reason?: string) => {
       if (!engagement) throw new Error("No open engagement for this period.");
+      if (!isCapabilityCustomerVisible(cap)) throw new Error(SERVICE_NOT_AVAILABLE_MESSAGE);
       const { error } = await supabase.rpc("grant_engagement_capability", {
         p_engagement_id: engagement.id,
         p_capability: cap,

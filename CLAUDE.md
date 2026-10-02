@@ -373,6 +373,7 @@ src/
       discardSuppression.ts   ← Discarded-upload suppression rules
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing
+      moduleAvailability.ts   ← ONE customer-facing module availability boundary (TAX_MODULE_CUSTOMER_VISIBLE = false; see §9.2)
       sourceUpload.ts         ← ONLY browser path for a trial balance source: reserve → signed workspace-scoped upload → register
       trialBalanceVerdict.ts          ← THE trial balance presentation model (status, reason, totals, checks, primary action, evidence unlock) from the certification ledger; card, checks, ledger, Overview and workspace state all read it
       trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client
@@ -1075,6 +1076,19 @@ authenticated session of an active commercial admin (service_role is revoked; a 
 auth.uid()); there is no in-app admin UI for licence RPCs. **Do not merge
 PR #41 before the production preflight reads PASS and every listed provider session is reconciled**: Lovable syncs
 `main` and may apply hosted migrations.
+
+**TAX_MODULE_WITHHELD_FROM_CUSTOMERS** — product containment (2026-10-02, branch `fix/hide-tax-module-surfaces`). The Tax
+computation module is absent from the customer-facing application. `src/lib/workspace/moduleAvailability.ts` is the ONE
+boundary (`TAX_MODULE_CUSTOMER_VISIBLE = false`, a source constant — no env var, so it fails closed): the `tax` stage and
+`TAX_COMPUTATION` service are not projected by `projectMandate`, never listed in navigation, the launchpad or the scope
+dialogs; the `tax-compliance` public outcome is never offered or accepted; `/workspace/:id/:year/tax` (and the legacy
+`kinga` alias, which redirects there) renders the neutral `WorkspaceUnavailable` boundary and `App.tsx` does not import
+`TaxWorkspace`; an engagement whose every service is withheld (Tax-only) stays untouched in the database but is not listed
+or resumed and its workspace never mounts. Client-side only: no edge function, table, RPC, migration, jurisdiction pack,
+tax record, entitlement or audit history was changed or deleted, and `deriveWorkspaceState` gates are unchanged — so
+Compliance and Filing still require a signed tax computation and stay locked for new engagements. Tax-related ACCOUNTS
+(income tax expense, deferred tax, VAT/payroll taxes payable, withholding tax) are accounting data and are never filtered.
+Re-enabling is a reviewed code change: flip the constant and restore the `tax` route in `App.tsx`.
 
 ---
 

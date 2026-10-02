@@ -40,8 +40,11 @@ describe("deriveOrientationSummary", () => {
 
   it("granted capabilities are joined via the SAME capabilityTitle authority used elsewhere", () => {
     const state = deriveWorkspaceState(CID, CNAME, PY, null);
-    const summary = deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]);
-    expect(summary.service).toBe("Financial statements, Tax computation");
+    const summary = deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS", "COMPLIANCE_REVIEW"]);
+    expect(summary.service).toBe("Financial statements, Compliance review");
+    // A service withheld from customers (moduleAvailability.ts) is never named, even when granted.
+    expect(deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]).service).toBe("Financial statements");
+    expect(deriveOrientationSummary(state, ["TAX_COMPUTATION"]).service).toBeNull();
   });
 
   it("current stage/status are read from workspaceState.nextAction — the same single authority the dominant CTA uses", () => {
@@ -72,8 +75,10 @@ describe("deriveOrientationSummary", () => {
       upload({ hesabuPassedAt: "2026-02-01T00:00:00.000Z", kingaSignedAt: "2026-03-01T00:00:00.000Z" }),
     );
     const summary = deriveOrientationSummary(state, null);
-    // PATH 10: prepare=passed, statements=passed, tax=signed, filing=ready — the latest completed stage is tax.
-    expect(summary.lastCompletedMilestone?.stageLabel).toBe("Compute Tax");
+    // PATH 10: prepare=passed, statements=passed, tax=signed, filing=ready. Tax is withheld from customers
+    // (moduleAvailability.ts), so the most advanced VISIBLE completed stage is statements.
+    expect(summary.lastCompletedMilestone?.stageLabel).toBe("Prepare Statements");
+    expect(JSON.stringify(summary)).not.toMatch(/tax/i);
   });
 
   it("a review-required or in-progress stage never counts as a completed milestone", () => {

@@ -13,6 +13,7 @@
 
 import type { MissionState, MissionStatus, WorkspaceMission } from "./types";
 import { STAGE_SEQUENCE } from "./stageMetadata";
+import { customerVisibleCapabilities, isCapabilityCustomerVisible, isStageCustomerVisible } from "./moduleAvailability";
 
 export type EngagementCapability =
   | "FINANCIAL_STATEMENTS"
@@ -75,6 +76,9 @@ export const CAPABILITY_OUTCOMES: {
   },
 ];
 
+/** The services a customer may choose or see (moduleAvailability.ts). The registry above stays complete. */
+export const CUSTOMER_CAPABILITY_OUTCOMES = CAPABILITY_OUTCOMES.filter((o) => isCapabilityCustomerVisible(o.capability));
+
 /**
  * Stages a capability *activates* — the capability owns them.
  * This is not, and must never become, the gate engine.
@@ -134,6 +138,9 @@ export function stageHasWork(status: MissionStatus): boolean {
  * `mandate === null` means no mandate has been declared for this workspace yet
  * (compatibility route, or engagement not opened). In that case every stage is
  * treated as in scope so nothing is ever hidden on an unknown mandate.
+ *
+ * Stages and services withheld from customers (moduleAvailability.ts) are not projected at all: no view, no
+ * navigation, no retained-work entry, and a withheld service activates nothing — not even its evidence stages.
  */
 export function projectMandate(
   missions: Record<WorkspaceMission, MissionState>,
@@ -143,13 +150,13 @@ export function projectMandate(
   const evidence = new Set<WorkspaceMission>();
 
   if (mandate) {
-    for (const cap of mandate.granted) {
+    for (const cap of customerVisibleCapabilities(mandate.granted)) {
       for (const s of CAPABILITY_ACTIVATES[cap] ?? []) activated.add(s);
       for (const s of CAPABILITY_REQUIRES_EVIDENCE[cap] ?? []) evidence.add(s);
     }
   }
 
-  return STAGE_SEQUENCE.map((stage) => {
+  return STAGE_SEQUENCE.filter(isStageCustomerVisible).map((stage) => {
     const mission = missions[stage];
     const unknownMandate = mandate === null;
     const inScope = unknownMandate || activated.has(stage);

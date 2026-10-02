@@ -159,9 +159,12 @@ describe("navigation is generated from persisted scope", () => {
 
   it("amending the scope recomputes navigation deterministically", () => {
     const before = ids(nav(["FINANCIAL_STATEMENTS"]));
-    const added = ids(nav(["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]));
-    expect(added).toEqual(["overview", "prepare", "reconcile", "statements", "tax"]);
-    expect(added).toEqual(ids(nav(["TAX_COMPUTATION", "FINANCIAL_STATEMENTS"]))); // order of selection is irrelevant
+    const added = ids(nav(["FINANCIAL_STATEMENTS", "COMPLIANCE_REVIEW"]));
+    expect(added).toEqual(["overview", "prepare", "reconcile", "statements", "compliance"]);
+    expect(added).toEqual(ids(nav(["COMPLIANCE_REVIEW", "FINANCIAL_STATEMENTS"]))); // order of selection is irrelevant
+    // A withheld service (moduleAvailability.ts) adds nothing to navigation, even when granted.
+    expect(ids(nav(["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]))).toEqual(before);
+    expect(ids(nav(["TAX_COMPUTATION"]))).toEqual(["overview"]);
     expect(before).not.toEqual(added);
     expect(ids(nav(["MONITORING"]))).toEqual(["overview", "prepare", "monitor"]); // prepare appears as input evidence only
     expect(nav(["MONITORING"]).find((i) => i.id === "prepare")!.inputEvidenceOnly).toBe(true);

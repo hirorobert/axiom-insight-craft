@@ -21,12 +21,12 @@ import NotFound from "./pages/NotFound";
 import WorkspaceLayout from "./pages/workspace/WorkspaceLayout";
 import WorkspaceOverview from "./pages/workspace/WorkspaceOverview";
 
-// Stage workspaces (sequence: prepare → reconcile → statements → tax → compliance → filing → monitor)
+// Stage workspaces (sequence: prepare → reconcile → statements → tax → compliance → filing → monitor). The tax stage is
+// withheld from customers (src/lib/workspace/moduleAvailability.ts) and its page is deliberately not imported here.
 import PrepareWorkspace from "./pages/workspace/PrepareWorkspace";
 import ReconcileWorkspace from "./pages/workspace/ReconcileWorkspace";
 import StatementsWorkspace from "./pages/workspace/StatementsWorkspace";
 import StatementReviewWorkspace from "./pages/workspace/StatementReviewWorkspace";
-import TaxWorkspace from "./pages/workspace/TaxWorkspace";
 import ComplianceWorkspace from "./pages/workspace/ComplianceWorkspace";
 import FilingWorkspace from "./pages/workspace/FilingWorkspace";
 import MonitorWorkspace from "./pages/workspace/MonitorWorkspace";
@@ -36,6 +36,8 @@ import IssuesWorkspace from "./pages/workspace/IssuesWorkspace";
 // Engagement mandate — scope-aware route guard (routes always exist)
 import StageScopeGate from "./components/workspace/StageScopeGate";
 import { OverviewAccessGate } from "./components/workspace/WorkspaceAccessGate";
+import WorkspaceUnavailable from "./components/workspace/WorkspaceUnavailable";
+import { WITHHELD_WORKSPACE_ROUTE_SEGMENTS } from "./lib/workspace/moduleAvailability";
 
 // Command Center — partner-level cross-engagement view
 import CommandCenter from "./pages/command/CommandCenter";
@@ -107,7 +109,6 @@ const App = () => (
                   <Route path="reconcile"  element={<StageScopeGate stage="reconcile"><ReconcileWorkspace /></StageScopeGate>} />
                   <Route path="statements" element={<StageScopeGate stage="statements"><StatementsWorkspace /></StageScopeGate>} />
                   <Route path="statements/review" element={<StageScopeGate stage="statements"><StatementReviewWorkspace /></StageScopeGate>} />
-                  <Route path="tax"        element={<StageScopeGate stage="tax"><TaxWorkspace /></StageScopeGate>} />
                   <Route path="compliance" element={<StageScopeGate stage="compliance"><ComplianceWorkspace /></StageScopeGate>} />
                   <Route path="filing"     element={<StageScopeGate stage="filing"><FilingWorkspace /></StageScopeGate>} />
                   <Route path="monitor"    element={<StageScopeGate stage="monitor"><MonitorWorkspace /></StageScopeGate>} />
@@ -118,6 +119,12 @@ const App = () => (
                   <Route path="kinga"     element={<LegacySubRouteRedirect to="tax" />} />
                   <Route path="analytics" element={<LegacySubRouteRedirect to="monitor" />} />
                   <Route path="issues"    element={<LegacySubRouteRedirect to="compliance" />} />
+
+                  {/* Modules withheld from customers (moduleAvailability.ts): the stage and its legacy alias render the
+                      neutral boundary — old bookmarks, refreshes and typed URLs never mount or load the module. */}
+                  {WITHHELD_WORKSPACE_ROUTE_SEGMENTS.map((segment) => (
+                    <Route key={segment} path={segment} element={<WorkspaceUnavailable />} />
+                  ))}
                 </Route>
 
                 {/* ── Compatibility redirects — top-level legacy routes ── */}

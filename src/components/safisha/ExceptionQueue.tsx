@@ -189,7 +189,7 @@ export default function ExceptionQueue({
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             {investigateCount > 0
-              ? `${investigateCount} unmatched item(s) require investigation before the tax engine can run.`
+              ? `${investigateCount} unmatched item(s) require investigation before the next stage can run.`
               : "Review timing and adjustment exceptions to clear the reconciliation."}
           </p>
         </div>
@@ -382,7 +382,7 @@ function ExceptionCard({ exc, note, onNoteChange, onResolve, resolving, readOnly
               {exc.category === "investigate" && (
                 <p className="text-xs text-red-600">
                   Rejecting this exception will block the reconciliation.
-                  Approve or escalate to allow the tax engine to run.
+                  Approve or escalate to allow the next stage to run.
                 </p>
               )}
             </div>

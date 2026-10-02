@@ -183,7 +183,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
     id: "frameworks",
     question: "Which reporting frameworks can be selected?",
     answer:
-      "A workspace can be set to IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash. The selected framework governs how prepared statements are presented and which preparation checks apply. Jurisdiction-specific tax capabilities appear only in a workspace where that jurisdiction has been configured.",
+      "A workspace can be set to IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash. The selected framework governs how prepared statements are presented and which preparation checks apply.",
   },
   {
     id: "professional-judgement",

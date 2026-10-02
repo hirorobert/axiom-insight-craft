@@ -16,12 +16,12 @@ export default function Terms() {
             <p>
               CFOClose is accounting-workflow software for audit and finance
               teams: trial balance preparation, bank reconciliation,
-              financial statement drafting, tax computation support, compliance
+              financial statement drafting, compliance
               review, filing pack preparation, and analytical monitoring. It is a
               tool that assists a firm's own professionals — it does not replace
               professional judgment, and it is not itself a licensed audit, tax, or
               accounting firm. Jurisdiction-specific compliance capabilities
-              (including statutory tax computation and regulatory filing packs) are
+              (including regulatory filing packs) are
               available as configuration packs and apply only when explicitly
               enabled for an engagement.
             </p>

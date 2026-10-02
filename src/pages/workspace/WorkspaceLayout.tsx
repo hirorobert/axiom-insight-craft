@@ -24,6 +24,8 @@ import { useWorkspaceData } from "@/hooks/useWorkspaceData";
 import { useEngagementMandate } from "@/hooks/useEngagementMandate";
 import { projectMandate } from "@/lib/workspace/mandate";
 import { deriveWorkspaceNavigation } from "@/lib/workspace/navigation";
+import { isEngagementWithheld } from "@/lib/workspace/moduleAvailability";
+import WorkspaceUnavailable from "@/components/workspace/WorkspaceUnavailable";
 import { canOpenStage, isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 import { WorkspaceAccessShell } from "@/components/workspace/WorkspaceAccessGate";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
@@ -204,7 +206,10 @@ export default function WorkspaceLayout() {
   // Only what the server granted (PR #32 access bridge): a Prepare-only grant holder sees Prepare Data and nothing
   // else; owners and members keep the navigation exactly as before.
   const prepareOnly = isPrepareOnly(workspaceData.access);
-  const navItems = deriveWorkspaceNavigation({
+  // An engagement whose every service is withheld from customers (an existing Tax-only engagement) is kept untouched in
+  // the database but never mounts: no navigation, no stage, only the neutral way back to the account home.
+  const withheld = isEngagementWithheld(engagementApi.mandate?.granted);
+  const navItems = withheld ? [] : deriveWorkspaceNavigation({
     basePath: `/workspace/${companyId}/${periodYear}`,
     scopeDeclared: prepareOnly || scopeDeclared,
     missionViews: prepareOnly ? missionViews : engagementApi.loading ? [] : missionViews,
@@ -384,7 +389,7 @@ export default function WorkspaceLayout() {
 
         {/* ── Page content ─────────────────────────────────────────────────── */}
         <main className="flex-1 max-w-screen-2xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
-          <Outlet />
+          {withheld ? <WorkspaceUnavailable /> : <Outlet />}
         </main>
         {/* Free printing of any workspace page carries the draft marking on every printed page. */}
         <DraftPrintMark companyId={companyId} />

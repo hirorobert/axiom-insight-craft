@@ -755,11 +755,11 @@ export function ExportStatements({
     } else {
       doc.setFontSize(8); doc.setTextColor(120);
       doc.text(
-        `${cfg.statementNames.equity} will appear here once the tax analysis has been run and committed.`,
+        `${cfg.statementNames.equity} will appear here once its source data has been recorded for this period.`,
         14, y + 6
       );
       doc.setFontSize(6.5); doc.setTextColor(160);
-      doc.text("Run and commit the tax computation to generate this statement.", 14, y + 12);
+      doc.text("No data has been recorded for this statement.", 14, y + 12);
     }
 
     // ── PAGE 5: Statement of Cash Flows (Indirect Method) ────────────────────

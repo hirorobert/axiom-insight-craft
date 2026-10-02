@@ -1,3 +1,5 @@
+import { isOutcomeCustomerVisible } from "@/lib/workspace/moduleAvailability";
+
 export const OUTCOME_STORAGE_KEY = "cfoclose:selected-outcome:v1";
 
 export const OUTCOME_IDS = [
@@ -118,7 +120,7 @@ export const PRODUCT_OUTCOMES: readonly ProductOutcome[] = [
     number: "06",
     title: "Run the complete financial close",
     shortTitle: "Complete financial close",
-    promise: "Coordinate the full evidence-led path from trial balance through reconciliation, statements, tax, compliance and final outputs.",
+    promise: "Coordinate the full evidence-led path from trial balance through reconciliation, statements, compliance and final outputs.",
     input: "Trial balance, evidence and engagement context",
     deliverable: "Controlled close file with traceable outputs",
     scope: "Complete workflow",
@@ -148,8 +150,9 @@ export function isOutcomeId(value: string | null | undefined): value is OutcomeI
   return !!value && (OUTCOME_IDS as readonly string[]).includes(value);
 }
 
+/** A withheld outcome (moduleAvailability.ts) resolves to null wherever it comes from: a link, a stored value or code. */
 export function getOutcome(value: string | null | undefined): ProductOutcome | null {
-  return isOutcomeId(value) ? PRODUCT_OUTCOMES.find((outcome) => outcome.id === value) ?? null : null;
+  return isOutcomeId(value) && isOutcomeCustomerVisible(value) ? PRODUCT_OUTCOMES.find((outcome) => outcome.id === value) ?? null : null;
 }
 
 export function rememberOutcome(id: OutcomeId): void {
@@ -184,6 +187,7 @@ export function outcomeAuthHref(id: OutcomeId): string {
  * since a previously-shared link or a flipped flag must not orphan
  * already-in-flight state.
  */
-export const PUBLIC_PRODUCT_OUTCOMES: readonly ProductOutcome[] = DOCUMENT_REVIEW_ENABLED
+export const PUBLIC_PRODUCT_OUTCOMES: readonly ProductOutcome[] = (DOCUMENT_REVIEW_ENABLED
   ? PRODUCT_OUTCOMES
-  : PRODUCT_OUTCOMES.filter((outcome) => outcome.id !== "review-statements");
+  : PRODUCT_OUTCOMES.filter((outcome) => outcome.id !== "review-statements")
+).filter((outcome) => isOutcomeCustomerVisible(outcome.id));

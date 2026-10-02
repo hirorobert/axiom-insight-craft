@@ -463,7 +463,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
           <div>
             <h3 className="text-sm font-semibold text-[#0E1D30]">Close Certification · Trial Balance Verification</h3>
             <p className="text-xs text-muted-foreground">
-              Upload evidence for <span className="font-mono">{fileName}</span> before running the tax engine.
+              Upload evidence for <span className="font-mono">{fileName}</span> before moving to the next stage.
             </p>
           </div>
         </div>
@@ -546,7 +546,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
         </div>
 
         <p className="text-[10px] text-muted-foreground text-center">
-          The tax computation stays locked until Close Certification clears this trial balance.
+          Later stages stay locked until Close Certification clears this trial balance.
         </p>
 
         {/* FieldMappingModal shown as overlay when column mapping needed */}
@@ -630,7 +630,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
             <p className="font-semibold text-[#0E6B55]">TB verified — gate cleared</p>
             <p className="text-xs text-muted-foreground mt-1">
               {matchResult?.matched_count ?? "All"} TB lines reconciled to evidence.
-              The tax engine is now unlocked for <span className="font-mono">{fileName}</span>.
+              Later stages are now unlocked for <span className="font-mono">{fileName}</span>.
             </p>
           </div>
           {matchResult?.confidence_score !== null && (
@@ -653,7 +653,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
           <div>
             <p className="font-semibold text-red-700">Reconciliation blocked</p>
             <p className="text-xs text-red-600 mt-1">
-              One or more 'investigate' exceptions were rejected. The tax engine is blocked
+              One or more 'investigate' exceptions were rejected. Later stages are blocked
               for <span className="font-mono">{fileName}</span> until the underlying discrepancies
               are corrected and a fresh TB is re-uploaded.
             </p>
