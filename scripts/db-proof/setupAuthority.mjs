@@ -297,10 +297,24 @@ async function main() {
   await refused("another company's owner cannot select it", "42501", () => q(user(U.ownerB), "SELECT public.set_company_filing_jurisdiction($1,'TZ')", [A]));
   await refused("a malformed code is rejected (22023)", "22023", () => q(user(U.owner), "SELECT public.set_company_filing_jurisdiction($1,'Tanzania')", [A]));
   await check("a partner selects it explicitly", async () => (await one(user(U.partner), "SELECT public.set_company_filing_jurisdiction($1,'TZ') j", [A])).j === "TZ");
-  await check("with a jurisdiction, Tax can be added — idempotently", async () => {
-    const r = await openScope(user(U.owner), A, 2026, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]);
-    const again = await openScope(user(U.owner), A, 2026, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]);
-    return r.granted.includes("TAX_COMPUTATION") && again.created === false && r.engagementId === again.engagementId;
+  // Tax computation is withheld (20261002100000_refuse_withheld_service_grants.sql): a NEW grant is refused even with a
+  // jurisdiction. The jurisdiction lock still protects every HISTORICAL Tax grant, so one is recorded exactly as it was
+  // stored before that migration (triggers suspended for this single superuser write only), then the lock is proven.
+  await check("with a jurisdiction, a NEW Tax grant is refused (PT422 SERVICE_NOT_AVAILABLE) and writes nothing", async () => {
+    const n0 = await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE engagement_id=$1", [winner]);
+    try { await openScope(user(U.owner), A, 2026, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]); return "no error"; } catch (e) {
+      return e.code === "PT422" && e.message === "SERVICE_NOT_AVAILABLE" && (await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE engagement_id=$1", [winner])) === n0;
+    }
+  });
+  await check("a historical Tax grant (recorded before 20261002100000) is in scope", async () => {
+    await admin.query("BEGIN");
+    try {
+      await admin.query("SET LOCAL session_replication_role = replica");
+      await admin.query("INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id,reason) SELECT $1,'TAX_COMPUTATION','GRANT',public.next_engagement_sequence($1),fm.id,'historical' FROM public.firm_members fm WHERE fm.company_id=$2 AND fm.user_id=$3", [winner, A, U.owner]);
+      await admin.query("COMMIT");
+    } catch (e) { await admin.query("ROLLBACK"); throw e; }
+    const r = await openScope(user(U.owner), A, 2026, ["FINANCIAL_STATEMENTS"]);
+    return r.created === false && r.granted.includes("TAX_COMPUTATION");
   });
   await refused("the jurisdiction cannot be changed while Tax is in scope (via the RPC)", "PT409", () => q(user(U.partner), "SELECT public.set_company_filing_jurisdiction($1,'KE')", [A]));
   await refused("…nor by a direct UPDATE, even by a superuser (the trigger guards every writer, including the owner's RLS path)", "PT409", () => admin.query("UPDATE public.companies SET filing_jurisdiction='KE' WHERE id=$1", [A]));

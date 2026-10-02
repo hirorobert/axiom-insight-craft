@@ -460,6 +460,7 @@ scripts/
   db-proof/
     run.mjs                   ← Financial-statements persistence proof (real PostgreSQL)
     setupAuthority.mjs        ← Workspace setup authority proof (25-way concurrency, role/RLS matrix)
+    serviceWithholding.mjs    ← Withheld-service grant refusal proof (20261002100000; history byte-identical)
     uploadLifecycle.mjs       ← Upload lifecycle proof (legacy upgrade, B1–B4, capability matrix, concurrency)
   db-preflight/
     uploadLifecyclePreflight.sql ← Read-only report of what the lifecycle backfill would retire
@@ -1075,6 +1076,15 @@ authenticated session of an active commercial admin (service_role is revoked; a 
 auth.uid()); there is no in-app admin UI for licence RPCs. **Do not merge
 PR #41 before the production preflight reads PASS and every listed provider session is reconciled**: Lovable syncs
 `main` and may apply hosted migrations.
+
+**WITHHELD_SERVICE_GRANTS_REFUSED_BY_THE_DATABASE** — `20261002100000_refuse_withheld_service_grants.sql` (branch
+`fix/refuse-withheld-service-grants`; authored, NOT applied — only Lovable/the owner applies it). One `BEFORE INSERT` trigger on
+`engagement_mandate_events` refuses every NEW `GRANT` of `TAX_COMPUTATION`, `COMPLIANCE_REVIEW` and `FILING_PREPARATION`
+with SQLSTATE PT422 `SERVICE_NOT_AVAILABLE`, whatever the path (`open_engagement_with_scope`, `grant_engagement_capability`,
+service_role or owner writes). Every existing row stays byte-identical and readable; REVOKE events and the other services
+are unaffected; a refused `open_engagement_with_scope` is atomic (no engagement, period or grant). Replaying an existing
+historical grant creates nothing. Proven by `scripts/db-proof/serviceWithholding.mjs`. It pairs with the frontend boundary
+(`TAX_MODULE_WITHHELD_FROM_CUSTOMERS`). Re-enabling a service is a separate, reviewed migration.
 
 ---
 

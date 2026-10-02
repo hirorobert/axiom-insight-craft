@@ -358,3 +358,11 @@ jobs:
         run: |
           createdb annual_term_proof
           node scripts/db-proof/annualTerm.mjs
+
+      - name: Withheld-service grant refusal proof (clean install, upgrade with history byte-identical, RPC/role/replay/25-way concurrency refusals, re-apply, zero deletion, on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/withholding_proof
+        run: |
+          createdb withholding_proof
+          node scripts/db-proof/serviceWithholding.mjs

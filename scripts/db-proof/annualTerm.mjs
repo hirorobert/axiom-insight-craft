@@ -142,9 +142,8 @@ async function main() {
   const files = migrationFiles();
   const cut = files.indexOf(MIGRATION);
   group("Migration chain");
-  await check(`every migration before ${MIGRATION} applies, and ${MIGRATION} is the newest`, async () => {
+  await check(`every migration before ${MIGRATION} applies (later migrations are applied right after it)`, async () => {
     if (cut < 0) return "migration not found";
-    if (cut !== files.length - 1) return `not the newest migration (followed by ${files.slice(cut + 1).join(", ")})`;
     for (const f of files.slice(0, cut)) await applyMigration(f);
     return true;
   });
@@ -432,6 +431,8 @@ async function main() {
   const offersBefore = await snapOffers();
   group("Apply");
   await check(`${MIGRATION} applies once the gate is clear`, async () => { await applyMigration(MIGRATION); return true; });
+  // Later migrations (e.g. 20261002100000, which touches no commercial table) apply on top, before the post-state checks.
+  await check("every later migration applies on top", async () => { for (const f of files.slice(cut + 1)) await applyMigration(f); return true; });
 
   // ── Existing state ───────────────────────────────────────────────────────────────────────────────────────────────
   group("Existing licences and offers");

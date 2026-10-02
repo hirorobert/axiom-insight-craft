@@ -34,12 +34,12 @@ describe("the reviewed release journal", () => {
     expect(RELEASE_JOURNAL["0020_pr34_apply_20260925140000"].digest).toBe("c26e47f3a78b4fd0d47a5a2fab82a69caf13bfe2344e69687f9b30c13a8e5f9a");
     for (const [tag, e] of Object.entries(RELEASE_JOURNAL)) if ("source" in e && e.source) expect(sha(srcBytes(e.source)!), tag).toBe(e.digest);
   });
-  it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 , the removal migration 20260927100000 (0024) and (out of order on purpose) the prerequisite; nothing is pending", () => {
+  it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 , the removal migration 20260927100000 (0024) and (out of order on purpose) the prerequisite; only 20261002100000 is pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
     // 0022 applied the processing correction (f21a58f); 0024 the removal migration (main 0d2a09e); 0025 the annual term
-    // (release_verbatim). PENDING_MIGRATIONS=NONE.
-    expect(r.pending).toEqual([]);
+    // (release_verbatim). Authored and not yet applied: 20261002100000 (withheld-service grant refusal).
+    expect(r.pending).toEqual(["20261002100000_refuse_withheld_service_grants.sql"]);
     expect(r.mirrored.find((m) => m.tag === T25)).toEqual({ tag: T25, source: S25, how: "release_verbatim" });
     expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" }]);
     expect(r.mirrored.filter((m) => m.how === "release_wrapper").map((m) => m.source)).toEqual([
