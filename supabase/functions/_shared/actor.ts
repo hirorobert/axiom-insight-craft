@@ -12,7 +12,7 @@
 // adminClient, userId, companyId)) exactly as they exist today, not as
 // earlier documentation (CLAUDE.md, SAFF directive V1) incorrectly claimed.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isNamedUserActive } from "./namedUserAccess.ts";
 
 // The non-membership user actor (workspace owner or explicit capability holder); see processingActor.ts.
@@ -36,7 +36,10 @@ export interface FirmMemberActor {
  * `const denied = await resolveFirmMemberActor(...); if (denied instanceof Response) return denied;`).
  */
 export async function resolveFirmMemberActor(
-  adminClient: ReturnType<typeof createClient>,
+  // A schema-less service-role client. `ReturnType<typeof createClient>` (no Database generic) collapses rpc()'s
+  // argument type to `undefined`, which made the named-user check below a type error; the call itself is unchanged.
+  // deno-lint-ignore no-explicit-any
+  adminClient: SupabaseClient<any, "public", any>,
   userId: string,
   companyId: string,
   corsHeaders: Record<string, string>,
@@ -58,9 +61,7 @@ export async function resolveFirmMemberActor(
     .maybeSingle();
 
   // A membership row is history; only an ACTIVE named user is an actor (20260925110000). Same 403 as an outsider.
-  // `ReturnType<typeof createClient>` carries no Database generic, so its rpc() argument type collapses to
-  // `undefined`; only that argument is cast. isNamedUserActive's own typed Rpc contract is unchanged.
-  if (error || !data || !(await isNamedUserActive((fn, args) => adminClient.rpc(fn, args as never), companyId, userId))) {
+  if (error || !data || !(await isNamedUserActive((fn, args) => adminClient.rpc(fn, args), companyId, userId))) {
     return new Response(
       JSON.stringify({ error: "Forbidden", message: "Not a member of this company" }),
       { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
