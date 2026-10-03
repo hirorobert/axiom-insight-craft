@@ -43,6 +43,28 @@ describe("EngagementHub — every empty-state instruction has a visible action",
   });
 });
 
+describe("EngagementHub — permission-aware action", () => {
+  const add = async () => ({ ok: true as const });
+  it("no access answer yet → card visible, action disabled, 'checking' shown (loading never implies permission)", () => {
+    const h = html({ unavailableEngagements: [U], onAddTrialBalanceReview: add });
+    expect(h).toContain("Arusha Dc");
+    expect(h).toMatch(/<button[^>]*disabled=""[^>]*data-testid="add-review-e1"[^>]*data-gate="checking"/);
+    expect(h).toContain("Checking your access");
+  });
+  it("blocked (no permission / no plan) → card visible, action disabled with the reason", () => {
+    const h = html({ unavailableEngagements: [U], onAddTrialBalanceReview: add, reviewGates: { c1: { state: "blocked", reason: "Your access doesn't include starting services for this company. Ask the workspace owner." } } });
+    expect(h).toContain("Arusha Dc");
+    expect(h).toMatch(/<button[^>]*disabled=""[^>]*data-testid="add-review-e1"[^>]*data-gate="blocked"/);
+    expect(h).toContain('data-testid="review-gate-e1"');
+    expect(h).toContain("Ask the workspace owner");
+  });
+  it("allowed → action enabled, no reason line", () => {
+    const h = html({ unavailableEngagements: [U], onAddTrialBalanceReview: add, reviewGates: { c1: { state: "allowed" } } });
+    expect(h).toMatch(/<button(?![^>]*disabled="")[^>]*data-testid="add-review-e1"[^>]*data-gate="allowed"/);
+    expect(h).not.toContain('data-testid="review-gate-e1"');
+  });
+});
+
 describe("EngagementHub — action wiring", () => {
   it("without an add handler no button is rendered (nothing that cannot work is offered)", () => {
     expect(html({ unavailableEngagements: [U] })).not.toContain('data-testid="add-review-e1"');
