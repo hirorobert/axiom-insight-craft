@@ -70,7 +70,11 @@ interface RawAccount {
   debit:             number;
   credit:            number;
   balance:           number;
-  source_row_number: number; // raw file row index (1-based from header_row + 1)
+  source_row_number: number; // 1-based row of the source sheet/file (tbIngestion lineage)
+  /** The ingestion identity — code (or name) plus any dimension values; unique within one trial balance. */
+  identity:          string;
+  /** Dimension values (cost centre, department, …) when the trial balance is split by dimension. */
+  dimensions:        Record<string, string>;
 }
 
 interface AccountMapping {
@@ -435,10 +439,11 @@ function accountJoinKey(code: string | null, name: string): string {
   return `${code ?? ""}|||${name}`;
 }
 
+// The ingestion identity is unique per trial balance (a repeated identity is refused before this point), including the
+// legitimate case of one code split across dimension values. Classification itself is per code: every row of a code
+// gets the same mapping.
 function accountKey(account: RawAccount): string {
-  return account.account_code !== account.account_name
-    ? account.account_code                // real GL code — safe to key directly
-    : `row:${account.source_row_number}`; // name-derived code — disambiguate by row
+  return account.identity;
 }
 
 // ── Account name normalisation ────────────────────────────────────────────────
@@ -751,7 +756,7 @@ function aggregateStatements(
       /\bending\s+(?:stock|inventor[yi])\b/i,
       /\bstock\s+(?:at\s+)?(?:year|period)\s*end\b/i,
     ];
-    const accountNameForRescue = account.account_name ?? account.name ?? "";
+    const accountNameForRescue = account.account_name ?? "";
     const isClosingStockByName = closingStockNamePats.some(p => p.test(accountNameForRescue));
     const isIncomeCodeRange    = /^[4-9]/.test(account.account_code?.trim() ?? ""); // broad IS code range
     const needsRescue =
@@ -860,6 +865,8 @@ interface CertifiedTBRowRecord {
   evidenceTier:   1 | 2 | 3 | 4 | 5;
   ruleId:         string | null;
   requiresReview: boolean;
+  /** Present only for a trial balance split by dimension: the row's dimension values (several rows may share a code). */
+  dimensions?:    Record<string, string>;
 }
 
 function classificationToNature(cls: string): "asset" | "liability" | "equity" | "income" | "expense" {
@@ -919,6 +926,7 @@ function buildCertifiedRows(
       evidenceTier:   tier,
       ruleId:         null,
       requiresReview: false,
+      ...(Object.keys(account.dimensions).length > 0 ? { dimensions: account.dimensions } : {}),
     });
   }
   return rows;
@@ -1284,6 +1292,9 @@ serve(async (req) => {
     // lookup error is a processing failure (thrown), never "no currency".
     const reportingCurrency = await resolveReportingCurrency(supabase as never, upload as { company_id?: string | null; period_id?: string | null; engagement_id?: string | null });
 
+    // The status as it is BEFORE this request writes anything — what every early exit restores.
+    priorStatus = (upload as { status?: string | null }).status ?? null;
+
     // Only after ownership AND the plan are confirmed do we mutate the upload row. The database processing wall
     // (trg_tbu_processing_wall) refuses this write too without a current plan: the error is checked, never ignored,
     // so a plan that ended in between answers the same structured 402 and Storage is never touched.
@@ -1296,7 +1307,6 @@ serve(async (req) => {
       console.error("[PTB] status claim failed:", (claimErr as { code?: string }).code ?? "unknown");
       return new Response(JSON.stringify(PROCESSING_UNAVAILABLE), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    priorStatus = (upload as { status?: string | null }).status ?? null;
     statusClaimed = true;
     claimedUploadId = uploadId;
 
@@ -1364,6 +1374,8 @@ serve(async (req) => {
       credit: minorToNumber(a.creditMinor, exponent),
       balance: minorToNumber(a.debitMinor - a.creditMinor, exponent),
       source_row_number: a.sourceRowNumber,
+      identity: a.identity,
+      dimensions: a.dimensions,
     }));
     const rejectedRows = ingest.lineage.filter((l) => l.disposition === "rejected" || l.disposition === "total" || l.disposition === "zero_balance");
     console.log(`[PTB] Ingested ${ingest.lineageSummary.rowsRead} rows → ${rawAccounts.length} accounts; ${ingest.issues.length} issue(s)`);
@@ -1451,6 +1463,7 @@ serve(async (req) => {
     const ingestTotals = ingest.totals!;
     const exactTotals = {
       currency: ingest.currency,
+      currency_exponent: ingest.exponent,
       total_debits: formatMinor(ingestTotals.debitMinor, exponent),
       total_credits: formatMinor(ingestTotals.creditMinor, exponent),
       difference: formatMinor(ingestTotals.differenceMinor < 0n ? -ingestTotals.differenceMinor : ingestTotals.differenceMinor, exponent),
@@ -1604,6 +1617,21 @@ serve(async (req) => {
     const needsReviewAccounts: NeedsReviewAccount[]       = [];
     const nonReportingAccounts: NonReportingAccount[]     = [];
     let autoClassifiedCount = 0;
+    // A classification decision is per account code (account_mappings.account_key), so rows of one code split by a
+    // dimension (cost centre, department, …) are reviewed ONCE: one entry per code, amounts combined. Their own rows
+    // stay separate in the lineage and, once reviewed, in the certified rows.
+    const reviewByCode = new Map<string, NeedsReviewAccount>();
+    const queueReview = (entry: NeedsReviewAccount) => {
+      const existing = reviewByCode.get(entry.account_code);
+      if (!existing) {
+        reviewByCode.set(entry.account_code, entry);
+        needsReviewAccounts.push(entry);
+        return;
+      }
+      existing.debit += entry.debit;
+      existing.credit += entry.credit;
+      existing.balance += entry.balance;
+    };
 
     for (const account of rawAccounts) {
       const eff = professionalState.get(accountJoinKey(account.account_code, account.account_name));
@@ -1625,7 +1653,7 @@ serve(async (req) => {
       // to review with it pre-selected, and the trial balance is not accepted until a reviewer confirms it.
       if (result.status === "classified" && classificationNeedsReview(result.tier, result.fuzzy === true)) {
         autoClassifiedCount++;
-        needsReviewAccounts.push({
+        queueReview({
           account_code:             account.account_code,
           account_name:             account.account_name,
           debit:                    account.debit,
@@ -1641,7 +1669,7 @@ serve(async (req) => {
         resolvedMappings.set(accountKey(account), result.mapping);
         resolvedTiers.set(accountKey(account), result.tier);
       } else {
-        needsReviewAccounts.push({
+        queueReview({
           account_code:             account.account_code,
           account_name:             account.account_name,
           debit:                    account.debit,

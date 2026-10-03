@@ -124,6 +124,41 @@ describe("currency precision and period selection are explicit — never default
   });
 });
 
+describe("dimension-split trial balances and unsupported layouts", () => {
+  it("keeps one code split by a dimension column as separate identities, each with its own row and lineage", () => {
+    const r = readCsv("Code,Name,Cost Centre,Debit,Credit\n6000,Salaries,Admin,300,\n6000,Salaries,Sales,200,\n1000,Cash,,,100\n3000,Capital,,,400\n");
+    expect(r.issues).toEqual([]);
+    expect(r.columns.dimensions).toBe("Cost Centre");
+    const salaries = r.accounts.filter((a) => a.accountCode === "6000");
+    expect(salaries.map((a) => [a.identity, a.dimensions, a.sourceRowNumber, a.debitMinor])).toEqual([
+      ["code:6000|cost centre=admin", { "Cost Centre": "Admin" }, 2, 30000n],
+      ["code:6000|cost centre=sales", { "Cost Centre": "Sales" }, 3, 20000n],
+    ]);
+    expect(r.lineage.filter((l) => l.disposition === "account").map((l) => l.identity)).toContain("code:6000|cost centre=sales");
+  });
+
+  it("several dimensions combine; the same code AND the same dimension values is still ambiguous and refused", () => {
+    const ok = readCsv("Code,Name,Department,Fund,Debit,Credit\n6000,Salaries,Admin,General,1,\n6000,Salaries,Admin,Donor A,1,\n3000,Capital,,,,2\n");
+    expect(ok.blocking).toBe(false);
+    const dup = readCsv("Code,Name,Department,Debit,Credit\n6000,Salaries,Admin,1,\n6000,Salaries,admin,1,\n3000,Capital,,,2\n");
+    expect(codes(dup)).toEqual(["DUPLICATE_ACCOUNT_CODE"]);
+    expect(dup.issues[0].message).toBe("Account code 6000 appears on rows 2, 3 with the same “Department”. Each account and “Department” combination must appear once — combine or correct those rows.");
+  });
+
+  it("a repeated code without any dimension column fails closed and explains the supported layout", () => {
+    const r = readCsv("Code,Name,Debit,Credit\n6000,Salaries,1,\n6000,Salaries,1,\n3000,Capital,,2\n");
+    expect(codes(r)).toEqual(["DUPLICATE_ACCOUNT_CODE"]);
+    expect(r.issues[0].message).toMatch(/one row per account\. If these rows are split by cost centre, department, branch, fund or project, include that column/);
+  });
+
+  it("a general-ledger transaction listing is explained as an unsupported layout, not processed", () => {
+    const r = readCsv("Date,Voucher,Account Code,Account Name,Debit,Credit\n2025-01-03,JV1,1000,Cash,10,\n2025-01-03,JV1,3000,Capital,,10\n");
+    expect(codes(r)).toEqual(["UNSUPPORTED_LAYOUT"]);
+    expect(r.issues[0].message).toMatch(/transaction columns \(“Date”, “Voucher”\).*general-ledger transaction listing, not a trial balance/);
+    expect(r.accounts).toEqual([]);
+  });
+});
+
 describe("account identity", () => {
   it("refuses a repeated account code — never merged, never last-row-wins", () => {
     const r = readCsv("Code,Name,Debit,Credit\n1000,Cash,10,\n1000,Cash at bank,5,\n3000,Capital,,15\n");

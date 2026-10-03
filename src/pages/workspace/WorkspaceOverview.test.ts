@@ -87,7 +87,8 @@ function contradictionSnapshot(): UploadSnapshot {
   };
 }
 
-const EVALUATED = { status: "clean", matched_count: 8, exception_count: 1, total_tb_lines: 8 };
+/** A complete reconciliation as fetchWorkspaceSnapshot reads it: 8 lines, 7 matched and 1 exception approved. */
+const EVALUATED = { state: "read" as const, evidence: { status: "clean", matched_count: 7, exception_count: 1, total_tb_lines: 8, exceptions: { pending: 0, approved: 1, rejected: 0, escalated: 0, approvedTbLines: 1 } } };
 
 function mockWorkspace(snapshot: UploadSnapshot | null, reconciliation: WorkspaceUpload["reconciliation"] = null): UseWorkspaceDataReturn {
   const workspaceState = deriveWorkspaceState(CID, company.name, PY, snapshot);
@@ -153,10 +154,19 @@ describe("WorkspaceOverview — certification is the single authority for whethe
 
   it("a 'clean' reconciliation that compared nothing, or one that cannot be read, is never presented as ready", async () => {
     const clean: UploadSnapshot = { ...contradictionSnapshot(), certificationVerdict: "certified", certificationBlocker: null, safishaStatus: "clean" };
-    for (const evidence of [null, { ...EVALUATED, matched_count: 0, total_tb_lines: 0 }, { ...EVALUATED, status: "needs_review" }]) {
+    const e = EVALUATED.evidence;
+    const cases: [WorkspaceUpload["reconciliation"], string][] = [
+      [{ state: "read", evidence: { ...e, matched_count: 0, total_tb_lines: 0 } }, "No trial-balance line has been matched to evidence yet."],
+      [{ state: "read", evidence: { ...e, matched_count: 1 } }, "2 of 8 trial-balance lines are matched or approved; 6 still need evidence."],
+      [{ state: "read", evidence: { ...e, exceptions: { ...e.exceptions, escalated: 1 } } }, "1 exception is escalated and not yet resolved."],
+      [{ state: "failed" }, "could not be read just now"],
+      // Not visible to this viewer is NOT the same as incomplete: said differently, still never "ready".
+      [{ state: "read", evidence: null }, "Reconciliation not visible to you"],
+    ];
+    for (const [evidence, expected] of cases) {
       const html = await renderOverview(clean, evidence);
       expect(html).not.toContain("Trial balance ready");
-      expect(html).toContain("Reconcile supporting evidence");
+      expect(html).toContain(expected);
     }
   });
 

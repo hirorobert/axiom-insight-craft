@@ -180,6 +180,13 @@ describe("database inertness — schema and functions", () => {
       // bytes → rows reader it uses. Pure modules; no schema, no new Edge Function.
       "supabase/functions/_shared/tbIngestion.ts",
       "supabase/functions/_shared/tbSource.ts",
+      // ...and its Deno function-path tests: the real handler with only the network edges (Supabase client, std serve)
+      // replaced by in-memory doubles through an import map used by the tests alone. Never deployed (not under a
+      // function's entry point), no schema.
+      "supabase/functions/process-trial-balance/functionpath/functionPath.test.ts",
+      "supabase/functions/process-trial-balance/functionpath/supabaseDouble.ts",
+      "supabase/functions/process-trial-balance/functionpath/serverDouble.ts",
+      "supabase/functions/process-trial-balance/functionpath/import_map.json",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
