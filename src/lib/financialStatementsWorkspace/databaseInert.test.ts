@@ -80,6 +80,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20260923100000_upload_lifecycle_retire_and_replace.sql",
       // One 12-month commercial term (forward-only; retires the self-serve monthly offers, adds INSERT-only guards and stop-renewal).
       "supabase/migrations/20261001120000_annual_commercial_term.sql",
+      // Withheld-service grant refusal (forward-only; one BEFORE INSERT trigger on engagement_mandate_events refusing NEW
+      // grants of TAX_COMPUTATION / COMPLIANCE_REVIEW / FILING_PREPARATION / MONITORING; no row changed). No financial-statements schema.
+      "supabase/migrations/20261002100000_refuse_withheld_service_grants.sql",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryChallenge.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
@@ -242,7 +245,9 @@ describe("database inertness — schema and functions", () => {
       "scripts/ci/assertDevGalleryExcluded.mjs",
       // One 12-month commercial term (20261001120000): the loopback-only real-PostgreSQL proof and the READ-ONLY
       // production preflight audit (SELECT statements only; proven read-only by that proof, T-08).
-      "scripts/db-proof/annualTerm.mjs", "scripts/db-preflight/annualTermPreflight.sql"]);
+      "scripts/db-proof/annualTerm.mjs", "scripts/db-preflight/annualTermPreflight.sql",
+      // Withheld-service grant refusal (20261002100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.
+      "scripts/db-proof/serviceWithholding.mjs"]);
     expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
   });
 
