@@ -165,8 +165,10 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
           setUploads((prev) =>
             prev.map((u) => (u.id === updated.id ? updated : u)),
           );
+          // The pushed row carries columns only; keep the reconciliation evidence read alongside it until the
+          // re-read below replaces both.
           setUpload((prev) =>
-            prev?.id === updated.id ? updated : prev,
+            prev?.id === updated.id ? { ...updated, reconciliation: prev.reconciliation } : prev,
           );
 
           // workspaceState is DERIVED state held in React state — the pushed row alone does not

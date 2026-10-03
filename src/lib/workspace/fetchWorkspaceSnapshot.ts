@@ -18,6 +18,7 @@ import { computeCertificationReadiness } from "./computeCertificationReadiness";
 import { readTrialBalanceTotals } from "./trialBalanceVerdict";
 import { fetchCertificationReadiness } from "@/hooks/useCertificationReadiness";
 import type { WorkspaceState, UploadSnapshot } from "./types";
+import type { ReconciliationEvidence } from "./trialBalanceReadiness";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type JsonCompatible = any;
@@ -49,6 +50,11 @@ export interface WorkspaceUpload {
   source_file_hash?: string | null;
   /** Set when this upload replaced an earlier one; an unprocessed replacement is removed by cancelling it. */
   replaces_upload_id?: string | null;
+  /**
+   * NOT a column: the upload's latest reconciliation record (safisha_reconciliations), read alongside it so readiness
+   * (trialBalanceReadiness) can require that evidence was actually compared. null when there is none or it cannot be read.
+   */
+  reconciliation?: ReconciliationEvidence | null;
 }
 
 export interface WorkspaceCompany {
@@ -172,7 +178,7 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
     derivePeriodYear: (u) => deriveFiscalPeriod(u, company).periodYear,
   });
 
-  const [hesabuRes, kingaRes, filingRes] = await Promise.all([
+  const [hesabuRes, kingaRes, filingRes, reconRes] = await Promise.all([
     match
       ? supabase
           .from("hesabu_validations")
@@ -199,7 +205,17 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    match
+      ? supabase
+          .from("safisha_reconciliations")
+          .select("status, matched_count, exception_count, total_tb_lines")
+          .eq("tb_upload_id", match.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
+  if (match) match.reconciliation = (reconRes.data as ReconciliationEvidence | null) ?? null;
 
   const hesabuPassedAt = (hesabuRes.data as { validated_at: string } | null)?.validated_at ?? null;
   const kingaSignedAt = (kingaRes.data as { approver_signed_at: string } | null)?.approver_signed_at ?? null;

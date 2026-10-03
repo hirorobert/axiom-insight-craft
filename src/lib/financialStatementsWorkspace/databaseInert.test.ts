@@ -175,6 +175,11 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/reportingPackSeal.mjs",
       "supabase/functions/_shared/reportingPackSeal.d.mts",
       "supabase/functions/seal-reporting-pack/index.ts",
+      // Trial-balance ingestion integrity: the pure ingestion core process-trial-balance runs on an upload (exact
+      // minor-unit money, explicit period and currency, one identity per account, safe totals, row lineage) and the
+      // bytes → rows reader it uses. Pure modules; no schema, no new Edge Function.
+      "supabase/functions/_shared/tbIngestion.ts",
+      "supabase/functions/_shared/tbSource.ts",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",

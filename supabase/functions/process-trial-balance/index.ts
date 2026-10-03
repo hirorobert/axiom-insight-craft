@@ -37,6 +37,15 @@ import { claimIdempotency, failIdempotency } from "../_shared/idempotency.ts";
 import { recordEngineRunFailed } from "../_shared/engine-run.ts";
 import { canonicalJson, sha256Hex, sha256HexBytes, type CanonicalValue } from "../_shared/hash.ts";
 import { computeNormalizedInputHash, type NormalizedInputRow } from "../_shared/safisha-normalize.ts";
+// The ingestion core: exact money, explicit period and currency, one identity per account, safe totals, row lineage.
+import {
+  MilestoneLog, TB_INGESTION_VERSION, classificationNeedsReview, formatMinor, ingestTrialBalance, markIngestionMilestones,
+  minorToNumber, sheetRowsFromMatrix, type Cell, type IngestIssue, type IngestResult,
+} from "../_shared/tbIngestion.ts";
+import { detectSourceFormat, readTrialBalanceSource, type XlsxLike } from "../_shared/tbSource.ts";
+
+// processing_result.summary.parser_version — the ingestion core's version (one value on every outcome).
+const PARSER_VERSION = TB_INGESTION_VERSION;
 
 // Ω∞ Phase 0 Slice 2 — SAFISHA certification engine identity. Bumped
 // independently of parser_version (which tracks the TB parsing/aggregation
@@ -134,7 +143,7 @@ interface NeedsReviewAccount {
 // to the old lossy mapping's own grouping (both were "rule"-sourced and
 // both already collapsed to 5), so no compatibility change there either.
 type TieredClassifyResult =
-  | { status: "classified"; mapping: AccountMapping; confidence: "high" | "medium"; confidence_source: "mapping" | "dictionary_exact" | "dictionary_contains" | "rule"; tier: 1 | 2 | 3 | 4 | 5 }
+  | { status: "classified"; mapping: AccountMapping; confidence: "high" | "medium"; confidence_source: "mapping" | "dictionary_exact" | "dictionary_contains" | "rule"; tier: 1 | 2 | 3 | 4 | 5; fuzzy?: boolean }
   | { status: "needs_review"; suggested_classification?: string; suggested_statement?: string; confidence_source?: string; reason: string };
 
 // Ω∞ Phase 2A: an account whose latest effective professional decision is
@@ -159,7 +168,10 @@ interface ProcessingResult {
     parser_version:   string;
     columns_detected: Record<string, string>;
     auto_classified:  number;
+    rejected_rows?:   unknown;
   };
+  /** What ingestion did with every source row, its exact totals, issues and the milestones processing reached. */
+  ingestion?:                Record<string, unknown>;
 }
 
 // ── Pattern libraries (mirrors kinga-findings-engine) ─────────────────────────
@@ -390,242 +402,6 @@ const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }
     result: { statement: "balance_sheet", classification: "equity", normal_balance: "credit", line_item: "Current Year Profit" }},
 ];
 
-// ── Format Detection ──────────────────────────────────────────────────────────
-
-function detectFormat(fileName: string): "xlsx" | "csv" | "unknown" {
-  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
-  if (["xlsx", "xls", "xlsm", "xlsb"].includes(ext)) return "xlsx";
-  if (["csv", "tsv", "txt"].includes(ext))            return "csv";
-  return "unknown";
-}
-
-// ── Generic Column Detector ───────────────────────────────────────────────────
-
-interface ColumnMap {
-  account_code: number | null;
-  account_name: number | null;
-  debit:        number | null;
-  credit:       number | null;
-  balance:      number | null;
-  header_row:   number;
-}
-
-function detectColumns(rows: (string | number | null)[][]): { map: ColumnMap; detected: Record<string, string> } {
-  // Scan first 15 rows for a header-like row
-  const scan = Math.min(rows.length, 15);
-  let bestRow = 0;
-  let bestScore = 0;
-
-  for (let r = 0; r < scan; r++) {
-    const row = rows[r];
-    let score = 0;
-    for (const cell of row) {
-      const s = String(cell ?? "").trim().toLowerCase();
-      for (const matcher of Object.values(COLUMN_MATCHERS)) {
-        if (matcher(s)) { score++; break; }
-      }
-    }
-    if (score > bestScore) { bestScore = score; bestRow = r; }
-  }
-
-  const headerRow = rows[bestRow];
-  const map: ColumnMap = { account_code: null, account_name: null, debit: null, credit: null, balance: null, header_row: bestRow };
-  const detected: Record<string, string> = {};
-
-  for (let c = 0; c < headerRow.length; c++) {
-    const cell = String(headerRow[c] ?? "").trim();
-    const lower = cell.toLowerCase();
-    for (const [key, matcher] of Object.entries(COLUMN_MATCHERS)) {
-      if (map[key as keyof typeof map] === null && matcher(lower)) {
-        (map as Record<string, number | null>)[key] = c;
-        detected[key] = cell;
-        break;
-      }
-    }
-  }
-
-  return { map, detected };
-}
-
-// ── Row-to-RawAccount parser ──────────────────────────────────────────────────
-
-function isSubtotalRow(accountName: string, accountCode: string): boolean {
-  return SUBTOTAL_ROW_PATTERNS.some(p => p.test(accountName) || p.test(accountCode));
-}
-
-// Ω∞ Phase 0 Slice 2 — DEFECT-SAFISHA-SILENT-NUMERIC-ZERO-001 fix.
-// A blank cell (null/undefined/"") legitimately means "no posting" — that IS
-// zero, and stays zero. A NON-EMPTY value that fails to parse (e.g. "abc",
-// "N/A", a stray currency symbol the strip regex doesn't catch) is a
-// data-quality defect, NOT a zero — `parseFloat(...) || 0` used to collapse
-// both cases to 0 silently. This sentinel makes the two cases
-// distinguishable so the caller can exclude and report malformed rows
-// instead of feeding a fabricated 0 into the trial balance.
-const MALFORMED_NUMERIC = Symbol("malformed_numeric");
-
-// Explicit accepted grammar, validated BEFORE Number() ever runs — never
-// relying on Number()'s or parseFloat()'s own leniency to reject malformed
-// input, because that leniency is exactly what caused the original defect
-// (parseFloat("12abc") === 12) and a subtler one blind comma-stripping
-// would still allow (Number("123") from "1,2,3" — a real 3-digit group
-// grammar was needed, not just "strip every comma and hope"):
-//   optional leading '-'
-//   then EITHER plain digits (any length, no commas)
-//       OR properly-grouped thousands: 1-3 leading digits, then one or
-//          more comma + exactly-3-digit groups
-//   then an optional '.' + one or more digits
-// A single leading '$' and any internal whitespace (space-grouped
-// thousands, e.g. "1 234 567") are stripped as formatting BEFORE grammar
-// validation — they are not part of the numeric grammar itself. Nothing
-// else is stripped: letters, stray hyphens, parentheses, and other
-// currency codes ("TZS", "USD") are left in place so the grammar rejects
-// them, rather than a strip regex silently discarding evidence of a
-// malformed cell.
-const NUMERIC_GRAMMAR = /^-?(\d+|\d{1,3}(,\d{3})+)(\.\d+)?$/;
-
-function parseNumber(v: string | number | null): number | typeof MALFORMED_NUMERIC {
-  if (v === null || v === undefined || v === "") return 0;
-  if (typeof v === "number") return Number.isFinite(v) ? v : MALFORMED_NUMERIC;
-
-  const trimmed = String(v).trim();
-  if (trimmed === "") return 0;
-
-  const withoutCurrencySymbol = trimmed.replace(/^\$/, "");
-  const withoutSpaces = withoutCurrencySymbol.replace(/\s+/g, "");
-  if (withoutSpaces === "") return 0;
-
-  if (!NUMERIC_GRAMMAR.test(withoutSpaces)) return MALFORMED_NUMERIC;
-
-  const cleaned = withoutSpaces.replace(/,/g, "");
-  const parsed = Number(cleaned);
-  return Number.isFinite(parsed) ? parsed : MALFORMED_NUMERIC;
-}
-
-function rowsToRawAccounts(
-  rows: (string | number | null)[][],
-  map: ColumnMap
-): { accounts: RawAccount[]; errors: ValidationError[]; rejectedRows: { account_name: string; account_code: string; reason: string }[] } {
-  const accounts: RawAccount[] = [];
-  const errors: ValidationError[] = [];
-  const rejectedRows: { account_name: string; account_code: string; reason: string }[] = [];
-  const dataStart = map.header_row + 1;
-
-  for (let i = dataStart; i < rows.length; i++) {
-    const row = rows[i];
-    const rawCode = String(row[map.account_code ?? -1] ?? "").trim();
-    const name    = String(row[map.account_name ?? -1] ?? "").trim();
-
-    // Skip blank rows and subtotal rows
-    if (!rawCode && !name) continue;
-    if (isSubtotalRow(name, rawCode)) {
-      rejectedRows.push({ account_name: name, account_code: rawCode, reason: "Subtotal/total row — filtered during parsing" });
-      continue;
-    }
-
-    // Fall back to account_name as the key when no account_code column exists.
-    // This handles CSVs/XLSXs that only have an account name column (e.g. trial
-    // balance exports without GL codes, or reconstructed TBs from audited accounts).
-    const code = rawCode || name;
-    if (!code) continue;
-
-    const debitParsed  = parseNumber(map.debit   !== null ? row[map.debit]   : null);
-    const creditParsed = parseNumber(map.credit  !== null ? row[map.credit]  : null);
-
-    if (debitParsed === MALFORMED_NUMERIC || creditParsed === MALFORMED_NUMERIC) {
-      const field = debitParsed === MALFORMED_NUMERIC ? "debit" : "credit";
-      rejectedRows.push({
-        account_name: name, account_code: rawCode,
-        reason: `Malformed ${field} value — row excluded from the trial balance, NOT silently treated as zero (source row ${i + 1})`,
-      });
-      errors.push({
-        code: "MALFORMED_NUMERIC_VALUE",
-        message: `Row ${i + 1} ("${name || rawCode}"): could not parse the ${field} value as a number`,
-        field,
-      });
-      continue;
-    }
-    const debit  = debitParsed;
-    const credit = creditParsed;
-
-    let balance: number;
-    if (map.balance !== null && row[map.balance] !== null && row[map.balance] !== "") {
-      const balanceParsed = parseNumber(row[map.balance]);
-      if (balanceParsed === MALFORMED_NUMERIC) {
-        rejectedRows.push({
-          account_name: name, account_code: rawCode,
-          reason: `Malformed balance value — row excluded from the trial balance, NOT silently treated as zero (source row ${i + 1})`,
-        });
-        errors.push({
-          code: "MALFORMED_NUMERIC_VALUE",
-          message: `Row ${i + 1} ("${name || rawCode}"): could not parse the balance value as a number`,
-          field: "balance",
-        });
-        continue;
-      }
-      balance = balanceParsed;
-    } else {
-      balance = debit - credit;
-    }
-
-    // Skip pure-zero sentinel rows (debit = credit = 0 AND balance = 0).
-    // Real accounts can have zero balance but always have at least one posting.
-    // A row with zeros across all three columns is a check/total sentinel row.
-    if (debit === 0 && credit === 0 && balance === 0) {
-      rejectedRows.push({ account_name: name, account_code: rawCode, reason: "All-zero sentinel row (debit=0, credit=0, balance=0) — filtered during parsing" });
-      continue;
-    }
-
-    accounts.push({ account_code: code, account_name: name || code, debit, credit, balance, source_row_number: i });
-  }
-
-  return { accounts, errors, rejectedRows };
-}
-
-// ── XLSX Parser ───────────────────────────────────────────────────────────────
-
-function parseXLSX(buffer: ArrayBuffer): { rows: (string | number | null)[][]; sheetName: string } {
-  const wb = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: false });
-
-  // Pick the sheet with the most data rows (usually the trial balance sheet)
-  let bestSheet = wb.SheetNames[0];
-  let bestCount = 0;
-
-  for (const name of wb.SheetNames) {
-    const ws = wb.Sheets[name];
-    const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1:A1");
-    const count = range.e.r - range.s.r;
-    if (count > bestCount) { bestCount = count; bestSheet = name; }
-  }
-
-  const ws  = wb.Sheets[bestSheet];
-  const raw = XLSX.utils.sheet_to_json<(string | number | null)[]>(ws, { header: 1, defval: null, raw: true }) as (string | number | null)[][];
-  return { rows: raw, sheetName: bestSheet };
-}
-
-// ── CSV Parser ────────────────────────────────────────────────────────────────
-
-function parseCSV(content: string): (string | number | null)[][] {
-  const lines = content.split(/\r?\n/);
-  return lines.map(line => {
-    // Handle quoted fields
-    const result: (string | number | null)[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') { inQuotes = !inQuotes; continue; }
-      if (ch === "," && !inQuotes) {
-        result.push(current.trim() || null);
-        current = "";
-      } else {
-        current += ch;
-      }
-    }
-    result.push(current.trim() || null);
-    return result;
-  }).filter(row => row.some(cell => cell !== null && cell !== ""));
-}
-
 // ── Auto-Classification ───────────────────────────────────────────────────────
 
 interface ClassificationResult extends AutoClass {
@@ -763,7 +539,7 @@ function classifyAccountTiered(
       return { status: "classified", mapping: companyByName.get(normName)!, confidence: "high", confidence_source: "mapping", tier: 2 };
     }
     const fuzzyC = fuzzyMapLookup(normName, companyByName);
-    if (fuzzyC) return { status: "classified", mapping: fuzzyC, confidence: "high", confidence_source: "mapping", tier: 2 };
+    if (fuzzyC) return { status: "classified", mapping: fuzzyC, confidence: "high", confidence_source: "mapping", tier: 2, fuzzy: true };
   }
 
   // ── Tier 3: global mapping (company_id IS NULL) — code exact, then name exact/fuzzy ─
@@ -775,7 +551,7 @@ function classifyAccountTiered(
       return { status: "classified", mapping: globalByName.get(normName)!, confidence: "high", confidence_source: "mapping", tier: 3 };
     }
     const fuzzyG = fuzzyMapLookup(normName, globalByName);
-    if (fuzzyG) return { status: "classified", mapping: fuzzyG, confidence: "high", confidence_source: "mapping", tier: 3 };
+    if (fuzzyG) return { status: "classified", mapping: fuzzyG, confidence: "high", confidence_source: "mapping", tier: 3, fuzzy: true };
   }
 
   // ── Framework vocabulary: IPSAS/GFRS only ────────────────────────────────
@@ -1397,6 +1173,13 @@ serve(async (req) => {
   // Ω∞ Phase 0 Slice 4A — collected once (see collectPhase0Evidence), reused
   // verbatim on every certification-construction branch that follows.
   let phase0Evidence: Phase0Evidence | null = null;
+  // What processing actually reached, in order (returned and stored in processing_result.ingestion.milestones).
+  const milestones = new MilestoneLog();
+  // The status the upload had when this request arrived, and whether this request has replaced it with
+  // "validating" — so no exit (an exception, a replay, a conflict) leaves an upload stuck at "validating".
+  let priorStatus: string | null = null;
+  let statusClaimed = false;
+  let claimedUploadId: string | null = null;
 
   try {
     const auth = await validateAuth(req.headers.get("Authorization"));
@@ -1497,6 +1280,10 @@ serve(async (req) => {
       return new Response(JSON.stringify(unbound), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // The reporting period and currency this trial balance was uploaded for. Read before anything is mutated; a
+    // lookup error is a processing failure (thrown), never "no currency".
+    const reportingCurrency = await resolveReportingCurrency(supabase as never, upload as { company_id?: string | null; period_id?: string | null; engagement_id?: string | null });
+
     // Only after ownership AND the plan are confirmed do we mutate the upload row. The database processing wall
     // (trg_tbu_processing_wall) refuses this write too without a current plan: the error is checked, never ignored,
     // so a plan that ended in between answers the same structured 402 and Storage is never touched.
@@ -1509,6 +1296,9 @@ serve(async (req) => {
       console.error("[PTB] status claim failed:", (claimErr as { code?: string }).code ?? "unknown");
       return new Response(JSON.stringify(PROCESSING_UNAVAILABLE), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    priorStatus = (upload as { status?: string | null }).status ?? null;
+    statusClaimed = true;
+    claimedUploadId = uploadId;
 
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("trial-balance-files").download(upload.file_path);
@@ -1518,51 +1308,26 @@ serve(async (req) => {
       // that ended concurrently → the controlled 402). Nothing else is written; no raw error reaches the response.
       const classification = classifyDownloadFailure(downloadError);
       const { error: restoreErr } = await supabase.from("trial_balance_uploads").update({ status: upload.status }).eq("id", uploadId);
+      statusClaimed = false;
       const outcome = sourceFailureOutcome(classification, restoreErr, downloadError);
       console.error("[PTB] source download failed", JSON.stringify({ upload_id: uploadId, ...outcome.log }));
       return new Response(JSON.stringify(outcome.body), { status: outcome.httpStatus, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── STEP 1: Format detection + parsing ────────────────────────────────────
+    // ── STEP 1: Read the source and run the ingestion core ────────────────────
+    // _shared/tbIngestion.ts (exact minor-unit money, explicit period and currency, one identity per account, safe
+    // totals, complete row lineage) via _shared/tbSource.ts — the same code the vitest suite runs on representative
+    // and adversarial files (src/lib/ingestion/tbIngestion.test.ts).
     console.log(`[PTB] Detected file: ${upload.file_name}`);
-    const format = detectFormat(upload.file_name ?? "");
-    let rawRows: (string | number | null)[][] = [];
-    let sheetName = "";
 
-    // Ω∞ Phase 0 Slice 2 — Priority 3: server-authoritative source_file_hash,
-    // computed from the exact downloaded bytes before any format-specific
-    // parsing touches them. Hashed once regardless of xlsx/csv — raw bytes,
-    // never a re-encoded/decoded copy (XLSX is binary; round-tripping it
-    // through a text codec would corrupt the digest).
+    // Ω∞ Phase 0 Slice 2 — Priority 3: server-authoritative source_file_hash, computed from the exact downloaded
+    // bytes before any format-specific parsing touches them (raw bytes, never a re-encoded copy). Persisted
+    // immediately and independently of everything downstream: it is observational truth about the current Storage
+    // bytes, and Slice 1R's source-hash-drift check in get_authoritative_certification depends on it being recorded
+    // even when this attempt later blocks or fails. The write is checked and hard-stops on failure
+    // (DEFECT-SAFISHA-SOURCE-HASH-WRITE-FAILURE-STALE-AUTHORITY-001).
     const fileBuffer = await fileData.arrayBuffer();
     const sourceFileHash = await sha256HexBytes(fileBuffer);
-
-    // Persisted immediately, independent of everything downstream —
-    // source_file_hash is observational truth about the exact current
-    // Storage bytes, not an authority claim. It must be recorded even if
-    // parsing, classification, or certification later fails or blocks:
-    // that independence is exactly what makes Slice 1R's source-hash-drift
-    // check in get_authoritative_certification work correctly against a
-    // reprocess attempt whose bytes changed but which itself fails before
-    // reaching commit_tb_certification — without this early write, a
-    // stale hash would remain and the drift check would never fire.
-    //
-    // The error IS checked and hard-stops here (see DEFECT-SAFISHA-SOURCE-
-    // HASH-WRITE-FAILURE-STALE-AUTHORITY-001, registered in the Slice 2
-    // authority-boundary review): if this write fails, the column keeps
-    // whatever value it had before this attempt. If that prior value
-    // happens to equal an existing certification's own source_file_hash
-    // (the normal case — it was set by that certification's own successful
-    // run), get_authoritative_certification's drift check would still
-    // pass, silently keeping that certification authoritative even though
-    // the bytes just downloaded may be genuinely different. Continuing to
-    // classify/certify under an unconfirmed persisted hash would compound
-    // that risk by potentially creating a NEW certification while the
-    // read-side staleness window is still open; not continuing at least
-    // prevents that compounding. This does not fully close the window
-    // (closing it for a reader querying in the gap needs a schema-level
-    // confirmation signal, deliberately not added here) — see the defect
-    // report for the full analysis.
     const { error: sourceHashUpdateError } = await supabase
       .from("trial_balance_uploads")
       .update({ source_file_hash: sourceFileHash })
@@ -1571,91 +1336,62 @@ serve(async (req) => {
       throw new Error(`Failed to persist source_file_hash: ${sourceHashUpdateError.message}`);
     }
 
-    if (format === "xlsx") {
-      const buffer = fileBuffer;
-
-      // ── Detect audited financial statements vs. flat trial balance ──────────
-      // Audited accounts (SCI + SFP sheets) are converted to a flat TB format
-      // by the AuditedAccountsAdapter before entering the normal pipeline.
-      const wb = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: false });
-
-      if (isAuditedAccountsFormat(wb)) {
-        const meta = getAuditedAccountsMetadata(wb);
-        console.log(`[PTB] Detected AUDITED ACCOUNTS format — SCI: "${meta.sci_sheet}", SFP: "${meta.sfp_sheet}", Notes: "${meta.notes_sheet}"`);
-        rawRows   = parseAuditedAccounts(wb);
-        sheetName = `AUDITED_ACCOUNTS (SCI="${meta.sci_sheet}", SFP="${meta.sfp_sheet}")`;
-      } else {
-        const parsed = parseXLSX(buffer);
-        rawRows    = parsed.rows;
-        sheetName  = parsed.sheetName;
-      }
-      console.log(`[PTB] XLSX: sheet="${sheetName}", ${rawRows.length} raw rows`);
+    const fileBytes = new Uint8Array(fileBuffer);
+    const readContext = { fileName: upload.file_name ?? "", periodYear: upload.period_year ?? null, currency: reportingCurrency };
+    let ingest: IngestResult;
+    const workbook = detectSourceFormat(readContext.fileName) === "xlsx" ? tryReadWorkbook(fileBytes) : null;
+    if (workbook && isAuditedAccountsFormat(workbook)) {
+      // Audited financial statements (SCI + SFP sheets) are converted to a flat trial balance first; its row numbers
+      // are positions in that reconstructed table.
+      const meta = getAuditedAccountsMetadata(workbook);
+      console.log(`[PTB] Detected AUDITED ACCOUNTS format — SCI: "${meta.sci_sheet}", SFP: "${meta.sfp_sheet}", Notes: "${meta.notes_sheet}"`);
+      ingest = ingestTrialBalance({
+        rows: sheetRowsFromMatrix(parseAuditedAccounts(workbook) as Cell[][], 1),
+        sheetName: `AUDITED_ACCOUNTS (SCI="${meta.sci_sheet}", SFP="${meta.sfp_sheet}")`,
+        periodYear: readContext.periodYear, currency: readContext.currency,
+      });
     } else {
-      const content = new TextDecoder("utf-8").decode(fileBuffer);
-      rawRows = parseCSV(content);
-      console.log(`[PTB] CSV: ${rawRows.length} raw rows`);
+      ingest = readTrialBalanceSource(fileBytes, readContext, XLSX as unknown as XlsxLike);
     }
-
-    if (rawRows.length < 2) {
-      throw new Error("File appears empty or has no data rows. Minimum 2 rows required (header + 1 account).");
-    }
-
-    // ── STEP 2: Column detection ───────────────────────────────────────────────
-    const { map: colMap, detected: detectedCols } = detectColumns(rawRows);
-    console.log(`[PTB] Columns detected:`, detectedCols);
-
-    if (!colMap.account_name) {
-      allErrors.push({ code: "MISSING_COLUMN", message: "Could not detect an account name column. Ensure the file has a column header containing 'Account Name', 'Description', or similar.", field: "account_name" });
-    }
-    if (colMap.debit === null && colMap.balance === null) {
-      allErrors.push({ code: "MISSING_COLUMN", message: "Could not detect debit or balance column. Ensure headers contain 'Debit'/'Dr' or 'Balance'.", field: "debit" });
-    }
-    if (allErrors.length > 0) {
-      // No account rows were ever identified yet — column detection itself
-      // failed. This is a pre-flight input-shape failure, not an "engine
-      // invocation" (no idempotency claim has happened at this point — see
-      // the ordering note above STEP 3.5 below): there is genuinely no
-      // engine_run to fail, so none is created here.
-      // source_file_hash already persisted independently above.
-      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processed_at: new Date().toISOString() }).eq("id", uploadId);
-      return new Response(JSON.stringify({ status: "blocked", errors: allErrors }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // ── STEP 3: Row → RawAccount[] ────────────────────────────────────────────
-    const { accounts: rawAccounts, errors: parseErrors, rejectedRows } = rowsToRawAccounts(rawRows, colMap);
-    allErrors.push(...parseErrors);
-    console.log(`[PTB] Parsed ${rawAccounts.length} accounts${parseErrors.length > 0 ? ` (${parseErrors.length} rows excluded — malformed numeric value)` : ""}`);
+    markIngestionMilestones(milestones, ingest);
+    for (const issue of ingest.issues) allErrors.push(issueToValidationError(issue));
+    const detectedCols = ingest.columns;
+    const exponent = ingest.exponent ?? 0;
+    const rawAccounts: RawAccount[] = ingest.accounts.map((a) => ({
+      account_code: a.accountCode,
+      account_name: a.accountName,
+      debit: minorToNumber(a.debitMinor, exponent),
+      credit: minorToNumber(a.creditMinor, exponent),
+      balance: minorToNumber(a.debitMinor - a.creditMinor, exponent),
+      source_row_number: a.sourceRowNumber,
+    }));
+    const rejectedRows = ingest.lineage.filter((l) => l.disposition === "rejected" || l.disposition === "total" || l.disposition === "zero_balance");
+    console.log(`[PTB] Ingested ${ingest.lineageSummary.rowsRead} rows → ${rawAccounts.length} accounts; ${ingest.issues.length} issue(s)`);
 
     if (rawAccounts.length === 0) {
-      throw new Error("No account rows found after stripping subtotals and blank rows.");
+      // Nothing identifiable as an account (unreadable file, missing columns, no period or currency, …). A pre-flight
+      // input-shape failure: no idempotency claim has happened, so there is no engine_run to fail.
+      milestones.mark("recorded", "passed");
+      const result: Partial<ProcessingResult> = {
+        status: "blocked", statements: null, errors: allErrors,
+        validation_report: { ingestion_check: { passed: false } },
+        summary: { total_accounts: 0, processed_at: new Date().toISOString(), parser_version: PARSER_VERSION, columns_detected: detectedCols, auto_classified: 0 },
+        ingestion: ingestionRecord(ingest, milestones),
+      };
+      const failed = await writeOutcome(supabase as never, uploadId, { status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() });
+      if (failed) return failed;
+      return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── Ω∞ Phase 0 Slice 2 — idempotency claim + engine_run creation ─────────
-    // Deliberately placed HERE, not before download/parse. normalized_input_
-    // hash is the TRUE authoritative input identity for this computation —
-    // claiming idempotency before it is known would mean claiming against a
-    // provisional identity (or, worse, reducing that identity to uploadId
-    // alone, which is a distinct concept: uploadId identifies WHICH upload,
-    // not WHAT was actually, validly parsed from it). source_file_hash,
-    // normalized_input_hash, and client_request_id are three separate
-    // identities (exact bytes / canonical parsed input / retry-replay
-    // identity) and none may stand in for another.
-    // Skipped entirely for legacy company_id-null uploads — there is no
-    // company to attach an engine_run or certification to.
+    // Deliberately placed HERE, not before download/parse: normalized_input_hash is the true input identity.
+    // source_file_hash, normalized_input_hash and client_request_id are three separate identities (exact bytes /
+    // canonical parsed input / retry identity); none stands in for another. Skipped for legacy company_id-null uploads.
     const normalizedInputHash = await computeNormalizedInputHash(
       rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
     );
 
     if (resolvedActor && upload.company_id) {
-      // clientRequestId is now caller-supplied (validated at the top of
-      // this handler) — a genuine network retry of the same logical action
-      // reuses it; a new user-triggered processing action gets a new one
-      // from the caller. requestHash remains a separate, orthogonal
-      // identity: the real canonical identity of THIS specific input
-      // (upload + exact bytes + exact parsed content), never reduced to
-      // uploadId alone, and never including clientRequestId itself —
-      // clientRequestId is the request's key, requestHash is a proof of
-      // what that request represented.
       const requestHash = await sha256Hex(canonicalJson({ uploadId, sourceFileHash, normalizedInputHash } as unknown as CanonicalValue));
       const claim = await claimIdempotency(supabase as never, {
         companyId: upload.company_id,
@@ -1671,15 +1407,23 @@ serve(async (req) => {
         sourceRecordId: uploadId,
       });
 
+      if (claim.outcome !== "claimed") {
+        // A retry of a request that already ran (replay) or that reused its identity for different content
+        // (conflict) does not process — and must not leave behind the "validating" mark this attempt set: the upload
+        // returns to the status it had when this request arrived, so a replay keeps the original run's recorded
+        // outcome. An in-progress run keeps "validating"; it is genuinely running.
+        if (claim.outcome !== "in_progress") await restoreStatus(supabase as never, uploadId, priorStatus);
+        statusClaimed = false;
+      }
       if (claim.outcome === "conflict") {
         return new Response(
-          JSON.stringify({ status: "blocked", error: "Idempotency conflict", message: "A conflicting request identity was detected for this upload." }),
+          JSON.stringify({ status: "blocked", error: "Idempotency conflict", message: "This request was already used for different file content. Start a new check of the current file." }),
           { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
       if (claim.outcome === "in_progress") {
         return new Response(
-          JSON.stringify({ status: "in_progress", message: "This upload is already being processed." }),
+          JSON.stringify({ status: "in_progress", message: "This upload is already being checked." }),
           { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
@@ -1693,34 +1437,41 @@ serve(async (req) => {
       idempotencyKeyId = claim.keyId;
       engineStartedAt  = claim.startedAt;
 
-      // Ω∞ Phase 0 Slice 4A — ONE collection path, called exactly once here,
-      // reused on every certification branch below (blocking, needs_review,
-      // valid). tb_certifications is the immutable record of what the
-      // engine knew during this execution — a failure at one layer must
-      // not erase evidence obtained from another; L5/L6 survive regardless
-      // of which outcome this request ultimately reaches.
+      // Ω∞ Phase 0 Slice 4A — ONE collection path, called exactly once here, reused on every certification branch.
       phase0Evidence = await collectPhase0Evidence(supabase as never, {
         companyId: upload.company_id, periodYear: upload.period_year ?? null, uploadId,
       });
     }
 
-    // ── Ω∞ Phase 0 Slice 2 — DEFECT-SAFISHA-SILENT-NUMERIC-ZERO-001 gate ──────
-    // A malformed debit/credit/balance value must never be silently treated
-    // as zero and allowed to flow into the trial balance check as if it
-    // were a real, verified 0. rowsToRawAccounts already excludes these
-    // rows (never fabricates a value). This is a real SAFISHA accounting-
-    // evidence outcome, not an infrastructure exception: the engine DID
-    // execute and reached a definitive, describable conclusion (exactly
-    // which rows/fields are unparseable) — so a certification is committed
-    // (is_blocking=true), never a bare engine failure.
-    const malformedNumericErrors = allErrors.filter(e => e.code === "MALFORMED_NUMERIC_VALUE");
-    if (malformedNumericErrors.length > 0) {
+    // ── STEP 2: Ingestion integrity gate ──────────────────────────────────────
+    // Any blocking ingestion issue (malformed or over-precise amounts, a duplicate identity, a missing code, a total
+    // row that disagrees, a contradicting period or currency, an imbalance by even one minor unit) is a real SAFISHA
+    // outcome, not an infrastructure exception: the engine executed and reached a definitive, describable conclusion,
+    // so a blocking certification is committed. Nothing is rounded, merged or defaulted to make the file pass.
+    const ingestTotals = ingest.totals!;
+    const exactTotals = {
+      currency: ingest.currency,
+      total_debits: formatMinor(ingestTotals.debitMinor, exponent),
+      total_credits: formatMinor(ingestTotals.creditMinor, exponent),
+      difference: formatMinor(ingestTotals.differenceMinor < 0n ? -ingestTotals.differenceMinor : ingestTotals.differenceMinor, exponent),
+    };
+    const totalDebits  = minorToNumber(ingestTotals.debitMinor, exponent);
+    const totalCredits = minorToNumber(ingestTotals.creditMinor, exponent);
+    const blockingIssues = ingest.issues.filter((i) => i.severity === "blocking");
+    if (blockingIssues.length > 0) {
+      const imbalanced = blockingIssues.some((i) => i.code === "TRIAL_BALANCE_IMBALANCE");
       const result: Partial<ProcessingResult> = {
         status: "blocked",
         statements: null,
         errors: allErrors,
-        validation_report: { malformed_numeric_check: { passed: false, malformed_rows: malformedNumericErrors.length, rejected_rows: rejectedRows } },
-        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.2", columns_detected: detectedCols, auto_classified: 0 },
+        validation_report: {
+          ingestion_check: { passed: false, blocking_issues: blockingIssues.length },
+          // The balance check runs only on a complete, readable set of accounts; otherwise it is not computed (null).
+          tb_balance_check: imbalanced
+            ? { passed: false, total_debits: totalDebits, total_credits: totalCredits, difference: minorToNumber(ingestTotals.differenceMinor < 0n ? -ingestTotals.differenceMinor : ingestTotals.differenceMinor, exponent), exact: exactTotals }
+            : null,
+        },
+        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: PARSER_VERSION, columns_detected: detectedCols, auto_classified: 0, rejected_rows: rejectedRows },
       };
       if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
         const commit = await commitSafishaCertification(supabase as never, {
@@ -1729,8 +1480,8 @@ serve(async (req) => {
           sourceFileHash, normalizedInputHash,
           isBlocking: true, requiresReview: false,
           exceptions: [
-            ...malformedNumericErrors.map((e): SafishaExceptionRecord => ({
-              code: e.code, layer: 2, severity: "error", accountCode: null, message: e.message,
+            ...blockingIssues.map((i): SafishaExceptionRecord => ({
+              code: i.code, layer: i.code === "TRIAL_BALANCE_IMBALANCE" ? 3 : 2, severity: "error", accountCode: null, message: i.message,
             })),
             ...(phase0Evidence?.layer5Exceptions ?? []),
             ...(phase0Evidence?.layer6Exceptions ?? []),
@@ -1739,56 +1490,10 @@ serve(async (req) => {
         });
         if (!commit.ok) return commit.response;
       }
-      // source_file_hash already persisted independently above.
-      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
-      return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // ── STEP 4: Trial balance integrity ───────────────────────────────────────
-    // TZS 1.00 tolerance — TZS is non-decimal and rounding across many lines
-    // can accumulate to several whole-TZS units.  Anything over 1 TZS is flagged.
-    const TOLERANCE = 1.00;
-    const totalDebits  = rawAccounts.reduce((s, a) => s + a.debit, 0);
-    const totalCredits = rawAccounts.reduce((s, a) => s + a.credit, 0);
-    const difference   = Math.abs(totalDebits - totalCredits);
-
-    if (difference > TOLERANCE) {
-      allErrors.push({
-        code: "TRIAL_BALANCE_IMBALANCE",
-        message: `Trial balance does not balance: Debits ${totalDebits.toFixed(2)} != Credits ${totalCredits.toFixed(2)} (difference: ${difference.toFixed(2)})`,
-        expected: 0,
-        actual: difference,
-      });
-    }
-
-    if (allErrors.some(e => e.code === "TRIAL_BALANCE_IMBALANCE")) {
-      const result: Partial<ProcessingResult> = {
-        status: "blocked",
-        statements: null,
-        errors: allErrors,
-        validation_report: { tb_balance_check: { passed: false, total_debits: totalDebits, total_credits: totalCredits, difference } },
-        summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: "v2.2", columns_detected: detectedCols, auto_classified: 0 },
-      };
-      if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
-        const commit = await commitSafishaCertification(supabase as never, {
-          engineRunId, idempotencyKeyId, engineStartedAt,
-          uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
-          sourceFileHash, normalizedInputHash,
-          isBlocking: true, requiresReview: false,
-          exceptions: [
-            {
-              code: "TRIAL_BALANCE_IMBALANCE", layer: 3, severity: "error", accountCode: null,
-              message: `Debits ${totalDebits.toFixed(2)} != Credits ${totalCredits.toFixed(2)} (difference: ${difference.toFixed(2)})`,
-            },
-            ...(phase0Evidence?.layer5Exceptions ?? []),
-            ...(phase0Evidence?.layer6Exceptions ?? []),
-          ],
-          rowsSnapshot: [],
-        });
-        if (!commit.ok) return commit.response;
-      }
-      // source_file_hash already persisted independently above.
-      await supabase.from("trial_balance_uploads").update({ status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() }).eq("id", uploadId);
+      milestones.mark("recorded", "passed");
+      result.ingestion = ingestionRecord(ingest, milestones);
+      const failed = await writeOutcome(supabase as never, uploadId, { status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() });
+      if (failed) return failed;
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -1915,11 +1620,26 @@ serve(async (req) => {
         kwdExact, kwdContains,
       );
 
-      if (result.status === "classified") {
+      // Review policy (_shared/tbIngestion.classificationNeedsReview): only this company's own reviewed mapping,
+      // matched exactly, stands without a reviewer. Any other classifier result is a SUGGESTION — the account goes
+      // to review with it pre-selected, and the trial balance is not accepted until a reviewer confirms it.
+      if (result.status === "classified" && classificationNeedsReview(result.tier, result.fuzzy === true)) {
+        autoClassifiedCount++;
+        needsReviewAccounts.push({
+          account_code:             account.account_code,
+          account_name:             account.account_name,
+          debit:                    account.debit,
+          credit:                   account.credit,
+          balance:                  account.balance,
+          suggested_classification: result.mapping.classification,
+          suggested_statement:      result.mapping.statement,
+          confidence_source:        result.fuzzy ? `${result.confidence_source}_fuzzy` : result.confidence_source,
+          reason:                   suggestionReason(result),
+          stale_non_reporting_reason: eff?.staleReason ?? undefined,
+        });
+      } else if (result.status === "classified") {
         resolvedMappings.set(accountKey(account), result.mapping);
         resolvedTiers.set(accountKey(account), result.tier);
-        // Count only tier 4/5 (new auto-classifications); tier 1-3 are existing user mappings
-        if (result.confidence_source !== "mapping") autoClassifiedCount++;
       } else {
         needsReviewAccounts.push({
           account_code:             account.account_code,
@@ -1935,7 +1655,15 @@ serve(async (req) => {
         });
       }
     }
-    console.log(`[PTB] Classification: ${resolvedMappings.size} resolved, ${needsReviewAccounts.length} needs_review, ${nonReportingAccounts.length} non_reporting, ${autoClassifiedCount} auto-classified`);
+    console.log(`[PTB] Classification: ${resolvedMappings.size} reviewed, ${needsReviewAccounts.length} needs_review (${autoClassifiedCount} suggested), ${nonReportingAccounts.length} non_reporting`);
+    milestones.mark(
+      "classification",
+      needsReviewAccounts.length > 0 ? "needs_review" : "passed",
+      needsReviewAccounts.length > 0
+        ? `${needsReviewAccounts.length} of ${rawAccounts.length} accounts need a reviewer's confirmation`
+        : `${resolvedMappings.size} accounts on reviewed mappings${nonReportingAccounts.length ? `, ${nonReportingAccounts.length} non-reporting` : ""}`,
+    );
+    const balanceCheck = { passed: true, total_debits: totalDebits, total_credits: totalCredits, difference: 0, exact: exactTotals };
 
     // ── STEP 7: Mapping completeness ──────────────────────────────────────────
     // needs_review replaces the hard block. The upload can be opened in the review
@@ -1951,9 +1679,7 @@ serve(async (req) => {
         needs_review_accounts:  needsReviewAccounts,
         non_reporting_accounts: nonReportingAccounts,
         validation_report: {
-          tb_balance_check: {
-            passed: true, total_debits: totalDebits, total_credits: totalCredits, difference: 0,
-          },
+          tb_balance_check: balanceCheck,
           mapping_completeness: {
             passed:          false,
             total_accounts:  rawAccounts.length,
@@ -1973,7 +1699,7 @@ serve(async (req) => {
         summary: {
           total_accounts:   rawAccounts.length,
           processed_at:     new Date().toISOString(),
-          parser_version:   "v2.2",
+          parser_version:   PARSER_VERSION,
           columns_detected: detectedCols,
           auto_classified:  autoClassifiedCount,
           rejected_rows:    rejectedRows,
@@ -1996,14 +1722,17 @@ serve(async (req) => {
         });
         if (!commit.ok) return commit.response;
       }
+      milestones.mark("recorded", "passed");
+      result.ingestion = ingestionRecord(ingest, milestones);
       // source_file_hash already persisted independently above.
-      await supabase.from("trial_balance_uploads").update({
+      const failed = await writeOutcome(supabase as never, uploadId, {
         status:            "needs_review",
         is_valid:           false,
         accounting_errors:  allErrors,
         processing_result:  result,
         processed_at:       new Date().toISOString(),
-      }).eq("id", uploadId);
+      });
+      if (failed) return failed;
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -2016,7 +1745,9 @@ serve(async (req) => {
     const netIncome      = totals.revenue - totals.expenses;
     const closingEquity  = totals.equity + netIncome;
     const bsDifference   = Math.abs(totals.assets - (totals.liabilities + closingEquity));
-    const bsPassed       = bsDifference <= TOLERANCE;
+    // The account amounts are exact; this equation sums their doubles, so it is compared at the currency's minor
+    // unit (a difference that rounds to zero minor units is zero). A soft warning, as before.
+    const bsPassed       = Math.round(bsDifference * 10 ** exponent) === 0;
     if (!bsPassed) {
       allErrors.push({
         code: "BALANCE_SHEET_EQUATION_FAILED",
@@ -2035,7 +1766,7 @@ serve(async (req) => {
     console.log(`[PTB] Final status: ${finalStatus.toUpperCase()} | BS equation: ${bsPassed ? "PASS" : `WARN diff=${bsDifference.toFixed(2)}`} | Auto-classified: ${autoClassifiedCount}`);
 
     const validationReport = {
-      tb_balance_check:     { passed: true, total_debits: totalDebits, total_credits: totalCredits, difference: 0 },
+      tb_balance_check:     balanceCheck,
       mapping_completeness: { passed: true, total_accounts: rawAccounts.length, mapped_accounts: resolvedMappings.size, non_reporting: nonReportingAccounts.length, unmapped: [], auto_classified: autoClassifiedCount },
       balance_sheet_equation: { passed: bsPassed, assets: totals.assets, liabilities: totals.liabilities, equity: totals.equity, revenue_total: totals.revenue, expenses_total: totals.expenses, net_income: netIncome, closing_equity: closingEquity, difference: bsDifference },
       profit_equity_linkage: null,
@@ -2056,7 +1787,7 @@ serve(async (req) => {
       summary: {
         total_accounts:    rawAccounts.length,
         processed_at:      new Date().toISOString(),
-        parser_version:    "v2.0",
+        parser_version:    PARSER_VERSION,
         columns_detected:  detectedCols,
         auto_classified:   autoClassifiedCount,
         rejected_rows:     rejectedRows,
@@ -2083,15 +1814,18 @@ serve(async (req) => {
       if (!commit.ok) return commit.response;
     }
 
+    milestones.mark("recorded", "passed");
+    processingResult.ingestion = ingestionRecord(ingest, milestones);
     // source_file_hash already persisted independently above.
-    await supabase.from("trial_balance_uploads").update({
+    const failedFinal = await writeOutcome(supabase as never, uploadId, {
       status:             allValid ? "complete" : "error",
       is_valid:           allValid,
       validation_report:  validationReport,
       accounting_errors:  allErrors,
       processing_result:  processingResult,
       processed_at:       new Date().toISOString(),
-    }).eq("id", uploadId);
+    });
+    if (failedFinal) return failedFinal;
 
     return new Response(JSON.stringify(processingResult), {
       status: 200,
@@ -2100,6 +1834,16 @@ serve(async (req) => {
 
   } catch (error) {
     console.error("[PTB] Fatal error:", error);
+    // Never leave the upload at "validating" after an unhandled failure: put back the status it had, so the person
+    // can retry from where they were (the checked write that claimed it is the only thing this request changed).
+    if (statusClaimed && claimedUploadId) {
+      try {
+        const cleanupClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+        await restoreStatus(cleanupClient as never, claimedUploadId, priorStatus);
+      } catch (restoreError) {
+        console.error("[PTB] status restore after failure did not complete:", restoreError instanceof Error ? restoreError.name : "unknown");
+      }
+    }
     // Ω∞ Phase 0 Slice 2: a claimed engine_run/idempotency reservation must
     // never be left stuck at running/reserved by an unhandled exception —
     // this is a genuine system failure, not a SAFISHA outcome, so no
@@ -2126,3 +1870,99 @@ serve(async (req) => {
     );
   }
 });
+
+// ── Ingestion helpers (declared after the handler; hoisted) ─────────────────────────────────────────────────────────
+
+/**
+ * The reporting currency of the period this upload was made for: the upload's own period, or its engagement's
+ * period, and only when that period belongs to the upload's company. null when none can be established — the
+ * ingestion core then refuses (CURRENCY_UNRESOLVED); a currency is never assumed. A database error is thrown, not
+ * read as "no currency".
+ */
+async function resolveReportingCurrency(
+  supabase: ReturnType<typeof createClient>,
+  upload: { company_id?: string | null; period_id?: string | null; engagement_id?: string | null },
+): Promise<string | null> {
+  if (!upload.company_id) return null;
+  let periodId = upload.period_id ?? null;
+  if (!periodId && upload.engagement_id) {
+    const { data, error } = await supabase.from("engagements").select("fiscal_period_id, company_id").eq("id", upload.engagement_id).maybeSingle();
+    if (error) throw new Error(`engagement lookup failed: ${error.code ?? "unknown"}`);
+    const engagement = data as { fiscal_period_id: string | null; company_id: string } | null;
+    if (engagement && engagement.company_id === upload.company_id) periodId = engagement.fiscal_period_id;
+  }
+  if (!periodId) return null;
+  const { data, error } = await supabase.from("fiscal_periods").select("company_id, reporting_currency").eq("id", periodId).maybeSingle();
+  if (error) throw new Error(`period lookup failed: ${error.code ?? "unknown"}`);
+  const period = data as { company_id: string; reporting_currency: string | null } | null;
+  if (!period || period.company_id !== upload.company_id) return null;
+  return typeof period.reporting_currency === "string" && period.reporting_currency.trim() ? period.reporting_currency : null;
+}
+
+function tryReadWorkbook(bytes: Uint8Array): XLSX.WorkBook | null {
+  try {
+    return XLSX.read(bytes, { type: "array", cellDates: false });
+  } catch {
+    return null;
+  }
+}
+
+function issueToValidationError(issue: IngestIssue): ValidationError & { severity: string; rows?: number[] } {
+  return { code: issue.code, message: issue.message, severity: issue.severity, ...(issue.field ? { field: issue.field } : {}), ...(issue.rows ? { rows: issue.rows } : {}) };
+}
+
+/** JSON-safe record of ingestion for processing_result.ingestion (amounts as exact decimal strings). */
+function ingestionRecord(ingest: IngestResult, milestones: MilestoneLog): Record<string, unknown> {
+  const e = ingest.exponent ?? 0;
+  return {
+    version: ingest.version,
+    currency: ingest.currency,
+    currency_exponent: ingest.exponent,
+    period_year: ingest.periodYear,
+    sheet: ingest.sheetName,
+    columns: ingest.columns,
+    totals: ingest.totals
+      ? { debit: formatMinor(ingest.totals.debitMinor, e), credit: formatMinor(ingest.totals.creditMinor, e), difference: formatMinor(ingest.totals.differenceMinor, e) }
+      : null,
+    lineage_summary: ingest.lineageSummary,
+    // Compact per-row lineage: [row number, disposition, account identity or reason].
+    lineage: ingest.lineage.map((l) => [l.rowNumber, l.disposition, l.identity ?? l.reason ?? null]),
+    issues: ingest.issues,
+    milestones: milestones.list(),
+  };
+}
+
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+
+/**
+ * Writes the outcome to the upload row and checks the write. null when written; otherwise the controlled answer to
+ * return — a result is never reported as recorded when the row did not take it.
+ */
+async function writeOutcome(supabase: ReturnType<typeof createClient>, uploadId: string, fields: Record<string, unknown>): Promise<Response | null> {
+  const { error } = await supabase.from("trial_balance_uploads").update(fields as never).eq("id", uploadId);
+  if (!error) return null;
+  console.error("[PTB] outcome write failed:", (error as { code?: string }).code ?? "unknown");
+  if (isEntitlementWallError(error)) {
+    const wall = paidActionRefusal("CLOSE_ASSURANCE", { allowed: false, code: "ENTITLEMENT_REQUIRED", required_plan: "SOLO" })!;
+    return jsonResponse(wall.body, wall.httpStatus);
+  }
+  return jsonResponse(PROCESSING_UNAVAILABLE, 500);
+}
+
+/** Puts back the status the upload had when this request arrived (best effort; logged, never thrown). */
+async function restoreStatus(supabase: ReturnType<typeof createClient>, uploadId: string, status: string | null): Promise<void> {
+  if (status === null) return;
+  const { error } = await supabase.from("trial_balance_uploads").update({ status } as never).eq("id", uploadId);
+  if (error) console.error("[PTB] status restore failed:", (error as { code?: string }).code ?? "unknown");
+}
+
+/** Plain-language reason a classifier suggestion still needs a reviewer. */
+function suggestionReason(result: Extract<TieredClassifyResult, { status: "classified" }>): string {
+  const label = result.mapping.line_item || result.mapping.classification;
+  if (result.fuzzy) return `Close to a saved mapping (${result.mapping.account_name}) — confirm it applies to this account.`;
+  if (result.tier === 3) return `Matched the shared chart of accounts (${label}) — confirm it for this company.`;
+  if (result.tier === 4) return `Suggested from the account-name dictionary (${label}) — confirm before the trial balance is accepted.`;
+  return `Suggested from the account name (${label}) — confirm before the trial balance is accepted.`;
+}

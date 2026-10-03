@@ -19,6 +19,7 @@ import type { EngagementCapability } from "./mandate";
 import { customerCapabilityTitle } from "./mandate";
 import { customerVisibleCapabilities, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
 import type { WorkspaceState } from "./types";
+import { trialBalanceReadiness, type ReconciliationEvidence } from "./trialBalanceReadiness";
 
 export interface OrientationMilestone {
   stageLabel: string;
@@ -47,21 +48,29 @@ export interface TrialBalanceReviewStep {
 
 /**
  * The trial-balance-review step once Prepare has passed (the engine's own next action then lies in a withheld stage).
- * "Ready" needs the supporting evidence reconciled (SAFISHA status "clean"): Prepare passes with evidence not yet started,
- * so a passed Prepare alone is never presented as ready. Null while Prepare has not passed (its own next action applies).
+ * "Ready" is decided ONLY by trialBalanceReadiness: Prepare passes on a certified trial balance (checks passed and every
+ * classification confirmed), and readiness additionally needs a reconciliation that finished clean after matching at
+ * least one line to evidence. A passed Prepare, or a "clean" status over an empty comparison, is never presented as
+ * ready; missing reconciliation evidence is not ready. Null while Prepare has not passed (its own next action applies).
  */
-export function trialBalanceReviewStep(state: WorkspaceState, safishaStatus: string | null | undefined): TrialBalanceReviewStep | null {
+export function trialBalanceReviewStep(
+  state: WorkspaceState,
+  safishaStatus: string | null | undefined,
+  reconciliation: ReconciliationEvidence | null | undefined,
+): TrialBalanceReviewStep | null {
   const prepare = state.missions.prepare.status;
   if (prepare !== "passed" && prepare !== "signed") return null;
-  return safishaStatus === "clean"
+  const readiness = trialBalanceReadiness({ certificationVerdict: "certified", safishaStatus, reconciliation });
+  return readiness.ready
     ? { ready: true, label: TRIAL_BALANCE_REVIEW.ready, detail: "Its checks have passed, its accounts are reviewed and its supporting evidence is reconciled." }
-    : { ready: false, label: "Reconcile supporting evidence", detail: "Match the trial balance to bank statements, mobile-money exports or subledgers." };
+    : { ready: false, label: "Reconcile supporting evidence", detail: readiness.nextStep ?? "Match the trial balance to bank statements, mobile-money exports or subledgers." };
 }
 
 export function deriveOrientationSummary(
   workspaceState: WorkspaceState,
   grantedCapabilities: EngagementCapability[] | null,
   safishaStatus?: string | null,
+  reconciliation?: ReconciliationEvidence | null,
 ): OrientationSummary {
   const visibleServices = grantedCapabilities ? customerVisibleCapabilities(grantedCapabilities) : [];
   const service = visibleServices.length > 0 ? visibleServices.map((c) => customerCapabilityTitle(c)).join(", ") : null;
@@ -69,7 +78,7 @@ export function deriveOrientationSummary(
   // A next action in a stage withheld from customers (moduleAvailability.ts) is never named: the customer's own
   // trial-balance-review step is shown instead.
   const nextVisible = isStageCustomerVisible(workspaceState.nextAction.mission);
-  const step = nextVisible ? null : trialBalanceReviewStep(workspaceState, safishaStatus);
+  const step = nextVisible ? null : trialBalanceReviewStep(workspaceState, safishaStatus, reconciliation);
   const currentStageLabel = nextVisible ? STAGE_CONFIGS[workspaceState.nextAction.mission].label : TRIAL_BALANCE_REVIEW.title;
   const currentStatusLabel = nextVisible ? workspaceState.nextAction.label : step?.label ?? NO_VISIBLE_NEXT_ACTION;
 
