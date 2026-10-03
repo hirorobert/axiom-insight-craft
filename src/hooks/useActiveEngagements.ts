@@ -31,12 +31,13 @@
  *     (resolveReturningUserRoute.ts).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchWorkspaceSnapshot } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { WorkspaceCompany, WorkspaceUpload } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { WorkspaceState } from "@/lib/workspace/types";
+import type { EvidenceRead } from "@/lib/workspace/trialBalanceReadiness";
 import type { EngagementCapability } from "@/lib/workspace/mandate";
 import { mapWithConcurrencyLimit, aggregateSettledResults } from "@/lib/workspace/concurrencyLimit";
 import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
@@ -58,6 +59,8 @@ export interface ActiveEngagementEntry {
   workspaceState: WorkspaceState;
   /** The current upload's evidence-reconciliation status (trial_balance_uploads.safisha_status), read-only. */
   safishaStatus?: string | null;
+  /** The current upload's latest reconciliation record (trialBalanceReadiness requires evidence actually compared). */
+  reconciliation?: EvidenceRead;
   openedAt: string;
 }
 
@@ -104,15 +107,39 @@ interface FiscalPeriodRow {
 
 export function useActiveEngagements(): UseActiveEngagementsReturn {
   const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [entries, setEntries] = useState<ActiveEngagementEntry[]>([]);
-  const [companiesWithoutEngagement, setCompaniesWithoutEngagement] = useState<WorkspaceCompany[]>([]);
-  const [fetchFailed, setFetchFailed] = useState(false);
-  const [sharedWorkspaces, setSharedWorkspaces] = useState<SharedWorkspace[]>([]);
-  const [withheldEngagementCount, setWithheldEngagementCount] = useState(0);
-  const [unavailableEngagements, setUnavailableEngagements] = useState<UnavailableServiceEngagement[]>([]);
+  const [loading, setLoadingState] = useState(true);
+  const [entries, setEntriesState] = useState<ActiveEngagementEntry[]>([]);
+  const [companiesWithoutEngagement, setCompaniesWithoutEngagementState] = useState<WorkspaceCompany[]>([]);
+  const [fetchFailed, setFetchFailedState] = useState(false);
+  const [sharedWorkspaces, setSharedWorkspacesState] = useState<SharedWorkspace[]>([]);
+  const [withheldEngagementCount, setWithheldEngagementCountState] = useState(0);
+  const [unavailableEngagements, setUnavailableEngagementsState] = useState<UnavailableServiceEngagement[]>([]);
+
+  // Every load is one run for one identity. A newer run (refresh, or a different signed-in user) supersedes it: the older
+  // run's late results are dropped, and a change of identity clears the previous account's lists at once.
+  const runRef = useRef(0);
+  const shownForRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
+    const run = ++runRef.current;
+    const guard = <T,>(set: (v: T) => void) => (v: T) => { if (runRef.current === run) set(v); };
+    const setLoading = guard(setLoadingState);
+    const setEntries = guard(setEntriesState);
+    const setCompaniesWithoutEngagement = guard(setCompaniesWithoutEngagementState);
+    const setFetchFailed = guard(setFetchFailedState);
+    const setSharedWorkspaces = guard(setSharedWorkspacesState);
+    const setWithheldEngagementCount = guard(setWithheldEngagementCountState);
+    const setUnavailableEngagements = guard(setUnavailableEngagementsState);
+    const identity = user?.id ?? null;
+    if (shownForRef.current !== identity) {
+      // Another account's engagements are never shown while this one's load is in flight.
+      shownForRef.current = identity;
+      setEntries([]);
+      setCompaniesWithoutEngagement([]);
+      setSharedWorkspaces([]);
+      setUnavailableEngagements([]);
+      setWithheldEngagementCount(0);
+    }
     if (!user) {
       setLoading(false);
       return;
@@ -226,6 +253,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
             capabilities,
             workspaceState: snapshot.workspaceState,
             safishaStatus: snapshot.upload?.safisha_status ?? null,
+            reconciliation: snapshot.upload?.reconciliation,
             openedAt: eng.opened_at,
           };
         },

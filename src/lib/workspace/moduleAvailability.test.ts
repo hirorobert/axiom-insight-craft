@@ -331,10 +331,14 @@ describe("7. trial-balance preparation remains fully usable", () => {
     const evidencePending = deriveWorkspaceState("c1", "Example Co", 2025, upload({ safishaStatus: null }));
     const reconciled = deriveWorkspaceState("c1", "Example Co", 2025, upload({ safishaStatus: "clean" }));
     expect(evidencePending.missions.prepare.status).toBe("passed");
-    expect(trialBalanceReviewStep(evidencePending, null)).toMatchObject({ ready: false, label: "Reconcile supporting evidence" });
-    expect(trialBalanceReviewStep(reconciled, "clean")).toMatchObject({ ready: true, label: "Trial balance ready" });
-    expect(trialBalanceReviewStep(deriveWorkspaceState("c1", "Example Co", 2025, upload({ certificationVerdict: "blocked", certificationBlocker: "x" })), "clean")).toBeNull();
-    const o = deriveOrientationSummary(reconciled, ["FINANCIAL_STATEMENTS"], "clean");
+    const evidence = { status: "clean", matched_count: 12, exception_count: 0, total_tb_lines: 12, exceptions: { pending: 0, approved: 0, rejected: 0, escalated: 0, approvedTbLines: 0 } };
+    expect(trialBalanceReviewStep(evidencePending, null, null)).toMatchObject({ ready: false, label: "Reconcile supporting evidence" });
+    expect(trialBalanceReviewStep(reconciled, "clean", evidence)).toMatchObject({ ready: true, label: "Trial balance ready" });
+    // A "clean" status over an empty comparison, or evidence that could not be read, is not ready.
+    expect(trialBalanceReviewStep(reconciled, "clean", { ...evidence, matched_count: 0, total_tb_lines: 0 })).toMatchObject({ ready: false });
+    expect(trialBalanceReviewStep(reconciled, "clean", null)).toMatchObject({ ready: false });
+    expect(trialBalanceReviewStep(deriveWorkspaceState("c1", "Example Co", 2025, upload({ certificationVerdict: "blocked", certificationBlocker: "x" })), "clean", evidence)).toBeNull();
+    const o = deriveOrientationSummary(reconciled, ["FINANCIAL_STATEMENTS"], "clean", evidence);
     expect(o).toMatchObject({ service: "Trial balance review", currentStageLabel: "Trial balance review", currentStatusLabel: "Trial balance ready" });
     expect(JSON.stringify(o)).not.toMatch(WITHHELD_CLAIMS);
   });
