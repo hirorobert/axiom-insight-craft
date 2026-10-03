@@ -39,8 +39,10 @@ export function decideReturningUserRoute<
   TEntry extends ReturningUserEngagementEntry,
   TCompany extends ReturningUserCompany,
   TShared extends ReturningUserCompany = ReturningUserCompany,
->(entries: TEntry[], companiesWithoutEngagement: TCompany[], shared: TShared[] = []): ReturningUserRoute<TEntry, TCompany, TShared> {
+>(entries: TEntry[], companiesWithoutEngagement: TCompany[], shared: TShared[] = [], withheldEngagements = 0): ReturningUserRoute<TEntry, TCompany, TShared> {
   if (entries.length === 0 && companiesWithoutEngagement.length === 0) {
+    // Engagements withheld from customers (moduleAvailability.ts) still mean an existing account: never first run.
+    if (withheldEngagements > 0 && shared.length === 0) return { kind: "chooser" };
     // Workspaces shared through an explicit grant (PR #32) are reachable; one opens directly, several are a choice.
     if (shared.length === 1) return { kind: "open_shared", workspace: shared[0] };
     return shared.length === 0 ? { kind: "first_run" } : { kind: "chooser" };

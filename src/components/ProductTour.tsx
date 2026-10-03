@@ -35,7 +35,7 @@ const AVAIL_COLOUR = {
  * touch target.
  */
 export function ProductTour() {
-  const fullClose = PUBLIC_PRODUCT_OUTCOMES.find((o) => o.id === "full-close")!;
+  const fullClose = PUBLIC_PRODUCT_OUTCOMES.find((o) => o.id === "full-close");
 
   return (
     <section id="outcomes" aria-labelledby="outcomes-title" className="border-b border-border bg-background">
@@ -120,7 +120,8 @@ export function ProductTour() {
           ))}
         </div>
 
-        {/* ── Full close — full-width hero card ────────────────────────── */}
+        {/* ── Full close — full-width hero card (only while that outcome is offered) ── */}
+        {fullClose && (
         <article className="group relative mt-px border border-t-0 border-border bg-primary text-primary-foreground">
           <div className="grid grid-cols-1 gap-6 p-6 sm:grid-cols-12 sm:items-center sm:p-8 lg:p-10">
 
@@ -167,6 +168,7 @@ export function ProductTour() {
             </div>
           </div>
         </article>
+        )}
 
       </div>
     </section>

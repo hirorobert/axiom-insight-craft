@@ -11,7 +11,6 @@ import { AvatarUpload } from "@/components/AvatarUpload";
 import { AuditTrail } from "@/components/AuditTrail";
 import { FirmManagementPanel } from "@/components/FirmManagementPanel";
 import { CompanyManager } from "@/components/CompanyManager";
-import { PeriodCloseManager } from "@/components/PeriodCloseManager";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { useBillingSummary } from "@/hooks/useBillingSummary";
 import { useMyEntityCapacity } from "@/hooks/useMyEntityCapacity";
@@ -235,19 +234,14 @@ export default function Settings() {
                 <SectionDivider title="Companies" />
                 <p className="text-xs text-muted-foreground mb-6 leading-relaxed">
                   Add and manage client companies. Jurisdiction-specific identifiers, such as the
-                  tax identifier, are configured per company and applied only where the
-                  filing jurisdiction requires them.
+                  tax identifier, are configured per company and applied only where a
+                  jurisdiction requires them.
                 </p>
                 <CompanyManager />
 
-                {/* Period Close is operational workflow, not account configuration.
-                    Preserved here until a dedicated workspace entry point exists. */}
-                <div className="mt-10 pt-8 border-t border-border">
-                  <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted-foreground/55 mb-4">
-                    Period Controls
-                  </p>
-                  <PeriodCloseManager userId={user?.id ?? ""} />
-                </div>
+                {/* Period Controls (statement sign-off) belong to the withheld statement certification
+                    (src/lib/workspace/moduleAvailability.ts): PeriodCloseManager is not imported while it is withheld. Its records
+                    are untouched; restore the import and this section when certification is released. */}
               </div>
             )}
 

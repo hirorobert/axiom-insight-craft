@@ -709,7 +709,7 @@ export default function PrepareWorkspace() {
                   <div className="border-b border-border px-5 py-4 sm:px-7">
                     <h2 id="evidence-verification-title" className="text-[15px] font-semibold text-foreground">Evidence verification</h2>
                     <p className="mt-1 text-[13px] text-muted-foreground">
-                      Required before tax: match the accepted trial balance to bank statements, mobile-money exports or subledgers.
+                      Required before the next stage: match the accepted trial balance to bank statements, mobile-money exports or subledgers.
                     </p>
                   </div>
                   {prepareOnly ? (
@@ -722,7 +722,7 @@ export default function PrepareWorkspace() {
                         uploadId={upload.id}
                         fileName={upload.file_name}
                         onCleared={() => {
-                          toast.success("Evidence verified — the trial balance can move on to tax.");
+                          toast.success("Evidence verified — the trial balance can move on.");
                           refreshUpload();
                         }}
                         onBlocked={() => {

@@ -437,7 +437,7 @@ export function PeriodCloseManager({ userId }: Props) {
                         {!so ? (
                           <div className="flex items-start gap-2 text-sm text-muted-foreground">
                             <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                            No sign-off record found for this company. Complete a tax computation and commit it to generate a sign-off record automatically.
+                            No sign-off record found for this company yet.
                           </div>
                         ) : (
                           <>
@@ -577,7 +577,7 @@ export function PeriodCloseManager({ userId }: Props) {
 
           <div className="space-y-3 py-2">
             <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-              By signing, you confirm that the financial statements and tax computations for this period have been reviewed and are accurate under the applicable reporting framework and tax rules.
+              By signing, you confirm that the financial statements for this period have been reviewed and are accurate under the applicable reporting framework.
             </div>
             <div>
               <Label className="text-xs font-medium">Reviewer note (optional)</Label>

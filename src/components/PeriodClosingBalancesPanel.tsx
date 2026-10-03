@@ -168,9 +168,6 @@ export function PeriodClosingBalancesPanel({ companyId, companyName }: Props) {
       <CardContent className="py-8 text-center">
         <Database className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
         <p className="text-sm text-muted-foreground">No closing balances yet.</p>
-        <p className="text-xs text-muted-foreground/70 mt-1">
-          Commit a tax computation to generate the first year's closing balance record.
-        </p>
       </CardContent>
     </Card>
   );

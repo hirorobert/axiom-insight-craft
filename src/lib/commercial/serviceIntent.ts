@@ -28,6 +28,7 @@
 import { CAPABILITIES, type CapabilityCode } from "./featureRegistry";
 import { classifyEntitlement, isEntitledForPrivilegedUse } from "./entitlementContract";
 import { PRICING_CATALOGUE, planByCode, planIncludes, type PlanCode } from "./pricingCatalogue";
+import { isServiceIntentCustomerVisible, TRIAL_BALANCE_REVIEW } from "@/lib/workspace/moduleAvailability";
 
 export const SERVICE_INTENT_IDS = ["prepare-review", "close-certification", "reporting-pack", "close-insights"] as const;
 export type ServiceIntentId = (typeof SERVICE_INTENT_IDS)[number];
@@ -42,15 +43,18 @@ export interface ServiceIntentDefinition {
 }
 
 export const SERVICE_INTENTS: Readonly<Record<ServiceIntentId, ServiceIntentDefinition>> = {
-  "prepare-review": { id: "prepare-review", name: "Prepare & Review", capability: "CLOSE_ASSURANCE", stage: "prepare" },
+  "prepare-review": { id: "prepare-review", name: TRIAL_BALANCE_REVIEW.title, capability: "CLOSE_ASSURANCE", stage: "prepare" },
   "close-certification": { id: "close-certification", name: CAPABILITIES.STATEMENT_CERTIFICATION.name, capability: "STATEMENT_CERTIFICATION", stage: "statements" },
   "reporting-pack": { id: "reporting-pack", name: CAPABILITIES.REPORTING_PACK_EXPORT.name, capability: "REPORTING_PACK_EXPORT", stage: "statements" },
   "close-insights": { id: "close-insights", name: CAPABILITIES.CLOSE_INSIGHTS.name, capability: "CLOSE_INSIGHTS", stage: "monitor" },
 };
 
-/** Exact match against the closed registry, else null. */
+/** The services a customer can choose (moduleAvailability.ts): today, Trial balance review only. */
+export const CUSTOMER_SERVICE_INTENT_IDS: readonly ServiceIntentId[] = SERVICE_INTENT_IDS.filter(isServiceIntentCustomerVisible);
+
+/** Exact match against the closed registry AND the customer projection, else null: a withheld service never parses. */
 export function parseServiceIntent(value: unknown): ServiceIntentId | null {
-  return typeof value === "string" && (SERVICE_INTENT_IDS as readonly string[]).includes(value) ? (value as ServiceIntentId) : null;
+  return typeof value === "string" && (CUSTOMER_SERVICE_INTENT_IDS as readonly string[]).includes(value) ? (value as ServiceIntentId) : null;
 }
 
 /** A plan preference: the lower-case catalogue code ("solo", "practice", "firm", "enterprise"), else null. */

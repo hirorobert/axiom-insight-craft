@@ -25,7 +25,7 @@ export interface ProposedPlan {
   readonly contactSales: boolean;
 }
 
-const PUBLIC_CAPABILITIES = "Close Certification, Reporting Pack, Close Insights";
+const PUBLIC_CAPABILITIES = "Trial balance review";
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 export const PROPOSED_PLANS: readonly ProposedPlan[] = PRICING_CATALOGUE.map((p) => ({

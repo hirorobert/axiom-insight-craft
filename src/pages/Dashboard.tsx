@@ -88,7 +88,7 @@ export default function Dashboard() {
   // hub" escape, distinct from a bare sign-in landing at /dashboard. See applyForceHub's own doc
   // comment for exactly what this does and does not change.
   const forceHub = !!(location.state as { forceHub?: boolean } | null)?.forceHub;
-  const { loading: engagementsLoading, entries, companiesWithoutEngagement, sharedWorkspaces, fetchFailed, refresh } = useActiveEngagements();
+  const { loading: engagementsLoading, entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount, fetchFailed, refresh } = useActiveEngagements();
   const [routing, setRouting] = useState(false);
   const { summary: billing, loading: billingLoading, error: billingError, retry: retryBilling } = useBillingSummary();
   const { capacity, loading: capacityLoading, error: capacityError, retry: retryCapacity } = useMyEntityCapacity(!!user);
@@ -136,7 +136,7 @@ export default function Dashboard() {
   // "first_run" show up on first paint rather than waiting on an effect.
   const route =
     !authLoading && !engagementsLoading && !fetchFailed && serviceDestination.kind !== "wait"
-      ? applyForceHub(decideReturningUserRoute(entries, companiesWithoutEngagement, sharedWorkspaces), forceHub)
+      ? applyForceHub(decideReturningUserRoute(entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount), forceHub)
       : null;
 
   // ── 3. Returning-user routing decision — only "resume" and "start_single_company" have a side

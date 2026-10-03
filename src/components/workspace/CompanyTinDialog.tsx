@@ -99,7 +99,7 @@ export default function CompanyTinDialog({
         <DialogHeader>
           <DialogTitle>Set tax identifier</DialogTitle>
           <DialogDescription>
-            {companyName} — required where your filing jurisdiction needs it, before a filing pack or export can be produced.
+            {companyName} — required where your jurisdiction needs it, before an export can be produced.
           </DialogDescription>
         </DialogHeader>
 

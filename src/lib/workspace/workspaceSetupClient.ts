@@ -8,6 +8,10 @@
  */
 
 import type { EngagementCapability } from "./mandate";
+import { isCapabilityCustomerVisible } from "./moduleAvailability";
+
+/** Refused client-side before any request: a withheld service (moduleAvailability.ts) cannot be chosen from this app. */
+export const SERVICE_NOT_AVAILABLE_MESSAGE = "This service is not currently available.";
 import type { DataStartChoice } from "./onboardingState";
 
 export type SetupErrorKind = "NOT_AUTHORISED" | "JURISDICTION_REQUIRED" | "CONFLICT" | "INVALID" | "NOT_FOUND" | "UNKNOWN";
@@ -61,6 +65,7 @@ async function call<T>(client: RpcClient, fn: string, args: Record<string, unkno
 
 /** Transactional create-or-get + idempotent grants. Safe to call repeatedly and concurrently. */
 export async function openEngagementWithScope(client: RpcClient, input: { companyId: string; year: number; capabilities: readonly EngagementCapability[]; engagementType?: string }): Promise<OpenedEngagement> {
+  if (!input.capabilities.every(isCapabilityCustomerVisible)) throw new Error(SERVICE_NOT_AVAILABLE_MESSAGE);
   const r = await call<{ engagementId: string; periodId: string; created: boolean; granted: EngagementCapability[] }>(client, "open_engagement_with_scope", {
     p_company_id: input.companyId,
     p_period_year: input.year,

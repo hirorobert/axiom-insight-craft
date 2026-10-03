@@ -40,7 +40,7 @@ export default function FilingJurisdictionSetting({ companyId, jurisdiction, can
     <div className="space-y-2" data-testid="filing-jurisdiction-setting">
       <label className="text-xs font-medium text-foreground" htmlFor="filing-jurisdiction">
         {TAX_PROFILE_COPY.jurisdictionLabel}
-        <span className="ml-1 font-normal text-muted-foreground">— needed for tax, compliance and filing services</span>
+        <span className="ml-1 font-normal text-muted-foreground">— needed for jurisdiction-specific services</span>
       </label>
       {jurisdiction && <p className="text-xs text-muted-foreground" data-testid="filing-jurisdiction-current">Selected: {jurisdictionName(jurisdiction)}</p>}
       {!jurisdiction && <p className="text-xs text-muted-foreground" data-testid="filing-jurisdiction-current">Not selected</p>}

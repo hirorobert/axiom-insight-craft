@@ -30,7 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Check } from "lucide-react";
 import {
-  CAPABILITY_OUTCOMES,
+  CUSTOMER_CAPABILITY_OUTCOMES,
   type EngagementCapability,
 } from "@/lib/workspace/mandate";
 import { useEngagement } from "@/contexts/EngagementContext";
@@ -127,7 +127,9 @@ export default function EngagementScopeDialog({
         </DialogHeader>
 
         <ul className="divide-y divide-border border-y border-border -mx-6">
-          {CAPABILITY_OUTCOMES.map((o) => {
+          {/* Withheld services are never listed, so they can be neither added nor withdrawn here; an existing grant of one
+              stays in `selected` untouched and is never silently revoked. */}
+          {CUSTOMER_CAPABILITY_OUTCOMES.map((o) => {
             const on = selected.includes(o.capability);
             const alreadyActive = mode === "add" && current.includes(o.capability);
             // A service already in scope can always be withdrawn (amend); a new jurisdiction-dependent one needs the jurisdiction first.
@@ -182,7 +184,7 @@ export default function EngagementScopeDialog({
               id="scope-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Client no longer requires the tax computation for this period."
+              placeholder="e.g. Client no longer requires this service for this period."
               className="rounded-none text-[13px]"
               rows={2}
             />
