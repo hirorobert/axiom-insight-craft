@@ -78,7 +78,7 @@ export interface UseActiveEngagementsReturn {
   unavailableEngagements: UnavailableServiceEngagement[];
   /** True only when the read itself failed — never conflated with "zero engagements". */
   fetchFailed: boolean;
-  refresh: () => void;
+  refresh: () => Promise<void>;
 }
 
 function yearOf(value: string | null | undefined): number | null {
