@@ -1,0 +1,25 @@
+Sample Trading Co — Trial balance for the year ended 31 December 2025
+Currency: TZS,,,
+,,,
+Account Code,Account Name,Debit,Credit
+1000,Cash at bank,"12,450,000.00",
+1010,Petty cash,"85,500.50",
+1100,Trade receivables,"8,300,000.00",
+1200,Inventories,"6,150,000.00",
+1500,Motor vehicles,"24,000,000.00",
+1510,Accumulated depreciation - motor vehicles,,"9,600,000.00"
+2000,Trade payables,,"5,420,300.25"
+2100,"Accruals, other",,"1,180,000.00"
+2200,Bank loan - long term,,"10,000,000.00"
+3000,Share capital,,"10,000,000.00"
+3100,Retained earnings,,"4,275,200.25"
+4000,Sales,,"48,600,000.00"
+4100,Other income,,"310,000.00"
+5000,Cost of sales,"27,900,000.00",
+6000,Salaries and wages,"6,200,000.00",
+6100,Rent,"2,400,000.00",
+6200,Electricity,"640,000.00",
+6300,Depreciation,"1,200,000.00",
+6400,Bank charges,"60,000.00",
+6500,Professional fees,-,"-"
+,Total,"89,385,500.50","89,385,500.50"

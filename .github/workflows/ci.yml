@@ -140,6 +140,32 @@ jobs:
       - name: Development gallery excluded from the production bundle
         run: node scripts/ci/assertDevGalleryExcluded.mjs dist
 
+  edge-function-checks:
+    name: Edge function checks (Deno, process-trial-balance)
+    runs-on: ubuntu-latest
+    # Read-only: type-checks the trial-balance ingestion core and runs the REAL process-trial-balance handler end to end
+    # with only its network edges (Supabase client, std serve) replaced by in-memory doubles. No secrets, no deploy.
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.6
+
+      - name: Type-check the complete process-trial-balance function against the real Supabase client types
+        run: deno check supabase/functions/process-trial-balance/index.ts
+
+      - name: Type-check the ingestion core and the function-path test
+        run: deno check --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/_shared/tbIngestion.ts supabase/functions/_shared/tbSource.ts supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
+
+      - name: Function-path tests (real handler, in-memory database double)
+        run: deno test --no-check --allow-env --allow-net=esm.sh,deno.land --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
+
+      - name: Existing process-trial-balance Deno tests
+        run: deno test --allow-env --allow-read --allow-net=esm.sh,deno.land supabase/functions/process-trial-balance/balanceSheetCheck_test.ts supabase/functions/process-trial-balance/l5l6Evidence.test.ts supabase/functions/process-trial-balance/normalize.test.ts supabase/functions/process-trial-balance/publicSectorClassification_test.ts supabase/functions/process-trial-balance/requestIdentity.test.ts supabase/functions/process-trial-balance/tierProvenance.test.ts
+
   golden-tests:
     name: Golden Fixture Tests (vitest)
     runs-on: ubuntu-latest
@@ -390,3 +416,8 @@ jobs:
         run: |
           createdb withholding_proof
           node scripts/db-proof/serviceWithholding.mjs
+
+      - name: Reconciliation evidence proof (readiness reads under real RLS — reviewer, Prepare-only, outsider, cross-tenant; incomplete and escalated evidence; on the same throwaway container)
+        env:
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: bun scripts/db-proof/reconciliationEvidence.mjs
