@@ -1,0 +1,32 @@
+{
+  "purpose": "Controlled hosted application of ONE reviewed source migration, recorded in Lovable's established Drizzle apply journal (drizzle.__drizzle_migrations) exactly as drizzle-orm 0.45.2 records an entry.",
+  "source": "supabase/migrations/20261002100000_refuse_withheld_service_grants.sql",
+  "bytes": 10824,
+  "sha256": "704beb2d1c2cc3a1276633055cbf3fc049d26049db4ce60565130a4d550cf0f8",
+  "approvedMergeCommit": "d03a0dd3b58039433ccc4c1aee8869abd082919a",
+  "journalTag": "0026_apply_20261002100000_refuse_withheld_service_grants",
+  "productionRef": "bvyivmmfjejbmqoydezk",
+  "journal": {
+    "schema": "drizzle",
+    "table": "__drizzle_migrations",
+    "expectedLastBeforeApply": {
+      "tag": "0025_apply_20261001120000_annual_commercial_term",
+      "hash": "621f55c35bdadf3c7baa8c259056712dbfbbedbd25417a2a5d6a92fd4a1d38fa",
+      "createdAt": 1790920391757
+    }
+  },
+  "postconditions": {
+    "functions": {
+      "capability_customer_available": { "args": "p_capability text", "volatility": "i", "securityDefiner": false },
+      "assert_capability_available": { "args": "p_capability text", "volatility": "s", "securityDefiner": false },
+      "refuse_withheld_service_grant": { "args": "", "volatility": "v", "securityDefiner": true }
+    },
+    "trigger": { "table": "public.engagement_mandate_events", "name": "trg_refuse_withheld_service_grant", "function": "refuse_withheld_service_grant", "tgtype": 5 },
+    "rpcLines": {
+      "grant_engagement_capability": "  PERFORM public.assert_capability_available(p_capability);\n",
+      "open_engagement_with_scope": "  FOREACH v_cap IN ARRAY v_caps LOOP PERFORM public.assert_capability_available(v_cap); END LOOP;\n"
+    },
+    "withheld": ["TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION", "MONITORING"],
+    "available": ["FINANCIAL_STATEMENTS"]
+  }
+}

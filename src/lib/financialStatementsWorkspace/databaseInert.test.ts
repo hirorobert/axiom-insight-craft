@@ -267,7 +267,11 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/serviceWithholding.mjs",
       // This guard's own fail-closed base resolver and exact-file review (no deploy behaviour), and the CI check that the
       // guard executed with zero skipped tests.
-      "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
+      "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs",
+      // Controlled hosted application of 20261002100000: the runner (verify, lock, apply + Drizzle record in one
+      // transaction, classify), its pinned candidate manifest, and its loopback-only disposable-database proof. The runner
+      // deploys nothing by itself: an operator runs it with the hosted migration URL.
+      "scripts/release/hosted-apply/applyCandidate.mjs", "scripts/release/hosted-apply/candidate-20261002100000.json", "scripts/db-proof/hostedApply.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
