@@ -232,11 +232,14 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
       // look unambiguous, which the returning-user routing decision must never be allowed to see.
       const aggregated = aggregateSettledResults(settled);
       if (aggregated.failed) throw new Error("one or more engagements failed to resolve");
-      // A withheld engagement stays open and unchanged in the database; it is only kept out of the customer's lists.
-      // Its company is not offered as "without engagement" either — that would invite a second, silently converted one.
+      // A withheld engagement stays open and unchanged in the database. It is not resumed, but it IS listed as an
+      // existing engagement whose service is currently unavailable (never as "no engagement": that would invite a
+      // second engagement for the same period).
       const resolved = aggregated.values.filter((e): e is ActiveEngagementEntry => !!e);
-      setEntries(resolved.filter((e) => !isEngagementWithheld(e.capabilities)));
-      setWithheldEngagementCount(resolved.filter((e) => isEngagementWithheld(e.capabilities)).length);
+      const { visible, unavailable } = partitionEngagements(resolved);
+      setEntries(visible);
+      setUnavailableEngagements(unavailable);
+      setWithheldEngagementCount(unavailable.length);
 
       const companyIdsWithEngagement = new Set(openEngagements.map((e) => e.company_id));
       setCompaniesWithoutEngagement(companies.filter((c) => !companyIdsWithEngagement.has(c.id)));
