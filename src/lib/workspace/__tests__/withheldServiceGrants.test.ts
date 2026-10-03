@@ -47,7 +47,9 @@ describe("one authoritative availability boundary", () => {
     expect(fn("open_engagement_with_scope")).toContain("FOREACH v_cap IN ARRAY v_caps LOOP PERFORM public.assert_capability_available(v_cap); END LOOP;");
     expect(fn("grant_engagement_capability")).toContain("PERFORM public.assert_capability_available(p_capability);");
     expect(fn("refuse_withheld_service_grant")).toMatch(/IF NEW\.action = 'GRANT' THEN\s+PERFORM public\.assert_capability_available\(NEW\.capability\);/);
-    expect(SQL).toMatch(/CREATE OR REPLACE TRIGGER trg_refuse_withheld_service_grant\s+BEFORE INSERT ON public\.engagement_mandate_events\s+FOR EACH ROW/);
+    // AFTER INSERT: table privilege and RLS decide first, so an unauthorized direct writer never learns availability.
+    expect(SQL).toMatch(/CREATE OR REPLACE TRIGGER trg_refuse_withheld_service_grant\s+AFTER INSERT ON public\.engagement_mandate_events\s+FOR EACH ROW/);
+    expect(SQL).not.toMatch(/BEFORE INSERT/);
     expect(SQL).not.toMatch(/BEFORE (INSERT OR )?UPDATE|BEFORE DELETE/);
   });
 });

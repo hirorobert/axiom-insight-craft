@@ -11,8 +11,10 @@
 //              cannot be re-granted; REVOKE stays allowed; FINANCIAL_STATEMENTS still opens and grants;
 //   Monitoring every existing Monitoring grant (in a mixed and in a Monitoring-only engagement) is preserved and readable;
 //              a new one is refused on every path; it can be revoked, and once revoked it cannot be granted again;
-//   Boundary   anon cannot call or write; authenticated cannot write the table directly; service_role and the table owner
-//              are refused by the trigger itself; the trigger function is executable by no client role;
+//   Boundary   anon cannot call or write; an authenticated direct write gets the ESTABLISHED RLS denial (recorded before the
+//              migration, byte-identical after it — never SERVICE_NOT_AVAILABLE); service_role and the table owner are refused
+//              by the AFTER INSERT backstop, which rolls the whole statement back; no BEFORE trigger consults availability;
+//              the trigger function is executable by no client role;
 //   Replay     a refused request refused again writes nothing; a historical grant replayed creates nothing new;
 //   Concurrency 25 simultaneous refused opens and 25 simultaneous refused grants leave nothing; 25 simultaneous allowed
 //              opens still converge on ONE engagement;
@@ -168,9 +170,11 @@ const openScope = (caller, company, year, caps) => one(caller, "SELECT public.op
 const grant = (caller, eng, cap) => one(caller, "SELECT public.grant_engagement_capability($1,$2,'x') r", [eng, cap]);
 const fold = (caller, eng) => q(caller, "SELECT capability, granted FROM public.fold_engagement_mandate($1) ORDER BY capability", [eng]);
 
-/** Every row of every table in public (and auth.users), as a digest per table — the "nothing changed" oracle. */
+/** Every row of every table in EVERY non-system schema (public, auth, audit/event and any other), as a digest per table —
+ *  the "nothing changed" oracle. */
 async function snapshot(db = admin) {
-  const tables = (await db.query(`SELECT format('%I.%I', schemaname, tablename) t FROM pg_tables WHERE schemaname IN ('public','auth') ORDER BY 1`)).rows.map((r) => r.t);
+  const tables = (await db.query(`SELECT format('%I.%I', schemaname, tablename) t FROM pg_tables
+     WHERE schemaname NOT IN ('pg_catalog','information_schema') AND schemaname NOT LIKE 'pg\\_%' ORDER BY 1`)).rows.map((r) => r.t);
   const out = {};
   for (const t of tables) {
     const r = (await db.query(`SELECT count(*)::int n, md5(coalesce(string_agg(x::text, E'\\n' ORDER BY x::text), '')) h FROM ${t} x`)).rows[0];
@@ -194,6 +198,25 @@ async function refusedExactlyWithNoState(name, fn) {
     const changed = diff(s0, await snapshot());
     return !r.ok && r.code === "PT422" && r.message === "SERVICE_NOT_AVAILABLE" && changed.length === 0 ? true : { result: r, changed };
   });
+}
+/** A direct mandate INSERT by an AUTHENTICATED session (the table privilege exists; row-level security must decide). */
+const authDirect = (uid, eng, member, cap, action) => q(user(uid),
+  "INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id) VALUES ($1,$2,$3,999999,$4)", [eng, cap, action, member]);
+const outcome = async (fn) => { try { await fn(); return "ALLOWED"; } catch (e) { return `${e?.code}:${e?.message}`; } };
+const RLS_DENIAL = 'new row violates row-level security policy for table "engagement_mandate_events"';
+/** Schema, ACL, trigger, policy and RLS fingerprint of everything this migration owns or touches. */
+async function catalogFingerprint() {
+  const one = async (sql) => (await admin.query(sql)).rows[0].h;
+  return {
+    functions: await one(`SELECT md5(string_agg(p.oid::regprocedure::text || pg_get_functiondef(p.oid) || coalesce(p.proacl::text,'') || p.proowner::regrole::text
+        || p.prosecdef::text || p.provolatile::text || coalesce(array_to_string(p.proconfig, ','), ''), '#' ORDER BY p.oid::regprocedure::text)) h
+      FROM pg_proc p WHERE p.pronamespace='public'::regnamespace AND p.prokind='f'`),
+    triggers: await one(`SELECT md5(string_agg(t.tgrelid::regclass::text || t.tgname || pg_get_triggerdef(t.oid) || t.tgenabled::text, '#' ORDER BY t.tgrelid::regclass::text, t.tgname)) h
+      FROM pg_trigger t WHERE NOT t.tgisinternal`),
+    policies: await one(`SELECT md5(coalesce(string_agg(polrelid::regclass::text || polname || polcmd::text || coalesce(pg_get_expr(polqual,polrelid),'') || coalesce(pg_get_expr(polwithcheck,polrelid),''), '#' ORDER BY polrelid::regclass::text, polname), '')) h FROM pg_policy`),
+    tables: await one(`SELECT md5(string_agg(c.oid::regclass::text || coalesce(c.relacl::text,'') || c.relrowsecurity::text || c.relforcerowsecurity::text, '#' ORDER BY c.oid::regclass::text)) h
+      FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind IN ('r','p')`),
+  };
 }
 const fnDef = async (sig) => (await admin.query("SELECT pg_get_functiondef($1::regprocedure) d, proowner::regrole::text o, proacl::text a FROM pg_proc WHERE oid = $1::regprocedure", [sig])).rows[0];
 const GRANT_SIG = "public.grant_engagement_capability(uuid,text,text)";
@@ -265,6 +288,18 @@ async function main() {
     await admin.query("INSERT INTO public.tax_computations (company_id, upload_id, period_year, computation_detail) VALUES ($1,$2,2025,'{\"cit_payable_tzs\": 1234}'::jsonb)", [A, up]);
     return (await count("SELECT count(*) n FROM public.tax_computations")) === 1;
   });
+  // The ESTABLISHED result of an authenticated direct mandate INSERT, recorded on the pre-migration database: every
+  // capability × GRANT/REVOKE × with/without jurisdiction. After the migration each must be byte-identical (RLS denial).
+  const memberPre = async (company, uid) => (await admin.query("SELECT id FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [company, uid])).rows[0].id;
+  const DIRECT_TARGETS = { A: { uid: U.owner, eng: E2026, member: await memberPre(A, U.owner) }, B: { uid: U.ownerB, eng: BMON, member: await memberPre(B, U.ownerB) } };
+  const DIRECT_CASES = [];
+  for (const k of ["A", "B"]) for (const cap of ["FINANCIAL_STATEMENTS", ...WITHHELD]) for (const action of ["GRANT", "REVOKE"]) DIRECT_CASES.push({ k, cap, action });
+  const established = {};
+  for (const c of DIRECT_CASES) { const t = DIRECT_TARGETS[c.k]; established[`${c.k}:${c.cap}:${c.action}`] = await outcome(() => authDirect(t.uid, t.eng, t.member, c.cap, c.action)); }
+  await check("pre-migration: every authenticated direct mandate INSERT is the RLS denial (42501) — the established result", async () => {
+    const off = Object.entries(established).filter(([, v]) => v !== `42501:${RLS_DENIAL}`);
+    return off.length === 0 ? true : off.slice(0, 4);
+  });
   const before = await snapshot();
   const historicalEvents = (await admin.query("SELECT * FROM public.engagement_mandate_events ORDER BY engagement_id, sequence_no")).rows;
   const grantBefore = await fnDef(GRANT_SIG);
@@ -325,11 +360,66 @@ async function main() {
   await forbidden("a non-member · grant_engagement_capability(Compliance) on A's engagement → 42501", () => grant(user(U.outsider), EA, "COMPLIANCE_REVIEW"));
   await forbidden("a preparer without review_close · open_engagement_with_scope(Filing) → 42501", () => openScope(user(U.preparer), A, 2052, ["FILING_PREPARATION"]));
   await forbidden("a preparer without review_close · grant_engagement_capability(Monitoring) → 42501", () => grant(user(U.preparer), EA, "MONITORING"));
-  await check("an authenticated owner's direct mandate INSERT is refused (RLS or the backstop), and writes nothing", async () => {
-    const s0 = await snapshot();
-    const r = await attempt(() => q(user(U.owner), "INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id) VALUES ($1,'TAX_COMPUTATION','GRANT',999,$2)", [EA, MEMBER.A]));
-    return !r.ok && (r.code === "42501" || exact(r)) && diff(s0, await snapshot()).length === 0 ? true : r;
+
+  group("4b. authenticated direct-table caller: table privilege → RLS → (never) the backstop — the established result, unchanged");
+  for (const c of DIRECT_CASES) {
+    const t = DIRECT_TARGETS[c.k];
+    await check(`authenticated direct INSERT · ${c.cap} ${c.action} · ${COMPANY[c.k].label} → the established RLS denial (42501), byte-identical, nothing written`, async () => {
+      const s0 = await snapshot();
+      const now = await outcome(() => authDirect(t.uid, t.eng, t.member, c.cap, c.action));
+      const changed = diff(s0, await snapshot());
+      return now === established[`${c.k}:${c.cap}:${c.action}`] && now === `42501:${RLS_DENIAL}` && !/SERVICE_NOT_AVAILABLE|JURISDICTION/.test(now) && changed.length === 0
+        ? true : { now, established: established[`${c.k}:${c.cap}:${c.action}`], changed };
+    });
+  }
+  await check("anonymous direct INSERT of a withheld GRANT → permission denied (table privilege), never availability", async () => {
+    const r = await outcome(() => q(ANON, "INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id) VALUES ($1,'TAX_COMPUTATION','GRANT',999999,$2)", [EA, MEMBER.A]));
+    return r === "42501:permission denied for table engagement_mandate_events" ? true : r;
   });
+
+  group("4c. the backstop is AFTER INSERT; no BEFORE trigger reveals availability; an AFTER refusal rolls the whole statement back");
+  await check("trg_refuse_withheld_service_grant is AFTER, ROW, INSERT-only, enabled, on engagement_mandate_events", async () => {
+    const r = (await admin.query(`SELECT tgtype, tgenabled::text e, tgrelid::regclass::text rel, pg_get_triggerdef(oid) d FROM pg_trigger
+      WHERE tgname='trg_refuse_withheld_service_grant' AND NOT tgisinternal`)).rows;
+    // tgtype bits: 1 ROW, 2 BEFORE, 4 INSERT, 8 DELETE, 16 UPDATE, 32 TRUNCATE, 64 INSTEAD.
+    return r.length === 1 && r[0].rel === "engagement_mandate_events" && (r[0].tgtype & 1) === 1 && (r[0].tgtype & 2) === 0 && (r[0].tgtype & 64) === 0
+      && (r[0].tgtype & (4 | 8 | 16 | 32)) === 4 && r[0].e === "O" && /AFTER INSERT ON public\.engagement_mandate_events FOR EACH ROW/.test(r[0].d) ? true : r;
+  });
+  await check("no BEFORE trigger on engagement_mandate_events (or on any public table) consults availability", async () => {
+    const r = (await admin.query(`SELECT t.tgrelid::regclass::text rel, t.tgname, p.proname FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
+      WHERE NOT t.tgisinternal AND (t.tgtype & 2) = 2 AND (p.prosrc ~ 'assert_capability_available|capability_customer_available|SERVICE_NOT_AVAILABLE|refuse_withheld')`)).rows;
+    return r.length === 0 ? true : r;
+  });
+  for (const who of ["service_role", "owner"]) {
+    await check(`${who}: ONE multi-row INSERT (an allowed Financial statements REVOKE + a withheld GRANT) → exactly PT422 SERVICE_NOT_AVAILABLE; NEITHER row persists`, async () => {
+      const s0 = await snapshot();
+      const sql = `INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id)
+        VALUES ($1,'FINANCIAL_STATEMENTS','REVOKE',public.next_engagement_sequence($1),$2), ($1,'MONITORING','GRANT',public.next_engagement_sequence($1)+1,$2)`;
+      const r = await attempt(() => (who === "owner" ? admin.query(sql, [EA, MEMBER.A]) : q(SERVICE, sql, [EA, MEMBER.A])));
+      const changed = diff(s0, await snapshot());
+      return exact(r) && changed.length === 0 ? true : { r, changed };
+    });
+    await check(`${who}: an explicit transaction (allowed write, then a withheld GRANT) is aborted by the AFTER refusal and leaves nothing`, async () => {
+      const s0 = await snapshot();
+      const c = who === "owner" ? await pool.connect() : null;
+      let r;
+      if (who === "owner") {
+        try {
+          await c.query("BEGIN");
+          await c.query("INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id) VALUES ($1,'FINANCIAL_STATEMENTS','REVOKE',public.next_engagement_sequence($1),$2)", [EA, MEMBER.A]);
+          await c.query("INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id) VALUES ($1,'TAX_COMPUTATION','GRANT',public.next_engagement_sequence($1),$2)", [EA, MEMBER.A]);
+          await c.query("COMMIT"); r = { ok: true };
+        } catch (e) { r = { ok: false, code: e.code, message: e.message }; await c.query("ROLLBACK"); } finally { c.release(); }
+      } else {
+        r = await attempt(() => asCaller(SERVICE, async (cc) => {
+          await cc.query("INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id) VALUES ($1,'FINANCIAL_STATEMENTS','REVOKE',public.next_engagement_sequence($1),$2)", [EA, MEMBER.A]);
+          await cc.query("INSERT INTO public.engagement_mandate_events (engagement_id,capability,action,sequence_no,actor_member_id) VALUES ($1,'TAX_COMPUTATION','GRANT',public.next_engagement_sequence($1),$2)", [EA, MEMBER.A]);
+        }));
+      }
+      const changed = diff(s0, await snapshot());
+      return exact(r) && changed.length === 0 ? true : { r, changed };
+    });
+  }
 
   group("E. negative control — FINANCIAL_STATEMENTS still grants, with and without a filing jurisdiction");
   for (const k of ["A", "B"]) {
@@ -360,6 +450,36 @@ async function main() {
     }));
     const bad = out.filter((r) => r.ok || r.code !== "PT422" || r.message !== "SERVICE_NOT_AVAILABLE");
     return bad.length === 0 && diff(s0, await snapshot()).length === 0 ? true : { bad: bad.slice(0, 3) };
+  });
+  await check(`${CONCURRENCY * 2} simultaneous MIXED requests: withheld RPC/service_role/owner → exact PT422; authenticated direct → established RLS denial; Financial statements opens → succeed and converge`, async () => {
+    const tableRows = async () => Object.fromEntries(Object.entries(await snapshot()).filter(([t]) => t !== "public.engagement_mandate_events" && t !== "public.engagements" && t !== "public.fiscal_periods"));
+    const others0 = await tableRows();
+    const ev0 = await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE action='GRANT' AND capability = ANY($1)", [WITHHELD]);
+    const jobs = Array.from({ length: CONCURRENCY * 2 }, (_, i) => {
+      const k = i % 2 ? "A" : "B"; const cap = WITHHELD[i % WITHHELD.length]; const { id, caller } = COMPANY[k]; const t = DIRECT_TARGETS[k];
+      const kinds = [
+        ["withheld", () => openScope(caller, id, 2075, [cap])],
+        ["withheld", () => openScope(caller, id, 2075, ["FINANCIAL_STATEMENTS", cap])],
+        ["withheld", () => grant(caller, ENG[k], cap)],
+        ["withheld", () => directInsert("service", k, cap)],
+        ["withheld", () => directInsert("owner", k, cap)],
+        ["authenticated", () => authDirect(t.uid, t.eng, t.member, cap, "GRANT")],
+        ["fs", () => openScope(caller, id, 2076, ["FINANCIAL_STATEMENTS"])],
+      ];
+      const [kind, fn] = kinds[i % kinds.length];
+      return outcome(fn).then((o) => ({ kind, o }));
+    });
+    const out = await Promise.all(jobs);
+    const badWithheld = out.filter((x) => x.kind === "withheld" && x.o !== "PT422:SERVICE_NOT_AVAILABLE");
+    const badAuth = out.filter((x) => x.kind === "authenticated" && x.o !== `42501:${RLS_DENIAL}`);
+    const badFs = out.filter((x) => x.kind === "fs" && x.o !== "ALLOWED");
+    const p2075 = await count("SELECT count(*) n FROM public.fiscal_periods WHERE company_id = ANY($1) AND EXTRACT(YEAR FROM fiscal_year_end) = 2075", [[A, B]]);
+    const e2076 = (await admin.query("SELECT g.company_id, count(*)::int n FROM public.engagements g JOIN public.fiscal_periods p ON p.id = g.fiscal_period_id WHERE g.company_id = ANY($1) AND EXTRACT(YEAR FROM p.fiscal_year_end) = 2076 GROUP BY 1", [[A, B]])).rows;
+    const ev1 = await count("SELECT count(*) n FROM public.engagement_mandate_events WHERE action='GRANT' AND capability = ANY($1)", [WITHHELD]);
+    const othersChanged = diff(others0, await tableRows());
+    return badWithheld.length === 0 && badAuth.length === 0 && badFs.length === 0 && p2075 === 0 && ev1 === ev0
+      && e2076.length === 2 && e2076.every((x) => x.n === 1) && othersChanged.length === 0
+      ? true : { badWithheld: badWithheld.slice(0, 3), badAuth: badAuth.slice(0, 3), badFs: badFs.slice(0, 3), p2075, e2076, ev0, ev1, othersChanged };
   });
   await check(`${CONCURRENCY} simultaneous allowed opens (Financial statements, A 2080) still converge on ONE engagement`, async () => {
     const out = await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => openScope(i % 2 ? user(U.partner) : user(U.owner), A, 2080, ["FINANCIAL_STATEMENTS"])));
@@ -420,11 +540,16 @@ async function main() {
   });
 
   group("Re-apply");
-  await check("applying the migration again changes no row, no function definition and leaves exactly one trigger", async () => {
-    const s0 = await snapshot(); const g0 = await fnDef(GRANT_SIG); const o0 = await fnDef(OPEN_SIG);
+  await check("applying the migration again TWICE changes no row, no function definition or ACL, no trigger definition or enabled state, no policy or RLS flag", async () => {
+    const s0 = await snapshot(); const c0 = await catalogFingerprint(); const g0 = await fnDef(GRANT_SIG); const o0 = await fnDef(OPEN_SIG);
+    await applyMigration(admin, MIGRATION);
     await applyMigration(admin, MIGRATION);
     const n = Number((await admin.query("SELECT count(*) n FROM pg_trigger WHERE tgname='trg_refuse_withheld_service_grant' AND NOT tgisinternal")).rows[0].n);
-    return diff(s0, await snapshot()).length === 0 && n === 1 && JSON.stringify(await fnDef(GRANT_SIG)) === JSON.stringify(g0) && JSON.stringify(await fnDef(OPEN_SIG)) === JSON.stringify(o0);
+    const c1 = await catalogFingerprint();
+    const catalogChanged = Object.keys(c0).filter((k) => c0[k] !== c1[k]);
+    const rows = diff(s0, await snapshot());
+    return rows.length === 0 && n === 1 && catalogChanged.length === 0 && JSON.stringify(await fnDef(GRANT_SIG)) === JSON.stringify(g0) && JSON.stringify(await fnDef(OPEN_SIG)) === JSON.stringify(o0)
+      ? true : { rows, n, catalogChanged };
   });
   await refusedExactlyWithNoState("after re-application the refusal still holds (B, Tax, grant)", () => grant(COMPANY.B.caller, EB, "TAX_COMPUTATION"));
 

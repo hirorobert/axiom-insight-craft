@@ -14,8 +14,11 @@
 --   · grant_engagement_capability — after authorization (assert_engagement_write_authority), and BEFORE the filing-
 --     jurisdiction check, the duplicate-grant check and the mandate insert: a withheld service never reports
 --     JURISDICTION_REQUIRED or any other message;
---   · the BEFORE INSERT trigger on engagement_mandate_events — the backstop for any other function and for direct writes
---     by any role (service_role and the table owner included), using the same helper.
+--   · the AFTER INSERT trigger on engagement_mandate_events — the backstop for any other function and for direct writes
+--     by any role (service_role and the table owner included), using the same helper. It is AFTER, not BEFORE, so that
+--     PostgreSQL's table-privilege and row-level-security checks run first: an authenticated direct writer gets the
+--     established RLS denial (42501) and learns nothing about availability; a write that passes RLS (service_role, owner)
+--     is then refused PT422 SERVICE_NOT_AVAILABLE and the whole statement rolls back.
 -- Both RPC bodies are their current definitions with exactly ONE added line each (proven byte-for-byte by
 -- scripts/db-proof/serviceWithholding.mjs); owner and privileges are preserved by CREATE OR REPLACE.
 --
@@ -190,7 +193,8 @@ END;
 $function$;
 
 -- The backstop. SECURITY DEFINER so that a direct write by ANY role reaches the (client-revoked) helper; it reads only
--- NEW and decides nothing but availability.
+-- NEW and decides nothing but availability. It runs AFTER INSERT (its RETURN value is ignored there; raising aborts and
+-- rolls back the statement).
 CREATE OR REPLACE FUNCTION public.refuse_withheld_service_grant()
   RETURNS TRIGGER
   LANGUAGE plpgsql
@@ -208,5 +212,5 @@ $$;
 REVOKE ALL ON FUNCTION public.refuse_withheld_service_grant() FROM PUBLIC, anon, authenticated, service_role;
 
 CREATE OR REPLACE TRIGGER trg_refuse_withheld_service_grant
-  BEFORE INSERT ON public.engagement_mandate_events
+  AFTER INSERT ON public.engagement_mandate_events
   FOR EACH ROW EXECUTE FUNCTION public.refuse_withheld_service_grant();

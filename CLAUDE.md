@@ -1122,8 +1122,9 @@ and is started only from the Tax panel. Not solved by the containment change; ne
 asserted by withheldServiceGrants.test.ts) and `public.assert_capability_available()` raises exactly SQLSTATE PT422
 `SERVICE_NOT_AVAILABLE`. `open_engagement_with_scope` calls it after authorization and before the lock, period, engagement
 and grants; `grant_engagement_capability` after write authority and before the jurisdiction check, duplicate check and
-insert (so a withheld service never answers `JURISDICTION_REQUIRED`); the `BEFORE INSERT` trigger on
-`engagement_mandate_events` is the backstop for any other path and for service_role/owner writes. Each RPC body is its
+insert (so a withheld service never answers `JURISDICTION_REQUIRED`); the `AFTER INSERT` trigger on
+`engagement_mandate_events` is the backstop for any other path and for service_role/owner writes (AFTER, so table privilege
+and RLS run first: an authenticated direct writer gets the established RLS denial, never `SERVICE_NOT_AVAILABLE`). Each RPC body is its
 previous definition plus ONE line (proven byte-for-byte). Unauthorized callers still get the established FORBIDDEN. Every
 existing row stays byte-identical and readable; REVOKE stays allowed and a revoked withheld service cannot be granted again;
 `FINANCIAL_STATEMENTS` (Prepare and Reconcile) stays grantable with or without a filing jurisdiction. Proven by
