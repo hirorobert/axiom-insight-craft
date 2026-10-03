@@ -126,6 +126,7 @@ async function main() {
   const L = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Synthetic Lapsed') RETURNING id", [U.lapsed])).rows[0].id;
   await admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now())", [A, U.preparer]);
   const open = async (uid, c, y, caps) => (await asUser(uid, async (x) => (await x.query("SELECT public.open_engagement_with_scope($1,$2,$3,'composite') r", [c, y, caps])).rows[0].r)).engagementId;
+  for (const [uid, c] of [[U.owner, A], [U.lapsed, L]]) await asUser(uid, (x) => x.query("SELECT public.set_company_filing_jurisdiction($1,'TZ')", [c]));
   const E25 = await open(U.owner, A, 2025, ["TAX_COMPUTATION"]);   // the production shape: a historical Tax-only engagement
   const E24 = await open(U.owner, A, 2024, ["TAX_COMPUTATION"]);   // used for the concurrency proof
   const EL = await open(U.lapsed, L, 2025, ["TAX_COMPUTATION"]);
