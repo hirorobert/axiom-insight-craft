@@ -38,8 +38,9 @@ describe("the reviewed release journal", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
     // 0022 applied the processing correction (f21a58f); 0024 the removal migration (main 0d2a09e); 0025 the annual term
-    // (release_verbatim). Authored and not yet applied: 20261002100000 (withheld-service grant refusal).
-    expect(r.pending).toEqual(["20261002100000_refuse_withheld_service_grants.sql"]);
+    // (release_verbatim); 0026 the withheld-service grant refusal (release_verbatim). Nothing is pending.
+    expect(r.pending).toEqual([]);
+    expect(r.mirrored.find((m) => m.tag === "0026_apply_20261002100000_refuse_withheld_service_grants")?.how).toBe("release_verbatim");
     expect(r.mirrored.find((m) => m.tag === T25)).toEqual({ tag: T25, source: S25, how: "release_verbatim" });
     expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" }]);
     expect(r.mirrored.filter((m) => m.how === "release_wrapper").map((m) => m.source)).toEqual([

@@ -39,9 +39,8 @@ describe("migration authority parity", () => {
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
     // Authored here and not yet applied by the owner: listed, never an error. PR #34 100000–150000 are applied.
-    // 20260926160000 applied by 0022; 20260927100000 by 0024; 20261001120000 by 0025. 20261002100000 (withheld-service grant
-    // refusal) is authored and not yet applied.
-    expect(r.pending).toEqual(["20261002100000_refuse_withheld_service_grants.sql"]);
+    // 20260926160000 applied by 0022; 20260927100000 by 0024; 20261001120000 by 0025; 20261002100000 by 0026.
+    expect(r.pending).toEqual([]);
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {
