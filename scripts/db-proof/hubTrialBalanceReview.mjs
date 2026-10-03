@@ -6,7 +6,8 @@
 // modules (unavailableService.ts: reviewActionGate, addTrialBalanceReview, partitionEngagements) against the REAL
 // server commands through an RpcClient that executes as the synthetic caller.
 //
-//   DB_PROOF_MODULES_DIR=<dir whose node_modules has pg + embedded-postgres> bun scripts/db-proof/hubTrialBalanceReview.mjs
+//   DB_PROOF_MODULES_DIR=<dir whose node_modules has pg + embedded-postgres> bun ./scripts/db-proof/hubTrialBalanceReview.mjs
+//   (or DB_PROOF_CONN=postgres://postgres@localhost:<port>/postgres for an already-running disposable local server)
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -33,6 +34,17 @@ async function check(name, fn) {
 
 let server, dir, port, admin, pool;
 async function start() {
+  if (process.env.DB_PROOF_CONN) {
+    // External mode: an already-running DISPOSABLE local server (e.g. a throwaway initdb cluster).
+    const base = new URL(process.env.DB_PROOF_CONN);
+    if (!["localhost", "127.0.0.1"].includes(base.hostname) || process.env.DB_PROOF_CONN.includes(PRODUCTION_REF)) throw new Error("REFUSED: not a disposable local database");
+    const boot = new Client({ connectionString: process.env.DB_PROOF_CONN, ssl: false }); await boot.connect();
+    await boot.query("DROP DATABASE IF EXISTS hub_proof"); await boot.query("CREATE DATABASE hub_proof"); await boot.end();
+    base.pathname = "/hub_proof";
+    admin = new Client({ connectionString: base.toString(), ssl: false }); await admin.connect();
+    pool = new Pool({ connectionString: base.toString(), ssl: false, max: CONCURRENCY + 5 });
+    return;
+  }
   const modDir = MODULES_DIR ? path.resolve(MODULES_DIR) : REPO;
   const { default: EmbeddedPostgres } = await import(pathToFileURL(path.join(modDir, "node_modules/embedded-postgres/dist/index.js")).href);
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "cfoclose-hub-proof-"));
