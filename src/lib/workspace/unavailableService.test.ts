@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { addTrialBalanceReview, partitionEngagements, ADD_REVIEW_REASON } from "./unavailableService";
+import { addTrialBalanceReview, partitionEngagements, singleFlight, ADD_REVIEW_REASON } from "./unavailableService";
 import { decideReturningUserRoute } from "./resolveReturningUserRoute";
 import type { EngagementCapability } from "./mandate";
 
@@ -50,5 +50,26 @@ describe("addTrialBalanceReview — explicit grant on the existing engagement on
   });
   it("network failure → UNKNOWN, never thrown", async () => {
     expect(await addTrialBalanceReview(client(new Error("offline")), "e1")).toMatchObject({ ok: false, kind: "UNKNOWN" });
+  });
+});
+
+describe("singleFlight — repeated clicks and failed attempts", () => {
+  it("repeated clicks while in flight send exactly one request", async () => {
+    let release!: () => void;
+    const fn = vi.fn(() => new Promise<string>((r) => { release = () => r("done"); }));
+    const go = singleFlight(fn);
+    const first = go();
+    expect(await go()).toBeNull();
+    expect(await go()).toBeNull();
+    release();
+    expect(await first).toBe("done");
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+  it("a failed attempt releases the guard so a retry is possible", async () => {
+    const fn = vi.fn().mockRejectedValueOnce(new Error("x")).mockResolvedValueOnce("ok");
+    const go = singleFlight(fn);
+    await expect(go()).rejects.toThrow("x");
+    expect(await go()).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 });

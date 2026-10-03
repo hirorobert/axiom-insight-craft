@@ -67,3 +67,20 @@ export async function addTrialBalanceReview(client: RpcClient, engagementId: str
   if (code === "PT422") return { ok: false, kind: "UNAVAILABLE", message: "Trial balance review is not available for this engagement right now." };
   return { ok: false, kind: "UNKNOWN", message: "Trial balance review could not be added. Try again." };
 }
+
+/**
+ * One request at a time: while a call is in flight, further calls (repeated clicks) return `null` without calling `fn`.
+ * A failure releases the guard so the user can retry.
+ */
+export function singleFlight<A extends unknown[], R>(fn: (...args: A) => Promise<R>): (...args: A) => Promise<R | null> {
+  let busy = false;
+  return async (...args: A) => {
+    if (busy) return null;
+    busy = true;
+    try {
+      return await fn(...args);
+    } finally {
+      busy = false;
+    }
+  };
+}
