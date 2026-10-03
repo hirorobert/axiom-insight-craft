@@ -403,6 +403,12 @@ async function main() {
       FROM pg_proc p WHERE p.pronamespace='public'::regnamespace AND p.proname IN ('capability_customer_available','assert_capability_available','refuse_withheld_service_grant')`)).rows;
     return r.length === 3 && r.every((x) => !x.a && !x.b && !x.c) ? true : r;
   });
+  await check("internal helpers grant EXECUTE to their owner ONLY — no PUBLIC, anon, authenticated or service_role entry in the ACL", async () => {
+    const r = (await admin.query(`SELECT p.proname, p.proacl::text acl, p.proowner::regrole::text owner,
+        has_function_privilege('public', p.oid, 'EXECUTE') pub
+      FROM pg_proc p WHERE p.pronamespace='public'::regnamespace AND p.proname IN ('capability_customer_available','assert_capability_available','refuse_withheld_service_grant')`)).rows;
+    return r.length === 3 && r.every((x) => x.acl === `{${x.owner}=X/${x.owner}}` && x.pub === false) ? true : r;
+  });
   await check("the RPCs remain executable by authenticated and not by anon", async () => {
     const r = (await admin.query(`SELECT has_function_privilege('authenticated', $1::regprocedure, 'EXECUTE') a, has_function_privilege('anon', $1::regprocedure, 'EXECUTE') b,
       has_function_privilege('authenticated', $2::regprocedure, 'EXECUTE') c, has_function_privilege('anon', $2::regprocedure, 'EXECUTE') d`, [GRANT_SIG, OPEN_SIG])).rows[0];
