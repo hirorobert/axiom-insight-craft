@@ -20,12 +20,12 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), "tb-compat-"));
 const sh = (cmd, cwd = REPO) => execSync(cmd, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 });
 const sha = (ref) => sh(`git rev-parse ${ref}`).trim();
 
-function extract(ref, paths, name) {
+function extract(ref, wanted, name) {
   const dir = path.join(work, name);
+  const paths = wanted.filter((p) => sh(`git ls-tree -d ${ref} ${p}`).trim() !== "");
   fs.mkdirSync(dir, { recursive: true });
-  const tar = path.join(work, `${name}.tar`);
-  sh(`git archive --format=tar -o "${tar}" ${ref} ${paths.join(" ")}`);
-  sh(`tar -xf "${tar}" -C "${dir}"`);
+  // Piped, so no archive path is handed to tar (Windows tar reads "D:" in a file name as a remote host).
+  sh(`git archive --format=tar ${ref} ${paths.join(" ")} | tar -x -C "${dir.replace(/\\/g, "/")}"`);
   return dir;
 }
 
@@ -87,11 +87,11 @@ function evaluate(c, serverName, out) {
   if (c.flow) {
     const s = out.retry_same_id;
     const outcome = c.flow.classifyCheckAnswer({ httpStatus: s.response.http, body: s.response.body });
-    record(combo, "retry: 'Check again' reuses the request id; the upload keeps its recorded status", outcome.kind === "finished" && s.status === "complete" && s.engine_runs === 1,
-      `client → ${outcome.kind}; upload status after replay: ${s.status}; engine runs ${s.engine_runs}`);
+    record(combo, "retry: 'Check again' reuses the request id; the upload keeps its recorded status", outcome.kind === "finished" && s.status === "complete" && s.certifications.length === 1,
+      `client → ${outcome.kind}; upload status after replay: ${s.status}; checks recorded (certifications): ${s.certifications.length}`);
   } else {
     const s = out.retry_new_id;
-    record(combo, "retry: a new request id re-runs the check once more and records its outcome", s.status === "complete", `upload status: ${s.status}; engine runs ${s.engine_runs}`);
+    record(combo, "retry: a new request id re-runs the check once more and records its outcome", s.status === "complete" && s.certifications.length === 2, `upload status: ${s.status}; checks recorded (certifications): ${s.certifications.length}`);
   }
 }
 

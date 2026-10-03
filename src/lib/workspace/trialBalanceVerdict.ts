@@ -40,6 +40,19 @@ export interface TrialBalanceTotals {
   debitCents: number;
   creditCents: number;
   differenceCents: number;
+  /**
+   * The tolerance the engine applied when it recorded these totals. Absent (= BALANCE_TOLERANCE_CENTS) for a result
+   * from the earlier engine; 0 for a result from the exact ingestion core (processing_result.ingestion), which records
+   * exact decimal totals and accepts no difference at all.
+   */
+  toleranceCents?: number;
+  /** ISO 4217 code the exact totals are in, when the engine recorded it. */
+  currency?: string;
+  /**
+   * The currency's minor-unit exponent when it is not 2 (UGX 0, BHD 3, …). When present, debitCents / creditCents /
+   * differenceCents are minor units at this exponent, not cents — format with formatTotal().
+   */
+  exponent?: number;
 }
 
 const record = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
@@ -78,6 +91,8 @@ const RECORDED_DIFFERENCE_SLACK_CENTS = 1;
 export function readTrialBalanceTotals(processingResult: unknown): TrialBalanceTotals | null {
   const tb = record(record(record(processingResult)?.validation_report)?.tb_balance_check);
   if (!tb) return null;
+  // A result from the exact ingestion core is read ONLY from its exact totals (never from the rounded doubles beside them).
+  if (tb.exact !== undefined && tb.exact !== null) return readExactTotals(record(tb.exact));
   const debitCents = toMinorUnits(tb.total_debits);
   const creditCents = toMinorUnits(tb.total_credits);
   if (debitCents === null || creditCents === null) return null;
@@ -89,6 +104,57 @@ export function readTrialBalanceTotals(processingResult: unknown): TrialBalanceT
     if (!consistent && !acceptedWithinTolerance) return null;
   }
   return { debitCents, creditCents, differenceCents };
+}
+
+/**
+ * "1234.567" at exponent 3 → 1234567 minor units, exactly. The decimal places must not exceed the exponent (the
+ * ingestion core never records more); null for anything else or for a value too large to hold exactly.
+ */
+export function decimalToMinor(v: unknown, exponent: number): number | null {
+  if (typeof v !== "string" || !Number.isInteger(exponent) || exponent < 0 || exponent > 6) return null;
+  const m = /^(-?)(\d+)(?:\.(\d+))?$/.exec(v);
+  if (!m || (m[3] ?? "").length > exponent) return null;
+  const minor = Number(m[2]) * 10 ** exponent + Number((m[3] ?? "").padEnd(exponent, "0") || "0");
+  if (!Number.isSafeInteger(minor)) return null;
+  return m[1] === "-" ? -minor : minor;
+}
+
+/**
+ * Exact totals recorded by the ingestion core (tb_balance_check.exact: decimal strings, currency and its ISO 4217
+ * exponent). These carry no tolerance, and are held in the currency's own minor units — 0, 2 or 3 decimal places —
+ * so a three-decimal currency is shown exactly, never rounded to cents. A result without a recorded exponent is read
+ * at two places only if every value has at most two; otherwise it is refused (null) and the certification's own
+ * reason is used instead.
+ */
+function readExactTotals(exact: Record<string, unknown> | null): TrialBalanceTotals | null {
+  if (!exact) return null;
+  const recorded = exact.currency_exponent;
+  const exponent = typeof recorded === "number" && Number.isInteger(recorded) ? recorded : 2;
+  const debitCents = decimalToMinor(exact.total_debits, exponent);
+  const creditCents = decimalToMinor(exact.total_credits, exponent);
+  if (debitCents === null || creditCents === null || debitCents < 0 || creditCents < 0) return null;
+  const totals: TrialBalanceTotals = { debitCents, creditCents, differenceCents: debitCents - creditCents, toleranceCents: 0 };
+  if (exponent !== 2) totals.exponent = exponent;
+  if (typeof exact.currency === "string" && /^[A-Z]{3}$/.test(exact.currency)) totals.currency = exact.currency;
+  return totals;
+}
+
+/**
+ * Minor units → grouped decimal text at the given exponent, e.g. (1234567, 3) → "1,234.567"; (1500, 0) → "1,500".
+ * Integer arithmetic only; a non-safe-integer input is refused rather than rounded.
+ */
+export function formatMinorUnits(minor: number, exponent: number): string {
+  if (!Number.isSafeInteger(minor)) throw new RangeError("formatMinorUnits: not a safe integer");
+  const abs = Math.abs(minor);
+  const scale = 10 ** exponent;
+  const whole = String((abs - (abs % scale)) / scale).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const fraction = exponent > 0 ? `.${String(abs % scale).padStart(exponent, "0")}` : "";
+  return `${minor < 0 ? "-" : ""}${whole}${fraction}`;
+}
+
+/** One of a totals' amounts, formatted at the totals' own exponent (two decimal places unless recorded otherwise). */
+export function formatTotal(totals: TrialBalanceTotals, minor: number): string {
+  return formatMinorUnits(minor, totals.exponent ?? 2);
 }
 
 /** The identity a certification result is bound to: upload id, optimistic-concurrency version and source-file hash. */
@@ -121,9 +187,51 @@ export function balanceStatement(totals: TrialBalanceTotals | null): string | nu
   return totals.differenceCents === 0 ? "Balanced" : WITHIN_TOLERANCE_TEXT;
 }
 
-/** True when the recorded totals differ by more than the engine's tolerance (BALANCE_TOLERANCE_CENTS). */
+/** True when the recorded totals differ by more than the tolerance the engine applied (none for exact totals). */
 export function isOutOfBalance(totals: TrialBalanceTotals | null): boolean {
-  return !!totals && Math.abs(totals.differenceCents) > BALANCE_TOLERANCE_CENTS;
+  return !!totals && Math.abs(totals.differenceCents) > (totals.toleranceCents ?? BALANCE_TOLERANCE_CENTS);
+}
+
+// ── What the ingestion core recorded (processing_result.ingestion) ────────────────────────────────────────────────────
+
+export interface TrialBalanceIssue {
+  code: string;
+  message: string;
+  rows: number[];
+}
+
+/** The blocking issues the server recorded for this file, each already a plain sentence naming its rows. */
+export function readIngestionIssues(processingResult: unknown): TrialBalanceIssue[] {
+  const issues = record(record(processingResult)?.ingestion)?.issues;
+  if (!Array.isArray(issues)) return [];
+  return issues.flatMap((i) => {
+    const r = record(i);
+    if (!r || r.severity !== "blocking" || typeof r.code !== "string" || typeof r.message !== "string") return [];
+    const rows = Array.isArray(r.rows) ? r.rows.filter((n): n is number => Number.isInteger(n)) : [];
+    return [{ code: r.code, message: r.message, rows }];
+  });
+}
+
+export type MilestoneState = "passed" | "failed" | "needs_review" | "not_reached";
+
+export interface TrialBalanceMilestone {
+  id: string;
+  label: string;
+  status: MilestoneState;
+  detail: string | null;
+}
+
+const MILESTONE_STATES = new Set<MilestoneState>(["passed", "failed", "needs_review", "not_reached"]);
+
+/** The milestones the check actually reached, in order, as the server recorded them. Empty for an earlier engine. */
+export function readMilestones(processingResult: unknown): TrialBalanceMilestone[] {
+  const list = record(record(processingResult)?.ingestion)?.milestones;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((m) => {
+    const r = record(m);
+    if (!r || typeof r.id !== "string" || typeof r.label !== "string" || !MILESTONE_STATES.has(r.status as MilestoneState)) return [];
+    return [{ id: r.id, label: r.label, status: r.status as MilestoneState, detail: typeof r.detail === "string" ? r.detail : null }];
+  });
 }
 
 /** Removes engine codes ("NOT_EVALUATED: …", "L3_TB_IMBALANCE: …") from a message; never invents text. */
@@ -139,7 +247,7 @@ export function plainBlockReason(args: { blocker: string | null | undefined; tot
   const arithmetic = args.failedCheckId === undefined || args.failedCheckId === null || args.failedCheckId === "l3_arithmetic";
   if (arithmetic && args.totals && isOutOfBalance(args.totals)) {
     const higher = args.totals.differenceCents > 0 ? "Debits" : "Credits";
-    return `${higher} exceed ${higher === "Debits" ? "credits" : "debits"} by ${formatCents(Math.abs(args.totals.differenceCents))}. Correct the file and replace it.`;
+    return `${higher} exceed ${higher === "Debits" ? "credits" : "debits"} by ${formatTotal(args.totals, Math.abs(args.totals.differenceCents))}. Correct the file and replace it.`;
   }
   if (args.blocker && args.blocker.trim()) return stripEngineCode(args.blocker);
   return "The trial balance did not pass its checks.";
@@ -192,6 +300,10 @@ export interface TrialBalanceVerdict {
    */
   balanceStatement: string | null;
   primaryAction: TrialBalancePrimaryAction | null;
+  /** What to correct in the file, row by row — shown when the trial balance is blocked. */
+  issues: TrialBalanceIssue[];
+  /** What the check actually did, as the server recorded it (empty for an earlier engine). */
+  milestones: TrialBalanceMilestone[];
   /** Evidence verification may be offered only when the trial balance is accepted (it stays mandatory before tax). */
   evidenceUnlocked: boolean;
   /** Evidence verification is already complete for this upload. */
@@ -244,7 +356,7 @@ function plainCheck(c: PreflightCheck, totals: TrialBalanceTotals | null): Trial
   else if (c.id === "l5_supporting_evidence" && (c.state === "pending" || /NOT_EVALUATED/.test(c.detail))) detail = "Matched after the trial balance is accepted.";
   else if (c.state === "pending" || /NOT_EVALUATED/.test(c.detail)) detail = "Waiting for processing to finish.";
   else if (c.id === "l3_arithmetic" && totals && isOutOfBalance(totals)) {
-    detail = `Debits ${formatCents(totals.debitCents)} and credits ${formatCents(totals.creditCents)} differ by ${formatCents(Math.abs(totals.differenceCents))}.`;
+    detail = `Debits ${formatTotal(totals, totals.debitCents)} and credits ${formatTotal(totals, totals.creditCents)} differ by ${formatTotal(totals, Math.abs(totals.differenceCents))}.`;
   } else detail = stripEngineCode(c.detail);
   return { id: c.id, label, state: c.state, detail };
 }
@@ -263,7 +375,9 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
   // rejected or escalated) — never on the raw "clean" status alone, and never when it could not be read.
   const evidenceCleared = !!upload && evidenceState(upload.safisha_status, upload.reconciliation).state === "complete";
   const l3Passed = checks.some((c) => c.id === "l3_arithmetic" && c.state === "passed");
-  const base = { totals, checks, informational, failedCheckId: failed?.id ?? null, balanceStatement: l3Passed ? balanceStatement(totals) : null, evidenceUnlocked: false, evidenceCleared };
+  const issues = upload ? readIngestionIssues(upload.processing_result) : [];
+  const milestones = upload ? readMilestones(upload.processing_result) : [];
+  const base = { totals, checks, informational, failedCheckId: failed?.id ?? null, balanceStatement: l3Passed ? balanceStatement(totals) : null, evidenceUnlocked: false, evidenceCleared, issues: [] as TrialBalanceIssue[], milestones };
 
   if (!upload) {
     return { ...base, status: "none", statusLabel: "No trial balance", tone: "neutral", reason: "Upload a trial balance to begin.", primaryAction: null };
@@ -296,7 +410,7 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
       };
     case "blocked":
       return {
-        ...base, status: "blocked", statusLabel: "Blocked", tone: "danger",
+        ...base, status: "blocked", statusLabel: "Blocked", tone: "danger", issues,
         reason: plainBlockReason({ blocker: input.readiness?.blocker, totals, failedCheckId: failed?.id ?? null }),
         // A block that is only about classification is fixed by classification decisions, not by a new file.
         primaryAction: failed?.id === "l4_classification"
