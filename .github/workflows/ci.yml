@@ -84,9 +84,16 @@ jobs:
     runs-on: ubuntu-latest
     # The deterministic acceptance gate: exact head of the pull request, dependencies from the committed lockfile,
     # LF line endings (.gitattributes), zero failing tests — there is no "baseline failure" allowance.
+    # The database-inertness guard compares HEAD against GitHub's exact base, never an assumed branch
+    # (scripts/ci/inertBase.mjs): the pull request's base SHA, or the push's "before" SHA. It fails closed without one.
+    env:
+      DB_INERT_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || '' }}
+      DB_INERT_BASE_SOURCE: ${{ github.event_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -117,6 +124,11 @@ jobs:
       - name: Migration authority (the hosted Drizzle apply journal mirrors the authored supabase/migrations exactly)
         run: node scripts/ci/assertMigrationAuthority.mjs
 
+      - name: Database-inertness guard against the exact base (must execute with zero skipped)
+        run: |
+          bunx vitest run src/lib/financialStatementsWorkspace/databaseInert.test.ts src/lib/__tests__/inertBase.test.ts --reporter=verbose --reporter=json --outputFile.json=inert-report.json
+          node scripts/ci/assertTestsExecuted.mjs inert-report.json src/lib/financialStatementsWorkspace/databaseInert.test.ts src/lib/__tests__/inertBase.test.ts
+
       - name: Full test suite
         run: bun run test
 
@@ -133,10 +145,17 @@ jobs:
     runs-on: ubuntu-latest
     # Run in parallel with lint-build — tests don't depend on build output
     needs: []
+    # The database-inertness guard compares HEAD against GitHub's exact base, never an assumed branch
+    # (scripts/ci/inertBase.mjs): the pull request's base SHA, or the push's "before" SHA. It fails closed without one.
+    env:
+      DB_INERT_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || '' }}
+      DB_INERT_BASE_SOURCE: ${{ github.event_name }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -145,6 +164,11 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Database-inertness guard against the exact base (must execute with zero skipped)
+        run: |
+          bunx vitest run src/lib/financialStatementsWorkspace/databaseInert.test.ts src/lib/__tests__/inertBase.test.ts --reporter=verbose --reporter=json --outputFile.json=inert-report.json
+          node scripts/ci/assertTestsExecuted.mjs inert-report.json src/lib/financialStatementsWorkspace/databaseInert.test.ts src/lib/__tests__/inertBase.test.ts
 
       - name: Run golden fixture tests
         run: bun run test
@@ -358,3 +382,11 @@ jobs:
         run: |
           createdb annual_term_proof
           node scripts/db-proof/annualTerm.mjs
+
+      - name: Withheld-service grant refusal proof (clean install, upgrade with history byte-identical, RPC/role/replay/25-way concurrency refusals, re-apply, zero deletion, on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/withholding_proof
+        run: |
+          createdb withholding_proof
+          node scripts/db-proof/serviceWithholding.mjs

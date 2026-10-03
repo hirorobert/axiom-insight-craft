@@ -461,6 +461,7 @@ scripts/
   db-proof/
     run.mjs                   ← Financial-statements persistence proof (real PostgreSQL)
     setupAuthority.mjs        ← Workspace setup authority proof (25-way concurrency, role/RLS matrix)
+    serviceWithholding.mjs    ← Withheld-service grant refusal proof (20261002100000; history byte-identical)
     uploadLifecycle.mjs       ← Upload lifecycle proof (legacy upgrade, B1–B4, capability matrix, concurrency)
   db-preflight/
     uploadLifecyclePreflight.sql ← Read-only report of what the lifecycle backfill would retire
@@ -1113,6 +1114,22 @@ incomplete statement as complete. FINAL publication and official issuance stay w
 workspace are not customer-reachable) until the server recomputes required statements, evidence sufficiency and the
 unwaivable validation findings itself. Separately, statement validation (`hesabu-validate`) requires a tax computation
 and is started only from the Tax panel. Not solved by the containment change; needs its own engine work.
+
+**WITHHELD_SERVICE_GRANTS_REFUSED_BY_THE_DATABASE** — `20261002100000_refuse_withheld_service_grants.sql` (branch
+`fix/refuse-withheld-service-grants`; authored, NOT applied — only Lovable/the owner applies it). ONE availability boundary:
+`public.capability_customer_available(capability)` holds the only database list of withheld services (`TAX_COMPUTATION`,
+`COMPLIANCE_REVIEW`, `FILING_PREPARATION`, `MONITORING`; it must equal `CUSTOMER_HIDDEN_CAPABILITIES` in moduleAvailability.ts,
+asserted by withheldServiceGrants.test.ts) and `public.assert_capability_available()` raises exactly SQLSTATE PT422
+`SERVICE_NOT_AVAILABLE`. `open_engagement_with_scope` calls it after authorization and before the lock, period, engagement
+and grants; `grant_engagement_capability` after write authority and before the jurisdiction check, duplicate check and
+insert (so a withheld service never answers `JURISDICTION_REQUIRED`); the `AFTER INSERT` trigger on
+`engagement_mandate_events` is the backstop for any other path and for service_role/owner writes (AFTER, so table privilege
+and RLS run first: an authenticated direct writer gets the established RLS denial, never `SERVICE_NOT_AVAILABLE`). Each RPC body is its
+previous definition plus ONE line (proven byte-for-byte). Unauthorized callers still get the established FORBIDDEN. Every
+existing row stays byte-identical and readable; REVOKE stays allowed and a revoked withheld service cannot be granted again;
+`FINANCIAL_STATEMENTS` (Prepare and Reconcile) stays grantable with or without a filing jurisdiction. Proven by
+`scripts/db-proof/serviceWithholding.mjs`. It pairs with the frontend boundary (`CUSTOMER_SCOPE_TRIAL_BALANCE_REVIEW_ONLY`).
+Re-enabling a service is a separate, reviewed migration that edits `capability_customer_available()`.
 
 ---
 

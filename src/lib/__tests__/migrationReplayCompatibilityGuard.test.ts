@@ -191,7 +191,9 @@ describe("migration directory integrity", () => {
     // Bumped from 142 -> 143: 20260927100000_trial_balance_remove_from_active_use.sql, a NEW forward-only migration (remove a processed trial balance from
     // active use without a successor; 20260926160000 is applied in production and pinned like the others).
     // Bumped from 143 -> 144: 20261001120000_annual_commercial_term.sql, a NEW forward-only migration (one 12-month term).
-    expect(files.length).toBe(144);
+    // Bumped from 144 -> 145: 20261002100000_refuse_withheld_service_grants.sql, a NEW forward-only migration (refuses new grants of the
+    // withheld services; no existing row changes).
+    expect(files.length).toBe(145);
   });
 });
 
