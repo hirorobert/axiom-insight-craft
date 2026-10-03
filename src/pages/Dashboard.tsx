@@ -29,6 +29,9 @@ import { useMyEntityCapacity } from "@/hooks/useMyEntityCapacity";
 import { decideEmptyAccountScreen } from "@/lib/commercial/dashboardPlanDecision";
 import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
 import { useNavigate, useLocation, Navigate } from "react-router-dom";
+import { addTrialBalanceReview, trialBalanceReviewPath, type AddReviewOutcome, type UnavailableServiceEngagement } from "@/lib/workspace/unavailableService";
+import { useReviewActionAccess } from "@/hooks/useReviewActionAccess";
+import type { RpcClient } from "@/lib/workspace/workspaceSetupClient";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useActiveEngagements, type ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
@@ -88,7 +91,8 @@ export default function Dashboard() {
   // hub" escape, distinct from a bare sign-in landing at /dashboard. See applyForceHub's own doc
   // comment for exactly what this does and does not change.
   const forceHub = !!(location.state as { forceHub?: boolean } | null)?.forceHub;
-  const { loading: engagementsLoading, entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount, fetchFailed, refresh } = useActiveEngagements();
+  const { loading: engagementsLoading, entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount, unavailableEngagements, fetchFailed, refresh } = useActiveEngagements();
+  const reviewGates = useReviewActionAccess((unavailableEngagements ?? []).map((u) => u.companyId));
   const [routing, setRouting] = useState(false);
   const { summary: billing, loading: billingLoading, error: billingError, retry: retryBilling } = useBillingSummary();
   const { capacity, loading: capacityLoading, error: capacityError, retry: retryCapacity } = useMyEntityCapacity(!!user);
@@ -188,6 +192,17 @@ export default function Dashboard() {
     navigate(`/workspace/${workspace.id}/${year}/prepare`);
   };
 
+  // Explicit, user-selected: add Trial balance review to the EXISTING engagement (same period, no new engagement).
+  const addReview = async (u: UnavailableServiceEngagement): Promise<AddReviewOutcome> => {
+    const outcome = await addTrialBalanceReview(supabase as unknown as RpcClient, u.engagementId);
+    if (outcome.ok) {
+      // Re-read the hub from the authority, then continue into Trial balance review for the same entity and period.
+      await refresh();
+      navigate(trialBalanceReviewPath(u));
+    }
+    return outcome;
+  };
+
   const startService = async (company: WorkspaceCompany) => {
     const year = await resolveEntryPeriodYear(company);
     navigate(`/workspace/${company.id}/${year}`);
@@ -267,6 +282,9 @@ export default function Dashboard() {
       onResume={resumeEntry}
       onStartService={startService}
       onOpenShared={openShared}
+      unavailableEngagements={unavailableEngagements ?? []}
+      onAddTrialBalanceReview={addReview}
+      reviewGates={reviewGates}
       account={{
         billing,
         billingLoading,

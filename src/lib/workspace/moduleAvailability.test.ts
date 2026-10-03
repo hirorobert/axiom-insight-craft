@@ -313,7 +313,8 @@ describe("6. historical engagements never become first-run accounts", () => {
     expect(decideReturningUserRoute([], [], [], 1)).toEqual({ kind: "chooser" });
     expect(decideReturningUserRoute([], [], [], 0)).toEqual({ kind: "first_run" });
     const hook = code("src/hooks/useActiveEngagements.ts");
-    expect(hook).toMatch(/setEntries\(resolved\.filter\(\(e\) => !isEngagementWithheld\(e\.capabilities\)\)\)/);
+    expect(hook).toMatch(/const \{ visible, unavailable \} = partitionEngagements\(resolved\);/);
+    expect(hook).toMatch(/setEntries\(visible\);/);
     expect(hook).toMatch(/const companyIdsWithEngagement = new Set\(openEngagements\.map\(\(e\) => e\.company_id\)\);/);
     expect(code("src/pages/Dashboard.tsx")).toMatch(/decideReturningUserRoute\(entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount\)/);
   });
