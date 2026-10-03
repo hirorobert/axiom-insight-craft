@@ -17,7 +17,7 @@
  * current-plan panel.
  */
 
-import { useMemo, useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Building2, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,7 @@ import { NO_VISIBLE_NEXT_ACTION, trialBalanceReviewStep } from "@/lib/workspace/
 import type { ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
-import { GATE_COPY, singleFlight, type AddReviewOutcome, type ReviewActionGate, type UnavailableServiceEngagement } from "@/lib/workspace/unavailableService";
+import { GATE_COPY, createFlightHolder, type AddReviewOutcome, type ReviewActionGate, type UnavailableServiceEngagement } from "@/lib/workspace/unavailableService";
 import type { BillingSummary } from "@/hooks/useBillingSummary";
 import type { CapacityAnswer } from "@/lib/commercial/paidActions";
 import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
@@ -77,24 +77,25 @@ export default function EngagementHub({
 }) {
   const [pending, setPending] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  // Repeated clicks: one request at a time (singleFlight); a failure releases it so the user can retry.
-  const addReview = useMemo(
-    () =>
-      singleFlight(async (u: UnavailableServiceEngagement) => {
-        if (!onAddTrialBalanceReview) return;
-        setPending(u.engagementId);
-        setErrors((e) => { const n = { ...e }; delete n[u.engagementId]; return n; });
-        try {
-          const outcome = await onAddTrialBalanceReview(u);
-          if (outcome.ok === false) setErrors((e) => ({ ...e, [u.engagementId]: outcome.message }));
-        } catch {
-          setErrors((e) => ({ ...e, [u.engagementId]: "Trial balance review could not be added. Try again." }));
-        } finally {
-          setPending(null);
-        }
-      }),
-    [onAddTrialBalanceReview],
-  );
+  // Repeated clicks: one request at a time; a failure releases the guard so the user can retry. The guard lives in ONE
+  // holder for the life of this component (createFlightHolder): the parent passes a new callback on every render, and
+  // only the callback is swapped — rebuilding the guard would reset it mid-request.
+  const flight = useRef<ReturnType<typeof createFlightHolder<[UnavailableServiceEngagement], void>> | null>(null);
+  if (!flight.current) flight.current = createFlightHolder<[UnavailableServiceEngagement], void>(async () => undefined);
+  flight.current.current = async (u: UnavailableServiceEngagement) => {
+    if (!onAddTrialBalanceReview) return;
+    setPending(u.engagementId);
+    setErrors((e) => { const n = { ...e }; delete n[u.engagementId]; return n; });
+    try {
+      const outcome = await onAddTrialBalanceReview(u);
+      if (outcome.ok === false) setErrors((e) => ({ ...e, [u.engagementId]: outcome.message }));
+    } catch {
+      setErrors((e) => ({ ...e, [u.engagementId]: "Trial balance review could not be added. Try again." }));
+    } finally {
+      setPending(null);
+    }
+  };
+  const addReview = flight.current.run;
   const hasCompanyAction = companiesWithoutEngagement.length > 0;
   const hasUnavailable = unavailableEngagements.length > 0;
   const emptyLine = hasUnavailable

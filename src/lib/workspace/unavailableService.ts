@@ -137,3 +137,91 @@ export function singleFlight<A extends unknown[], R>(fn: (...args: A) => Promise
     }
   };
 }
+
+/**
+ * A single-flight guard whose in-flight state lives in a holder that outlives re-renders. A component keeps ONE holder
+ * (useRef) and swaps in its latest callback each render; the guard is never rebuilt, so a re-render while a request is in
+ * flight (the parent passes a new callback every render) cannot reset it and let a second request through.
+ */
+export interface FlightHolder<A extends unknown[], R> {
+  current: (...args: A) => Promise<R>;
+  readonly run: (...args: A) => Promise<R | null>;
+  readonly inFlight: () => boolean;
+}
+
+export function createFlightHolder<A extends unknown[], R>(initial: (...args: A) => Promise<R>): FlightHolder<A, R> {
+  let busy = false;
+  const holder: FlightHolder<A, R> = {
+    current: initial,
+    inFlight: () => busy,
+    run: async (...args: A) => {
+      if (busy) return null;
+      busy = true;
+      try {
+        return await holder.current(...args);
+      } finally {
+        busy = false;
+      }
+    },
+  };
+  return holder;
+}
+
+// ── Access answers belong to one authenticated identity ─────────────────────────────────────────────────────────────
+
+export interface AccessQueryKey {
+  /** Identity + companies + refresh generation, as one comparable string. */
+  id: string;
+  userId: string | null;
+  companyIds: string[];
+}
+
+/** The identity of a set of access answers: who asked, about which companies, at which refresh. */
+export function accessQueryKey(userId: string | null, companyIds: readonly string[], generation: number): AccessQueryKey {
+  const ids = [...new Set(companyIds)].sort();
+  return { id: `${userId ?? "-"}|${generation}|${ids.join(",")}`, userId, companyIds: ids };
+}
+
+/**
+ * Gates for the current key. Answers recorded under any other key (another identity, company set or refresh) are never
+ * used: those companies read "checking" until their answer for THIS key arrives. With no identity every gate is
+ * "checking".
+ */
+export function gatesForKey(
+  key: AccessQueryKey,
+  answers: { keyId: string; byCompany: Record<string, MyWorkspaceCapabilities | null> },
+): Record<string, ReviewActionGate> {
+  const current = key.userId && answers.keyId === key.id ? answers.byCompany : {};
+  const out: Record<string, ReviewActionGate> = {};
+  for (const id of key.companyIds) out[id] = reviewActionGate(!(id in current), current[id]);
+  return out;
+}
+
+// ── Concurrency evidence: raw server answers vs application-confirmed outcomes ─────────────────────────────────────
+
+export interface ConcurrencyReport {
+  raw: { granted: number; alreadyGranted: number; otherErrors: Record<string, number> };
+  confirmed: { ok: number; notOk: Record<string, number> };
+}
+
+/**
+ * Tallies concurrent attempts two ways, never conflated: what the server's grant RPC answered to each request (one
+ * genuine grant, the rest "already granted" 23001, anything else by SQLSTATE), and what the application reported after
+ * its authoritative re-read (addTrialBalanceReview's outcome).
+ */
+export function tallyConcurrency(
+  raw: readonly { error: { code?: string } | null }[],
+  confirmed: readonly AddReviewOutcome[],
+): ConcurrencyReport {
+  const report: ConcurrencyReport = { raw: { granted: 0, alreadyGranted: 0, otherErrors: {} }, confirmed: { ok: 0, notOk: {} } };
+  for (const r of raw) {
+    if (!r.error) report.raw.granted++;
+    else if (r.error.code === ALREADY_GRANTED) report.raw.alreadyGranted++;
+    else { const c = r.error.code ?? "unknown"; report.raw.otherErrors[c] = (report.raw.otherErrors[c] ?? 0) + 1; }
+  }
+  for (const o of confirmed) {
+    if (o.ok === true) report.confirmed.ok++;
+    else report.confirmed.notOk[o.kind] = (report.confirmed.notOk[o.kind] ?? 0) + 1;
+  }
+  return report;
+}
