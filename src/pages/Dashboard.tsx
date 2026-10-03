@@ -194,7 +194,10 @@ export default function Dashboard() {
   };
 
   // ── A chosen service the account is not entitled to: choose a plan first (the service is preserved) ──
-  if (!authLoading && user && serviceDestination.kind === "plans") {
+  // Only a brand-new account is sent to /plans. An account with any history (open engagements,
+  // companies, shared workspaces, or withheld engagements) keeps its normal routing — an expired or
+  // plan-less user must always reach their existing workspaces and archive, never be trapped on /plans.
+  if (!authLoading && user && serviceDestination.kind === "plans" && route?.kind === "first_run") {
     return <Navigate to={serviceDestination.href} replace />;
   }
 
