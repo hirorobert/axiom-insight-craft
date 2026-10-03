@@ -18,7 +18,7 @@ import { computeCertificationReadiness } from "./computeCertificationReadiness";
 import { readTrialBalanceTotals } from "./trialBalanceVerdict";
 import { fetchCertificationReadiness } from "@/hooks/useCertificationReadiness";
 import type { WorkspaceState, UploadSnapshot } from "./types";
-import type { ReconciliationEvidence } from "./trialBalanceReadiness";
+import type { EvidenceRead, ReconciliationEvidence, ReconciliationExceptionSummary } from "./trialBalanceReadiness";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type JsonCompatible = any;
@@ -54,7 +54,7 @@ export interface WorkspaceUpload {
    * NOT a column: the upload's latest reconciliation record (safisha_reconciliations), read alongside it so readiness
    * (trialBalanceReadiness) can require that evidence was actually compared. null when there is none or it cannot be read.
    */
-  reconciliation?: ReconciliationEvidence | null;
+  reconciliation?: EvidenceRead;
 }
 
 export interface WorkspaceCompany {
@@ -146,6 +146,30 @@ export interface FetchWorkspaceSnapshotArgs {
   uploadsOverride?: WorkspaceUpload[];
 }
 
+/**
+ * The upload's latest reconciliation for THIS viewer, with its exceptions by reviewer action — what readiness needs to
+ * prove the reconciliation is complete (trialBalanceReadiness). A failed read is "failed", never "no reconciliation";
+ * an empty answer means none is visible to this viewer (row-level access) or none exists.
+ */
+async function readReconciliationEvidence(res: { data: unknown; error: unknown }): Promise<EvidenceRead> {
+  if (res.error) return { state: "failed" };
+  const row = res.data as (ReconciliationEvidence & { id: string }) | null;
+  if (!row) return { state: "read", evidence: null };
+  const { id, ...evidence } = row;
+  const { data, error } = await supabase.from("safisha_exceptions").select("reviewer_action, tb_txn_id").eq("reconciliation_id", id);
+  if (error || !Array.isArray(data)) return { state: "read", evidence: { ...evidence, exceptions: null } };
+  const x: ReconciliationExceptionSummary = { pending: 0, approved: 0, rejected: 0, escalated: 0, approvedTbLines: 0 };
+  const approvedLines = new Set<string>();
+  for (const e of data as { reviewer_action: string | null; tb_txn_id: string | null }[]) {
+    if (e.reviewer_action === "approved") { x.approved++; if (e.tb_txn_id) approvedLines.add(e.tb_txn_id); }
+    else if (e.reviewer_action === "rejected") x.rejected++;
+    else if (e.reviewer_action === "escalated") x.escalated++;
+    else x.pending++; // pending, or anything unrecognised: never counted as resolved
+  }
+  x.approvedTbLines = approvedLines.size;
+  return { state: "read", evidence: { ...evidence, exceptions: x } };
+}
+
 export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): Promise<WorkspaceSnapshot> {
   const { companyId, periodYear, requestedUploadId = null } = args;
 
@@ -208,14 +232,14 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
     match
       ? supabase
           .from("safisha_reconciliations")
-          .select("status, matched_count, exception_count, total_tb_lines")
+          .select("id, status, matched_count, exception_count, total_tb_lines")
           .eq("tb_upload_id", match.id)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
-  if (match) match.reconciliation = (reconRes.data as ReconciliationEvidence | null) ?? null;
+  if (match) match.reconciliation = await readReconciliationEvidence(reconRes as { data: unknown; error: unknown });
 
   const hesabuPassedAt = (hesabuRes.data as { validated_at: string } | null)?.validated_at ?? null;
   const kingaSignedAt = (kingaRes.data as { approver_signed_at: string } | null)?.approver_signed_at ?? null;

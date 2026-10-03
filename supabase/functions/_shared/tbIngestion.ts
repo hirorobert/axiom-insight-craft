@@ -38,6 +38,7 @@ export type IssueCode =
   | "ENCODING_NOT_UTF8"
   | "CSV_UNTERMINATED_QUOTE"
   | "MULTIPLE_TRIAL_BALANCE_SHEETS"
+  | "UNSUPPORTED_LAYOUT"
   | "MISSING_COLUMN"
   | "AMBIGUOUS_AMOUNT_COLUMNS"
   | "PERIOD_NOT_SELECTED"
@@ -311,11 +312,21 @@ export interface ColumnMap {
   debit: number | null;
   credit: number | null;
   balance: number | null;
+  /**
+   * Dimension columns (cost centre, department, branch, fund, project, …). A trial balance split by a dimension has one
+   * row per account AND dimension value, so the same code may legitimately repeat — its identity includes these values.
+   */
+  dimensions: number[];
   /** Index into the rows array of the header row. */
   headerIndex: number;
   headerRowNumber: number;
   headers: string[];
 }
+
+/** Headers that split a trial balance by a reporting dimension. */
+const DIMENSION_HEADER = /\b(cost ?cent(re|er)s?|cost ?cent(re|er) code|department|dept|branch|location|division|fund|project|segment|region|site|programme|program|donor|business unit|profit cent(re|er)s?|sub-?ledger|activity|grant)\b/;
+/** Headers that only a transaction listing has — a trial balance has none of them. */
+const TRANSACTION_HEADER = /\b(date|posting date|value date|txn date|voucher|journal|jv no|narration|transaction|cheque|invoice no|document no)\b/;
 
 export interface ColumnDetection {
   map: ColumnMap | null;
@@ -398,12 +409,24 @@ export function detectColumns(rows: SourceRow[], periodYear: number | null): Col
     }
   }
 
+  const unassigned = headers.map((h, i) => ({ h, i, t: headerText(h) })).filter((x) => x.t && roleOf(x.t) === null);
+  const dimensions = unassigned.filter((x) => DIMENSION_HEADER.test(x.t)).map((x) => x.i);
+  if (dimensions.length > 0) detected.dimensions = dimensions.map((i) => headers[i]).join(", ");
+  const transactional = unassigned.filter((x) => TRANSACTION_HEADER.test(x.t)).map((x) => `“${x.h}”`);
+  if (transactional.length > 0) {
+    issues.push({
+      code: "UNSUPPORTED_LAYOUT", severity: "blocking", rows: [header.rowNumber],
+      message: `Row ${header.rowNumber} has transaction columns (${transactional.join(", ")}), so this looks like a general-ledger transaction listing, not a trial balance. Export the trial balance itself — one row per account with its closing debit or credit — and upload that.`,
+    });
+  }
+
   const map: ColumnMap = {
     account_code: pick("account_code", byRole.account_code),
     account_name: pick("account_name", byRole.account_name),
     debit: typeof debit === "number" ? debit : null,
     credit: typeof credit === "number" ? credit : null,
     balance: typeof balance === "number" ? balance : null,
+    dimensions,
     headerIndex: bestIndex,
     headerRowNumber: header.rowNumber,
     headers,
@@ -484,8 +507,13 @@ export interface IngestedAccount {
   accountName: string;
   /** True when the file supplied a real account code for this row. */
   codeProvided: boolean;
-  /** "code:<code>" or "name:<normalised name>" — unique within one trial balance. */
+  /**
+   * "code:<code>" or "name:<normalised name>", followed by "|<dimension>=<value>" for each dimension column with a
+   * value — unique within one trial balance.
+   */
   identity: string;
+  /** Dimension values for this row (header → value), when the trial balance is split by dimension. */
+  dimensions: Record<string, string>;
   debitMinor: bigint;
   creditMinor: bigint;
   sourceRowNumber: number;
@@ -660,8 +688,14 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
 
     if (code && TOTAL_NAME_PATTERNS.some((p) => p.test(name))) suspectedTotalRows.push(row.rowNumber);
     if (EXAMPLE_MARKER.test(name)) exampleRows.push(row.rowNumber);
-    const identity = code ? `code:${code}` : `name:${normalizeIdentityName(name)}`;
-    accounts.push({ accountCode: code || name, accountName: name || code, codeProvided: !!code, identity, debitMinor: debit, creditMinor: credit, sourceRowNumber: row.rowNumber });
+    const dimensions: Record<string, string> = {};
+    for (const c of map.dimensions) {
+      const v = cellString(row.cells[c]);
+      if (v) dimensions[map.headers[c]] = v;
+    }
+    const dimensionKey = Object.entries(dimensions).map(([h, v]) => `|${normalizeIdentityName(h)}=${normalizeIdentityName(v)}`).join("");
+    const identity = (code ? `code:${code}` : `name:${normalizeIdentityName(name)}`) + dimensionKey;
+    accounts.push({ accountCode: code || name, accountName: name || code, codeProvided: !!code, identity, dimensions, debitMinor: debit, creditMinor: credit, sourceRowNumber: row.rowNumber });
     lineage.push({ rowNumber: row.rowNumber, disposition: "account", identity });
     runningDebit += debit;
     runningCredit += credit;
@@ -689,14 +723,20 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
 
   const byIdentity = new Map<string, number[]>();
   for (const a of accounts) byIdentity.set(a.identity, [...(byIdentity.get(a.identity) ?? []), a.sourceRowNumber]);
+  // A repeated identity is ambiguous and refused (fail closed). Rows of one code that differ in a dimension column
+  // (cost centre, department, branch, fund, project, …) are different identities and are kept, each with its own lineage.
+  const dimensionNames = map.dimensions.map((c) => `“${map.headers[c]}”`).join(", ");
   for (const [identity, rowNumbers] of byIdentity) {
     if (rowNumbers.length < 2) continue;
-    const isCode = identity.startsWith("code:");
+    const sample = accounts.find((a) => a.identity === identity)!;
+    const isCode = sample.codeProvided;
+    const label = isCode ? `Account code ${sample.accountCode}` : `The account “${sample.accountName}”`;
+    const split = map.dimensions.length > 0
+      ? ` with the same ${dimensionNames}. Each account and ${dimensionNames} combination must appear once — combine or correct those rows.`
+      : `. A trial balance has one row per account. If these rows are split by cost centre, department, branch, fund or project, include that column so each row can be told apart; otherwise combine them.${isCode ? "" : " Adding account codes also makes each row unambiguous."}`;
     issues.push({
       code: isCode ? "DUPLICATE_ACCOUNT_CODE" : "DUPLICATE_ACCOUNT_NAME", severity: "blocking", rows: rowNumbers,
-      message: isCode
-        ? `Account code ${identity.slice(5)} appears on rows ${listRows(rowNumbers)}. Each account must appear once — combine or correct those rows.`
-        : `The account “${accounts.find((a) => a.identity === identity)?.accountName}” appears on rows ${listRows(rowNumbers)}. Without account codes each name must be unique — add account codes or combine the rows.`,
+      message: `${label} appears on rows ${listRows(rowNumbers)}${split}`,
     });
   }
 
@@ -784,7 +824,7 @@ export class MilestoneLog {
 
 const AMOUNT_ISSUES = new Set<IssueCode>(["MALFORMED_NUMERIC_VALUE", "PRECISION_EXCEEDS_CURRENCY", "AMOUNT_OUT_OF_RANGE", "BALANCE_COLUMN_MISMATCH", "CURRENCY_MISMATCH"]);
 const ROW_ISSUES = new Set<IssueCode>(["MISSING_ACCOUNT_CODE", "DUPLICATE_ACCOUNT_CODE", "DUPLICATE_ACCOUNT_NAME", "TOTAL_ROW_MISMATCH", "TEMPLATE_EXAMPLE_UPLOADED", "NO_ACCOUNT_ROWS"]);
-const COLUMN_ISSUES = new Set<IssueCode>(["MISSING_COLUMN", "AMBIGUOUS_AMOUNT_COLUMNS", "PERIOD_MISMATCH", "MULTIPLE_TRIAL_BALANCE_SHEETS"]);
+const COLUMN_ISSUES = new Set<IssueCode>(["MISSING_COLUMN", "AMBIGUOUS_AMOUNT_COLUMNS", "PERIOD_MISMATCH", "MULTIPLE_TRIAL_BALANCE_SHEETS", "UNSUPPORTED_LAYOUT"]);
 
 /** Marks the ingestion milestones (read → balance) from an ingest result. */
 export function markIngestionMilestones(log: MilestoneLog, r: IngestResult): void {

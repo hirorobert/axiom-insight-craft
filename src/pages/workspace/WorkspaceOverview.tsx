@@ -167,7 +167,7 @@ export default function WorkspaceOverview() {
 
   const effectiveTin = tinOverride ?? company?.tin ?? null;
   const granted = mandate?.granted ?? null;
-  const orientation = deriveOrientationSummary(workspaceState, granted, upload?.safisha_status ?? null, upload?.reconciliation ?? null);
+  const orientation = deriveOrientationSummary(workspaceState, granted, upload?.safisha_status ?? null, upload?.reconciliation);
   // A tax-profile warning needs (1) an active tax/filing service, (2) a configured jurisdiction that requires the field
   // and (3) the field actually missing. No jurisdiction is configured for a workspace today, so it never fires by inference.
   const jurisdiction = company?.filing_jurisdiction ?? null;
@@ -289,7 +289,7 @@ export default function WorkspaceOverview() {
   } else if (!isStageCustomerVisible(nextAction.mission)) {
     // The engine's next step lies in a stage withheld from customers (moduleAvailability.ts). It is never named or linked:
     // the customer's own trial-balance-review step is the one decision.
-    const step = trialBalanceReviewStep(workspaceState, upload?.safisha_status ?? null, upload?.reconciliation ?? null);
+    const step = trialBalanceReviewStep(workspaceState, upload?.safisha_status ?? null, upload?.reconciliation);
     decision = step
       ? {
           eyebrow: TRIAL_BALANCE_REVIEW.title,

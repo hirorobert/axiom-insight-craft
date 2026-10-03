@@ -19,7 +19,7 @@ import type { EngagementCapability } from "./mandate";
 import { customerCapabilityTitle } from "./mandate";
 import { customerVisibleCapabilities, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
 import type { WorkspaceState } from "./types";
-import { trialBalanceReadiness, type ReconciliationEvidence } from "./trialBalanceReadiness";
+import { trialBalanceReadiness, type ReadinessInput } from "./trialBalanceReadiness";
 
 export interface OrientationMilestone {
   stageLabel: string;
@@ -56,21 +56,23 @@ export interface TrialBalanceReviewStep {
 export function trialBalanceReviewStep(
   state: WorkspaceState,
   safishaStatus: string | null | undefined,
-  reconciliation: ReconciliationEvidence | null | undefined,
+  reconciliation: ReadinessInput["reconciliation"],
 ): TrialBalanceReviewStep | null {
   const prepare = state.missions.prepare.status;
   if (prepare !== "passed" && prepare !== "signed") return null;
   const readiness = trialBalanceReadiness({ certificationVerdict: "certified", safishaStatus, reconciliation });
   return readiness.ready
     ? { ready: true, label: TRIAL_BALANCE_REVIEW.ready, detail: "Its checks have passed, its accounts are reviewed and its supporting evidence is reconciled." }
-    : { ready: false, label: "Reconcile supporting evidence", detail: readiness.nextStep ?? "Match the trial balance to bank statements, mobile-money exports or subledgers." };
+    : readiness.evidenceState === "not_visible"
+      ? { ready: false, label: "Reconciliation not visible to you", detail: readiness.nextStep ?? "" }
+      : { ready: false, label: "Reconcile supporting evidence", detail: readiness.nextStep ?? "Match the trial balance to bank statements, mobile-money exports or subledgers." };
 }
 
 export function deriveOrientationSummary(
   workspaceState: WorkspaceState,
   grantedCapabilities: EngagementCapability[] | null,
   safishaStatus?: string | null,
-  reconciliation?: ReconciliationEvidence | null,
+  reconciliation?: ReadinessInput["reconciliation"],
 ): OrientationSummary {
   const visibleServices = grantedCapabilities ? customerVisibleCapabilities(grantedCapabilities) : [];
   const service = visibleServices.length > 0 ? visibleServices.map((c) => customerCapabilityTitle(c)).join(", ") : null;
