@@ -17,6 +17,7 @@
  * current-plan panel.
  */
 
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Building2, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ import { NO_VISIBLE_NEXT_ACTION, trialBalanceReviewStep } from "@/lib/workspace/
 import type { ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
+import { GATE_COPY, singleFlight, type AddReviewOutcome, type ReviewActionGate, type UnavailableServiceEngagement } from "@/lib/workspace/unavailableService";
 import type { BillingSummary } from "@/hooks/useBillingSummary";
 import type { CapacityAnswer } from "@/lib/commercial/paidActions";
 import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
@@ -54,6 +56,9 @@ export default function EngagementHub({
   onStartService,
   sharedWorkspaces = [],
   onOpenShared,
+  unavailableEngagements = [],
+  onAddTrialBalanceReview,
+  reviewGates = {},
   account,
 }: {
   entries: ActiveEngagementEntry[];
@@ -63,8 +68,42 @@ export default function EngagementHub({
   /** Workspaces shared through an explicit Prepare grant (PR #32). They open into Prepare Data only. */
   sharedWorkspaces?: SharedWorkspace[];
   onOpenShared?: (workspace: SharedWorkspace) => void;
+  /** Existing open engagements whose every service is currently withheld. Listed, never resumed. */
+  unavailableEngagements?: UnavailableServiceEngagement[];
+  onAddTrialBalanceReview?: (u: UnavailableServiceEngagement) => Promise<AddReviewOutcome>;
+  /** Per company: may this person start Trial balance review there (existing authoritative access read)? Missing = checking. */
+  reviewGates?: Record<string, ReviewActionGate>;
   account?: AccountHome;
 }) {
+  const [pending, setPending] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  // Repeated clicks: one request at a time (singleFlight); a failure releases it so the user can retry.
+  const addReview = useMemo(
+    () =>
+      singleFlight(async (u: UnavailableServiceEngagement) => {
+        if (!onAddTrialBalanceReview) return;
+        setPending(u.engagementId);
+        setErrors((e) => { const n = { ...e }; delete n[u.engagementId]; return n; });
+        try {
+          const outcome = await onAddTrialBalanceReview(u);
+          if (outcome.ok === false) setErrors((e) => ({ ...e, [u.engagementId]: outcome.message }));
+        } catch {
+          setErrors((e) => ({ ...e, [u.engagementId]: "Trial balance review could not be added. Try again." }));
+        } finally {
+          setPending(null);
+        }
+      }),
+    [onAddTrialBalanceReview],
+  );
+  const hasCompanyAction = companiesWithoutEngagement.length > 0;
+  const hasUnavailable = unavailableEngagements.length > 0;
+  const emptyLine = hasUnavailable
+    ? "Your existing service is currently unavailable. You can start Trial balance review for the same period below."
+    : hasCompanyAction
+      ? "No open engagements. Start a service for a company below."
+      : sharedWorkspaces.length > 0
+        ? "No open engagements of your own. Open a workspace shared with you below."
+        : "No open engagements yet. Add a company below to begin.";
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border h-14 flex items-center justify-between gap-3 px-4 sm:px-6">
@@ -85,7 +124,7 @@ export default function EngagementHub({
         {account && entries.length === 0 && (
           <section className="mb-10">
             <h1 className="text-2xl sm:text-[1.75rem] font-semibold tracking-tight text-foreground mb-1">Your engagements</h1>
-            <p className="text-[13px] text-muted-foreground">No open engagements. Start a service for a company below.</p>
+            <p className="text-[13px] text-muted-foreground" data-testid="hub-empty-line">{emptyLine}</p>
           </section>
         )}
         {entries.length > 0 && (
@@ -138,6 +177,58 @@ export default function EngagementHub({
                   </li>
                 );
               })}
+            </ul>
+          </section>
+        )}
+
+        {hasUnavailable && (
+          <section className="mb-10" data-testid="unavailable-engagements">
+            <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-3">
+              Service currently unavailable
+            </h2>
+            <ul className="grid grid-cols-1 gap-3">
+              {unavailableEngagements.map((u) => (
+                <li key={u.engagementId}>
+                  <SurfaceCard className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4" data-testid={`unavailable-row-${u.engagementId}`}>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-[15px] font-semibold text-foreground truncate">{u.companyName}</span>
+                        <span className="text-[12px] text-muted-foreground">· {u.periodYear}</span>
+                      </div>
+                      <p className="text-[12px] text-muted-foreground mt-0.5">
+                        Your existing service is currently unavailable. Your engagement and its records are kept.
+                      </p>
+                      {errors[u.engagementId] && (
+                        <p role="alert" className="text-[12px] text-destructive mt-2" data-testid={`unavailable-error-${u.engagementId}`}>{errors[u.engagementId]}</p>
+                      )}
+                    </div>
+                    {onAddTrialBalanceReview && (() => {
+                      const gate: ReviewActionGate = reviewGates[u.companyId] ?? { state: "checking", reason: GATE_COPY.checking };
+                      const blockedReason = gate.state === "allowed" ? null : gate.reason;
+                      return (
+                        <div className="flex flex-col items-start sm:items-end gap-1 shrink-0">
+                          <Button
+                            onClick={() => addReview(u)}
+                            disabled={pending !== null || gate.state !== "allowed"}
+                            aria-describedby={blockedReason ? `review-gate-${u.engagementId}` : undefined}
+                            data-testid={`add-review-${u.engagementId}`}
+                            data-gate={gate.state}
+                            className="h-10 px-5 text-[13px] font-semibold rounded-none shadow-none"
+                          >
+                            {pending === u.engagementId ? "Starting…" : `Start ${TRIAL_BALANCE_REVIEW.title}`}
+                            <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                          </Button>
+                          {blockedReason && (
+                            <p id={`review-gate-${u.engagementId}`} className="text-[12px] text-muted-foreground max-w-[18rem] sm:text-right" data-testid={`review-gate-${u.engagementId}`}>
+                              {blockedReason}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </SurfaceCard>
+                </li>
+              ))}
             </ul>
           </section>
         )}
