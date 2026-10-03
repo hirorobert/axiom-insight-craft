@@ -30,7 +30,7 @@ import { NO_VISIBLE_NEXT_ACTION, trialBalanceReviewStep } from "@/lib/workspace/
 import type { ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
-import { singleFlight, type AddReviewOutcome, type UnavailableServiceEngagement } from "@/lib/workspace/unavailableService";
+import { GATE_COPY, singleFlight, type AddReviewOutcome, type ReviewActionGate, type UnavailableServiceEngagement } from "@/lib/workspace/unavailableService";
 import type { BillingSummary } from "@/hooks/useBillingSummary";
 import type { CapacityAnswer } from "@/lib/commercial/paidActions";
 import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
@@ -58,6 +58,7 @@ export default function EngagementHub({
   onOpenShared,
   unavailableEngagements = [],
   onAddTrialBalanceReview,
+  reviewGates = {},
   account,
 }: {
   entries: ActiveEngagementEntry[];
@@ -70,6 +71,8 @@ export default function EngagementHub({
   /** Existing open engagements whose every service is currently withheld. Listed, never resumed. */
   unavailableEngagements?: UnavailableServiceEngagement[];
   onAddTrialBalanceReview?: (u: UnavailableServiceEngagement) => Promise<AddReviewOutcome>;
+  /** Per company: may this person start Trial balance review there (existing authoritative access read)? Missing = checking. */
+  reviewGates?: Record<string, ReviewActionGate>;
   account?: AccountHome;
 }) {
   const [pending, setPending] = useState<string | null>(null);
@@ -199,17 +202,30 @@ export default function EngagementHub({
                         <p role="alert" className="text-[12px] text-destructive mt-2" data-testid={`unavailable-error-${u.engagementId}`}>{errors[u.engagementId]}</p>
                       )}
                     </div>
-                    {onAddTrialBalanceReview && (
-                      <Button
-                        onClick={() => addReview(u)}
-                        disabled={pending !== null}
-                        data-testid={`add-review-${u.engagementId}`}
-                        className="h-10 px-5 text-[13px] font-semibold rounded-none shadow-none shrink-0"
-                      >
-                        {pending === u.engagementId ? "Starting…" : `Start ${TRIAL_BALANCE_REVIEW.title}`}
-                        <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
-                      </Button>
-                    )}
+                    {onAddTrialBalanceReview && (() => {
+                      const gate: ReviewActionGate = reviewGates[u.companyId] ?? { state: "checking", reason: GATE_COPY.checking };
+                      const blockedReason = gate.state === "allowed" ? null : gate.reason;
+                      return (
+                        <div className="flex flex-col items-start sm:items-end gap-1 shrink-0">
+                          <Button
+                            onClick={() => addReview(u)}
+                            disabled={pending !== null || gate.state !== "allowed"}
+                            aria-describedby={blockedReason ? `review-gate-${u.engagementId}` : undefined}
+                            data-testid={`add-review-${u.engagementId}`}
+                            data-gate={gate.state}
+                            className="h-10 px-5 text-[13px] font-semibold rounded-none shadow-none"
+                          >
+                            {pending === u.engagementId ? "Starting…" : `Start ${TRIAL_BALANCE_REVIEW.title}`}
+                            <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                          </Button>
+                          {blockedReason && (
+                            <p id={`review-gate-${u.engagementId}`} className="text-[12px] text-muted-foreground max-w-[18rem] sm:text-right" data-testid={`review-gate-${u.engagementId}`}>
+                              {blockedReason}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </SurfaceCard>
                 </li>
               ))}
