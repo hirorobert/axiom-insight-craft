@@ -14,6 +14,7 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 import { FINANCIAL_STATEMENT_PERSISTENCE_ENABLED } from "./persistenceGate";
 import { FINANCIAL_STATEMENTS_WORKSPACE_ENABLED } from "./workspaceGate";
+import { resolveComparisonBase, unreviewedChanges, unreviewedPaths } from "../../../scripts/ci/inertBase.mjs";
 
 const ROOT = path.join(__dirname, "../../../");
 const rel = (p: string) => path.relative(ROOT, p).split(path.sep).join("/");
@@ -48,9 +49,29 @@ const gitOut = (args: string): string | null => {
     return null;
   }
 };
-const hasMain = gitOut("rev-parse --verify --quiet origin/main") !== null;
+/**
+ * The exact comparison base (scripts/ci/inertBase.mjs): GitHub's pull_request base SHA or push "before" SHA in CI,
+ * origin/main only when no CI base is supplied. A missing, malformed, absent, unrelated or stale base FAILS the checks
+ * below with a controlled diagnostic — they never skip.
+ */
+const BASE = resolveComparisonBase({ env: process.env, git: gitOut }) as { ok: true; sha: string; source: string } | { ok: false; diagnostic: string };
+const baseSha = (): string => {
+  if (!BASE.ok) throw new Error(BASE.diagnostic);
+  return BASE.sha;
+};
+/** A git command whose failure is a failure (never an empty result read as "nothing changed"). */
+const gitStrict = (args: string): string => {
+  const out = gitOut(args);
+  if (out === null) throw new Error(`git ${args} failed`);
+  return out;
+};
 
 describe("database inertness — schema and functions", () => {
+  it("resolves a trustworthy, exact comparison base (fail-closed: never skipped)", () => {
+    expect(BASE.ok, BASE.ok ? "" : BASE.diagnostic).toBe(true);
+    if (BASE.ok) expect(BASE.sha).toMatch(/^[0-9a-f]{40}$/);
+  });
+
   it("defines financial-statement persistence objects only in the two named unapplied migrations, and adds no Edge Function", () => {
     const migrations = fs.readdirSync(path.join(ROOT, "supabase/migrations"));
     const defining = migrations.filter((f) => /create table[^;(]*public\.(financial_statement_(reports|evaluations|reviewer_decisions|correction_groups|publications)|financial_evidence_batches|financial_statements_rollout_\w+)/i.test(fs.readFileSync(path.join(ROOT, "supabase/migrations", f), "utf8")));
@@ -58,9 +79,9 @@ describe("database inertness — schema and functions", () => {
     expect(fs.readdirSync(path.join(ROOT, "supabase/functions")).filter((f) => /financial-statements?-workspace|financial-statements?-persistence/.test(f))).toEqual([]);
   });
 
-  it.skipIf(!hasMain)("changes under supabase/ relative to origin/main are only ADDED migrations (no Edge Function, no config change, nothing modified or deleted)", () => {
+  it("changes under supabase/ relative to the exact base are only reviewed ADDED or MODIFIED exact files (no Edge Function, no config change, nothing deleted)", () => {
     // The two financial-statements migrations are already on main; a later change may only append forward-only migrations.
-    const changed = (gitOut("diff --name-status origin/main...HEAD -- supabase") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
+    const changed = gitStrict(`diff --name-status ${baseSha()}...HEAD -- supabase`);
     // Reviewed artifacts. The Phase 1 service enquiry intake (PR #27) added one forward-only migration and two NEW Edge Functions
     // with their shared modules; its pre-activation hardening adds one more forward-only migration and one new shared module and
     // edits ONLY the enquiry's own shared modules. No pre-existing migration, function or config is modified or deleted.
@@ -195,15 +216,11 @@ describe("database inertness — schema and functions", () => {
       // B-5: the evidence-attachment RPC error is a failure, never ignored.
       "supabase/functions/safisha-ingest/index.ts",
     ]);
-    for (const line of changed) {
-      const [status, file] = line.split("	");
-      expect(["A", "M"], line).toContain(status);
-      expect((status === "A" ? added : modified).has(file), `${file} is not a reviewed ${status === "A" ? "addition" : "modification"}`).toBe(true);
-    }
+    expect(unreviewedChanges(changed, { added, modified })).toEqual([]);
   });
 
-  it.skipIf(!hasMain)("changes no automation-deploy surface other than the reviewed CI/RLS hardening, the disposable-database proof and the guarded hosted-staging acceptance script", () => {
-    const changed = (gitOut("diff --name-only origin/main...HEAD -- .github package.json supabase/config.toml .lovable scripts") ?? "").trim().split(/\r?\n/).filter(Boolean).sort();
+  it("changes no automation-deploy surface other than the reviewed CI/RLS hardening, the disposable-database proof and the guarded hosted-staging acceptance script", () => {
+    const changed = gitStrict(`diff --name-only ${baseSha()}...HEAD -- .github package.json supabase/config.toml .lovable scripts`);
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
     const allowed = new Set([".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serviceEnquiries.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/manifestLib.mjs", "scripts/release/scan-repo.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs", "scripts/db-proof/setupAuthority.mjs", "scripts/ci/assertPackIsolation.mjs", "scripts/ci/assertSingleLockfile.mjs", "scripts/ci/packageManagerAuthority.mjs", "package.json",
       // Pure, database-free migration-ordering predicates shared by run.mjs and serviceEnquiries.mjs (already reviewed above),
@@ -247,12 +264,15 @@ describe("database inertness — schema and functions", () => {
       // production preflight audit (SELECT statements only; proven read-only by that proof, T-08).
       "scripts/db-proof/annualTerm.mjs", "scripts/db-preflight/annualTermPreflight.sql",
       // Withheld-service grant refusal (20261002100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.
-      "scripts/db-proof/serviceWithholding.mjs"]);
-    expect(changed.filter((f) => !allowed.has(f))).toEqual([]);
+      "scripts/db-proof/serviceWithholding.mjs",
+      // This guard's own fail-closed base resolver and exact-file review (no deploy behaviour), and the CI check that the
+      // guard executed with zero skipped tests.
+      "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
+    expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
-  it.skipIf(!hasMain)("package.json adds no dependency relative to origin/main (fflate, the audited zip reader behind the secure XLSX intake, is already declared)", () => {
-    const diff = (gitOut("diff -U0 origin/main...HEAD -- package.json") ?? "").split(/\r?\n/).filter((l) => /^\+/.test(l) && !/^\+\+\+/.test(l));
+  it("package.json adds no dependency relative to the exact base (fflate, the audited zip reader behind the secure XLSX intake, is already declared)", () => {
+    const diff = gitStrict(`diff -U0 ${baseSha()}...HEAD -- package.json`).split(/\r?\n/).filter((l) => /^\+/.test(l) && !/^\+\+\+/.test(l));
     expect(diff.filter((l) => /"[@\w./-]+":\s*"[\^~]?\d/.test(l))).toEqual([]);
     expect(JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).dependencies.fflate).toBeDefined();
   });
