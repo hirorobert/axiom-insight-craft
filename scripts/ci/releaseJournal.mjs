@@ -147,6 +147,12 @@ export const RELEASE_JOURNAL = {
     source: "20261001120000_annual_commercial_term.sql", bytes: 19294,
     digest: "621f55c35bdadf3c7baa8c259056712dbfbbedbd25417a2a5d6a92fd4a1d38fa",
     sha256: "621f55c35bdadf3c7baa8c259056712dbfbbedbd25417a2a5d6a92fd4a1d38fa" },
+  // Withheld-service grant refusal (approved at d03a0dd), applied by Lovable's native migrator as a byte-for-byte copy
+  // (hosted journal id 27, created_at 1791025217619).
+  "0026_apply_20261002100000_refuse_withheld_service_grants": { kind: "release_verbatim",
+    source: "20261002100000_refuse_withheld_service_grants.sql", bytes: 10824,
+    digest: "704beb2d1c2cc3a1276633055cbf3fc049d26049db4ce60565130a4d550cf0f8",
+    sha256: "704beb2d1c2cc3a1276633055cbf3fc049d26049db4ce60565130a4d550cf0f8" },
 };
 
 const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");

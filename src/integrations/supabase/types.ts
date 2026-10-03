@@ -7065,6 +7065,10 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      assert_capability_available: {
+        Args: { p_capability: string }
+        Returns: undefined
+      }
       assert_engagement_write_authority: {
         Args: { p_engagement_id: string }
         Returns: string
@@ -7111,6 +7115,10 @@ export type Database = {
       cancel_workspace_invitation: {
         Args: { p_member_id: string }
         Returns: Json
+      }
+      capability_customer_available: {
+        Args: { p_capability: string }
+        Returns: boolean
       }
       capability_needs_jurisdiction: {
         Args: { p_capability: string }
