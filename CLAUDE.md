@@ -378,6 +378,7 @@ src/
       sourceUpload.ts         ← ONLY browser path for a trial balance source: reserve → signed workspace-scoped upload → register
       trialBalanceVerdict.ts          ← THE trial balance presentation model (status, reason, totals, checks, primary action, evidence unlock) from the certification ledger; card, checks, ledger, Overview and workspace state all read it
       trialBalanceReadiness.ts        ← THE definition of "Trial balance ready": certified checks + every classification confirmed + a clean reconciliation that matched at least one line (never arithmetic balance alone)
+      trialBalanceTask.ts             ← Current service + "Step n of 4" + one instruction for Prepare, derived from the verdict and the readiness rule (never re-derived)
       trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client
       classificationPresentation.ts   ← Pure deterministic 7-state classification presentation (FAILED/PROCESSING/INCONSISTENT/COMPLETE_WITH_REVIEW/PARTIAL/COMPLETE_NO_REVIEW/NOT_COMPUTED) for WorkspaceOverview. "Classified" means mapping_completeness.mapped_accounts (Tier 1-5) — never summary.auto_classified (Tier 4-5 only).
       classificationAcceptanceFixtures.ts ← Deterministic fixture inputs (one per classification state) for the internal /internal/acceptance/classification-states dev-only page. No Supabase, no randomness.
@@ -388,6 +389,7 @@ src/
       packTypes.ts            ← Jurisdiction pack contract (panels by id)
       taxProfile.ts           ← Tax-profile warnings (conditional on jurisdiction, never global)
     ingestion/
+      uploadFlow.ts           ← Upload workflow state machine: one primary action per state, real steps, retries that reuse reservation / upload / request id
       trialBalanceTemplate.ts ← Downloadable header-only template + balanced, "Example —"-marked sample (refused if uploaded unchanged); formula-safe CSV; the file rules shown beside the uploader
     computeComplianceScore.ts ← Pure scoring engine (no DB writes)
     normalizeAccountName.ts   ← Account name normalisation

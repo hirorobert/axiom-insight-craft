@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { formatTotal, isOutOfBalance, type TrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
 
 export const TRIAL_BALANCE_CHECKS_ANCHOR = "trial-balance-checks";
+const MAX_FIXES = 5;
 
 const TONE: Record<TrialBalanceVerdict["tone"], { badge: string; rule: string }> = {
   danger: { badge: "border-destructive/40 bg-destructive/5 text-destructive", rule: "bg-destructive" },
@@ -57,6 +58,9 @@ export function CurrentTrialBalanceCard({
   const tone = TONE[verdict.tone];
   const totals = verdict.totals;
   const outOfBalance = isOutOfBalance(totals);
+  // Row-level corrections the server recorded; the one already stated as the reason is not repeated.
+  const fixes = verdict.issues.filter((i) => i.message !== verdict.reason);
+  const unit = totals?.currency ? ` (${totals.currency})` : "";
   const goToChecks = () => {
     const el = document.getElementById(TRIAL_BALANCE_CHECKS_ANCHOR);
     el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
@@ -94,13 +98,28 @@ export function CurrentTrialBalanceCard({
           </button>
         </div>
         <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-foreground" data-testid="trial-balance-reason">{verdict.reason}</p>
+        {fixes.length > 0 && (
+          <div className="mt-4 max-w-3xl" data-testid="trial-balance-issues">
+            <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-muted-foreground">What to correct in the file</p>
+            <ul className="mt-2 space-y-2">
+              {fixes.slice(0, MAX_FIXES).map((i) => (
+                <li key={`${i.code}-${i.rows.join(",")}`} className="border-l-2 border-destructive/60 pl-3 text-[13px] leading-relaxed text-foreground" data-code={i.code}>
+                  {i.message}
+                </li>
+              ))}
+            </ul>
+            {fixes.length > MAX_FIXES && (
+              <p className="mt-2 text-[12px] text-muted-foreground">and {fixes.length - MAX_FIXES} more — listed under Technical processing details.</p>
+            )}
+          </div>
+        )}
       </div>
 
       {totals && (
         <dl className="grid grid-cols-1 border-t border-border sm:grid-cols-3" data-testid="trial-balance-totals">
           {[
-            ["Total debits", formatTotal(totals, totals.debitCents), false],
-            ["Total credits", formatTotal(totals, totals.creditCents), false],
+            [`Total debits${unit}`, formatTotal(totals, totals.debitCents), false],
+            [`Total credits${unit}`, formatTotal(totals, totals.creditCents), false],
             ["Difference", formatTotal(totals, Math.abs(totals.differenceCents)), outOfBalance],
           ].map(([label, value, bad], i) => (
             <div key={label as string} className={`min-w-0 px-5 py-4 sm:px-7 ${i > 0 ? "border-t border-border sm:border-l sm:border-t-0" : ""}`}>
