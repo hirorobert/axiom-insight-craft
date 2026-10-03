@@ -37,7 +37,7 @@ async function start() {
   const { default: EmbeddedPostgres } = await import(pathToFileURL(path.join(modDir, "node_modules/embedded-postgres/dist/index.js")).href);
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "cfoclose-hub-proof-"));
   port = 55000 + Math.floor(Math.random() * 900);
-  server = new EmbeddedPostgres({ databaseDir: path.join(dir, "data"), user: "postgres", password: "postgres", port, persistent: false, initdbFlags: ["--encoding=UTF8", "--locale=C"], onLog: () => {}, onError: () => {} });
+  server = new EmbeddedPostgres({ databaseDir: path.join(dir, "data"), user: "postgres", password: "postgres", port, persistent: false, createPostgresUser: true, initdbFlags: ["--encoding=UTF8", "--locale=C"], onLog: () => {}, onError: () => {} });
   await server.initialise(); await server.start();
   const url = `postgres://postgres:postgres@localhost:${port}/postgres`;
   const u = new URL(url);
