@@ -92,7 +92,7 @@ export default function Dashboard() {
   // comment for exactly what this does and does not change.
   const forceHub = !!(location.state as { forceHub?: boolean } | null)?.forceHub;
   const { loading: engagementsLoading, entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount, unavailableEngagements, fetchFailed, refresh } = useActiveEngagements();
-  const reviewGates = useReviewActionAccess(unavailableEngagements.map((u) => u.companyId));
+  const reviewGates = useReviewActionAccess((unavailableEngagements ?? []).map((u) => u.companyId));
   const [routing, setRouting] = useState(false);
   const { summary: billing, loading: billingLoading, error: billingError, retry: retryBilling } = useBillingSummary();
   const { capacity, loading: capacityLoading, error: capacityError, retry: retryCapacity } = useMyEntityCapacity(!!user);
@@ -282,7 +282,7 @@ export default function Dashboard() {
       onResume={resumeEntry}
       onStartService={startService}
       onOpenShared={openShared}
-      unavailableEngagements={unavailableEngagements}
+      unavailableEngagements={unavailableEngagements ?? []}
       onAddTrialBalanceReview={addReview}
       reviewGates={reviewGates}
       account={{
