@@ -7,7 +7,7 @@
  */
 
 import { TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
-import { trialBalanceReadiness, type ReconciliationEvidence } from "./trialBalanceReadiness";
+import { trialBalanceReadiness, type ReadinessInput } from "./trialBalanceReadiness";
 import type { TrialBalanceVerdict } from "./trialBalanceVerdict";
 
 export interface TrialBalanceTask {
@@ -27,7 +27,7 @@ function task(step: 1 | 2 | 3 | 4, instruction: string): TrialBalanceTask {
 
 export function currentTrialBalanceTask(
   verdict: Pick<TrialBalanceVerdict, "status" | "failedCheckId" | "issues">,
-  evidence: { safishaStatus: string | null | undefined; reconciliation: ReconciliationEvidence | null | undefined },
+  evidence: { safishaStatus: string | null | undefined; reconciliation: ReadinessInput["reconciliation"] },
 ): TrialBalanceTask {
   switch (verdict.status) {
     case "none":
@@ -45,14 +45,14 @@ export function currentTrialBalanceTask(
       return verdict.failedCheckId === "l4_classification"
         ? task(2, "Confirm the classification of the accounts listed below.")
         : task(1, verdict.issues.length > 0
-          ? `Correct ${verdict.issues.length === 1 ? "the issue" : `the ${verdict.issues.length} issues`} listed below in your file, then replace it.`
+          ? `Correct ${verdict.issues.length === 1 ? "the issue" : `the ${verdict.issues.length} issues`} shown below in your file, then replace it.`
           : "Correct the file, then replace it.");
     case "needs_review":
       return task(2, "Confirm the classification of the accounts listed below.");
     case "accepted": {
       const readiness = trialBalanceReadiness({ certificationVerdict: "certified", safishaStatus: evidence.safishaStatus, reconciliation: evidence.reconciliation });
       return readiness.ready
-        ? task(4, "Checks passed, accounts confirmed and evidence reconciled. Nothing more is needed for this period.")
+        ? task(4, "Checks passed, accounts confirmed and every trial-balance line reconciled. Nothing more is needed for this period.")
         : task(3, readiness.nextStep ?? "Match the trial balance to supporting evidence.");
     }
   }

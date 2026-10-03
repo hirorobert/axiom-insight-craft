@@ -9,7 +9,7 @@
 import type { ReactNode } from "react";
 import { ArrowRight, ChevronRight, Loader2, RefreshCw, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { formatCents, isOutOfBalance, type TrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
+import { formatTotal, isOutOfBalance, type TrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
 
 export const TRIAL_BALANCE_CHECKS_ANCHOR = "trial-balance-checks";
 const MAX_FIXES = 5;
@@ -118,9 +118,9 @@ export function CurrentTrialBalanceCard({
       {totals && (
         <dl className="grid grid-cols-1 border-t border-border sm:grid-cols-3" data-testid="trial-balance-totals">
           {[
-            [`Total debits${unit}`, formatCents(totals.debitCents), false],
-            [`Total credits${unit}`, formatCents(totals.creditCents), false],
-            ["Difference", formatCents(Math.abs(totals.differenceCents)), outOfBalance],
+            [`Total debits${unit}`, formatTotal(totals, totals.debitCents), false],
+            [`Total credits${unit}`, formatTotal(totals, totals.creditCents), false],
+            ["Difference", formatTotal(totals, Math.abs(totals.differenceCents)), outOfBalance],
           ].map(([label, value, bad], i) => (
             <div key={label as string} className={`min-w-0 px-5 py-4 sm:px-7 ${i > 0 ? "border-t border-border sm:border-l sm:border-t-0" : ""}`}>
               <dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</dt>

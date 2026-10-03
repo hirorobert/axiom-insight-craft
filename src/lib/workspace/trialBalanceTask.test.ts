@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { currentTrialBalanceTask } from "./trialBalanceTask";
-import { readIngestionIssues, readMilestones, readTrialBalanceTotals, isOutOfBalance, deriveTrialBalanceVerdict } from "./trialBalanceVerdict";
+import { decimalToMinor, formatMinorUnits, formatTotal, readIngestionIssues, readMilestones, readTrialBalanceTotals, isOutOfBalance, deriveTrialBalanceVerdict } from "./trialBalanceVerdict";
 
 const noEvidence = { safishaStatus: null, reconciliation: null };
-const evaluated = { safishaStatus: "clean", reconciliation: { status: "clean", matched_count: 3, exception_count: 0, total_tb_lines: 3 } };
+const evaluated = { safishaStatus: "clean", reconciliation: { state: "read" as const, evidence: { status: "clean", matched_count: 3, exception_count: 0, total_tb_lines: 3, exceptions: { pending: 0, approved: 0, rejected: 0, escalated: 0, approvedTbLines: 0 } } } };
 const v = (status: string, extra: Record<string, unknown> = {}) => ({ status, failedCheckId: null, issues: [], ...extra }) as never;
 
 describe("current service and task", () => {
   it("names the service, the step of four and one instruction for every verdict", () => {
     expect(currentTrialBalanceTask(v("none"), noEvidence)).toEqual({ service: "Trial balance review", step: 1, of: 4, label: "Upload trial balance", instruction: "Upload the trial balance for this period." });
     expect(currentTrialBalanceTask(v("processing"), noEvidence).step).toBe(1);
-    expect(currentTrialBalanceTask(v("blocked", { issues: [{}, {}] }), noEvidence).instruction).toBe("Correct the 2 issues listed below in your file, then replace it.");
+    expect(currentTrialBalanceTask(v("blocked", { issues: [{}, {}] }), noEvidence).instruction).toBe("Correct the 2 issues shown below in your file, then replace it.");
     expect(currentTrialBalanceTask(v("blocked", { failedCheckId: "l4_classification" }), noEvidence)).toMatchObject({ step: 2, label: "Review accounts needing attention" });
     expect(currentTrialBalanceTask(v("needs_review"), noEvidence)).toMatchObject({ step: 2 });
     expect(currentTrialBalanceTask(v("accepted"), noEvidence)).toMatchObject({ step: 3, label: "Reconcile supporting evidence" });
@@ -18,8 +18,12 @@ describe("current service and task", () => {
   });
 
   it("a clean status that compared nothing stays on the reconcile step", () => {
-    const empty = { safishaStatus: "clean", reconciliation: { status: "clean", matched_count: 0, exception_count: 0, total_tb_lines: 0 } };
+    const empty = { safishaStatus: "clean", reconciliation: { state: "read" as const, evidence: { ...evaluated.reconciliation.evidence, matched_count: 0, total_tb_lines: 0 } } };
     expect(currentTrialBalanceTask(v("accepted"), empty)).toMatchObject({ step: 3, instruction: "No trial-balance line has been matched to evidence yet." });
+    const partial = { safishaStatus: "clean", reconciliation: { state: "read" as const, evidence: { ...evaluated.reconciliation.evidence, matched_count: 1 } } };
+    expect(currentTrialBalanceTask(v("accepted"), partial)).toMatchObject({ step: 3, instruction: "1 of 3 trial-balance lines are matched or approved; 2 still need evidence." });
+    const hidden = { safishaStatus: "clean", reconciliation: { state: "read" as const, evidence: null } };
+    expect(currentTrialBalanceTask(v("accepted"), hidden).instruction).toMatch(/You can't view that reconciliation/);
   });
 });
 
@@ -35,9 +39,25 @@ describe("the verdict reads what the exact ingestion core recorded", () => {
     expect(isOutOfBalance(readTrialBalanceTotals({ validation_report: { tb_balance_check: { total_debits: 1000.01, total_credits: 1000 } } }))).toBe(false);
   });
 
-  it("refuses exact totals it cannot show exactly (three-decimal currencies) instead of falling back to rounded doubles", () => {
-    expect(readTrialBalanceTotals(exactResult("1.234", "1.234", "BHD"))).toBeNull();
+  it("presentation uses the currency precision the server recorded: three-decimal and zero-decimal currencies are exact", () => {
+    const withExponent = (d: string, c: string, currency: string, currency_exponent: number) => ({
+      validation_report: { tb_balance_check: { passed: true, total_debits: Number(d), total_credits: Number(c), exact: { currency, currency_exponent, total_debits: d, total_credits: c, difference: "0" } } },
+    });
+    const bhd = readTrialBalanceTotals(withExponent("1234.567", "1234.566", "BHD", 3))!;
+    expect(bhd).toEqual({ debitCents: 1234567, creditCents: 1234566, differenceCents: 1, toleranceCents: 0, exponent: 3, currency: "BHD" });
+    expect([formatTotal(bhd, bhd.debitCents), formatTotal(bhd, bhd.differenceCents)]).toEqual(["1,234.567", "0.001"]);
+    expect(isOutOfBalance(bhd)).toBe(true); // 0.001 BHD is a real difference, never rounded away
+    const ugx = readTrialBalanceTotals(withExponent("1500", "1500", "UGX", 0))!;
+    expect([ugx.exponent, formatTotal(ugx, ugx.debitCents)]).toEqual([0, "1,500"]);
+    const tzs = readTrialBalanceTotals(withExponent("1900.25", "1900.25", "TZS", 2))!;
+    expect([tzs.exponent, formatTotal(tzs, tzs.debitCents)]).toEqual([undefined, "1,900.25"]);
+    expect(formatMinorUnits(-5, 3)).toBe("-0.005");
+  });
+
+  it("refuses exact totals it cannot show exactly instead of falling back to rounded doubles", () => {
+    expect(readTrialBalanceTotals(exactResult("1.234", "1.234", "BHD"))).toBeNull(); // no recorded exponent, three places
     expect(readTrialBalanceTotals(exactResult("abc", "1"))).toBeNull();
+    expect(decimalToMinor("1.2345", 3)).toBeNull();
   });
 
   it("reads blocking issues with their rows, and milestones, ignoring malformed entries", () => {

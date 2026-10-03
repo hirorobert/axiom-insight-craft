@@ -47,6 +47,11 @@ export interface TrialBalanceTotals {
   toleranceCents?: number;
   /** ISO 4217 code the exact totals are in, when the engine recorded it. */
   currency?: string;
+  /**
+   * The currency's minor-unit exponent when it is not 2 (UGX 0, BHD 3, …). When present, debitCents / creditCents /
+   * differenceCents are minor units at this exponent, not cents — format with formatTotal().
+   */
+  exponent?: number;
 }
 
 const record = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
@@ -100,29 +105,55 @@ export function readTrialBalanceTotals(processingResult: unknown): TrialBalanceT
   return { debitCents, creditCents, differenceCents };
 }
 
-/** "1234.56" / "-0.5" / "7" → integer cents, exactly; null for anything else or for more than two decimals. */
-function decimalToCents(v: unknown): number | null {
-  if (typeof v !== "string") return null;
-  const m = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(v);
-  if (!m) return null;
-  const cents = Number(m[2]) * 100 + Number((m[3] ?? "").padEnd(2, "0") || "0");
-  if (!Number.isSafeInteger(cents)) return null;
-  return m[1] === "-" ? -cents : cents;
+/**
+ * "1234.567" at exponent 3 → 1234567 minor units, exactly. The decimal places must not exceed the exponent (the
+ * ingestion core never records more); null for anything else or for a value too large to hold exactly.
+ */
+export function decimalToMinor(v: unknown, exponent: number): number | null {
+  if (typeof v !== "string" || !Number.isInteger(exponent) || exponent < 0 || exponent > 6) return null;
+  const m = /^(-?)(\d+)(?:\.(\d+))?$/.exec(v);
+  if (!m || (m[3] ?? "").length > exponent) return null;
+  const minor = Number(m[2]) * 10 ** exponent + Number((m[3] ?? "").padEnd(exponent, "0") || "0");
+  if (!Number.isSafeInteger(minor)) return null;
+  return m[1] === "-" ? -minor : minor;
 }
 
 /**
- * Exact totals recorded by the ingestion core (tb_balance_check.exact: decimal strings + currency). These carry no
- * tolerance. A currency with more than two decimal places cannot be shown in cents exactly, so it is refused (null) and
- * the certification's own reason is used instead.
+ * Exact totals recorded by the ingestion core (tb_balance_check.exact: decimal strings, currency and its ISO 4217
+ * exponent). These carry no tolerance, and are held in the currency's own minor units — 0, 2 or 3 decimal places —
+ * so a three-decimal currency is shown exactly, never rounded to cents. A result without a recorded exponent is read
+ * at two places only if every value has at most two; otherwise it is refused (null) and the certification's own
+ * reason is used instead.
  */
 function readExactTotals(exact: Record<string, unknown> | null): TrialBalanceTotals | null {
   if (!exact) return null;
-  const debitCents = decimalToCents(exact.total_debits);
-  const creditCents = decimalToCents(exact.total_credits);
+  const recorded = exact.currency_exponent;
+  const exponent = typeof recorded === "number" && Number.isInteger(recorded) ? recorded : 2;
+  const debitCents = decimalToMinor(exact.total_debits, exponent);
+  const creditCents = decimalToMinor(exact.total_credits, exponent);
   if (debitCents === null || creditCents === null || debitCents < 0 || creditCents < 0) return null;
   const totals: TrialBalanceTotals = { debitCents, creditCents, differenceCents: debitCents - creditCents, toleranceCents: 0 };
+  if (exponent !== 2) totals.exponent = exponent;
   if (typeof exact.currency === "string" && /^[A-Z]{3}$/.test(exact.currency)) totals.currency = exact.currency;
   return totals;
+}
+
+/**
+ * Minor units → grouped decimal text at the given exponent, e.g. (1234567, 3) → "1,234.567"; (1500, 0) → "1,500".
+ * Integer arithmetic only; a non-safe-integer input is refused rather than rounded.
+ */
+export function formatMinorUnits(minor: number, exponent: number): string {
+  if (!Number.isSafeInteger(minor)) throw new RangeError("formatMinorUnits: not a safe integer");
+  const abs = Math.abs(minor);
+  const scale = 10 ** exponent;
+  const whole = String((abs - (abs % scale)) / scale).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const fraction = exponent > 0 ? `.${String(abs % scale).padStart(exponent, "0")}` : "";
+  return `${minor < 0 ? "-" : ""}${whole}${fraction}`;
+}
+
+/** One of a totals' amounts, formatted at the totals' own exponent (two decimal places unless recorded otherwise). */
+export function formatTotal(totals: TrialBalanceTotals, minor: number): string {
+  return formatMinorUnits(minor, totals.exponent ?? 2);
 }
 
 /** The identity a certification result is bound to: upload id, optimistic-concurrency version and source-file hash. */
@@ -215,7 +246,7 @@ export function plainBlockReason(args: { blocker: string | null | undefined; tot
   const arithmetic = args.failedCheckId === undefined || args.failedCheckId === null || args.failedCheckId === "l3_arithmetic";
   if (arithmetic && args.totals && isOutOfBalance(args.totals)) {
     const higher = args.totals.differenceCents > 0 ? "Debits" : "Credits";
-    return `${higher} exceed ${higher === "Debits" ? "credits" : "debits"} by ${formatCents(Math.abs(args.totals.differenceCents))}. Correct the file and replace it.`;
+    return `${higher} exceed ${higher === "Debits" ? "credits" : "debits"} by ${formatTotal(args.totals, Math.abs(args.totals.differenceCents))}. Correct the file and replace it.`;
   }
   if (args.blocker && args.blocker.trim()) return stripEngineCode(args.blocker);
   return "The trial balance did not pass its checks.";
@@ -322,7 +353,7 @@ function plainCheck(c: PreflightCheck, totals: TrialBalanceTotals | null): Trial
   else if (c.id === "l5_supporting_evidence" && (c.state === "pending" || /NOT_EVALUATED/.test(c.detail))) detail = "Matched after the trial balance is accepted.";
   else if (c.state === "pending" || /NOT_EVALUATED/.test(c.detail)) detail = "Waiting for processing to finish.";
   else if (c.id === "l3_arithmetic" && totals && isOutOfBalance(totals)) {
-    detail = `Debits ${formatCents(totals.debitCents)} and credits ${formatCents(totals.creditCents)} differ by ${formatCents(Math.abs(totals.differenceCents))}.`;
+    detail = `Debits ${formatTotal(totals, totals.debitCents)} and credits ${formatTotal(totals, totals.creditCents)} differ by ${formatTotal(totals, Math.abs(totals.differenceCents))}.`;
   } else detail = stripEngineCode(c.detail);
   return { id: c.id, label, state: c.state, detail };
 }
