@@ -41,7 +41,7 @@ import type { EngagementCapability } from "@/lib/workspace/mandate";
 import { mapWithConcurrencyLimit, aggregateSettledResults } from "@/lib/workspace/concurrencyLimit";
 import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
 import { listSharedWorkspaces, type SharedWorkspace } from "@/lib/workspace/workspaceAccess";
-import { isEngagementWithheld } from "@/lib/workspace/moduleAvailability";
+import { partitionEngagements, type UnavailableServiceEngagement } from "@/lib/workspace/unavailableService";
 
 const HUB_FAN_OUT_CONCURRENCY = 6;
 
@@ -74,6 +74,8 @@ export interface UseActiveEngagementsReturn {
    * database untouched, never listed or resumed; counted only so the account home never mistakes them for "no account".
    */
   withheldEngagementCount: number;
+  /** Those same engagements, listed as existing engagements whose service is currently unavailable. */
+  unavailableEngagements: UnavailableServiceEngagement[];
   /** True only when the read itself failed — never conflated with "zero engagements". */
   fetchFailed: boolean;
   refresh: () => void;
@@ -108,6 +110,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
   const [fetchFailed, setFetchFailed] = useState(false);
   const [sharedWorkspaces, setSharedWorkspaces] = useState<SharedWorkspace[]>([]);
   const [withheldEngagementCount, setWithheldEngagementCount] = useState(0);
+  const [unavailableEngagements, setUnavailableEngagements] = useState<UnavailableServiceEngagement[]>([]);
 
   const load = useCallback(async () => {
     if (!user) {
@@ -117,6 +120,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
     setLoading(true);
     setFetchFailed(false);
     setWithheldEngagementCount(0);
+    setUnavailableEngagements([]);
 
     // A signed-in-looking UI with an expired token would read every table as an anonymous
     // visitor and be refused. Fail closed to sign-in instead of showing an empty hub.
@@ -232,11 +236,14 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
       // look unambiguous, which the returning-user routing decision must never be allowed to see.
       const aggregated = aggregateSettledResults(settled);
       if (aggregated.failed) throw new Error("one or more engagements failed to resolve");
-      // A withheld engagement stays open and unchanged in the database; it is only kept out of the customer's lists.
-      // Its company is not offered as "without engagement" either — that would invite a second, silently converted one.
+      // A withheld engagement stays open and unchanged in the database. It is not resumed, but it IS listed as an
+      // existing engagement whose service is currently unavailable (never as "no engagement": that would invite a
+      // second engagement for the same period).
       const resolved = aggregated.values.filter((e): e is ActiveEngagementEntry => !!e);
-      setEntries(resolved.filter((e) => !isEngagementWithheld(e.capabilities)));
-      setWithheldEngagementCount(resolved.filter((e) => isEngagementWithheld(e.capabilities)).length);
+      const { visible, unavailable } = partitionEngagements(resolved);
+      setEntries(visible);
+      setUnavailableEngagements(unavailable);
+      setWithheldEngagementCount(unavailable.length);
 
       const companyIdsWithEngagement = new Set(openEngagements.map((e) => e.company_id));
       setCompaniesWithoutEngagement(companies.filter((c) => !companyIdsWithEngagement.has(c.id)));
@@ -245,6 +252,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
       setEntries([]);
       setCompaniesWithoutEngagement([]);
       setSharedWorkspaces([]);
+      setUnavailableEngagements([]);
       // A refused read (expired/missing JWT) is an auth problem, not "no engagements".
       await handleIfAuthorizationFailure(err);
     } finally {
@@ -256,5 +264,5 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
     load();
   }, [load]);
 
-  return { loading, entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount, fetchFailed, refresh: load };
+  return { loading, entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount, unavailableEngagements, fetchFailed, refresh: load };
 }
