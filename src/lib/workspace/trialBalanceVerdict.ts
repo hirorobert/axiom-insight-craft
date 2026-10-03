@@ -29,6 +29,7 @@
  */
 
 import type { PreflightCheck, PreflightCheckState, PreflightVerdict } from "./computePreflight";
+import { evidenceState, type ReadinessInput } from "./trialBalanceReadiness";
 
 /**
  * Recorded totals in integer minor units (cents). Every subtraction and comparison is done on these safe integers —
@@ -317,6 +318,8 @@ export interface TrialBalanceVerdictInput {
     status?: string | null;
     processing_result?: unknown;
     safisha_status?: string | null;
+    /** The reconciliation as read for this viewer (fetchWorkspaceSnapshot). Absent = not read: evidence is not cleared. */
+    reconciliation?: ReadinessInput["reconciliation"];
   } | null;
   /** computeCertificationReadiness(...) for the upload on screen (undefined while no upload). */
   readiness: { verdict: PreflightVerdict; blocker: string | null; checks: PreflightCheck[] } | undefined;
@@ -368,7 +371,9 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
   const checks = CHECK_PRECEDENCE.flatMap((id) => layerChecks.filter((c) => c.id === id)).map((c) => plainCheck(c, totals));
   const informational = layerChecks.filter((c) => c.id in INFO_TEXT).map((c) => plainCheck(c, totals));
   const failed = checks.find((c) => c.state === "failed") ?? checks.find((c) => c.state === "review") ?? null;
-  const evidenceCleared = upload?.safisha_status === "clean";
+  // Cleared only when the viewer's reconciliation is COMPLETE (every line matched or approved; nothing pending,
+  // rejected or escalated) — never on the raw "clean" status alone, and never when it could not be read.
+  const evidenceCleared = !!upload && evidenceState(upload.safisha_status, upload.reconciliation).state === "complete";
   const l3Passed = checks.some((c) => c.id === "l3_arithmetic" && c.state === "passed");
   const issues = upload ? readIngestionIssues(upload.processing_result) : [];
   const milestones = upload ? readMilestones(upload.processing_result) : [];

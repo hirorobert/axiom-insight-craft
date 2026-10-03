@@ -113,6 +113,67 @@ export function evidenceState(safishaStatus: string | null | undefined, read: Re
   return { state: "complete", detail: `All ${total} trial-balance lines are matched to evidence or approved by a reviewer (${matched} matched, ${x.approvedTbLines} approved).` };
 }
 
+/**
+ * The status the workspace state engine may act on. The upload's raw `safisha_status` says "clean" whenever the
+ * database found nothing pending and nothing rejected — including when an exception was only ESCALATED, or lines are
+ * still unaccounted for. When the viewer CAN read the reconciliation and it is not complete, "clean" unlocks nothing:
+ * it is treated as still under review. Evidence the viewer cannot read leaves the raw status as it is (readiness then
+ * says it cannot be confirmed); nothing here ever upgrades a status to "clean".
+ */
+export function effectiveSafishaStatus(raw: string | null, read: ReadinessInput["reconciliation"]): string | null {
+  if (raw !== "clean") return raw;
+  return evidenceState(raw, read).state === "incomplete" ? "needs_review" : raw;
+}
+
+/** Exceptions by reviewer action. Anything not approved / rejected / escalated is pending — never counted as resolved. */
+export function summarizeExceptions(rows: readonly { reviewer_action: string | null; tb_txn_id: string | null }[]): ReconciliationExceptionSummary {
+  const x: ReconciliationExceptionSummary = { pending: 0, approved: 0, rejected: 0, escalated: 0, approvedTbLines: 0 };
+  const approvedLines = new Set<string>();
+  for (const e of rows) {
+    if (e.reviewer_action === "approved") { x.approved++; if (e.tb_txn_id) approvedLines.add(e.tb_txn_id); }
+    else if (e.reviewer_action === "rejected") x.rejected++;
+    else if (e.reviewer_action === "escalated") x.escalated++;
+    else x.pending++;
+  }
+  x.approvedTbLines = approvedLines.size;
+  return x;
+}
+
+type ReadAnswer = { data: unknown; error: unknown };
+interface EvidenceQuery extends PromiseLike<ReadAnswer> {
+  select(columns: string): EvidenceQuery;
+  eq(column: string, value: unknown): EvidenceQuery;
+  order(column: string, opts: { ascending: boolean }): EvidenceQuery;
+  limit(n: number): EvidenceQuery;
+  maybeSingle(): PromiseLike<ReadAnswer>;
+}
+/** The two reads below, against whatever client the caller holds (the browser's Supabase client; a proof's SQL client). */
+export interface EvidenceReadClient {
+  from(table: "safisha_reconciliations" | "safisha_exceptions"): EvidenceQuery;
+}
+
+/**
+ * The upload's latest reconciliation for THIS viewer, with its exceptions by reviewer action — what readiness needs to
+ * prove completeness. Row-level access decides what is visible: a failed read is "failed" (never "no reconciliation");
+ * an empty answer means none exists or none is visible to this viewer; unreadable exceptions leave completeness
+ * unprovable (exceptions: null).
+ */
+export async function readReconciliationEvidence(client: EvidenceReadClient, uploadId: string): Promise<EvidenceRead> {
+  const recon = await client.from("safisha_reconciliations")
+    .select("id, status, matched_count, exception_count, total_tb_lines")
+    .eq("tb_upload_id", uploadId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (recon.error) return { state: "failed" };
+  const row = recon.data as (ReconciliationEvidence & { id: string }) | null;
+  if (!row) return { state: "read", evidence: null };
+  const { id, ...evidence } = row;
+  const ex = await client.from("safisha_exceptions").select("reviewer_action, tb_txn_id").eq("reconciliation_id", id);
+  if (ex.error || !Array.isArray(ex.data)) return { state: "read", evidence: { ...evidence, exceptions: null } };
+  return { state: "read", evidence: { ...evidence, exceptions: summarizeExceptions(ex.data as { reviewer_action: string | null; tb_txn_id: string | null }[]) } };
+}
+
 /** True only for a complete required reconciliation (kept for callers that need the boolean). */
 export function reconciliationEvaluated(r: ReconciliationEvidence | null | undefined, safishaStatus: string | null | undefined = "clean"): boolean {
   return evidenceState(safishaStatus, r ?? null).state === "complete";

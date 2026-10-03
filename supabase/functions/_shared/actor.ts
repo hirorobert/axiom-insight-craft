@@ -58,7 +58,9 @@ export async function resolveFirmMemberActor(
     .maybeSingle();
 
   // A membership row is history; only an ACTIVE named user is an actor (20260925110000). Same 403 as an outsider.
-  if (error || !data || !(await isNamedUserActive((fn, args) => adminClient.rpc(fn, args), companyId, userId))) {
+  // `ReturnType<typeof createClient>` carries no Database generic, so its rpc() argument type collapses to
+  // `undefined`; only that argument is cast. isNamedUserActive's own typed Rpc contract is unchanged.
+  if (error || !data || !(await isNamedUserActive((fn, args) => adminClient.rpc(fn, args as never), companyId, userId))) {
     return new Response(
       JSON.stringify({ error: "Forbidden", message: "Not a member of this company" }),
       { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
