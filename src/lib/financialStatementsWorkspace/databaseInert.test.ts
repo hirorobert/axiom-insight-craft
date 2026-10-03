@@ -246,6 +246,9 @@ describe("database inertness — schema and functions", () => {
       // Old/new client × old/new server for the trial-balance release: git-extracted versions, Deno + in-memory doubles,
       // no network database, no deploy behaviour.
       "scripts/compat/tbMixedVersions.mjs",
+      // The account-home hotfix's disposable proof (loopback-only; creates and drops ONLY its own uniquely named
+      // database; raw vs application-confirmed concurrency outcomes). No deploy behaviour.
+      "scripts/db-proof/hubTrialBalanceReview.mjs",
       // PR #32 upload lifecycle: the loopback-only real-PostgreSQL proof, the read-only pre-flight report (SELECTs only),
       // and the hosted-staging proof behind the same stagingGuard (pinned by ciWorkflowSafety.test.ts).
       "scripts/db-proof/uploadLifecycle.mjs", "scripts/db-preflight/uploadLifecyclePreflight.sql", "scripts/upload_lifecycle_staging.mjs",
