@@ -89,7 +89,7 @@ describe("workspace setup client — server-authoritative, no client-side compen
     const { client, calls } = fakeRpc((c) => ({ data: c.fn === "get_engagement_setup_state" ? { dataStart: null, sequence: 0 } : { dataStart: "empty", changed: true, replay: false } }));
     await getSetupState(client, "e1");
     await recordDataStart(client, "e1", "empty", null);
-    await openEngagementWithScope(fakeRpc(() => ({ data: { engagementId: "e", periodId: "p", created: false, granted: [] } })).client, { companyId: "c", year: 2026, capabilities: ["MONITORING"] });
+    await openEngagementWithScope(fakeRpc(() => ({ data: { engagementId: "e", periodId: "p", created: false, granted: [] } })).client, { companyId: "c", year: 2026, capabilities: ["FINANCIAL_STATEMENTS"] });
     for (const c of calls) expect(Object.keys(c.args).join(",")).not.toMatch(/user|actor|member|auth/i);
   });
 
@@ -152,19 +152,23 @@ describe("navigation is generated from persisted scope", () => {
     expect(ids(nav([]))).toEqual(["overview"]);
   });
 
-  it("a statements-only scope lists Overview and only the statements workflow", () => {
-    expect(ids(nav(["FINANCIAL_STATEMENTS"]))).toEqual(["overview", "prepare", "reconcile", "statements"]);
-    for (const hidden of ["tax", "compliance", "filing", "monitor"]) expect(ids(nav(["FINANCIAL_STATEMENTS"]))).not.toContain(hidden);
+  it("the trial-balance-review scope (FINANCIAL_STATEMENTS) lists Overview, Prepare and Reconcile only", () => {
+    expect(ids(nav(["FINANCIAL_STATEMENTS"]))).toEqual(["overview", "prepare", "reconcile"]);
+    for (const hidden of ["statements", "tax", "compliance", "filing", "monitor"]) expect(ids(nav(["FINANCIAL_STATEMENTS"]))).not.toContain(hidden);
   });
 
   it("amending the scope recomputes navigation deterministically", () => {
     const before = ids(nav(["FINANCIAL_STATEMENTS"]));
-    const added = ids(nav(["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]));
-    expect(added).toEqual(["overview", "prepare", "reconcile", "statements", "tax"]);
-    expect(added).toEqual(ids(nav(["TAX_COMPUTATION", "FINANCIAL_STATEMENTS"]))); // order of selection is irrelevant
-    expect(before).not.toEqual(added);
-    expect(ids(nav(["MONITORING"]))).toEqual(["overview", "prepare", "monitor"]); // prepare appears as input evidence only
-    expect(nav(["MONITORING"]).find((i) => i.id === "prepare")!.inputEvidenceOnly).toBe(true);
+    const none = ids(nav([]));
+    expect(before).toEqual(["overview", "prepare", "reconcile"]);
+    expect(none).toEqual(["overview"]);
+    expect(before).not.toEqual(none);
+    // Withheld services (moduleAvailability.ts) add nothing to navigation, in any order, even when granted.
+    const all = ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION", "MONITORING"] as const;
+    expect(ids(nav([...all]))).toEqual(before);
+    expect(ids(nav([...all].reverse()))).toEqual(before);
+    expect(ids(nav(["TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION", "MONITORING"]))).toEqual(["overview"]);
+    expect(ids(nav(["MONITORING"]))).toEqual(["overview"]); // Monitoring is withheld: not even its evidence stage appears
   });
 
   it("a disabled stage appears only as a later dependency inside an active workflow, with its reason and the action that unlocks it", () => {

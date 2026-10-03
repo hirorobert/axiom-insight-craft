@@ -89,9 +89,9 @@ describe("donor / funder expert intake (position 03, expert-led)", () => {
     expect(DONOR_TILE_COPY.action).toBe("Request expert support →");
   });
 
-  it("fills the numbered slot the withheld statement-review outcome leaves, so the public sequence reads 01–06 (renumber if statement review is ever released)", () => {
+  it("fills the numbered slot the withheld statement-review outcome leaves (renumber if statement review is ever released); only the trial-balance outcome (01) is offered while the others are withheld", () => {
     expect(DOCUMENT_REVIEW_ENABLED).toBe(false);
-    expect([...PUBLIC_PRODUCT_OUTCOMES.map((o) => o.number), DONOR_TILE_COPY.number].sort()).toEqual(["01", "02", "03", "04", "05", "06"]);
+    expect([...PUBLIC_PRODUCT_OUTCOMES.map((o) => o.number), DONOR_TILE_COPY.number].sort()).toEqual(["01", "03"]);
   });
 
   it("is rendered in the public outcome selector immediately before the tax tile, inside the existing PUBLIC_PRODUCT_OUTCOMES map", () => {

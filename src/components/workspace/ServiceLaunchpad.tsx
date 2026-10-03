@@ -2,7 +2,7 @@
  * ServiceLaunchpad — "What would you like to complete?"
  *
  * The one decision on a workspace that has no services in scope. Cards come from the canonical registry
- * (CAPABILITY_OUTCOMES); there is no second catalogue. Nothing is pre-selected. Continuing persists the selection
+ * (CUSTOMER_CAPABILITY_OUTCOMES — the canonical registry less withheld services); there is no second catalogue. Nothing is pre-selected. Continuing persists the selection
  * through the idempotent engagement setup, so a repeated click or a refresh cannot duplicate or lose it.
  */
 
@@ -10,8 +10,9 @@ import { useState } from "react";
 import { ArrowRight, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
-import { CAPABILITY_OUTCOMES, type EngagementCapability } from "@/lib/workspace/mandate";
-import { serviceAvailability } from "@/lib/jurisdiction/registry";
+import { CUSTOMER_CAPABILITY_OUTCOMES, type EngagementCapability } from "@/lib/workspace/mandate";
+import { isCapabilityCustomerVisible } from "@/lib/workspace/moduleAvailability";
+import { serviceAvailability, JURISDICTION_DEPENDENT } from "@/lib/jurisdiction/registry";
 import FilingJurisdictionSetting from "@/components/jurisdiction/FilingJurisdictionSetting";
 import { LAUNCH_COPY } from "@/lib/workspace/onboardingState";
 
@@ -56,7 +57,7 @@ export default function ServiceLaunchpad({
       <p className="text-[13px] text-muted-foreground mb-6 max-w-xl">Choose one or more. You can add or change services later.</p>
 
       <ul className="grid gap-3 sm:grid-cols-2" data-testid="service-cards">
-        {CAPABILITY_OUTCOMES.map((o) => {
+        {CUSTOMER_CAPABILITY_OUTCOMES.map((o) => {
           const avail = serviceAvailability(o.capability, jurisdiction);
           const on = avail.available && selected.includes(o.capability);
           return (
@@ -90,9 +91,12 @@ export default function ServiceLaunchpad({
         })}
       </ul>
 
-      <div className="mt-6 border-t border-border pt-5 max-w-xl">
-        <FilingJurisdictionSetting companyId={companyId} jurisdiction={jurisdiction} canChange={canChoose} />
-      </div>
+      {/* Only when a service a customer can choose needs a filing jurisdiction (none does while those are withheld). */}
+      {JURISDICTION_DEPENDENT.some(isCapabilityCustomerVisible) && (
+        <div className="mt-6 border-t border-border pt-5 max-w-xl">
+          <FilingJurisdictionSetting companyId={companyId} jurisdiction={jurisdiction} canChange={canChoose} />
+        </div>
+      )}
 
       {!canChoose && (
         <p className="mt-5 text-[13px] text-muted-foreground" data-testid="launchpad-readonly">

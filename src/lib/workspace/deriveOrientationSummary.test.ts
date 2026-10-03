@@ -40,8 +40,12 @@ describe("deriveOrientationSummary", () => {
 
   it("granted capabilities are joined via the SAME capabilityTitle authority used elsewhere", () => {
     const state = deriveWorkspaceState(CID, CNAME, PY, null);
-    const summary = deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]);
-    expect(summary.service).toBe("Financial statements, Tax computation");
+    const summary = deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS"]);
+    // FINANCIAL_STATEMENTS is presented by its customer projection (moduleAvailability.ts): Trial balance review.
+    expect(summary.service).toBe("Trial balance review");
+    // A service withheld from customers is never named, even when granted.
+    expect(deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION", "MONITORING"]).service).toBe("Trial balance review");
+    expect(deriveOrientationSummary(state, ["TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION", "MONITORING"]).service).toBeNull();
   });
 
   it("current stage/status are read from workspaceState.nextAction — the same single authority the dominant CTA uses", () => {
@@ -72,8 +76,10 @@ describe("deriveOrientationSummary", () => {
       upload({ hesabuPassedAt: "2026-02-01T00:00:00.000Z", kingaSignedAt: "2026-03-01T00:00:00.000Z" }),
     );
     const summary = deriveOrientationSummary(state, null);
-    // PATH 10: prepare=passed, statements=passed, tax=signed, filing=ready — the latest completed stage is tax.
-    expect(summary.lastCompletedMilestone?.stageLabel).toBe("Compute Tax");
+    // PATH 10: prepare=passed, statements=passed, tax=signed, filing=ready. Only Prepare and Reconcile are
+    // customer-visible (moduleAvailability.ts), so the most advanced VISIBLE completed stage is Prepare.
+    expect(summary.lastCompletedMilestone?.stageLabel).toBe("Prepare Data");
+    expect(JSON.stringify(summary)).not.toMatch(/tax/i);
   });
 
   it("a review-required or in-progress stage never counts as a completed milestone", () => {
@@ -82,7 +88,7 @@ describe("deriveOrientationSummary", () => {
     expect(summary.lastCompletedMilestone).toBeNull();
   });
 
-  it("engagement complete: the milestone is the final signed filing stage", () => {
+  it("engagement complete: the milestone is the most advanced customer-visible signed stage (statements and filing are withheld)", () => {
     const state = deriveWorkspaceState(
       CID,
       CNAME,
@@ -94,7 +100,7 @@ describe("deriveOrientationSummary", () => {
       }),
     );
     const summary = deriveOrientationSummary(state, null);
-    expect(summary.lastCompletedMilestone?.stageLabel).toBe("Prepare Outputs");
+    expect(summary.lastCompletedMilestone?.stageLabel).toBe("Prepare Data");
     expect(summary.lastCompletedMilestone?.at).toBe("2026-04-01T00:00:00.000Z");
   });
 });

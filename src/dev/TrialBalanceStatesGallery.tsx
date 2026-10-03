@@ -28,7 +28,7 @@ const HOME_BILLING: BillingSummary = {
 };
 const HOME_ENTRY: ActiveEngagementEntry = {
   engagementId: "synthetic-engagement", companyId: "synthetic-company", companyName: "Sample Trading Ltd", periodYear: 2025,
-  engagementType: "tax_computation", framework: "IPSAS accrual", capabilities: ["TAX_COMPUTATION"], openedAt: "2026-09-20T00:00:00Z",
+  engagementType: "composite", framework: "IPSAS accrual", capabilities: ["FINANCIAL_STATEMENTS"], openedAt: "2026-09-20T00:00:00Z",
   workspaceState: deriveWorkspaceState("synthetic-company", "Sample Trading Ltd", 2025, null),
 };
 
@@ -121,7 +121,7 @@ export default function TrialBalanceStatesGallery() {
           <section className="border border-border bg-card">
             <div className="border-b border-border px-5 py-4 sm:px-7">
               <h2 className="text-[15px] font-semibold text-foreground">Evidence verification</h2>
-              <p className="mt-1 text-[13px] text-muted-foreground">Required before tax: match the accepted trial balance to bank statements, mobile-money exports or subledgers.</p>
+              <p className="mt-1 text-[13px] text-muted-foreground">Required before the next stage: match the accepted trial balance to bank statements, mobile-money exports or subledgers.</p>
             </div>
             <div className="px-5 py-4 sm:px-7"><SafishaGate uploadId="synthetic-upload" fileName="sample_trial_balance_FY2025.xlsx" onCleared={() => undefined} onBlocked={() => undefined} /></div>
           </section>

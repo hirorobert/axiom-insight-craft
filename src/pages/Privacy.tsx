@@ -15,8 +15,9 @@ export default function Privacy() {
             <p>
               Account information you provide (name, email, firm and company
               names), the trial balances and supporting documents you upload, the
-              reconciliation, statement, tax, compliance, and filing data your firm
-              produces while using the service, and basic technical logs needed to
+              reconciliation, statement and other engagement records your firm
+              produces while using the service (including records created with
+              services that are no longer offered), and basic technical logs needed to
               operate and secure the service.
             </p>
           </div>
@@ -39,7 +40,7 @@ export default function Privacy() {
             <h2 className="text-lg font-semibold text-foreground mb-2">3. How it's used</h2>
             <p>
               To provide the service you signed up for: running the accounting,
-              reconciliation, tax, and monitoring engines you invoke, maintaining
+              reconciliation and monitoring engines you invoke, maintaining
               your workspace state, and keeping an audit trail of professional
               decisions and administrative actions for your own firm's record. We
               do not sell your data, and we do not use your accounting data to

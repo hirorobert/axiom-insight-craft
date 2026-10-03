@@ -12,6 +12,7 @@
 import { STAGE_CONFIGS } from "./stageMetadata";
 import { stageHasWork, type WorkspaceMissionView } from "./mandate";
 import type { WorkspaceMission } from "./types";
+import { isStageCustomerVisible } from "./moduleAvailability";
 
 export interface NavItem {
   readonly id: "overview" | WorkspaceMission;
@@ -34,7 +35,7 @@ export function deriveWorkspaceNavigation(input: {
 
   for (const view of input.missionViews) {
     const shown = input.scopeDeclared ? view.visible : stageHasWork(view.workflowStatus);
-    if (!shown) continue;
+    if (!shown || !isStageCustomerVisible(view.stage)) continue;
     const cfg = STAGE_CONFIGS[view.stage];
     const locked = view.workflowStatus === "locked";
     items.push({

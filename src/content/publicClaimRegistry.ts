@@ -37,14 +37,27 @@ export interface PublicClaim {
 
 export const PUBLIC_CLAIM_REGISTRY: readonly PublicClaim[] = [
   {
-    id: "framework-aware-preparation",
-    claimText: "framework-aware",
+    id: "trial-balance-review-scope",
+    claimText: "Upload, check and review the accounts in your trial balance.",
     evidenceSource:
-      "src/lib/accounting/frameworkAdapter.ts (CompanyReportingFrameworkDbValue: ifrs_for_smes | full_ifrs | ipsas_accrual | ipsas_cash) + src/lib/financialStatementsWorkspace/frameworkProfiles.ts — the selected framework drives statement presentation and which preparation checks apply",
+      "src/lib/workspace/moduleAvailability.ts (TRIAL_BALANCE_REVIEW — the only customer-reachable service: Prepare and Reconcile) + supabase/functions/process-trial-balance/index.ts (import, checks, classification) + src/lib/workspace/trialBalanceVerdict.ts (check verdict) + src/components/AccountReviewPanel.tsx (recorded account decisions), all reached from the Prepare stage",
     evidenceScope:
-      "Proves a framework selection exists and changes presentation and checks. Does NOT prove conformance with any standard, does not prove an external review of the output, and does not prove completeness of any disclosure set.",
-    approvedWording: "framework-aware",
+      "Proves a trial balance can be imported, checked and its unresolved accounts reviewed with a recorded decision. Does NOT prepare financial statements, certify a close, issue a Reporting Pack, analyse variance, forecast, compute tax or prepare any filing — those modules are withheld from customers (moduleAvailability.ts) until their authority is complete.",
+    approvedWording: "Upload, check and review the accounts in your trial balance.",
     prohibitedWording: [
+      "financial statements",
+      "statement of financial position",
+      "close certification",
+      "certified close",
+      "reporting pack",
+      "variance",
+      "forecast",
+      "close insights",
+      "tax computation",
+      "compliance review",
+      "filing pack",
+      "framework-aware statements",
+      // Carried from the retired statement, export and certification rows: never substituted in.
       "IFRS-certified",
       "audited under IFRS",
       "fully compliant",
@@ -52,8 +65,28 @@ export const PUBLIC_CLAIM_REGISTRY: readonly PublicClaim[] = [
       "complete financial statements",
       "asc 606",
       "asc 958",
+      "XBRL",
+      "iXBRL",
+      "filing-ready",
+      "audit-ready",
+      "audit assurance",
+      "provides an audit opinion",
+      "auditor-certified",
+      "12 independent audit opinions",
+      "integrity guarantee",
     ],
-    verifiedDate: "2026-09-24",
+    verifiedDate: "2026-10-02",
+  },
+  {
+    id: "evidence-reconciliation",
+    claimText: "reconcile it to supporting evidence",
+    evidenceSource:
+      "src/components/safisha/SafishaGate.tsx (mounted in the Prepare stage) → supabase/functions/safisha-ingest, safisha-match (bank / mobile-money / subledger evidence matched to the trial balance; trial_balance_uploads.safisha_status records the outcome)",
+    evidenceScope:
+      "Proves supporting evidence can be uploaded and matched to the trial balance, with exceptions held for resolution. Does NOT prove the evidence is complete for the period, and is not an audit of it.",
+    approvedWording: "reconcile it to supporting evidence",
+    prohibitedWording: ["fully reconciled books", "audit-ready", "guaranteed match"],
+    verifiedDate: "2026-10-02",
   },
   {
     id: "attributable-review-decisions",
@@ -113,37 +146,6 @@ export const PUBLIC_CLAIM_REGISTRY: readonly PublicClaim[] = [
       "Proves those two input formats are accepted by the live import path. Does NOT promise that an arbitrarily structured spreadsheet will map without review, and does not cover PDF or scanned sources.",
     approvedWording: "Trial balances import from CSV and XLSX",
     prohibitedWording: ["any format", "any spreadsheet", "automatic with no review"],
-    verifiedDate: "2026-09-24",
-  },
-  {
-    id: "export-formats",
-    claimText: "exported as XLSX, PDF, CSV and structured JSON",
-    evidenceSource:
-      "src/components/ExportStatements.tsx (XLSX via the xlsx writer, PDF via jsPDF/autoTable) and src/lib/financialStatementsWorkspace/exports.ts (canonicalJsonExport, toCsv-backed findings/budget CSV) — both reached from the Statements stage",
-    evidenceScope:
-      "Proves these four outputs are produced by code reachable from the interface. Does NOT include any structured regulatory filing format: supabase/functions/generate-xbrl exists but depends on an external worker and is not reachable from the interface, which is why it is absent from the page.",
-    approvedWording: "exported as XLSX, PDF, CSV and structured JSON",
-    prohibitedWording: ["XBRL", "iXBRL", "filing-ready", "audit-ready", "audit assurance"],
-    verifiedDate: "2026-09-24",
-  },
-  {
-    id: "close-certification-internal-record",
-    claimText: "It is not an external audit, an audit opinion, or any form of statutory assurance.",
-    evidenceSource:
-      "supabase/functions/hesabu-validate/index.ts evaluates the H-01..H-12 preparation assertions and tb_certifications records the outcome inside the workspace; no external party, opinion, or regulator submission exists anywhere in this repository",
-    evidenceScope:
-      "Proves certification is an internal, workspace-scoped preparation record. Deliberately claims nothing further — this row exists to keep the DISCLAIMER present, not to support a positive assurance claim.",
-    approvedWording:
-      "It is not an external audit, an audit opinion, or any form of statutory assurance.",
-    prohibitedWording: [
-      // NB: the bare phrase "audit opinion" is NOT listed — the approved disclaimer itself says
-      // certification "is not an external audit, an audit opinion, or any form of statutory
-      // assurance", and that negation must stay on the page.
-      "provides an audit opinion",
-      "auditor-certified",
-      "12 independent audit opinions",
-      "integrity guarantee",
-    ],
     verifiedDate: "2026-09-24",
   },
   {

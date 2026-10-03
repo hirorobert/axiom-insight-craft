@@ -72,7 +72,7 @@ export const ADDITIONAL_SEAT_PRICE: AdditionalSeatPrice = { monthlyMinor: 2000, 
 
 export const PRICING_CATALOGUE: readonly CataloguePlan[] = [
   {
-    code: "SOLO", name: "Solo", tagline: "Certify, issue and analyse the close of one entity.",
+    code: "SOLO", name: "Solo", tagline: "For one entity.",
     salesMode: "self_serve", entityCapacity: 1, includedSeats: 1, additionalSeat: null, monthlyMinor: 4900, annualMinor: 49000,
     capabilities: EVERY_PLAN,
     highlights: [
@@ -85,7 +85,7 @@ export const PRICING_CATALOGUE: readonly CataloguePlan[] = [
     ],
   },
   {
-    code: "PRACTICE", name: "Practice", tagline: "Certify, issue and analyse closes for a small portfolio.",
+    code: "PRACTICE", name: "Practice", tagline: "For a small portfolio of entities.",
     salesMode: "self_serve", entityCapacity: 5, includedSeats: 1, additionalSeat: ADDITIONAL_SEAT_PRICE, monthlyMinor: 9900, annualMinor: 99000,
     capabilities: EVERY_PLAN,
     highlights: [
@@ -97,7 +97,7 @@ export const PRICING_CATALOGUE: readonly CataloguePlan[] = [
     ],
   },
   {
-    code: "FIRM", name: "Firm", tagline: "Run the close across a firm-wide portfolio.",
+    code: "FIRM", name: "Firm", tagline: "For a firm-wide portfolio of entities.",
     salesMode: "self_serve", entityCapacity: 25, includedSeats: 1, additionalSeat: ADDITIONAL_SEAT_PRICE, monthlyMinor: 29900, annualMinor: 299000,
     capabilities: EVERY_PLAN,
     highlights: [

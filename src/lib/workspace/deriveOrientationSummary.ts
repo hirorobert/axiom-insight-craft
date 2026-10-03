@@ -16,7 +16,8 @@
 
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "./stageMetadata";
 import type { EngagementCapability } from "./mandate";
-import { capabilityTitle } from "./mandate";
+import { customerCapabilityTitle } from "./mandate";
+import { customerVisibleCapabilities, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
 import type { WorkspaceState } from "./types";
 
 export interface OrientationMilestone {
@@ -35,23 +36,49 @@ export interface OrientationSummary {
 
 const COMPLETED_STATUSES = new Set(["passed", "signed"]);
 
+/** Shown in place of a next action that lies in a stage withheld from customers. */
+export const NO_VISIBLE_NEXT_ACTION = "No further action is available in this workspace right now.";
+
+export interface TrialBalanceReviewStep {
+  readonly ready: boolean;
+  readonly label: string;
+  readonly detail: string;
+}
+
+/**
+ * The trial-balance-review step once Prepare has passed (the engine's own next action then lies in a withheld stage).
+ * "Ready" needs the supporting evidence reconciled (SAFISHA status "clean"): Prepare passes with evidence not yet started,
+ * so a passed Prepare alone is never presented as ready. Null while Prepare has not passed (its own next action applies).
+ */
+export function trialBalanceReviewStep(state: WorkspaceState, safishaStatus: string | null | undefined): TrialBalanceReviewStep | null {
+  const prepare = state.missions.prepare.status;
+  if (prepare !== "passed" && prepare !== "signed") return null;
+  return safishaStatus === "clean"
+    ? { ready: true, label: TRIAL_BALANCE_REVIEW.ready, detail: "Its checks have passed, its accounts are reviewed and its supporting evidence is reconciled." }
+    : { ready: false, label: "Reconcile supporting evidence", detail: "Match the trial balance to bank statements, mobile-money exports or subledgers." };
+}
+
 export function deriveOrientationSummary(
   workspaceState: WorkspaceState,
   grantedCapabilities: EngagementCapability[] | null,
+  safishaStatus?: string | null,
 ): OrientationSummary {
-  const service =
-    grantedCapabilities && grantedCapabilities.length > 0
-      ? grantedCapabilities.map((c) => capabilityTitle(c)).join(", ")
-      : null;
+  const visibleServices = grantedCapabilities ? customerVisibleCapabilities(grantedCapabilities) : [];
+  const service = visibleServices.length > 0 ? visibleServices.map((c) => customerCapabilityTitle(c)).join(", ") : null;
 
-  const currentStageLabel = STAGE_CONFIGS[workspaceState.nextAction.mission].label;
-  const currentStatusLabel = workspaceState.nextAction.label;
+  // A next action in a stage withheld from customers (moduleAvailability.ts) is never named: the customer's own
+  // trial-balance-review step is shown instead.
+  const nextVisible = isStageCustomerVisible(workspaceState.nextAction.mission);
+  const step = nextVisible ? null : trialBalanceReviewStep(workspaceState, safishaStatus);
+  const currentStageLabel = nextVisible ? STAGE_CONFIGS[workspaceState.nextAction.mission].label : TRIAL_BALANCE_REVIEW.title;
+  const currentStatusLabel = nextVisible ? workspaceState.nextAction.label : step?.label ?? NO_VISIBLE_NEXT_ACTION;
 
   let lastCompletedMilestone: OrientationMilestone | null = null;
   // Walk from the LAST stage backwards so the most-advanced completed stage wins — a later stage
   // being "passed" is always the more informative milestone than an earlier one.
   for (let i = STAGE_SEQUENCE.length - 1; i >= 0; i--) {
     const slug = STAGE_SEQUENCE[i];
+    if (!isStageCustomerVisible(slug)) continue;
     const mission = workspaceState.missions[slug];
     if (COMPLETED_STATUSES.has(mission.status)) {
       lastCompletedMilestone = {

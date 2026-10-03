@@ -589,7 +589,7 @@ export function AdjustingJournalPanel({ companyId, uploadId, periodYear, company
             <BookOpen className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
             <p className="text-sm text-muted-foreground">No adjusting journal entries yet.</p>
             <p className="text-xs text-muted-foreground/70 mt-1">
-              The tax engine auto-generates AJEs when you commit a tax computation. Manual entries can be posted by preparers and partners.
+              Manual entries can be posted by preparers and partners.
             </p>
           </div>
         ) : (
@@ -598,7 +598,7 @@ export function AdjustingJournalPanel({ companyId, uploadId, periodYear, company
             {ajeList.some((a) => a.auto_generated) && (
               <div className="flex items-start gap-2 text-xs text-muted-foreground bg-indigo-50/50 border border-indigo-100 rounded-lg p-2.5">
                 <Zap className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0 mt-0.5" />
-                <span>Auto-generated AJEs (Module D/E) are read-only. They reflect the committed tax computation and cannot be edited — only reversed if needed.</span>
+                <span>Auto-generated AJEs are read-only. They cannot be edited — only reversed if needed.</span>
               </div>
             )}
 

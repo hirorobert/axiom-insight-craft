@@ -13,7 +13,7 @@
 import { ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { LANDING_SERVICES, LANDING_SERVICES_COPY, type LandingServiceOutput } from "@/content/landing/landingContent";
+import { LANDING_SERVICES, LANDING_SERVICES_COPY, LANDING_WORKFLOW, type LandingServiceOutput } from "@/content/landing/landingContent";
 import { serviceAuthHref, serviceAvailabilityLabel } from "@/lib/commercial/serviceIntent";
 import { useLandingIntent } from "@/components/landing/landingIntentContext";
 
@@ -114,6 +114,15 @@ export function ServiceChooser() {
             <ul data-testid="primary-outputs">
               {selected.primaryOutputs.map((o) => <OutputRow key={o.name} o={o} />)}
             </ul>
+            <p className="mt-6 text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">{LANDING_SERVICES_COPY.workflowHeading}</p>
+            <ol className="mt-3 space-y-2" data-testid="service-workflow">
+              {LANDING_WORKFLOW.map((step, i) => (
+                <li key={step} className="flex items-baseline gap-3 text-[14px] leading-5 text-foreground">
+                  <span className="w-4 shrink-0 font-mono text-[11px] text-muted-foreground">{i + 1}</span>
+                  {step}
+                </li>
+              ))}
+            </ol>
             {selected.moreOutputs.length > 0 && (
               <details key={selected.id} className="group mt-4" data-testid="more-outputs">
                 <summary className="cursor-pointer list-none text-[13px] font-medium text-foreground underline-offset-4 hover:underline [&::-webkit-details-marker]:hidden">

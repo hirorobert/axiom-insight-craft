@@ -359,8 +359,8 @@ export function MgmtLetterPanel({ uploadId, companyId = null, existingLetter, on
             </div>
             <h3 className="text-lg font-semibold mb-2">Generate Management Letter</h3>
             <p className="text-muted-foreground text-sm mb-6 max-w-md mx-auto">
-              Produces a structured management letter for directors based on committed tax computation
-              and open compliance findings. No AI inference — all figures from the CFO Close tax computation.
+              Produces a structured management letter for directors based on committed computations
+              and open compliance findings. No AI inference — all figures come from recorded computations.
             </p>
             {packLocked ? (
               <PaidActionNotice copy={lockedCopy("REPORTING_PACK_EXPORT")} testId="management-letter-locked" />
@@ -404,7 +404,7 @@ export function MgmtLetterPanel({ uploadId, companyId = null, existingLetter, on
                 </Badge>
               )}
               <Badge variant="secondary" className="text-[10px]">
-                Tax computation {meta.engineVersion}
+                Engine {meta.engineVersion}
               </Badge>
             </div>
           )}
@@ -507,7 +507,7 @@ export function MgmtLetterPanel({ uploadId, companyId = null, existingLetter, on
           <span>
             Generated {meta ? new Date(meta.generatedAt).toLocaleString("en-TZ", {
               day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
-            }) : "—"} · Tax computation {meta?.engineVersion ?? "—"}
+            }) : "—"} · Engine {meta?.engineVersion ?? "—"}
           </span>
           <span className="italic">Review all sections before delivery to client directors.</span>
         </div>

@@ -62,7 +62,7 @@ import {
   LANDING_TRUST,
 } from "@/content/landing/landingContent";
 import { PROPOSED_PLANS } from "@/content/landing/proposedPlans";
-import { SERVICE_INTENT_IDS, type ServiceIntentId } from "@/lib/commercial/serviceIntent";
+import { SERVICE_INTENT_IDS, CUSTOMER_SERVICE_INTENT_IDS, type ServiceIntentId } from "@/lib/commercial/serviceIntent";
 import { PUBLIC_CLAIM_REGISTRY } from "@/content/publicClaimRegistry";
 
 const ROOT = path.resolve(__dirname, "../../../..");
@@ -181,10 +181,11 @@ describe("page structure", () => {
 describe("choose your outcome", () => {
   const services = section(PAGE, "services");
 
-  it("four services, ids = the closed intent registry, as ONE single-select radio group", () => {
-    expect(LANDING_SERVICES.map((s) => s.id)).toEqual([...SERVICE_INTENT_IDS]);
+  it("one service — the customer projection of the intent registry (Trial balance review) — as ONE single-select radio group", () => {
+    expect(LANDING_SERVICES.map((s) => s.id)).toEqual([...CUSTOMER_SERVICE_INTENT_IDS]);
+    expect(LANDING_SERVICES.map((s) => s.name)).toEqual(["Trial balance review"]);
     const radios = services.match(/<input[^>]*type="radio"[^>]*>/g) ?? [];
-    expect(radios).toHaveLength(4);
+    expect(radios).toHaveLength(1);
     expect(new Set(radios.map((r) => r.match(/name="([^"]+)"/)?.[1])).size).toBe(1);
     expect(radios.filter((r) => /checked=""/.test(r))).toHaveLength(1);
   });
@@ -204,7 +205,7 @@ describe("choose your outcome", () => {
     expect(sources).not.toMatch(/"Included in every plan"|"Plan required"/);   // derived, never written in copy
   });
 
-  it.each(SERVICE_INTENT_IDS)("selected '%s': at most three outputs by default, the rest behind one disclosure, and one start action carrying the service", (id) => {
+  it.each(CUSTOMER_SERVICE_INTENT_IDS)("selected '%s': at most three outputs by default, the rest behind one disclosure, and one start action carrying the service", (id) => {
     const markup = page(id);
     const preview = markup.slice(markup.indexOf('data-testid="service-preview"'));
     const svc = LANDING_SERVICES.find((s) => s.id === id)!;
@@ -225,12 +226,15 @@ describe("choose your outcome", () => {
     expect(hrefOf(markup, "final-create-account")).toBe(`/auth?mode=signup&service=${id}`);
   });
 
-  it("advertises no regulatory filing format, audit package or 'Full IFRS'; certification is stated as an internal record", () => {
+  it("advertises no regulatory filing format, audit package or 'Full IFRS', and no withheld module", () => {
     const all = LANDING_SERVICES.flatMap((s) => [...s.primaryOutputs, ...s.moreOutputs].map((o) => o.name)).join(" ").toLowerCase();
     for (const forbidden of ["xbrl", "audit package", "full ifrs"]) expect(all).not.toContain(forbidden);
-    expect(LANDING_SERVICES.find((s) => s.id === "close-certification")!.note).toBe(
-      "It is not an external audit, an audit opinion, or any form of statutory assurance.",
-    );
+    expect(PAGE_TEXT).not.toMatch(/certification|reporting pack|close insights|financial statements|variance|forecast|\btax\b|compliance|filing/i);
+  });
+
+  it("states the four-step workflow of the one service", () => {
+    const steps = [...services.matchAll(/<li[^>]*>\s*<span[^>]*>(\d)<\/span>([^<]+)<\/li>/g)].map((m) => `${m[1]} ${m[2].trim()}`);
+    expect(steps).toEqual(["1 Upload trial balance", "2 Review accounts needing attention", "3 Reconcile supporting evidence", "4 Trial balance ready"]);
   });
 });
 
@@ -323,8 +327,8 @@ describe("commercial honesty", () => {
 });
 
 describe("FAQ", () => {
-  it("renders all eight questions, collapsed, from the one source", () => {
-    expect(LANDING_FAQ).toHaveLength(8);
+  it("renders all seven questions, collapsed, from the one source", () => {
+    expect(LANDING_FAQ).toHaveLength(7);
     const faqMarkup = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(LandingFAQ)));
     for (const entry of LANDING_FAQ) expect(visibleText(faqMarkup)).toContain(entry.question);
     expect((faqMarkup.match(/data-state="closed"/g) ?? []).length).toBeGreaterThanOrEqual(LANDING_FAQ.length);

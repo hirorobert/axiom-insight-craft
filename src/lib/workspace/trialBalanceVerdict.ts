@@ -286,7 +286,7 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
         ...base, status: "accepted", statusLabel: "Accepted", tone: "success", evidenceUnlocked: true,
         reason: evidenceCleared
           ? "The trial balance passed every check and its evidence is verified."
-          : "The trial balance passed every check. Verify it against bank and mobile-money evidence before tax.",
+          : "The trial balance passed every check. Verify it against bank and mobile-money evidence before moving on.",
         primaryAction: evidenceCleared ? { kind: "continue", label: "Continue to Reconcile" } : { kind: "verify_evidence", label: "Verify against bank and mobile-money evidence" },
       };
     case "blocked":

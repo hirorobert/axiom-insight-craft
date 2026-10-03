@@ -5,7 +5,6 @@ import {
   annualSavingMinor,
   formatCatalogueAmount,
   planByCode,
-  ADDITIONAL_SEAT_PRICE,
 } from "@/lib/commercial/pricingCatalogue";
 
 // ─────────────────────────────────────────────────────────────
@@ -30,7 +29,7 @@ export const BRAND = {
   // audit/bookkeeping firm running an engagement for a client — the
   // workflow underneath is identical either way, so the copy must never
   // assume "you work on someone else's accounts."
-  tagline: "Financial statement workflow for accountants, finance teams, and firms.",
+  tagline: "Trial balance review for accountants, finance teams, and firms.",
 } as const;
 
 export const CTA = {
@@ -44,63 +43,15 @@ export const HERO = {
   eyebrow:  "CFOClose · Financial close workspace",
   headline: "From trial balance to decisions you can defend.",
   subhead:
-    "Clean the trial balance, prepare statements, assess tax or analyse risk—inside one controlled workspace that reveals only the work your engagement requires.",
+    "Upload, check and review the accounts in your trial balance, and reconcile it to supporting evidence—inside one controlled workspace.",
 } as const;
 
-// Above-the-fold proof ledger — what goes in, what is enforced, what comes out.
-export const HERO_LEDGER = [
-  {
-    key:    "Input",
-    value:  "One trial balance",
-    detail: "CSV or XLSX. Balance-checked and duplicate-screened on ingest.",
-  },
-  {
-    key:    "Enforcement",
-    value:  "Scoped workflow",
-    detail: "The engagement opens only the stages required for the selected outcome.",
-  },
-  {
-    key:    "Output",
-    value:  "Reviewable deliverables",
-    detail: "Prepared statements, workpapers, findings and close evidence as applicable.",
-  },
-] as const;
 
 // Global footing — no jurisdiction-specific statutory citations.
 export const HERO_FOOTING =
-  "Framework-aware financial preparation. Jurisdiction-specific tax and compliance capabilities are shown only where configured and validated.";
+  "Trial balance preparation and review. Further modules are introduced only after their controls are independently validated.";
 
-export const METHOD = [
-  {
-    number: "01",
-    title: "Declare the outcome",
-    detail: "Choose the deliverable required by the engagement. Unrelated stages remain outside the active path.",
-  },
-  {
-    number: "02",
-    title: "Establish the source",
-    detail: "Import the trial balance and supporting evidence. Exceptions remain visible until reviewed.",
-  },
-  {
-    number: "03",
-    title: "Make controlled decisions",
-    detail: "Resolve classifications, review computations and record the professional judgement behind each conclusion.",
-  },
-  {
-    number: "04",
-    title: "Issue the deliverable",
-    detail: "Produce the applicable statements, workpapers or review outputs with their provenance intact.",
-  },
-] as const;
 
-export const DELIVERABLES = [
-  ["Reviewed trial balance", "Account decisions and unresolved exceptions retained"],
-  ["Financial statements", "Framework-aware presentation and validation record"],
-  ["Tax workpapers", "Structured computation and supporting evidence"],
-  ["Compliance review", "Findings, readiness checks and client summary"],
-  ["Performance review", "Comparative movement, variance, cash and risk signals"],
-  ["Close file", "A traceable record of source, decisions and produced outputs"],
-] as const;
 
 // Marketing pipeline — 5 steps for public tour, not the 7-stage workspace sequence.
 // Do not reference stageMetadata.ts — this is presentation copy only.
@@ -118,63 +69,6 @@ export const PIPELINE = [
 // Tanzania statutory detail lives in the workspace, not here.
 // ─────────────────────────────────────────────────────────────
 
-export const PLATFORM_TABLE = [
-  {
-    module: "Data Preparation",
-    name:   "Import & Verify",
-    functions: [
-      "CSV / XLSX trial balance import with guided field mapping",
-      "Bank statement and sub-ledger reconciliation",
-      "Duplicate detection and data quality exception queue",
-      "Confidence scoring — every account classification is graded",
-    ],
-    basis: "IFRS-oriented classification workflow",
-  },
-  {
-    module: "Financial Statements",
-    name:   "IFRS Preparation",
-    functions: [
-      "Statement of Financial Position (IAS 1)",
-      "Statement of Comprehensive Income (IAS 1)",
-      "Statement of Cash Flows (IAS 7)",
-      "Disclosure notes generated from account mapping",
-    ],
-    basis: "IFRS / IPSAS framework-aware",
-  },
-  {
-    module: "Tax Computation",
-    name:   "Jurisdiction Pack",
-    functions: [
-      "Wear & tear at jurisdiction-specific asset class rates",
-      "Structured corporate income-tax workpapers",
-      "Wear-and-tear schedules where configured",
-      "Evidence-linked findings for professional review",
-    ],
-    basis: "Jurisdiction packs are enabled per workspace as each is validated",
-  },
-  {
-    module: "Filing Package",
-    name:   "Prepared Output",
-    functions: [
-      "Filing readiness checklist per jurisdiction requirements",
-      "Tax computation PDF",
-      "Financial statement and disclosure-note export",
-      "Multi-company filing calendar and deadline tracker",
-    ],
-    basis: "Preparation and readiness support; external submission remains outside the platform",
-  },
-  {
-    module: "Analytics",
-    name:   "Portfolio Intelligence",
-    functions: [
-      "Comparative financial statements — current vs prior period",
-      "Variance analysis with configurable materiality thresholds",
-      "Cash outlook where a completed analysis run is available",
-      "Evidence-linked portfolio monitoring",
-    ],
-    basis: "IAS 1.38 — comparative information requirements",
-  },
-] as const;
 
 // TRUST_GUARANTEES was removed with the landing-page rebuild: it was imported by nothing, and its
 // wording ("immutable", "always") is the absolute phrasing the public claim registry forbids.
@@ -233,12 +127,12 @@ export const JURISDICTION_SECTION = {
     {
       label: "IFRS-oriented reporting",
       detail:
-        "Framework-aware presentation contexts are supported. The exact IFRS or IPSAS workflow shown to a firm depends on its configured and verified reporting path.",
+        "A workspace records its reporting framework (IFRS or IPSAS).",
     },
     {
       label: "Jurisdiction compliance packs",
       detail:
-        "Structured corporate income-tax workpapers, wear-and-tear schedules, fiscal-device reconciliation, findings review and filing-readiness support are available within configured jurisdiction engagements. Professional review remains required.",
+        "No jurisdiction pack is currently offered to customers. A future pack would apply only within a configured jurisdiction engagement, after independent validation.",
     },
     {
       label: "Additional jurisdictions",
@@ -267,16 +161,6 @@ export const PRICING = {
   CHECKOUT_DISABLED_MSG: NO_CHECKOUT_NOTICE,
 } as const;
 
-export const PRICING_TABLE = [
-  { term: "Plans",     value: "Solo, Practice, Firm and Enterprise. Plans differ by entity capacity and named users. There is no free plan and no trial." },
-  { term: "Named users", value: `Every plan includes 1 named user. Practice and Firm can add named users at ${formatCatalogueAmount(ADDITIONAL_SEAT_PRICE.annualMinor)} per user per year. Solo includes 1 named user and cannot add users; Enterprise is negotiated.` },
-  { term: "Sign-in",   value: "Each named user is one person with their own sign-in, so the work recorded under a sign-in belongs to that person. Accounts are never shared." },
-  { term: "Included",  value: "Every plan includes Close Assurance, comparative reporting, Close Certification, Reporting Pack and Close Insights. Comparative periods are never charged separately." },
-  { term: "Multi-entity", value: "Multi-entity reporting from Practice upwards. Consolidation is not offered." },
-  { term: "History",   value: "If a plan ends, existing data and outputs already issued stay readable; new work needs a current plan." },
-  { term: "Storage",   value: "Encrypted at rest. Hosted on enterprise-grade infrastructure." },
-  { term: "Support",   value: "Standard on Practice, priority on Firm, contractual on Enterprise." },
-] as const;
 
 // Pricing section landing-page teaser (links to /pricing for full detail).
 export const PRICING_SECTION = {

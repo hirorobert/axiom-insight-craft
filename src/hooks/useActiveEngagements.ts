@@ -41,6 +41,7 @@ import type { EngagementCapability } from "@/lib/workspace/mandate";
 import { mapWithConcurrencyLimit, aggregateSettledResults } from "@/lib/workspace/concurrencyLimit";
 import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
 import { listSharedWorkspaces, type SharedWorkspace } from "@/lib/workspace/workspaceAccess";
+import { isEngagementWithheld } from "@/lib/workspace/moduleAvailability";
 
 const HUB_FAN_OUT_CONCURRENCY = 6;
 
@@ -55,6 +56,8 @@ export interface ActiveEngagementEntry {
   /** Granted capabilities, via fold_engagement_mandate — the same authority the workspace itself uses. */
   capabilities: EngagementCapability[];
   workspaceState: WorkspaceState;
+  /** The current upload's evidence-reconciliation status (trial_balance_uploads.safisha_status), read-only. */
+  safishaStatus?: string | null;
   openedAt: string;
 }
 
@@ -66,6 +69,11 @@ export interface UseActiveEngagementsReturn {
   companiesWithoutEngagement: WorkspaceCompany[];
   /** Workspaces shared with the user through an explicit Prepare grant (never their own). PR #32 access bridge. */
   sharedWorkspaces: SharedWorkspace[];
+  /**
+   * Open engagements withheld from customers (every service withheld, e.g. an existing Tax-only engagement). Kept in the
+   * database untouched, never listed or resumed; counted only so the account home never mistakes them for "no account".
+   */
+  withheldEngagementCount: number;
   /** True only when the read itself failed — never conflated with "zero engagements". */
   fetchFailed: boolean;
   refresh: () => void;
@@ -99,6 +107,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
   const [companiesWithoutEngagement, setCompaniesWithoutEngagement] = useState<WorkspaceCompany[]>([]);
   const [fetchFailed, setFetchFailed] = useState(false);
   const [sharedWorkspaces, setSharedWorkspaces] = useState<SharedWorkspace[]>([]);
+  const [withheldEngagementCount, setWithheldEngagementCount] = useState(0);
 
   const load = useCallback(async () => {
     if (!user) {
@@ -107,6 +116,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
     }
     setLoading(true);
     setFetchFailed(false);
+    setWithheldEngagementCount(0);
 
     // A signed-in-looking UI with an expired token would read every table as an anonymous
     // visitor and be refused. Fail closed to sign-in instead of showing an empty hub.
@@ -211,6 +221,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
             framework: company?.reporting_framework ?? null,
             capabilities,
             workspaceState: snapshot.workspaceState,
+            safishaStatus: snapshot.upload?.safisha_status ?? null,
             openedAt: eng.opened_at,
           };
         },
@@ -221,7 +232,11 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
       // look unambiguous, which the returning-user routing decision must never be allowed to see.
       const aggregated = aggregateSettledResults(settled);
       if (aggregated.failed) throw new Error("one or more engagements failed to resolve");
-      setEntries(aggregated.values);
+      // A withheld engagement stays open and unchanged in the database; it is only kept out of the customer's lists.
+      // Its company is not offered as "without engagement" either — that would invite a second, silently converted one.
+      const resolved = aggregated.values.filter((e): e is ActiveEngagementEntry => !!e);
+      setEntries(resolved.filter((e) => !isEngagementWithheld(e.capabilities)));
+      setWithheldEngagementCount(resolved.filter((e) => isEngagementWithheld(e.capabilities)).length);
 
       const companyIdsWithEngagement = new Set(openEngagements.map((e) => e.company_id));
       setCompaniesWithoutEngagement(companies.filter((c) => !companyIdsWithEngagement.has(c.id)));
@@ -241,5 +256,5 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
     load();
   }, [load]);
 
-  return { loading, entries, companiesWithoutEngagement, sharedWorkspaces, fetchFailed, refresh: load };
+  return { loading, entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount, fetchFailed, refresh: load };
 }

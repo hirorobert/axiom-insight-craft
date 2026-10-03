@@ -373,6 +373,7 @@ src/
       discardSuppression.ts   ← Discarded-upload suppression rules
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing
+      moduleAvailability.ts   ← ONE customer-facing availability boundary: only Trial balance review (UNPROVEN_MODULES_CUSTOMER_VISIBLE = false; §9.2)
       sourceUpload.ts         ← ONLY browser path for a trial balance source: reserve → signed workspace-scoped upload → register
       trialBalanceVerdict.ts          ← THE trial balance presentation model (status, reason, totals, checks, primary action, evidence unlock) from the certification ledger; card, checks, ledger, Overview and workspace state all read it
       trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client
@@ -1075,6 +1076,43 @@ authenticated session of an active commercial admin (service_role is revoked; a 
 auth.uid()); there is no in-app admin UI for licence RPCs. **Do not merge
 PR #41 before the production preflight reads PASS and every listed provider session is reconciled**: Lovable syncs
 `main` and may apply hosted migrations.
+
+**CUSTOMER_SCOPE_TRIAL_BALANCE_REVIEW_ONLY** — product containment (2026-10-02, branch `fix/hide-tax-module-surfaces`).
+The customer-facing application exposes ONE proven workflow, presented as **Trial balance review** ("Upload, check and
+review the accounts in your trial balance."): 1. Upload trial balance → 2. Review accounts needing attention → 3. Reconcile
+supporting evidence → 4. Trial balance ready ("ready" needs Prepare passed AND evidence reconciled, safisha_status
+"clean"). `src/lib/workspace/moduleAvailability.ts` is the ONE boundary (`UNPROVEN_MODULES_CUSTOMER_VISIBLE = false`, a
+source constant — no env var, so it fails closed). Withheld from every customer surface:
+- capabilities `TAX_COMPUTATION`, `COMPLIANCE_REVIEW`, `FILING_PREPARATION`, `MONITORING` (FINANCIAL_STATEMENTS is kept: it
+  grants Prepare and Reconcile, and its customer projection is Trial balance review);
+- stages `statements`, `tax`, `compliance`, `filing`, `monitor` (backend state unchanged; never routed, mounted or listed);
+- public outcomes `prepare-statements`, `review-statements`, `tax-compliance`, `performance-risk`, `full-close`; service
+  intents `close-certification`, `reporting-pack`, `close-insights` (only `prepare-review` parses from any source).
+Those stage URLs (and `statements/review`, and the legacy `hesabu`/`kinga`/`issues`/`analytics` aliases) render the neutral
+`WorkspaceUnavailable` boundary; `App.tsx` imports none of those pages and Settings does not import PeriodCloseManager (all
+files are kept). An engagement whose every service is withheld stays untouched in the database but is not listed or
+resumed, never mounts, and never turns the account into a first run. Why each is withheld: Statements — see
+SERVER_AUTHORITATIVE_STATEMENT_COMPILER_REQUIRED; Tax/Compliance/Filing — the latter two require signed Tax output;
+Monitoring — the dashboard only reads existing `variance_runs`, and nothing in the interface starts `maono-compute`.
+Client-side only in this change: no edge function, table, RPC, migration, jurisdiction pack, record, entitlement or audit
+history is changed or deleted (the database refusal of new grants is `WITHHELD_SERVICE_GRANTS_REFUSED_BY_THE_DATABASE`).
+Tax-related ACCOUNTS are accounting data and are never filtered. Proven by `src/lib/workspace/moduleAvailability.test.ts`.
+Re-enabling a module is a reviewed code change: flip the constant, restore its routes/imports, and its public copy.
+
+**SERVER_AUTHORITATIVE_STATEMENT_COMPILER_REQUIRED** — release blocker (registered 2026-10-02). Official financial reporting
+must not be customer-reachable until the SERVER independently recomputes it. Today:
+- client-supplied report documents are not authoritative — `fs_assert_report_document` checks lineage and integer money
+  encoding only;
+- client-supplied findings are not authoritative — `fs_save_evaluation` stores the caller's findings, and
+  `fs_publication_blockers` counts them as given;
+- client-supplied evidence validation statuses are not authoritative — `p_validation_status` is a caller parameter.
+`fs_set_publication_state` does refuse FINAL without each required statement (incl. the statement of changes in equity),
+its required evidence (`EQUITY_MOVEMENTS`, `TRANSACTION_LEDGER`) and unwaivable tie findings, and an official Reporting Pack
+needs a FINAL publication — but all three inputs are client-asserted, so a modified client could assert a materially
+incomplete statement as complete. FINAL publication and official issuance stay withheld (the statements stage and its
+workspace are not customer-reachable) until the server recomputes required statements, evidence sufficiency and the
+unwaivable validation findings itself. Separately, statement validation (`hesabu-validate`) requires a tax computation
+and is started only from the Tax panel. Not solved by the containment change; needs its own engine work.
 
 ---
 

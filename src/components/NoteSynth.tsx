@@ -312,7 +312,7 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated, companyId
                             <span className="font-semibold">Sources:</span>{" "}
                             {note.sources.map(s =>
                               s === "trial_balance" ? "Trial Balance" :
-                              s === "tax_computation" ? "Tax Computation" : "Company Profile"
+                              s === "tax_computation" ? "Computation" : "Company Profile"
                             ).join(" · ")}
                           </span>
                         </div>
@@ -335,7 +335,7 @@ export function NoteSynth({ uploadId, existingNotes, onNotesGenerated, companyId
                               day: "2-digit", month: "short", year: "numeric",
                               hour: "2-digit", minute: "2-digit",
                             })}
-                            {note.engineVersion ? ` · Tax computation ${note.engineVersion}` : ""}
+                            {note.engineVersion ? ` · Engine ${note.engineVersion}` : ""}
                           </span>
                         </div>
                       )}

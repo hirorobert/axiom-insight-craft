@@ -40,7 +40,9 @@ describe("plan presentation is read-only", () => {
   it("catalogue states the common services once, annual pricing only, proposed, and never claims saved selection or activation", () => {
     const html = render(createElement(PlanCatalogue));
     const common = html.slice(html.indexOf('data-testid="common-services"'), html.indexOf('aria-label="Plans"'));
-    for (const name of ["Prepare &amp; Review", "Close Certification", "Reporting Pack", "Close Insights"]) {
+    // Only the customer-visible service is listed (moduleAvailability.ts); withheld services never appear.
+    for (const withheld of ["Close Certification", "Reporting Pack", "Close Insights", "Multi-entity reporting"]) expect(html).not.toContain(withheld);
+    for (const name of ["Trial balance review"]) {
       expect(common).toContain(name);
       expect(html.split(name).length - 1).toBe(1);   // once, not repeated under every plan
     }
