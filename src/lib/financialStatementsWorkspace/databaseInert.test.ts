@@ -187,6 +187,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/process-trial-balance/functionpath/supabaseDouble.ts",
       "supabase/functions/process-trial-balance/functionpath/serverDouble.ts",
       "supabase/functions/process-trial-balance/functionpath/import_map.json",
+      // ...and the mixed-version probe (the same doubles over the release scenarios, for scripts/compat/tbMixedVersions.mjs).
+      "supabase/functions/process-trial-balance/functionpath/compatProbe.ts",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
@@ -241,6 +243,9 @@ describe("database inertness — schema and functions", () => {
       // Readiness evidence under real RLS: loopback-only; creates and drops ONLY its own uniquely named database; reads
       // through the app's own readReconciliationEvidence; probes (never changes) the write surface. No deploy behaviour.
       "scripts/db-proof/reconciliationEvidence.mjs",
+      // Old/new client × old/new server for the trial-balance release: git-extracted versions, Deno + in-memory doubles,
+      // no network database, no deploy behaviour.
+      "scripts/compat/tbMixedVersions.mjs",
       // PR #32 upload lifecycle: the loopback-only real-PostgreSQL proof, the read-only pre-flight report (SELECTs only),
       // and the hosted-staging proof behind the same stagingGuard (pinned by ciWorkflowSafety.test.ts).
       "scripts/db-proof/uploadLifecycle.mjs", "scripts/db-preflight/uploadLifecyclePreflight.sql", "scripts/upload_lifecycle_staging.mjs",
