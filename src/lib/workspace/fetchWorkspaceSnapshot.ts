@@ -18,7 +18,7 @@ import { computeCertificationReadiness } from "./computeCertificationReadiness";
 import { readTrialBalanceTotals } from "./trialBalanceVerdict";
 import { fetchCertificationReadiness } from "@/hooks/useCertificationReadiness";
 import type { WorkspaceState, UploadSnapshot } from "./types";
-import type { EvidenceRead, ReconciliationEvidence, ReconciliationExceptionSummary } from "./trialBalanceReadiness";
+import { effectiveSafishaStatus, readReconciliationEvidence, type EvidenceRead, type EvidenceReadClient } from "./trialBalanceReadiness";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type JsonCompatible = any;
@@ -124,7 +124,9 @@ function toUploadSnapshot(
     periodYear,
     status: upload.status,
     isValid: upload.is_valid,
-    safishaStatus: upload.safisha_status ?? null,
+    // A "clean" status whose readable reconciliation is NOT complete (partial, escalated, pending, rejected) unlocks
+    // nothing: the workspace state engine sees it as still under review (trialBalanceReadiness.effectiveSafishaStatus).
+    safishaStatus: effectiveSafishaStatus(upload.safisha_status ?? null, upload.reconciliation),
     uploadedAt: upload.uploaded_at,
     processedAt: upload.processed_at,
     hasMapping: !!upload.processing_result?.mapping,
@@ -144,30 +146,6 @@ export interface FetchWorkspaceSnapshotArgs {
   /** Pass already-fetched company/uploads rows to avoid a redundant query (the hub bulk-fetches these once per company). */
   companyOverride?: WorkspaceCompany | null;
   uploadsOverride?: WorkspaceUpload[];
-}
-
-/**
- * The upload's latest reconciliation for THIS viewer, with its exceptions by reviewer action — what readiness needs to
- * prove the reconciliation is complete (trialBalanceReadiness). A failed read is "failed", never "no reconciliation";
- * an empty answer means none is visible to this viewer (row-level access) or none exists.
- */
-async function readReconciliationEvidence(res: { data: unknown; error: unknown }): Promise<EvidenceRead> {
-  if (res.error) return { state: "failed" };
-  const row = res.data as (ReconciliationEvidence & { id: string }) | null;
-  if (!row) return { state: "read", evidence: null };
-  const { id, ...evidence } = row;
-  const { data, error } = await supabase.from("safisha_exceptions").select("reviewer_action, tb_txn_id").eq("reconciliation_id", id);
-  if (error || !Array.isArray(data)) return { state: "read", evidence: { ...evidence, exceptions: null } };
-  const x: ReconciliationExceptionSummary = { pending: 0, approved: 0, rejected: 0, escalated: 0, approvedTbLines: 0 };
-  const approvedLines = new Set<string>();
-  for (const e of data as { reviewer_action: string | null; tb_txn_id: string | null }[]) {
-    if (e.reviewer_action === "approved") { x.approved++; if (e.tb_txn_id) approvedLines.add(e.tb_txn_id); }
-    else if (e.reviewer_action === "rejected") x.rejected++;
-    else if (e.reviewer_action === "escalated") x.escalated++;
-    else x.pending++; // pending, or anything unrecognised: never counted as resolved
-  }
-  x.approvedTbLines = approvedLines.size;
-  return { state: "read", evidence: { ...evidence, exceptions: x } };
 }
 
 export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): Promise<WorkspaceSnapshot> {
@@ -202,7 +180,7 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
     derivePeriodYear: (u) => deriveFiscalPeriod(u, company).periodYear,
   });
 
-  const [hesabuRes, kingaRes, filingRes, reconRes] = await Promise.all([
+  const [hesabuRes, kingaRes, filingRes, reconciliation] = await Promise.all([
     match
       ? supabase
           .from("hesabu_validations")
@@ -229,17 +207,9 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    match
-      ? supabase
-          .from("safisha_reconciliations")
-          .select("id, status, matched_count, exception_count, total_tb_lines")
-          .eq("tb_upload_id", match.id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
+    match ? readReconciliationEvidence(supabase as unknown as EvidenceReadClient, match.id) : Promise.resolve(undefined),
   ]);
-  if (match) match.reconciliation = await readReconciliationEvidence(reconRes as { data: unknown; error: unknown });
+  if (match) match.reconciliation = reconciliation;
 
   const hesabuPassedAt = (hesabuRes.data as { validated_at: string } | null)?.validated_at ?? null;
   const kingaSignedAt = (kingaRes.data as { approver_signed_at: string } | null)?.approver_signed_at ?? null;

@@ -238,6 +238,9 @@ describe("database inertness — schema and functions", () => {
       // Pure, database-free migration-ordering predicates shared by run.mjs and serviceEnquiries.mjs (already reviewed above),
       // replacing their prior files.length-N / slice(-N,-M) positional assumptions. No new dependency, no deploy behavior change.
       "scripts/db-proof/migrationOrderingChecks.mjs",
+      // Readiness evidence under real RLS: loopback-only; creates and drops ONLY its own uniquely named database; reads
+      // through the app's own readReconciliationEvidence; probes (never changes) the write surface. No deploy behaviour.
+      "scripts/db-proof/reconciliationEvidence.mjs",
       // PR #32 upload lifecycle: the loopback-only real-PostgreSQL proof, the read-only pre-flight report (SELECTs only),
       // and the hosted-staging proof behind the same stagingGuard (pinned by ciWorkflowSafety.test.ts).
       "scripts/db-proof/uploadLifecycle.mjs", "scripts/db-preflight/uploadLifecyclePreflight.sql", "scripts/upload_lifecycle_staging.mjs",

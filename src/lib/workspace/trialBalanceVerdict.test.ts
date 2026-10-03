@@ -104,8 +104,16 @@ describe("each status has one failure-appropriate action", () => {
   it("accepted: evidence verification unlocked (mandatory before tax); once evidence is clean, continue to Reconcile", () => {
     const a = deriveTrialBalanceVerdict({ upload: upload("complete"), readiness: { verdict: "certified", blocker: null, checks: passedLayers }, canRetry: true });
     expect(a).toMatchObject({ status: "accepted", statusLabel: "Accepted", evidenceUnlocked: true, evidenceCleared: false, primaryAction: { kind: "verify_evidence" } });
-    const c = deriveTrialBalanceVerdict({ upload: upload("complete", { safisha_status: "clean" }), readiness: { verdict: "certified", blocker: null, checks: passedLayers }, canRetry: true });
+    const complete = { state: "read" as const, evidence: { status: "clean", matched_count: 3, exception_count: 1, total_tb_lines: 4, exceptions: { pending: 0, approved: 1, rejected: 0, escalated: 0, approvedTbLines: 1 } } };
+    const c = deriveTrialBalanceVerdict({ upload: upload("complete", { safisha_status: "clean", reconciliation: complete }), readiness: { verdict: "certified", blocker: null, checks: passedLayers }, canRetry: true });
     expect(c).toMatchObject({ evidenceCleared: true, primaryAction: { kind: "continue", label: "Continue to Reconcile" } });
+    // Raw "clean" alone, or a clean status over partial / escalated / unreadable evidence, clears nothing.
+    for (const reconciliation of [undefined, { state: "failed" as const }, { state: "read" as const, evidence: null },
+      { ...complete, evidence: { ...complete.evidence, matched_count: 1 } },
+      { ...complete, evidence: { ...complete.evidence, exceptions: { ...complete.evidence.exceptions, escalated: 1 } } }]) {
+      const v = deriveTrialBalanceVerdict({ upload: upload("complete", { safisha_status: "clean", reconciliation }), readiness: { verdict: "certified", blocker: null, checks: passedLayers }, canRetry: true });
+      expect(v).toMatchObject({ evidenceCleared: false, primaryAction: { kind: "verify_evidence" } });
+    }
   });
   it("needs review: resolve the classifications", () => {
     const v = deriveTrialBalanceVerdict({ upload: upload("needs_review"), readiness: { verdict: "review", blocker: "12 accounts still need a classification decision.", checks: passedLayers }, canRetry: true });
