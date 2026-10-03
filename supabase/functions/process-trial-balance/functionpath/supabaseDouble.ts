@@ -4,6 +4,9 @@
 // recorded so the test can assert what the REAL handler did. No network.
 
 export type Row = Record<string, unknown>;
+// The real module also exports the client type (actor.ts annotates a parameter with it).
+// deno-lint-ignore no-explicit-any
+export type SupabaseClient<_D = any, _S = any, _T = any> = any;
 export type Answer = { data: unknown; error: { code?: string; message: string } | null };
 
 export interface World {
