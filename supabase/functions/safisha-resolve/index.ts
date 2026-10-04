@@ -97,7 +97,10 @@ serve(async (req: Request) => {
     // This calls the SECURITY DEFINER Postgres function which is the only
     // SQL path that can write reviewer_action.
 
-    const { data: resolveResult, error: resolveErr } = await supabase.rpc(
+    // The RPC is service-role only (20260925140000); it re-checks the reviewer's own authority (current plan +
+    // prepare_close in this workspace) from p_reviewer_id, which is the verified JWT user above.
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const { data: resolveResult, error: resolveErr } = await admin.rpc(
       "safisha_resolve_exception",
       {
         p_exception_id: exception_id,
@@ -169,7 +172,10 @@ function actionMessage(action: string, category: string, reconStatus: string): s
 
 function resolveResult_remaining_text(action: string, category: string): string {
   if (action === "rejected" && category === "investigate") {
-    return "Rejected investigate exceptions block the reconciliation — all must be approved or escalated to clear.";
+    return "Rejected investigate exceptions block the reconciliation — it clears only when every exception is approved.";
+  }
+  if (action === "escalated") {
+    return "Escalated exceptions stay open — the reconciliation clears only when every exception is approved.";
   }
   return "Continue reviewing remaining pending exceptions.";
 }

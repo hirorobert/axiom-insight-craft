@@ -176,6 +176,22 @@ jobs:
         # 5 factors, 6 FA2026 fixtures) + computeWearTear (ITA s.34 all 7 classes).
         # These are pure-function tests — no DB, no network, no mocks except supabase client.
 
+  reconciliation-function-checks:
+    name: Edge function checks (Deno, reconciliation result and resolution)
+    runs-on: ubuntu-latest
+    # Read-only: type-checks the two reconciliation functions that record results through the service-role RPCs. No secrets, no deploy.
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.6
+
+      - name: Type-check safisha-match and safisha-resolve against the real Supabase client types
+        run: deno check supabase/functions/safisha-match/index.ts supabase/functions/safisha-resolve/index.ts
+
   rls-regression:
     name: Staging RLS Regression (manual, write-capable)
     # WRITE-CAPABLE: this suite creates users, companies and rows in the Supabase project it
@@ -390,3 +406,8 @@ jobs:
         run: |
           createdb withholding_proof
           node scripts/db-proof/serviceWithholding.mjs
+
+      - name: Reconciliation server authority proof (upgrade byte-identical, product client writes unchanged, derived match counts, escalated/rejected stay unresolved, owner/reviewer/Prepare-only/outsider/cross-tenant forgery refused, MAONO gate, re-apply; creates and drops its own database on the same throwaway container)
+        env:
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: node scripts/db-proof/reconciliationAuthority.mjs

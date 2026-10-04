@@ -231,11 +231,13 @@ async function main() {
 
   group("Static contract");
   const code = migrationText.replace(/--[^\n]*/g, "");
-  await check("the migration is the newest; its top-level statements contain no DROP, DELETE, TRUNCATE, UPDATE, INSERT or ALTER TABLE", async () => {
+  // Reviewed, unrelated forward migrations that may follow this one (exact names; nothing else may).
+  const LATER = ["20261004100000_reconciliation_server_authority.sql"];
+  await check("the migration is the newest but for the named later migrations; its top-level statements contain no DROP, DELETE, TRUNCATE, UPDATE, INSERT or ALTER TABLE", async () => {
     // Function bodies (dollar-quoted) are excluded: the two RPC bodies are their existing definitions, proven below to
     // differ from them by exactly one line each.
     const topLevel = code.replace(/\$(function)?\$[\s\S]*?\$(function)?\$/g, "");
-    if (cut !== files.length - 1) return `not the newest (followed by ${files.slice(cut + 1).join(", ")})`;
+    if (JSON.stringify(files.slice(cut + 1)) !== JSON.stringify(LATER)) return `followed by ${files.slice(cut + 1).join(", ") || "nothing"}, expected exactly ${LATER.join(", ")}`;
     return !/\b(DROP|DELETE|TRUNCATE|UPDATE|INSERT\s+INTO|ALTER\s+TABLE)\b/i.test(topLevel) ? true : "data or schema-destructive statement present";
   });
   await check("ONE withheld list: only capability_customer_available() names the four services; every entry asserts through it", async () => {

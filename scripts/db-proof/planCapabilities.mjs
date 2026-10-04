@@ -1126,7 +1126,9 @@ async function main() {
     const ex2 = (await admin.query("INSERT INTO public.safisha_exceptions (reconciliation_id, account_code, category, variance) VALUES ($1,'2000','timing',5) RETURNING id", [rec])).rows[0].id;
     return { up, rec, ex, ex2 };
   };
-  const match = (who, rec) => codeOf(() => q(user(who), "UPDATE public.safisha_reconciliations SET matched_count = matched_count + 1, status='needs_review' WHERE id=$1 RETURNING id", [rec]).then((x) => { if (x.length === 0) throw Object.assign(new Error("0 rows"), { code: "NO_ROW" }); }));
+  // Recording a match result is the service-role RPC safisha-match calls with the JWT user as the actor (20261004100000:
+  // a client can no longer write reconciliation counts); it re-checks the plan, then prepare_close, for that actor.
+  const match = (who, rec) => codeOf(() => q(SERVICE, "SELECT public.safisha_record_match_result($1,$2)", [rec, who]));
   const categorize = (who, rec) => codeOf(() => q(user(who), "INSERT INTO public.safisha_exceptions (reconciliation_id, account_code, category, variance) VALUES ($1,'3000','investigate',1)", [rec]));
   const score = (who, rec) => codeOf(() => q(user(who), "UPDATE public.safisha_reconciliations SET confidence_score = 90 WHERE id=$1 RETURNING id", [rec]).then((x) => { if (x.length === 0) throw Object.assign(new Error("0 rows"), { code: "NO_ROW" }); }));
   const resolveEx = (reviewer, ex) => codeOf(() => q(SERVICE, "SELECT public.safisha_resolve_exception($1,$2,'approved','proof')", [ex, reviewer]));
@@ -1174,12 +1176,14 @@ async function main() {
   });
   await check("another account fails identically: an outsider changes nothing (RLS), and a second expired account is refused with the same PT402 on its own reconciliation", async () => {
     const outsider = await match(R.other, RC.rec);
+    const outsiderDirect = await codeOf(() => q(user(R.other), "UPDATE public.safisha_reconciliations SET status='needs_review' WHERE id=$1 RETURNING id", [RC.rec]).then((x) => { if (x.length === 0) throw Object.assign(new Error("0 rows"), { code: "NO_ROW" }); }));
     const O = { owner: await mkUser("rc2") }; O.lic = await grantPlan(O.owner, "SOLO"); O.co = await newCompany(O.owner, "Other Recon"); O.rc = await mkRecon(O.owner, O.co);
     await expire(O.lic);
     const e1 = await errOf(() => q(user(O.owner), "UPDATE public.safisha_reconciliations SET matched_count=1 WHERE id=$1", [O.rc.rec]));
     const e2 = await errOf(() => q(user(R.owner), "UPDATE public.safisha_reconciliations SET matched_count=1 WHERE id=$1", [RC.rec]));
-    return outsider === "NO_ROW" && e1?.code === "PT402" && e2?.code === "PT402" && e1.detail === e2.detail && e1.hint === e2.hint && e1.message === e2.message
-      ? true : JSON.stringify({ outsider, e1: [e1?.code, e1?.detail], e2: [e2?.code, e2?.detail] });
+    // The outsider's account has a plan, so the match RPC reaches the capability check (42501); a direct write sees no row.
+    return outsider === "42501" && outsiderDirect === "NO_ROW" && e1?.code === "PT402" && e2?.code === "PT402" && e1.detail === e2.detail && e1.hint === e2.hint && e1.message === e2.message
+      ? true : JSON.stringify({ outsider, outsiderDirect, e1: [e1?.code, e1?.detail], e2: [e2?.code, e2?.detail] });
   });
   await check("refusal changed no reconciliation, exception, transaction, audit, upload, finding, sign-off or EFDMS state; history stays readable to the owner", async () => {
     const after = await reconState(RC.rec, R.co);
@@ -1243,14 +1247,15 @@ async function main() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const ownerSession = async (uid) => { const c = await pool.connect(); await c.query("BEGIN"); await c.query("SET LOCAL ROLE authenticated");
     await c.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [uid]); return c; };
-  const matchedCount = async () => (await admin.query("SELECT matched_count FROM public.safisha_reconciliations WHERE id=$1", [RC.rec])).rows[0].matched_count;
+  // The race writes the column clients may still write (safisha-score's confidence_score; counts are server-recorded).
+  const matchedCount = async () => Number((await admin.query("SELECT confidence_score FROM public.safisha_reconciliations WHERE id=$1", [RC.rec])).rows[0].confidence_score);
   await check("expiry vs write race — expiry commits first: the waiting write re-reads the plan after the lock and is refused (nothing written)", async () => {
     const before = await matchedCount();
     const a = await pool.connect(); await a.query("BEGIN");
     await a.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end=now() WHERE id=$1", [R.lic]);
     const b = await ownerSession(R.owner);
     let settled = false;
-    const pb = b.query("UPDATE public.safisha_reconciliations SET matched_count = matched_count + 1 WHERE id=$1", [RC.rec]).then(() => "ok", (e) => e.code).finally(() => { settled = true; });
+    const pb = b.query("UPDATE public.safisha_reconciliations SET confidence_score = confidence_score - 1 WHERE id=$1", [RC.rec]).then(() => "ok", (e) => e.code).finally(() => { settled = true; });
     await sleep(400);
     const blocked = !settled;
     await a.query("COMMIT"); a.release();
@@ -1261,7 +1266,7 @@ async function main() {
     R.lic = await grantPlan(R.owner, "PRACTICE");
     const before = await matchedCount();
     const b = await ownerSession(R.owner);
-    await b.query("UPDATE public.safisha_reconciliations SET matched_count = matched_count + 1 WHERE id=$1", [RC.rec]);
+    await b.query("UPDATE public.safisha_reconciliations SET confidence_score = confidence_score - 1 WHERE id=$1", [RC.rec]);
     const a = await pool.connect(); await a.query("BEGIN");
     let settled = false;
     const pa = a.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end=now() WHERE id=$1", [R.lic]).then(() => "ok", (e) => e.code).finally(() => { settled = true; });
@@ -1270,7 +1275,7 @@ async function main() {
     await b.query("COMMIT"); b.release();
     const ra = await pa; await a.query("COMMIT"); a.release();
     const plan = (await admin.query("SELECT public._account_has_current_plan($1) p", [R.owner])).rows[0].p;
-    return blocked && ra === "ok" && (await matchedCount()) === before + 1 && plan === false ? true : JSON.stringify({ blocked, ra, before, after: await matchedCount(), plan });
+    return blocked && ra === "ok" && (await matchedCount()) === before - 1 && plan === false ? true : JSON.stringify({ blocked, ra, before, after: await matchedCount(), plan });
   });
   await check("the wall covers every reconciliation table on INSERT, UPDATE and DELETE, and no other function writes them", async () => {
     const t = (await admin.query("SELECT tgrelid::regclass::text t, (tgtype & 4) <> 0 ins, (tgtype & 8) <> 0 del, (tgtype & 16) <> 0 upd FROM pg_trigger WHERE tgname='aa_reconciliation_write_wall' ORDER BY 1")).rows;
@@ -1278,7 +1283,7 @@ async function main() {
     const writers = (await admin.query(String.raw`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind='f'
       AND pg_get_functiondef(p.oid) ~* '(INSERT INTO|UPDATE|DELETE FROM)\s+(public\.)?(safisha_(reconciliations|transactions|exceptions|audit_log)|efdms_(reconciliation|records|z_reports))\M' ORDER BY 1`)).rows.map((x) => x.proname);
     return JSON.stringify(tables) === JSON.stringify(["efdms_reconciliation", "efdms_records", "efdms_z_reports", "safisha_audit_log", "safisha_exceptions", "safisha_reconciliations", "safisha_transactions"])
-      && t.every((x) => x.ins && x.del && x.upd) && JSON.stringify(writers) === '["safisha_append_evidence_file","safisha_resolve_exception"]'
+      && t.every((x) => x.ins && x.del && x.upd) && JSON.stringify(writers) === '["safisha_append_evidence_file","safisha_record_match_result","safisha_resolve_exception"]'
       ? true : JSON.stringify({ tables, writers });
   });
 

@@ -175,6 +175,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/reportingPackSeal.mjs",
       "supabase/functions/_shared/reportingPackSeal.d.mts",
       "supabase/functions/seal-reporting-pack/index.ts",
+      // Reconciliation server authority (forward-only): completeness from stored rows, the service-role match-result
+      // RPC, escalated/rejected exceptions kept unresolved, client-role forgery guards. No financial-statements schema.
+      "supabase/migrations/20261004100000_reconciliation_server_authority.sql",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
@@ -215,6 +218,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/kinga-tax-engine/index.ts",
       // B-5: the evidence-attachment RPC error is a failure, never ignored.
       "supabase/functions/safisha-ingest/index.ts",
+      // Reconciliation server authority (20261004100000): the matcher records its result through the service-role RPC
+      // (actor from the verified JWT); the resolver calls its service-role-only RPC with the service client.
+      "supabase/functions/safisha-match/index.ts",
+      "supabase/functions/safisha-resolve/index.ts",
     ]);
     expect(unreviewedChanges(changed, { added, modified })).toEqual([]);
   });
@@ -265,6 +272,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/annualTerm.mjs", "scripts/db-preflight/annualTermPreflight.sql",
       // Withheld-service grant refusal (20261002100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.
       "scripts/db-proof/serviceWithholding.mjs",
+      // Reconciliation server authority (20261004100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.
+      "scripts/db-proof/reconciliationAuthority.mjs",
       // This guard's own fail-closed base resolver and exact-file review (no deploy behaviour), and the CI check that the
       // guard executed with zero skipped tests.
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);

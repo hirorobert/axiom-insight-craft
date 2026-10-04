@@ -479,29 +479,52 @@ serve(async (req: Request) => {
       if (insErr) throw new Error("Insert exceptions failed: " + insErr.message);
     }
 
-    // ── Update reconciliation ─────────────────────────────────────────────────
+    // ── Record the result (20261004100000) ────────────────────────────────────
+    // The database records it: safisha_record_match_result derives the counts from the stored transactions and
+    // exceptions, re-checks this user's authority, and sets 'clean' (reconciliation and upload) only when every TB line
+    // is matched or approved. A client-role write of counts or 'clean' is refused by the database, so the service role
+    // is used here — with the actor taken from the verified JWT above, never from the request body.
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const { data: recorded, error: recordErr } = await admin.rpc("safisha_record_match_result", {
+      p_recon_id: reconciliation_id,
+      p_actor:    user.id,
+    });
 
-    const newStatus = exceptions.length === 0 ? "clean" : "needs_review";
-
-    await supabase.from("safisha_reconciliations").update({
-      matched_count:   matchedCount,
-      exception_count: exceptions.length,
-      total_tb_lines:  tbLines.length,
-      status:          newStatus,
-    }).eq("id", reconciliation_id);
-
-    if (exceptions.length === 0) {
-      await supabase.from("trial_balance_uploads")
-        .update({ safisha_status: "clean" })
-        .eq("id", recon.tb_upload_id);
+    let newStatus: string;
+    let resultMatched = matchedCount;
+    let resultTotal = tbLines.length;
+    if (!recordErr) {
+      const r = recorded as { status: string; matched_tb_lines: number; total_tb_lines: number };
+      newStatus = r.status;
+      resultMatched = r.matched_tb_lines;
+      resultTotal = r.total_tb_lines;
+    } else if (recordErr.code === "PGRST202" || recordErr.code === "42883") {
+      // The migration is not applied yet: the pre-20261004100000 writes, unchanged.
+      newStatus = exceptions.length === 0 ? "clean" : "needs_review";
+      await supabase.from("safisha_reconciliations").update({
+        matched_count:   matchedCount,
+        exception_count: exceptions.length,
+        total_tb_lines:  tbLines.length,
+        status:          newStatus,
+      }).eq("id", reconciliation_id);
+      if (exceptions.length === 0) {
+        await supabase.from("trial_balance_uploads")
+          .update({ safisha_status: "clean" })
+          .eq("id", recon.tb_upload_id);
+      }
+    } else {
+      const status = recordErr.code === "42501" ? 403 : recordErr.code === "PT402" ? 402 : 500;
+      return new Response(JSON.stringify({ error: recordErr.message }), {
+        status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     return new Response(JSON.stringify({
       success:           true,
       reconciliation_id,
-      matched_count:     matchedCount,
+      matched_count:     resultMatched,
       exception_count:   exceptions.length,
-      total_tb_lines:    tbLines.length,
+      total_tb_lines:    resultTotal,
       status:            newStatus,
       tier_breakdown:    tierHits,
       exception_categories: {
@@ -510,7 +533,7 @@ serve(async (req: Request) => {
         investigate:      exceptions.filter(e => e.category === "investigate").length,
       },
       fuzzy_matches: tierHits.t1_5 + tierHits.t2_5,
-      next_step: exceptions.length > 0
+      next_step: newStatus !== "clean"
         ? "Call safisha-categorize → safisha-score → present ExceptionQueue"
         : "TB is clean — tax engine unlocked",
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
