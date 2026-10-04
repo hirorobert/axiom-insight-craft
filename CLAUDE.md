@@ -1143,7 +1143,11 @@ otherwise `needs_review`. The matcher records a run ONLY through the service-rol
 actor, exceptions)` (actor from the verified JWT; plan + `prepare_close`; findings validated against the reconciliation's
 own rows; each finding recorded once — retries are idempotent and decided findings are never re-opened). Decisions go
 ONLY through the service-role `safisha_decide_exception` (`safisha_resolve_exception` is a wrapper): escalated stays open
-until a DIFFERENT holder of `review_close` (owner/partner) approves or rejects it; approved/rejected are final. Both take
+until it is approved or rejected — in a FIRM workspace only by a DIFFERENT holder of `review_close` (owner/partner; no
+self-decision, the owner included); in a PERSONAL (company-less) workspace only by its sole owner (explicit
+`SOLE_OWNER_REQUIRED` check). Every decision records `safisha_audit_log.decision_basis` (`prepare_close`,
+`separate_review_close`, `personal_workspace_owner`, `personal_sole_owner_escalation`; the one additive nullable column
+this migration adds). Approved/rejected are final. Both take
 the reconciliation lock first (no match/decision deadlock). Client roles cannot write counts, completion, sealing,
 `clean`/`blocked` or exceptions; no writer at all can record an incomplete `clean`; a new `tb` line or exception re-opens
 a `clean` reconciliation; `maono_check_safisha_gate` requires `clean` AND complete; TRUNCATE revoked from clients. No row
@@ -1151,7 +1155,10 @@ is changed (a legacy upload the old resolver marked `clean` on an escalated exce
 blocks it). Proven by `scripts/db-proof/reconciliationAuthority.mjs` and `reconciliationFunctionMatrix.mjs` (real old and
 new handlers × old and new schema). Release order: deploy `safisha-match` + `safisha-resolve` FIRST (against the old
 schema they answer 503 and record nothing), THEN apply the migration. The reverse order lets the OLD matcher answer
-"clean" without recording it.
+"clean" without recording it. Lovable (docs.lovable.dev/integrations/git-sync-overview): a GitHub sync never publishes
+the live site (only an explicit Publish does) and never deploys a function or runs a migration (each is an explicit
+project-chat request). Apply migrations only through Lovable's native migrator, which records the hosted journal row
+(hash = file SHA-256) in the same transaction; never through the SQL editor (no journal record).
 
 ---
 
