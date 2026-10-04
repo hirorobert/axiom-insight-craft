@@ -1,17 +1,18 @@
 /**
- * Every frontend consumer of reconciliation "clean" / readiness, driven with a raw "clean" status over EMPTY, PARTIAL,
- * ESCALATED, PENDING, REJECTED and UNREADABLE evidence: none of them unlocks a readiness-dependent action. Only a
+ * Every frontend consumer of reconciliation "clean", driven with a raw "clean" status over EMPTY, PARTIAL, ESCALATED,
+ * PENDING, REJECTED and UNREADABLE evidence: none of them unlocks anything that depends on a reconciliation. Only a
  * complete reconciliation does. A static guard pins the full list of raw "clean" comparisons so a new consumer cannot
  * appear without being added here.
  *
- * Consumers (traced):
- *   1. deriveWorkspaceState — Prepare "passed" and the later-stage unlocks (taxBlocked = !safishaClean). Fed the
- *      EFFECTIVE status (effectiveSafishaStatus, applied in fetchWorkspaceSnapshot.toUploadSnapshot).
- *   2. trialBalanceVerdict.evidenceCleared — hides evidence verification and offers "Continue to Reconcile".
- *   3. trialBalanceReadiness → trialBalanceReviewStep / deriveOrientationSummary (Overview, hub) [#45 adds trialBalanceTask, tested there].
- *   4. SafishaGate / ExceptionQueue — display the reconciliation's own result inside the gate; they unlock nothing
- *      (the page re-reads the snapshot, i.e. 1–3).
- * Server consumers are covered by the disposable-PostgreSQL proof and the release report (maono_check_safisha_gate).
+ * Scope (TB Review scope correction): supporting-evidence reconciliation is NOT part of Trial balance review. Its outcome
+ * — a "Reviewed trial balance" — depends only on checks passed and classifications confirmed, so it is the SAME whatever
+ * the reconciliation says, and it never claims reconciliation. What a reconciliation still gates is unchanged:
+ *   1. deriveWorkspaceState — tax (taxBlocked = !safishaClean, the constitutional gate). Fed the EFFECTIVE status
+ *      (effectiveSafishaStatus, applied in fetchWorkspaceSnapshot.toUploadSnapshot), so a raw "clean" over incomplete
+ *      evidence never unlocks tax.
+ *   2. evidenceState / reconciliationEvaluated — the one definition of a complete reconciliation.
+ *   3. SafishaGate / ExceptionQueue — display the reconciliation's own result inside the gate; they unlock nothing.
+ * Server consumers are covered by the disposable-PostgreSQL proofs (maono_check_safisha_gate, 20261004100000).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -19,7 +20,7 @@ import { describe, expect, it } from "vitest";
 import { deriveWorkspaceState } from "./deriveWorkspaceState";
 import { deriveOrientationSummary, trialBalanceReviewStep } from "./deriveOrientationSummary";
 import { deriveTrialBalanceVerdict } from "./trialBalanceVerdict";
-import { effectiveSafishaStatus, trialBalanceReadiness, type EvidenceRead } from "./trialBalanceReadiness";
+import { effectiveSafishaStatus, evidenceState, reconciliationEvaluated, trialBalanceReadiness, type EvidenceRead } from "./trialBalanceReadiness";
 import type { UploadSnapshot } from "./types";
 
 const none = { pending: 0, approved: 0, rejected: 0, escalated: 0, approvedTbLines: 0 };
@@ -41,42 +42,43 @@ const NOT_COMPLETE: Record<string, EvidenceRead | undefined> = {
 };
 const READABLE_INCOMPLETE = ["empty", "partial", "escalated", "pending", "rejected"];
 
-const snapshot = (safishaStatus: string | null): UploadSnapshot => ({
+const snapshot = (safishaStatus: string | null, hesabuPassedAt: string | null = null): UploadSnapshot => ({
   id: "u1", companyId: "c1", companyName: "Co", periodYear: 2025, status: "complete", isValid: true, safishaStatus,
-  uploadedAt: "2026-01-01T00:00:00Z", processedAt: "2026-01-01T00:00:00Z", hasMapping: false, hesabuPassedAt: null,
+  uploadedAt: "2026-01-01T00:00:00Z", processedAt: "2026-01-01T00:00:00Z", hasMapping: false, hesabuPassedAt,
   kingaSignedAt: null, filingSubmittedAt: null, certificationVerdict: "certified", certificationBlocker: null,
 });
-const unlocked = (safishaStatus: string | null) => {
-  const s = deriveWorkspaceState("c1", "Co", 2025, snapshot(safishaStatus));
-  return { prepare: s.missions.prepare.status, statements: s.missions.statements.status, tax: s.missions.tax.status };
-};
+/** The tax stage once statements are validated — the one workspace consumer of a reconciliation. */
+const taxAfterStatements = (safishaStatus: string | null) => deriveWorkspaceState("c1", "Co", 2025, snapshot(safishaStatus, "2026-01-02T00:00:00Z")).missions.tax.status;
+const verdictFor = () => deriveTrialBalanceVerdict({ upload: { id: "u1", status: "complete" }, readiness: { verdict: "certified", blocker: null, checks: [] }, canRetry: true });
 
-describe("a raw 'clean' over incomplete evidence unlocks nothing", () => {
-  it("baseline: a COMPLETE reconciliation unlocks every consumer", () => {
+describe("a raw 'clean' over incomplete evidence unlocks nothing that depends on a reconciliation", () => {
+  it("baseline: a COMPLETE reconciliation is complete and unlocks tax", () => {
     expect(effectiveSafishaStatus("clean", COMPLETE)).toBe("clean");
-    expect(trialBalanceReadiness({ certificationVerdict: "certified", safishaStatus: "clean", reconciliation: COMPLETE }).ready).toBe(true);
-    const v = deriveTrialBalanceVerdict({ upload: { id: "u1", status: "complete", safisha_status: "clean", reconciliation: COMPLETE }, readiness: { verdict: "certified", blocker: null, checks: [] }, canRetry: true });
-    expect(v.evidenceCleared).toBe(true);
+    expect(evidenceState("clean", COMPLETE).state).toBe("complete");
+    expect(reconciliationEvaluated(COMPLETE.state === "read" ? COMPLETE.evidence : null)).toBe(true);
+    expect(taxAfterStatements(effectiveSafishaStatus("clean", COMPLETE))).toBe("ready");
   });
 
   for (const [name, read] of Object.entries(NOT_COMPLETE)) {
-    it(`${name}: no readiness, no 'Continue', no cleared evidence${READABLE_INCOMPLETE.includes(name) ? ", and the state engine sees it as under review" : ""}`, () => {
-      // 3. readiness, review step, orientation, task
-      expect(trialBalanceReadiness({ certificationVerdict: "certified", safishaStatus: "clean", reconciliation: read }).ready).toBe(false);
-      const state = deriveWorkspaceState("c1", "Co", 2025, snapshot("clean"));
-      expect(trialBalanceReviewStep(state, "clean", read)?.ready).toBe(false);
-      expect(deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS"], "clean", read).currentStatusLabel).not.toBe("Trial balance ready");
-      // 2. verdict
-      const v = deriveTrialBalanceVerdict({ upload: { id: "u1", status: "complete", safisha_status: "clean", reconciliation: read }, readiness: { verdict: "certified", blocker: null, checks: [] }, canRetry: true });
-      expect(v.evidenceCleared).toBe(false);
-      expect(v.primaryAction?.kind).toBe("verify_evidence");
+    it(`${name}: not complete; tax stays locked${READABLE_INCOMPLETE.includes(name) ? " (the state engine sees it as under review)" : ""}; the Trial balance review outcome is unaffected and never claims reconciliation`, () => {
+      // 2. the one definition of completeness
+      expect(evidenceState("clean", read).state).not.toBe("complete");
       // 1. state engine: readable-but-incomplete evidence is downgraded before it reaches deriveWorkspaceState
       const effective = effectiveSafishaStatus("clean", read);
       if (READABLE_INCOMPLETE.includes(name)) {
         expect(effective).toBe("needs_review");
-        expect(unlocked("clean").prepare).toBe("passed");   // what the raw status alone would have unlocked
-        expect(unlocked(effective).prepare).toBe("blocked"); // what the state engine actually receives
+        expect(taxAfterStatements("clean")).toBe("ready");   // what the raw status alone would have unlocked
+        expect(taxAfterStatements(effective)).toBe("locked"); // what the state engine actually receives
       }
+      // Trial balance review: identical outcome regardless of the reconciliation, and never "reconciled"
+      const state = deriveWorkspaceState("c1", "Co", 2025, snapshot(effective));
+      expect(state.missions.prepare.status).toBe("passed");
+      expect(trialBalanceReviewStep(state)).toMatchObject({ ready: true, label: "Reviewed trial balance" });
+      expect(deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS"]).currentStatusLabel).toBe("Reviewed trial balance");
+      expect(trialBalanceReadiness({ certificationVerdict: "certified" }).ready).toBe(true);
+      const v = verdictFor();
+      expect(v.statusLabel).toBe("Reviewed");
+      expect(JSON.stringify([v, trialBalanceReviewStep(state), state.missions.prepare])).not.toMatch(/reconciled|audited|assured|signed off/i);
     });
   }
 
@@ -84,6 +86,11 @@ describe("a raw 'clean' over incomplete evidence unlocks nothing", () => {
     for (const raw of [null, "processing", "needs_review", "blocked"]) for (const read of [COMPLETE, ...Object.values(NOT_COMPLETE)]) {
       expect(effectiveSafishaStatus(raw, read)).toBe(raw);
     }
+  });
+
+  it("tax stays locked for every non-clean status, with no reconciliation at all, and before statements are validated", () => {
+    for (const raw of [null, "processing", "needs_review", "blocked"]) expect(taxAfterStatements(raw)).toBe("locked");
+    expect(deriveWorkspaceState("c1", "Co", 2025, snapshot("clean")).missions.tax.status).toBe("locked");
   });
 });
 

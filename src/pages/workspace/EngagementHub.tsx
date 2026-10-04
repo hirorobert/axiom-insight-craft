@@ -143,7 +143,7 @@ export default function EngagementHub({
                 const stageLabel = nextVisible ? STAGE_CONFIGS[entry.workspaceState.nextAction.mission].label : TRIAL_BALANCE_REVIEW.title;
                 const nextLabel = nextVisible
                   ? entry.workspaceState.nextAction.label
-                  : trialBalanceReviewStep(entry.workspaceState, entry.safishaStatus, entry.reconciliation)?.label ?? NO_VISIBLE_NEXT_ACTION;
+                  : trialBalanceReviewStep(entry.workspaceState)?.label ?? NO_VISIBLE_NEXT_ACTION;
                 const services = customerVisibleCapabilities(entry.capabilities);
                 const serviceLabel =
                   services.length > 0

@@ -141,21 +141,14 @@ describe("the shell and Prepare narrow to the grant (source contract)", () => {
     expect(layout).toMatch(/item\.id === "overview" \? !prepareOnly : canOpenStage\(workspaceData\.access/);
     expect(src("src/App.tsx")).toMatch(/<Route index element=\{<OverviewAccessGate><WorkspaceOverview \/><\/OverviewAccessGate>\} \/>/);
   });
-  it("Prepare-only: no account review, no mapping, no framework prompt, and the evidence gate is never opened by them", () => {
+  it("Prepare-only: no account review, no mapping, no framework prompt; no evidence gate exists on this page for anyone", () => {
     const prep = src("src/pages/workspace/PrepareWorkspace.tsx");
     expect(prep).toMatch(/\{!prepareOnly && showReviewPanel && upload\.company_id && user && \(/);
     expect(prep).toMatch(/\{!prepareOnly && <EntityContextSuggestion/);
     expect(prep).toMatch(/disabled=\{prepareOnly\} onClick=\{\(\) => setMappingModalOpen\(true\)\}/);
-    // The page opens evidence verification itself, only for an accepted trial balance; a Prepare-only person sees a note.
-    const gate = prep.slice(prep.indexOf("{verdict.evidenceUnlocked && !verdict.evidenceCleared"));
-    expect(gate.indexOf('data-testid="evidence-by-reconcile"')).toBeGreaterThan(0);
-    expect(gate.indexOf('data-testid="evidence-by-reconcile"')).toBeLessThan(gate.indexOf("<SafishaGate"));
-    expect(gate).toMatch(/\{prepareOnly \? \(/);
-    expect(prep.match(/<SafishaGate/g)?.length).toBe(1);
-    expect(prep).toMatch(/evidenceByReconcileOnly=\{prepareOnly\}/);
-    expect(prep).toMatch(/evidenceGateHandledByParent\n/);
-    const up = src("src/components/TrialBalanceUpload.tsx");
-    expect(up).toMatch(/if \(evidenceByReconcileOnly\) \{[\s\S]{0,200}\} else \{\s+setSafishaUpload/);
+    // Supporting-evidence matching is not part of Trial balance review: neither upload path mounts it.
+    expect(prep).not.toMatch(/SafishaGate|evidence-by-reconcile|evidenceByReconcileOnly/);
+    expect(src("src/components/TrialBalanceUpload.tsx")).not.toMatch(/SafishaGate|evidenceByReconcileOnly|setSafishaUpload/);
   });
   it("a workspace the caller may not open is never read (access is resolved before the snapshot)", () => {
     const hook = src("src/hooks/useWorkspaceData.ts");

@@ -43,7 +43,7 @@ export const HERO = {
   eyebrow:  "CFOClose · Financial close workspace",
   headline: "From trial balance to decisions you can defend.",
   subhead:
-    "Upload, check and review the accounts in your trial balance, and reconcile it to supporting evidence—inside one controlled workspace.",
+    "Upload, check and review the accounts in your trial balance—inside one controlled workspace.",
 } as const;
 
 

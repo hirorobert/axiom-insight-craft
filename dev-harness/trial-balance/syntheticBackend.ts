@@ -228,9 +228,27 @@ const rpcs: Record<string, (a: Row) => Answer | Promise<Answer>> = {
     });
     return { data: [{ outcome: "registered", upload_id: uploadId, detail: null }], error: null };
   },
+  // Replace: the old upload is superseded (never deleted — its certifications and any reconciliation stay untouched) and
+  // the replacement is registered from the reserved object, as 20260923100000's retire_trial_balance_upload does.
+  retire_trial_balance_upload: (a) => {
+    const old = tb.tables.trial_balance_uploads.find((u) => u.id === a.p_old_upload_id);
+    if (!old) return { data: [{ outcome: "already_discarded", new_upload_id: null, retired_upload_id: null, detail: "Not found." }], error: null };
+    const registered = rpcs.register_trial_balance_upload({ ...a, p_file_size: a.p_new_file_size, p_period_id: old.period_id, p_engagement_id: old.engagement_id }) as Answer;
+    const row = (registered.data as Row[])[0];
+    if (row.outcome !== "registered") return { data: [{ outcome: "object_missing", new_upload_id: null, retired_upload_id: null, detail: row.detail }], error: null };
+    old.lifecycle_state = "superseded";
+    const fresh = tb.tables.trial_balance_uploads.find((u) => u.id === row.upload_id)!;
+    fresh.replaces_upload_id = old.id;
+    return { data: [{ outcome: "replaced", new_upload_id: row.upload_id, retired_upload_id: old.id, detail: null }], error: null };
+  },
+  // As 20260923100000's get_authoritative_certification: the latest ACTIVE upload's latest certification, and only when
+  // it is neither blocking nor awaiting review (a superseded upload's certification is never authoritative).
   get_authoritative_certification: (a) => {
-    const rows = tb.tables.tb_certifications.filter((c) => c.company_id === a.p_company_id && c.period_year === a.p_period_year && !c.is_blocking && !c.requires_review);
-    return { data: rows.length ? [clone(rows[rows.length - 1])] : [], error: null };
+    const active = new Set(["active_unprocessed", "active_processing", "active_processed", "blocked"]);
+    const latest = tb.tables.trial_balance_uploads.find((u) => u.company_id === a.p_company_id && u.period_year === a.p_period_year && active.has(String(u.lifecycle_state)));
+    const certs = latest ? tb.tables.tb_certifications.filter((c) => c.upload_id === latest.id) : [];
+    const last = certs[certs.length - 1];
+    return { data: last && !last.is_blocking && !last.requires_review ? [clone(last)] : [], error: null };
   },
   resolve_account_review_batch: (a) => {
     for (const d of a.p_decisions as Row[]) {

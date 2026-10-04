@@ -25,18 +25,23 @@ const engagement = {
   missionViews: [],
 } as unknown as EngagementContextValue;
 
-/** Reconciliation states the browser test switches between (written straight into the synthetic tables). */
-function setReconciliation(kind: "none" | "partial" | "escalated" | "complete") {
+/** Reconciliation states the browser test switches between (written straight into the synthetic tables).
+ *  running / open / rejected are an existing INCOMPLETE session (status processing / needs_review / blocked, with a
+ *  pending or rejected exception); partial / escalated carry a raw "clean" over incomplete evidence; complete is complete. */
+type ReconKind = "none" | "running" | "open" | "rejected" | "partial" | "escalated" | "complete";
+function setReconciliation(kind: ReconKind) {
   const upload = tb.tables.trial_balance_uploads[0];
   if (!upload) return;
   tb.tables.safisha_reconciliations = [];
   tb.tables.safisha_exceptions = [];
   upload.safisha_status = null;
   if (kind === "none") return;
-  const recon = { id: "rrrrrrrr-0000-4000-8000-000000000001", tb_upload_id: upload.id, created_at: new Date().toISOString(), total_tb_lines: 4, exception_count: 1, status: "clean", matched_count: kind === "partial" ? 1 : 3 };
+  const status = kind === "running" ? "processing" : kind === "open" ? "needs_review" : kind === "rejected" ? "blocked" : "clean";
+  const action = kind === "open" || kind === "running" ? "pending" : kind === "rejected" ? "rejected" : kind === "escalated" ? "escalated" : "approved";
+  const recon = { id: "rrrrrrrr-0000-4000-8000-000000000001", tb_upload_id: upload.id, created_at: new Date().toISOString(), total_tb_lines: 4, exception_count: 1, status, matched_count: kind === "partial" ? 1 : 3 };
   tb.tables.safisha_reconciliations.push(recon);
-  tb.tables.safisha_exceptions.push({ reconciliation_id: recon.id, tb_txn_id: "tb-line-4", reviewer_action: kind === "escalated" ? "escalated" : "approved" });
-  upload.safisha_status = "clean";
+  tb.tables.safisha_exceptions.push({ id: "xxxxxxxx-0000-4000-8000-000000000001", reconciliation_id: recon.id, tb_txn_id: "tb-line-4", reviewer_action: action });
+  upload.safisha_status = status;
 }
 
 function Controls({ refresh }: { refresh: () => void }) {
@@ -53,7 +58,7 @@ function Controls({ refresh }: { refresh: () => void }) {
       <button data-testid="viewer-owner" onClick={act(() => { tb.viewer = "owner"; })}>owner</button>
       <button data-testid="viewer-prepare" onClick={act(() => { tb.viewer = "prepare_only"; })}>prepare-only</button>
       <span>· reconciliation:</span>
-      {(["none", "partial", "escalated", "complete"] as const).map((k) => (
+      {(["none", "running", "open", "rejected", "partial", "escalated", "complete"] as const).map((k) => (
         <button key={k} data-testid={`recon-${k}`} onClick={act(() => setReconciliation(k))}>{k}</button>
       ))}
       <span>· runs: <b data-testid="harness-runs">{tb.runs}</b></span>

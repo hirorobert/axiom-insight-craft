@@ -1,9 +1,10 @@
 /**
  * moduleAvailability — the ONE customer-facing availability boundary for product modules. Pure.
  *
- * The customer-facing application exposes exactly one proven workflow: TRIAL BALANCE REVIEW — upload and check a trial
- * balance, review the accounts that need attention, reconcile it to supporting evidence. Everything else is withheld
- * until its authority is complete:
+ * The customer-facing application exposes exactly one proven workflow: TRIAL BALANCE REVIEW — upload and validate a trial
+ * balance, review and confirm its account classifications, and reach a reviewed trial balance ready for statement
+ * preparation. Supporting-evidence reconciliation is NOT part of it (it stays the tax gate's prerequisite, enforced by
+ * deriveWorkspaceState, and MAONO's, enforced by the server). Everything else is withheld until its authority is complete:
  *
  *   · Statements — statement validation (hesabu-validate) requires a tax computation and is started only from the Tax
  *     panel; the evidence-based FINAL / official-pack workspace is switched off in production; and the server does not
@@ -27,6 +28,7 @@
 import type { EngagementCapability } from "./mandate";
 import type { WorkspaceMission } from "./types";
 import type { OutcomeId } from "@/lib/product/outcomes";
+import { NOT_AN_APPROVAL, REVIEWED_TRIAL_BALANCE } from "./trialBalanceReadiness";
 
 /** Every module beyond trial balance review. `false`: absent from the customer-facing application. */
 export const UNPROVEN_MODULES_CUSTOMER_VISIBLE: boolean = false;
@@ -72,8 +74,10 @@ export const WITHHELD_WORKSPACE_ROUTE_SEGMENTS: readonly string[] = WITHHELD
 export const TRIAL_BALANCE_REVIEW = {
   title: "Trial balance review",
   description: "Upload, check and review the accounts in your trial balance.",
-  workflow: ["Upload trial balance", "Review accounts needing attention", "Reconcile supporting evidence", "Trial balance ready"],
-  ready: "Trial balance ready",
+  workflow: ["Upload and validate trial balance", "Review and confirm account classifications", "Trial balance ready for statement preparation"],
+  /** The outcome: checks passed and every classification confirmed (trialBalanceReadiness). */
+  ready: REVIEWED_TRIAL_BALANCE,
+  notApproval: NOT_AN_APPROVAL,
 } as const;
 
 export function isCapabilityCustomerVisible(cap: EngagementCapability): boolean {

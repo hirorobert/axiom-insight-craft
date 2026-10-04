@@ -35,7 +35,7 @@ export const LANDING_HERO = {
   eyebrow: "TRIAL BALANCE REVIEW",
   headline: "A trial balance you can stand behind.",
   supporting:
-    "Upload a trial balance, check it, review the accounts that need attention and reconcile it to supporting evidence, with a traceable source and attributed decisions.",
+    "Upload a trial balance, check it and confirm the classification of every account, with a traceable source and attributed decisions.",
   primaryCta: { label: "Create account", href: "/auth?mode=signup" },
   secondaryCta: { label: "See how it works", href: "#services" },
 } as const;
@@ -79,22 +79,21 @@ export const LANDING_SERVICES: readonly LandingService[] = [
     id: "prepare-review",
     name: "Trial balance review",
     outcome: "Upload, check and review the accounts in your trial balance.",
-    value: "A checked, reviewed trial balance, reconciled to its supporting evidence, with each review decision recorded.",
+    value: "A reviewed trial balance: checks passed, every classification confirmed, each decision recorded.",
     primaryOutputs: [
       { name: "Trial balance checks", formats: "On screen" },
       { name: "Account review decisions", formats: "On screen" },
-      { name: "Evidence reconciliation status", formats: "On screen" },
+      { name: "Reviewed trial balance status", formats: "On screen" },
     ],
     moreOutputs: [],
   },
 ];
 
-/** The four steps of the one customer workflow. */
+/** The three steps of the one customer workflow (moduleAvailability TRIAL_BALANCE_REVIEW.workflow). */
 export const LANDING_WORKFLOW: readonly string[] = [
-  "Upload trial balance",
-  "Review accounts needing attention",
-  "Reconcile supporting evidence",
-  "Trial balance ready",
+  "Upload and validate trial balance",
+  "Review and confirm account classifications",
+  "Trial balance ready for statement preparation",
 ];
 
 export const LANDING_SERVICES_COPY = {
@@ -154,7 +153,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
     id: "what-it-prepares",
     question: "What does CFOCLOSE do today?",
     answer:
-      "CFOCLOSE checks an imported trial balance, holds the accounts that need a decision for review, and reconciles the trial balance to supporting evidence such as bank statements, mobile-money exports or subledgers. It is a preparation and review workspace: the professional using it remains responsible for the conclusions reached.",
+      "CFOCLOSE checks an imported trial balance and holds the accounts that need a classification decision for review, until it is a reviewed trial balance ready for statement preparation. A reviewed trial balance is not reconciled to supporting evidence, audited or approved. It is a preparation and review workspace: the professional using it remains responsible for the conclusions reached.",
   },
   {
     id: "frameworks",
@@ -184,7 +183,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
     id: "formats",
     question: "Which import formats are currently available?",
     answer:
-      "Trial balances import from CSV and XLSX. Checks, review decisions and evidence reconciliation are shown in the workspace.",
+      "Trial balances import from CSV and XLSX. Checks and review decisions are shown in the workspace.",
   },
   {
     id: "pricing-status",

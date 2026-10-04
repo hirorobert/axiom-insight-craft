@@ -40,7 +40,7 @@ describe("the reported contradiction is resolved at the source — every surface
     expect(verdict.totals).toEqual({ debitCents: 125_000_000, creditCents: 124_750_000, differenceCents: 250_000 });
     expect(verdict.primaryAction).toEqual({ kind: "replace", label: "Replace with corrected Trial Balance" });
     expect(verdict.failedCheckId).toBe("l3_arithmetic");
-    expect(verdict.evidenceUnlocked).toBe(false);   // no evidence verification on a trial balance that does not balance
+    expect(verdict.statusLabel).not.toBe("Reviewed");   // a trial balance that does not balance is never a reviewed one
   });
 
   it("the checks: classification PASSED (from the certification), arithmetic FAILED with formatted figures", () => {
@@ -82,9 +82,16 @@ describe("the reported contradiction is resolved at the source — every surface
     const text = JSON.stringify([verdict.reason, verdict.checks, verdict.informational]);
     expect(text).not.toMatch(/NOT_EVALUATED|NO_PRIOR|!=/);
     expect(verdict.informational.map((c) => [c.label, c.detail])).toEqual([
-      ["Bank and mobile-money evidence", "Matched after the trial balance is accepted."],
+      ["Bank and mobile-money evidence", "Not required for a reviewed trial balance."],
       ["Comparison with the prior year", "No accepted prior-year trial balance to compare with."],
     ]);
+  });
+
+  it("supporting evidence that was never evaluated reads 'not checked', never 'Passed', whatever severity the layer carries", () => {
+    for (const [state, detail] of [["pending", "NOT_EVALUATED: x"], ["passed", "NOT_EVALUATED: no supporting-evidence reconciliation has been run"], ["passed", "NO_EVIDENCE: nothing compared"]] as const) {
+      const v = deriveTrialBalanceVerdict({ upload: upload("complete"), readiness: { verdict: "certified", blocker: null, checks: [layer("l5_supporting_evidence", "Supporting evidence", state, detail)] }, canRetry: true });
+      expect(v.informational[0]).toMatchObject({ state: "pending", detail: "Not required for a reviewed trial balance." });
+    }
   });
 });
 
@@ -101,29 +108,25 @@ describe("each status has one failure-appropriate action", () => {
   it("processing: no action, the page updates itself", () => {
     for (const s of ["pending", "processing", "queued", "validating"]) expect(deriveTrialBalanceVerdict({ ...base, upload: upload(s) })).toMatchObject({ status: "processing", primaryAction: null });
   });
-  it("accepted: evidence verification unlocked (mandatory before tax); once evidence is clean, continue to Reconcile", () => {
+  it("accepted: a Reviewed trial balance, ready for statement preparation — no action, never reconciled, never an approval", () => {
     const a = deriveTrialBalanceVerdict({ upload: upload("complete"), readiness: { verdict: "certified", blocker: null, checks: passedLayers }, canRetry: true });
-    expect(a).toMatchObject({ status: "accepted", statusLabel: "Accepted", evidenceUnlocked: true, evidenceCleared: false, primaryAction: { kind: "verify_evidence" } });
-    const complete = { state: "read" as const, evidence: { status: "clean", matched_count: 3, exception_count: 1, total_tb_lines: 4, exceptions: { pending: 0, approved: 1, rejected: 0, escalated: 0, approvedTbLines: 1 } } };
-    const c = deriveTrialBalanceVerdict({ upload: upload("complete", { safisha_status: "clean", reconciliation: complete }), readiness: { verdict: "certified", blocker: null, checks: passedLayers }, canRetry: true });
-    expect(c).toMatchObject({ evidenceCleared: true, primaryAction: { kind: "continue", label: "Continue to Reconcile" } });
-    // Raw "clean" alone, or a clean status over partial / escalated / unreadable evidence, clears nothing.
-    for (const reconciliation of [undefined, { state: "failed" as const }, { state: "read" as const, evidence: null },
-      { ...complete, evidence: { ...complete.evidence, matched_count: 1 } },
-      { ...complete, evidence: { ...complete.evidence, exceptions: { ...complete.evidence.exceptions, escalated: 1 } } }]) {
-      const v = deriveTrialBalanceVerdict({ upload: upload("complete", { safisha_status: "clean", reconciliation }), readiness: { verdict: "certified", blocker: null, checks: passedLayers }, canRetry: true });
-      expect(v).toMatchObject({ evidenceCleared: false, primaryAction: { kind: "verify_evidence" } });
+    expect(a).toMatchObject({ status: "accepted", statusLabel: "Reviewed", tone: "success", primaryAction: null });
+    expect(a.reason).toBe("Reviewed trial balance: every check passed and every account classification is confirmed. It is ready for statement preparation. This is not an approval of financial statements.");
+    expect(`${a.statusLabel} ${a.reason}`).not.toMatch(/reconciled|audited|assured|signed off|verified/i);
+    // The reconciliation is not an input: an open, partial or escalated one changes nothing about this outcome.
+    for (const extra of [{}, { safisha_status: "needs_review" }, { safisha_status: "blocked" }, { safisha_status: "clean" }]) {
+      expect(deriveTrialBalanceVerdict({ upload: upload("complete", extra), readiness: { verdict: "certified", blocker: null, checks: passedLayers }, canRetry: true })).toEqual(a);
     }
   });
   it("needs review: resolve the classifications", () => {
     const v = deriveTrialBalanceVerdict({ upload: upload("needs_review"), readiness: { verdict: "review", blocker: "12 accounts still need a classification decision.", checks: passedLayers }, canRetry: true });
-    expect(v).toMatchObject({ status: "needs_review", statusLabel: "Needs review", primaryAction: { kind: "review_classifications" }, evidenceUnlocked: false });
+    expect(v).toMatchObject({ status: "needs_review", statusLabel: "Needs review", primaryAction: { kind: "review_classifications" } });
   });
   it("not current, stale, unreadable and still-confirming states never claim acceptance", () => {
     for (const verdict of ["superseded", "stale", "unknown", "pending"] as const) {
       const v = deriveTrialBalanceVerdict({ upload: upload("complete"), readiness: { verdict, blocker: null, checks: passedLayers }, canRetry: true });
       expect(v.status, verdict).not.toBe("accepted");
-      expect(v.evidenceUnlocked, verdict).toBe(false);
+      expect(v.statusLabel, verdict).not.toBe("Reviewed");
     }
   });
   it("no upload: nothing to decide", () => {

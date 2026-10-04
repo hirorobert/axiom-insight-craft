@@ -19,7 +19,8 @@
  *   3. upload status "error" (engine failure)     → processing_failed (Retry if active, else Replace)
  *   4. certification subject ≠ upload on screen   → checking          (no action; never a stale verdict)
  *   5. certification verdict:
- *        certified  → accepted     (Verify evidence; Continue once evidence is clean)
+ *        certified  → accepted     ("Reviewed trial balance": ready for statement preparation; no action. Not an
+ *                                   approval of financial statements; supporting-evidence reconciliation is not part of it)
  *        blocked    → blocked      (the failing check, by CHECK_PRECEDENCE: file → amounts → balance → classification;
  *                                   Replace, except a classification-only block → Resolve classifications)
  *        review     → needs_review (Resolve classifications)
@@ -29,7 +30,7 @@
  */
 
 import type { PreflightCheck, PreflightCheckState, PreflightVerdict } from "./computePreflight";
-import { evidenceState, type ReadinessInput } from "./trialBalanceReadiness";
+import { NOT_AN_APPROVAL, REVIEWED_TRIAL_BALANCE } from "./trialBalanceReadiness";
 
 /**
  * Recorded totals in integer minor units (cents). Every subtraction and comparison is done on these safe integers —
@@ -269,9 +270,7 @@ export type TrialBalanceTone = "neutral" | "danger" | "warning" | "success";
 export type TrialBalancePrimaryAction =
   | { kind: "replace"; label: "Replace with corrected Trial Balance" }
   | { kind: "retry"; label: "Retry processing" }
-  | { kind: "review_classifications"; label: "Resolve account classifications" }
-  | { kind: "verify_evidence"; label: "Verify against bank and mobile-money evidence" }
-  | { kind: "continue"; label: "Continue to Reconcile" };
+  | { kind: "review_classifications"; label: "Resolve account classifications" };
 
 export interface TrialBalanceCheck {
   id: string;
@@ -304,10 +303,6 @@ export interface TrialBalanceVerdict {
   issues: TrialBalanceIssue[];
   /** What the check actually did, as the server recorded it (empty for an earlier engine). */
   milestones: TrialBalanceMilestone[];
-  /** Evidence verification may be offered only when the trial balance is accepted (it stays mandatory before tax). */
-  evidenceUnlocked: boolean;
-  /** Evidence verification is already complete for this upload. */
-  evidenceCleared: boolean;
 }
 
 export interface TrialBalanceVerdictInput {
@@ -317,9 +312,6 @@ export interface TrialBalanceVerdictInput {
     source_file_hash?: string | null;
     status?: string | null;
     processing_result?: unknown;
-    safisha_status?: string | null;
-    /** The reconciliation as read for this viewer (fetchWorkspaceSnapshot). Absent = not read: evidence is not cleared. */
-    reconciliation?: ReadinessInput["reconciliation"];
   } | null;
   /** computeCertificationReadiness(...) for the upload on screen (undefined while no upload). */
   readiness: { verdict: PreflightVerdict; blocker: string | null; checks: PreflightCheck[] } | undefined;
@@ -353,12 +345,15 @@ function plainCheck(c: PreflightCheck, totals: TrialBalanceTotals | null): Trial
   if (c.state === "passed" && c.id === "l3_arithmetic" && totals && totals.differenceCents !== 0 && !isOutOfBalance(totals)) detail = `${WITHIN_TOLERANCE_TEXT}.`;
   else if (c.state === "passed" && text) detail = text.passed;
   else if (/NO_PRIOR/.test(c.detail)) detail = "No accepted prior-year trial balance to compare with.";
-  else if (c.id === "l5_supporting_evidence" && (c.state === "pending" || /NOT_EVALUATED/.test(c.detail))) detail = "Matched after the trial balance is accepted.";
+  else if (c.id === "l5_supporting_evidence" && (c.state === "pending" || /NOT_EVALUATED|NO_EVIDENCE/.test(c.detail))) detail = "Not required for a reviewed trial balance.";
   else if (c.state === "pending" || /NOT_EVALUATED/.test(c.detail)) detail = "Waiting for processing to finish.";
   else if (c.id === "l3_arithmetic" && totals && isOutOfBalance(totals)) {
     detail = `Debits ${formatTotal(totals, totals.debitCents)} and credits ${formatTotal(totals, totals.creditCents)} differ by ${formatTotal(totals, Math.abs(totals.differenceCents))}.`;
   } else detail = stripEngineCode(c.detail);
-  return { id: c.id, label, state: c.state, detail };
+  // Supporting evidence that was never evaluated is shown as not checked — never "Passed" — and is not required for a
+  // reviewed trial balance (the layer is informational; it never decides acceptance).
+  const unevaluatedEvidence = c.id === "l5_supporting_evidence" && (c.state === "pending" || /NOT_EVALUATED|NO_EVIDENCE/.test(c.detail));
+  return { id: c.id, label, state: unevaluatedEvidence ? "pending" : c.state, detail };
 }
 
 export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): TrialBalanceVerdict {
@@ -371,13 +366,10 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
   const checks = CHECK_PRECEDENCE.flatMap((id) => layerChecks.filter((c) => c.id === id)).map((c) => plainCheck(c, totals));
   const informational = layerChecks.filter((c) => c.id in INFO_TEXT).map((c) => plainCheck(c, totals));
   const failed = checks.find((c) => c.state === "failed") ?? checks.find((c) => c.state === "review") ?? null;
-  // Cleared only when the viewer's reconciliation is COMPLETE (every line matched or approved; nothing pending,
-  // rejected or escalated) — never on the raw "clean" status alone, and never when it could not be read.
-  const evidenceCleared = !!upload && evidenceState(upload.safisha_status, upload.reconciliation).state === "complete";
   const l3Passed = checks.some((c) => c.id === "l3_arithmetic" && c.state === "passed");
   const issues = upload ? readIngestionIssues(upload.processing_result) : [];
   const milestones = upload ? readMilestones(upload.processing_result) : [];
-  const base = { totals, checks, informational, failedCheckId: failed?.id ?? null, balanceStatement: l3Passed ? balanceStatement(totals) : null, evidenceUnlocked: false, evidenceCleared, issues: [] as TrialBalanceIssue[], milestones };
+  const base = { totals, checks, informational, failedCheckId: failed?.id ?? null, balanceStatement: l3Passed ? balanceStatement(totals) : null, issues: [] as TrialBalanceIssue[], milestones };
 
   if (!upload) {
     return { ...base, status: "none", statusLabel: "No trial balance", tone: "neutral", reason: "Upload a trial balance to begin.", primaryAction: null };
@@ -402,11 +394,9 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
   switch (verdict) {
     case "certified":
       return {
-        ...base, status: "accepted", statusLabel: "Accepted", tone: "success", evidenceUnlocked: true,
-        reason: evidenceCleared
-          ? "The trial balance passed every check and its evidence is verified."
-          : "The trial balance passed every check. Verify it against bank and mobile-money evidence before moving on.",
-        primaryAction: evidenceCleared ? { kind: "continue", label: "Continue to Reconcile" } : { kind: "verify_evidence", label: "Verify against bank and mobile-money evidence" },
+        ...base, status: "accepted", statusLabel: "Reviewed", tone: "success",
+        reason: `${REVIEWED_TRIAL_BALANCE}: every check passed and every account classification is confirmed. It is ready for statement preparation. ${NOT_AN_APPROVAL}`,
+        primaryAction: null,
       };
     case "blocked":
       return {

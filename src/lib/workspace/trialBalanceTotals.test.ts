@@ -191,13 +191,13 @@ describe("the arithmetic explains the server's verdict; it never decides it", ()
       readiness: { verdict: "blocked", blocker: "L2_BAD_NUMBER: Row 14 has a non-numeric amount.", checks: [L("l2_data_quality", "failed")] }, canRetry: true,
     });
     expect(v.status).toBe("blocked");
-    expect(v.evidenceUnlocked).toBe(false);
+    expect(v.statusLabel).not.toBe("Reviewed");
     expect(v.reason).toBe("Row 14 has a non-numeric amount.");
   });
   it("balanced totals never grant acceptance while the certification is pending", () => {
     const v = deriveTrialBalanceVerdict({ upload: { status: "complete", processing_result: balanced }, readiness: { verdict: "pending", blocker: null, checks: [] }, canRetry: true });
     expect(v.status).not.toBe("accepted");
-    expect(v.evidenceUnlocked).toBe(false);
+    expect(v.statusLabel).not.toBe("Reviewed");
   });
   it("a within-tolerance difference is never stated as the block reason", () => {
     const t = read({ total_debits: 1000.6, total_credits: 1000 });

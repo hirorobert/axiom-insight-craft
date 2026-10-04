@@ -1,26 +1,33 @@
 /**
- * trialBalanceReadiness — the ONE definition of "Trial balance ready". Pure.
+ * trialBalanceReadiness — two separate, pure definitions that must never be confused.
  *
- * Arithmetic balance alone is never enough. A trial balance is ready only when all three checks hold:
+ * 1. TRIAL BALANCE REVIEW READINESS (trialBalanceReadiness): the outcome of the Trial balance review service — a
+ *    "Reviewed trial balance", ready for statement preparation. It holds when, and only when, BOTH hold:
+ *      a. Checks passed — the authoritative certification for this upload is "certified": the file was read in full,
+ *         every amount is exact in the period's currency, there is no ambiguous identity, and debits equal credits to the
+ *         last minor unit (process-trial-balance / _shared/tbIngestion.ts).
+ *      b. Classifications confirmed — "certified" is only ever committed once no account needs review, and every
+ *         machine suggestion needs a reviewer's confirmation first.
+ *    Supporting-evidence reconciliation is NOT part of it. A reviewed trial balance is not reconciled, audited, assured
+ *    or signed off, and readiness is not an approval of financial statements.
  *
- *   1. Checks passed — the authoritative certification for this upload is "certified": the file was read in full,
- *      every amount is exact in the period's currency, there is no ambiguous identity, and debits equal credits to the
- *      last minor unit (process-trial-balance / _shared/tbIngestion.ts).
- *   2. Classifications confirmed — "certified" is only ever committed once no account needs review, and every machine
- *      suggestion (shared chart, dictionary, naming rule, fuzzy match) needs a reviewer's confirmation first.
- *   3. Required reconciliation COMPLETE — the upload's reconciliation finished clean and EVERY trial-balance line in it
- *      is accounted for: matched to evidence, or its exception approved by a reviewer. One matched line is not enough;
- *      a pending, rejected or escalated exception is not complete (the database marks a reconciliation "clean" once no
- *      exception is pending and none is rejected, so an escalated one would otherwise slip through); a "clean" status
- *      over an empty comparison is not reconciliation.
+ * 2. RECONCILIATION COMPLETENESS (evidenceState / effectiveSafishaStatus / reconciliationEvaluated): unchanged. A
+ *    reconciliation is complete only when it finished clean and EVERY trial-balance line in it is accounted for:
+ *    matched to evidence, or its exception approved by a reviewer. One matched line is not enough; a pending, rejected
+ *    or escalated exception is not complete; a "clean" status over an empty comparison is not reconciliation. It still
+ *    gates everything that relies on a reconciliation: the tax stage (deriveWorkspaceState, fed effectiveSafishaStatus)
+ *    and the MAONO gate (server). Nothing here ever upgrades a status to "clean".
  *
- * Evidence this viewer cannot read is NOT the same as incomplete evidence, and neither is ready:
- *   · not_visible — the upload says a reconciliation exists, but none is readable for this viewer (row-level access:
- *     reconciliation records are visible to firm members, not to a Prepare-only grant). Readiness cannot be confirmed
- *     HERE; it may be complete.
+ * Evidence this viewer cannot read is NOT the same as incomplete evidence, and neither is complete:
+ *   · not_visible — the upload says a reconciliation exists, but none is readable for this viewer (row-level access).
  *   · unreadable — the read itself failed. Try again.
  *   · incomplete — the reconciliation is readable and not complete; the detail says what is missing.
  */
+
+/** The Trial balance review outcome, in words. Never "reconciled", "audited", "assured" or "signed off". */
+export const REVIEWED_TRIAL_BALANCE = "Reviewed trial balance";
+/** Said wherever the outcome is stated, so readiness is never read as an approval. */
+export const NOT_AN_APPROVAL = "This is not an approval of financial statements.";
 
 export interface ReconciliationExceptionSummary {
   pending: number;
@@ -45,21 +52,20 @@ export type EvidenceRead =
   | { state: "read"; evidence: ReconciliationEvidence | null }
   | { state: "failed" };
 
+/**
+ * The upload's latest reconciliation record as read by this viewer. A bare record (or null) is accepted for callers that
+ * only hold the record; `undefined` means it was never read.
+ */
+export type ReconciliationInput = ReconciliationEvidence | EvidenceRead | null | undefined;
+
 export interface ReadinessInput {
   /** computeCertificationReadiness verdict for the CURRENT upload. */
   certificationVerdict: string | null | undefined;
-  /** trial_balance_uploads.safisha_status. */
-  safishaStatus: string | null | undefined;
-  /**
-   * The upload's latest reconciliation record as read by this viewer. A bare record (or null) is accepted for callers
-   * that only hold the record; `undefined` means it was never read.
-   */
-  reconciliation: ReconciliationEvidence | EvidenceRead | null | undefined;
 }
 
 export type EvidenceState = "complete" | "none" | "in_progress" | "incomplete" | "not_visible" | "unreadable";
 
-export type ReadinessCheckId = "checks" | "classifications" | "evidence";
+export type ReadinessCheckId = "checks" | "classifications";
 
 export interface ReadinessCheck {
   id: ReadinessCheckId;
@@ -71,12 +77,11 @@ export interface ReadinessCheck {
 export interface TrialBalanceReadiness {
   ready: boolean;
   checks: ReadinessCheck[];
-  evidenceState: EvidenceState;
   /** The first unmet check, in plain language — null when ready. */
   nextStep: string | null;
 }
 
-function asRead(r: ReadinessInput["reconciliation"]): EvidenceRead | undefined {
+function asRead(r: ReconciliationInput): EvidenceRead | undefined {
   if (r === undefined) return undefined;
   if (r !== null && typeof r === "object" && "state" in r) return r as EvidenceRead;
   return { state: "read", evidence: (r as ReconciliationEvidence | null) ?? null };
@@ -85,7 +90,7 @@ function asRead(r: ReadinessInput["reconciliation"]): EvidenceRead | undefined {
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Classifies the reconciliation evidence for this viewer, with one plain sentence. */
-export function evidenceState(safishaStatus: string | null | undefined, read: ReadinessInput["reconciliation"]): { state: EvidenceState; detail: string } {
+export function evidenceState(safishaStatus: string | null | undefined, read: ReconciliationInput): { state: EvidenceState; detail: string } {
   const r = asRead(read);
   if (!r || r.state === "failed") {
     return { state: "unreadable", detail: "The reconciliation could not be read just now, so readiness cannot be confirmed. Refresh to try again." };
@@ -120,7 +125,7 @@ export function evidenceState(safishaStatus: string | null | undefined, read: Re
  * it is treated as still under review. Evidence the viewer cannot read leaves the raw status as it is (readiness then
  * says it cannot be confirmed); nothing here ever upgrades a status to "clean".
  */
-export function effectiveSafishaStatus(raw: string | null, read: ReadinessInput["reconciliation"]): string | null {
+export function effectiveSafishaStatus(raw: string | null, read: ReconciliationInput): string | null {
   if (raw !== "clean") return raw;
   return evidenceState(raw, read).state === "incomplete" ? "needs_review" : raw;
 }
@@ -179,10 +184,10 @@ export function reconciliationEvaluated(r: ReconciliationEvidence | null | undef
   return evidenceState(safishaStatus, r ?? null).state === "complete";
 }
 
+/** Trial balance review readiness: checks passed and every classification confirmed. Never reads reconciliation. */
 export function trialBalanceReadiness(input: ReadinessInput): TrialBalanceReadiness {
   const certified = input.certificationVerdict === "certified";
   const review = input.certificationVerdict === "review";
-  const ev = evidenceState(input.safishaStatus, input.reconciliation);
   const checks: ReadinessCheck[] = [
     {
       id: "checks",
@@ -196,8 +201,7 @@ export function trialBalanceReadiness(input: ReadinessInput): TrialBalanceReadin
       met: certified,
       detail: certified ? "Every account is on a reviewed classification." : review ? "Some accounts need a reviewer's confirmation." : "Waiting for the file checks.",
     },
-    { id: "evidence", label: "Required reconciliation complete", met: ev.state === "complete", detail: ev.detail },
   ];
   const firstUnmet = checks.find((c) => !c.met) ?? null;
-  return { ready: !firstUnmet, checks, evidenceState: ev.state, nextStep: firstUnmet ? firstUnmet.detail : null };
+  return { ready: !firstUnmet, checks, nextStep: firstUnmet ? firstUnmet.detail : null };
 }

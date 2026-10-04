@@ -446,7 +446,7 @@ src/
       ManageTrialBalance.tsx  ← "Manage Trial Balance" (Replace / Remove) directly under the Prepare Data file header
       FirstRunEngagement.tsx  ← Zero-company first-run form
     safisha/
-      SafishaGate.tsx         ← Post-upload evidence gate. Cannot be skipped.
+      SafishaGate.tsx         ← Evidence-matching gate. NOT mounted in Trial balance review (scope correction); tax stays locked until a reconciliation is complete.
 
   contexts/
     WorkspaceContext.tsx      ← React context wrapping useWorkspaceData
@@ -1309,7 +1309,9 @@ Before starting any new task, verify:
 5. Does it alter the stage sequence or slug? → update stageMetadata.ts ONLY
 6. Does it add a new DB column? → needs a migration file with timestamp
 7. Does it touch WorkspaceOverview? → must maintain exactly one dominant CTA
-8. Does it bypass SafishaGate? → forbidden, the gate is non-skippable
+8. Does it let tax (or MAONO) proceed without a complete reconciliation? → forbidden (`taxBlocked = !safishaClean` on the
+   effective status; `maono_check_safisha_gate`). Supporting-evidence reconciliation is NOT a prerequisite of Trial balance
+   review, whose outcome is a "Reviewed trial balance" (checks passed + classifications confirmed) — never "reconciled".
 
 When in doubt: read Iron Dome Ω∞ rules in section 4 first.
 

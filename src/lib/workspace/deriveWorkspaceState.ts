@@ -16,11 +16,9 @@
  *  4.  Upload error (engine failure)        → Resolve Upload Error (retry)
  *  4B. Upload blocked by its checks         → Replace with corrected Trial Balance (plain reason from the certification)
  *  5.  Upload invalid (is_valid=false)      → Fix Validation Errors
- *  6.  Safisha blocked/exceptions           → Resolve Reconciliation Exceptions
  *  6B. Certification not "certified"        → Certify the trial balance / Resolve trial-balance difference
- *  7.  Safisha clean, HESABU not run        → Validate Draft Statements
- *  8.  TB valid (pre-safisha), no HESABU    → Validate Draft Statements
- *  9.  HESABU passed, KINGA not run         → Compute Corporate Tax
+ *  7.  Reviewed trial balance, no HESABU    → Validate Draft Statements
+ *  9.  HESABU passed, KINGA not run         → Compute Corporate Tax (locked until a reconciliation is complete)
  * 10.  KINGA signed, filing not submitted   → Prepare Filing Package
  * 11.  Filing submitted                     → Review Completed Engagement
  *
@@ -29,6 +27,12 @@
  * from the SAME computeCertificationReadiness()/tb_certifications ledger PrepareWorkspace's own
  * pre-flight panel already uses — never a second, independently-derived signal. See that
  * module's own doc comment for the six-layer (L1-L6) evidence model this verdict summarises.
+ *
+ * Supporting-evidence reconciliation (upload.safishaStatus, already reduced by effectiveSafishaStatus so a raw "clean"
+ * over incomplete evidence reads "needs_review") is NOT part of Trial balance review: an incomplete or blocked
+ * reconciliation never blocks Prepare Data, the trial balance's checks or its classification review. It remains the
+ * constitutional gate for TAX (PATH 9: taxBlocked = !safishaClean) exactly as before, and the server's MAONO gate is
+ * unaffected. Prepare Data is summarised as a "Reviewed trial balance" — never "reconciled".
  */
 
 import type {
@@ -39,6 +43,8 @@ import type {
   MissionStatus,
 } from "./types";
 import { plainBlockReason } from "./trialBalanceVerdict";
+// Prepare Data's summary once the trial balance is certified. Never "reconciled": reconciliation is a separate fact.
+import { REVIEWED_TRIAL_BALANCE } from "./trialBalanceReadiness";
 
 function base(companyId: string, periodYear: number) {
   return `/workspace/${companyId}/${periodYear}`;
@@ -249,41 +255,6 @@ export function deriveWorkspaceState(
     };
   }
 
-  // ── PATH 6: Safisha blocked (reconciliation exceptions) ───────────────────
-  const safishaBlocked =
-    upload.safishaStatus !== null &&
-    upload.safishaStatus !== "clean";
-
-  if (safishaBlocked) {
-    // Statements may have already been validated even while Prepare Data is blocked.
-    // Show the true statements state so the workspace reflects what has actually been done.
-    const statementsInPrepareBlock: MissionState = upload.hesabuPassedAt
-      ? { status: "passed",      label: "Prepare Statements", summary: "Statements validated",                         href: `${b}/statements` }
-      : { status: "in_progress", label: "Prepare Statements", summary: "Available — draft validation can proceed",     href: `${b}/statements` };
-
-    return {
-      ...uploadCommon,
-      missions: {
-        prepare:    { status: "blocked", label: "Prepare Data", summary: `Reconciliation: ${upload.safishaStatus}`, href: `${b}/prepare`, blocker: upload.safishaStatus ?? undefined },
-        reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — reconciliation and journal review"),
-        statements: statementsInPrepareBlock,
-        tax:        locked("Compute Tax",    "tax",    companyId, periodYear, "Prepare Data reconciliation must clear before tax computation (constitutional gate)"),
-        compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after the earlier stages are complete"),
-        filing:     locked("Prepare Outputs", "filing", companyId, periodYear, "Complete the earlier stages first"),
-        monitor:    na("Monitor", "monitor", companyId, periodYear),
-      },
-      nextAction: {
-        id: "resolve-reconciliation",
-        label: "Resolve Reconciliation Exceptions",
-        description: `Reconciliation matching blocked (${upload.safishaStatus}) — resolve exceptions before the next stage can run`,
-        href: `${b}/prepare`,
-        blocked: false,
-        mission: "prepare",
-        priority: 6,
-      },
-    };
-  }
-
   // ── PATH 6B: Certification not yet established ────────────────────────────
   // Iron Dome: the ABSENCE of a certification record is never evidence of certification.
   // Only the literal verdict "certified" may unlock statement readiness — this is the SAME
@@ -332,16 +303,12 @@ export function deriveWorkspaceState(
 
   const safishaClean = upload.safishaStatus === "clean";
 
-  // ── PATH 7 + 8: TB valid, no HESABU yet ──────────────────────────────────
+  // ── PATH 7: Reviewed trial balance, no HESABU yet ────────────────────────
   if (!upload.hesabuPassedAt) {
-    const prepareSummary = safishaClean
-      ? "TB clean — reconciled"
-      : "TB validated and processed";
-
     return {
       ...uploadCommon,
       missions: {
-        prepare:    { status: "passed", label: "Prepare Data",     summary: prepareSummary, href: `${b}/prepare` },
+        prepare:    { status: "passed", label: "Prepare Data",     summary: REVIEWED_TRIAL_BALANCE, href: `${b}/prepare` },
         reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — reconciliation and journal review"),
         statements: { status: "ready",  label: "Prepare Statements", summary: "Ready to validate statements", href: `${b}/statements` },
         tax:        locked("Compute Tax",    "tax",    companyId, periodYear, "Complete Prepare Statements validation first"),
@@ -352,9 +319,7 @@ export function deriveWorkspaceState(
       nextAction: {
         id: "validate-draft-statements",
         label: "Validate Draft Statements",
-        description: safishaClean
-          ? "TB is reconciled and clean — run statement validation"
-          : "TB is valid — cross-validate the draft financial statements",
+        description: "Reviewed trial balance — cross-validate the draft financial statements",
         href: `${b}/statements`,
         blocked: false,
         mission: "statements",
@@ -370,11 +335,11 @@ export function deriveWorkspaceState(
       ...uploadCommon,
       lastUpdatedAt: upload.hesabuPassedAt ?? upload.processedAt ?? upload.uploadedAt,
       missions: {
-        prepare:    { status: safishaClean ? "passed" : "blocked", label: "Prepare Data",     summary: safishaClean ? "TB clean and reconciled" : "Reconciliation exceptions present", href: `${b}/prepare` },
+        prepare:    { status: "passed", label: "Prepare Data",     summary: REVIEWED_TRIAL_BALANCE, href: `${b}/prepare` },
         reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — reconciliation and journal review"),
         statements: { status: "passed", label: "Prepare Statements", summary: "Statements validated", href: `${b}/statements` },
         tax:        taxBlocked
-          ? locked("Compute Tax", "tax", companyId, periodYear, "Prepare Data reconciliation must clear first (constitutional gate)")
+          ? locked("Compute Tax", "tax", companyId, periodYear, "Supporting-evidence reconciliation must be complete first (constitutional gate)")
           : { status: "ready", label: "Compute Tax", summary: "Ready to compute corporate tax", href: `${b}/tax` },
         compliance: na("Compliance Review",  "compliance", companyId, periodYear, "Available after the earlier stages are complete"),
         filing:     locked("Prepare Outputs", "filing", companyId, periodYear, "Complete the earlier stages first"),
@@ -384,11 +349,11 @@ export function deriveWorkspaceState(
         id: "compute-corporate-tax",
         label: "Compute Corporate Tax",
         description: taxBlocked
-          ? "Statements validated — resolve Prepare Data reconciliation to unlock tax computation"
+          ? "Statements validated — complete the supporting-evidence reconciliation to unlock tax computation"
           : "Statements validated — compute corporate income tax",
         href: `${b}/tax`,
         blocked: taxBlocked,
-        blocker: taxBlocked ? "Prepare Data reconciliation must clear first" : undefined,
+        blocker: taxBlocked ? "Supporting-evidence reconciliation must be complete first" : undefined,
         mission: "tax",
         priority: 9,
       },
@@ -401,7 +366,7 @@ export function deriveWorkspaceState(
       ...uploadCommon,
       lastUpdatedAt: upload.kingaSignedAt ?? upload.hesabuPassedAt ?? upload.processedAt ?? upload.uploadedAt,
       missions: {
-        prepare:    { status: "passed", label: "Prepare Data",     summary: "TB clean and reconciled",     href: `${b}/prepare` },
+        prepare:    { status: "passed", label: "Prepare Data",     summary: REVIEWED_TRIAL_BALANCE,     href: `${b}/prepare` },
         reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — reconciliation and journal review"),
         statements: { status: "passed", label: "Prepare Statements", summary: "Statements validated",       href: `${b}/statements` },
         tax:        { status: "signed", label: "Compute Tax",        summary: "Tax computed and signed",    href: `${b}/tax` },
@@ -426,7 +391,7 @@ export function deriveWorkspaceState(
     ...uploadCommon,
     lastUpdatedAt: upload.filingSubmittedAt,
     missions: {
-      prepare:    { status: "signed", label: "Prepare Data",     summary: "TB clean and reconciled",        href: `${b}/prepare` },
+      prepare:    { status: "signed", label: "Prepare Data",     summary: REVIEWED_TRIAL_BALANCE,        href: `${b}/prepare` },
       reconcile:  na("Reconcile", "reconcile", companyId, periodYear, "Available — reconciliation and journal review"),
       statements: { status: "signed", label: "Prepare Statements", summary: "Statements validated and signed", href: `${b}/statements` },
       tax:        { status: "signed", label: "Compute Tax",        summary: "Tax computed and signed",        href: `${b}/tax` },
