@@ -232,9 +232,9 @@ describe("choose your outcome", () => {
     expect(PAGE_TEXT).not.toMatch(/certification|reporting pack|close insights|financial statements|variance|forecast|\btax\b|compliance|filing/i);
   });
 
-  it("states the four-step workflow of the one service", () => {
+  it("states the three-step workflow of the one service (supporting-evidence reconciliation is not a step of it)", () => {
     const steps = [...services.matchAll(/<li[^>]*>\s*<span[^>]*>(\d)<\/span>([^<]+)<\/li>/g)].map((m) => `${m[1]} ${m[2].trim()}`);
-    expect(steps).toEqual(["1 Upload trial balance", "2 Review accounts needing attention", "3 Reconcile supporting evidence", "4 Trial balance ready"]);
+    expect(steps).toEqual(["1 Upload and validate trial balance", "2 Review and confirm account classifications", "3 Trial balance ready for statement preparation"]);
   });
 });
 

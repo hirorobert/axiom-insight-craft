@@ -137,36 +137,34 @@ describe("WorkspaceOverview — certification is the single authority for whethe
     expect(html).toContain("275580.00");
   });
 
-  it("a genuinely certified upload (verdict='certified') moves on to the customer's next trial-balance-review step (statements are withheld)", async () => {
+  it("a genuinely certified upload (verdict='certified') is a Reviewed trial balance (statements are withheld; not an approval)", async () => {
     const certified: UploadSnapshot = { ...contradictionSnapshot(), certificationVerdict: "certified", certificationBlocker: null };
     const html = await renderOverview(certified);
 
-    expect(html).toContain("Reconcile supporting evidence.");
-    expect(html).not.toMatch(/TB is valid|draft financial statements|Validate Draft Statements/);
+    expect(html).toContain("Reviewed trial balance.");
+    expect(html).toContain("It is ready for statement preparation. This is not an approval of financial statements.");
+    expect(html).not.toMatch(/TB is valid|Validate Draft Statements|reconciled|audited|assured|signed off/);
+    expect(html.match(/data-testid="primary-cta"/g)?.length).toBe(1);
   });
 
-  it("with its evidence reconciled, the trial balance is presented as ready — and only then", async () => {
-    const ready: UploadSnapshot = { ...contradictionSnapshot(), certificationVerdict: "certified", certificationBlocker: null, safishaStatus: "clean" };
-    const html = await renderOverview(ready, EVALUATED);
-    expect(html).toContain("Trial balance ready.");
-    expect(html).not.toMatch(/statement/i);
-  });
-
-  it("a 'clean' reconciliation that compared nothing, or one that cannot be read, is never presented as ready", async () => {
-    const clean: UploadSnapshot = { ...contradictionSnapshot(), certificationVerdict: "certified", certificationBlocker: null, safishaStatus: "clean" };
+  it("supporting-evidence reconciliation does not change the outcome: none, complete, incomplete, escalated, unreadable or not visible", async () => {
     const e = EVALUATED.evidence;
-    const cases: [WorkspaceUpload["reconciliation"], string][] = [
-      [{ state: "read", evidence: { ...e, matched_count: 0, total_tb_lines: 0 } }, "No trial-balance line has been matched to evidence yet."],
-      [{ state: "read", evidence: { ...e, matched_count: 1 } }, "2 of 8 trial-balance lines are matched or approved; 6 still need evidence."],
-      [{ state: "read", evidence: { ...e, exceptions: { ...e.exceptions, escalated: 1 } } }, "1 exception is escalated and not yet resolved."],
-      [{ state: "failed" }, "could not be read just now"],
-      // Not visible to this viewer is NOT the same as incomplete: said differently, still never "ready".
-      [{ state: "read", evidence: null }, "Reconciliation not visible to you"],
+    const cases: [string | null, WorkspaceUpload["reconciliation"]][] = [
+      [null, null],
+      ["clean", EVALUATED],
+      ["needs_review", { state: "read", evidence: { ...e, status: "needs_review", exceptions: { ...e.exceptions, pending: 1 } } }],
+      ["needs_review", { state: "read", evidence: { ...e, exceptions: { ...e.exceptions, escalated: 1 } } }],
+      ["needs_review", { state: "read", evidence: { ...e, matched_count: 0, total_tb_lines: 0 } }],
+      ["blocked", { state: "read", evidence: { ...e, status: "blocked", exceptions: { ...e.exceptions, rejected: 1 } } }],
+      ["clean", { state: "failed" }],
+      ["clean", { state: "read", evidence: null }],
     ];
-    for (const [evidence, expected] of cases) {
-      const html = await renderOverview(clean, evidence);
-      expect(html).not.toContain("Trial balance ready");
-      expect(html).toContain(expected);
+    for (const [safishaStatus, evidence] of cases) {
+      const snap: UploadSnapshot = { ...contradictionSnapshot(), certificationVerdict: "certified", certificationBlocker: null, safishaStatus };
+      const html = await renderOverview(snap, evidence);
+      expect(html, String(safishaStatus)).toContain("Reviewed trial balance.");
+      expect(html, String(safishaStatus)).not.toMatch(/reconciled|Reconcile supporting evidence|Resolve Reconciliation|not visible to you/i);
+      expect(html.match(/data-testid="primary-cta"/g)?.length).toBe(1);
     }
   });
 

@@ -19,7 +19,6 @@ import type { EngagementCapability } from "./mandate";
 import { customerCapabilityTitle } from "./mandate";
 import { customerVisibleCapabilities, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
 import type { WorkspaceState } from "./types";
-import { trialBalanceReadiness, type ReadinessInput } from "./trialBalanceReadiness";
 
 export interface OrientationMilestone {
   stageLabel: string;
@@ -47,32 +46,25 @@ export interface TrialBalanceReviewStep {
 }
 
 /**
- * The trial-balance-review step once Prepare has passed (the engine's own next action then lies in a withheld stage).
- * "Ready" is decided ONLY by trialBalanceReadiness: Prepare passes on a certified trial balance (checks passed and every
- * classification confirmed), and readiness additionally needs a reconciliation that finished clean after matching at
- * least one line to evidence. A passed Prepare, or a "clean" status over an empty comparison, is never presented as
- * ready; missing reconciliation evidence is not ready. Null while Prepare has not passed (its own next action applies).
+ * The trial-balance-review outcome once Prepare has passed (the engine's own next action then lies in a withheld stage).
+ * Prepare passes only on a certified trial balance (deriveWorkspaceState PATH 6B: checks passed and every classification
+ * confirmed), which is exactly trialBalanceReadiness: a "Reviewed trial balance", ready for statement preparation.
+ * Supporting-evidence reconciliation is not part of it and is never claimed here. Null while Prepare has not passed (its
+ * own next action applies).
  */
-export function trialBalanceReviewStep(
-  state: WorkspaceState,
-  safishaStatus: string | null | undefined,
-  reconciliation: ReadinessInput["reconciliation"],
-): TrialBalanceReviewStep | null {
+export function trialBalanceReviewStep(state: WorkspaceState): TrialBalanceReviewStep | null {
   const prepare = state.missions.prepare.status;
   if (prepare !== "passed" && prepare !== "signed") return null;
-  const readiness = trialBalanceReadiness({ certificationVerdict: "certified", safishaStatus, reconciliation });
-  return readiness.ready
-    ? { ready: true, label: TRIAL_BALANCE_REVIEW.ready, detail: "Its checks have passed, its accounts are reviewed and its supporting evidence is reconciled." }
-    : readiness.evidenceState === "not_visible"
-      ? { ready: false, label: "Reconciliation not visible to you", detail: readiness.nextStep ?? "" }
-      : { ready: false, label: "Reconcile supporting evidence", detail: readiness.nextStep ?? "Match the trial balance to bank statements, mobile-money exports or subledgers." };
+  return {
+    ready: true,
+    label: TRIAL_BALANCE_REVIEW.ready,
+    detail: `Its checks have passed and every account classification is confirmed. It is ready for statement preparation. ${TRIAL_BALANCE_REVIEW.notApproval}`,
+  };
 }
 
 export function deriveOrientationSummary(
   workspaceState: WorkspaceState,
   grantedCapabilities: EngagementCapability[] | null,
-  safishaStatus?: string | null,
-  reconciliation?: ReadinessInput["reconciliation"],
 ): OrientationSummary {
   const visibleServices = grantedCapabilities ? customerVisibleCapabilities(grantedCapabilities) : [];
   const service = visibleServices.length > 0 ? visibleServices.map((c) => customerCapabilityTitle(c)).join(", ") : null;
@@ -80,7 +72,7 @@ export function deriveOrientationSummary(
   // A next action in a stage withheld from customers (moduleAvailability.ts) is never named: the customer's own
   // trial-balance-review step is shown instead.
   const nextVisible = isStageCustomerVisible(workspaceState.nextAction.mission);
-  const step = nextVisible ? null : trialBalanceReviewStep(workspaceState, safishaStatus, reconciliation);
+  const step = nextVisible ? null : trialBalanceReviewStep(workspaceState);
   const currentStageLabel = nextVisible ? STAGE_CONFIGS[workspaceState.nextAction.mission].label : TRIAL_BALANCE_REVIEW.title;
   const currentStatusLabel = nextVisible ? workspaceState.nextAction.label : step?.label ?? NO_VISIBLE_NEXT_ACTION;
 

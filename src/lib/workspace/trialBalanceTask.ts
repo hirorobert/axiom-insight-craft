@@ -1,19 +1,19 @@
 /**
  * trialBalanceTask — "where am I in Trial balance review, and what is the one thing to do now". Pure.
  *
- * Derived only from the trial-balance verdict (trialBalanceVerdict.ts) and the readiness rule
- * (trialBalanceReadiness.ts), so the step shown at the top of Prepare can never disagree with the card's status and
- * primary action beneath it. The four steps are the service's own workflow (moduleAvailability TRIAL_BALANCE_REVIEW).
+ * Derived only from the trial-balance verdict (trialBalanceVerdict.ts), so the step shown at the top of Prepare can never
+ * disagree with the card's status and primary action beneath it. The three steps are the service's own workflow
+ * (moduleAvailability TRIAL_BALANCE_REVIEW). An accepted verdict IS readiness (trialBalanceReadiness: certified = checks
+ * passed and every classification confirmed); supporting-evidence reconciliation is not a step of this service.
  */
 
 import { TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
-import { trialBalanceReadiness, type ReadinessInput } from "./trialBalanceReadiness";
 import type { TrialBalanceVerdict } from "./trialBalanceVerdict";
 
 export interface TrialBalanceTask {
   service: string;
-  step: 1 | 2 | 3 | 4;
-  of: 4;
+  step: 1 | 2 | 3;
+  of: 3;
   label: string;
   /** One sentence: what to do now (or that nothing is needed). */
   instruction: string;
@@ -21,13 +21,12 @@ export interface TrialBalanceTask {
 
 const STEP_LABELS = TRIAL_BALANCE_REVIEW.workflow;
 
-function task(step: 1 | 2 | 3 | 4, instruction: string): TrialBalanceTask {
-  return { service: TRIAL_BALANCE_REVIEW.title, step, of: 4, label: STEP_LABELS[step - 1], instruction };
+function task(step: 1 | 2 | 3, instruction: string): TrialBalanceTask {
+  return { service: TRIAL_BALANCE_REVIEW.title, step, of: 3, label: STEP_LABELS[step - 1], instruction };
 }
 
 export function currentTrialBalanceTask(
   verdict: Pick<TrialBalanceVerdict, "status" | "failedCheckId" | "issues">,
-  evidence: { safishaStatus: string | null | undefined; reconciliation: ReadinessInput["reconciliation"] },
 ): TrialBalanceTask {
   switch (verdict.status) {
     case "none":
@@ -49,11 +48,7 @@ export function currentTrialBalanceTask(
           : "Correct the file, then replace it.");
     case "needs_review":
       return task(2, "Confirm the classification of the accounts listed below.");
-    case "accepted": {
-      const readiness = trialBalanceReadiness({ certificationVerdict: "certified", safishaStatus: evidence.safishaStatus, reconciliation: evidence.reconciliation });
-      return readiness.ready
-        ? task(4, "Checks passed, accounts confirmed and every trial-balance line reconciled. Nothing more is needed for this period.")
-        : task(3, readiness.nextStep ?? "Match the trial balance to supporting evidence.");
-    }
+    case "accepted":
+      return task(3, `${TRIAL_BALANCE_REVIEW.ready}: checks passed and every account classification confirmed. ${TRIAL_BALANCE_REVIEW.notApproval}`);
   }
 }

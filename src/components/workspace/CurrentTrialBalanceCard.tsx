@@ -7,7 +7,7 @@
  */
 
 import type { ReactNode } from "react";
-import { ArrowRight, ChevronRight, Loader2, RefreshCw, ShieldCheck, Upload } from "lucide-react";
+import { ArrowRight, ChevronRight, Loader2, RefreshCw, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatTotal, isOutOfBalance, type TrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
 
@@ -25,8 +25,6 @@ const ACTION_ICON: Record<NonNullable<TrialBalanceVerdict["primaryAction"]>["kin
   replace: <Upload className="mr-2 h-4 w-4" />,
   retry: <RefreshCw className="mr-2 h-4 w-4" />,
   review_classifications: <ArrowRight className="mr-2 h-4 w-4" />,
-  verify_evidence: <ShieldCheck className="mr-2 h-4 w-4" />,
-  continue: <ArrowRight className="mr-2 h-4 w-4" />,
 };
 
 function uploadedLine(uploadedAt: string, fileSize: number): string {

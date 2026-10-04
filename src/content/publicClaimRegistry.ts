@@ -40,9 +40,9 @@ export const PUBLIC_CLAIM_REGISTRY: readonly PublicClaim[] = [
     id: "trial-balance-review-scope",
     claimText: "Upload, check and review the accounts in your trial balance.",
     evidenceSource:
-      "src/lib/workspace/moduleAvailability.ts (TRIAL_BALANCE_REVIEW — the only customer-reachable service: Prepare and Reconcile) + supabase/functions/process-trial-balance/index.ts (import, checks, classification) + src/lib/workspace/trialBalanceVerdict.ts (check verdict) + src/components/AccountReviewPanel.tsx (recorded account decisions), all reached from the Prepare stage",
+      "src/lib/workspace/moduleAvailability.ts (TRIAL_BALANCE_REVIEW — the only customer-reachable service, reached from Prepare: upload and validate, confirm classifications, reviewed trial balance) + supabase/functions/process-trial-balance/index.ts (import, checks, classification) + src/lib/workspace/trialBalanceVerdict.ts (check verdict) + src/components/AccountReviewPanel.tsx (recorded account decisions), all reached from the Prepare stage",
     evidenceScope:
-      "Proves a trial balance can be imported, checked and its unresolved accounts reviewed with a recorded decision. Does NOT prepare financial statements, certify a close, issue a Reporting Pack, analyse variance, forecast, compute tax or prepare any filing — those modules are withheld from customers (moduleAvailability.ts) until their authority is complete.",
+      "Proves a trial balance can be imported, checked and its unresolved accounts reviewed with a recorded decision, reaching a reviewed trial balance. Does NOT include supporting-evidence reconciliation (not part of this service), does NOT approve it, prepare financial statements, certify a close, issue a Reporting Pack, analyse variance, forecast, compute tax or prepare any filing — those modules are withheld from customers (moduleAvailability.ts) until their authority is complete.",
     approvedWording: "Upload, check and review the accounts in your trial balance.",
     prohibitedWording: [
       "financial statements",
@@ -75,17 +75,6 @@ export const PUBLIC_CLAIM_REGISTRY: readonly PublicClaim[] = [
       "12 independent audit opinions",
       "integrity guarantee",
     ],
-    verifiedDate: "2026-10-02",
-  },
-  {
-    id: "evidence-reconciliation",
-    claimText: "reconcile it to supporting evidence",
-    evidenceSource:
-      "src/components/safisha/SafishaGate.tsx (mounted in the Prepare stage) → supabase/functions/safisha-ingest, safisha-match (bank / mobile-money / subledger evidence matched to the trial balance; trial_balance_uploads.safisha_status records the outcome)",
-    evidenceScope:
-      "Proves supporting evidence can be uploaded and matched to the trial balance, with exceptions held for resolution. Does NOT prove the evidence is complete for the period, and is not an audit of it.",
-    approvedWording: "reconcile it to supporting evidence",
-    prohibitedWording: ["fully reconciled books", "audit-ready", "guaranteed match"],
     verifiedDate: "2026-10-02",
   },
   {

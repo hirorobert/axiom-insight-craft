@@ -173,19 +173,38 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     assertInvariants(result);
   });
 
-  // ── PATH 6: Safisha exceptions ───────────────────────────────────────────
+  // ── Supporting-evidence reconciliation is not part of Trial balance review ─────────────
+  // Scope correction: an incomplete, blocked or still-running reconciliation never blocks Prepare Data (the trial
+  // balance's checks and classification review) or its "Reviewed trial balance" outcome. It still locks TAX exactly as
+  // before (constitutional gate, PATH 9) — asserted for every non-clean status, before and after HESABU.
 
-  it("PATH 6: safishaStatus=exceptions → resolve-reconciliation, KINGA locked (constitutional gate)", () => {
-    const result = deriveWorkspaceState(
-      CID, "Acme Ltd", PY,
-      snap({ safishaStatus: "exceptions" }),
-    );
+  for (const safishaStatus of ["processing", "needs_review", "blocked", "exceptions"]) {
+    it(`incomplete reconciliation (${safishaStatus}) on a certified TB: Prepare passed as a Reviewed trial balance, never reconciled; tax locked`, () => {
+      const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({ safishaStatus }));
+      expect(result.nextAction.id).toBe("validate-draft-statements");
+      expect(result.missions.prepare.status).toBe("passed");
+      expect(result.missions.prepare.summary).toBe("Reviewed trial balance");
+      expect(JSON.stringify(result)).not.toMatch(/reconciled/i);
+      expect(result.missions.tax.status).toBe("locked");
+      assertInvariants(result);
+    });
 
-    expect(result.nextAction.id).toBe("resolve-reconciliation");
-    expect(result.missions.prepare.status).toBe("blocked");
-    // HESABU may proceed in parallel but KINGA is constitutionally gated
+    it(`incomplete reconciliation (${safishaStatus}) after HESABU: tax stays locked by the constitutional gate`, () => {
+      const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({ safishaStatus, hesabuPassedAt: "2025-02-01T09:00:00Z", kingaSignedAt: null }));
+      expect(result.nextAction.id).toBe("compute-corporate-tax");
+      expect(result.nextAction.blocked).toBe(true);
+      expect(result.missions.prepare.status).toBe("passed");
+      expect(result.missions.tax.status).toBe("locked");
+      expect(result.missions.tax.blocker).toContain("constitutional gate");
+      assertInvariants(result);
+    });
+  }
+
+  it("an open reconciliation never masks a certification problem: PATH 6B governs an uncertified TB", () => {
+    const result = deriveWorkspaceState(CID, "Acme Ltd", PY, snap({ safishaStatus: "needs_review", certificationVerdict: "blocked", certificationBlocker: "Debits and credits differ." }));
+    expect(result.nextAction.id).toBe("fix-certification-failure");
+    expect(result.missions.statements.status).toBe("locked");
     expect(result.missions.tax.status).toBe("locked");
-    expect(result.missions.tax.blocker).toContain("constitutional gate");
     assertInvariants(result);
   });
 
@@ -301,8 +320,9 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
 
     expect(result.nextAction.id).toBe("validate-draft-statements");
     expect(result.missions.statements.status).toBe("ready");
-    // description should differ from clean path
-    expect(result.nextAction.description).toContain("TB is valid");
+    // The same outcome with or without a reconciliation: a reviewed trial balance, never "reconciled".
+    expect(result.nextAction.description).toContain("Reviewed trial balance");
+    expect(result.missions.prepare.summary).toBe("Reviewed trial balance");
     assertInvariants(result);
   });
 
@@ -327,13 +347,10 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
     assertInvariants(result);
   });
 
-  // ── PATH 9b: HESABU passed, safisha still blocked → PATH 6 fires, HESABU shown as passed ──
-  // When SAFISHA is blocked, PATH 6 takes priority (constitutional gate).
-  // However, because HESABU may run in parallel, the engine checks hesabuPassedAt
-  // inside PATH 6 and shows HESABU as "passed" rather than "in_progress".
-  // KINGA remains locked until SAFISHA clears.
+  // ── PATH 9b: HESABU passed, reconciliation blocked → KINGA locked (constitutional gate) ──
+  // The reconciliation no longer blocks Prepare Data (not part of Trial balance review), but it still locks tax.
 
-  it("PATH 9b: hesabuPassedAt set, safisha blocked → resolve-reconciliation with HESABU=passed, KINGA locked", () => {
+  it("PATH 9b: hesabuPassedAt set, safisha blocked → compute-corporate-tax blocked, HESABU passed, KINGA locked", () => {
     const result = deriveWorkspaceState(
       CID, "Acme Ltd", PY,
       snap({
@@ -343,12 +360,9 @@ describe("deriveWorkspaceState — 14 path coverage", () => {
       }),
     );
 
-    // PATH 6 fires (safisha is the blocker)
-    expect(result.nextAction.id).toBe("resolve-reconciliation");
-    expect(result.nextAction.blocked).toBe(false);
-    // SAFISHA is blocked
-    expect(result.missions.prepare.status).toBe("blocked");
-    // HESABU is shown as passed (already validated)
+    expect(result.nextAction.id).toBe("compute-corporate-tax");
+    expect(result.nextAction.blocked).toBe(true);
+    expect(result.missions.prepare.status).toBe("passed");
     expect(result.missions.statements.status).toBe("passed");
     // KINGA is constitutionally locked
     expect(result.missions.tax.status).toBe("locked");

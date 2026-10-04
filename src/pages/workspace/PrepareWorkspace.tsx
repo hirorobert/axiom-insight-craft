@@ -4,7 +4,7 @@
  *   Current Trial Balance card   file, result, totals, one plain reason, one failure-appropriate action; Replace / Remove
  *   Trial balance checks          the four checks that decide acceptance (+ informational items apart)
  *   Account review                only when classifications need a decision
- *   Evidence verification         only once the trial balance is accepted; mandatory before tax
+ *   (Supporting-evidence reconciliation is not part of Trial balance review; it is still required before tax.)
  *   Technical processing details  engine telemetry for auditors, collapsed
  *   Upload history                read-only, lifecycle-labelled, collapsed
  *
@@ -63,7 +63,6 @@ import {
   validateReplacementFile,
   type RemovalEligibility,
 } from "@/lib/workspace/trialBalanceManagement";
-import SafishaGate from "@/components/safisha/SafishaGate";
 import { Button } from "@/components/ui/button";
 import {
   SurfaceCard,
@@ -152,9 +151,9 @@ export default function PrepareWorkspace() {
   const currentEligibility = eligibility && eligibility.key === eligibilityKey ? eligibility.value : null;
   const removeAction = sourceMode === "manage" ? decideRemoveAction(upload, currentEligibility) : null;
 
-  // The replacement created by retireUpload() is processed exactly like a fresh upload. Evidence verification (the
-  // non-skippable SafishaGate) is offered by the page itself once the verdict says the trial balance is accepted —
-  // never on a trial balance that failed its own checks. It stays mandatory: tax is locked until evidence is clean.
+  // The replacement created by retireUpload() is processed exactly like a fresh upload. Supporting-evidence
+  // reconciliation is not part of Trial balance review; the tax stage stays locked until a reconciliation is complete
+  // (deriveWorkspaceState), and every existing reconciliation record is kept.
 
   const processReplacement = async (uploadId: string, fileName: string) => {
     try {
@@ -429,7 +428,7 @@ export default function PrepareWorkspace() {
   // neutrally from their structured severity (certificationCheckPresentation.ts).
   const verdict = deriveTrialBalanceVerdict({ upload: upload ?? null, readiness, readinessSubject: certReadiness.subjectKey, canRetry: canReprocessUpload(upload) });
   // The service, the step and the one thing to do now — from the same verdict as the card below, never re-derived.
-  const task = currentTrialBalanceTask(verdict, { safishaStatus: upload?.safisha_status ?? null, reconciliation: upload?.reconciliation ?? null });
+  const task = currentTrialBalanceTask(verdict);
 
   // Re-run processing after an engine failure (never offered for a blocked trial balance: its checks ran and the same
   // file would fail again). Only the Edge Function writes; the page makes no financial write.
@@ -451,7 +450,6 @@ export default function PrepareWorkspace() {
     }
   };
 
-  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   const onPrimary = (kind: NonNullable<typeof verdict.primaryAction>["kind"]) => {
     if (kind === "replace") replaceInputRef.current?.click();
     else if (kind === "retry") void handleRetry();
@@ -459,8 +457,6 @@ export default function PrepareWorkspace() {
       if (reviewRef.current) reviewRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
       else navigate(buildPrepareReviewRoute(companyId, periodYear, upload?.id ?? null));
     }
-    else if (kind === "verify_evidence") scrollTo("evidence-verification");
-    else if (kind === "continue") navigate(`/workspace/${companyId}/${periodYear}/reconcile`);
   };
 
   // PPG-1 Finding 1 (defense in depth for the upload/replace path):
@@ -620,8 +616,6 @@ export default function PrepareWorkspace() {
                   periodId={engagement?.fiscal_period_id ?? null}
                   initialFile={pendingFile}
                   autoProcess={!!pendingFile}
-                  evidenceByReconcileOnly={prepareOnly}
-                  evidenceGateHandledByParent
                   onUploaded={() => {
                     setShowUploader(false);
                     setPendingFile(null);
@@ -706,37 +700,6 @@ export default function PrepareWorkspace() {
                     }}
                   />
                 </div>
-              )}
-
-              {verdict.evidenceUnlocked && !verdict.evidenceCleared && canReprocessUpload(upload) && (
-                <section id="evidence-verification" aria-labelledby="evidence-verification-title" className="border border-border bg-card" data-testid="evidence-verification">
-                  <div className="border-b border-border px-5 py-4 sm:px-7">
-                    <h2 id="evidence-verification-title" className="text-[15px] font-semibold text-foreground">Evidence verification</h2>
-                    <p className="mt-1 text-[13px] text-muted-foreground">
-                      Required before the next stage: match the accepted trial balance to bank statements, mobile-money exports or subledgers.
-                    </p>
-                  </div>
-                  {prepareOnly ? (
-                    <p className="px-5 py-4 text-[13px] text-muted-foreground sm:px-7" data-testid="evidence-by-reconcile">
-                      Evidence verification is completed by someone with Reconcile access. Later stages stay locked until it clears.
-                    </p>
-                  ) : (
-                    <div className="px-5 py-4 sm:px-7">
-                      <SafishaGate
-                        uploadId={upload.id}
-                        fileName={upload.file_name}
-                        onCleared={() => {
-                          toast.success("Evidence verified — the trial balance can move on.");
-                          refreshUpload();
-                        }}
-                        onBlocked={() => {
-                          toast.error("Evidence did not match. Review the exceptions, or replace the trial balance.");
-                          refreshUpload();
-                        }}
-                      />
-                    </div>
-                  )}
-                </section>
               )}
 
               {/* Engine telemetry for auditors, collapsed. The result itself is stated once, above. */}

@@ -2,8 +2,7 @@
  * Development-only gallery of the Prepare Data trial-balance surfaces and the account home, rendered by the REAL
  * components from neutral synthetic data. Not part of the application: no route in App.tsx, not imported by anything
  * under src/ outside src/dev/, and served only by the Vite dev server through dev/trial-balance-states.html (the
- * production build's only input is index.html). No account reads or writes: nothing calls the server unless a person
- * actively uses the evidence control. Proven by src/dev/devGalleryIsolation.test.ts and the production-bundle scan.
+ * production build's only input is index.html). No account reads or writes: nothing calls the server. Proven by src/dev/devGalleryIsolation.test.ts and the production-bundle scan.
  *
  *   /dev/trial-balance-states.html?state=blocked|accepted|accepted-tolerance|failed|review|home
  */
@@ -13,7 +12,6 @@ import { CurrentTrialBalanceCard } from "@/components/workspace/CurrentTrialBala
 import { TrialBalanceChecks } from "@/components/workspace/TrialBalanceChecks";
 import { UploadHistory } from "@/components/workspace/UploadHistory";
 import { ManageTrialBalance } from "@/components/workspace/ManageTrialBalance";
-import SafishaGate from "@/components/safisha/SafishaGate";
 import { deriveTrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
 import type { PreflightCheck, PreflightVerdict } from "@/lib/workspace/computePreflight";
 import EngagementHub from "@/pages/workspace/EngagementHub";
@@ -117,15 +115,6 @@ export default function TrialBalanceStatesGallery() {
           }
         />
         <TrialBalanceChecks verdict={verdict} />
-        {verdict.evidenceUnlocked && (
-          <section className="border border-border bg-card">
-            <div className="border-b border-border px-5 py-4 sm:px-7">
-              <h2 className="text-[15px] font-semibold text-foreground">Evidence verification</h2>
-              <p className="mt-1 text-[13px] text-muted-foreground">Required before the next stage: match the accepted trial balance to bank statements, mobile-money exports or subledgers.</p>
-            </div>
-            <div className="px-5 py-4 sm:px-7"><SafishaGate uploadId="synthetic-upload" fileName="sample_trial_balance_FY2025.xlsx" onCleared={() => undefined} onBlocked={() => undefined} /></div>
-          </section>
-        )}
         <section className="border border-border bg-card px-5 py-3.5 text-[13px] font-semibold text-foreground sm:px-7">Technical processing details</section>
         <UploadHistory uploads={HISTORY} currentId="h1" viewingId="h1" onOpen={() => undefined} />
       </main>

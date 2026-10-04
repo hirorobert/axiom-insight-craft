@@ -18,7 +18,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { registerWorkspaceUpload, uploadWorkspaceSource } from "@/lib/workspace/sourceUpload";
-import SafishaGate from "@/components/safisha/SafishaGate";
 import {
   ACCEPTED_EXTENSIONS, INITIAL_FLOW, POLL_DELAYS_MS, actionsFor, checkFinished, classifyCheckAnswer, classifySourceFailure,
   isBusy, reduceFlow, stepsFor, type FlowActionId, type FlowState, type StepStatus,
@@ -42,17 +41,6 @@ export interface TrialBalanceUploadProps {
   autoProcess?: boolean;
   /** Called once the check has finished, so the page can show the result. */
   onUploaded?: () => void;
-  /**
-   * Prepare-only access (an explicit capability grant, PR #32): the caller may upload and validate but has no
-   * Reconcile access, so the SafishaGate is not opened for them. The gate is NOT bypassed: the upload's
-   * safisha_status stays uncleared and every later stage stays locked until someone with Reconcile access clears it.
-   */
-  evidenceByReconcileOnly?: boolean;
-  /**
-   * The parent page opens evidence verification itself, from the authoritative verdict (Prepare Data: only once the
-   * trial balance is accepted). The gate is NOT bypassed: later stages stay locked until safisha_status is clean.
-   */
-  evidenceGateHandledByParent?: boolean;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -91,8 +79,6 @@ export const TrialBalanceUpload = ({
   periodId = null,
   initialFile = null,
   autoProcess = false,
-  evidenceByReconcileOnly = false,
-  evidenceGateHandledByParent = false,
   onUploaded,
 }: TrialBalanceUploadProps = {}) => {
   const [flow, dispatch] = useReducer(reduceFlow, INITIAL_FLOW);
@@ -101,7 +87,6 @@ export const TrialBalanceUpload = ({
   const fileRef = useRef<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [safishaUpload, setSafishaUpload] = useState<{ uploadId: string; fileName: string } | null>(null);
   const { user } = useAuth();
   const { logAction } = useAuditLog();
 
@@ -145,16 +130,9 @@ export const TrialBalanceUpload = ({
     }
     dispatch({ type: "CHECKED" });
     logAction({ action: "process_trial_balance", entityType: "trial_balance_upload", entityId: uploadId, metadata: { fileName: fileRef.current?.name } });
-    const fileName = fileRef.current?.name ?? "";
-    if (evidenceGateHandledByParent) {
-      // The page states the result and offers evidence verification once the trial balance is accepted.
-    } else if (evidenceByReconcileOnly) {
-      toast.success(`${fileName} checked. Evidence verification is completed by someone with Reconcile access. Later stages stay locked until it clears.`);
-    } else {
-      setSafishaUpload({ uploadId, fileName });
-    }
+    // The page states the result. Supporting-evidence reconciliation is not part of Trial balance review.
     onUploaded?.();
-  }, [evidenceByReconcileOnly, evidenceGateHandledByParent, logAction, onUploaded]);
+  }, [logAction, onUploaded]);
 
   const runRegister = useCallback(async (reservationId: string, clientRequestId: string) => {
     const file = fileRef.current;
@@ -336,17 +314,6 @@ export const TrialBalanceUpload = ({
         </div>
       )}
 
-      {/* SAFISHA GATE — only when the page does not open evidence verification itself. Cannot be skipped. */}
-      {safishaUpload && (
-        <div className="border-2 border-[#0E6B55]/40 bg-card p-5 shadow-sm">
-          <SafishaGate
-            uploadId={safishaUpload.uploadId}
-            fileName={safishaUpload.fileName}
-            onCleared={() => toast.success("Evidence verified — later stages unlocked for " + safishaUpload.fileName)}
-            onBlocked={() => toast.error("Evidence did not match — replace the trial balance with a corrected file.")}
-          />
-        </div>
-      )}
 
       <p className="text-[12px] text-muted-foreground">Stored in this workspace only · never shared</p>
     </section>

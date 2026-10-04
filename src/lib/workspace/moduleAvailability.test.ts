@@ -103,8 +103,9 @@ describe("the boundary itself", () => {
     expect(TRIAL_BALANCE_REVIEW).toEqual({
       title: "Trial balance review",
       description: "Upload, check and review the accounts in your trial balance.",
-      workflow: ["Upload trial balance", "Review accounts needing attention", "Reconcile supporting evidence", "Trial balance ready"],
-      ready: "Trial balance ready",
+      workflow: ["Upload and validate trial balance", "Review and confirm account classifications", "Trial balance ready for statement preparation"],
+      ready: "Reviewed trial balance",
+      notApproval: "This is not an approval of financial statements.",
     });
   });
 
@@ -321,30 +322,27 @@ describe("6. historical engagements never become first-run accounts", () => {
 });
 
 describe("7. trial-balance preparation remains fully usable", () => {
-  it("the Prepare page keeps its upload, checks, account review and evidence reconciliation; Reconcile keeps its journal review", () => {
+  it("the Prepare page keeps its upload, checks and account review, and mounts no evidence-matching panel; Reconcile keeps its journal review", () => {
     const prepare = code("src/pages/workspace/PrepareWorkspace.tsx");
-    for (const c of ["TrialBalanceUpload", "AccountReviewPanel", "SafishaGate", "TrialBalanceChecks"]) expect(prepare, c).toMatch(new RegExp(`\\b${c}\\b`));
+    for (const c of ["TrialBalanceUpload", "AccountReviewPanel", "TrialBalanceChecks"]) expect(prepare, c).toMatch(new RegExp(`\\b${c}\\b`));
+    // Supporting-evidence matching is not part of Trial balance review: neither upload path mounts it.
+    for (const f of ["src/pages/workspace/PrepareWorkspace.tsx", "src/components/TrialBalanceUpload.tsx"]) expect(code(f), f).not.toMatch(/\bSafishaGate\b|evidence-verification/);
     expect(code("src/pages/workspace/ReconcileWorkspace.tsx")).toMatch(/AdjustingJournalPanel/);
   });
 
-  it("the engine reaches Prepare passed without any withheld output, and the workflow ends at 'Trial balance ready' only once evidence is reconciled", () => {
-    const evidencePending = deriveWorkspaceState("c1", "Example Co", 2025, upload({ safishaStatus: null }));
-    const reconciled = deriveWorkspaceState("c1", "Example Co", 2025, upload({ safishaStatus: "clean" }));
-    expect(evidencePending.missions.prepare.status).toBe("passed");
-    const evidence = { status: "clean", matched_count: 12, exception_count: 0, total_tb_lines: 12, exceptions: { pending: 0, approved: 0, rejected: 0, escalated: 0, approvedTbLines: 0 } };
-    expect(trialBalanceReviewStep(evidencePending, null, null)).toMatchObject({ ready: false, label: "Reconcile supporting evidence" });
-    expect(trialBalanceReviewStep(reconciled, "clean", evidence)).toMatchObject({ ready: true, label: "Trial balance ready" });
-    // A "clean" status over an empty comparison, or evidence that could not be read, is not ready.
-    expect(trialBalanceReviewStep(reconciled, "clean", { ...evidence, matched_count: 0, total_tb_lines: 0 })).toMatchObject({ ready: false });
-    expect(trialBalanceReviewStep(reconciled, "clean", null)).toMatchObject({ ready: false });
-    expect(trialBalanceReviewStep(deriveWorkspaceState("c1", "Example Co", 2025, upload({ certificationVerdict: "blocked", certificationBlocker: "x" })), "clean", evidence)).toBeNull();
-    const o = deriveOrientationSummary(reconciled, ["FINANCIAL_STATEMENTS"], "clean", evidence);
-    expect(o).toMatchObject({ service: "Trial balance review", currentStageLabel: "Trial balance review", currentStatusLabel: "Trial balance ready" });
-    expect(JSON.stringify(o)).not.toMatch(WITHHELD_CLAIMS);
-  });
-
-  it("the Prepare processing ledger claims no statements", () => {
-    expect(code("src/components/workspace/TrialBalanceProgressLedger.tsx")).not.toMatch(/Draft statements/);
+  it("the engine reaches Prepare passed without any withheld output, and the workflow ends at 'Reviewed trial balance' whatever the reconciliation says", () => {
+    for (const safishaStatus of [null, "processing", "needs_review", "blocked", "clean"]) {
+      const state = deriveWorkspaceState("c1", "Example Co", 2025, upload({ safishaStatus }));
+      expect(state.missions.prepare.status, String(safishaStatus)).toBe("passed");
+      expect(trialBalanceReviewStep(state)).toMatchObject({ ready: true, label: "Reviewed trial balance" });
+      const o = deriveOrientationSummary(state, ["FINANCIAL_STATEMENTS"]);
+      expect(o).toMatchObject({ service: "Trial balance review", currentStageLabel: "Trial balance review", currentStatusLabel: "Reviewed trial balance" });
+      expect(JSON.stringify(o)).not.toMatch(WITHHELD_CLAIMS);
+      expect(JSON.stringify(o)).not.toMatch(/reconciled|audited|assured|signed off/i);
+    }
+    // Failed validation or outstanding classifications never reach it.
+    expect(trialBalanceReviewStep(deriveWorkspaceState("c1", "Example Co", 2025, upload({ certificationVerdict: "blocked", certificationBlocker: "x" })))).toBeNull();
+    expect(trialBalanceReviewStep(deriveWorkspaceState("c1", "Example Co", 2025, upload({ status: "needs_review" })))).toBeNull();
   });
 });
 
@@ -367,9 +365,10 @@ describe("8. tax-related accounting accounts remain ordinary, usable accounting 
 });
 
 describe("9/10. no public claim — in source or rendered — promises a withheld module", () => {
-  it("the registered public claims describe only Trial balance review and its evidence reconciliation", () => {
+  it("the registered public claims describe only Trial balance review — no evidence reconciliation claim", () => {
     for (const c of PUBLIC_CLAIM_REGISTRY) expect(`${c.claimText} ${c.approvedWording}`, c.id).not.toMatch(WITHHELD_CLAIMS);
-    expect(PUBLIC_CLAIM_REGISTRY.map((c) => c.id)).toEqual(expect.arrayContaining(["trial-balance-review-scope", "evidence-reconciliation"]));
+    expect(PUBLIC_CLAIM_REGISTRY.map((c) => c.id)).toContain("trial-balance-review-scope");
+    expect(PUBLIC_CLAIM_REGISTRY.map((c) => c.id)).not.toContain("evidence-reconciliation");
     for (const id of ["framework-aware-preparation", "export-formats", "close-certification-internal-record"]) expect(PUBLIC_CLAIM_REGISTRY.map((c) => c.id)).not.toContain(id);
   });
 

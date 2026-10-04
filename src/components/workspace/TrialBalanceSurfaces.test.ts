@@ -45,10 +45,12 @@ describe("Current Trial Balance card", () => {
   it("the status is a control that goes straight to the checks that decided it", () => {
     expect(card(blocked)).toMatch(/<button[^>]*aria-controls="trial-balance-checks"[^>]*data-testid="trial-balance-status"/);
   });
-  it("accepted: evidence verification is the next step", () => {
+  it("accepted: a Reviewed trial balance, ready for statement preparation, with no further action and no approval claim", () => {
     const html = card(accepted);
-    expect(html).toContain("Accepted");
-    expect(html).toContain("Verify against bank and mobile-money evidence");
+    expect(html).toContain("Reviewed");
+    expect(html).toContain("Reviewed trial balance: every check passed and every account classification is confirmed. It is ready for statement preparation. This is not an approval of financial statements.");
+    expect(html).not.toContain('data-testid="trial-balance-primary-action"');
+    expect(html).not.toMatch(/Verify against bank|evidence is verified|reconciled|audited|assured|signed off/i);
   });
   it("the difference reads 'Balanced' at exact zero and 'Accepted — within the TZS 1.00 tolerance' for 1–100 cents; never on a block", () => {
     expect(card(accepted)).toMatch(/data-testid="trial-balance-balance-statement">Balanced</);
@@ -83,17 +85,18 @@ describe("Upload history", () => {
 
 describe("Prepare Data wiring", () => {
   const prep = src("src/pages/workspace/PrepareWorkspace.tsx");
-  it("the result is stated once: card → checks → (evidence) → technical details → history; the old duplicates are gone", () => {
+  it("the result is stated once: card → checks → technical details → history; the old duplicates are gone", () => {
     const jsx = prep.slice(prep.lastIndexOf("  return ("));
-    const order = ["<CurrentTrialBalanceCard", "<TrialBalanceChecks", 'id="evidence-verification"', "Technical processing details", "<UploadHistory"].map((m) => jsx.indexOf(m));
+    const order = ["<CurrentTrialBalanceCard", "<TrialBalanceChecks", "Technical processing details", "<UploadHistory"].map((m) => jsx.indexOf(m));
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     for (const gone of ["TrialBalancePreflight", "UploadsStatusPanel", "<DiscardUploadDialog", "CertificationHeader", "CertificationSummaryStrip", "TrialBalanceIntegrityCard", "Evidence and processing details", "Previous trial balances"]) expect(prep, gone).not.toContain(gone);
   });
-  it("evidence verification appears only for an accepted trial balance, is never opened by processing alone, and stays mandatory", () => {
-    expect(prep).toMatch(/\{verdict\.evidenceUnlocked && !verdict\.evidenceCleared && canReprocessUpload\(upload\) && \(/);
-    expect(prep).not.toMatch(/setSafishaUpload|safishaUpload/);
-    expect(prep).toMatch(/evidenceGateHandledByParent/);
+  it("supporting-evidence matching is not part of Trial balance review: neither upload path mounts or opens it", () => {
+    const up = src("src/components/TrialBalanceUpload.tsx");
+    for (const [name, text] of [["PrepareWorkspace", prep], ["TrialBalanceUpload", up]] as const) {
+      expect(text, name).not.toMatch(/SafishaGate|setSafishaUpload|safishaUpload|evidence-verification|evidenceGateHandledByParent|evidenceByReconcileOnly|verify_evidence/);
+    }
   });
   it("one verdict feeds the card, the checks and the technical ledger", () => {
     expect(prep).toContain("const verdict = deriveTrialBalanceVerdict({ upload: upload ?? null, readiness, readinessSubject: certReadiness.subjectKey, canRetry: canReprocessUpload(upload) });");
@@ -102,7 +105,10 @@ describe("Prepare Data wiring", () => {
     expect(prep).toMatch(/<TrialBalanceProgressLedger upload=\{upload\} failedCheckId=\{verdict\.failedCheckId\} \/>/);
   });
   it("retry only re-runs the Edge Function; the page makes no financial write", () => {
-    const retry = prep.slice(prep.indexOf("const handleRetry"), prep.indexOf("const scrollTo"));
+    const [from, to] = [prep.indexOf("const handleRetry"), prep.indexOf("const onPrimary")];
+    expect(from).toBeGreaterThan(0);
+    expect(to).toBeGreaterThan(from);
+    const retry = prep.slice(from, to);
     expect(retry).toMatch(/functions\.invoke\("process-trial-balance"/);
     expect(retry).not.toMatch(/\.from\(|\.update\(|\.insert\(/);
   });

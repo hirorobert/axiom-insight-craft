@@ -2,28 +2,22 @@ import { describe, expect, it } from "vitest";
 import { currentTrialBalanceTask } from "./trialBalanceTask";
 import { decimalToMinor, formatMinorUnits, formatTotal, readIngestionIssues, readMilestones, readTrialBalanceTotals, isOutOfBalance, deriveTrialBalanceVerdict } from "./trialBalanceVerdict";
 
-const noEvidence = { safishaStatus: null, reconciliation: null };
-const evaluated = { safishaStatus: "clean", reconciliation: { state: "read" as const, evidence: { status: "clean", matched_count: 3, exception_count: 0, total_tb_lines: 3, exceptions: { pending: 0, approved: 0, rejected: 0, escalated: 0, approvedTbLines: 0 } } } };
 const v = (status: string, extra: Record<string, unknown> = {}) => ({ status, failedCheckId: null, issues: [], ...extra }) as never;
 
 describe("current service and task", () => {
-  it("names the service, the step of four and one instruction for every verdict", () => {
-    expect(currentTrialBalanceTask(v("none"), noEvidence)).toEqual({ service: "Trial balance review", step: 1, of: 4, label: "Upload trial balance", instruction: "Upload the trial balance for this period." });
-    expect(currentTrialBalanceTask(v("processing"), noEvidence).step).toBe(1);
-    expect(currentTrialBalanceTask(v("blocked", { issues: [{}, {}] }), noEvidence).instruction).toBe("Correct the 2 issues shown below in your file, then replace it.");
-    expect(currentTrialBalanceTask(v("blocked", { failedCheckId: "l4_classification" }), noEvidence)).toMatchObject({ step: 2, label: "Review accounts needing attention" });
-    expect(currentTrialBalanceTask(v("needs_review"), noEvidence)).toMatchObject({ step: 2 });
-    expect(currentTrialBalanceTask(v("accepted"), noEvidence)).toMatchObject({ step: 3, label: "Reconcile supporting evidence" });
-    expect(currentTrialBalanceTask(v("accepted"), evaluated)).toMatchObject({ step: 4, label: "Trial balance ready" });
+  it("names the service, the step of three and one instruction for every verdict", () => {
+    expect(currentTrialBalanceTask(v("none"))).toEqual({ service: "Trial balance review", step: 1, of: 3, label: "Upload and validate trial balance", instruction: "Upload the trial balance for this period." });
+    expect(currentTrialBalanceTask(v("processing")).step).toBe(1);
+    expect(currentTrialBalanceTask(v("blocked", { issues: [{}, {}] })).instruction).toBe("Correct the 2 issues shown below in your file, then replace it.");
+    expect(currentTrialBalanceTask(v("blocked", { failedCheckId: "l4_classification" }))).toMatchObject({ step: 2, label: "Review and confirm account classifications" });
+    expect(currentTrialBalanceTask(v("needs_review"))).toMatchObject({ step: 2 });
   });
 
-  it("a clean status that compared nothing stays on the reconcile step", () => {
-    const empty = { safishaStatus: "clean", reconciliation: { state: "read" as const, evidence: { ...evaluated.reconciliation.evidence, matched_count: 0, total_tb_lines: 0 } } };
-    expect(currentTrialBalanceTask(v("accepted"), empty)).toMatchObject({ step: 3, instruction: "No trial-balance line has been matched to evidence yet." });
-    const partial = { safishaStatus: "clean", reconciliation: { state: "read" as const, evidence: { ...evaluated.reconciliation.evidence, matched_count: 1 } } };
-    expect(currentTrialBalanceTask(v("accepted"), partial)).toMatchObject({ step: 3, instruction: "1 of 3 trial-balance lines are matched or approved; 2 still need evidence." });
-    const hidden = { safishaStatus: "clean", reconciliation: { state: "read" as const, evidence: null } };
-    expect(currentTrialBalanceTask(v("accepted"), hidden).instruction).toMatch(/You can't view that reconciliation/);
+  it("an accepted trial balance is the final step: a Reviewed trial balance, never reconciled, never an approval", () => {
+    const t = currentTrialBalanceTask(v("accepted"));
+    expect(t).toMatchObject({ step: 3, of: 3, label: "Trial balance ready for statement preparation" });
+    expect(t.instruction).toBe("Reviewed trial balance: checks passed and every account classification confirmed. This is not an approval of financial statements.");
+    expect(t.instruction).not.toMatch(/reconcil|audit|assur|signed off/i);
   });
 });
 

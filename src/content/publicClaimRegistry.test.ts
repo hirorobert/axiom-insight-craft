@@ -124,6 +124,12 @@ const ABSOLUTE_PROHIBITED = [
   "in minutes",
   "four-eye",
   "four eyes",
+  // Carried from the retired evidence-reconciliation claim row (supporting-evidence reconciliation is not part of
+  // Trial balance review), plus the reconciliation claim itself.
+  "fully reconciled books",
+  "guaranteed match",
+  "reconcile it to supporting evidence",
+  "reconciled to its supporting evidence",
 ];
 
 describe("absolute prohibited claims never appear anywhere on the landing page, registered or not", () => {
