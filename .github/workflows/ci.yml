@@ -427,7 +427,7 @@ jobs:
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
         run: bun scripts/db-proof/reconciliationFunctionMatrix.mjs
 
-      - name: Evidence ingestion proof (the real old and new safisha-ingest handlers against the schema without and with 20261005100000: creation, retry, lost response, partial failure, 8-way simultaneous ingests, identical rows, sources, overlap, unauthorized/cross-tenant, read-only duplicate inspection; creates and drops its own databases)
+      - name: Evidence ingestion proof (the real old and new safisha-ingest handlers against the schema without and with 20261005100000 — creation, retry, lost response, partial failure, 8-way simultaneous ingests, identical rows, sources, overlap, unauthorized/cross-tenant, read-only duplicate inspection; creates and drops its own databases)
         env:
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
         run: bun scripts/db-proof/safishaIngestion.mjs
