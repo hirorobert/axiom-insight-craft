@@ -18,10 +18,12 @@ describe("readiness migration hygiene", () => {
   it("is timestamped, sorts before only the later, unrelated discard-authority migration, and leaves the original enquiry migration untouched", () => {
     expect(FILE).toMatch(/^\d{14}_[A-Za-z0-9._-]+\.sql$/);
     const everyFile = fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
-    // 20261002100000_refuse_withheld_service_grants.sql (withheld-service grant refusal) and 20261004100000_reconciliation_server_authority.sql
-    // (reconciliation server authority) are later, unrelated forward migrations: they sort last, and the tail asserted below is the chain before them.
-    expect(everyFile.slice(-2)).toEqual(["20261002100000_refuse_withheld_service_grants.sql", "20261004100000_reconciliation_server_authority.sql"]);
-    const all = everyFile.filter((f) => f !== "20261002100000_refuse_withheld_service_grants.sql" && f !== "20261004100000_reconciliation_server_authority.sql");
+    // 20261002100000_refuse_withheld_service_grants.sql (withheld-service grant refusal), 20261004100000_reconciliation_server_authority.sql
+    // (reconciliation server authority) and 20261005100000_safisha_ingestion_authority.sql (evidence ingestion authority) are later,
+    // unrelated forward migrations: they sort last, and the tail asserted below is the chain before them.
+    const LAST = ["20261002100000_refuse_withheld_service_grants.sql", "20261004100000_reconciliation_server_authority.sql", "20261005100000_safisha_ingestion_authority.sql"];
+    expect(everyFile.slice(-LAST.length)).toEqual(LAST);
+    const all = everyFile.filter((f) => !LAST.includes(f));
     // 20260922180000_discard_trial_balance_authority.sql, 20260923100000_upload_lifecycle_retire_and_replace.sql and
     // 20260923120000_workspace_user_engine_actor_and_source_sweeper.sql and 20260923130000_workspace_capability_access_bridge.sql are later, unrelated migrations (trial-balance discard/lifecycle
     // authority, user-based validation, source sweeper) that now sort after this one — none touches service_enquiry_* objects.

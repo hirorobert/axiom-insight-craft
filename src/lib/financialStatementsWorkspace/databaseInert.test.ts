@@ -173,6 +173,9 @@ describe("database inertness — schema and functions", () => {
       // Reconciliation server authority (forward-only): completeness from stored rows, server-recorded match runs and
       // decisions, escalated/rejected exceptions kept unresolved, client-role forgery guards. No financial-statements schema.
       "supabase/migrations/20261004100000_reconciliation_server_authority.sql",
+      // Evidence ingestion authority (forward-only): one serialized server path for evidence rows, provenance-based row
+      // identity (additive nullable columns + a partial unique index), no client-role row inserts. No financial-statements schema.
+      "supabase/migrations/20261005100000_safisha_ingestion_authority.sql",
       // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",
@@ -306,6 +309,11 @@ describe("database inertness — schema and functions", () => {
       // ...and its READ-ONLY pre-apply impact report and post-apply verification (SELECT only; proven read-only by
       // reconciliationAuthority.mjs).
       "scripts/db-preflight/reconciliationAuthorityPreflight.sql", "scripts/db-preflight/reconciliationAuthorityVerify.sql",
+      // Evidence ingestion (20261005100000): the loopback-only proof running the real safisha-ingest handler (main's, pinned by
+      // git blob hash, and this tree's), the shared handler harness, and the READ-ONLY duplicate inspection. No deploy behaviour.
+      "scripts/db-proof/safishaIngestion.mjs", "scripts/db-proof/lib/functionHarness.mjs",
+      "scripts/db-proof/fixtures/functions-main-e8962f2/ingest.index.ts", "scripts/db-preflight/safishaIngestionPreflight.sql",
+      "scripts/db-preflight/safishaIngestionVerify.sql",
       // This guard's own fail-closed base resolver and exact-file review (no deploy behaviour), and the CI check that the
       // guard executed with zero skipped tests.
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);

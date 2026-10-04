@@ -125,15 +125,18 @@ const diff = (a, b) => Object.keys({ ...a, ...b }).filter((k) => a[k] !== b[k]);
 async function main() {
   await start();
   const files = fs.readdirSync(path.join(REPO, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
-  if (files[files.length - 1] !== MIGRATION) throw new Error(`${MIGRATION} must be the newest migration`);
+  // This proof applies the chain up to and including its migration; later migrations (e.g. 20261005100000, evidence
+  // ingestion) are proven by their own proofs.
+  const cut = files.indexOf(MIGRATION);
+  if (cut < 0) throw new Error(`${MIGRATION} is missing`);
   console.log(`\n== Setup (synthetic users, disposable database ${PROOF_DB})`);
   await admin.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));
   await admin.query(`GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;`);
-  for (const f of files.slice(0, -1)) await apply(f);
-  console.log(`  migrations applied before ${MIGRATION}: ${files.length - 1}`);
+  for (const f of files.slice(0, cut)) await apply(f);
+  console.log(`  migrations applied before ${MIGRATION}: ${cut}`);
 
   const U = { owner: uuid(), reviewer: uuid(), preparer: uuid(), viewer: uuid(), prepareOnly: uuid(), outsider: uuid(), ownerB: uuid() };
   for (const [k, id] of Object.entries(U)) await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [id, `${k}@example.test`]);

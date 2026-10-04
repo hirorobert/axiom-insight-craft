@@ -51,6 +51,7 @@ import { toast } from "sonner";
 import ConfidenceScoreBar from "./ConfidenceScoreBar";
 import ExceptionQueue     from "./ExceptionQueue";
 import FieldMappingModal  from "./FieldMappingModal";
+import { newIngestionKey } from "@/lib/safisha/ingestionKey";
 
 // ── Task #178: liteparse PDF complexity detector ──────────────────────────────
 //
@@ -111,6 +112,8 @@ interface EvidenceFile {
   file:       File;
   sourceType: "bank" | "momo" | "subledger";
   isPdf:      boolean;
+  /** This selection's ingestion identity: every retry of it reuses the key; a new selection gets a new one. */
+  ingestionKey: string;
   status:     "queued" | "uploading" | "done" | "error";
   error?:     string;
   pdfMeta?:   { pages_parsed: number; rows_extracted: number; warnings: string[] };
@@ -130,6 +133,7 @@ interface MappingNeeded {
   detected_headers:  string[];
   source_type:       string;
   file:              File;
+  ingestionKey:      string;
 }
 
 interface Props {
@@ -166,7 +170,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
         lower.includes("momo") || lower.includes("mobile") ? "momo"
         : lower.includes("subledger") || lower.includes("ledger") ? "subledger"
         : "bank";
-      toAdd.push({ file: f, sourceType, isPdf, status: "queued" });
+      toAdd.push({ file: f, sourceType, isPdf, ingestionKey: newIngestionKey(), status: "queued" });
     });
     if (toAdd.length > 0) setEvidenceFiles(prev => [...prev, ...toAdd]);
   }, []);
@@ -201,6 +205,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
     form.append("source_type", ev.sourceType);
     form.append("file",        ev.file);
     if (mappingOverride) form.append("mapping_override", JSON.stringify(mappingOverride));
+    form.append("ingestion_key", ev.ingestionKey);
 
     const res = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/safisha-ingest`,
@@ -219,6 +224,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
           detected_headers:  result.detected_headers,
           source_type:       result.source_type,
           file:              ev.file,
+          ingestionKey:      ev.ingestionKey,
         },
       };
     }
@@ -557,6 +563,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
             sourceType={mappingNeeded.source_type}
             reconciliationId={mappingNeeded.reconciliation_id}
             fileToIngest={mappingNeeded.file}
+            ingestionKey={mappingNeeded.ingestionKey}
             uploadId={uploadId}
             onComplete={(reconId, _rows) => handleMappingComplete(reconId)}
             onCancel={() => setMappingNeeded(null)}

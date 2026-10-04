@@ -470,6 +470,7 @@ scripts/
     serviceWithholding.mjs    ← Withheld-service grant refusal proof (20261002100000; history byte-identical)
     reconciliationAuthority.mjs ← Reconciliation server authority proof (20261004100000; forgery per role, MAONO gate)
     reconciliationFunctionMatrix.mjs ← Old/new reconciliation handlers × old/new schema (bun)
+    safishaIngestion.mjs      ← Real safisha-ingest handler (old/new) × schema without/with 20261005100000 (bun)
     uploadLifecycle.mjs       ← Upload lifecycle proof (legacy upgrade, B1–B4, capability matrix, concurrency)
   db-preflight/
     uploadLifecyclePreflight.sql ← Read-only report of what the lifecycle backfill would retire
@@ -1166,6 +1167,29 @@ schema they answer 503 and record nothing), THEN apply the migration. The revers
 the live site (only an explicit Publish does) and never deploys a function or runs a migration (each is an explicit
 project-chat request). Apply migrations only through Lovable's native migrator, which records the hosted journal row
 (hash = file SHA-256) in the same transaction; never through the SQL editor (no journal record).
+
+**EVIDENCE_INGESTION_IS_ONE_SERVER_PATH** — `20261005100000_safisha_ingestion_authority.sql` (branch
+`fix/safisha-ingest-authority`; authored, NOT applied). `safisha-ingest` writes ONLY through the service-role
+`safisha_ingest_evidence(upload, actor, source, file_name, file_sha256, mapping, ingestion_key, rows)` (actor from the
+verified JWT): serialized per upload (transaction advisory lock), plan + `prepare_close` (personal: owner), finds or creates
+the one unsealed reconciliation (no INSERT … RETURNING through RLS — that is what made every first ingest fail on main), and
+sets the upload's `safisha_status` when NULL with a row-count check on every call. Identity — content alone NEVER proves the
+same economic event: an INGESTION is identified by the caller's `ingestion_key` (SafishaGate creates one per selected file,
+`src/lib/safisha/ingestionKey.ts`; its retries and the FieldMappingModal re-call reuse it; a new selection gets a new key).
+Same key + same bytes/source/mapping = replay; different = 409 (`PT409`); NO key = a new ingestion every time (nothing
+inferred). Every row of a new ingestion is stored (in-file repeats kept, sources separate), except a row whose mapped
+`source_txn_id` equals a stored row's in the same namespace (source type AND account) with equal date/debit/credit
+(`duplicate_source_txn_id`, not stored). Any other overlap (identical content from another ingestion or a legacy row; a
+repeated or disagreeing `source_txn_id`) is stored AND opens a pending `investigate` exception in the EXISTING exception
+queue (`safisha_source_occurrences.review_exception_id`): until an authorized reviewer decides it through
+`safisha_decide_exception`, the reconciliation cannot be `clean`, readiness is incomplete and the MAONO gate is blocked;
+approve = separate transactions, reject = duplicate (blocked). Provenance: append-only `safisha_ingestions` and one
+`safisha_source_occurrences` row per accepted file line. Legacy rows (`ingestion_id` NULL) are never rewritten; a retry
+claims one only by source + content + file line, each at most once (`legacy_match`). Client roles cannot insert
+`safisha_transactions` (`ab_transaction_authority`). Proven by `scripts/db-proof/safishaIngestion.mjs`; read-only
+`scripts/db-preflight/safishaIngestionPreflight.sql` (before) and `safishaIngestionVerify.sql` (after). Deploy
+`safisha-ingest` with the other SAFISHA functions BEFORE applying the migrations (against the old schema it answers 503
+and writes nothing).
 
 ---
 
