@@ -87,9 +87,7 @@ serve(async (req: Request) => {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    // Pending is open; ESCALATED is open until a different reviewer holding review_close decides it (the database checks
-    // who may). Approved and rejected are final.
-    if (exc.reviewer_action !== "pending" && exc.reviewer_action !== "escalated") {
+    if (exc.reviewer_action !== "pending") {
       return new Response(JSON.stringify({
         error: `Exception is already resolved (status: ${exc.reviewer_action}). Resolved exceptions are immutable.`,
       }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -99,12 +97,8 @@ serve(async (req: Request) => {
     // This calls the SECURITY DEFINER Postgres function which is the only
     // SQL path that can write reviewer_action.
 
-    // safisha_decide_exception (20261004100000) is service-role only; it re-checks the reviewer's own authority (current
-    // plan + prepare_close, and review_close plus a different reviewer for an escalated exception) from p_reviewer_id,
-    // which is the verified JWT user above. Against a database without it, nothing is written.
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { data: resolveResult, error: resolveErr } = await admin.rpc(
-      "safisha_decide_exception",
+    const { data: resolveResult, error: resolveErr } = await supabase.rpc(
+      "safisha_resolve_exception",
       {
         p_exception_id: exception_id,
         p_reviewer_id:  user.id,   // always the authenticated user
@@ -113,11 +107,6 @@ serve(async (req: Request) => {
       }
     );
 
-    if (resolveErr && (resolveErr.code === "PGRST202" || resolveErr.code === "42883")) {
-      return new Response(JSON.stringify({ error: "Exception review is not available yet. Nothing was recorded; try again later." }), {
-        status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
     if (resolveErr) {
       // Postgres will raise an exception with our Iron Dome message if anything
       // violates the guard. Surface that message directly.
@@ -180,10 +169,7 @@ function actionMessage(action: string, category: string, reconStatus: string): s
 
 function resolveResult_remaining_text(action: string, category: string): string {
   if (action === "rejected" && category === "investigate") {
-    return "Rejected investigate exceptions block the reconciliation — it clears only when every exception is approved.";
-  }
-  if (action === "escalated") {
-    return "Escalated exceptions stay open until a different owner or partner approves or rejects them.";
+    return "Rejected investigate exceptions block the reconciliation — all must be approved or escalated to clear.";
   }
   return "Continue reviewing remaining pending exceptions.";
 }

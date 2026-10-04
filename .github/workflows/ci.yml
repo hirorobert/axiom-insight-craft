@@ -202,6 +202,22 @@ jobs:
         # 5 factors, 6 FA2026 fixtures) + computeWearTear (ITA s.34 all 7 classes).
         # These are pure-function tests — no DB, no network, no mocks except supabase client.
 
+  reconciliation-function-checks:
+    name: Edge function checks (Deno, reconciliation result and resolution)
+    runs-on: ubuntu-latest
+    # Read-only: type-checks the two reconciliation functions that record results through the service-role RPCs. No secrets, no deploy.
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.6
+
+      - name: Type-check safisha-match and safisha-resolve against the real Supabase client types
+        run: deno check supabase/functions/safisha-match/index.ts supabase/functions/safisha-resolve/index.ts
+
   rls-regression:
     name: Staging RLS Regression (manual, write-capable)
     # WRITE-CAPABLE: this suite creates users, companies and rows in the Supabase project it
@@ -400,6 +416,16 @@ jobs:
         run: |
           createdb plan_capabilities_proof
           node scripts/db-proof/planCapabilities.mjs
+
+      - name: Reconciliation server authority proof (upgrade byte-identical, product client writes unchanged, findings validated, derived counts, escalated/rejected stay unresolved, senior decision, freshness, 25-way concurrency, per-role forgery refused, MAONO gate, re-apply; creates and drops its own database on the same throwaway container)
+        env:
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: node scripts/db-proof/reconciliationAuthority.mjs
+
+      - name: Reconciliation function matrix (the real old and new safisha-match / safisha-resolve handlers against the old and new schema; no combination records an incomplete 'clean'; creates and drops its own databases on the same throwaway container)
+        env:
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: bun scripts/db-proof/reconciliationFunctionMatrix.mjs
 
       - name: Annual commercial term proof (zero-state gate, exact 12-month payment licences, future-licence cancellation, suspension, archive, existing licences unchanged, on the same throwaway container)
         env:
