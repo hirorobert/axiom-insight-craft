@@ -49,10 +49,15 @@ describe("reconciliation server authority migration", () => {
     expect(match).toContain("v_existing := v_existing + 1;");
   });
 
-  it("an escalated exception is decided only by a different holder of review_close; approved and rejected stay final", () => {
+  it("escalation policy: firm — a different review_close holder; personal — the sole owner, explicitly; every decision audited with its basis", () => {
     const decide = fnBody("safisha_decide_exception");
     expect(decide).toContain("PERFORM public._safisha_authorize(v_recon_id, p_reviewer_id, 'review_close');");
     expect(decide).toContain("SEPARATE_REVIEWER_REQUIRED");
+    expect(decide).toContain("SOLE_OWNER_REQUIRED");
+    expect(decide).toContain("v_basis := 'separate_review_close';");
+    expect(decide).toContain("v_basis := 'personal_sole_owner_escalation';");
+    expect(decide).toContain("INSERT INTO public.safisha_audit_log (exception_id, reconciliation_id, reviewer_id, reviewer_member_id, action, note, decision_basis)");
+    expect(SQL).toContain("CHECK (decision_basis IN ('prepare_close', 'separate_review_close', 'personal_workspace_owner', 'personal_sole_owner_escalation'))");
     expect(fnBody("safisha_enforce_resolve_gate")).toContain("OR (OLD.reviewer_action = 'escalated' AND NEW.reviewer_action IN ('approved', 'rejected'))");
   });
 
@@ -78,8 +83,9 @@ describe("reconciliation server authority migration", () => {
     expect(SQL).toContain("REVOKE TRUNCATE ON public.safisha_reconciliations, public.safisha_transactions, public.safisha_exceptions, public.safisha_audit_log FROM anon, authenticated;");
   });
 
-  it("is forward-only and replay-safe: no row removed, no table altered, only the established inserts", () => {
-    expect(SQL).not.toMatch(/\b(DELETE\s+FROM|TRUNCATE\s+(TABLE\s+)?public|ALTER\s+TABLE|DROP\s+(TABLE|FUNCTION|POLICY))\b/i);
+  it("is forward-only and replay-safe: no row removed, one additive nullable column, only the established inserts", () => {
+    expect(SQL).not.toMatch(/\b(DELETE\s+FROM|TRUNCATE\s+(TABLE\s+)?public|DROP\s+(TABLE|FUNCTION|POLICY|COLUMN))\b/i);
+    expect([...SQL.matchAll(/ALTER\s+TABLE\s+([^;]+);/gi)].map((m) => m[1].split("\n")[0].trim())).toEqual(["public.safisha_audit_log ADD COLUMN IF NOT EXISTS decision_basis text"]);
     expect([...SQL.matchAll(/INSERT\s+INTO\s+([\w.]+)/gi)].map((m) => m[1]).sort()).toEqual(["public.safisha_audit_log", "public.safisha_exceptions"]);
     expect([...SQL.matchAll(/DROP TRIGGER IF EXISTS (\w+)/g)].map((m) => m[1])).toEqual(["ab_reconciliation_authority", "ab_upload_reconciliation_status_authority", "ab_exception_authority", "ac_reconciliation_freshness", "ac_reconciliation_freshness"]);
     expect(MIGRATION).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);

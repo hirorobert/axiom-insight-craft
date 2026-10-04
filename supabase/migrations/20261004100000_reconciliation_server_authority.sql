@@ -25,8 +25,11 @@
 --   3. safisha_decide_exception(exception, reviewer, action, note) — service-role only: the reviewer decision. Locks the
 --      reconciliation BEFORE the exception (the same order as the matcher, so concurrent match and resolve serialize and
 --      never deadlock). A pending exception may be approved, rejected or escalated by a prepare_close holder. An ESCALATED
---      exception stays open until a different person holding review_close (owner or partner) approves or rejects it.
---      Approved and rejected decisions stay final. The verdict is recomputed after every decision.
+--      exception stays open until it is approved or rejected: in a firm workspace only by a DIFFERENT person holding
+--      review_close (owner or partner — no self-decision, the owner included); in a personal (company-less) workspace,
+--      by its sole owner (an explicit, separately audited exception: there is no second person). Every decision records
+--      its basis in safisha_audit_log.decision_basis (a new nullable column). Approved and rejected decisions stay final.
+--      The verdict is recomputed after every decision.
 --      safisha_resolve_exception keeps its signature and grants and now calls it. safisha-resolve calls the new name, so
 --      a new function deployed against the old schema finds no function and changes nothing.
 --   4. Guards for client roles (authenticated / anon), after the existing write wall: a client may create a
@@ -42,8 +45,9 @@
 --
 -- Preserved: upload registration and every other upload write; creating a reconciliation, ingesting transactions,
 -- categorizing and scoring (safisha-ingest / -categorize / -score keep their client writes); the evidence-attachment RPC.
--- No existing row is read-modified or removed. Forward-only and replay-safe (CREATE OR REPLACE; triggers dropped and
--- recreated by name).
+-- No existing row is read-modified or removed; the one table change is the additive nullable
+-- safisha_audit_log.decision_basis (ADD COLUMN IF NOT EXISTS). Forward-only and replay-safe (CREATE OR REPLACE; triggers
+-- dropped and recreated by name).
 
 -- ── 1. Completeness and the verdict, from server rows ───────────────────────────────────────────────────────────────
 -- p_recorded_total: the trial-balance line count the matcher recorded; NULL reads it from the reconciliation (a trigger
@@ -248,6 +252,17 @@ END;
 $$;
 
 -- ── 3. The reviewer's decision ──────────────────────────────────────────────────────────────────────────────────────
+-- Every decision records the authority it was made under (NULL only on rows written before this migration):
+--   prepare_close                  — a pending exception decided in a firm workspace by a prepare_close holder;
+--   separate_review_close          — an escalated exception decided in a firm workspace by a DIFFERENT review_close holder;
+--   personal_workspace_owner       — a pending exception decided by the owner of a personal (company-less) workspace;
+--   personal_sole_owner_escalation — the explicit sole-owner exception: an escalated exception in a personal workspace
+--                                    decided by its owner (there is no second person).
+-- Additive and nullable: no existing row or value changes.
+ALTER TABLE public.safisha_audit_log ADD COLUMN IF NOT EXISTS decision_basis text
+  CONSTRAINT safisha_audit_log_decision_basis_check
+  CHECK (decision_basis IN ('prepare_close', 'separate_review_close', 'personal_workspace_owner', 'personal_sole_owner_escalation'));
+
 CREATE OR REPLACE FUNCTION public.safisha_decide_exception(p_exception_id uuid, p_reviewer_id uuid, p_action text, p_note text DEFAULT NULL::text)
   RETURNS jsonb
   LANGUAGE plpgsql
@@ -261,6 +276,8 @@ DECLARE
   v_member_id uuid;
   v_remaining integer;
   v_status    text;
+  v_basis     text;
+  v_owner     uuid;
 BEGIN
   IF p_action IS NULL OR p_action NOT IN ('approved', 'rejected', 'escalated') THEN
     RAISE EXCEPTION 'Invalid reviewer_action: %. Must be approved|rejected|escalated', p_action USING ERRCODE = '22023';
@@ -274,17 +291,30 @@ BEGIN
   SELECT * INTO v_exception FROM public.safisha_exceptions WHERE id = p_exception_id FOR UPDATE;
 
   v_company := public._safisha_authorize(v_recon_id, p_reviewer_id, 'prepare_close');
+  v_basis := CASE WHEN v_company IS NULL THEN 'personal_workspace_owner' ELSE 'prepare_close' END;
   IF v_exception.reviewer_action = 'escalated' THEN
-    -- Escalated is open: it waits for a different person holding review_close (owner or partner), who approves or
-    -- rejects it. A personal workspace has one person, who decides.
+    -- Escalated is open until it is approved or rejected.
     IF p_action = 'escalated' THEN
       RAISE EXCEPTION 'Exception % is already escalated', p_exception_id USING ERRCODE = '55000';
     END IF;
     IF v_company IS NOT NULL THEN
+      -- Firm workspace: a DIFFERENT person holding review_close (owner or partner) decides. No exemption, the owner's
+      -- own escalation included.
       PERFORM public._safisha_authorize(v_recon_id, p_reviewer_id, 'review_close');
       IF p_reviewer_id IS NOT DISTINCT FROM v_exception.reviewer_id THEN
         RAISE EXCEPTION 'SEPARATE_REVIEWER_REQUIRED: an escalated exception is decided by a different reviewer' USING ERRCODE = '42501';
       END IF;
+      v_basis := 'separate_review_close';
+    ELSE
+      -- Personal (company-less) workspace: the explicit sole-owner exception. Only the account that owns the trial
+      -- balance may decide (there is no second person); the decision is audited with this basis.
+      SELECT COALESCE(u.user_id, r.client_id) INTO v_owner
+        FROM public.safisha_reconciliations r JOIN public.trial_balance_uploads u ON u.id = r.tb_upload_id
+       WHERE r.id = v_recon_id;
+      IF p_reviewer_id IS DISTINCT FROM v_owner THEN
+        RAISE EXCEPTION 'SOLE_OWNER_REQUIRED: an escalated exception in a personal workspace is decided by its owner' USING ERRCODE = '42501';
+      END IF;
+      v_basis := 'personal_sole_owner_escalation';
     END IF;
   ELSIF v_exception.reviewer_action <> 'pending' THEN
     RAISE EXCEPTION 'Exception % is already resolved (%)', p_exception_id, v_exception.reviewer_action USING ERRCODE = '55000';
@@ -307,8 +337,8 @@ BEGIN
   WHERE id = p_exception_id;
   PERFORM set_config('safisha.resolve_authorized', 'false', true);
 
-  INSERT INTO public.safisha_audit_log (exception_id, reconciliation_id, reviewer_id, reviewer_member_id, action, note)
-  VALUES (p_exception_id, v_recon_id, p_reviewer_id, v_member_id, p_action, p_note);
+  INSERT INTO public.safisha_audit_log (exception_id, reconciliation_id, reviewer_id, reviewer_member_id, action, note, decision_basis)
+  VALUES (p_exception_id, v_recon_id, p_reviewer_id, v_member_id, p_action, p_note, v_basis);
 
   v_status := public._safisha_record_verdict(v_recon_id);
   SELECT count(*)::integer INTO v_remaining FROM public.safisha_exceptions WHERE reconciliation_id = v_recon_id AND reviewer_action = 'pending';

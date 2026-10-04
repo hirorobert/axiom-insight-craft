@@ -8,6 +8,10 @@ SELECT 'functions_present' AS item,
         AND to_regprocedure('public.safisha_reconciliation_coverage(uuid,integer)') IS NOT NULL
         AND to_regprocedure('public.safisha_upload_reconciliation_complete(uuid)') IS NOT NULL) AS ok, NULL::bigint AS n
 UNION ALL
+SELECT 'audit_decision_basis_column',
+       EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'safisha_audit_log' AND column_name = 'decision_basis' AND is_nullable = 'YES'), NULL
+UNION ALL
 SELECT 'triggers_present',
        (SELECT count(*) = 5 FROM pg_trigger WHERE NOT tgisinternal AND tgname IN
          ('ab_reconciliation_authority', 'ab_upload_reconciliation_status_authority', 'ab_exception_authority', 'ac_reconciliation_freshness')), NULL

@@ -107,12 +107,15 @@ async function attempt(caller, sql, params = [], rollback = false) {
 
 const uuid = () => globalThis.crypto.randomUUID();
 const one = async (sql, p = []) => (await admin.query(sql, p)).rows[0];
-async function snapshot() {
+/** Every row of every table, digested. withoutNewColumn: compare row VALUES across the migration, which adds one nullable
+ *  column (safisha_audit_log.decision_basis) — its absence/NULL is asserted separately. */
+async function snapshot(withoutNewColumn = false) {
   const tables = (await admin.query(`SELECT format('%I.%I', schemaname, tablename) t FROM pg_tables
      WHERE schemaname NOT IN ('pg_catalog','information_schema') AND schemaname NOT LIKE 'pg\\_%' ORDER BY 1`)).rows.map((r) => r.t);
   const out = {};
+  const row = withoutNewColumn ? "(to_jsonb(x) - 'decision_basis')::text" : "x::text";
   for (const t of tables) {
-    const r = (await admin.query(`SELECT count(*)::int n, md5(coalesce(string_agg(x::text, E'\\n' ORDER BY x::text), '')) h FROM ${t} x`)).rows[0];
+    const r = (await admin.query(`SELECT count(*)::int n, md5(coalesce(string_agg(${row}, E'\\n' ORDER BY ${row}), '')) h FROM ${t} x`)).rows[0];
     out[t] = `${r.n}:${r.h}`;
   }
   return out;
@@ -226,9 +229,15 @@ async function main() {
 
   console.log("\n== Upgrade: applying the migration changes no row");
   await check("before the migration the old resolver marked an ESCALATED reconciliation and its upload 'clean' (the defect)", async () => { const s = await state(LE); return s.r === "clean" && s.s === "clean" ? true : s; });
-  const before = await snapshot();
+  const before = await snapshot(true);
+  const auditRowsBefore = Number((await one("SELECT count(*) n FROM public.safisha_audit_log")).n);
   await apply(MIGRATION);
-  await check("every row of every table is byte-identical after the migration", async () => { const d = diff(before, await snapshot()); return d.length === 0 ? true : d; });
+  await check("every value of every row of every table is unchanged after the migration (the one new column aside)", async () => { const d = diff(before, await snapshot(true)); return d.length === 0 ? true : d; });
+  await check("the one table change: safisha_audit_log.decision_basis, nullable, NULL on every existing row", async () => {
+    const col = await one("SELECT is_nullable, data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='safisha_audit_log' AND column_name='decision_basis'");
+    const nn = Number((await one("SELECT count(*) n FROM public.safisha_audit_log WHERE decision_basis IS NOT NULL")).n);
+    return col?.is_nullable === "YES" && col.data_type === "text" && nn === 0 && auditRowsBefore > 0 ? true : { col, nn, auditRowsBefore };
+  });
   await check("the MAONO gate now BLOCKS the legacy escalated-but-'clean' upload and still passes the legacy complete one", async () => { const g = await gate([LE.up, LC.up]); return g[LE.up] === true && g[LC.up] === false ? true : g; });
   await check("reconciliationAuthorityVerify.sql (after the migration): read-only, every check true, the legacy row counted", async () => {
     const s0 = await snapshot(); const rows = await readOnlyReport("reconciliationAuthorityVerify.sql"); const d = diff(s0, await snapshot()); const m = asMap(rows);
@@ -304,9 +313,18 @@ async function main() {
   await check("re-escalating is refused (55000)", async () => { const r = await decide(m3b, U.owner, "escalated"); return !r.ok && r.code === "55000" ? true : r; });
   await check("a preparer (prepare_close without review_close) cannot decide an escalated exception (42501)", async () => { const r = await decide(m3b, U.preparer, "approved"); return !r.ok && r.code === "42501" ? true : r; });
   await check("a partner decides the escalated exception → approved → clean, upload clean", async () => { const r = await decide(m3b, U.reviewer, "approved"); const s = await state(M3); return r.ok && s.r === "clean" && s.s === "clean" && s.done ? true : { r, s }; });
-  await check("the audit log keeps the escalation and the senior decision", async () => {
-    const rows = (await admin.query("SELECT action, reviewer_id FROM public.safisha_audit_log WHERE exception_id=$1 ORDER BY logged_at, id", [m3b])).rows;
-    return rows.length === 2 && rows[0].action === "escalated" && rows[0].reviewer_id === U.preparer && rows[1].action === "approved" && rows[1].reviewer_id === U.reviewer ? true : rows;
+  await check("the audit log keeps the escalation and the senior decision, each with its basis", async () => {
+    const rows = (await admin.query("SELECT action, reviewer_id, decision_basis FROM public.safisha_audit_log WHERE exception_id=$1 ORDER BY logged_at, id", [m3b])).rows;
+    const pending = (await admin.query("SELECT decision_basis FROM public.safisha_audit_log WHERE exception_id=$1", [m3a])).rows;
+    return rows.length === 2 && rows[0].action === "escalated" && rows[0].reviewer_id === U.preparer && rows[0].decision_basis === "prepare_close"
+      && rows[1].action === "approved" && rows[1].reviewer_id === U.reviewer && rows[1].decision_basis === "separate_review_close"
+      && pending.length === 1 && pending[0].decision_basis === "prepare_close" ? true : { rows, pending };
+  });
+  await check("firm workspace: the OWNER who escalated cannot decide their own escalation (no owner exemption); a partner can", async () => {
+    const F = await fixture({ lines: 1, excepted: 1 }); await recordMatch(F.r, U.owner, F.findings); const [x] = await exceptionIds(F);
+    const esc = await decide(x, U.owner, "escalated"); const self = await decide(x, U.owner, "approved"); const other = await decide(x, U.reviewer, "approved"); const s = await state(F);
+    const basis = (await one("SELECT decision_basis FROM public.safisha_audit_log WHERE exception_id=$1 AND action='approved'", [x]))?.decision_basis;
+    return esc.ok && !self.ok && self.code === "42501" && /SEPARATE_REVIEWER_REQUIRED/.test(self.message) && other.ok && s.r === "clean" && basis === "separate_review_close" ? true : { esc, self, other, s, basis };
   });
   const SD = await fixture({ lines: 1, excepted: 1 }); await recordMatch(SD.r, U.owner, SD.findings); const [sd] = await exceptionIds(SD);
   await check("the partner who escalated cannot decide the same exception (SEPARATE_REVIEWER_REQUIRED, 42501); another senior can", async () => {
@@ -323,6 +341,41 @@ async function main() {
   await check("the legacy name decides through the same authority (escalated stays open)", async () => {
     const L = await fixture({ lines: 1, excepted: 1 }); await recordMatch(L.r, U.owner, L.findings); const [x] = await exceptionIds(L);
     const r = await legacyResolve(x, U.preparer, "escalated"); const s = await state(L); return r.ok && s.r === "needs_review" && s.s === "needs_review" ? true : { r, s };
+  });
+
+  console.log("\n== Personal workspace: the explicit, audited sole-owner exception");
+  // A company-less upload owned by U.owner (its personal workspace): the owner is the only person who can act.
+  const personal = async (lines, excepted) => {
+    year += 1;
+    const up = (await one("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,period_year,user_id) VALUES ($1,$2,10,'complete',NULL,$3,$4) RETURNING id",
+      [`personal-${year}.csv`, `${U.owner}/${uuid()}/personal-${year}.csv`, year, U.owner])).id;
+    const r = await recon(up, U.owner); const tb = []; for (let i = 0; i < lines; i += 1) tb.push(await tbLine(r));
+    return { up, r, tb, findings: tb.slice(0, excepted).map((t) => finding(t)) };
+  };
+  const PW = await personal(2, 1);
+  await check("only the owner records the match in a personal workspace (anyone else 42501)", async () => {
+    const other = await recordMatch(PW.r, U.reviewer, PW.findings); const own = await recordMatch(PW.r, U.owner, PW.findings); const s = await state(PW);
+    return !other.ok && other.code === "42501" && own.ok && s.r === "needs_review" ? true : { other, own, s };
+  });
+  const [pw] = await exceptionIds(PW);
+  await check("the owner escalates (basis personal_workspace_owner); nobody else can decide it (42501)", async () => {
+    const esc = await decide(pw, U.owner, "escalated");
+    const others = await Promise.all([U.reviewer, U.preparer, U.outsider, U.ownerB].map((u) => decide(pw, u, "approved")));
+    const basis = (await one("SELECT decision_basis FROM public.safisha_audit_log WHERE exception_id=$1 AND action='escalated'", [pw]))?.decision_basis;
+    const s = await state(PW);
+    return esc.ok && others.every((o) => !o.ok && o.code === "42501") && basis === "personal_workspace_owner" && s.r === "needs_review" ? true : { esc, others: others.map((o) => o.code), basis, s };
+  });
+  await check("the sole owner decides their own escalation → approved → clean, audited as personal_sole_owner_escalation", async () => {
+    const r = await decide(pw, U.owner, "approved"); const s = await state(PW);
+    const rows = (await admin.query("SELECT action, reviewer_id, decision_basis FROM public.safisha_audit_log WHERE exception_id=$1 ORDER BY logged_at, id", [pw])).rows;
+    return r.ok && s.r === "clean" && s.s === "clean" && rows.length === 2 && rows[1].action === "approved" && rows[1].reviewer_id === U.owner
+      && rows[1].decision_basis === "personal_sole_owner_escalation" ? true : { r, s, rows };
+  });
+  await check("the exception is personal-only: a firm-workspace escalation can never be audited as personal_sole_owner_escalation", async () => {
+    const n = Number((await one(`SELECT count(*) n FROM public.safisha_audit_log a JOIN public.safisha_reconciliations r ON r.id=a.reconciliation_id
+      JOIN public.trial_balance_uploads u ON u.id=r.tb_upload_id WHERE a.decision_basis IN ('personal_workspace_owner','personal_sole_owner_escalation') AND u.company_id IS NOT NULL`)).n);
+    const bad = await attempt("service", "INSERT INTO public.safisha_audit_log (exception_id,reconciliation_id,reviewer_id,action,decision_basis) VALUES ($1,$2,$3,'approved','owner_override')", [pw, PW.r, U.owner]);
+    return n === 0 && !bad.ok && bad.code === "23514" ? true : { n, bad };
   });
 
   console.log("\n== Retries and freshness: a decided finding is never re-opened; new trial-balance lines re-open 'clean'");
