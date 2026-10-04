@@ -24,7 +24,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { call, loadHandler } from "./lib/functionHarness.mjs";
+import { call, loadHandler, makeClient } from "./lib/functionHarness.mjs";
+import { evidenceState, readReconciliationEvidence } from "../../src/lib/workspace/trialBalanceReadiness.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
@@ -171,6 +172,8 @@ async function main() {
   const H = {
     old: await loadHandler(fs.readFileSync(path.join(OLD_DIR, "ingest.index.ts"), "utf8"), "old-ingest"),
     new: await loadHandler(fs.readFileSync(path.join(REPO, "supabase/functions/safisha-ingest/index.ts"), "utf8"), "new-ingest"),
+    match: await loadHandler(fs.readFileSync(path.join(REPO, "supabase/functions/safisha-match/index.ts"), "utf8"), "new-match"),
+    resolve: await loadHandler(fs.readFileSync(path.join(REPO, "supabase/functions/safisha-resolve/index.ts"), "utf8"), "new-resolve"),
   };
 
   await startServer();
@@ -187,7 +190,9 @@ async function main() {
       S[label] = { pool, ws: await seed(pool) };
     }
 
-    const ingest = (h, s, who, upload, sourceType, text, name, mapping, key) => call(h, s.pool, who, form(upload, sourceType, text, name, mapping, key));
+    // As the product sends it: one stable key per selected file (here: upload + file name); null = a key-less caller.
+    const ingest = (h, s, who, upload, sourceType, text, name, mapping, key) =>
+      call(h, s.pool, who, form(upload, sourceType, text, name, mapping, key === undefined ? `${upload}:${name}` : key));
 
     /** The shared scenarios against one handler × schema; returns observations (assertions are applied by the caller). */
     const scenarios = async (h, s, { precreate = false } = {}) => {
@@ -339,7 +344,7 @@ async function main() {
       const sameFileNewMapping = await ingest(H.new, s, U.owner, up, "bank", csv([R1]), "k2.csv", { ...MAPPING, Ref: "account_name" });
       const sameFileFirst = await ingest(H.new, s, U.owner, up, "bank", csv([R1]), "k2.csv");
       const after = await state(s.pool, up);
-      await check("same ingestion identity with different bytes → 409; with a different mapping → 409; same bytes, no key, different mapping → 409; nothing written",
+      await check("same ingestion identity with different bytes → 409; with a different mapping → 409; the same selection re-sent with a different mapping → 409; nothing written",
         () => first.http === 200 && otherBytes.http === 409 && otherMapping.http === 409 && sameFileFirst.http === 409 && sameFileNewMapping.http === 200
           && after.rows === before.rows + 1 && after.ingestions.length === 2
           ? true : { first: first.http, otherBytes: otherBytes.http, otherMapping: otherMapping.http, sameFileNewMapping: sameFileNewMapping.http, sameFileFirst: sameFileFirst.http, rows: [before.rows, after.rows] }); }
@@ -359,6 +364,118 @@ async function main() {
           // a 1 + b 1 (its TX-9 row is the proven duplicate, not stored) + c 1 + d 2
           && st.rows === 5 && provenanceComplete(st)
           ? true : { c: c.body, d: d.body, flagged: st.flagged, rows: st.rows }); }
+
+    console.log("\n== Release question: an ambiguous overlap is an unresolved server-side condition until an authorized decision");
+    const exceptionsOf = async (recon) => (await s.pool.query("SELECT id, reviewer_action, category, tb_txn_id, evidence_txn_id, description FROM public.safisha_exceptions WHERE reconciliation_id=$1 ORDER BY created_at, id", [recon])).rows;
+    const verdict = async (up) => (await s.pool.query("SELECT u.safisha_status s, r.status r, (SELECT is_blocked FROM public.maono_check_safisha_gate(ARRAY[u.id])) gate_blocked FROM public.trial_balance_uploads u JOIN public.safisha_reconciliations r ON r.tb_upload_id=u.id WHERE u.id=$1", [up])).rows[0];
+    const readiness = async (uid, up) => {
+      const client = makeClient(s.pool, "authenticated", uid);
+      const st = (await s.pool.query("SELECT safisha_status FROM public.trial_balance_uploads WHERE id=$1", [up])).rows[0].safisha_status;
+      return evidenceState(st, await readReconciliationEvidence(client, up)).state;
+    };
+    const TBX = csv(["1000,Cash,2025-01-31,100,,R-1"]);
+    const overlapCase = async () => {
+      // Two trial-balance files, each holding the identical line (genuinely separate, or a duplicate: unknown), and a
+      // bank statement that evidences both — so the ONLY open question is the overlap.
+      const up = await newUploadRow(s.pool, s.ws);
+      const a = await ingest(H.new, s, U.owner, up, "tb", TBX, "tb-part-1.csv");
+      const b = await ingest(H.new, s, U.owner, up, "tb", TBX, "tb-part-2.csv");
+      const bank = await ingest(H.new, s, U.owner, up, "bank", csv(["1000,Cash,2025-01-31,100,,R-1", "1000,Cash,2025-01-31,100,,R-1"]), "bank.csv");
+      const recon = a.body.reconciliation_id;
+      const match = await call(H.match, s.pool, U.owner, { reconciliation_id: recon });
+      return { up, recon, a, b, bank, match };
+    };
+    const O = await overlapCase();
+    const ox = await exceptionsOf(O.recon);
+    await check("the overlap opens ONE pending investigate review item on the flagged trial-balance line; the occurrence links it", async () => {
+      const occ = (await s.pool.query("SELECT overlap_reason, review_exception_id, overlap_with_transaction_id FROM public.safisha_source_occurrences WHERE reconciliation_id=$1 AND overlap_reason IS NOT NULL", [O.recon])).rows;
+      return O.a.http === 200 && O.b.http === 200 && O.b.body?.overlap_flagged === 1 && ox.length === 1 && ox[0].reviewer_action === "pending"
+        && ox[0].category === "investigate" && ox[0].tb_txn_id && !ox[0].evidence_txn_id && occ.length === 1 && occ[0].review_exception_id === ox[0].id
+        && occ[0].overlap_with_transaction_id && /Possible duplicate: tb-part-2\.csv line 2 is identical to tb-part-1\.csv line 2/.test(ox[0].description)
+        ? true : { b: O.b.body, ox, occ };
+    });
+    await check("with every line evidenced, the matcher still cannot record 'clean': needs_review; MAONO gate blocked; readiness incomplete", async () => {
+      const v = await verdict(O.up); const r = await readiness(U.owner, O.up);
+      return O.match.http === 200 && O.match.body?.status === "needs_review" && O.match.body?.matched_count === 1 && O.match.body?.total_tb_lines === 2
+        && v.r === "needs_review" && v.s === "needs_review" && v.gate_blocked === true && r === "incomplete" ? true : { match: O.match.body, v, r };
+    });
+    await check("no unauthorized path decides it: viewer, Prepare-only, outsider, other tenant (real safisha-resolve) and a direct client update are all refused; still blocked", async () => {
+      const codes = {};
+      for (const [k, uid] of Object.entries({ viewer: U.viewer, prepareOnly: U.prepareOnly, outsider: U.outsider, tenantB: U.ownerB })) {
+        codes[k] = (await call(H.resolve, s.pool, uid, { exception_id: ox[0].id, action: "approved" })).http;
+      }
+      const c = await s.pool.connect(); let direct;
+      try { await c.query("BEGIN"); await c.query("SET LOCAL ROLE authenticated");
+        await c.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [U.owner]);
+        direct = (await c.query("UPDATE public.safisha_exceptions SET reviewer_action='approved' WHERE id=$1", [ox[0].id])).rowCount; await c.query("COMMIT");
+      } catch (e) { direct = e.code; try { await c.query("ROLLBACK"); } catch { /* */ } } finally { c.release(); }
+      const v = await verdict(O.up); const x = (await exceptionsOf(O.recon))[0];
+      return Object.values(codes).every((h) => h >= 400) && (direct === 0 || typeof direct === "string") && x.reviewer_action === "pending"
+        && v.r === "needs_review" && v.gate_blocked === true ? true : { codes, direct, x: x.reviewer_action, v };
+    });
+    await check("re-running the matcher does not clear it", async () => {
+      const m = await call(H.match, s.pool, U.owner, { reconciliation_id: O.recon }); const v = await verdict(O.up);
+      return m.http === 200 && m.body?.status === "needs_review" && v.gate_blocked === true ? true : { m: m.body, v };
+    });
+    await check("an authorized reviewer (prepare_close) approves it through the real safisha-resolve → clean; MAONO gate open; readiness complete", async () => {
+      const r = await call(H.resolve, s.pool, U.preparer, { exception_id: ox[0].id, action: "approved", note: "two separate bank deposits" });
+      const v = await verdict(O.up); const rd = await readiness(U.owner, O.up);
+      const audit = (await s.pool.query("SELECT action, reviewer_id, decision_basis FROM public.safisha_audit_log WHERE exception_id=$1", [ox[0].id])).rows;
+      return r.http === 200 && r.body?.recon_status === "clean" && v.r === "clean" && v.s === "clean" && v.gate_blocked === false && rd === "complete"
+        && audit.length === 1 && audit[0].reviewer_id === U.preparer && audit[0].decision_basis === "prepare_close" ? true : { r: r.body, v, rd, audit };
+    });
+    { const R = await overlapCase(); const [x] = await exceptionsOf(R.recon);
+      await check("rejecting it (a duplicate) blocks the reconciliation; the gate stays closed", async () => {
+        const r = await call(H.resolve, s.pool, U.preparer, { exception_id: x.id, action: "rejected", note: "duplicate export" });
+        const v = await verdict(R.up);
+        return r.http === 200 && v.r === "blocked" && v.s === "blocked" && v.gate_blocked === true ? true : { r: r.body, v };
+      }); }
+    { const E = await overlapCase(); const [x] = await exceptionsOf(E.recon);
+      await check("escalating it keeps it unresolved until a different senior reviewer decides", async () => {
+        const esc = await call(H.resolve, s.pool, U.preparer, { exception_id: x.id, action: "escalated" });
+        const mid = await verdict(E.up);
+        const self = await call(H.resolve, s.pool, U.preparer, { exception_id: x.id, action: "approved" });
+        const senior = await call(H.resolve, s.pool, U.partner, { exception_id: x.id, action: "approved" });
+        const end = await verdict(E.up);
+        return esc.http === 200 && mid.r === "needs_review" && mid.gate_blocked === true && self.http >= 400 && senior.http === 200 && end.r === "clean" && end.gate_blocked === false
+          ? true : { esc: esc.http, mid, self: self.http, senior: senior.http, end };
+      }); }
+
+    console.log("\n== Ingestion identity as the product sends it");
+    { const up = await newUploadRow(s.pool, s.ws); const bytes = csv([R1, R2]);
+      const one = await ingest(H.new, s, U.owner, up, "bank", bytes, "statement.csv", MAPPING, "selection-1");
+      const two = await ingest(H.new, s, U.owner, up, "bank", bytes, "statement.csv", MAPPING, "selection-2");
+      const st = await state(s.pool, up); const ex = await exceptionsOf(st.recon);
+      await check("two explicitly separate byte-identical uploads (two selections, two keys) preserve all their rows and occurrences; the second set opens review items",
+        () => one.http === 200 && two.http === 200 && two.body?.replay === false && st.rows === 4 && st.ingestions.length === 2 && st.occurrences.length === 4
+          && st.flagged.length === 2 && ex.length === 2 && ex.every((x) => x.reviewer_action === "pending" && !x.tb_txn_id && x.evidence_txn_id)
+          ? true : { one: one.body, two: two.body, rows: st.rows, occ: st.occurrences.length, ex: ex.length }); }
+    { const up = await newUploadRow(s.pool, s.ws); const bytes = csv([R1, R2]);
+      const first = await ingest(H.new, s, U.owner, up, "bank", bytes, "statement.csv", MAPPING, "selection-r");
+      const count = async () => ({ ...(await s.pool.query(`SELECT (SELECT count(*)::int FROM public.safisha_transactions t JOIN public.safisha_reconciliations r ON r.id=t.reconciliation_id WHERE r.tb_upload_id=$1) tx,
+        (SELECT count(*)::int FROM public.safisha_source_occurrences o JOIN public.safisha_reconciliations r ON r.id=o.reconciliation_id WHERE r.tb_upload_id=$1) occ,
+        (SELECT count(*)::int FROM public.safisha_exceptions e JOIN public.safisha_reconciliations r ON r.id=e.reconciliation_id WHERE r.tb_upload_id=$1) ex,
+        (SELECT count(*)::int FROM public.safisha_ingestions i JOIN public.safisha_reconciliations r ON r.id=i.reconciliation_id WHERE r.tb_upload_id=$1) ing`, [up])).rows[0] });
+      const before = await count();
+      const retries = await Promise.all(Array.from({ length: 4 }, () => ingest(H.new, s, U.owner, up, "bank", bytes, "statement.csv", MAPPING, "selection-r")));
+      const after = await count();
+      await check("retrying one selection (same key, sequentially and 4× concurrently) adds no transaction, occurrence, review item or ingestion",
+        () => first.http === 200 && retries.every((r) => r.http === 200 && r.body?.replay === true && r.body?.inserted === 0)
+          && JSON.stringify(before) === JSON.stringify(after) && after.tx === 2 && after.occ === 2 && after.ex === 0 && after.ing === 1
+          ? true : { before, after, https: retries.map((r) => r.http) }); }
+    { const up = await newUploadRow(s.pool, s.ws); const bytes = csv([R1]);
+      const a = await ingest(H.new, s, U.owner, up, "bank", bytes, "nokey.csv", MAPPING, null);
+      const b = await ingest(H.new, s, U.owner, up, "bank", bytes, "nokey.csv", MAPPING, null);
+      const st = await state(s.pool, up);
+      await check("without a key nothing is inferred: a byte-identical repeat is a new ingestion, stored and flagged for review (never assumed to be a retry)",
+        () => a.http === 200 && b.http === 200 && b.body?.replay === false && st.rows === 2 && st.ingestions.length === 2 && st.flagged.length === 1
+          ? true : { a: a.body, b: b.body, rows: st.rows }); }
+    { const up = await newUploadRow(s.pool, s.ws); const H6 = "Code,Name,Date,Debit,Credit,Ref,TxnId";
+      const a = await ingest(H.new, s, U.owner, up, "bank", csv(["1000,Cash,2025-01-31,100,,R-1,TX-1"], H6), "acct-1000.csv", MAPPING_ID);
+      const b = await ingest(H.new, s, U.owner, up, "bank", csv(["2000,Savings,2025-01-31,100,,R-1,TX-1"], H6), "acct-2000.csv", MAPPING_ID);
+      const st = await state(s.pool, up);
+      await check("source transaction IDs are namespaced by source AND account: the same ID under another account is a different transaction (stored, not compared)",
+        () => a.http === 200 && b.http === 200 && b.body?.deduplicated === 0 && st.rows === 2 && st.flagged.length === 0 ? true : { b: b.body, rows: st.rows, flagged: st.flagged }); }
 
     console.log("\n== Concurrency: multiplicity is exact under simultaneous requests");
     { const up = await newUploadRow(s.pool, s.ws);

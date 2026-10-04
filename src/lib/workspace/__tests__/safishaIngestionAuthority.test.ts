@@ -14,16 +14,25 @@ const SQL = MIGRATION.replace(/--[^\n]*/g, "");
 const INGEST = read("supabase/functions/safisha-ingest/index.ts");
 
 describe("evidence ingestion authority migration", () => {
-  it("an ingestion is identified by the caller's key or by source + file SHA-256; replay or conflict, never a silent re-ingest", () => {
+  it("an ingestion is identified by the caller's key; replay or conflict; without a key nothing is inferred (a new ingestion)", () => {
     expect(SQL).toContain("CONSTRAINT safisha_ingestions_identity UNIQUE (reconciliation_id, ingestion_key)");
-    expect(SQL).toContain("v_key     := COALESCE('client:' || p_ingestion_key, 'file:' || p_source_type || ':' || p_file_sha256);");
+    expect(SQL).toContain("v_key     := COALESCE('client:' || p_ingestion_key, 'request:' || gen_random_uuid()::text);");
+    expect(SQL).not.toContain("'file:' ||");
     expect(SQL).toContain("IF v_ing.file_sha256 = p_file_sha256 AND v_ing.mapping_sha256 = v_map_sha AND v_ing.source_id = p_source_type THEN");
     expect(SQL).toContain("USING ERRCODE = 'PT409'");
   });
 
   it("content alone never proves a duplicate: only a source transaction ID with equal economic fields does; overlap is stored and flagged", () => {
     expect(SQL).toContain("'duplicate_source_txn_id'");
-    expect(SQL).toMatch(/AND t\.source_txn_id = v_txn_id\s+AND t\.ingestion_id IS DISTINCT FROM v_ing\.id\s+AND t\.account_code = v_e->>'account_code'/);
+    // The namespace: one source type AND one account.
+    expect(SQL).toMatch(/AND t\.source_id = p_source_type AND t\.account_code = v_e->>'account_code'\s+AND t\.source_txn_id = v_txn_id AND t\.ingestion_id IS DISTINCT FROM v_ing\.id\s+AND t\.txn_date IS NOT DISTINCT FROM/);
+    expect(SQL).toContain("WHERE t.ingestion_id = v_ing.id AND t.account_code = v_e->>'account_code' AND t.source_txn_id = v_txn_id");
+  });
+
+  it("an ambiguous overlap opens a pending investigate exception in the existing queue, linked from its occurrence", () => {
+    expect(SQL).toMatch(/INSERT INTO public\.safisha_exceptions \(reconciliation_id, account_code, account_name, category, variance, age_days,\s+tb_txn_id, evidence_txn_id, description\)/);
+    expect(SQL).toContain("CASE WHEN p_source_type = 'tb' THEN v_new END, CASE WHEN p_source_type <> 'tb' THEN v_new END,");
+    expect(SQL).toContain("(overlap_reason IS NULL) = (review_exception_id IS NULL) AND (overlap_reason IS NULL) = (overlap_with_transaction_id IS NULL)");
     for (const reason of ["identical_content_other_file", "identical_content_legacy", "repeated_source_txn_id", "source_txn_id_mismatch"]) {
       expect(SQL).toContain(`'${reason}'`);
     }

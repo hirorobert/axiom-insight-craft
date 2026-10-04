@@ -44,11 +44,11 @@ export function makeClient(pool, role, uid) {
     },
     from(table) {
       ident(table);
-      const q = { op: "select", cols: "*", where: [], params: [], values: null, returning: null, single: false, maybe: false };
+      const q = { op: "select", cols: "*", where: [], params: [], values: null, returning: null, single: false, maybe: false, order: "", limit: "" };
       const exec = async () => {
         let sql;
         const where = () => (q.where.length ? ` WHERE ${q.where.join(" AND ")}` : "");
-        if (q.op === "select") sql = `SELECT ${q.cols} FROM public.${table}${where()}`;
+        if (q.op === "select") sql = `SELECT ${q.cols} FROM public.${table}${where()}${q.order}${q.limit}`;
         if (q.op === "delete") sql = `DELETE FROM public.${table}${where()}`;
         if (q.op === "update") {
           const keys = Object.keys(q.values); const base = q.params.length;
@@ -75,6 +75,8 @@ export function makeClient(pool, role, uid) {
         delete() { q.op = "delete"; return b; },
         eq(col, v) { q.params.push(val(v)); q.where.push(`${ident(col)} = $${q.params.length}`); return b; },
         in(col, vs) { q.params.push(vs); q.where.push(`${ident(col)} = ANY($${q.params.length})`); return b; },
+        order(col, opts) { q.order = ` ORDER BY ${ident(col)} ${opts?.ascending === false ? "DESC" : "ASC"}`; return b; },
+        limit(n) { q.limit = ` LIMIT ${Number(n)}`; return b; },
         single() { q.single = true; return exec(); },
         maybeSingle() { q.maybe = true; return exec(); },
         then(ok, bad) { return exec().then(ok, bad); },

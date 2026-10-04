@@ -73,6 +73,8 @@ interface Props {
   /** The original file to re-ingest after mapping is saved */
   fileToIngest: File;
   uploadId:     string;
+  /** The selection's ingestion identity (the same key the first attempt sent; a retry here reuses it). */
+  ingestionKey: string;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -86,6 +88,7 @@ export default function FieldMappingModal({
   onCancel,
   fileToIngest,
   uploadId,
+  ingestionKey,
 }: Props) {
   // mapping: { detectedHeader → canonicalField }
   // Pre-populate with auto-detected matches (case-insensitive fuzzy)
@@ -139,6 +142,7 @@ export default function FieldMappingModal({
       form.append("source_type",     sourceType.replace(/_csv$|_excel$/, ""));
       form.append("file",            fileToIngest);
       form.append("mapping_override", JSON.stringify(mapping));
+      form.append("ingestion_key",   ingestionKey);
 
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(

@@ -14,17 +14,26 @@
 --     another file was silently treated as the same one.
 --
 -- Identity (this migration's definition — content alone never proves that two rows are the same economic event):
---   · INGESTION identity: the caller's ingestion key when given, otherwise 'file:' || source || ':' || file SHA-256.
---     The same identity with the same file bytes, source and column mapping is a REPLAY: nothing is added and the
---     original result is returned. The same identity with different bytes, source or mapping is a CONFLICT (PT409).
+--   · INGESTION identity: the caller's ingestion key (the upload action the person selected; its retries reuse it, a
+--     new selection gets a new one). The same key with the same file bytes, source and column mapping is a REPLAY:
+--     nothing is added and the original result is returned. The same key with different bytes, source or mapping is a
+--     CONFLICT (PT409). WITHOUT a key nothing is inferred: byte-identical content is not assumed to be a retry — every
+--     key-less request is a new ingestion (key 'request:<random>'), so a repeat is stored and flagged below.
 --   · Every row of a NEW ingestion is stored — repeated identical rows within one file are kept — EXCEPT a row whose
---     reliable source transaction ID (an explicitly mapped source_txn_id) and economic fields (account, date, debit,
---     credit) equal an already stored row of the same source in another file: that is a proven duplicate, not stored
---     again, and its occurrence points at the existing row.
---   · Ambiguous overlap is stored AND flagged for review on its occurrence (overlap_reason): identical content already
---     stored from another file ('identical_content_other_file') or from a pre-migration row ('identical_content_legacy');
---     a source transaction ID repeated within one file ('repeated_source_txn_id'); a source transaction ID matching a
---     stored row whose economic fields differ ('source_txn_id_mismatch').
+--     reliable source transaction ID equals an already stored row's in the SAME NAMESPACE — same source type AND same
+--     account (a transaction ID is only unique within one account's statement) — with equal economic fields (date,
+--     debit, credit), from another ingestion: that is a proven duplicate, not stored again, and its occurrence points at
+--     the existing row. The same ID under another account is a different transaction and is not compared.
+--   · Ambiguous overlap is stored, flagged on its occurrence (overlap_reason) AND opens an unresolved review item: a
+--     pending 'investigate' exception in the reconciliation's existing exception queue (safisha_exceptions, decided only
+--     through safisha_decide_exception: prepare_close, escalation to a different review_close holder, audit log).
+--     Until it is decided the reconciliation cannot be complete — no 'clean', no readiness, the MAONO gate blocked
+--     (20261004100000's completeness counts every pending/escalated/rejected exception). Approve = the rows are
+--     separate transactions; reject = a duplicate (a rejected investigate exception blocks the reconciliation until the
+--     evidence is corrected). Reasons: identical content already stored from another file
+--     ('identical_content_other_file') or from a pre-migration row ('identical_content_legacy'); a source transaction ID
+--     repeated within one file and account ('repeated_source_txn_id'); a source transaction ID matching a stored row of
+--     the same account whose economic fields differ ('source_txn_id_mismatch').
 --   · Sources never collide: every comparison is within one source type.
 --   · Provenance: one append-only occurrence per accepted file row (safisha_source_occurrences: ingestion, file line,
 --     row hash, source transaction ID, disposition, the transaction it stored or matched, overlap flag); one append-only
@@ -50,7 +59,7 @@ CREATE TABLE IF NOT EXISTS public.safisha_ingestions (
   reconciliation_id uuid        NOT NULL REFERENCES public.safisha_reconciliations(id),
   source_id         text        NOT NULL CHECK (source_id IN ('tb', 'bank', 'subledger', 'momo')),
   ingestion_key     text        NOT NULL CHECK (length(ingestion_key) BETWEEN 1 AND 200),
-  key_origin        text        NOT NULL CHECK (key_origin IN ('client', 'file')),
+  key_origin        text        NOT NULL CHECK (key_origin IN ('client', 'request')),
   file_sha256       text        NOT NULL CHECK (file_sha256 ~ '^[0-9a-f]{64}$'),
   mapping_sha256    text        NOT NULL CHECK (mapping_sha256 ~ '^[0-9a-f]{64}$'),
   file_name         text        NOT NULL CHECK (length(file_name) BETWEEN 1 AND 255),
@@ -70,8 +79,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS safisha_transactions_ingestion_line
   ON public.safisha_transactions (ingestion_id, raw_row_number) WHERE ingestion_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS safisha_transactions_recon_source_hash
   ON public.safisha_transactions (reconciliation_id, source_id, raw_row_hash);
-CREATE INDEX IF NOT EXISTS safisha_transactions_recon_source_txn
-  ON public.safisha_transactions (reconciliation_id, source_id, source_txn_id) WHERE source_txn_id IS NOT NULL;
+-- The source-transaction-ID namespace: one source type, one account.
+CREATE INDEX IF NOT EXISTS safisha_transactions_recon_source_account_txn
+  ON public.safisha_transactions (reconciliation_id, source_id, account_code, source_txn_id) WHERE source_txn_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS public.safisha_source_occurrences (
   id                uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -84,10 +94,18 @@ CREATE TABLE IF NOT EXISTS public.safisha_source_occurrences (
   transaction_id    uuid        NOT NULL REFERENCES public.safisha_transactions(id),
   overlap_reason    text        CHECK (overlap_reason IN ('identical_content_other_file', 'identical_content_legacy',
                                                           'repeated_source_txn_id', 'source_txn_id_mismatch')),
+  -- For a flagged occurrence: the already stored row it overlaps, and the review item that must be decided.
+  overlap_with_transaction_id uuid REFERENCES public.safisha_transactions(id),
+  review_exception_id         uuid REFERENCES public.safisha_exceptions(id),
   created_at        timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT safisha_source_occurrences_line UNIQUE (ingestion_id, raw_row_number),
-  CONSTRAINT safisha_source_occurrences_flag_only_on_stored CHECK (overlap_reason IS NULL OR disposition = 'stored')
+  CONSTRAINT safisha_source_occurrences_flag_only_on_stored CHECK (overlap_reason IS NULL OR disposition = 'stored'),
+  CONSTRAINT safisha_source_occurrences_flag_has_review CHECK (
+    (overlap_reason IS NULL) = (review_exception_id IS NULL) AND (overlap_reason IS NULL) = (overlap_with_transaction_id IS NULL))
 );
+-- One review item per flagged occurrence.
+CREATE UNIQUE INDEX IF NOT EXISTS safisha_source_occurrences_review_item
+  ON public.safisha_source_occurrences (review_exception_id) WHERE review_exception_id IS NOT NULL;
 -- A pre-migration row is claimed by at most one re-ingested line.
 CREATE UNIQUE INDEX IF NOT EXISTS safisha_source_occurrences_legacy_claim
   ON public.safisha_source_occurrences (transaction_id) WHERE disposition = 'legacy_match';
@@ -156,6 +174,10 @@ DECLARE
   v_match     uuid;
   v_reason    text;
   v_new       uuid;
+  v_other     uuid;
+  v_legacy_other boolean;
+  v_other_desc text;
+  v_exc       uuid;
   v_stored    integer := 0;
   v_dup       integer := 0;
   v_legacy    integer := 0;
@@ -234,10 +256,10 @@ BEGIN
                               'upload_status', v_status);
   END IF;
 
-  -- Ingestion identity: replay, conflict or new.
+  -- Ingestion identity: replay, conflict or new. Without a key nothing is inferred: each request is its own ingestion.
   v_map_sha := encode(sha256(convert_to(p_mapping::text, 'UTF8')), 'hex');
-  v_origin  := CASE WHEN p_ingestion_key IS NULL THEN 'file' ELSE 'client' END;
-  v_key     := COALESCE('client:' || p_ingestion_key, 'file:' || p_source_type || ':' || p_file_sha256);
+  v_origin  := CASE WHEN p_ingestion_key IS NULL THEN 'request' ELSE 'client' END;
+  v_key     := COALESCE('client:' || p_ingestion_key, 'request:' || gen_random_uuid()::text);
   SELECT * INTO v_ing FROM public.safisha_ingestions WHERE reconciliation_id = v_recon AND ingestion_key = v_key;
   IF FOUND THEN
     IF v_ing.file_sha256 = p_file_sha256 AND v_ing.mapping_sha256 = v_map_sha AND v_ing.source_id = p_source_type THEN
@@ -263,6 +285,8 @@ BEGIN
     v_line   := (v_e->>'raw_row_number')::integer;
     v_txn_id := NULLIF(v_e->>'source_txn_id', '');
     v_reason := NULL;
+    v_other  := NULL;
+    v_exc    := NULL;
 
     -- (a) A pre-migration row re-ingested: same source, content and file line, not yet claimed.
     SELECT t.id INTO v_match FROM public.safisha_transactions t
@@ -278,15 +302,17 @@ BEGIN
       CONTINUE;
     END IF;
 
-    -- (b) A reliable source transaction ID already stored from another file.
+    -- (b) A reliable source transaction ID, compared only within its namespace: this source type and this account.
     IF v_txn_id IS NOT NULL THEN
-      IF EXISTS (SELECT 1 FROM public.safisha_transactions t WHERE t.ingestion_id = v_ing.id AND t.source_txn_id = v_txn_id) THEN
+      SELECT t.id INTO v_other FROM public.safisha_transactions t
+       WHERE t.ingestion_id = v_ing.id AND t.account_code = v_e->>'account_code' AND t.source_txn_id = v_txn_id
+       ORDER BY t.raw_row_number LIMIT 1;
+      IF FOUND THEN
         v_reason := 'repeated_source_txn_id';
       ELSE
         SELECT t.id INTO v_match FROM public.safisha_transactions t
-         WHERE t.reconciliation_id = v_recon AND t.source_id = p_source_type AND t.source_txn_id = v_txn_id
-           AND t.ingestion_id IS DISTINCT FROM v_ing.id
-           AND t.account_code = v_e->>'account_code'
+         WHERE t.reconciliation_id = v_recon AND t.source_id = p_source_type AND t.account_code = v_e->>'account_code'
+           AND t.source_txn_id = v_txn_id AND t.ingestion_id IS DISTINCT FROM v_ing.id
            AND t.txn_date IS NOT DISTINCT FROM (v_e->>'txn_date')::date
            AND t.debit IS NOT DISTINCT FROM (v_e->>'debit')::numeric
            AND t.credit IS NOT DISTINCT FROM (v_e->>'credit')::numeric
@@ -298,23 +324,25 @@ BEGIN
           v_dup := v_dup + 1;
           CONTINUE;
         END IF;
-        IF EXISTS (SELECT 1 FROM public.safisha_transactions t
-                    WHERE t.reconciliation_id = v_recon AND t.source_id = p_source_type AND t.source_txn_id = v_txn_id
-                      AND t.ingestion_id IS DISTINCT FROM v_ing.id) THEN
+        SELECT t.id INTO v_other FROM public.safisha_transactions t
+         WHERE t.reconciliation_id = v_recon AND t.source_id = p_source_type AND t.account_code = v_e->>'account_code'
+           AND t.source_txn_id = v_txn_id AND t.ingestion_id IS DISTINCT FROM v_ing.id
+         ORDER BY t.created_at, t.id LIMIT 1;
+        IF FOUND THEN
           v_reason := 'source_txn_id_mismatch';
         END IF;
       END IF;
     END IF;
 
-    -- (c) Identical content already stored from another file, or from a pre-migration row: stored, flagged for review.
+    -- (c) Identical content already stored from another ingestion, or from a pre-migration row.
     IF v_reason IS NULL THEN
-      SELECT CASE WHEN count(*) = 0 THEN NULL
-                  WHEN bool_or(t.ingestion_id IS NULL) THEN 'identical_content_legacy'
-                  ELSE 'identical_content_other_file' END
-        INTO v_reason
-        FROM public.safisha_transactions t
+      SELECT t.id, t.ingestion_id IS NULL INTO v_other, v_legacy_other FROM public.safisha_transactions t
        WHERE t.reconciliation_id = v_recon AND t.source_id = p_source_type AND t.raw_row_hash = v_hash
-         AND t.ingestion_id IS DISTINCT FROM v_ing.id;
+         AND t.ingestion_id IS DISTINCT FROM v_ing.id
+       ORDER BY (t.ingestion_id IS NULL) DESC, t.created_at, t.id LIMIT 1;
+      IF FOUND THEN
+        v_reason := CASE WHEN v_legacy_other THEN 'identical_content_legacy' ELSE 'identical_content_other_file' END;
+      END IF;
     END IF;
 
     INSERT INTO public.safisha_transactions (reconciliation_id, source_id, account_code, account_name, txn_date, debit, credit,
@@ -324,9 +352,37 @@ BEGIN
             (v_e->>'debit')::numeric, (v_e->>'credit')::numeric, COALESCE(NULLIF(v_e->>'currency', ''), 'TZS'), v_e->>'reference',
             v_hash, v_line, COALESCE((v_e->>'dqc_polarity_warning')::boolean, false), v_e->>'dqc_sign_detail', v_ing.id, v_txn_id)
     RETURNING id INTO v_new;
+
+    -- An ambiguous overlap is an unresolved review item in the existing exception queue: a pending investigate
+    -- exception, decided only through safisha_decide_exception. tb_txn_id names the row only when it IS a
+    -- trial-balance line; an evidence row is named in evidence_txn_id.
+    IF v_reason IS NOT NULL THEN
+      SELECT COALESCE(i.file_name, 'a file recorded before this release') || ' line ' || t.raw_row_number
+        INTO v_other_desc
+        FROM public.safisha_transactions t LEFT JOIN public.safisha_ingestions i ON i.id = t.ingestion_id
+       WHERE t.id = v_other;
+      INSERT INTO public.safisha_exceptions (reconciliation_id, account_code, account_name, category, variance, age_days,
+                                             tb_txn_id, evidence_txn_id, description)
+      VALUES (v_recon, v_e->>'account_code', v_e->>'account_name', 'investigate',
+              abs(COALESCE((v_e->>'debit')::numeric, 0) - COALESCE((v_e->>'credit')::numeric, 0)), 0,
+              CASE WHEN p_source_type = 'tb' THEN v_new END, CASE WHEN p_source_type <> 'tb' THEN v_new END,
+              CASE v_reason
+                WHEN 'repeated_source_txn_id' THEN format(
+                  'Possible duplicate: transaction ID %s appears more than once for account %s in %s (line %s and %s). ',
+                  v_txn_id, v_e->>'account_code', p_file_name, v_line, v_other_desc)
+                WHEN 'source_txn_id_mismatch' THEN format(
+                  'Conflicting evidence: transaction ID %s for account %s in %s line %s was already recorded from %s with a different date or amount. ',
+                  v_txn_id, v_e->>'account_code', p_file_name, v_line, v_other_desc)
+                ELSE format(
+                  'Possible duplicate: %s line %s is identical to %s. ', p_file_name, v_line, v_other_desc)
+              END
+              || 'Approve if these are separate transactions; reject if this is a duplicate (the reconciliation is then blocked until the evidence is corrected).')
+      RETURNING id INTO v_exc;
+    END IF;
     INSERT INTO public.safisha_source_occurrences (ingestion_id, reconciliation_id, raw_row_number, raw_row_hash, source_txn_id,
-                                                  disposition, transaction_id, overlap_reason)
-    VALUES (v_ing.id, v_recon, v_line, v_hash, v_txn_id, 'stored', v_new, v_reason);
+                                                  disposition, transaction_id, overlap_reason, overlap_with_transaction_id,
+                                                  review_exception_id)
+    VALUES (v_ing.id, v_recon, v_line, v_hash, v_txn_id, 'stored', v_new, v_reason, v_other, v_exc);
     v_stored := v_stored + 1;
     IF v_reason IS NOT NULL THEN v_flagged := v_flagged + 1; END IF;
   END LOOP;

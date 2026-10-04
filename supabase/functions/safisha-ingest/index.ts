@@ -7,10 +7,11 @@
  * IRON DOME INVARIANTS:
  *   - Every row gets a SHA-256 hash of its raw cells (raw_row_hash). The database (safisha_ingest_evidence,
  *     20261005100000), serialized per upload, decides what is stored: an ingestion is identified by the caller's
- *     ingestion_key or by source + file SHA-256 — the same identity again is a replay (nothing added), with
- *     different bytes or mapping a conflict (409). Every row of a new file is stored (repeats within a file are
- *     kept); only a mapped source_txn_id with equal economic fields proves a cross-file duplicate; identical
- *     content from another file is stored and flagged for review. Every accepted row has a provenance occurrence.
+ *     ingestion_key — the same key again is a replay (nothing added), with different bytes or mapping a conflict
+ *     (409); without a key every request is new. Every row of a new file is stored (repeats within a file are kept);
+ *     only a mapped source_txn_id with equal date/amount in the same source and account proves a cross-file
+ *     duplicate; any other overlap is stored and opens a pending review exception that blocks completion until a
+ *     reviewer decides it. Every accepted row has a provenance occurrence.
  *   - This function NEVER touches reviewer_action or reconciliation status.
  *   - On completion it calls safisha-match (or signals the UI to trigger it).
  *   - All figures come from the uploaded file — zero hallucination.
@@ -334,8 +335,9 @@ serve(async (req: Request) => {
     const mappingOverride = formData.get("mapping_override")
       ? JSON.parse(formData.get("mapping_override") as string)
       : null;
-    // Optional ingestion identity chosen by the caller (reused on a retry of the same upload action). Without it the
-    // identity is the source type + the file's SHA-256. Reusing an identity with different bytes or mapping is a 409.
+    // The ingestion identity chosen by the caller: one key per selected file, reused by every retry of that selection.
+    // The same key with different bytes or mapping is a 409. Without a key nothing is inferred: the request is a new
+    // ingestion, and rows identical to earlier ones are stored and flagged for review (never assumed to be a retry).
     const ingestionKey = (formData.get("ingestion_key") as string | null) || null;
 
     if (!uploadId || !file) {

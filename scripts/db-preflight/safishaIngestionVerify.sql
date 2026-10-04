@@ -53,5 +53,21 @@ SELECT 'ingestions', true, (SELECT count(*) FROM public.safisha_ingestions)
 UNION ALL
 SELECT 'legacy_rows_claimed_by_retry', true, (SELECT count(*) FROM public.safisha_source_occurrences WHERE disposition = 'legacy_match')
 UNION ALL
+SELECT 'every_flagged_overlap_has_its_review_item',
+       NOT EXISTS (SELECT 1 FROM public.safisha_source_occurrences o
+                    LEFT JOIN public.safisha_exceptions e ON e.id = o.review_exception_id
+                    WHERE o.overlap_reason IS NOT NULL
+                      AND (e.id IS NULL OR e.reconciliation_id <> o.reconciliation_id OR e.category <> 'investigate')), NULL
+UNION ALL
+SELECT 'no_clean_reconciliation_with_an_open_overlap',
+       NOT EXISTS (SELECT 1 FROM public.safisha_source_occurrences o
+                    JOIN public.safisha_exceptions e ON e.id = o.review_exception_id
+                    JOIN public.safisha_reconciliations r ON r.id = o.reconciliation_id
+                    WHERE r.status = 'clean' AND e.reviewer_action <> 'approved'), NULL
+UNION ALL
 SELECT 'occurrences_flagged_for_review', true, (SELECT count(*) FROM public.safisha_source_occurrences WHERE overlap_reason IS NOT NULL)
+UNION ALL
+SELECT 'overlap_review_items_open', true,
+       (SELECT count(*) FROM public.safisha_source_occurrences o JOIN public.safisha_exceptions e ON e.id = o.review_exception_id
+         WHERE e.reviewer_action IN ('pending', 'escalated'))
 ORDER BY 1;

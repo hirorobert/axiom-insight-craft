@@ -1174,12 +1174,16 @@ project-chat request). Apply migrations only through Lovable's native migrator, 
 verified JWT): serialized per upload (transaction advisory lock), plan + `prepare_close` (personal: owner), finds or creates
 the one unsealed reconciliation (no INSERT … RETURNING through RLS — that is what made every first ingest fail on main), and
 sets the upload's `safisha_status` when NULL with a row-count check on every call. Identity — content alone NEVER proves the
-same economic event: an INGESTION is identified by the caller's `ingestion_key` or by source + file SHA-256; the same
-identity with the same bytes/source/mapping is a replay (nothing added), with different ones a 409 (`PT409`). Every row of a
-new ingestion is stored (in-file repeats kept, sources separate), except a row whose mapped `source_txn_id` and economic
-fields (account, date, debit, credit) equal a stored row of another file (`duplicate_source_txn_id`, not stored). Identical
-content from another file or a legacy row, and a disagreeing or repeated `source_txn_id`, are stored AND flagged
-(`overlap_reason`) — there is no review UI for these flags yet. Provenance: append-only `safisha_ingestions` and one
+same economic event: an INGESTION is identified by the caller's `ingestion_key` (SafishaGate creates one per selected file,
+`src/lib/safisha/ingestionKey.ts`; its retries and the FieldMappingModal re-call reuse it; a new selection gets a new key).
+Same key + same bytes/source/mapping = replay; different = 409 (`PT409`); NO key = a new ingestion every time (nothing
+inferred). Every row of a new ingestion is stored (in-file repeats kept, sources separate), except a row whose mapped
+`source_txn_id` equals a stored row's in the same namespace (source type AND account) with equal date/debit/credit
+(`duplicate_source_txn_id`, not stored). Any other overlap (identical content from another ingestion or a legacy row; a
+repeated or disagreeing `source_txn_id`) is stored AND opens a pending `investigate` exception in the EXISTING exception
+queue (`safisha_source_occurrences.review_exception_id`): until an authorized reviewer decides it through
+`safisha_decide_exception`, the reconciliation cannot be `clean`, readiness is incomplete and the MAONO gate is blocked;
+approve = separate transactions, reject = duplicate (blocked). Provenance: append-only `safisha_ingestions` and one
 `safisha_source_occurrences` row per accepted file line. Legacy rows (`ingestion_id` NULL) are never rewritten; a retry
 claims one only by source + content + file line, each at most once (`legacy_match`). Client roles cannot insert
 `safisha_transactions` (`ab_transaction_authority`). Proven by `scripts/db-proof/safishaIngestion.mjs`; read-only
