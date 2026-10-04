@@ -432,6 +432,11 @@ jobs:
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
         run: bun scripts/db-proof/safishaIngestion.mjs
 
+      - name: Release application through the real drizzle-orm migrator (proposed noop wrappers, release_verbatim and guarded entries — single run, retry, re-application, staggered and simultaneous runs, payload and postcondition failure, staging and ledger privileges; creates and drops its own databases)
+        env:
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: node scripts/db-proof/migratorRelease.mjs
+
       - name: Annual commercial term proof (zero-state gate, exact 12-month payment licences, future-licence cancellation, suspension, archive, existing licences unchanged, on the same throwaway container)
         env:
           DB_PROOF_MODE: external
