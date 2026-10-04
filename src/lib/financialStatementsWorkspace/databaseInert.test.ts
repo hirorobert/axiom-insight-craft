@@ -303,6 +303,9 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/fixtures/functions-main-e8962f2/match.index.ts",
       "scripts/db-proof/fixtures/functions-main-e8962f2/resolve.index.ts",
       "scripts/db-proof/fixtures/functions-main-e8962f2/manifest.json",
+      // ...and its READ-ONLY pre-apply impact report and post-apply verification (SELECT only; proven read-only by
+      // reconciliationAuthority.mjs).
+      "scripts/db-preflight/reconciliationAuthorityPreflight.sql", "scripts/db-preflight/reconciliationAuthorityVerify.sql",
       // This guard's own fail-closed base resolver and exact-file review (no deploy behaviour), and the CI check that the
       // guard executed with zero skipped tests.
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
