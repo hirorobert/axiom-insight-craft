@@ -193,7 +193,9 @@ describe("migration directory integrity", () => {
     // Bumped from 143 -> 144: 20261001120000_annual_commercial_term.sql, a NEW forward-only migration (one 12-month term).
     // Bumped from 144 -> 145: 20261002100000_refuse_withheld_service_grants.sql, a NEW forward-only migration (refuses new grants of the
     // withheld services; no existing row changes).
-    expect(files.length).toBe(145);
+    // Bumped from 145 -> 146: 20261004100000_reconciliation_server_authority.sql, a NEW forward-only migration (reconciliation readiness
+    // computed and recorded by the server; no existing row changes).
+    expect(files.length).toBe(146);
   });
 });
 

@@ -40,7 +40,8 @@ describe("migration authority parity", () => {
     });
     // Authored here and not yet applied by the owner: listed, never an error. PR #34 100000–150000 are applied.
     // 20260926160000 applied by 0022; 20260927100000 by 0024; 20261001120000 by 0025; 20261002100000 by 0026.
-    expect(r.pending).toEqual([]);
+    // 20261004100000 (reconciliation server authority) is authored and not yet applied.
+    expect(r.pending).toEqual(["20261004100000_reconciliation_server_authority.sql"]);
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {

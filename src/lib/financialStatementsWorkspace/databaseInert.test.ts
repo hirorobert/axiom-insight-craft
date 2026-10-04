@@ -170,6 +170,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20260927041019_security_fix_probe_and_xbrl_concept_map.sql",
       // Remove a processed trial balance from active use (retire, no successor): a NEW forward migration. No financial-statements schema.
       "supabase/migrations/20260927100000_trial_balance_remove_from_active_use.sql",
+      // Reconciliation server authority (forward-only): completeness from stored rows, server-recorded match runs and
+      // decisions, escalated/rejected exceptions kept unresolved, client-role forgery guards. No financial-statements schema.
+      "supabase/migrations/20261004100000_reconciliation_server_authority.sql",
       // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",
@@ -229,6 +232,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/kinga-tax-engine/index.ts",
       // B-5: the evidence-attachment RPC error is a failure, never ignored.
       "supabase/functions/safisha-ingest/index.ts",
+      // Reconciliation server authority (20261004100000): the matcher records its result through the service-role RPC
+      // (actor from the verified JWT); the resolver calls its service-role-only RPC with the service client.
+      "supabase/functions/safisha-match/index.ts",
+      "supabase/functions/safisha-resolve/index.ts",
     ]);
     expect(unreviewedChanges(changed, { added, modified })).toEqual([]);
   });
@@ -288,6 +295,17 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/annualTerm.mjs", "scripts/db-preflight/annualTermPreflight.sql",
       // Withheld-service grant refusal (20261002100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.
       "scripts/db-proof/serviceWithholding.mjs",
+      // Reconciliation server authority (20261004100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.
+      "scripts/db-proof/reconciliationAuthority.mjs",
+      // ...and its old/new function × schema matrix, with byte-identical copies of main's two reconciliation handlers
+      // (pinned by git blob hash; never deployed — not under supabase/).
+      "scripts/db-proof/reconciliationFunctionMatrix.mjs",
+      "scripts/db-proof/fixtures/functions-main-e8962f2/match.index.ts",
+      "scripts/db-proof/fixtures/functions-main-e8962f2/resolve.index.ts",
+      "scripts/db-proof/fixtures/functions-main-e8962f2/manifest.json",
+      // ...and its READ-ONLY pre-apply impact report and post-apply verification (SELECT only; proven read-only by
+      // reconciliationAuthority.mjs).
+      "scripts/db-preflight/reconciliationAuthorityPreflight.sql", "scripts/db-preflight/reconciliationAuthorityVerify.sql",
       // This guard's own fail-closed base resolver and exact-file review (no deploy behaviour), and the CI check that the
       // guard executed with zero skipped tests.
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
