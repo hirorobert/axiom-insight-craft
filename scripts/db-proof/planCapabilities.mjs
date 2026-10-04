@@ -1121,15 +1121,18 @@ async function main() {
     const up = (await admin.query("INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,company_id,user_id,period_year) VALUES ('tb.csv',$1,10,'complete',$2,$3,$4) RETURNING id", [owner + "/" + uuid() + ".csv", co, owner, period])).rows[0].id;
     // Fixture rows are written directly (the wall still runs on them: the account has a plan).
     const rec = (await admin.query("INSERT INTO public.safisha_reconciliations (client_id, tb_upload_id) VALUES ($1,$2) RETURNING id", [owner, up])).rows[0].id;
-    await admin.query("INSERT INTO public.safisha_transactions (reconciliation_id, source_id, account_code, raw_row_hash) VALUES ($1,'bank','1000','h1')", [rec]);
+    // One trial-balance line (a match run records results only for a reconciliation with trial-balance lines).
+    await admin.query("INSERT INTO public.safisha_transactions (reconciliation_id, source_id, account_code, raw_row_hash) VALUES ($1,'tb','1000','h1')", [rec]);
     const ex = (await admin.query("INSERT INTO public.safisha_exceptions (reconciliation_id, account_code, category, variance) VALUES ($1,'1000','timing',10) RETURNING id", [rec])).rows[0].id;
     const ex2 = (await admin.query("INSERT INTO public.safisha_exceptions (reconciliation_id, account_code, category, variance) VALUES ($1,'2000','timing',5) RETURNING id", [rec])).rows[0].id;
     return { up, rec, ex, ex2 };
   };
   // Recording a match result is the service-role RPC safisha-match calls with the JWT user as the actor (20261004100000:
   // a client can no longer write reconciliation counts); it re-checks the plan, then prepare_close, for that actor.
-  const match = (who, rec) => codeOf(() => q(SERVICE, "SELECT public.safisha_record_match_result($1,$2)", [rec, who]));
-  const categorize = (who, rec) => codeOf(() => q(user(who), "INSERT INTO public.safisha_exceptions (reconciliation_id, account_code, category, variance) VALUES ($1,'3000','investigate',1)", [rec]));
+  const match = (who, rec) => codeOf(() => q(SERVICE, "SELECT public.safisha_record_match_result($1,$2,'[]'::jsonb)", [rec, who]));
+  // safisha-categorize's own client write (20261004100000: exceptions are server-recorded, so a client no longer inserts
+  // them; categorize keeps moving the reconciliation to needs_review).
+  const categorize = (who, rec) => codeOf(() => q(user(who), "UPDATE public.safisha_reconciliations SET status='needs_review' WHERE id=$1 RETURNING id", [rec]).then((x) => { if (x.length === 0) throw Object.assign(new Error("0 rows"), { code: "NO_ROW" }); }));
   const score = (who, rec) => codeOf(() => q(user(who), "UPDATE public.safisha_reconciliations SET confidence_score = 90 WHERE id=$1 RETURNING id", [rec]).then((x) => { if (x.length === 0) throw Object.assign(new Error("0 rows"), { code: "NO_ROW" }); }));
   const resolveEx = (reviewer, ex) => codeOf(() => q(SERVICE, "SELECT public.safisha_resolve_exception($1,$2,'approved','proof')", [ex, reviewer]));
   const reconState = async (rec, co) => (await admin.query(`SELECT
@@ -1190,7 +1193,8 @@ async function main() {
   await check("refusal changed no reconciliation, exception, transaction, audit, upload, finding, sign-off or EFDMS state; history stays readable to the owner", async () => {
     const after = await reconState(RC.rec, R.co);
     const readable = (await q(user(R.owner), "SELECT id FROM public.safisha_reconciliations WHERE id=$1", [RC.rec])).length === 1
-      && (await q(user(R.owner), "SELECT id FROM public.safisha_exceptions WHERE reconciliation_id=$1", [RC.rec])).length === 3;
+      // The fixture's two exceptions (categorize no longer inserts one: exceptions are server-recorded, 20261004100000).
+      && (await q(user(R.owner), "SELECT id FROM public.safisha_exceptions WHERE reconciliation_id=$1", [RC.rec])).length === 2;
     // (safisha_audit_log has never been client-readable; its unchanged content is compared above.)
     return JSON.stringify(after) === JSON.stringify(before) && readable ? true : JSON.stringify({ same: JSON.stringify(after) === JSON.stringify(before), readable });
   });
@@ -1285,7 +1289,7 @@ async function main() {
     const writers = (await admin.query(String.raw`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind='f'
       AND pg_get_functiondef(p.oid) ~* '(INSERT INTO|UPDATE|DELETE FROM)\s+(public\.)?(safisha_(reconciliations|transactions|exceptions|audit_log)|efdms_(reconciliation|records|z_reports))\M' ORDER BY 1`)).rows.map((x) => x.proname);
     return JSON.stringify(tables) === JSON.stringify(["efdms_reconciliation", "efdms_records", "efdms_z_reports", "safisha_audit_log", "safisha_exceptions", "safisha_reconciliations", "safisha_transactions"])
-      && t.every((x) => x.ins && x.del && x.upd) && JSON.stringify(writers) === '["safisha_append_evidence_file","safisha_record_match_result","safisha_resolve_exception"]'
+      && t.every((x) => x.ins && x.del && x.upd) && JSON.stringify(writers) === '["_safisha_record_verdict","safisha_append_evidence_file","safisha_decide_exception","safisha_reconciliation_freshness","safisha_record_match_result"]'
       ? true : JSON.stringify({ tables, writers });
   });
 

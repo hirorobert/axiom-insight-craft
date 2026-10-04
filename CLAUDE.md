@@ -464,6 +464,7 @@ scripts/
     setupAuthority.mjs        ← Workspace setup authority proof (25-way concurrency, role/RLS matrix)
     serviceWithholding.mjs    ← Withheld-service grant refusal proof (20261002100000; history byte-identical)
     reconciliationAuthority.mjs ← Reconciliation server authority proof (20261004100000; forgery per role, MAONO gate)
+    reconciliationFunctionMatrix.mjs ← Old/new reconciliation handlers × old/new schema (bun)
     uploadLifecycle.mjs       ← Upload lifecycle proof (legacy upgrade, B1–B4, capability matrix, concurrency)
   db-preflight/
     uploadLifecyclePreflight.sql ← Read-only report of what the lifecycle backfill would retire
@@ -1134,19 +1135,23 @@ existing row stays byte-identical and readable; REVOKE stays allowed and a revok
 Re-enabling a service is a separate, reviewed migration that edits `capability_customer_available()`.
 
 **RECONCILIATION_READINESS_IS_A_SERVER_FACT** — `20261004100000_reconciliation_server_authority.sql` (branch
-`fix/reconciliation-server-authority`; authored, NOT applied — only Lovable/the owner applies it). A reconciliation is
-complete only when `public.safisha_reconciliation_complete(id)` says so, computed from stored rows: at least one `tb` line,
-every `tb` line either exception-free or with only APPROVED exceptions, and nothing pending, escalated or rejected. Escalated
-and rejected exceptions are NOT resolutions: `safisha_resolve_exception` marks `clean` only when complete, `blocked` for a
-rejected investigate exception, otherwise `needs_review`. The matcher records results only through the service-role
-`safisha_record_match_result(recon, actor)` (actor from the verified JWT; plan + `prepare_close` re-checked; counts DERIVED
-from rows, never trusted). Triggers `ab_reconciliation_authority` / `ab_upload_reconciliation_status_authority` (after the
-`aa_` write wall) stop `authenticated`/`anon` from writing counts, sealing, completion, `clean`/`blocked`, and stop EVERY
-writer (service role and table owner included) from recording an incomplete `clean`. `maono_check_safisha_gate` requires
-`clean` AND complete. No row is changed: an upload the OLD resolver marked `clean` while an exception was only escalated
-keeps its raw value, but the MAONO gate blocks it. Proven by `scripts/db-proof/reconciliationAuthority.mjs`. Deploy
-`safisha-match` and `safisha-resolve` BEFORE applying the migration (`safisha-match` falls back to its old writes while the
-RPC is missing; after the migration the old function's client-role writes are refused).
+`fix/reconciliation-server-authority`; authored, NOT applied — only Lovable/the owner applies it). Completeness
+(`safisha_reconciliation_complete`) is computed from stored rows: at least one `tb` line, exactly the lines the matcher
+recorded (`total_tb_lines`, server-written), every line exception-free or approved-only, nothing pending, escalated or
+rejected. One verdict for every writer (`_safisha_record_verdict`): rejected investigate → `blocked`, complete → `clean`,
+otherwise `needs_review`. The matcher records a run ONLY through the service-role `safisha_record_match_result(recon,
+actor, exceptions)` (actor from the verified JWT; plan + `prepare_close`; findings validated against the reconciliation's
+own rows; each finding recorded once — retries are idempotent and decided findings are never re-opened). Decisions go
+ONLY through the service-role `safisha_decide_exception` (`safisha_resolve_exception` is a wrapper): escalated stays open
+until a DIFFERENT holder of `review_close` (owner/partner) approves or rejects it; approved/rejected are final. Both take
+the reconciliation lock first (no match/decision deadlock). Client roles cannot write counts, completion, sealing,
+`clean`/`blocked` or exceptions; no writer at all can record an incomplete `clean`; a new `tb` line or exception re-opens
+a `clean` reconciliation; `maono_check_safisha_gate` requires `clean` AND complete; TRUNCATE revoked from clients. No row
+is changed (a legacy upload the old resolver marked `clean` on an escalated exception keeps its value; the MAONO gate
+blocks it). Proven by `scripts/db-proof/reconciliationAuthority.mjs` and `reconciliationFunctionMatrix.mjs` (real old and
+new handlers × old and new schema). Release order: deploy `safisha-match` + `safisha-resolve` FIRST (against the old
+schema they answer 503 and record nothing), THEN apply the migration. The reverse order lets the OLD matcher answer
+"clean" without recording it.
 
 ---
 

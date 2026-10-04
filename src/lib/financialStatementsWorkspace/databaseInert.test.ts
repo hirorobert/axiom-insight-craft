@@ -170,14 +170,14 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20260927041019_security_fix_probe_and_xbrl_concept_map.sql",
       // Remove a processed trial balance from active use (retire, no successor): a NEW forward migration. No financial-statements schema.
       "supabase/migrations/20260927100000_trial_balance_remove_from_active_use.sql",
+      // Reconciliation server authority (forward-only): completeness from stored rows, server-recorded match runs and
+      // decisions, escalated/rejected exceptions kept unresolved, client-role forgery guards. No financial-statements schema.
+      "supabase/migrations/20261004100000_reconciliation_server_authority.sql",
       // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",
       "supabase/functions/_shared/reportingPackSeal.d.mts",
       "supabase/functions/seal-reporting-pack/index.ts",
-      // Reconciliation server authority (forward-only): completeness from stored rows, the service-role match-result
-      // RPC, escalated/rejected exceptions kept unresolved, client-role forgery guards. No financial-statements schema.
-      "supabase/migrations/20261004100000_reconciliation_server_authority.sql",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
@@ -274,6 +274,12 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/serviceWithholding.mjs",
       // Reconciliation server authority (20261004100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.
       "scripts/db-proof/reconciliationAuthority.mjs",
+      // ...and its old/new function × schema matrix, with byte-identical copies of main's two reconciliation handlers
+      // (pinned by git blob hash; never deployed — not under supabase/).
+      "scripts/db-proof/reconciliationFunctionMatrix.mjs",
+      "scripts/db-proof/fixtures/functions-main-e8962f2/match.index.ts",
+      "scripts/db-proof/fixtures/functions-main-e8962f2/resolve.index.ts",
+      "scripts/db-proof/fixtures/functions-main-e8962f2/manifest.json",
       // This guard's own fail-closed base resolver and exact-file review (no deploy behaviour), and the CI check that the
       // guard executed with zero skipped tests.
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);

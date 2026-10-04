@@ -257,8 +257,12 @@ serve(async (req: Request) => {
       });
     }
 
-    // Re-matching is idempotent in the database: safisha_record_match_result records each finding once (exceptions are
-    // permanent audit evidence and are never deleted), and a finding a reviewer already decided is never re-opened.
+    // Remove any previously-pending exceptions (re-match is idempotent)
+    await supabase
+      .from("safisha_exceptions")
+      .delete()
+      .eq("reconciliation_id", reconciliation_id)
+      .eq("reviewer_action", "pending");
 
     // ── Build lookup indexes ──────────────────────────────────────────────────
 
@@ -465,41 +469,40 @@ serve(async (req: Request) => {
       tierHits.t5++;
     }
 
-    // ── Record the run (20261004100000) ───────────────────────────────────────
-    // The database records it in one transaction under the reconciliation lock: safisha_record_match_result re-checks
-    // this user's authority (current plan + prepare_close), validates every finding against this reconciliation's own
-    // rows, records each one once, derives the counts from the stored rows and sets 'clean' (reconciliation and upload)
-    // only when every TB line is matched or approved. Client roles cannot write exceptions, counts or 'clean', so the
-    // service role is used here — with the actor taken from the verified JWT above, never from the request body.
-    // There is no fallback: without that function nothing is recorded (see the release procedure).
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { data: recorded, error: recordErr } = await admin.rpc("safisha_record_match_result", {
-      p_recon_id:   reconciliation_id,
-      p_actor:      user.id,
-      p_exceptions: exceptions,
-    });
-    if (recordErr) {
-      const missing = recordErr.code === "PGRST202" || recordErr.code === "42883";
-      const status = missing ? 503 : recordErr.code === "42501" ? 403 : recordErr.code === "PT402" ? 402
-        : recordErr.code === "55000" ? 409 : recordErr.code === "22023" ? 422 : 500;
-      return new Response(JSON.stringify({
-        error: missing ? "Reconciliation recording is not available yet. Nothing was recorded; try again later." : recordErr.message,
-      }), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // ── Batch-insert exceptions ───────────────────────────────────────────────
+
+    const BATCH = 200;
+    for (let b = 0; b < exceptions.length; b += BATCH) {
+      const { error: insErr } = await supabase
+        .from("safisha_exceptions")
+        .insert(exceptions.slice(b, b + BATCH));
+      if (insErr) throw new Error("Insert exceptions failed: " + insErr.message);
     }
-    const r = recorded as {
-      status: string; matched_tb_lines: number; total_tb_lines: number; open_exceptions: number;
-      exceptions_recorded: number; exceptions_already_recorded: number;
-    };
+
+    // ── Update reconciliation ─────────────────────────────────────────────────
+
+    const newStatus = exceptions.length === 0 ? "clean" : "needs_review";
+
+    await supabase.from("safisha_reconciliations").update({
+      matched_count:   matchedCount,
+      exception_count: exceptions.length,
+      total_tb_lines:  tbLines.length,
+      status:          newStatus,
+    }).eq("id", reconciliation_id);
+
+    if (exceptions.length === 0) {
+      await supabase.from("trial_balance_uploads")
+        .update({ safisha_status: "clean" })
+        .eq("id", recon.tb_upload_id);
+    }
 
     return new Response(JSON.stringify({
       success:           true,
       reconciliation_id,
-      matched_count:     r.matched_tb_lines,
-      exception_count:   r.open_exceptions,
-      total_tb_lines:    r.total_tb_lines,
-      status:            r.status,
-      exceptions_recorded:         r.exceptions_recorded,
-      exceptions_already_recorded: r.exceptions_already_recorded,
+      matched_count:     matchedCount,
+      exception_count:   exceptions.length,
+      total_tb_lines:    tbLines.length,
+      status:            newStatus,
       tier_breakdown:    tierHits,
       exception_categories: {
         timing:           exceptions.filter(e => e.category === "timing").length,
@@ -507,7 +510,7 @@ serve(async (req: Request) => {
         investigate:      exceptions.filter(e => e.category === "investigate").length,
       },
       fuzzy_matches: tierHits.t1_5 + tierHits.t2_5,
-      next_step: r.status !== "clean"
+      next_step: exceptions.length > 0
         ? "Call safisha-categorize → safisha-score → present ExceptionQueue"
         : "TB is clean — tax engine unlocked",
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });

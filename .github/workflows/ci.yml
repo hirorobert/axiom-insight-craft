@@ -391,6 +391,16 @@ jobs:
           createdb plan_capabilities_proof
           node scripts/db-proof/planCapabilities.mjs
 
+      - name: Reconciliation server authority proof (upgrade byte-identical, product client writes unchanged, findings validated, derived counts, escalated/rejected stay unresolved, senior decision, freshness, 25-way concurrency, per-role forgery refused, MAONO gate, re-apply; creates and drops its own database on the same throwaway container)
+        env:
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: node scripts/db-proof/reconciliationAuthority.mjs
+
+      - name: Reconciliation function matrix (the real old and new safisha-match / safisha-resolve handlers against the old and new schema; no combination records an incomplete 'clean'; creates and drops its own databases on the same throwaway container)
+        env:
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: bun scripts/db-proof/reconciliationFunctionMatrix.mjs
+
       - name: Annual commercial term proof (zero-state gate, exact 12-month payment licences, future-licence cancellation, suspension, archive, existing licences unchanged, on the same throwaway container)
         env:
           DB_PROOF_MODE: external
@@ -406,8 +416,3 @@ jobs:
         run: |
           createdb withholding_proof
           node scripts/db-proof/serviceWithholding.mjs
-
-      - name: Reconciliation server authority proof (upgrade byte-identical, product client writes unchanged, derived match counts, escalated/rejected stay unresolved, owner/reviewer/Prepare-only/outsider/cross-tenant forgery refused, MAONO gate, re-apply; creates and drops its own database on the same throwaway container)
-        env:
-          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
-        run: node scripts/db-proof/reconciliationAuthority.mjs
