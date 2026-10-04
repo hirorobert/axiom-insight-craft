@@ -1181,8 +1181,10 @@ async function main() {
     await expire(O.lic);
     const e1 = await errOf(() => q(user(O.owner), "UPDATE public.safisha_reconciliations SET matched_count=1 WHERE id=$1", [O.rc.rec]));
     const e2 = await errOf(() => q(user(R.owner), "UPDATE public.safisha_reconciliations SET matched_count=1 WHERE id=$1", [RC.rec]));
-    // The outsider's account has a plan, so the match RPC reaches the capability check (42501); a direct write sees no row.
-    return outsider === "42501" && outsiderDirect === "NO_ROW" && e1?.code === "PT402" && e2?.code === "PT402" && e1.detail === e2.detail && e1.hint === e2.hint && e1.message === e2.message
+    // The match RPC checks the WORKSPACE's plan before the actor (as the resolver and the write wall do), and R's plan is
+    // expired here: PT402 for any actor. (safisha-match reads the reconciliation through the caller's RLS first, so an
+    // outsider never reaches the RPC.) A direct write by the outsider sees no row.
+    return outsider === "PT402" && outsiderDirect === "NO_ROW" && e1?.code === "PT402" && e2?.code === "PT402" && e1.detail === e2.detail && e1.hint === e2.hint && e1.message === e2.message
       ? true : JSON.stringify({ outsider, outsiderDirect, e1: [e1?.code, e1?.detail], e2: [e2?.code, e2?.detail] });
   });
   await check("refusal changed no reconciliation, exception, transaction, audit, upload, finding, sign-off or EFDMS state; history stays readable to the owner", async () => {
