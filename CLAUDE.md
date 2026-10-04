@@ -470,6 +470,7 @@ scripts/
     serviceWithholding.mjs    ← Withheld-service grant refusal proof (20261002100000; history byte-identical)
     reconciliationAuthority.mjs ← Reconciliation server authority proof (20261004100000; forgery per role, MAONO gate)
     reconciliationFunctionMatrix.mjs ← Old/new reconciliation handlers × old/new schema (bun)
+    safishaIngestion.mjs      ← Real safisha-ingest handler (old/new) × schema without/with 20261005100000 (bun)
     uploadLifecycle.mjs       ← Upload lifecycle proof (legacy upgrade, B1–B4, capability matrix, concurrency)
   db-preflight/
     uploadLifecyclePreflight.sql ← Read-only report of what the lifecycle backfill would retire
@@ -1166,6 +1167,20 @@ schema they answer 503 and record nothing), THEN apply the migration. The revers
 the live site (only an explicit Publish does) and never deploys a function or runs a migration (each is an explicit
 project-chat request). Apply migrations only through Lovable's native migrator, which records the hosted journal row
 (hash = file SHA-256) in the same transaction; never through the SQL editor (no journal record).
+
+**EVIDENCE_INGESTION_IS_ONE_SERVER_PATH** — `20261005100000_safisha_ingestion_authority.sql` (branch
+`fix/safisha-ingest-authority`; authored, NOT applied). `safisha-ingest` writes ONLY through the service-role
+`safisha_ingest_evidence(upload, actor, source, file_name, file_sha256, rows)` (actor from the verified JWT): serialized per
+upload (transaction advisory lock), plan + `prepare_close` (personal: owner), finds or creates the one unsealed
+reconciliation (no INSERT … RETURNING through RLS — that is what made every first ingest fail on main), and sets the upload's
+`safisha_status` when NULL with a row-count check on every call (a retry completes a status an earlier attempt never set).
+Row identity: `(reconciliation, source_id, raw_row_hash, row_occurrence)`, occurrence = k-th time that exact row appears in
+ONE file; retries add nothing, in-file repeats are kept, sources never collide, overlapping files add shared rows once.
+New rows carry `source_file_sha256`; legacy rows keep NULLs (not rewritten) and count as present; the unique index covers only
+rows with an occurrence. Client roles cannot insert `safisha_transactions` (`ab_transaction_authority`). Proven by
+`scripts/db-proof/safishaIngestion.mjs`; existing duplicates are sized read-only by `scripts/db-preflight/safishaIngestionPreflight.sql`.
+Deploy `safisha-ingest` with the other SAFISHA functions BEFORE applying the migrations (against the old schema it answers 503
+and writes nothing).
 
 ---
 

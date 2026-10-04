@@ -1289,7 +1289,7 @@ async function main() {
     const writers = (await admin.query(String.raw`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind='f'
       AND pg_get_functiondef(p.oid) ~* '(INSERT INTO|UPDATE|DELETE FROM)\s+(public\.)?(safisha_(reconciliations|transactions|exceptions|audit_log)|efdms_(reconciliation|records|z_reports))\M' ORDER BY 1`)).rows.map((x) => x.proname);
     return JSON.stringify(tables) === JSON.stringify(["efdms_reconciliation", "efdms_records", "efdms_z_reports", "safisha_audit_log", "safisha_exceptions", "safisha_reconciliations", "safisha_transactions"])
-      && t.every((x) => x.ins && x.del && x.upd) && JSON.stringify(writers) === '["_safisha_record_verdict","safisha_append_evidence_file","safisha_decide_exception","safisha_reconciliation_freshness","safisha_record_match_result"]'
+      && t.every((x) => x.ins && x.del && x.upd) && JSON.stringify(writers) === '["_safisha_record_verdict","safisha_append_evidence_file","safisha_decide_exception","safisha_ingest_evidence","safisha_reconciliation_freshness","safisha_record_match_result"]'
       ? true : JSON.stringify({ tables, writers });
   });
 

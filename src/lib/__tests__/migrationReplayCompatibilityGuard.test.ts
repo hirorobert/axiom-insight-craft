@@ -195,7 +195,9 @@ describe("migration directory integrity", () => {
     // withheld services; no existing row changes).
     // Bumped from 145 -> 146: 20261004100000_reconciliation_server_authority.sql, a NEW forward-only migration (reconciliation readiness
     // computed and recorded by the server; no existing row changes).
-    expect(files.length).toBe(146);
+    // Bumped from 146 -> 147: 20261005100000_safisha_ingestion_authority.sql, a NEW forward-only migration (evidence ingestion through
+    // one serialized server path; additive nullable provenance columns; no existing row changes).
+    expect(files.length).toBe(147);
   });
 });
 

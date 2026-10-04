@@ -232,7 +232,7 @@ async function main() {
   group("Static contract");
   const code = migrationText.replace(/--[^\n]*/g, "");
   // Reviewed, unrelated forward migrations that may follow this one (exact names; nothing else may).
-  const LATER = ["20261004100000_reconciliation_server_authority.sql"];
+  const LATER = ["20261004100000_reconciliation_server_authority.sql", "20261005100000_safisha_ingestion_authority.sql"];
   await check("the migration is the newest but for the named later migrations; its top-level statements contain no DROP, DELETE, TRUNCATE, UPDATE, INSERT or ALTER TABLE", async () => {
     // Function bodies (dollar-quoted) are excluded: the two RPC bodies are their existing definitions, proven below to
     // differ from them by exactly one line each.

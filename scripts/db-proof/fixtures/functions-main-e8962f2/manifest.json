@@ -1,8 +1,18 @@
 {
   "source_commit": "e8962f252c11744277b000d4019c239826382d68",
-  "note": "Byte-identical copies of the reconciliation functions on main before 20261004100000 (unchanged on main since 228a88d, 2026-07-11). Used only by scripts/db-proof/reconciliationFunctionMatrix.mjs to run the OLD handlers against the old and new schema. Never deployed.",
+  "note": "Byte-identical copies of the SAFISHA functions on main before the reconciliation release (match/resolve unchanged on main since 228a88d, 2026-07-11; ingest unchanged since fb17a92, 2026-09-26, and identical on main 651816b). Used only by scripts/db-proof/reconciliationFunctionMatrix.mjs and scripts/db-proof/safishaIngestion.mjs to run the OLD handlers. Never deployed.",
   "files": {
-    "match.index.ts": { "path": "supabase/functions/safisha-match/index.ts", "git_blob_sha1": "519d629bbd697674444506da7eeae6eec818b909" },
-    "resolve.index.ts": { "path": "supabase/functions/safisha-resolve/index.ts", "git_blob_sha1": "1971fc41ba29eb0a07bc59aac37f52bec1cac1ca" }
+    "match.index.ts": {
+      "path": "supabase/functions/safisha-match/index.ts",
+      "git_blob_sha1": "519d629bbd697674444506da7eeae6eec818b909"
+    },
+    "resolve.index.ts": {
+      "path": "supabase/functions/safisha-resolve/index.ts",
+      "git_blob_sha1": "1971fc41ba29eb0a07bc59aac37f52bec1cac1ca"
+    },
+    "ingest.index.ts": {
+      "path": "supabase/functions/safisha-ingest/index.ts",
+      "git_blob_sha1": "f9aa8fe1a1b9bba908287bcfed3ce7970694cf30"
+    }
   }
 }

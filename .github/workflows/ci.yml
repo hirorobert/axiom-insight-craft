@@ -215,8 +215,8 @@ jobs:
         with:
           deno-version: v2.9.6
 
-      - name: Type-check safisha-match and safisha-resolve against the real Supabase client types
-        run: deno check supabase/functions/safisha-match/index.ts supabase/functions/safisha-resolve/index.ts
+      - name: Type-check safisha-match, safisha-resolve and safisha-ingest against the real Supabase client types
+        run: deno check supabase/functions/safisha-match/index.ts supabase/functions/safisha-resolve/index.ts supabase/functions/safisha-ingest/index.ts
 
   rls-regression:
     name: Staging RLS Regression (manual, write-capable)
@@ -426,6 +426,11 @@ jobs:
         env:
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
         run: bun scripts/db-proof/reconciliationFunctionMatrix.mjs
+
+      - name: Evidence ingestion proof (the real old and new safisha-ingest handlers against the schema without and with 20261005100000: creation, retry, lost response, partial failure, 8-way simultaneous ingests, identical rows, sources, overlap, unauthorized/cross-tenant, read-only duplicate inspection; creates and drops its own databases)
+        env:
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: bun scripts/db-proof/safishaIngestion.mjs
 
       - name: Annual commercial term proof (zero-state gate, exact 12-month payment licences, future-licence cancellation, suspension, archive, existing licences unchanged, on the same throwaway container)
         env:

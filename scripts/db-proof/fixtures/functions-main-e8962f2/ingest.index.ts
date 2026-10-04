@@ -5,11 +5,9 @@
  * subledger XLSX) into canonical safisha_transactions rows.
  *
  * IRON DOME INVARIANTS:
- *   - Every row gets a SHA-256 hash of its raw cells (raw_row_hash). A stored row is identified by
- *     (reconciliation, source, raw_row_hash, its occurrence within the file): retries and re-uploads add
- *     nothing, a line legitimately repeated in one statement is kept as many times as it appears, sources
- *     never collide. The database (safisha_ingest_evidence, 20261005100000) enforces this, serialized per
- *     upload; each new row records its file's SHA-256 (source_file_sha256) next to raw_row_number.
+ *   - Every row gets a SHA-256 hash of its raw bytes (raw_row_hash).
+ *     If the same hash appears in the same reconciliation, the row is a duplicate
+ *     and is silently deduplicated (not double-counted).
  *   - This function NEVER touches reviewer_action or reconciliation status.
  *   - On completion it calls safisha-match (or signals the UI to trigger it).
  *   - All figures come from the uploaded file — zero hallucination.
@@ -346,6 +344,29 @@ serve(async (req: Request) => {
       });
     }
 
+    // Get or create reconciliation record
+    let { data: recon } = await supabase
+      .from("safisha_reconciliations")
+      .select("id, status")
+      .eq("tb_upload_id", uploadId)
+      .eq("sealed", false)
+      .single();
+
+    if (!recon) {
+      const { data: newRecon, error: reErr } = await supabase
+        .from("safisha_reconciliations")
+        .insert({ client_id: user.id, tb_upload_id: uploadId, status: "processing" })
+        .select("id, status")
+        .single();
+      if (reErr) throw new Error("Failed to create reconciliation: " + reErr.message);
+      recon = newRecon;
+
+      // Set upload safisha_status to processing
+      await supabase.from("trial_balance_uploads").update({ safisha_status: "processing" }).eq("id", uploadId);
+    }
+
+    const reconId = recon!.id;
+
     // Load column mapping
     const detectedSourceType = `${sourceType}_${file.name.endsWith(".csv") ? "csv" : "excel"}`;
     const savedMapping = mappingOverride ?? await loadMapping(supabase, user.id, detectedSourceType);
@@ -355,10 +376,8 @@ serve(async (req: Request) => {
     const isCSV = file.name.endsWith(".csv") || file.type === "text/csv";
 
     let rawRows: string[][];
-    let fileIdentity: string;
     if (isCSV) {
       rawRows = parseCSV(fileContent);
-      fileIdentity = fileContent;
     } else {
       // For XLSX: client must have used xlsx.js to convert to CSV before calling ingest
       // Or the formData includes pre-parsed JSON rows
@@ -372,7 +391,6 @@ serve(async (req: Request) => {
         }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       rawRows = JSON.parse(jsonRows as string);
-      fileIdentity = jsonRows as string;
     }
 
     if (rawRows.length < 2) {
@@ -384,55 +402,33 @@ serve(async (req: Request) => {
     const headers = rawRows[0];
     const dataRows = rawRows.slice(1);
 
-    // ── The one authoritative path (20261005100000) ─────────────────────────────
-    // safisha_ingest_evidence serializes on the upload, re-checks this user's authority (current plan + prepare_close),
-    // finds or creates the upload's one unsealed reconciliation, guarantees (and verifies) the upload's reconciliation
-    // status, stores only the rows not already present — identity: source, row hash and its occurrence within the file —
-    // and records the evidence file once. Client roles cannot insert evidence rows, so the service role is used here with
-    // the actor taken from the verified JWT above, never from the request body. Without that function nothing is written.
-    const fileSha256 = await sha256(fileIdentity);
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const record = (rows: unknown[]) => admin.rpc("safisha_ingest_evidence", {
-      p_upload_id:   uploadId,
-      p_actor:       user.id,
-      p_source_type: sourceType,
-      p_file_name:   file.name,
-      p_file_sha256: fileSha256,
-      p_rows:        rows,
-    });
-    const refusal = (error: { code?: string; message?: string }) => {
-      const code = error.code ?? "";
-      const missing = code === "PGRST202" || code === "42883";
-      const status = missing ? 503 : code === "42501" ? 403 : code === "PT402" ? 402 : code === "P0002" ? 404
-        : code === "22023" ? 422 : code === "40001" ? 409 : 500;
-      return new Response(JSON.stringify({
-        error: missing ? "Evidence ingestion is not available yet. Nothing was recorded; try again later." : error.message,
-      }), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    };
-
-    // If no mapping saved, return headers so UI can show FieldMappingModal (the reconciliation is started, no rows stored)
+    // If no mapping saved, return headers so UI can show FieldMappingModal
     if (!savedMapping) {
-      const { data: started, error: startErr } = await record([]);
-      if (startErr) return refusal(startErr);
       return new Response(JSON.stringify({
         needs_mapping:    true,
         detected_headers: headers,
-        reconciliation_id: (started as { reconciliation_id: string }).reconciliation_id,
+        reconciliation_id: reconId,
         source_type:      detectedSourceType,
         message:          "No column mapping found for this client + source type. "
                           + "Return with column_mapping to complete ingestion.",
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Parse rows → canonical + hash. Every non-blank row is kept: a line that legitimately repeats in one statement is
-    // two rows (the database numbers each repeat as its occurrence within this file).
+    // Parse rows → canonical + hash
     const canonicalRows: CanonicalRow[] = [];
+    const seenHashes = new Set<string>();
+
     for (let i = 0; i < dataRows.length; i++) {
       const row = dataRows[i];
       if (row.every(cell => !cell.trim())) continue; // skip blank rows
 
       const rawString  = JSON.stringify(row);
       const hash       = await sha256(rawString);
+
+      // Deduplicate by hash within this reconciliation
+      if (seenHashes.has(hash)) continue;
+      seenHashes.add(hash);
+
       const canonical = applyMapping(headers, row, savedMapping, sourceType as CanonicalRow["source_id"]);
       canonicalRows.push({ ...canonical, raw_row_hash: hash, raw_row_number: i + 2 }); // +2 for 1-indexed + header
     }
@@ -443,12 +439,42 @@ serve(async (req: Request) => {
       });
     }
 
+    // Check for existing hashes in this reconciliation (cross-upload dedup)
+    const newHashes = canonicalRows.map(r => r.raw_row_hash);
+    const { data: existingTxns } = await supabase
+      .from("safisha_transactions")
+      .select("raw_row_hash")
+      .eq("reconciliation_id", reconId)
+      .in("raw_row_hash", newHashes);
+
+    const existingHashSet = new Set((existingTxns ?? []).map((t: any) => t.raw_row_hash));
+    const newRows = canonicalRows.filter(r => !existingHashSet.has(r.raw_row_hash));
+
+    if (newRows.length === 0) {
+      return new Response(JSON.stringify({
+        success:       true,
+        inserted:      0,
+        deduplicated:  canonicalRows.length,
+        message:       "All rows already ingested (duplicate file upload detected)",
+        reconciliation_id: reconId,
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // Task #177: Run DQC polarity check on each row before insert
     let dqcWarningCount = 0;
-    const rowsWithDQC = canonicalRows.map(r => {
+    const rowsWithDQC = newRows.map(r => {
       const dqc = dqcPolarityCheck(r);
       if (dqc.warning) dqcWarningCount++;
-      return {
+      return { ...r, dqc_polarity_warning: dqc.warning, dqc_sign_detail: dqc.detail ?? null };
+    });
+
+    // Insert in batches of 500
+    const BATCH = 500;
+    let inserted = 0;
+    for (let b = 0; b < rowsWithDQC.length; b += BATCH) {
+      const batch = rowsWithDQC.slice(b, b + BATCH).map(r => ({
+        reconciliation_id:    reconId,
+        source_id:            r.source_id,
         account_code:         r.account_code,
         account_name:         r.account_name,
         txn_date:             r.txn_date,
@@ -458,21 +484,34 @@ serve(async (req: Request) => {
         reference:            r.reference,
         raw_row_hash:         r.raw_row_hash,
         raw_row_number:       r.raw_row_number,
-        dqc_polarity_warning: dqc.warning,
-        dqc_sign_detail:      dqc.detail ?? null,
-      };
-    });
+        dqc_polarity_warning: r.dqc_polarity_warning,
+        dqc_sign_detail:      r.dqc_sign_detail,
+      }));
+      const { error: insErr } = await supabase.from("safisha_transactions").insert(batch);
+      if (insErr) throw new Error("Insert failed: " + insErr.message);
+      inserted += batch.length;
+    }
 
-    const { data: recorded, error: recordErr } = await record(rowsWithDQC);
-    if (recordErr) return refusal(recordErr);
-    const result = recorded as { reconciliation_id: string; inserted: number; already_present: number };
+    // Attach the evidence file record (20260925140000, B-5): the signed-in person's own client, under the
+    // reconciliation write wall (current plan + prepare_close). Any error is a failure, never ignored.
+    const { error: attachErr } = await supabase.rpc("safisha_append_evidence_file", {
+      p_recon_id:   reconId,
+      p_source_type: sourceType,
+      p_filename:   file.name,
+      p_rows:       inserted,
+    });
+    if (attachErr) {
+      console.error("safisha-ingest evidence attachment failed:", (attachErr as { code?: string }).code ?? "unknown");
+      return new Response(JSON.stringify({ error: "evidence_attachment_failed", code: (attachErr as { code?: string }).code ?? null }), {
+        status: (attachErr as { code?: string }).code === "PT402" ? 402 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     return new Response(JSON.stringify({
       success:              true,
-      inserted:             result.inserted,
-      deduplicated:         result.already_present,
-      reconciliation_id:    result.reconciliation_id,
-      message:              result.inserted === 0 ? "All rows already ingested (duplicate file upload detected)" : undefined,
+      inserted,
+      deduplicated:         canonicalRows.length - newRows.length,
+      reconciliation_id:    reconId,
       dqc_polarity_warnings: dqcWarningCount,
       dqc_note:             dqcWarningCount > 0
         ? `${dqcWarningCount} rows have unexpected debit/credit polarity for their account type. `
@@ -480,6 +519,7 @@ serve(async (req: Request) => {
         : null,
       next_step:            "Call safisha-match to run the matching engine",
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
   } catch (err: any) {
     console.error("safisha-ingest error:", err);
     return new Response(JSON.stringify({ error: err.message }), {
