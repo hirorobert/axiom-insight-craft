@@ -468,6 +468,8 @@ scripts/
     run.mjs                   ← Financial-statements persistence proof (real PostgreSQL)
     setupAuthority.mjs        ← Workspace setup authority proof (25-way concurrency, role/RLS matrix)
     serviceWithholding.mjs    ← Withheld-service grant refusal proof (20261002100000; history byte-identical)
+    reconciliationAuthority.mjs ← Reconciliation server authority proof (20261004100000; forgery per role, MAONO gate)
+    reconciliationFunctionMatrix.mjs ← Old/new reconciliation handlers × old/new schema (bun)
     uploadLifecycle.mjs       ← Upload lifecycle proof (legacy upgrade, B1–B4, capability matrix, concurrency)
   db-preflight/
     uploadLifecyclePreflight.sql ← Read-only report of what the lifecycle backfill would retire
@@ -1138,6 +1140,32 @@ existing row stays byte-identical and readable; REVOKE stays allowed and a revok
 `FINANCIAL_STATEMENTS` (Prepare and Reconcile) stays grantable with or without a filing jurisdiction. Proven by
 `scripts/db-proof/serviceWithholding.mjs`. It pairs with the frontend boundary (`CUSTOMER_SCOPE_TRIAL_BALANCE_REVIEW_ONLY`).
 Re-enabling a service is a separate, reviewed migration that edits `capability_customer_available()`.
+
+**RECONCILIATION_READINESS_IS_A_SERVER_FACT** — `20261004100000_reconciliation_server_authority.sql` (branch
+`fix/reconciliation-server-authority`; authored, NOT applied — only Lovable/the owner applies it). Completeness
+(`safisha_reconciliation_complete`) is computed from stored rows: at least one `tb` line, exactly the lines the matcher
+recorded (`total_tb_lines`, server-written), every line exception-free or approved-only, nothing pending, escalated or
+rejected. One verdict for every writer (`_safisha_record_verdict`): rejected investigate → `blocked`, complete → `clean`,
+otherwise `needs_review`. The matcher records a run ONLY through the service-role `safisha_record_match_result(recon,
+actor, exceptions)` (actor from the verified JWT; plan + `prepare_close`; findings validated against the reconciliation's
+own rows; each finding recorded once — retries are idempotent and decided findings are never re-opened). Decisions go
+ONLY through the service-role `safisha_decide_exception` (`safisha_resolve_exception` is a wrapper): escalated stays open
+until it is approved or rejected — in a FIRM workspace only by a DIFFERENT holder of `review_close` (owner/partner; no
+self-decision, the owner included); in a PERSONAL (company-less) workspace only by its sole owner (explicit
+`SOLE_OWNER_REQUIRED` check). Every decision records `safisha_audit_log.decision_basis` (`prepare_close`,
+`separate_review_close`, `personal_workspace_owner`, `personal_sole_owner_escalation`; the one additive nullable column
+this migration adds). Approved/rejected are final. Both take
+the reconciliation lock first (no match/decision deadlock). Client roles cannot write counts, completion, sealing,
+`clean`/`blocked` or exceptions; no writer at all can record an incomplete `clean`; a new `tb` line or exception re-opens
+a `clean` reconciliation; `maono_check_safisha_gate` requires `clean` AND complete; TRUNCATE revoked from clients. No row
+is changed (a legacy upload the old resolver marked `clean` on an escalated exception keeps its value; the MAONO gate
+blocks it). Proven by `scripts/db-proof/reconciliationAuthority.mjs` and `reconciliationFunctionMatrix.mjs` (real old and
+new handlers × old and new schema). Release order: deploy `safisha-match` + `safisha-resolve` FIRST (against the old
+schema they answer 503 and record nothing), THEN apply the migration. The reverse order lets the OLD matcher answer
+"clean" without recording it. Lovable (docs.lovable.dev/integrations/git-sync-overview): a GitHub sync never publishes
+the live site (only an explicit Publish does) and never deploys a function or runs a migration (each is an explicit
+project-chat request). Apply migrations only through Lovable's native migrator, which records the hosted journal row
+(hash = file SHA-256) in the same transaction; never through the SQL editor (no journal record).
 
 ---
 

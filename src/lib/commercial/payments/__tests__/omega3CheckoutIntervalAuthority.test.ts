@@ -57,10 +57,10 @@ describe("Ω3-CHECKOUT migration — presence and ordering", () => {
   it("sorts after every prior live migration (including the Ω3.0 platform-state migration) and before the Ω∞ A+ closure migration that builds on it", () => {
     const migrationsDir = path.join(REPO_ROOT, "supabase/migrations");
     const everyFile = fs.readdirSync(migrationsDir).filter((f) => f.endsWith(".sql"));
-    // 20261002100000_refuse_withheld_service_grants.sql (withheld-service grant refusal) is a later, unrelated forward migration: it sorts last, and
-    // the tail asserted below is the chain before it.
-    expect([...everyFile].sort()[everyFile.length - 1]).toBe("20261002100000_refuse_withheld_service_grants.sql");
-    const files = everyFile.filter((f) => f !== "20261002100000_refuse_withheld_service_grants.sql");
+    // 20261002100000_refuse_withheld_service_grants.sql (withheld-service grant refusal) and 20261004100000_reconciliation_server_authority.sql
+    // (reconciliation server authority) are later, unrelated forward migrations: they sort last, and the tail asserted below is the chain before them.
+    expect([...everyFile].sort().slice(-2)).toEqual(["20261002100000_refuse_withheld_service_grants.sql", "20261004100000_reconciliation_server_authority.sql"]);
+    const files = everyFile.filter((f) => f !== "20261002100000_refuse_withheld_service_grants.sql" && f !== "20261004100000_reconciliation_server_authority.sql");
     const sorted = [...files].sort();
     const thisIndex = sorted.indexOf("20260912100000_omega3_checkout_cfoclose_offers_and_interval_authority.sql");
     expect(thisIndex).toBeGreaterThan(-1);

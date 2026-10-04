@@ -286,7 +286,7 @@ function ExceptionCard({ exc, note, onNoteChange, onResolve, resolving, readOnly
     : null;
 
   return (
-    <Card className={`border ${exc.reviewer_action !== "pending" ? "opacity-75" : ""}`}>
+    <Card className={`border ${exc.reviewer_action === "approved" || exc.reviewer_action === "rejected" ? "opacity-75" : ""}`}>
       <CardHeader
         className="pb-2 cursor-pointer select-none"
         onClick={() => setExpanded(v => !v)}
@@ -330,8 +330,16 @@ function ExceptionCard({ exc, note, onNoteChange, onResolve, resolving, readOnly
             </div>
           )}
 
-          {/* Resolved state — read-only audit display */}
-          {exc.reviewer_action !== "pending" ? (
+          {/* Resolved state — read-only audit display (an escalated exception stays open for a senior decision) */}
+          {exc.reviewer_action === "escalated" && (
+            <div className="p-2 rounded bg-amber-50 text-xs space-y-1">
+              <p><span className="font-medium">Escalated</span> · awaiting a decision by a different owner or partner.</p>
+              {exc.reviewer_note && (
+                <p><span className="font-medium">Note:</span> {exc.reviewer_note}</p>
+              )}
+            </div>
+          )}
+          {exc.reviewer_action === "approved" || exc.reviewer_action === "rejected" ? (
             <div className="p-2 rounded bg-muted/50 text-xs space-y-1">
               <p><span className="font-medium">Resolved:</span> {exc.reviewer_action} · {exc.resolved_at ? new Date(exc.resolved_at).toLocaleDateString() : "—"}</p>
               {exc.reviewer_note && (
@@ -339,7 +347,7 @@ function ExceptionCard({ exc, note, onNoteChange, onResolve, resolving, readOnly
               )}
             </div>
           ) : !readOnly ? (
-            /* Pending — show resolve actions */
+            /* Pending or escalated — show decision actions (escalated: approve or reject only) */
             <div className="space-y-2 pt-1 border-t">
               <Textarea
                 placeholder="Optional reviewer note…"
@@ -368,21 +376,23 @@ function ExceptionCard({ exc, note, onNoteChange, onResolve, resolving, readOnly
                   <XCircle className="h-3.5 w-3.5 mr-1" />
                   Reject
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="flex-1 h-7 text-xs border-amber-400 text-amber-700 hover:bg-amber-50"
-                  onClick={() => onResolve(exc.id, "escalated")}
-                  disabled={resolving}
-                >
-                  <ArrowUpCircle className="h-3.5 w-3.5 mr-1" />
-                  Escalate
-                </Button>
+                {exc.reviewer_action === "pending" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 h-7 text-xs border-amber-400 text-amber-700 hover:bg-amber-50"
+                    onClick={() => onResolve(exc.id, "escalated")}
+                    disabled={resolving}
+                  >
+                    <ArrowUpCircle className="h-3.5 w-3.5 mr-1" />
+                    Escalate
+                  </Button>
+                )}
               </div>
               {exc.category === "investigate" && (
                 <p className="text-xs text-red-600">
                   Rejecting this exception will block the reconciliation.
-                  Approve or escalate to allow the next stage to run.
+                  Only approval allows the next stage to run; an escalated exception waits for a senior decision.
                 </p>
               )}
             </div>
