@@ -92,7 +92,7 @@ export default function Dashboard() {
   // comment for exactly what this does and does not change.
   const forceHub = !!(location.state as { forceHub?: boolean } | null)?.forceHub;
   const { loading: engagementsLoading, entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount, unavailableEngagements, fetchFailed, refresh } = useActiveEngagements();
-  const reviewGates = useReviewActionAccess((unavailableEngagements ?? []).map((u) => u.companyId));
+  const { gates: reviewGates, refresh: refreshReviewGates } = useReviewActionAccess((unavailableEngagements ?? []).map((u) => u.companyId));
   const [routing, setRouting] = useState(false);
   const { summary: billing, loading: billingLoading, error: billingError, retry: retryBilling } = useBillingSummary();
   const { capacity, loading: capacityLoading, error: capacityError, retry: retryCapacity } = useMyEntityCapacity(!!user);
@@ -199,6 +199,9 @@ export default function Dashboard() {
       // Re-read the hub from the authority, then continue into Trial balance review for the same entity and period.
       await refresh();
       navigate(trialBalanceReviewPath(u));
+    } else {
+      // A refusal may mean access or the plan changed since the gate was read: re-read it rather than keep a stale answer.
+      refreshReviewGates();
     }
     return outcome;
   };

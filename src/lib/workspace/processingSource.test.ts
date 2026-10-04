@@ -83,7 +83,7 @@ describe("the handler uses exactly this path, after the entitlement refusal", ()
   });
   it("7. the successful processing path after the download is unchanged (parse follows the download)", () => {
     const dl = src.indexOf(".download(upload.file_path)");
-    expect(src.indexOf("── STEP 1: Format detection + parsing", dl)).toBeGreaterThan(dl);
+    expect(src.indexOf("── STEP 1: Read the source and run the ingestion core", dl)).toBeGreaterThan(dl);
   });
   it("8–9. the forward migration and every applied migration are byte-identical", () => {
     const sha = (f: string) => createHash("sha256").update(readFileSync(resolve(__dirname, "../../../supabase/migrations", f))).digest("hex");

@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { addTrialBalanceReview, partitionEngagements, reviewActionGate } from "../../src/lib/workspace/unavailableService.ts";
+import { addTrialBalanceReview, partitionEngagements, reviewActionGate, tallyConcurrency } from "../../src/lib/workspace/unavailableService.ts";
 import { parseMyWorkspaceCapabilities } from "../../src/lib/auth/workspaceCapabilities.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -22,6 +22,7 @@ const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
 const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const WITHHOLDING = "20261002100000_refuse_withheld_service_grants.sql";
 const CONCURRENCY = 25;
+const ADD_REVIEW_REASON_FOR_PROOF = "Trial balance review added from the account home";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
 const req = createRequire(MODULES_DIR ? path.join(path.resolve(MODULES_DIR), "noop.js") : import.meta.url);
 const { Pool, Client } = req("pg");
@@ -32,35 +33,49 @@ async function check(name, fn) {
   try { const r = await fn(); record(name, r === true, r === true ? "" : JSON.stringify(r)); } catch (e) { record(name, false, String(e?.message ?? e).split("\n")[0]); }
 }
 
-let server, dir, port, admin, pool;
+// This run's OWN database: a unique name, created by this run and dropped only by this run. Nothing else on the server
+// (another proof's database, a developer's database) is ever dropped or reused.
+const PROOF_DB = `hub_proof_${process.pid}_${globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+if (!/^hub_proof_\d+_[0-9a-f]{12}$/.test(PROOF_DB)) throw new Error("REFUSED: unexpected proof database name");
+let server, dir, port, admin, pool, maintenanceUrl, created = false;
+async function createProofDb(url) {
+  maintenanceUrl = url;
+  const boot = new Client({ connectionString: url, ssl: false }); await boot.connect();
+  try { await boot.query(`CREATE DATABASE "${PROOF_DB}"`); created = true; } finally { await boot.end(); }
+  const u = new URL(url); u.pathname = `/${PROOF_DB}`; return u.toString();
+}
+async function dropProofDb() {
+  if (!created || !maintenanceUrl) return;
+  const boot = new Client({ connectionString: maintenanceUrl, ssl: false }); await boot.connect();
+  try { await boot.query(`DROP DATABASE IF EXISTS "${PROOF_DB}" WITH (FORCE)`); console.log(`  dropped this run's database ${PROOF_DB}`); } finally { await boot.end(); }
+}
 async function start() {
   if (process.env.DB_PROOF_CONN) {
     // External mode: an already-running DISPOSABLE local server (e.g. a throwaway initdb cluster).
     const base = new URL(process.env.DB_PROOF_CONN);
     if (!["localhost", "127.0.0.1"].includes(base.hostname) || process.env.DB_PROOF_CONN.includes(PRODUCTION_REF)) throw new Error("REFUSED: not a disposable local database");
-    const boot = new Client({ connectionString: process.env.DB_PROOF_CONN, ssl: false }); await boot.connect();
-    await boot.query("DROP DATABASE IF EXISTS hub_proof"); await boot.query("CREATE DATABASE hub_proof"); await boot.end();
-    base.pathname = "/hub_proof";
-    admin = new Client({ connectionString: base.toString(), ssl: false }); await admin.connect();
-    pool = new Pool({ connectionString: base.toString(), ssl: false, max: CONCURRENCY + 5 });
+    const db = await createProofDb(process.env.DB_PROOF_CONN);
+    console.log(`  created this run's database ${PROOF_DB}`);
+    admin = new Client({ connectionString: db, ssl: false }); await admin.connect();
+    pool = new Pool({ connectionString: db, ssl: false, max: CONCURRENCY + 5 });
     return;
   }
   const modDir = MODULES_DIR ? path.resolve(MODULES_DIR) : REPO;
   const { default: EmbeddedPostgres } = await import(pathToFileURL(path.join(modDir, "node_modules/embedded-postgres/dist/index.js")).href);
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "cfoclose-hub-proof-"));
   port = 55000 + Math.floor(Math.random() * 900);
-  server = new EmbeddedPostgres({ databaseDir: path.join(dir, "data"), user: "postgres", password: "postgres", port, persistent: false, createPostgresUser: true, initdbFlags: ["--encoding=UTF8", "--locale=C"], onLog: () => {}, onError: () => {} });
+  server = new EmbeddedPostgres({ databaseDir: path.join(dir, "data"), user: "postgres", password: "postgres", port, persistent: false, createPostgresUser: typeof process.getuid === "function" && process.getuid() === 0, initdbFlags: ["--encoding=UTF8", "--locale=C"], onLog: () => {}, onError: () => {} });
   await server.initialise(); await server.start();
   const url = `postgres://postgres:postgres@localhost:${port}/postgres`;
   const u = new URL(url);
   if (!["localhost", "127.0.0.1"].includes(u.hostname) || url.includes(PRODUCTION_REF)) throw new Error("REFUSED: not a disposable local database");
-  const boot = new Client({ connectionString: url }); await boot.connect(); await boot.query("CREATE DATABASE hub_proof"); await boot.end();
-  const db = url.replace(/\/postgres$/, "/hub_proof");
+  const db = await createProofDb(url);
   admin = new Client({ connectionString: db }); await admin.connect();
   pool = new Pool({ connectionString: db, max: CONCURRENCY + 5 });
 }
 async function stop() {
   try { await pool?.end(); } catch { /* */ } try { await admin?.end(); } catch { /* */ }
+  try { await dropProofDb(); } catch (e) { console.error(`  could not drop ${PROOF_DB}: ${e?.message ?? e}`); }
   try { await server?.stop(); } catch { /* */ } try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* */ }
 }
 async function bootstrap() {
@@ -128,7 +143,8 @@ async function main() {
   const open = async (uid, c, y, caps) => (await asUser(uid, async (x) => (await x.query("SELECT public.open_engagement_with_scope($1,$2,$3,'composite') r", [c, y, caps])).rows[0].r)).engagementId;
   for (const [uid, c] of [[U.owner, A], [U.lapsed, L]]) await asUser(uid, (x) => x.query("SELECT public.set_company_filing_jurisdiction($1,'TZ')", [c]));
   const E25 = await open(U.owner, A, 2025, ["TAX_COMPUTATION"]);   // the production shape: a historical Tax-only engagement
-  const E24 = await open(U.owner, A, 2024, ["TAX_COMPUTATION"]);   // used for the concurrency proof
+  const E24 = await open(U.owner, A, 2024, ["TAX_COMPUTATION"]);   // used for the application-level concurrency proof
+  const E23 = await open(U.owner, A, 2023, ["TAX_COMPUTATION"]);   // used for the raw server-level concurrency proof
   const EL = await open(U.lapsed, L, 2025, ["TAX_COMPUTATION"]);
   for (const f of files.slice(cut)) await apply(f);
   // The lapsed account loses its plan after its history exists (expiry, never deletion).
@@ -181,9 +197,19 @@ async function main() {
   });
 
   console.log(`\n== ${CONCURRENCY} concurrent requests (e.g. two tabs + repeated clicks)`);
-  await check(`all ${CONCURRENCY} resolve to confirmed success; exactly ONE grant row exists`, async () => {
-    const outs = await Promise.all(Array.from({ length: CONCURRENCY }, () => addTrialBalanceReview(rpcAs(U.owner), E24)));
-    return outs.every((o) => o.ok) && (await fsGrants(E24)) === 1 ? true : { fails: outs.filter((o) => !o.ok), rows: await fsGrants(E24) };
+  await check(`RAW server answers to ${CONCURRENCY} concurrent grant RPCs: exactly 1 granted, ${CONCURRENCY - 1} already-granted (23001), 0 other; ONE row`, async () => {
+    const raw = await Promise.all(Array.from({ length: CONCURRENCY }, () => rpcAs(U.owner).rpc("grant_engagement_capability", { p_engagement_id: E23, p_capability: "FINANCIAL_STATEMENTS", p_reason: ADD_REVIEW_REASON_FOR_PROOF })));
+    const t = tallyConcurrency(raw, []);
+    console.log(`        raw: ${JSON.stringify(t.raw)}`);
+    return t.raw.granted === 1 && t.raw.alreadyGranted === CONCURRENCY - 1 && Object.keys(t.raw.otherErrors).length === 0 && (await fsGrants(E23)) === 1 ? true : t;
+  });
+  await check(`APPLICATION-confirmed outcomes of ${CONCURRENCY} concurrent clicks: all ok only after the authoritative re-read; raw answers recorded separately; ONE row`, async () => {
+    const raw = [];
+    const recording = (uid) => { const c = rpcAs(uid); return { async rpc(fn, args) { const r = await c.rpc(fn, args); if (fn === "grant_engagement_capability") raw.push(r); return r; } }; };
+    const outs = await Promise.all(Array.from({ length: CONCURRENCY }, () => addTrialBalanceReview(recording(U.owner), E24)));
+    const t = tallyConcurrency(raw, outs);
+    console.log(`        raw: ${JSON.stringify(t.raw)}  confirmed: ${JSON.stringify(t.confirmed)}`);
+    return t.raw.granted === 1 && t.raw.alreadyGranted === CONCURRENCY - 1 && t.confirmed.ok === CONCURRENCY && (await fsGrants(E24)) === 1 ? true : t;
   });
 
   console.log("\n== Withheld services stay blocked");

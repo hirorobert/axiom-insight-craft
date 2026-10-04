@@ -87,10 +87,14 @@ function contradictionSnapshot(): UploadSnapshot {
   };
 }
 
-function mockWorkspace(snapshot: UploadSnapshot | null): UseWorkspaceDataReturn {
+/** A complete reconciliation as fetchWorkspaceSnapshot reads it: 8 lines, 7 matched and 1 exception approved. */
+const EVALUATED = { state: "read" as const, evidence: { status: "clean", matched_count: 7, exception_count: 1, total_tb_lines: 8, exceptions: { pending: 0, approved: 1, rejected: 0, escalated: 0, approvedTbLines: 1 } } };
+
+function mockWorkspace(snapshot: UploadSnapshot | null, reconciliation: WorkspaceUpload["reconciliation"] = null): UseWorkspaceDataReturn {
   const workspaceState = deriveWorkspaceState(CID, company.name, PY, snapshot);
-  // In production the snapshot and the upload row come from the same trial_balance_uploads row.
-  const row = { ...upload, safisha_status: snapshot?.safishaStatus ?? null };
+  // In production the snapshot and the upload row come from the same trial_balance_uploads row; the reconciliation
+  // record is read alongside it (fetchWorkspaceSnapshot).
+  const row = { ...upload, safisha_status: snapshot?.safishaStatus ?? null, reconciliation };
   return {
     companyId: CID,
     periodYear: PY,
@@ -104,9 +108,9 @@ function mockWorkspace(snapshot: UploadSnapshot | null): UseWorkspaceDataReturn 
   };
 }
 
-async function renderOverview(snapshot: UploadSnapshot | null): Promise<string> {
+async function renderOverview(snapshot: UploadSnapshot | null, reconciliation: WorkspaceUpload["reconciliation"] = null): Promise<string> {
   vi.resetModules();
-  const value = mockWorkspace(snapshot);
+  const value = mockWorkspace(snapshot, reconciliation);
   vi.doMock("@/contexts/WorkspaceContext", () => ({ useWorkspace: () => value }));
   const { default: WorkspaceOverview } = await import("./WorkspaceOverview");
   return renderToStaticMarkup(createElement(MemoryRouter, null, createElement(WorkspaceOverview)));
@@ -143,9 +147,27 @@ describe("WorkspaceOverview — certification is the single authority for whethe
 
   it("with its evidence reconciled, the trial balance is presented as ready — and only then", async () => {
     const ready: UploadSnapshot = { ...contradictionSnapshot(), certificationVerdict: "certified", certificationBlocker: null, safishaStatus: "clean" };
-    const html = await renderOverview(ready);
+    const html = await renderOverview(ready, EVALUATED);
     expect(html).toContain("Trial balance ready.");
     expect(html).not.toMatch(/statement/i);
+  });
+
+  it("a 'clean' reconciliation that compared nothing, or one that cannot be read, is never presented as ready", async () => {
+    const clean: UploadSnapshot = { ...contradictionSnapshot(), certificationVerdict: "certified", certificationBlocker: null, safishaStatus: "clean" };
+    const e = EVALUATED.evidence;
+    const cases: [WorkspaceUpload["reconciliation"], string][] = [
+      [{ state: "read", evidence: { ...e, matched_count: 0, total_tb_lines: 0 } }, "No trial-balance line has been matched to evidence yet."],
+      [{ state: "read", evidence: { ...e, matched_count: 1 } }, "2 of 8 trial-balance lines are matched or approved; 6 still need evidence."],
+      [{ state: "read", evidence: { ...e, exceptions: { ...e.exceptions, escalated: 1 } } }, "1 exception is escalated and not yet resolved."],
+      [{ state: "failed" }, "could not be read just now"],
+      // Not visible to this viewer is NOT the same as incomplete: said differently, still never "ready".
+      [{ state: "read", evidence: null }, "Reconciliation not visible to you"],
+    ];
+    for (const [evidence, expected] of cases) {
+      const html = await renderOverview(clean, evidence);
+      expect(html).not.toContain("Trial balance ready");
+      expect(html).toContain(expected);
+    }
   });
 
   it("a certification verdict that has not resolved yet (undefined) is treated identically to 'not certified' — never a silent pass", async () => {

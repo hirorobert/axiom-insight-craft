@@ -74,6 +74,7 @@ import { ChevronDown } from "lucide-react";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 import { isPrepareOnly } from "@/lib/workspace/workspaceAccess";
+import { currentTrialBalanceTask } from "@/lib/workspace/trialBalanceTask";
 
 // ── deriveFiscalPeriod (local copy — same logic as Dashboard) ────────────────
 function deriveFiscalPeriod(
@@ -427,6 +428,8 @@ export default function PrepareWorkspace() {
   // Presentation only: the row those readiness layers were drawn from, so the card can draw informational layers
   // neutrally from their structured severity (certificationCheckPresentation.ts).
   const verdict = deriveTrialBalanceVerdict({ upload: upload ?? null, readiness, readinessSubject: certReadiness.subjectKey, canRetry: canReprocessUpload(upload) });
+  // The service, the step and the one thing to do now — from the same verdict as the card below, never re-derived.
+  const task = currentTrialBalanceTask(verdict, { safishaStatus: upload?.safisha_status ?? null, reconciliation: upload?.reconciliation ?? null });
 
   // Re-run processing after an engine failure (never offered for a blocked trial balance: its checks ran and the same
   // file would fail again). Only the Edge Function writes; the page makes no financial write.
@@ -542,9 +545,13 @@ export default function PrepareWorkspace() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              Prepare data · FY{periodYear}
+              {task.service} · FY{periodYear}
             </p>
             <h1 className="mt-1 text-xl font-semibold text-foreground">Trial balance</h1>
+            <p className="mt-2 text-[13px] text-foreground" data-testid="trial-balance-current-task" data-step={task.step}>
+              <span className="font-semibold">Step {task.step} of {task.of} · {task.label}.</span>{" "}
+              <span className="text-muted-foreground">{task.instruction}</span>
+            </p>
             {!prepareOnly && <EntityContextSuggestion reportingFrameworkDbValue={company?.reporting_framework} companyCreatedAt={company?.created_at} />}
           </div>
         </div>
@@ -625,10 +632,7 @@ export default function PrepareWorkspace() {
                 />
               </SurfaceCardBody>
             </SurfaceCard>
-            <TrialBalanceTemplateGuide
-              companyName={company?.name ?? undefined}
-              periodYear={periodYear}
-            />
+            <TrialBalanceTemplateGuide />
             </div>
           )}
 
