@@ -313,6 +313,7 @@ describe("database inertness — schema and functions", () => {
       // git blob hash, and this tree's), the shared handler harness, and the READ-ONLY duplicate inspection. No deploy behaviour.
       "scripts/db-proof/safishaIngestion.mjs", "scripts/db-proof/lib/functionHarness.mjs",
       "scripts/db-proof/fixtures/functions-main-e8962f2/ingest.index.ts", "scripts/db-preflight/safishaIngestionPreflight.sql",
+      "scripts/db-preflight/safishaIngestionVerify.sql",
       // This guard's own fail-closed base resolver and exact-file review (no deploy behaviour), and the CI check that the
       // guard executed with zero skipped tests.
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);

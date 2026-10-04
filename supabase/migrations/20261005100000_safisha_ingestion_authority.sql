@@ -1,7 +1,7 @@
 -- 20261005100000_safisha_ingestion_authority.sql
 --
--- Evidence ingestion becomes one authoritative, serialized database operation. Found by scripts/db-proof/safishaIngestion.mjs
--- running main's safisha-ingest handler against disposable PostgreSQL:
+-- Evidence ingestion becomes one authoritative, serialized database operation with explicit provenance. Found by
+-- scripts/db-proof/safishaIngestion.mjs running main's safisha-ingest handler against disposable PostgreSQL:
 --   · creating a reconciliation always failed: the handler inserted it WITH RETURNING, and the reconciliation SELECT
 --     policy (safisha_recon_company_scoped(id)) cannot see the row inside its own INSERT statement — every first ingest
 --     answered 500 "new row violates row-level security policy";
@@ -9,55 +9,130 @@
 --     UPDATE: a retry after a partial failure, or a preparer (no upload UPDATE policy: a silent 0-row update), left it NULL;
 --   · deduplication was read-then-insert: 8 simultaneous identical ingests of a 3-row file wrote 24 rows and 8 evidence
 --     entries, permanently (transactions are append-only);
---   · identity was the hash of the row's cells alone: a legitimately repeated line in one statement was dropped, and a row
---     of one source silently suppressed an identical row of another source.
+--   · identity was the hash of the row's cells alone: a legitimately repeated line in one statement was dropped, a row
+--     of one source silently suppressed an identical row of another source, and a genuinely separate transaction in
+--     another file was silently treated as the same one.
 --
--- Row identity (this migration's definition). A stored source row is identified by
---     (reconciliation_id, source_id, raw_row_hash, row_occurrence)
--- where raw_row_hash is the SHA-256 of the row's cells (unchanged) and row_occurrence is the k-th time that exact row
--- appears WITHIN ONE ingested file (k = 1, 2, …, in file order). Consequences:
---   · retrying or re-uploading the same file adds nothing (its rows and occurrences already exist);
---   · a line that legitimately appears twice in one statement is stored twice (multiplicity preserved);
---   · sources never collide (source_id is part of the identity);
---   · a later file overlapping an earlier one adds a shared row once; a file containing MORE copies of a row than any
---     earlier file adds only the extra copies (per row, the stored count is the largest count seen in any one file);
---   · provenance: every row stored from now on records source_file_sha256 (the SHA-256 of the file it came from) next to
---     its existing raw_row_number.
---   Limit: two different files that each contain a separate, cell-for-cell identical transaction (same date, amount,
---   reference, every column) are indistinguishable from an overlap and are stored once.
--- Rows stored before this migration keep row_occurrence and source_file_sha256 NULL (history is not rewritten); they count
--- toward the occurrences already present, and the uniqueness index covers only rows with an occurrence, so existing
--- duplicates can neither block this migration nor be multiplied further.
+-- Identity (this migration's definition — content alone never proves that two rows are the same economic event):
+--   · INGESTION identity: the caller's ingestion key when given, otherwise 'file:' || source || ':' || file SHA-256.
+--     The same identity with the same file bytes, source and column mapping is a REPLAY: nothing is added and the
+--     original result is returned. The same identity with different bytes, source or mapping is a CONFLICT (PT409).
+--   · Every row of a NEW ingestion is stored — repeated identical rows within one file are kept — EXCEPT a row whose
+--     reliable source transaction ID (an explicitly mapped source_txn_id) and economic fields (account, date, debit,
+--     credit) equal an already stored row of the same source in another file: that is a proven duplicate, not stored
+--     again, and its occurrence points at the existing row.
+--   · Ambiguous overlap is stored AND flagged for review on its occurrence (overlap_reason): identical content already
+--     stored from another file ('identical_content_other_file') or from a pre-migration row ('identical_content_legacy');
+--     a source transaction ID repeated within one file ('repeated_source_txn_id'); a source transaction ID matching a
+--     stored row whose economic fields differ ('source_txn_id_mismatch').
+--   · Sources never collide: every comparison is within one source type.
+--   · Provenance: one append-only occurrence per accepted file row (safisha_source_occurrences: ingestion, file line,
+--     row hash, source transaction ID, disposition, the transaction it stored or matched, overlap flag); one append-only
+--     record per ingestion (safisha_ingestions: identity, file and mapping SHA-256, file name, actor).
+--   · Rows stored before this migration ("legacy", ingestion_id NULL) are never rewritten. A new ingestion's row whose
+--     source, row hash AND file line equal an unclaimed legacy row's is that legacy row being re-ingested (a retry of the
+--     same file): nothing is stored and the occurrence claims the legacy row — each legacy row at most once
+--     (disposition 'legacy_match'). Identical content at a different line is stored and flagged
+--     'identical_content_legacy'.
 --
--- One path: safisha_ingest_evidence(upload, actor, source_type, file_name, file_sha256, rows) — service-role only, called
--- by safisha-ingest with the actor from the verified JWT. In one transaction it serializes on the upload, authorizes the
--- actor (current plan + prepare_close; a personal workspace: its owner), finds or creates the upload's one unsealed
--- reconciliation, guarantees the upload's safisha_status is started (verified, not assumed), records only the rows not
--- already present, and records the evidence file once per (source, file SHA-256). Client roles can no longer insert
--- transactions directly.
+-- One path: safisha_ingest_evidence(...) — service-role only, called by safisha-ingest with the actor from the verified
+-- JWT. In one transaction it serializes on the upload, authorizes the actor (current plan + prepare_close; a personal
+-- workspace: its owner), finds or creates the upload's one unsealed reconciliation, guarantees the upload's
+-- safisha_status is started (verified by row count, on every call), and applies the rules above. Client roles can no
+-- longer insert transactions directly.
 --
--- Additive and forward-only: two nullable columns, one partial unique index, one function, one trigger. No row is
--- changed or removed. Replay-safe (IF NOT EXISTS / CREATE OR REPLACE / trigger dropped and recreated by name).
+-- Additive and forward-only: two new append-only tables, three nullable columns, indexes, one function, triggers. No row
+-- is changed or removed. Replay-safe (IF NOT EXISTS / CREATE OR REPLACE / triggers and policies recreated by name).
 
--- ── 1. Provenance and identity ──────────────────────────────────────────────────────────────────────────────────────
+-- ── 1. Ingestions and occurrences (append-only provenance) ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.safisha_ingestions (
+  id                uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  reconciliation_id uuid        NOT NULL REFERENCES public.safisha_reconciliations(id),
+  source_id         text        NOT NULL CHECK (source_id IN ('tb', 'bank', 'subledger', 'momo')),
+  ingestion_key     text        NOT NULL CHECK (length(ingestion_key) BETWEEN 1 AND 200),
+  key_origin        text        NOT NULL CHECK (key_origin IN ('client', 'file')),
+  file_sha256       text        NOT NULL CHECK (file_sha256 ~ '^[0-9a-f]{64}$'),
+  mapping_sha256    text        NOT NULL CHECK (mapping_sha256 ~ '^[0-9a-f]{64}$'),
+  file_name         text        NOT NULL CHECK (length(file_name) BETWEEN 1 AND 255),
+  row_count         integer     NOT NULL CHECK (row_count >= 1),
+  actor_user_id     uuid        NOT NULL,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT safisha_ingestions_identity UNIQUE (reconciliation_id, ingestion_key)
+);
+
 ALTER TABLE public.safisha_transactions
-  ADD COLUMN IF NOT EXISTS row_occurrence integer
-    CONSTRAINT safisha_transactions_row_occurrence_check CHECK (row_occurrence >= 1),
-  ADD COLUMN IF NOT EXISTS source_file_sha256 text
-    CONSTRAINT safisha_transactions_source_file_sha256_check CHECK (source_file_sha256 ~ '^[0-9a-f]{64}$');
+  ADD COLUMN IF NOT EXISTS ingestion_id uuid REFERENCES public.safisha_ingestions(id),
+  ADD COLUMN IF NOT EXISTS source_txn_id text
+    CONSTRAINT safisha_transactions_source_txn_id_check CHECK (length(source_txn_id) BETWEEN 1 AND 200);
 
-CREATE UNIQUE INDEX IF NOT EXISTS safisha_transactions_source_row_identity
-  ON public.safisha_transactions (reconciliation_id, source_id, raw_row_hash, row_occurrence)
-  WHERE row_occurrence IS NOT NULL;
+-- One stored row per file line per ingestion.
+CREATE UNIQUE INDEX IF NOT EXISTS safisha_transactions_ingestion_line
+  ON public.safisha_transactions (ingestion_id, raw_row_number) WHERE ingestion_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS safisha_transactions_recon_source_hash
+  ON public.safisha_transactions (reconciliation_id, source_id, raw_row_hash);
+CREATE INDEX IF NOT EXISTS safisha_transactions_recon_source_txn
+  ON public.safisha_transactions (reconciliation_id, source_id, source_txn_id) WHERE source_txn_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.safisha_source_occurrences (
+  id                uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  ingestion_id      uuid        NOT NULL REFERENCES public.safisha_ingestions(id),
+  reconciliation_id uuid        NOT NULL REFERENCES public.safisha_reconciliations(id),
+  raw_row_number    integer     NOT NULL CHECK (raw_row_number >= 1),
+  raw_row_hash      text        NOT NULL CHECK (raw_row_hash ~ '^[0-9a-f]{64}$'),
+  source_txn_id     text,
+  disposition       text        NOT NULL CHECK (disposition IN ('stored', 'duplicate_source_txn_id', 'legacy_match')),
+  transaction_id    uuid        NOT NULL REFERENCES public.safisha_transactions(id),
+  overlap_reason    text        CHECK (overlap_reason IN ('identical_content_other_file', 'identical_content_legacy',
+                                                          'repeated_source_txn_id', 'source_txn_id_mismatch')),
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT safisha_source_occurrences_line UNIQUE (ingestion_id, raw_row_number),
+  CONSTRAINT safisha_source_occurrences_flag_only_on_stored CHECK (overlap_reason IS NULL OR disposition = 'stored')
+);
+-- A pre-migration row is claimed by at most one re-ingested line.
+CREATE UNIQUE INDEX IF NOT EXISTS safisha_source_occurrences_legacy_claim
+  ON public.safisha_source_occurrences (transaction_id) WHERE disposition = 'legacy_match';
+CREATE INDEX IF NOT EXISTS safisha_source_occurrences_review
+  ON public.safisha_source_occurrences (reconciliation_id) WHERE overlap_reason IS NOT NULL;
+
+-- Append-only, readable only where the reconciliation is visible, written only by safisha_ingest_evidence.
+CREATE OR REPLACE FUNCTION public.safisha_provenance_append_only()
+  RETURNS trigger
+  LANGUAGE plpgsql
+  SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  RAISE EXCEPTION 'PROVENANCE_APPEND_ONLY: % rows are permanent evidence', TG_TABLE_NAME USING ERRCODE = '42501';
+END;
+$$;
+DROP TRIGGER IF EXISTS safisha_ingestions_append_only ON public.safisha_ingestions;
+CREATE TRIGGER safisha_ingestions_append_only BEFORE UPDATE OR DELETE ON public.safisha_ingestions
+  FOR EACH ROW EXECUTE FUNCTION public.safisha_provenance_append_only();
+DROP TRIGGER IF EXISTS safisha_source_occurrences_append_only ON public.safisha_source_occurrences;
+CREATE TRIGGER safisha_source_occurrences_append_only BEFORE UPDATE OR DELETE ON public.safisha_source_occurrences
+  FOR EACH ROW EXECUTE FUNCTION public.safisha_provenance_append_only();
+
+ALTER TABLE public.safisha_ingestions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.safisha_source_occurrences ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS safisha_ingestions_select ON public.safisha_ingestions;
+CREATE POLICY safisha_ingestions_select ON public.safisha_ingestions FOR SELECT TO authenticated
+  USING (public.safisha_recon_visible(reconciliation_id));
+DROP POLICY IF EXISTS safisha_source_occurrences_select ON public.safisha_source_occurrences;
+CREATE POLICY safisha_source_occurrences_select ON public.safisha_source_occurrences FOR SELECT TO authenticated
+  USING (public.safisha_recon_visible(reconciliation_id));
+REVOKE ALL ON public.safisha_ingestions, public.safisha_source_occurrences FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.safisha_ingestions, public.safisha_source_occurrences TO authenticated;
+GRANT SELECT, INSERT ON public.safisha_ingestions, public.safisha_source_occurrences TO service_role;
 
 -- ── 2. The ingestion ────────────────────────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.safisha_ingest_evidence(
-  p_upload_id   uuid,
-  p_actor       uuid,
-  p_source_type text,
-  p_file_name   text,
-  p_file_sha256 text,
-  p_rows        jsonb)
+  p_upload_id     uuid,
+  p_actor         uuid,
+  p_source_type   text,
+  p_file_name     text,
+  p_file_sha256   text,
+  p_mapping       jsonb,
+  p_ingestion_key text,
+  p_rows          jsonb)
   RETURNS jsonb
   LANGUAGE plpgsql
   SECURITY DEFINER
@@ -70,15 +145,30 @@ DECLARE
   v_created   boolean := false;
   v_status    text;
   v_n         integer;
-  v_inserted  integer := 0;
-  v_total     integer;
+  v_key       text;
+  v_origin    text;
+  v_map_sha   text;
+  v_ing       public.safisha_ingestions%ROWTYPE;
+  v_e         jsonb;
+  v_hash      text;
+  v_line      integer;
+  v_txn_id    text;
+  v_match     uuid;
+  v_reason    text;
+  v_new       uuid;
+  v_stored    integer := 0;
+  v_dup       integer := 0;
+  v_legacy    integer := 0;
+  v_flagged   integer := 0;
 BEGIN
   IF p_upload_id IS NULL OR p_actor IS NULL
      OR p_source_type IS NULL OR p_source_type NOT IN ('tb', 'bank', 'subledger', 'momo')
      OR p_file_name IS NULL OR length(p_file_name) NOT BETWEEN 1 AND 255 OR p_file_name ~ '[[:cntrl:]]'
      OR p_file_sha256 IS NULL OR p_file_sha256 !~ '^[0-9a-f]{64}$'
-     OR p_rows IS NULL OR jsonb_typeof(p_rows) <> 'array' THEN
-    RAISE EXCEPTION 'INVALID_EVIDENCE: source, file name, file SHA-256 and a row array are required' USING ERRCODE = '22023';
+     OR p_rows IS NULL OR jsonb_typeof(p_rows) <> 'array'
+     OR (jsonb_array_length(p_rows) > 0 AND (p_mapping IS NULL OR jsonb_typeof(p_mapping) <> 'object'))
+     OR (p_ingestion_key IS NOT NULL AND (length(p_ingestion_key) NOT BETWEEN 1 AND 120 OR p_ingestion_key ~ '[[:cntrl:]]')) THEN
+    RAISE EXCEPTION 'INVALID_EVIDENCE: source, file name, file SHA-256, a row array and (with rows) a mapping are required' USING ERRCODE = '22023';
   END IF;
 
   -- Serialize every ingestion into this upload (one at a time; others wait and then see what it stored).
@@ -107,8 +197,10 @@ BEGIN
         OR COALESCE(e->>'raw_row_number', '') !~ '^[1-9][0-9]{0,8}$'
         OR (e->>'txn_date' IS NOT NULL AND e->>'txn_date' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         OR (e->>'debit'  IS NOT NULL AND e->>'debit'  !~ '^-?[0-9]+(\.[0-9]+)?$')
-        OR (e->>'credit' IS NOT NULL AND e->>'credit' !~ '^-?[0-9]+(\.[0-9]+)?$')) THEN
-    RAISE EXCEPTION 'INVALID_EVIDENCE: a row is incomplete or malformed' USING ERRCODE = '22023';
+        OR (e->>'credit' IS NOT NULL AND e->>'credit' !~ '^-?[0-9]+(\.[0-9]+)?$')
+        OR (e->>'source_txn_id' IS NOT NULL AND length(e->>'source_txn_id') NOT BETWEEN 1 AND 200))
+     OR (SELECT count(DISTINCT e->>'raw_row_number') <> count(*) FROM jsonb_array_elements(p_rows) e) THEN
+    RAISE EXCEPTION 'INVALID_EVIDENCE: a row is incomplete or malformed, or two rows share a file line' USING ERRCODE = '22023';
   END IF;
 
   -- The upload's one unsealed reconciliation (created here when absent; a concurrent creator elsewhere is tolerated).
@@ -136,43 +228,120 @@ BEGIN
     v_status := 'processing';
   END IF;
 
-  -- Only the rows not already present (see the identity definition above).
-  WITH payload AS (
-    SELECT e, ord FROM jsonb_array_elements(p_rows) WITH ORDINALITY AS x(e, ord)
-  ), numbered AS (
-    SELECT e, ord, row_number() OVER (PARTITION BY e->>'raw_row_hash' ORDER BY ord)::integer AS occurrence FROM payload
-  ), present AS (
-    SELECT raw_row_hash, count(*)::integer AS n FROM public.safisha_transactions
-     WHERE reconciliation_id = v_recon AND source_id = p_source_type GROUP BY raw_row_hash
-  ), ins AS (
-    INSERT INTO public.safisha_transactions (reconciliation_id, source_id, account_code, account_name, txn_date, debit, credit,
-                                             currency, reference, raw_row_hash, raw_row_number, dqc_polarity_warning,
-                                             dqc_sign_detail, row_occurrence, source_file_sha256)
-    SELECT v_recon, p_source_type, n.e->>'account_code', n.e->>'account_name', (n.e->>'txn_date')::date,
-           (n.e->>'debit')::numeric, (n.e->>'credit')::numeric, COALESCE(NULLIF(n.e->>'currency', ''), 'TZS'), n.e->>'reference',
-           n.e->>'raw_row_hash', (n.e->>'raw_row_number')::integer, COALESCE((n.e->>'dqc_polarity_warning')::boolean, false),
-           n.e->>'dqc_sign_detail', n.occurrence, p_file_sha256
-      FROM numbered n LEFT JOIN present p ON p.raw_row_hash = n.e->>'raw_row_hash'
-     WHERE n.occurrence > COALESCE(p.n, 0)
-     ORDER BY n.ord
-    RETURNING 1
-  )
-  SELECT count(*)::integer INTO v_inserted FROM ins;
-
-  -- The evidence file, once per (source, file SHA-256).
-  v_total := jsonb_array_length(p_rows);
-  IF v_total > 0 AND NOT EXISTS (
-       SELECT 1 FROM public.safisha_reconciliations r, jsonb_array_elements(r.evidence_files) f
-        WHERE r.id = v_recon AND f->>'source_type' = p_source_type AND f->>'sha256' = p_file_sha256) THEN
-    UPDATE public.safisha_reconciliations
-       SET evidence_files = evidence_files || jsonb_build_array(jsonb_build_object(
-             'source_type', p_source_type, 'filename', p_file_name, 'rows', v_inserted, 'sha256', p_file_sha256,
-             'uploaded_at', to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')))
-     WHERE id = v_recon;
+  IF jsonb_array_length(p_rows) = 0 THEN        -- the column-mapping round trip: the reconciliation is started, no rows
+    RETURN jsonb_build_object('reconciliation_id', v_recon, 'reconciliation_created', v_created, 'ingestion_id', NULL,
+                              'replay', false, 'stored', 0, 'duplicates', 0, 'legacy_matches', 0, 'overlap_flagged', 0,
+                              'upload_status', v_status);
   END IF;
 
-  RETURN jsonb_build_object('reconciliation_id', v_recon, 'reconciliation_created', v_created, 'inserted', v_inserted,
-                            'already_present', v_total - v_inserted, 'upload_status', v_status);
+  -- Ingestion identity: replay, conflict or new.
+  v_map_sha := encode(sha256(convert_to(p_mapping::text, 'UTF8')), 'hex');
+  v_origin  := CASE WHEN p_ingestion_key IS NULL THEN 'file' ELSE 'client' END;
+  v_key     := COALESCE('client:' || p_ingestion_key, 'file:' || p_source_type || ':' || p_file_sha256);
+  SELECT * INTO v_ing FROM public.safisha_ingestions WHERE reconciliation_id = v_recon AND ingestion_key = v_key;
+  IF FOUND THEN
+    IF v_ing.file_sha256 = p_file_sha256 AND v_ing.mapping_sha256 = v_map_sha AND v_ing.source_id = p_source_type THEN
+      RETURN (SELECT jsonb_build_object(
+        'reconciliation_id', v_recon, 'reconciliation_created', false, 'ingestion_id', v_ing.id, 'replay', true,
+        'stored', count(*) FILTER (WHERE o.disposition = 'stored'),
+        'duplicates', count(*) FILTER (WHERE o.disposition = 'duplicate_source_txn_id'),
+        'legacy_matches', count(*) FILTER (WHERE o.disposition = 'legacy_match'),
+        'overlap_flagged', count(*) FILTER (WHERE o.overlap_reason IS NOT NULL),
+        'upload_status', v_status)
+        FROM public.safisha_source_occurrences o WHERE o.ingestion_id = v_ing.id);
+    END IF;
+    RAISE EXCEPTION 'INGESTION_CONFLICT: this ingestion identity was already used with different file bytes, source or column mapping'
+      USING ERRCODE = 'PT409';
+  END IF;
+  INSERT INTO public.safisha_ingestions (reconciliation_id, source_id, ingestion_key, key_origin, file_sha256, mapping_sha256,
+                                         file_name, row_count, actor_user_id)
+  VALUES (v_recon, p_source_type, v_key, v_origin, p_file_sha256, v_map_sha, p_file_name, jsonb_array_length(p_rows), p_actor)
+  RETURNING * INTO v_ing;
+
+  FOR v_e IN SELECT e FROM jsonb_array_elements(p_rows) WITH ORDINALITY AS x(e, ord) ORDER BY ord LOOP
+    v_hash   := v_e->>'raw_row_hash';
+    v_line   := (v_e->>'raw_row_number')::integer;
+    v_txn_id := NULLIF(v_e->>'source_txn_id', '');
+    v_reason := NULL;
+
+    -- (a) A pre-migration row re-ingested: same source, content and file line, not yet claimed.
+    SELECT t.id INTO v_match FROM public.safisha_transactions t
+     WHERE t.reconciliation_id = v_recon AND t.source_id = p_source_type AND t.ingestion_id IS NULL
+       AND t.raw_row_hash = v_hash AND t.raw_row_number = v_line
+       AND NOT EXISTS (SELECT 1 FROM public.safisha_source_occurrences o WHERE o.transaction_id = t.id AND o.disposition = 'legacy_match')
+     ORDER BY t.created_at, t.id LIMIT 1;
+    IF FOUND THEN
+      INSERT INTO public.safisha_source_occurrences (ingestion_id, reconciliation_id, raw_row_number, raw_row_hash, source_txn_id,
+                                                    disposition, transaction_id)
+      VALUES (v_ing.id, v_recon, v_line, v_hash, v_txn_id, 'legacy_match', v_match);
+      v_legacy := v_legacy + 1;
+      CONTINUE;
+    END IF;
+
+    -- (b) A reliable source transaction ID already stored from another file.
+    IF v_txn_id IS NOT NULL THEN
+      IF EXISTS (SELECT 1 FROM public.safisha_transactions t WHERE t.ingestion_id = v_ing.id AND t.source_txn_id = v_txn_id) THEN
+        v_reason := 'repeated_source_txn_id';
+      ELSE
+        SELECT t.id INTO v_match FROM public.safisha_transactions t
+         WHERE t.reconciliation_id = v_recon AND t.source_id = p_source_type AND t.source_txn_id = v_txn_id
+           AND t.ingestion_id IS DISTINCT FROM v_ing.id
+           AND t.account_code = v_e->>'account_code'
+           AND t.txn_date IS NOT DISTINCT FROM (v_e->>'txn_date')::date
+           AND t.debit IS NOT DISTINCT FROM (v_e->>'debit')::numeric
+           AND t.credit IS NOT DISTINCT FROM (v_e->>'credit')::numeric
+         ORDER BY t.created_at, t.id LIMIT 1;
+        IF FOUND THEN
+          INSERT INTO public.safisha_source_occurrences (ingestion_id, reconciliation_id, raw_row_number, raw_row_hash, source_txn_id,
+                                                        disposition, transaction_id)
+          VALUES (v_ing.id, v_recon, v_line, v_hash, v_txn_id, 'duplicate_source_txn_id', v_match);
+          v_dup := v_dup + 1;
+          CONTINUE;
+        END IF;
+        IF EXISTS (SELECT 1 FROM public.safisha_transactions t
+                    WHERE t.reconciliation_id = v_recon AND t.source_id = p_source_type AND t.source_txn_id = v_txn_id
+                      AND t.ingestion_id IS DISTINCT FROM v_ing.id) THEN
+          v_reason := 'source_txn_id_mismatch';
+        END IF;
+      END IF;
+    END IF;
+
+    -- (c) Identical content already stored from another file, or from a pre-migration row: stored, flagged for review.
+    IF v_reason IS NULL THEN
+      SELECT CASE WHEN count(*) = 0 THEN NULL
+                  WHEN bool_or(t.ingestion_id IS NULL) THEN 'identical_content_legacy'
+                  ELSE 'identical_content_other_file' END
+        INTO v_reason
+        FROM public.safisha_transactions t
+       WHERE t.reconciliation_id = v_recon AND t.source_id = p_source_type AND t.raw_row_hash = v_hash
+         AND t.ingestion_id IS DISTINCT FROM v_ing.id;
+    END IF;
+
+    INSERT INTO public.safisha_transactions (reconciliation_id, source_id, account_code, account_name, txn_date, debit, credit,
+                                             currency, reference, raw_row_hash, raw_row_number, dqc_polarity_warning,
+                                             dqc_sign_detail, ingestion_id, source_txn_id)
+    VALUES (v_recon, p_source_type, v_e->>'account_code', v_e->>'account_name', (v_e->>'txn_date')::date,
+            (v_e->>'debit')::numeric, (v_e->>'credit')::numeric, COALESCE(NULLIF(v_e->>'currency', ''), 'TZS'), v_e->>'reference',
+            v_hash, v_line, COALESCE((v_e->>'dqc_polarity_warning')::boolean, false), v_e->>'dqc_sign_detail', v_ing.id, v_txn_id)
+    RETURNING id INTO v_new;
+    INSERT INTO public.safisha_source_occurrences (ingestion_id, reconciliation_id, raw_row_number, raw_row_hash, source_txn_id,
+                                                  disposition, transaction_id, overlap_reason)
+    VALUES (v_ing.id, v_recon, v_line, v_hash, v_txn_id, 'stored', v_new, v_reason);
+    v_stored := v_stored + 1;
+    IF v_reason IS NOT NULL THEN v_flagged := v_flagged + 1; END IF;
+  END LOOP;
+
+  -- The evidence file, once per ingestion.
+  UPDATE public.safisha_reconciliations
+     SET evidence_files = evidence_files || jsonb_build_array(jsonb_build_object(
+           'source_type', p_source_type, 'filename', p_file_name, 'rows', v_stored, 'sha256', p_file_sha256,
+           'ingestion_id', v_ing.id,
+           'uploaded_at', to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')))
+   WHERE id = v_recon;
+
+  RETURN jsonb_build_object('reconciliation_id', v_recon, 'reconciliation_created', v_created, 'ingestion_id', v_ing.id,
+                            'replay', false, 'stored', v_stored, 'duplicates', v_dup, 'legacy_matches', v_legacy,
+                            'overlap_flagged', v_flagged, 'upload_status', v_status);
 END;
 $$;
 
@@ -196,6 +365,7 @@ CREATE TRIGGER ab_transaction_authority BEFORE INSERT ON public.safisha_transact
   FOR EACH ROW EXECUTE FUNCTION public.safisha_transaction_authority();
 
 -- ── Privileges ──────────────────────────────────────────────────────────────────────────────────────────────────────
-REVOKE ALL ON FUNCTION public.safisha_ingest_evidence(uuid, uuid, text, text, text, jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.safisha_ingest_evidence(uuid, uuid, text, text, text, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.safisha_ingest_evidence(uuid, uuid, text, text, text, jsonb, text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.safisha_ingest_evidence(uuid, uuid, text, text, text, jsonb, text, jsonb) TO service_role;
 REVOKE ALL ON FUNCTION public.safisha_transaction_authority() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.safisha_provenance_append_only() FROM PUBLIC, anon, authenticated;

@@ -14,11 +14,35 @@ const SQL = MIGRATION.replace(/--[^\n]*/g, "");
 const INGEST = read("supabase/functions/safisha-ingest/index.ts");
 
 describe("evidence ingestion authority migration", () => {
-  it("row identity is (reconciliation, source, row hash, occurrence within the file), enforced for new rows only", () => {
-    expect(SQL).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS safisha_transactions_source_row_identity\s+ON public\.safisha_transactions \(reconciliation_id, source_id, raw_row_hash, row_occurrence\)\s+WHERE row_occurrence IS NOT NULL;/);
-    expect(SQL).toContain("row_number() OVER (PARTITION BY e->>'raw_row_hash' ORDER BY ord)::integer AS occurrence");
-    expect(SQL).toContain("WHERE reconciliation_id = v_recon AND source_id = p_source_type GROUP BY raw_row_hash");
-    expect(SQL).toContain("WHERE n.occurrence > COALESCE(p.n, 0)");
+  it("an ingestion is identified by the caller's key or by source + file SHA-256; replay or conflict, never a silent re-ingest", () => {
+    expect(SQL).toContain("CONSTRAINT safisha_ingestions_identity UNIQUE (reconciliation_id, ingestion_key)");
+    expect(SQL).toContain("v_key     := COALESCE('client:' || p_ingestion_key, 'file:' || p_source_type || ':' || p_file_sha256);");
+    expect(SQL).toContain("IF v_ing.file_sha256 = p_file_sha256 AND v_ing.mapping_sha256 = v_map_sha AND v_ing.source_id = p_source_type THEN");
+    expect(SQL).toContain("USING ERRCODE = 'PT409'");
+  });
+
+  it("content alone never proves a duplicate: only a source transaction ID with equal economic fields does; overlap is stored and flagged", () => {
+    expect(SQL).toContain("'duplicate_source_txn_id'");
+    expect(SQL).toMatch(/AND t\.source_txn_id = v_txn_id\s+AND t\.ingestion_id IS DISTINCT FROM v_ing\.id\s+AND t\.account_code = v_e->>'account_code'/);
+    for (const reason of ["identical_content_other_file", "identical_content_legacy", "repeated_source_txn_id", "source_txn_id_mismatch"]) {
+      expect(SQL).toContain(`'${reason}'`);
+    }
+    expect(SQL).toContain("CONSTRAINT safisha_source_occurrences_flag_only_on_stored CHECK (overlap_reason IS NULL OR disposition = 'stored')");
+  });
+
+  it("legacy rows are claimed only by source + content + file line, each at most once, and never rewritten", () => {
+    expect(SQL).toMatch(/t\.ingestion_id IS NULL\s+AND t\.raw_row_hash = v_hash AND t\.raw_row_number = v_line/);
+    expect(SQL).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS safisha_source_occurrences_legacy_claim\s+ON public\.safisha_source_occurrences \(transaction_id\) WHERE disposition = 'legacy_match';/);
+    expect(SQL).not.toMatch(/UPDATE\s+public\.safisha_transactions/i);
+  });
+
+  it("one stored row per file line per ingestion; provenance is append-only and tenant-scoped", () => {
+    expect(SQL).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS safisha_transactions_ingestion_line\s+ON public\.safisha_transactions \(ingestion_id, raw_row_number\) WHERE ingestion_id IS NOT NULL;/);
+    expect(SQL).toContain("CONSTRAINT safisha_source_occurrences_line UNIQUE (ingestion_id, raw_row_number)");
+    expect(SQL).toMatch(/CREATE TRIGGER safisha_ingestions_append_only BEFORE UPDATE OR DELETE ON public\.safisha_ingestions/);
+    expect(SQL).toMatch(/CREATE TRIGGER safisha_source_occurrences_append_only BEFORE UPDATE OR DELETE ON public\.safisha_source_occurrences/);
+    expect(SQL).toContain("USING (public.safisha_recon_visible(reconciliation_id));");
+    expect(SQL).toContain("REVOKE ALL ON public.safisha_ingestions, public.safisha_source_occurrences FROM PUBLIC, anon, authenticated;");
   });
 
   it("serializes per upload, authorizes the actor, and verifies the upload status by row count", () => {
@@ -28,22 +52,17 @@ describe("evidence ingestion authority migration", () => {
     expect(SQL).toMatch(/UPDATE public\.trial_balance_uploads SET safisha_status = 'processing' WHERE id = p_upload_id AND safisha_status IS NULL;\s+GET DIAGNOSTICS v_n = ROW_COUNT;\s+IF v_n <> 1 THEN/);
   });
 
-  it("records the evidence file once per (source, file SHA-256)", () => {
-    expect(SQL).toContain("f->>'source_type' = p_source_type AND f->>'sha256' = p_file_sha256");
-  });
-
   it("client roles cannot insert evidence rows; the function is service-role only", () => {
     expect(SQL).toContain("IF current_user IN ('authenticated', 'anon') THEN\n    RAISE EXCEPTION 'EVIDENCE_SERVER_ONLY");
     expect(SQL).toMatch(/CREATE TRIGGER ab_transaction_authority BEFORE INSERT ON public\.safisha_transactions/);
-    expect(SQL).toContain("REVOKE ALL ON FUNCTION public.safisha_ingest_evidence(uuid, uuid, text, text, text, jsonb) FROM PUBLIC, anon, authenticated;");
-    expect(SQL).toContain("GRANT EXECUTE ON FUNCTION public.safisha_ingest_evidence(uuid, uuid, text, text, text, jsonb) TO service_role;");
+    expect(SQL).toContain("REVOKE ALL ON FUNCTION public.safisha_ingest_evidence(uuid, uuid, text, text, text, jsonb, text, jsonb) FROM PUBLIC, anon, authenticated;");
+    expect(SQL).toContain("GRANT EXECUTE ON FUNCTION public.safisha_ingest_evidence(uuid, uuid, text, text, text, jsonb, text, jsonb) TO service_role;");
   });
 
-  it("is additive and forward-only: two nullable columns, nothing rewritten or removed", () => {
-    expect(SQL).not.toMatch(/\b(DELETE\s+FROM|TRUNCATE|DROP\s+(TABLE|COLUMN|INDEX|FUNCTION|POLICY))\b/i);
-    expect(SQL).not.toMatch(/UPDATE\s+public\.safisha_transactions/i);
-    expect(SQL).toContain("ADD COLUMN IF NOT EXISTS row_occurrence integer");
-    expect(SQL).toContain("ADD COLUMN IF NOT EXISTS source_file_sha256 text");
+  it("is additive and forward-only: nothing rewritten or removed", () => {
+    expect(SQL).not.toMatch(/\b(DELETE\s+FROM|TRUNCATE|DROP\s+(TABLE|COLUMN|INDEX|FUNCTION))\b/i);
+    expect(SQL).toContain("ADD COLUMN IF NOT EXISTS ingestion_id uuid REFERENCES public.safisha_ingestions(id)");
+    expect(SQL).toContain("ADD COLUMN IF NOT EXISTS source_txn_id text");
     expect(MIGRATION).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
   });
 
@@ -53,9 +72,11 @@ describe("evidence ingestion authority migration", () => {
 });
 
 describe("safisha-ingest", () => {
-  it("writes only through the service-role function, with the JWT user as the actor, and has no fallback", () => {
+  it("writes only through the service-role function, with the JWT user as the actor, its mapping and optional ingestion key; no fallback", () => {
     expect(INGEST).toContain('admin.rpc("safisha_ingest_evidence", {');
     expect(INGEST).toContain("p_actor:       user.id,");
+    expect(INGEST).toContain("p_mapping:     savedMapping,");
+    expect(INGEST).toContain("p_ingestion_key: ingestionKey,");
     expect(INGEST).not.toMatch(/\.from\("safisha_(transactions|reconciliations)"\)/);
     expect(INGEST).not.toMatch(/\.from\("trial_balance_uploads"\)\s*\.update/);
     expect(INGEST).not.toContain("seenHashes");

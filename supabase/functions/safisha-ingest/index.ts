@@ -5,11 +5,12 @@
  * subledger XLSX) into canonical safisha_transactions rows.
  *
  * IRON DOME INVARIANTS:
- *   - Every row gets a SHA-256 hash of its raw cells (raw_row_hash). A stored row is identified by
- *     (reconciliation, source, raw_row_hash, its occurrence within the file): retries and re-uploads add
- *     nothing, a line legitimately repeated in one statement is kept as many times as it appears, sources
- *     never collide. The database (safisha_ingest_evidence, 20261005100000) enforces this, serialized per
- *     upload; each new row records its file's SHA-256 (source_file_sha256) next to raw_row_number.
+ *   - Every row gets a SHA-256 hash of its raw cells (raw_row_hash). The database (safisha_ingest_evidence,
+ *     20261005100000), serialized per upload, decides what is stored: an ingestion is identified by the caller's
+ *     ingestion_key or by source + file SHA-256 — the same identity again is a replay (nothing added), with
+ *     different bytes or mapping a conflict (409). Every row of a new file is stored (repeats within a file are
+ *     kept); only a mapped source_txn_id with equal economic fields proves a cross-file duplicate; identical
+ *     content from another file is stored and flagged for review. Every accepted row has a provenance occurrence.
  *   - This function NEVER touches reviewer_action or reconciliation status.
  *   - On completion it calls safisha-match (or signals the UI to trigger it).
  *   - All figures come from the uploaded file — zero hallucination.
@@ -44,6 +45,7 @@ interface CanonicalRow {
   credit:       number | null;
   currency:     string;
   reference:    string | null;
+  source_txn_id: string | null; // a reliable transaction identifier from the source, only when explicitly mapped
   raw_row_hash: string;
   raw_row_number: number;
 }
@@ -180,6 +182,7 @@ function applyMapping(
     credit,
     currency:     get("currency") ?? "TZS",
     reference:    get("reference") ?? null,
+    source_txn_id: get("source_txn_id")?.trim() || null,
   };
 }
 
@@ -331,6 +334,9 @@ serve(async (req: Request) => {
     const mappingOverride = formData.get("mapping_override")
       ? JSON.parse(formData.get("mapping_override") as string)
       : null;
+    // Optional ingestion identity chosen by the caller (reused on a retry of the same upload action). Without it the
+    // identity is the source type + the file's SHA-256. Reusing an identity with different bytes or mapping is a 409.
+    const ingestionKey = (formData.get("ingestion_key") as string | null) || null;
 
     if (!uploadId || !file) {
       return new Response(JSON.stringify({ error: "upload_id and file are required" }), {
@@ -402,13 +408,15 @@ serve(async (req: Request) => {
       p_source_type: sourceType,
       p_file_name:   file.name,
       p_file_sha256: fileSha256,
+      p_mapping:     savedMapping,
+      p_ingestion_key: ingestionKey,
       p_rows:        rows,
     });
     const refusal = (error: { code?: string; message?: string }) => {
       const code = error.code ?? "";
       const missing = code === "PGRST202" || code === "42883";
       const status = missing ? 503 : code === "42501" ? 403 : code === "PT402" ? 402 : code === "P0002" ? 404
-        : code === "22023" ? 422 : code === "40001" ? 409 : 500;
+        : code === "22023" ? 422 : code === "40001" || code === "PT409" ? 409 : 500;
       return new Response(JSON.stringify({
         error: missing ? "Evidence ingestion is not available yet. Nothing was recorded; try again later." : error.message,
       }), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -462,6 +470,7 @@ serve(async (req: Request) => {
         reference:            r.reference,
         raw_row_hash:         r.raw_row_hash,
         raw_row_number:       r.raw_row_number,
+        source_txn_id:        r.source_txn_id,
         dqc_polarity_warning: dqc.warning,
         dqc_sign_detail:      dqc.detail ?? null,
       };
@@ -469,14 +478,23 @@ serve(async (req: Request) => {
 
     const { data: recorded, error: recordErr } = await record(rowsWithDQC);
     if (recordErr) return refusal(recordErr);
-    const result = recorded as { reconciliation_id: string; inserted: number; already_present: number };
+    const result = recorded as {
+      reconciliation_id: string; ingestion_id: string; replay: boolean;
+      stored: number; duplicates: number; legacy_matches: number; overlap_flagged: number;
+    };
 
     return new Response(JSON.stringify({
       success:              true,
-      inserted:             result.inserted,
-      deduplicated:         result.already_present,
+      // A replay (the same ingestion again) adds nothing and reports nothing new.
+      inserted:             result.replay ? 0 : result.stored,
+      deduplicated:         result.replay ? rowsWithDQC.length : result.duplicates + result.legacy_matches,
+      replay:               result.replay,
+      ingestion_id:         result.ingestion_id,
+      // Rows stored but flagged for review: identical content already present from another file (or from before this
+      // release), or a source transaction ID that repeats or disagrees. Content alone never proves a duplicate.
+      overlap_flagged:      result.replay ? 0 : result.overlap_flagged,
       reconciliation_id:    result.reconciliation_id,
-      message:              result.inserted === 0 ? "All rows already ingested (duplicate file upload detected)" : undefined,
+      message:              result.replay ? "This file was already ingested; nothing was added." : undefined,
       dqc_polarity_warnings: dqcWarningCount,
       dqc_note:             dqcWarningCount > 0
         ? `${dqcWarningCount} rows have unexpected debit/credit polarity for their account type. `

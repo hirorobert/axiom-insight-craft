@@ -1170,16 +1170,21 @@ project-chat request). Apply migrations only through Lovable's native migrator, 
 
 **EVIDENCE_INGESTION_IS_ONE_SERVER_PATH** — `20261005100000_safisha_ingestion_authority.sql` (branch
 `fix/safisha-ingest-authority`; authored, NOT applied). `safisha-ingest` writes ONLY through the service-role
-`safisha_ingest_evidence(upload, actor, source, file_name, file_sha256, rows)` (actor from the verified JWT): serialized per
-upload (transaction advisory lock), plan + `prepare_close` (personal: owner), finds or creates the one unsealed
-reconciliation (no INSERT … RETURNING through RLS — that is what made every first ingest fail on main), and sets the upload's
-`safisha_status` when NULL with a row-count check on every call (a retry completes a status an earlier attempt never set).
-Row identity: `(reconciliation, source_id, raw_row_hash, row_occurrence)`, occurrence = k-th time that exact row appears in
-ONE file; retries add nothing, in-file repeats are kept, sources never collide, overlapping files add shared rows once.
-New rows carry `source_file_sha256`; legacy rows keep NULLs (not rewritten) and count as present; the unique index covers only
-rows with an occurrence. Client roles cannot insert `safisha_transactions` (`ab_transaction_authority`). Proven by
-`scripts/db-proof/safishaIngestion.mjs`; existing duplicates are sized read-only by `scripts/db-preflight/safishaIngestionPreflight.sql`.
-Deploy `safisha-ingest` with the other SAFISHA functions BEFORE applying the migrations (against the old schema it answers 503
+`safisha_ingest_evidence(upload, actor, source, file_name, file_sha256, mapping, ingestion_key, rows)` (actor from the
+verified JWT): serialized per upload (transaction advisory lock), plan + `prepare_close` (personal: owner), finds or creates
+the one unsealed reconciliation (no INSERT … RETURNING through RLS — that is what made every first ingest fail on main), and
+sets the upload's `safisha_status` when NULL with a row-count check on every call. Identity — content alone NEVER proves the
+same economic event: an INGESTION is identified by the caller's `ingestion_key` or by source + file SHA-256; the same
+identity with the same bytes/source/mapping is a replay (nothing added), with different ones a 409 (`PT409`). Every row of a
+new ingestion is stored (in-file repeats kept, sources separate), except a row whose mapped `source_txn_id` and economic
+fields (account, date, debit, credit) equal a stored row of another file (`duplicate_source_txn_id`, not stored). Identical
+content from another file or a legacy row, and a disagreeing or repeated `source_txn_id`, are stored AND flagged
+(`overlap_reason`) — there is no review UI for these flags yet. Provenance: append-only `safisha_ingestions` and one
+`safisha_source_occurrences` row per accepted file line. Legacy rows (`ingestion_id` NULL) are never rewritten; a retry
+claims one only by source + content + file line, each at most once (`legacy_match`). Client roles cannot insert
+`safisha_transactions` (`ab_transaction_authority`). Proven by `scripts/db-proof/safishaIngestion.mjs`; read-only
+`scripts/db-preflight/safishaIngestionPreflight.sql` (before) and `safishaIngestionVerify.sql` (after). Deploy
+`safisha-ingest` with the other SAFISHA functions BEFORE applying the migrations (against the old schema it answers 503
 and writes nothing).
 
 ---
