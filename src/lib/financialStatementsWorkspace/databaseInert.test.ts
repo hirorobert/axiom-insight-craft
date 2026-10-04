@@ -314,6 +314,11 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/safishaIngestion.mjs", "scripts/db-proof/lib/functionHarness.mjs",
       "scripts/db-proof/fixtures/functions-main-e8962f2/ingest.index.ts", "scripts/db-preflight/safishaIngestionPreflight.sql",
       "scripts/db-preflight/safishaIngestionVerify.sql",
+      // The release application proofs (Lovable's stated hosted-executor contract; drizzle-orm migrate() compatibility), their
+      // shared disposable base, and the guarded-entry and inspection renderer they prove
+      // (loopback-only; release-journal tooling; no deploy behaviour).
+      "scripts/db-proof/migratorRelease.mjs", "scripts/release/guardedEntry.mjs", "scripts/db-proof/hostedExecutorRelease.mjs",
+      "scripts/db-proof/lib/releaseBase.mjs", "scripts/release/renderRelease2026_10.mjs",
       // This guard's own fail-closed base resolver and exact-file review (no deploy behaviour), and the CI check that the
       // guard executed with zero skipped tests.
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);

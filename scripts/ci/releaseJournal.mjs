@@ -22,7 +22,13 @@
 // Release-only objects public._pr34_probe and public._pr34_migration_bodies remain in production PENDING CLEANUP.
 
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { lexSql } from "./atomicEnvelope.mjs";
+import { checkGuardedEntry } from "../release/guardedEntry.mjs";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 const REVIEWED_HEAD = "c2c1e8e171f4c23b428d7affc14ae3ee103020ed";
 
@@ -249,6 +255,7 @@ export function checkReleaseEntry(tag, text, srcBytes) {
     problems.push(...checkReleaseInfrastructure(entry.kind, text).map((p) => `${tag}: ${p}`));
     return { problems };
   }
+  if (entry.kind === "release_guarded") return checkGuardedReleaseEntry(tag, entry, text, srcBytes, problems);
   const src = srcBytes(entry.source);
   if (!src) return { problems: [...problems, `${tag} applies an unknown migration ${entry.source}`] };
   if (sha256(src) !== entry.digest) problems.push(`${tag}: the pinned digest does not match ${entry.source} in this repository`);
@@ -257,6 +264,24 @@ export function checkReleaseEntry(tag, text, srcBytes) {
   if (rendered !== text.replace(/\r\n/g, "\n")) problems.push(`${tag} is not exactly the reviewed "${entry.template}" wrapper for ${entry.source}`);
   problems.push(...checkApplyWrapperStructure(text).map((p) => `${tag}: ${p}`));
   return { covers: entry.source, outOfOrder: entry.outOfOrder === true, problems };
+}
+
+/**
+ * A guarded release entry (scripts/release/guardedEntry.mjs, reviewed with scripts/db-proof/hostedExecutorRelease.mjs):
+ * the approved source byte for byte between a guard that REFUSES a second application and a record block that asserts
+ * the source's read-only post-apply verification and writes the release ledger. Pinned by its own SHA-256 and re-rendered
+ * from the repository's source and verification file.
+ */
+export function checkGuardedReleaseEntry(tag, entry, text, srcBytes, problems = []) {
+  const src = srcBytes(entry.source);
+  if (!src) return { problems: [...problems, `${tag} applies an unknown migration ${entry.source}`] };
+  if (sha256(src) !== entry.digest) problems.push(`${tag}: the pinned digest does not match ${entry.source} in this repository`);
+  if (src.length !== entry.bytes) problems.push(`${tag}: the pinned byte count ${entry.bytes} does not match ${entry.source} (${src.length})`);
+  if (!fs.existsSync(path.join(REPO_ROOT, "scripts/db-preflight", entry.verify ?? ""))) problems.push(`${tag}: unknown verification file ${entry.verify}`);
+  else problems.push(...checkGuardedEntry(text.replace(/\r\n/g, "\n"), { source: entry.source, head: entry.head, repoRoot: REPO_ROOT, verify: entry.verify, requires: entry.requires ?? [] }).map((p) => `${tag}: ${p}`));
+  if (!/^[0-9a-f]{64}$/.test(entry.sha256 ?? "")) problems.push(`${tag}: a release_guarded entry must pin its own SHA-256`);
+  else if (sha256(Buffer.from(text, "utf8")) !== entry.sha256) problems.push(`${tag}: the entry's SHA-256 does not match its pinned value`);
+  return { covers: entry.source, how: "release_guarded", outOfOrder: false, problems };
 }
 
 export const isReleaseTag = (tag) => /^\d{4}_pr34_/.test(tag) || Object.prototype.hasOwnProperty.call(RELEASE_JOURNAL, tag);
