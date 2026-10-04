@@ -33,8 +33,9 @@ describe("migration authority parity", () => {
     // 13 byte-equal mirrors + the eight reviewed release wrappers (0015, 0017–0022, 0024; rule 8) + 0023 by its canonical
     // source (rule canonical_equivalent). The prerequisite 20260915100000 is recorded as applied out of source order
     // (0016) — see releaseJournal.test.ts.
-    // RELEASE_JOURNAL_ENTRIES=24: 0025 and 0026 are release_verbatim entries.
-    expect(r.mirrored.length).toBe(24);
+    // RELEASE_JOURNAL_ENTRIES=24: 0025 and 0026 are release_verbatim entries. 0027 (20261003100000, classification-save
+    // digest fix) is a byte-equal mirror of its source.
+    expect(r.mirrored.length).toBe(25);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
