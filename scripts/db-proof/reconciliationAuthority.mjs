@@ -209,12 +209,31 @@ async function main() {
   await admin.query("UPDATE public.safisha_reconciliations SET status='clean', matched_count=2, total_tb_lines=2 WHERE id=$1", [LC.r]);
   await admin.query("UPDATE public.trial_balance_uploads SET safisha_status='clean' WHERE id=$1", [LC.up]);
 
+  /** A read-only report file, run as the operator would: inside BEGIN READ ONLY … ROLLBACK. */
+  const readOnlyReport = async (file) => {
+    const c = await pool.connect();
+    try { await c.query("BEGIN READ ONLY"); const r = await c.query(fs.readFileSync(path.join(REPO, "scripts/db-preflight", file), "utf8")); await c.query("ROLLBACK"); return r.rows; }
+    finally { c.release(); }
+  };
+  const asMap = (rows) => Object.fromEntries(rows.map((r) => [r.item, r.n === null || r.n === undefined ? r.ok : Number(r.n)]));
+
+  console.log("\n== Preflight (before the migration): read-only, and it counts exactly the legacy rows");
+  await check("reconciliationAuthorityPreflight.sql changes nothing and reports the one legacy escalated-but-clean upload", async () => {
+    const s0 = await snapshot(); const m = asMap(await readOnlyReport("reconciliationAuthorityPreflight.sql")); const d = diff(s0, await snapshot());
+    const want = { clean_reconciliation_not_latest_ok: 1, clean_upload_line_count_mismatch: 0, clean_upload_with_open_exception: 1, clean_upload_without_tb_lines: 0, escalated_exceptions: 1 };
+    return d.length === 0 && JSON.stringify(m) === JSON.stringify(want) ? true : { m, d };
+  });
+
   console.log("\n== Upgrade: applying the migration changes no row");
   await check("before the migration the old resolver marked an ESCALATED reconciliation and its upload 'clean' (the defect)", async () => { const s = await state(LE); return s.r === "clean" && s.s === "clean" ? true : s; });
   const before = await snapshot();
   await apply(MIGRATION);
   await check("every row of every table is byte-identical after the migration", async () => { const d = diff(before, await snapshot()); return d.length === 0 ? true : d; });
   await check("the MAONO gate now BLOCKS the legacy escalated-but-'clean' upload and still passes the legacy complete one", async () => { const g = await gate([LE.up, LC.up]); return g[LE.up] === true && g[LC.up] === false ? true : g; });
+  await check("reconciliationAuthorityVerify.sql (after the migration): read-only, every check true, the legacy row counted", async () => {
+    const s0 = await snapshot(); const rows = await readOnlyReport("reconciliationAuthorityVerify.sql"); const d = diff(s0, await snapshot()); const m = asMap(rows);
+    return d.length === 0 && rows.every((r) => r.ok === true) && m.legacy_clean_uploads_not_complete === 1 && m.legacy_clean_reconciliations_not_complete === 1 ? true : { rows, d };
+  });
 
   console.log("\n== Preserved: the product's client writes behave identically before and after");
   const legitAfter = await runLegit();
@@ -421,6 +440,8 @@ async function main() {
     return ok ? true : g;
   });
   await check("the gate stays service-role only", async () => { const r = await attempt(U.owner, "SELECT * FROM public.maono_check_safisha_gate($1::uuid[])", [[M1.up]]); return !r.ok && r.code === "42501" ? true : r; });
+
+  await check("reconciliationAuthorityVerify.sql at the end of the run: every check still true", async () => { const rows = await readOnlyReport("reconciliationAuthorityVerify.sql"); return rows.every((r) => r.ok === true) ? true : rows; });
 
   console.log("\n== Re-apply");
   await check("applying the migration again changes no row and leaves one of each trigger", async () => {
