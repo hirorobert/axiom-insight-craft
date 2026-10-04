@@ -724,7 +724,7 @@ export function AccountReviewPanel({
 
       {displayed.length === 0 && (
         <p className="px-5 py-6 text-[13px] text-muted-foreground">
-          Every account has a decision. Save and reprocess to rebuild the statements.
+          Every account has a decision. Save and reprocess to save your classifications and recheck the trial balance.
         </p>
       )}
 
