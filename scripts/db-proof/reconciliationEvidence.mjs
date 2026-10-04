@@ -117,8 +117,13 @@ async function main() {
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;`);
-  for (const f of files) await apply(f);
-  console.log(`  migrations applied: ${files.length}`);
+  // A later reconciliation-authority migration (20261004100000) refuses the incomplete 'clean' states seeded below for
+  // every writer. When it is present they are seeded as LEGACY rows — recorded before it — and it is applied right
+  // after, exactly as on an upgraded database. Without it nothing changes.
+  const AUTHORITY = "20261004100000_reconciliation_server_authority.sql";
+  const before = files.filter((x) => x !== AUTHORITY);
+  for (const f of before) await apply(f);
+  console.log(`  migrations applied: ${before.length}${files.includes(AUTHORITY) ? ` (then ${AUTHORITY} after the legacy states)` : ""}`);
 
   const U = { owner: uuid(), reviewer: uuid(), prepareOnly: uuid(), outsider: uuid(), ownerB: uuid() };
   for (const [k, id] of Object.entries(U)) await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [id, `${k}@example.test`]);
@@ -168,6 +173,7 @@ async function main() {
   }
   // tenant B: complete, for cross-tenant reads
   S.tenantB = await upload(B, U.ownerB, 2025); { const r = await recon(S.tenantB, "clean", 2, 2, U.ownerB); await setUploadStatus(S.tenantB, "clean"); void r; }
+  if (files.includes(AUTHORITY)) await apply(AUTHORITY);
 
   const raw = async (up) => (await one("SELECT u.safisha_status s, r.status r FROM public.trial_balance_uploads u LEFT JOIN public.safisha_reconciliations r ON r.tb_upload_id=u.id WHERE u.id=$1", [up]));
   console.log("\n== What the database itself records (raw statuses after the REAL resolve RPC)");
