@@ -175,6 +175,20 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/reportingPackSeal.mjs",
       "supabase/functions/_shared/reportingPackSeal.d.mts",
       "supabase/functions/seal-reporting-pack/index.ts",
+      // Trial-balance ingestion integrity: the pure ingestion core process-trial-balance runs on an upload (exact
+      // minor-unit money, explicit period and currency, one identity per account, safe totals, row lineage) and the
+      // bytes → rows reader it uses. Pure modules; no schema, no new Edge Function.
+      "supabase/functions/_shared/tbIngestion.ts",
+      "supabase/functions/_shared/tbSource.ts",
+      // ...and its Deno function-path tests: the real handler with only the network edges (Supabase client, std serve)
+      // replaced by in-memory doubles through an import map used by the tests alone. Never deployed (not under a
+      // function's entry point), no schema.
+      "supabase/functions/process-trial-balance/functionpath/functionPath.test.ts",
+      "supabase/functions/process-trial-balance/functionpath/supabaseDouble.ts",
+      "supabase/functions/process-trial-balance/functionpath/serverDouble.ts",
+      "supabase/functions/process-trial-balance/functionpath/import_map.json",
+      // ...and the mixed-version probe (the same doubles over the release scenarios, for scripts/compat/tbMixedVersions.mjs).
+      "supabase/functions/process-trial-balance/functionpath/compatProbe.ts",
     ]);
     const modified = new Set([
       "supabase/functions/_shared/serviceEnquiryContract.ts",
@@ -226,6 +240,12 @@ describe("database inertness — schema and functions", () => {
       // Pure, database-free migration-ordering predicates shared by run.mjs and serviceEnquiries.mjs (already reviewed above),
       // replacing their prior files.length-N / slice(-N,-M) positional assumptions. No new dependency, no deploy behavior change.
       "scripts/db-proof/migrationOrderingChecks.mjs",
+      // Readiness evidence under real RLS: loopback-only; creates and drops ONLY its own uniquely named database; reads
+      // through the app's own readReconciliationEvidence; probes (never changes) the write surface. No deploy behaviour.
+      "scripts/db-proof/reconciliationEvidence.mjs",
+      // Old/new client × old/new server for the trial-balance release: git-extracted versions, Deno + in-memory doubles,
+      // no network database, no deploy behaviour.
+      "scripts/compat/tbMixedVersions.mjs",
       // The account-home hotfix's disposable proof (loopback-only; creates and drops ONLY its own uniquely named
       // database; raw vs application-confirmed concurrency outcomes). No deploy behaviour.
       "scripts/db-proof/hubTrialBalanceReview.mjs",

@@ -37,6 +37,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { fetchWorkspaceSnapshot } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { WorkspaceCompany, WorkspaceUpload } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { WorkspaceState } from "@/lib/workspace/types";
+import type { EvidenceRead } from "@/lib/workspace/trialBalanceReadiness";
 import type { EngagementCapability } from "@/lib/workspace/mandate";
 import { mapWithConcurrencyLimit, aggregateSettledResults } from "@/lib/workspace/concurrencyLimit";
 import { resolveActiveSession, endExpiredSession, handleIfAuthorizationFailure } from "@/lib/auth/sessionGuard";
@@ -58,6 +59,8 @@ export interface ActiveEngagementEntry {
   workspaceState: WorkspaceState;
   /** The current upload's evidence-reconciliation status (trial_balance_uploads.safisha_status), read-only. */
   safishaStatus?: string | null;
+  /** The current upload's latest reconciliation record (trialBalanceReadiness requires evidence actually compared). */
+  reconciliation?: EvidenceRead;
   openedAt: string;
 }
 
@@ -250,6 +253,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
             capabilities,
             workspaceState: snapshot.workspaceState,
             safishaStatus: snapshot.upload?.safisha_status ?? null,
+            reconciliation: snapshot.upload?.reconciliation,
             openedAt: eng.opened_at,
           };
         },

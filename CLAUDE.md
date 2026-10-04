@@ -377,6 +377,7 @@ src/
       moduleAvailability.ts   ← ONE customer-facing availability boundary: only Trial balance review (UNPROVEN_MODULES_CUSTOMER_VISIBLE = false; §9.2)
       sourceUpload.ts         ← ONLY browser path for a trial balance source: reserve → signed workspace-scoped upload → register
       trialBalanceVerdict.ts          ← THE trial balance presentation model (status, reason, totals, checks, primary action, evidence unlock) from the certification ledger; card, checks, ledger, Overview and workspace state all read it
+      trialBalanceReadiness.ts        ← THE definition of "Trial balance ready": certified checks + every classification confirmed + a clean reconciliation that matched at least one line (never arithmetic balance alone)
       trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client
       classificationPresentation.ts   ← Pure deterministic 7-state classification presentation (FAILED/PROCESSING/INCONSISTENT/COMPLETE_WITH_REVIEW/PARTIAL/COMPLETE_NO_REVIEW/NOT_COMPUTED) for WorkspaceOverview. "Classified" means mapping_completeness.mapped_accounts (Tier 1-5) — never summary.auto_classified (Tier 4-5 only).
       classificationAcceptanceFixtures.ts ← Deterministic fixture inputs (one per classification state) for the internal /internal/acceptance/classification-states dev-only page. No Supabase, no randomness.
@@ -386,6 +387,8 @@ src/
       packLoader.ts           ← ONLY module allowed to import a pack (dynamic import() only)
       packTypes.ts            ← Jurisdiction pack contract (panels by id)
       taxProfile.ts           ← Tax-profile warnings (conditional on jurisdiction, never global)
+    ingestion/
+      trialBalanceTemplate.ts ← Downloadable header-only template + balanced, "Example —"-marked sample (refused if uploaded unchanged); formula-safe CSV; the file rules shown beside the uploader
     computeComplianceScore.ts ← Pure scoring engine (no DB writes)
     normalizeAccountName.ts   ← Account name normalisation
 
@@ -471,6 +474,8 @@ supabase/
   functions/
     _shared/
       auth.ts                 ← CANONICAL shared auth utilities (see section 5)
+      tbIngestion.ts          ← THE trial-balance ingestion core (pure): exact minor-unit money, explicit period + currency, one identity per account, safe totals, complete row lineage, review policy, milestones
+      tbSource.ts             ← Bytes → rows → ingestion (CSV strict UTF-8 / RFC 4180; one trial-balance sheet per workbook); SheetJS injected so tests run the same code
     kinga-tax-engine/         ← ITA Cap.332 engine. Has idempotency + engine_runs.
     process-trial-balance/    ← TB ingestion + classification
     trial-balance-storage-cleanup/ ← Authorized, server-verified removal of an upload operation's bound file (PR #32)

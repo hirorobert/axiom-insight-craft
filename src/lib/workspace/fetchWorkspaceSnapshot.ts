@@ -18,6 +18,7 @@ import { computeCertificationReadiness } from "./computeCertificationReadiness";
 import { readTrialBalanceTotals } from "./trialBalanceVerdict";
 import { fetchCertificationReadiness } from "@/hooks/useCertificationReadiness";
 import type { WorkspaceState, UploadSnapshot } from "./types";
+import { effectiveSafishaStatus, readReconciliationEvidence, type EvidenceRead, type EvidenceReadClient } from "./trialBalanceReadiness";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type JsonCompatible = any;
@@ -49,6 +50,11 @@ export interface WorkspaceUpload {
   source_file_hash?: string | null;
   /** Set when this upload replaced an earlier one; an unprocessed replacement is removed by cancelling it. */
   replaces_upload_id?: string | null;
+  /**
+   * NOT a column: the upload's latest reconciliation record (safisha_reconciliations), read alongside it so readiness
+   * (trialBalanceReadiness) can require that evidence was actually compared. null when there is none or it cannot be read.
+   */
+  reconciliation?: EvidenceRead;
 }
 
 export interface WorkspaceCompany {
@@ -118,7 +124,9 @@ function toUploadSnapshot(
     periodYear,
     status: upload.status,
     isValid: upload.is_valid,
-    safishaStatus: upload.safisha_status ?? null,
+    // A "clean" status whose readable reconciliation is NOT complete (partial, escalated, pending, rejected) unlocks
+    // nothing: the workspace state engine sees it as still under review (trialBalanceReadiness.effectiveSafishaStatus).
+    safishaStatus: effectiveSafishaStatus(upload.safisha_status ?? null, upload.reconciliation),
     uploadedAt: upload.uploaded_at,
     processedAt: upload.processed_at,
     hasMapping: !!upload.processing_result?.mapping,
@@ -172,7 +180,7 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
     derivePeriodYear: (u) => deriveFiscalPeriod(u, company).periodYear,
   });
 
-  const [hesabuRes, kingaRes, filingRes] = await Promise.all([
+  const [hesabuRes, kingaRes, filingRes, reconciliation] = await Promise.all([
     match
       ? supabase
           .from("hesabu_validations")
@@ -199,7 +207,9 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    match ? readReconciliationEvidence(supabase as unknown as EvidenceReadClient, match.id) : Promise.resolve(undefined),
   ]);
+  if (match) match.reconciliation = reconciliation;
 
   const hesabuPassedAt = (hesabuRes.data as { validated_at: string } | null)?.validated_at ?? null;
   const kingaSignedAt = (kingaRes.data as { approver_signed_at: string } | null)?.approver_signed_at ?? null;

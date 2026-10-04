@@ -625,10 +625,7 @@ export default function PrepareWorkspace() {
                 />
               </SurfaceCardBody>
             </SurfaceCard>
-            <TrialBalanceTemplateGuide
-              companyName={company?.name ?? undefined}
-              periodYear={periodYear}
-            />
+            <TrialBalanceTemplateGuide />
             </div>
           )}
 

@@ -1,0 +1,14 @@
+Trial balance as at 31 December 2025
+Code,Account,Dr,Cr
+,CURRENT ASSETS,,
+1000,Cash at bank,500000,
+1100,Receivables,250000,
+,Total current assets,750000,
+,EQUITY AND LIABILITIES,,
+2000,Payables,,150000
+3000,Capital,,400000
+,Sub-total,,550000
+,REVENUE AND EXPENSES,,
+4000,Revenue,,600000
+6000,Operating expenses,400000,
+,Grand total,1150000,1150000
