@@ -26,6 +26,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -185,7 +186,10 @@ function applyMapping(
 // ── Load saved column mapping ─────────────────────────────────────────────────
 
 async function loadMapping(
-  supabase: ReturnType<typeof createClient>,
+  // A schema-less client (as in _shared/actor.ts): `ReturnType<typeof createClient>` collapses the row type to `never`,
+  // which made this read a type error under deno check. The query itself is unchanged.
+  // deno-lint-ignore no-explicit-any
+  supabase: SupabaseClient<any, "public", any>,
   clientId: string,
   sourceType: string
 ): Promise<Record<string, string> | null> {
@@ -195,7 +199,7 @@ async function loadMapping(
     .eq("client_id", clientId)
     .eq("source_type", sourceType)
     .single();
-  return data?.column_mapping ?? null;
+  return (data as { column_mapping?: Record<string, string> | null } | null)?.column_mapping ?? null;
 }
 
 // ── Task #177: DQC polarity / sign validation ────────────────────────────────
