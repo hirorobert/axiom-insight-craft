@@ -1,8 +1,9 @@
 -- Guarded native application of supabase/migrations/20261004100000_reconciliation_server_authority.sql
 -- (34236 bytes, SHA-256 befca97c5f8fe1a1a8f1d13ab05100facf29417de5d32ab6aa6f2eb214d3425d; approved main bf86417459003490e75cc3fd33e2ad83366f5fb1).
--- One migrator transaction: this guard, the approved source byte for byte, its postconditions and the ledger record; the
--- migrator records its journal row in the same transaction. A second application — a retry, a stale or a concurrent
--- migrator run — is REFUSED (SQLSTATE 55000), never a silent no-op, so it rolls back together with its journal row.
+-- One transaction: this guard, the approved source byte for byte, its postconditions and the ledger record; the executor
+-- records this entry's journal row in the same transaction. A second application (a retry, a stale or a concurrent
+-- invocation) or an application before its prerequisite is REFUSED (SQLSTATE 55000), never a silent no-op, so it rolls
+-- back together with its journal row.
 DO $release_guard$
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_release_ledger', 0));

@@ -432,7 +432,12 @@ jobs:
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
         run: bun scripts/db-proof/safishaIngestion.mjs
 
-      - name: Release application through the real drizzle-orm migrator (proposed noop wrappers, release_verbatim and guarded entries — single run, retry, re-application, staggered and simultaneous runs, payload and postcondition failure, staging and ledger privileges; creates and drops its own databases)
+      - name: Release application under Lovable's stated hosted-executor contract (one invocation per entry, its own transaction with its journal row; 0027 committed and 0028 failed with the real safisha-ingest/-match/-resolve handlers gated; recovery of the unapplied entry only; prerequisite order; concurrency under three isolation levels; lost responses resolved by the read-only inspection; creates and drops its own databases)
+        env:
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: bun scripts/db-proof/hostedExecutorRelease.mjs
+
+      - name: Release entries, repository compatibility through the real drizzle-orm migrate() (not a proof of the hosted executor; earlier noop wrappers, release_verbatim and guarded entries — single run, retry, re-application, staggered and simultaneous runs, payload and postcondition failure, staging and ledger privileges; creates and drops its own databases)
         env:
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
         run: node scripts/db-proof/migratorRelease.mjs

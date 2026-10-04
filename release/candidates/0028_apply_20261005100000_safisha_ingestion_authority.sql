@@ -1,8 +1,9 @@
 -- Guarded native application of supabase/migrations/20261005100000_safisha_ingestion_authority.sql
 -- (28693 bytes, SHA-256 d814bbebeeaa541cbbe703aa3c037759e0b41882f7c64575f58ee3ed24bcc425; approved main bf86417459003490e75cc3fd33e2ad83366f5fb1).
--- One migrator transaction: this guard, the approved source byte for byte, its postconditions and the ledger record; the
--- migrator records its journal row in the same transaction. A second application — a retry, a stale or a concurrent
--- migrator run — is REFUSED (SQLSTATE 55000), never a silent no-op, so it rolls back together with its journal row.
+-- One transaction: this guard, the approved source byte for byte, its postconditions and the ledger record; the executor
+-- records this entry's journal row in the same transaction. A second application (a retry, a stale or a concurrent
+-- invocation) or an application before its prerequisite is REFUSED (SQLSTATE 55000), never a silent no-op, so it rolls
+-- back together with its journal row.
 DO $release_guard$
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_release_ledger', 0));
@@ -15,6 +16,9 @@ BEGIN
   REVOKE ALL ON public._release_migration_ledger FROM PUBLIC, anon, authenticated, service_role;
   IF EXISTS (SELECT 1 FROM public._release_migration_ledger WHERE source = '20261005100000_safisha_ingestion_authority.sql') THEN
     RAISE EXCEPTION 'RELEASE_ALREADY_APPLIED: 20261005100000_safisha_ingestion_authority.sql is already recorded; nothing was changed' USING ERRCODE = '55000';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public._release_migration_ledger WHERE source = '20261004100000_reconciliation_server_authority.sql' AND source_sha256 = 'befca97c5f8fe1a1a8f1d13ab05100facf29417de5d32ab6aa6f2eb214d3425d') THEN
+    RAISE EXCEPTION 'RELEASE_PREREQUISITE_MISSING: 20261005100000_safisha_ingestion_authority.sql requires 20261004100000_reconciliation_server_authority.sql to be applied first; nothing was changed' USING ERRCODE = '55000';
   END IF;
 END
 $release_guard$;

@@ -1,16 +1,20 @@
 #!/usr/bin/env node
-// Release-application proof for 20261004100000 + 20261005100000 through the REAL native-compatible migrator: drizzle-orm's
-// own migrate() (the version this repository pins), which reads the latest journal row, then applies every pending entry
-// and inserts its journal row inside ONE transaction. Nothing here reimplements the migrator.
+// REPOSITORY-COMPATIBILITY proof for 20261004100000 + 20261005100000 through drizzle-orm's own migrate() (the version
+// this repository pins), which reads the latest journal row, then applies every pending entry and inserts its journal row
+// inside ONE transaction. Nothing here reimplements that migrator.
 //
-// A disposable PostgreSQL is brought to the production-equivalent state (every source migration through 20261002100000,
-// the PR #34 release staging table from journal entries 0013/0014, and the hosted journal reproduced from
-// drizzle/migrations/meta/_journal.json with drizzle's own hashes). Each variant then gets a fresh copy of that database
-// and a migrations folder = this repository's drizzle/migrations plus the two candidate entries 0027 and 0028:
+// This is NOT a proof of Lovable's hosted executor. Lovable has stated that its hosted tool does not use drizzle-orm
+// migrate(): each invocation runs ONE submitted SQL string in its own transaction together with that entry's journal row.
+// That contract is proven by scripts/db-proof/hostedExecutorRelease.mjs. This proof keeps the entries correct for anyone
+// who replays this repository's drizzle/migrations with drizzle-orm (a migration away from Lovable, a local rebuild).
 //
-//   wrapper   the proposed plan: entries rendered EXACTLY from the reviewed verbatim_noop_main template
-//             (scripts/ci/releaseJournal.mjs), bodies staged in public._pr34_migration_bodies as sandbox_exec;
-//   verbatim  the latest lineage (0025/0026): each entry is the source file byte for byte.
+// The production-equivalent base (scripts/db-proof/lib/releaseBase.mjs) gets, per variant, a fresh copy and a migrations
+// folder = this repository's drizzle/migrations plus the two candidate entries 0027 and 0028:
+//
+//   wrapper   the earlier proposal: entries rendered EXACTLY from the reviewed verbatim_noop_main template
+//             (scripts/ci/releaseJournal.mjs), bodies staged in public._pr34_migration_bodies;
+//   verbatim  the latest lineage (0025/0026): each entry is the source file byte for byte;
+//   guarded   release/candidates/ (scripts/release/guardedEntry.mjs).
 //
 // For each: single run (journal rows, full schema postconditions via both read-only verification files), retry, a
 // re-application of an entry inside a migrator-style transaction (what a second migrator pass does), concurrent migrator
@@ -24,29 +28,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import crypto from "node:crypto";
-import { createRequire } from "node:module";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import { TEMPLATES } from "../ci/releaseJournal.mjs";
-import { RELEASE_2026_10, checkGuardedEntry, renderGuardedEntry } from "../release/guardedEntry.mjs";
+import { RELEASE_2026_10, checkGuardedEntry } from "../release/guardedEntry.mjs";
+import { Client, DRIZZLE_DIR, Pool, REPO, SRC_DIR, journal, releaseServer, sha256 } from "./lib/releaseBase.mjs";
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const REPO = path.resolve(HERE, "../..");
-const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
-const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
-const SOURCES = {
-  "0027": { tag: "0027_apply_20261004100000_reconciliation_server_authority", source: "20261004100000_reconciliation_server_authority.sql",
-    bytes: 34236, digest: "befca97c5f8fe1a1a8f1d13ab05100facf29417de5d32ab6aa6f2eb214d3425d", verify: "reconciliationAuthorityVerify.sql" },
-  "0028": { tag: "0028_apply_20261005100000_safisha_ingestion_authority", source: "20261005100000_safisha_ingestion_authority.sql",
-    bytes: 28693, digest: "d814bbebeeaa541cbbe703aa3c037759e0b41882f7c64575f58ee3ed24bcc425", verify: "safishaIngestionVerify.sql" },
-};
-const APPROVED_HEAD = "bf86417459003490e75cc3fd33e2ad83366f5fb1";
-const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
-const req = createRequire(MODULES_DIR ? path.join(path.resolve(MODULES_DIR), "noop.js") : import.meta.url);
-const { Pool, Client } = req("pg");
+const SOURCES = { "0027": RELEASE_2026_10.entries[0], "0028": RELEASE_2026_10.entries[1] };
+const APPROVED_HEAD = RELEASE_2026_10.head;
 const { drizzle } = await import("drizzle-orm/node-postgres");
 const { migrate } = await import("drizzle-orm/node-postgres/migrator");
-const { readMigrationFiles } = await import("drizzle-orm/migrator");
 
 const results = [];
 const findings = [];
@@ -55,69 +44,12 @@ async function check(name, fn) {
   try { const r = await fn(); record(name, r === true, r === true ? "" : JSON.stringify(r)); } catch (e) { record(name, false, String(e?.message ?? e).split("\n")[0]); }
 }
 const observe = (name, value) => { findings.push({ name, value }); console.log(`  OBSERVED  ${name}: ${JSON.stringify(value)}`); };
-const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
 
-// ── Disposable server ───────────────────────────────────────────────────────────────────────────────────────────────
-const RUN = `${process.pid}_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
-let server, dir, maintenanceUrl;
-const created = [];
-async function startServer() {
-  let url = process.env.DB_PROOF_CONN;
-  if (!url) {
-    const modDir = MODULES_DIR ? path.resolve(MODULES_DIR) : REPO;
-    const { default: EmbeddedPostgres } = await import(pathToFileURL(path.join(modDir, "node_modules/embedded-postgres/dist/index.js")).href);
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), "cfoclose-migrator-proof-"));
-    const port = 57000 + Math.floor(Math.random() * 900);
-    server = new EmbeddedPostgres({ databaseDir: path.join(dir, "data"), user: "postgres", password: "postgres", port, persistent: false, createPostgresUser: typeof process.getuid === "function" && process.getuid() === 0, initdbFlags: ["--encoding=UTF8", "--locale=C"], onLog: () => {}, onError: () => {} });
-    await server.initialise(); await server.start();
-    url = `postgres://postgres:postgres@localhost:${port}/postgres`;
-  }
-  const u = new URL(url);
-  if (!["localhost", "127.0.0.1"].includes(u.hostname) || url.includes(PRODUCTION_REF)) throw new Error("REFUSED: not a disposable local database");
-  maintenanceUrl = url;
-}
-const dbUrl = (name) => { const u = new URL(maintenanceUrl); u.pathname = `/${name}`; return u.toString(); };
-async function admin(sql, params) { const c = new Client({ connectionString: maintenanceUrl, ssl: false }); await c.connect(); try { return await c.query(sql, params); } finally { await c.end(); } }
-async function cleanup() {
-  for (const n of created.reverse()) { try { await admin(`DROP DATABASE IF EXISTS "${n}" WITH (FORCE)`); } catch { /* */ } }
-  try { await server?.stop(); } catch { /* */ } try { if (dir) fs.rmSync(dir, { recursive: true, force: true }); } catch { /* */ }
-}
-
-// ── The production-equivalent base ──────────────────────────────────────────────────────────────────────────────────
-const SRC_DIR = path.join(REPO, "supabase/migrations");
-const DRIZZLE_DIR = path.join(REPO, "drizzle/migrations");
-const journal = JSON.parse(fs.readFileSync(path.join(DRIZZLE_DIR, "meta/_journal.json"), "utf8"));
-async function buildBase() {
-  const name = `migrator_base_${RUN}`; await admin(`CREATE DATABASE "${name}"`); created.push(name);
-  const db = new Client({ connectionString: dbUrl(name), ssl: false }); await db.connect();
-  try {
-    await db.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));
-    await db.query(`GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
-      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
-      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
-      DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sandbox_exec') THEN CREATE ROLE sandbox_exec NOLOGIN; END IF; END $$;
-      GRANT USAGE ON SCHEMA public TO sandbox_exec;`);
-    const release = new Set(Object.values(SOURCES).map((s) => s.source));
-    const files = fs.readdirSync(SRC_DIR).filter((f) => f.endsWith(".sql") && !release.has(f)).sort();
-    for (const f of files) {
-      let t = fs.readFileSync(path.join(SRC_DIR, f), "utf8");
-      if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
-      await db.query(t);
-    }
-    // The PR #34 release staging infrastructure exactly as journal entries 0013 and 0014 created it.
-    await db.query(fs.readFileSync(path.join(DRIZZLE_DIR, "0013_pr34_probe_session_identity.sql"), "utf8"));
-    await db.query(fs.readFileSync(path.join(DRIZZLE_DIR, "0014_pr34_release_staging_table.sql"), "utf8"));
-    // The hosted journal: every existing entry, with drizzle's own hash and created_at.
-    const existing = readMigrationFiles({ migrationsFolder: DRIZZLE_DIR });
-    await db.query("CREATE SCHEMA IF NOT EXISTS drizzle; CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)");
-    for (const m of existing) await db.query("INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1,$2)", [m.hash, m.folderMillis]);
-    return { name, applied: files.length, journalRows: existing.length };
-  } finally { await db.end(); }
-}
-async function copyOf(base, label) {
-  const name = `migrator_${label}_${RUN}`; await admin(`CREATE DATABASE "${name}" TEMPLATE "${base}"`); created.push(name); return dbUrl(name);
-}
+const PG = releaseServer("migrator");
+const startServer = () => PG.start();
+const cleanup = () => PG.cleanup();
+const buildBase = () => PG.buildBase(Object.values(SOURCES).map((s) => s.source));
+const copyOf = (base, label) => PG.copyOf(base, label);
 
 // ── Candidate entries and migrations folders ────────────────────────────────────────────────────────────────────────
 const sourceBytes = (s) => fs.readFileSync(path.join(SRC_DIR, s.source));
@@ -188,7 +120,7 @@ async function asRole(url, role, sql, params) {
 const outcomes = (rs) => rs.map((r) => (r.ok ? "ok" : r.code));
 
 async function main() {
-  console.log("\n== Sources and lineage");
+  console.log("\n== Repository compatibility (drizzle-orm migrate(); NOT a proof of the hosted executor): sources and lineage");
   await check("both approved sources are byte-identical to the approved sizes and digests", () => {
     const bad = Object.values(SOURCES).filter((s) => { const b = sourceBytes(s); return b.length !== s.bytes || sha256(b) !== s.digest; });
     return bad.length === 0 ? true : bad.map((s) => s.source);
@@ -199,7 +131,7 @@ async function main() {
   });
   await check("the committed candidate entries are exactly the guarded rendering of the approved sources", () => {
     const bad = RELEASE_2026_10.entries.filter((e) => checkGuardedEntry(fs.readFileSync(path.join(REPO, "release/candidates", `${e.tag}.sql`), "utf8"),
-      { source: e.source, head: RELEASE_2026_10.head, repoRoot: REPO, verify: e.verify }).length > 0);
+      { source: e.source, head: RELEASE_2026_10.head, repoRoot: REPO, verify: e.verify, requires: e.requires }).length > 0);
     return bad.length === 0 ? true : bad.map((e) => e.tag);
   });
 
@@ -212,7 +144,7 @@ async function main() {
     const stageBoth = async (url) => { for (const s of Object.values(SOURCES)) await stage(url, s); };
 
     // ── 1. The proposed plan: verbatim_noop_main wrappers over public._pr34_migration_bodies ─────────────────────────
-    console.log("\n== Proposed plan: verbatim_noop_main wrappers over the PR #34 staging table (measured facts)");
+    console.log("\n== Earlier proposal: verbatim_noop_main wrappers over the PR #34 staging table (measured facts)");
     const W = folderFor("wrapper", wrapperFor);
     { const url = await copyOf(base.name, "w_stage_role");
       const r = await asRole(url, "sandbox_exec", "INSERT INTO public._pr34_migration_bodies (name, body, sha256_hex) VALUES ($1,'x','x')", [SOURCES["0027"].source]);
@@ -271,7 +203,7 @@ async function main() {
         () => first.ok && second.ok && j["0027"] === 2 && j["0028"] === 2 ? true : { first, second, j }); }
 
     // ── 3. The guarded entries (recommended) ───────────────────────────────────────────────────────────────────────
-    console.log("\n== Guarded entries: refuse a second application; postconditions and ledger in the same transaction (asserted)");
+    console.log("\n== Guarded entries: refuse a second application; postconditions and ledger in the same migrate() transaction (asserted)");
     const G = folderFor("guarded", (s) => fs.readFileSync(path.join(REPO, "release/candidates", `${s.tag}.sql`), "utf8"));
     const guardedSql = (s) => fs.readFileSync(path.join(REPO, "release/candidates", `${s.tag}.sql`), "utf8");
     const ledger = async (url) => (await q(url, "SELECT source, source_sha256 FROM public._release_migration_ledger ORDER BY source").catch(() => []));
