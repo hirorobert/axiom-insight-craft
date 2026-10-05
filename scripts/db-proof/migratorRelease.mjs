@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// OBSOLETE (2026-10-05) — handoff r5 is void: hosted journal entry 0027 is the applied account-review digest fix
+// (20261003100000), so r5's proposed 0027/0028 numbering conflicts with the hosted journal. Parked, NOT run in CI, and never
+// to be applied as it stands. See release/candidates/OBSOLETE.md.
 // REPOSITORY-COMPATIBILITY proof for 20261004100000 + 20261005100000 through drizzle-orm's own migrate() (the version
 // this repository pins), which reads the latest journal row, then applies every pending entry and inserts its journal row
 // inside ONE transaction. Nothing here reimplements that migrator.

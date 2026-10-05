@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+// OBSOLETE (2026-10-05) — handoff r5 is void: hosted journal entry 0027 is the applied account-review digest fix
+// (20261003100000), so r5's proposed 0027/0028 numbering conflicts with the hosted journal. Parked, NOT run in CI, and never
+// to be applied as it stands. See release/candidates/OBSOLETE.md.
 // Release-application proof for 20261004100000 + 20261005100000 under LOVABLE'S STATED HOSTED-EXECUTOR CONTRACT
 // (Lovable's executor report, 2026-10-05): the hosted tool takes ONE SQL string per invocation and runs it in its own
 // transaction, inserting that entry's drizzle.__drizzle_migrations row in the SAME transaction; two entries are two

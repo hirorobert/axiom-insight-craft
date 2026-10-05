@@ -1,4 +1,5 @@
 /**
+ * OBSOLETE (2026-10-05): handoff r5 is void (see release/candidates/OBSOLETE.md); this keeps the parked texts exact.
  * The guarded release entries for 20261004100000 / 20261005100000 and their read-only inspection
  * (scripts/release/guardedEntry.mjs). Their behaviour under Lovable's stated hosted-executor contract — one invocation, one
  * transaction with its journal row; 0027 committed and 0028 failed; recovery; concurrency; lost responses — is proven by
@@ -86,9 +87,15 @@ describe("guarded release entries", () => {
     expect(text).not.toMatch(/^\s*(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|GRANT|REVOKE|TRUNCATE)\b/im);
   });
 
-  it("both proofs run in CI", () => {
+  it("r5 is OBSOLETE: its proofs are retired from CI and every r5 artifact says so (parked, never applied as it stands)", () => {
     const ci = read(".github/workflows/ci.yml");
-    expect(ci).toContain("run: node scripts/db-proof/migratorRelease.mjs");
-    expect(ci).toContain("run: bun scripts/db-proof/hostedExecutorRelease.mjs");
+    expect(ci).not.toMatch(/run: \S+ scripts\/db-proof\/(migratorRelease|hostedExecutorRelease)\.mjs/);
+    for (const f of ["scripts/db-proof/hostedExecutorRelease.mjs", "scripts/db-proof/migratorRelease.mjs", "scripts/release/guardedEntry.mjs"]) {
+      expect(read(f), f).toContain("OBSOLETE (2026-10-05)");
+    }
+    expect(read("release/candidates/OBSOLETE.md")).toMatch(/^# OBSOLETE/);
+    // Hosted 0027 is the applied digest fix, not r5's entry.
+    const journal = JSON.parse(read("drizzle/migrations/meta/_journal.json")) as { entries: { idx: number; tag: string }[] };
+    expect(journal.entries.find((e) => e.idx === 27)?.tag).toBe("0027_account_review_digest_schema_qualification");
   });
 });

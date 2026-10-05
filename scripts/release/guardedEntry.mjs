@@ -1,3 +1,6 @@
+// OBSOLETE (2026-10-05) — handoff r5 is void: hosted journal entry 0027 is the applied account-review digest fix
+// (20261003100000), so r5's proposed 0027/0028 numbering conflicts with the hosted journal. Parked, NOT run in CI, and never
+// to be applied as it stands. See release/candidates/OBSOLETE.md.
 // Guarded release entries for the approved release sources (reviewed alongside scripts/db-proof/hostedExecutorRelease.mjs and
 // scripts/db-proof/migratorRelease.mjs).
 //

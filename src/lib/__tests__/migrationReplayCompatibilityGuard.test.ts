@@ -197,7 +197,10 @@ describe("migration directory integrity", () => {
     // computed and recorded by the server; no existing row changes).
     // Bumped from 146 -> 147: 20261005100000_safisha_ingestion_authority.sql, a NEW forward-only migration (evidence ingestion through
     // one serialized server path; additive nullable provenance columns; no existing row changes).
-    expect(files.length).toBe(147);
+    // Bumped from 147 -> 148: 20261003100000_account_review_digest_schema_qualification.sql, applied by Lovable as hosted journal entry 0027
+    // (re-creates resolve_account_review_batch with ONE call qualified as extensions.digest; pinned by
+    // accountReviewDigestQualification.test.ts). No applied migration is edited.
+    expect(files.length).toBe(148);
   });
 });
 
