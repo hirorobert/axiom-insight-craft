@@ -18,6 +18,8 @@ const APPLIED: Record<string, string> = {
   "20260925150000_can_user_act_on_workspace_minimum_grant.sql": "3011c3414d7a0b5811015218ae35f8721663eaa32ddd7e5233f269fcb91daacb",
   // Applied in production by Lovable (Drizzle 0022, reviewed at f21a58f).
   "20260926160000_trial_balance_processing_entitlement_wall.sql": "d032fb0821210b59937e8f513d5de126fb31bbcffff151a91d459dd33914e868",
+  // Applied in production by Lovable (hosted journal entry 0027, when 1791137643914; the classification-save digest fix).
+  "20261003100000_account_review_digest_schema_qualification.sql": "2776fc2b0e6e18005b0700b966c2d66ca1910429e03bb3554c3f47d4cbf459ff",
 };
 
 describe("applied migrations are immutable", () => {

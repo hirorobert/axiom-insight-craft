@@ -104,6 +104,10 @@ describe("database inertness — schema and functions", () => {
       // Withheld-service grant refusal (forward-only; one AFTER INSERT trigger on engagement_mandate_events refusing NEW
       // grants of TAX_COMPUTATION / COMPLIANCE_REVIEW / FILING_PREPARATION / MONITORING; no row changed). No financial-statements schema.
       "supabase/migrations/20261002100000_refuse_withheld_service_grants.sql",
+      // Classification-save fix (applied as hosted journal entry 0027): re-creates resolve_account_review_batch identical to
+      // 20260925140000 except ONE call schema-qualified as extensions.digest (pinned by accountReviewDigestQualification.test.ts).
+      // No financial-statements schema.
+      "supabase/migrations/20261003100000_account_review_digest_schema_qualification.sql",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryChallenge.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
