@@ -342,6 +342,10 @@ describe("database inertness — schema and functions", () => {
       // S1 record: the hash-verified reader of the two quarantined (never applied) reconciliation migrations, used only by
       // their revival-candidate proofs and the obsolete r5 renderer. Read-only; no deploy behaviour.
       "scripts/db-proof/lib/parkedMigrations.mjs",
+      // H2: the real process-trial-balance handler on real PostgreSQL — the characterization proof, its pure known-defect
+      // ledger rules and the ledger itself. Loopback-only; no deploy behaviour; the handler is not modified.
+      "scripts/db-proof/tbHandlerCharacterization.mjs", "scripts/db-proof/lib/defectLedger.mjs",
+      "scripts/db-proof/fixtures/h2-known-defects.json",
       "scripts/db-proof/fixtures/functions-main-e8962f2/ingest.index.ts", "scripts/db-preflight/safishaIngestionPreflight.sql",
       "scripts/db-preflight/safishaIngestionVerify.sql",
       // S1 (20261006100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.

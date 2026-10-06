@@ -6,8 +6,14 @@
 //   · `fetch` to the functions host is answered locally (function-to-function calls do nothing).
 // PostgREST conventions kept: errors are returned (never thrown) with SQLSTATE codes; an undefined function is PGRST202;
 // .single() on not-exactly-one row is PGRST116; an INSERT without .select() returns no rows (return=minimal).
+//   · Storage downloads are served from `shim.storage` (bucket/path → bytes) set by the proof;
+//   · `auth.getClaims(jwt)` decodes the test token's payload (the platform verifies signatures; the proofs mint tokens).
+// Supported query surface (anything else throws, so a handler change that needs more fails loudly): select, insert, update,
+// delete, eq, in, is (null/true/false), or ("col.eq.v" / "col.is.null|true|false" terms only), order, limit, single,
+// maybeSingle, rpc (scalar and set-returning, as PostgREST answers them).
 //
-// Used by scripts/db-proof/reconciliationFunctionMatrix.mjs and scripts/db-proof/safishaIngestion.mjs (bun).
+// Used by scripts/db-proof/reconciliationFunctionMatrix.mjs, scripts/db-proof/safishaIngestion.mjs and
+// scripts/db-proof/tbHandlerCharacterization.mjs (bun).
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +24,19 @@ export const ANON_KEY = "anon-key";
 export const FUNCTIONS_HOST = "http://functions.invalid";
 
 const ident = (s) => { if (!/^[a-z_][a-z0-9_]*$/.test(s)) throw new Error(`bad identifier ${s}`); return s; };
+const b64urlJson = (part) => JSON.parse(Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+/** The JWT subject of a three-part test token, or null. */
+export function jwtSubject(token) {
+  const parts = String(token ?? "").split(".");
+  if (parts.length !== 3) return null;
+  try { const c = b64urlJson(parts[1]); return typeof c.sub === "string" ? c.sub : null; } catch { return null; }
+}
+/** A three-part test token (unsigned: the harness stands in for the platform's verification). */
+export function mintTestJwt(sub, { expiresIn = 3600 } = {}) {
+  const enc = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  return `${enc({ alg: "none", typ: "JWT" })}.${enc({ sub, role: "authenticated", exp: Math.floor(Date.now() / 1000) + expiresIn })}.harness`;
+}
+const setReturning = new Map(); // function name → proretset (PostgREST answers a set-returning RPC with an array of rows)
 const val = (v) => (v !== null && typeof v === "object" ? JSON.stringify(v) : v);
 
 export function makeClient(pool, role, uid) {
@@ -36,10 +55,34 @@ export function makeClient(pool, role, uid) {
     } finally { c.release(); }
   };
   return {
-    auth: { getUser: async () => (role === "authenticated" && uid ? { data: { user: { id: uid } }, error: null } : { data: { user: null }, error: { message: "no user" } }) },
+    auth: {
+      getUser: async () => (role === "authenticated" && uid ? { data: { user: { id: uid } }, error: null } : { data: { user: null }, error: { message: "no user" } }),
+      getClaims: async (token) => {
+        const parts = String(token ?? "").split(".");
+        if (parts.length !== 3) return { data: null, error: { message: "invalid JWT" } };
+        try { return { data: { claims: b64urlJson(parts[1]) }, error: null }; } catch { return { data: null, error: { message: "invalid JWT" } }; }
+      },
+    },
+    storage: {
+      from: (bucket) => ({
+        download: async (p) => {
+          const bytes = shim.storage.get(`${bucket}/${p}`);
+          return bytes ? { data: new Blob([bytes]), error: null } : { data: null, error: { message: "Object not found", statusCode: "404" } };
+        },
+      }),
+    },
     async rpc(fn, args = {}) {
       const keys = Object.keys(args);
-      const r = await run(`SELECT public.${ident(fn)}(${keys.map((k, i) => `${ident(k)} => $${i + 1}`).join(", ")}) AS r`, keys.map((k) => val(args[k])));
+      const call = `public.${ident(fn)}(${keys.map((k, i) => `${ident(k)} => $${i + 1}`).join(", ")})`;
+      if (!setReturning.has(fn)) {
+        const c = await pool.connect();
+        try { setReturning.set(fn, (await c.query("SELECT bool_or(proretset) s FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname=$1", [fn])).rows[0].s === true); } finally { c.release(); }
+      }
+      if (setReturning.get(fn)) {
+        const r = await run(`SELECT * FROM ${call}`, keys.map((k) => val(args[k])));
+        return r.error ? { data: null, error: r.error } : { data: r.rows, error: null };
+      }
+      const r = await run(`SELECT ${call} AS r`, keys.map((k) => val(args[k])));
       return r.error ? { data: null, error: r.error } : { data: r.rows[0].r, error: null };
     },
     from(table) {
@@ -75,6 +118,23 @@ export function makeClient(pool, role, uid) {
         delete() { q.op = "delete"; return b; },
         eq(col, v) { q.params.push(val(v)); q.where.push(`${ident(col)} = $${q.params.length}`); return b; },
         in(col, vs) { q.params.push(vs); q.where.push(`${ident(col)} = ANY($${q.params.length})`); return b; },
+        is(col, v) {
+          if (v !== null && v !== true && v !== false) throw new Error(`is(${col}): only null/true/false`);
+          q.where.push(`${ident(col)} IS ${v === null ? "NULL" : v ? "TRUE" : "FALSE"}`); return b;
+        },
+        or(expr) {
+          // PostgREST "a.eq.v,b.is.null" — only eq and is terms; values never contain commas or parentheses here.
+          const terms = String(expr).split(",").map((t) => {
+            const m = /^([a-z_][a-z0-9_]*)\.(eq|is)\.(.*)$/.exec(t.trim());
+            if (!m) throw new Error(`or(): unsupported term ${t}`);
+            if (m[2] === "is") {
+              if (!["null", "true", "false"].includes(m[3])) throw new Error(`or(): unsupported is value ${m[3]}`);
+              return `${ident(m[1])} IS ${m[3].toUpperCase()}`;
+            }
+            q.params.push(m[3]); return `${ident(m[1])}::text = $${q.params.length}`;
+          });
+          q.where.push(`(${terms.join(" OR ")})`); return b;
+        },
         order(col, opts) { q.order = ` ORDER BY ${ident(col)} ${opts?.ascending === false ? "DESC" : "ASC"}`; return b; },
         limit(n) { q.limit = ` LIMIT ${Number(n)}`; return b; },
         single() { q.single = true; return exec(); },
@@ -87,13 +147,15 @@ export function makeClient(pool, role, uid) {
 }
 
 /** The shared state the loaded handlers use: the database pool the next request runs against. */
-export const shim = { pool: null, handler: null };
+export const shim = { pool: null, handler: null, storage: new Map() };
 globalThis.Deno = { env: { get: (k) => ({ SUPABASE_URL: FUNCTIONS_HOST, SUPABASE_ANON_KEY: ANON_KEY, SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY })[k] } };
 globalThis.__fnHarness = {
   serve: (h) => { shim.handler = h; },
   createClient: (_url, key, opts) => {
     if (key === SERVICE_KEY) return makeClient(shim.pool, "service_role", null);
-    const uid = (opts?.global?.headers?.Authorization ?? "").replace(/^Bearer\s+/, "");
+    const bearer = (opts?.global?.headers?.Authorization ?? "").replace(/^Bearer\s+/, "");
+    // A three-part token acts as its JWT subject (as PostgREST does); a bare id keeps the older proofs' convention.
+    const uid = jwtSubject(bearer) ?? bearer;
     return uid && uid !== ANON_KEY ? makeClient(shim.pool, "authenticated", uid) : makeClient(shim.pool, "anon", null);
   },
 };
@@ -114,6 +176,47 @@ export async function loadHandler(source, name) {
   await import(pathToFileURL(file).href);
   if (!shim.handler) throw new Error(`${name}: no handler registered`);
   return shim.handler;
+}
+
+/**
+ * Loads a handler that imports sibling and ../_shared modules: the function directory and _shared are copied to a temporary
+ * tree and ONLY these remote specifiers are rewritten — std serve and supabase-js to the harness, esm.sh xlsx@0.18.5 to the
+ * identical npm package in node_modules. Every other byte is the repository's. Returns the handler and the SHA-256 of the
+ * function's unmodified index.ts.
+ */
+export async function loadFunctionTree(repo, fnName) {
+  const crypto = await import("node:crypto");
+  const root = fs.mkdtempSync(path.join(tmp, `${fnName}-`));
+  for (const d of [fnName, "_shared"]) fs.cpSync(path.join(repo, "supabase/functions", d), path.join(root, d), { recursive: true });
+  const harnessSupabase = path.join(root, "__harness_supabase.mjs");
+  const harnessServe = path.join(root, "__harness_serve.mjs");
+  fs.writeFileSync(harnessSupabase, "export const createClient = (...a) => globalThis.__fnHarness.createClient(...a);\n");
+  fs.writeFileSync(harnessServe, "export const serve = (h) => globalThis.__fnHarness.serve(h);\n");
+  const xlsx = pathToFileURL(path.join(repo, "node_modules/xlsx/xlsx.mjs")).href;
+  const REMOTE = {
+    "https://esm.sh/@supabase/supabase-js@2": (dir) => rel(dir, harnessSupabase),
+    "https://deno.land/std@0.168.0/http/server.ts": (dir) => rel(dir, harnessServe),
+    "https://esm.sh/xlsx@0.18.5": () => xlsx,
+  };
+  const rel = (dir, p) => { const r = path.relative(dir, p).split(path.sep).join("/"); return r.startsWith(".") ? r : `./${r}`; };
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      // Test files and the Deno function-path doubles are never part of a handler's import graph.
+      if (e.isDirectory()) { if (e.name !== "functionpath") walk(p); continue; }
+      if (!/\.ts$/.test(e.name) || /(_test|\.test)\.ts$/.test(e.name)) continue;
+      let t = fs.readFileSync(p, "utf8");
+      for (const [spec, to] of Object.entries(REMOTE)) t = t.split(`"${spec}"`).join(JSON.stringify(to(path.dirname(p))));
+      if (/from\s+"https?:/.test(t)) throw new Error(`${path.relative(root, p)}: a remote import the harness does not map`);
+      fs.writeFileSync(p, t);
+    }
+  };
+  walk(root);
+  const sourceSha256 = crypto.createHash("sha256").update(fs.readFileSync(path.join(repo, "supabase/functions", fnName, "index.ts"))).digest("hex");
+  shim.handler = null;
+  await import(pathToFileURL(path.join(root, fnName, "index.ts")).href);
+  if (!shim.handler) throw new Error(`${fnName}: no handler registered`);
+  return { handler: shim.handler, sourceSha256 };
 }
 
 /** One request to a loaded handler, as `bearer` (a user id, or null for an anonymous call), against `pool`. */

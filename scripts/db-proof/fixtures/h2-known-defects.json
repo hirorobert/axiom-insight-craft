@@ -1,0 +1,35 @@
+{
+  "_doc": [
+    "H2 known-defect ledger for scripts/db-proof/tbHandlerCharacterization.mjs (blueprint Revision 2 defect ledger).",
+    "Each signature is the EXACT value the deployed-equivalent handler (process-trial-balance at main af8a96b) produces for the probe's fixture, recorded from a real-handler, real-PostgreSQL run.",
+    "A probe counts as 'defect reproduced' (never a pass) only when the observed value equals this signature AND differs from the probe's independent oracle (bigint minor units, class-side table, computed in the test).",
+    "Matching the oracle means the defect was fixed: the fixing PR (E1) must remove the entry. Any other value fails the gate."
+  ],
+  "handler_sha256": "f18e32cc6dfd08c76126590de5c55bd4ee75dbdabecec0ef98869ba064c270f8",
+  "defects": [
+    { "defect": "D7", "probe": "D7-CASH-ORDER-A",
+      "assertion": "cash total of three reviewed cash accounts equals their sum (file order 10,000.00 / 20,000.00 / 30,500.00)",
+      "signature": { "cash_total": 30500 } },
+    { "defect": "D7", "probe": "D7-CASH-ORDER-B",
+      "assertion": "cash total is independent of row order (reversed order)",
+      "signature": { "cash_total": 10000 } },
+    { "defect": "D6", "probe": "D6-CASH-SELF-COMPARE",
+      "assertion": "no cash reconciliation is claimed (nothing independent was compared): cash_reconciliation is null",
+      "signature": { "cash_reconciliation": { "bs_cash": 30500, "cf_ending_cash": 30500, "passed": true } } },
+    { "defect": "D5", "probe": "D5-CLOSING-STOCK-RESCUE",
+      "assertion": "a reviewed current-asset credit named 'Closing stock' stays a (negative) current asset as mapped; nothing is moved into cost of goods sold",
+      "signature": { "assets": 15000, "cogs_accounts": [["1200", 5000]], "expenses": 5000 } },
+    { "defect": "D8", "probe": "D8-CONTRA-SIGNING",
+      "assertion": "liabilities are summed class-side (credit positive) whatever the mapping's normal_balance; the equation difference is 0",
+      "signature": { "difference": 4000, "liabilities": 1000 } },
+    { "defect": "D1", "probe": "D1-EQUATION-FAILURE-CERTIFIED",
+      "assertion": "an authoritative certification never carries a BALANCE_SHEET_EQUATION_FAILED exception (for this fixture the correct engine has no failure)",
+      "signature": { "authoritative": true, "equation_failure_severity": "warning" } },
+    { "defect": "D1b", "probe": "D1B-NONREPORTING-NONZERO",
+      "assertion": "a non-reporting decision cannot remove a non-zero balance: the upload needs review and nothing is authoritative",
+      "signature": { "authoritative": true, "non_reporting": ["1410"], "status": "complete" } },
+    { "defect": "D10", "probe": "D10-EQUATION-MESSAGE-PRECISION",
+      "assertion": "an equation-failure message states the difference at the currency's exponent (BHD: 3 decimals)",
+      "signature": { "difference_text": "1.23" } }
+  ]
+}
