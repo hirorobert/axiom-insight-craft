@@ -45,6 +45,7 @@ function world(csv: string, currency: string, mappings: Row[]): World {
 const mapping = (code: string, classification: string, statement: string, normal: string): Row => ({
   company_id: COMPANY, account_code: code, account_name: code, normalized_account_name: null, statement, classification,
   line_item: classification, normal_balance: normal, is_cash_account: null, is_retained_earnings: null, is_payroll_account: null,
+  review_decision_id: `decision-${code}`, // S1: a saved review decision links its mapping (older handlers ignore the field)
 });
 const ALL = [mapping("1000", "current_assets", "balance_sheet", "debit"), mapping("3000", "equity", "balance_sheet", "credit"), mapping("6000", "operating_expenses", "income_statement", "debit")];
 const call = async (id: string) => {

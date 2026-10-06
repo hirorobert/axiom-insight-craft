@@ -199,6 +199,14 @@ export function resolveCashState(perimeter: CashPerimeter, key: string): CashSta
  * Reads the professional cash perimeter. Only explicit true/false decisions
  * are recorded; a NULL flag (no professional decision) is deliberately absent
  * from the map so callers resolve it as UNKNOWN and fail closed.
+ *
+ * S1 (20261006100000): a flag is a professional decision only on a row that
+ * carries review_decision_id — the database accepts that link only for a
+ * matching review decision of the same company and account key with identical
+ * content, and clears it on any later content change. A row without the link
+ * (legacy, edited or forged) decides nothing: its key stays UNKNOWN. Against a
+ * pre-S1 schema the column does not exist, the read errors, and the perimeter
+ * is CANNOT_ASSESS (fails closed).
  */
 export async function loadCashPerimeter(
   client: CertifiedTbClient,
@@ -206,7 +214,7 @@ export async function loadCashPerimeter(
 ): Promise<SourceLoad<CashPerimeter>> {
   const { data, error } = await client
     .from("account_mappings")
-    .select("account_key, is_cash_account")
+    .select("account_key, is_cash_account, review_decision_id")
     .eq("company_id", companyId);
   if (error) {
     return {
@@ -219,6 +227,7 @@ export async function loadCashPerimeter(
     const r = raw as Record<string, unknown>;
     const key = typeof r.account_key === "string" ? r.account_key : null;
     if (key === null) continue;
+    if (typeof r.review_decision_id !== "string" || r.review_decision_id.length === 0) continue; // no review provenance
     if (r.is_cash_account === true) decided.set(key, true);
     else if (r.is_cash_account === false) decided.set(key, false);
     // null/undefined => no professional decision => intentionally omitted

@@ -241,6 +241,10 @@ async function main() {
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;`);
+  // The hosted project installs pgcrypto in schema "extensions"; tbu_request_reprocess (20261006100000) calls
+  // extensions.digest. This disposable database has pgcrypto in public: the same function under the hosted name.
+  await admin.query(`CREATE SCHEMA IF NOT EXISTS extensions; GRANT USAGE ON SCHEMA extensions TO anon, authenticated, service_role;
+    CREATE OR REPLACE FUNCTION extensions.digest(text, text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT AS 'SELECT public.digest($1, $2)';`);
 
   const files = migrationFiles();
   const cut = files.indexOf(LIFECYCLE_FILE);
@@ -1019,7 +1023,9 @@ async function main() {
   const snapshots = {};
   for (const [, id] of HIST) snapshots[id] = JSON.stringify(await row(id));
   for (const [state, id, uploader] of HIST) {
-    if (uploader) await refused(`${state}: the client Retry write (status/processing_result/accounting_errors/is_valid) by its own uploader is refused`, "55000", () =>
+    // 42501 since S1 (20261006100000): a client role holds no UPDATE privilege on processing fields at all, so the write is
+    // refused before the history guard (55000, still proven for the engine below) is reached.
+    if (uploader) await refused(`${state}: the client Retry write (status/processing_result/accounting_errors/is_valid) by its own uploader is refused`, "42501", () =>
       q(user(uploader), "UPDATE public.trial_balance_uploads SET status='processing', processing_result=NULL, accounting_errors=NULL, is_valid=NULL WHERE id=$1", [id]));
     await check(`${state}: the engine (service_role) cannot rewrite status, results, validation, identity or source fields`, async () => {
       const sets = ["status='validating'", "processing_result='{}'::jsonb", "validation_report='{}'::jsonb", "accounting_errors='[{\"forged\":true}]'::jsonb", "is_valid=true",
@@ -1070,14 +1076,20 @@ async function main() {
     return before.period_id === fp && after.period_id === null && after.lifecycle_state === "superseded"
       && JSON.stringify(after.processing_result) === JSON.stringify(before.processing_result) && after.file_path === before.file_path && after.status === before.status;
   });
-  await check("ACTIVE uploads keep processing normally: engine writes, certification, active_processed, client Retry write", async () => {
+  await check("ACTIVE uploads keep processing normally: engine writes, certification, active_processed; Retry through tbu_request_reprocess (S1)", async () => {
     const a = await workspaceUpload(C, 2005, U.owner);
     await q(SERVICE, "UPDATE public.trial_balance_uploads SET status='validating' WHERE id=$1", [a.id]);
     await q(SERVICE, "UPDATE public.trial_balance_uploads SET status='processing', processing_result='{\"status\":\"valid\"}'::jsonb WHERE id=$1", [a.id]);
     await certify(C, a.id, 2005);
     const r = await row(a.id);
-    const retried = await q(user(U.owner), "UPDATE public.trial_balance_uploads SET status='processing', processing_result=NULL, accounting_errors=NULL, is_valid=NULL WHERE id=$1 RETURNING id", [a.id]);
-    return r.lifecycle_state === "active_processed" && (await authoritative(C, 2005)) === a.id && retried.length === 1 && ACTIVE_STATES.includes((await row(a.id)).lifecycle_state);
+    // S1: the pre-S1 client Retry write is refused; the browser requests a new check through tbu_request_reprocess instead.
+    const direct = await expectCode("42501", () => q(user(U.owner), "UPDATE public.trial_balance_uploads SET status='processing', processing_result=NULL, accounting_errors=NULL, is_valid=NULL WHERE id=$1", [a.id]));
+    const certifiedBefore = (await authoritative(C, 2005)) === a.id;
+    const retried = (await one(user(U.owner), "SELECT public.tbu_request_reprocess($1,$2,$3) r", [a.id, uuid(), r.source_file_hash])).r;
+    // The accepted request invalidates the certification it names: nothing is authoritative until the new check certifies.
+    const invalidated = (await authoritative(C, 2005)) === null;
+    return r.lifecycle_state === "active_processed" && certifiedBefore && direct && retried.outcome === "accepted" && invalidated
+      && ACTIVE_STATES.includes((await row(a.id)).lifecycle_state) ? true : JSON.stringify({ certifiedBefore, direct, retried, invalidated });
   });
   await check("authorized lifecycle operations on historical rows still work: complete + Undo of the pending discard", async () =>
     (await complete(user(U.owner), pendOp.operation_id)).outcome === "deleted_now" && (await restore(user(U.owner), pendOp.operation_id)).outcome === "restored"
@@ -1494,11 +1506,11 @@ async function main() {
     const second = await codeOf(async () => { const r = await reserve(U.owner, X); await putObject(r.object_path); const g = await register(U.owner, r.reservation_id, 2001); if (g.outcome !== "registered") throw Object.assign(new Error(g.outcome), { code: g.outcome }); });
     return detach === "42501" && before === 1 && (await activeCount(X, 2001)) === 1 && second === "active_upload_exists" ? true : JSON.stringify({ detach, before, second });
   });
-  await check("personal rows keep their own freedoms (status, results) but never their path or uploader", async () => {
+  await check("personal rows: created by their user, but never their path, uploader or (since S1) processing fields", async () => {
     const p = (await one(user(U.owner), "INSERT INTO public.trial_balance_uploads (file_name,file_path,file_size,status,user_id) VALUES ('p.csv',$1,10,'processing',$2) RETURNING id", [`${U.owner}/${uuid()}.csv`, U.owner])).id;
-    const ok = (await upd(user(U.owner), "status = 'pending'", p)).length === 1;
+    const status = await codeOf(() => upd(user(U.owner), "status = 'pending'", p));
     const path = await codeOf(() => upd(user(U.owner), `file_path = '${U.owner}/x.csv'`, p));
-    return ok && path === "42501";
+    return status === "42501" && path === "42501" ? true : JSON.stringify({ status, path });
   });
   await check("authorized lifecycle operations still work after P-02: replace, cancel, discard, Undo, sweep", async () => {
     const a = await workspaceUpload(X, 2005, U.owner); await certify(X, a.id, 2005);

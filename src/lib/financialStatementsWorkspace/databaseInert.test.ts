@@ -180,6 +180,10 @@ describe("database inertness — schema and functions", () => {
       // Evidence ingestion authority (forward-only): one serialized server path for evidence rows, provenance-based row
       // identity (additive nullable columns + a partial unique index), no client-role row inserts. No financial-statements schema.
       "supabase/migrations/20261005100000_safisha_ingestion_authority.sql",
+      // S1 mapping and processing authority (forward-only; PENDING HOSTED APPLICATION): server-written account mappings
+      // with review provenance, the supported-combination review RPC, tbu_request_reprocess, append-only certification
+      // invalidation and server-owned upload processing fields. No financial-statements schema.
+      "supabase/migrations/20261006100000_mapping_and_processing_authority.sql",
       // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",
@@ -230,6 +234,13 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/generate-management-letter/index.ts",
       "supabase/functions/generate-disclosure-notes/index.ts",
       "supabase/functions/_shared/certifiedTbSource.ts",
+      // S1 provenance consumption (20261006100000): process-trial-balance's function-path suite pins that only a company
+      // mapping linked to a review decision is trusted (absent/cleared/malformed links, pre-S1 rows, mixed accounts,
+      // precedence, tenant isolation). Never deployed (not under a function's entry point), no schema.
+      "supabase/functions/process-trial-balance/functionpath/functionPath.test.ts",
+      // ...and the mixed-version probe's fixture: saved review decisions are LINKED company mappings since S1 (older handlers
+      // ignore the field). Never deployed, no schema.
+      "supabase/functions/process-trial-balance/functionpath/compatProbe.ts",
       // Named-user activity (20260925110000): the shared membership checks and the service-role membership lookups
       // also require an ACTIVE named user (a billing-suspended member gets an outsider's 403); the invitation function
       // reserves the seat before any email and releases it when the email fails. Accounting logic unchanged.
@@ -318,6 +329,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/safishaIngestion.mjs", "scripts/db-proof/lib/functionHarness.mjs",
       "scripts/db-proof/fixtures/functions-main-e8962f2/ingest.index.ts", "scripts/db-preflight/safishaIngestionPreflight.sql",
       "scripts/db-preflight/safishaIngestionVerify.sql",
+      // S1 (20261006100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.
+      "scripts/db-proof/mappingProcessingAuthority.mjs",
       // The release application proofs (Lovable's stated hosted-executor contract; drizzle-orm migrate() compatibility), their
       // shared disposable base, and the guarded-entry and inspection renderer they prove
       // (loopback-only; release-journal tooling; no deploy behaviour).

@@ -6,6 +6,9 @@
 import { useState, useMemo, useCallback } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { supabase } from "@/integrations/supabase/client";
+import { mayRequestReprocess, requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
+import type { MyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
+import type { WorkspaceCommercialState } from "@/lib/commercial/paidActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -38,7 +41,6 @@ import {
 } from "lucide-react";
 import { CertUpload, fmtNum } from "./certification/types";
 import { toast } from "sonner";
-import { canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type Tone = "valid" | "blocked" | "review" | "processing";
@@ -99,9 +101,13 @@ interface Props {
   onRefresh: () => Promise<void>;
   /** Opens the discard confirmation for this upload. Omit to hide the action. */
   onDiscard?: (u: CertUpload) => void;
+  /** The person's workspace capabilities (get_my_workspace_capabilities). Retry needs prepare_close; omitted → no Retry. */
+  capabilities?: MyWorkspaceCapabilities | null;
+  /** The workspace's commercial state (get_workspace_commercial_state). Retry needs CLOSE_ASSURANCE; omitted → no Retry. */
+  commercial?: WorkspaceCommercialState | null;
 }
 
-export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, onDiscard }: Props) {
+export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, onDiscard, capabilities = null, commercial = null }: Props) {
   const [search,       setSearch]       = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [dateFrom,     setDateFrom]     = useState("");
@@ -162,23 +168,14 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
   // ── Retry ────────────────────────────────────────────────────────────────
   const handleRetry = useCallback(async (u: CertUpload, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (retrying.has(u.id) || !canReprocessUpload(u)) return;
+    if (retrying.has(u.id) || !mayRequestReprocess(u, capabilities, commercial)) return;
 
     setRetrying((prev) => new Set(prev).add(u.id));
     toast.info(`Retrying: ${u.file_name}…`);
 
     try {
-      await supabase
-        .from("trial_balance_uploads")
-        .update({ status: "processing", processing_result: null, accounting_errors: null, is_valid: null })
-        .eq("id", u.id);
-
-      await ensureFreshSession();
-      const clientRequestId = crypto.randomUUID();
-      const { error: fnErr } = await supabase.functions.invoke("process-trial-balance", {
-        body: { uploadId: u.id, clientRequestId },
-      });
-      if (fnErr) throw fnErr;
+      // S1: the server records the request and marks the upload; processing is invoked only when it accepted.
+      await requestReprocess(supabase as unknown as ReprocessClient, u.id, { ensureFreshSession });
 
       // Live poll until terminal status
       const TERMINAL = new Set(["complete", "error", "blocked", "needs_review"]);
@@ -210,7 +207,7 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
       setRetrying((prev) => { const s = new Set(prev); s.delete(u.id); return s; });
       toast.error(`Retry failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [retrying, onRefresh]);
+  }, [retrying, onRefresh, capabilities, commercial]);
 
   // ── Export CSV ───────────────────────────────────────────────────────────
   const handleExportCSV = useCallback(() => {
@@ -449,6 +446,7 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
               isExpanded={expanded.has(u.id)}
               onSelect={onSelect}
               onRetry={handleRetry}
+              mayRetry={mayRequestReprocess(u, capabilities, commercial)}
               onDiscard={onDiscard}
               onToggleExpand={toggleExpand}
             />
@@ -467,6 +465,8 @@ interface RowProps {
   isExpanded: boolean;
   onSelect: (u: CertUpload) => void;
   onRetry: (u: CertUpload, e: React.MouseEvent) => void;
+  /** Active upload, prepare_close and CLOSE_ASSURANCE (mayRequestReprocess) — the authority tbu_request_reprocess checks. */
+  mayRetry: boolean;
   onDiscard?: (u: CertUpload) => void;
   onToggleExpand: (id: string, e: React.MouseEvent) => void;
 }
@@ -478,12 +478,13 @@ function UploadRow({
   isExpanded,
   onSelect,
   onRetry,
+  mayRetry,
   onDiscard,
   onToggleExpand,
 }: RowProps) {
   const { tone, label } = toneFor(u);
   // Only an active upload may be retried: retired, superseded, discarded and discard_pending uploads are history.
-  const canRetry = (tone === "blocked") && canReprocessUpload(u) && !isRetrying;
+  const canRetry = (tone === "blocked") && mayRetry && !isRetrying;
 
   const vr      = u.processing_result?.validation_report;
   const tb      = vr?.tb_balance_check;

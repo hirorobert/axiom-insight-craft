@@ -200,7 +200,10 @@ describe("migration directory integrity", () => {
     // Bumped from 147 -> 148: 20261003100000_account_review_digest_schema_qualification.sql, applied by Lovable as hosted journal entry 0027
     // (re-creates resolve_account_review_batch with ONE call qualified as extensions.digest; pinned by
     // accountReviewDigestQualification.test.ts). No applied migration is edited.
-    expect(files.length).toBe(148);
+    // Bumped from 148 -> 149: 20261006100000_mapping_and_processing_authority.sql, a NEW forward-only migration (S1: server-written
+    // account mappings with review provenance, tbu_request_reprocess, append-only certification invalidation, server-owned
+    // processing fields), pending hosted application. No applied migration is edited.
+    expect(files.length).toBe(149);
   });
 });
 

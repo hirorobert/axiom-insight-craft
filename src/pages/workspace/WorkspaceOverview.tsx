@@ -27,13 +27,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowRight, AlertTriangle } from "lucide-react";
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { supabase } from "@/integrations/supabase/client";
+import { mayRequestReprocess, requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
+import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
+import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState";
 import { toast } from "sonner";
 import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
 import EngagementScopeDialog from "@/components/workspace/EngagementScopeDialog";
 import PreviousEngagementWork from "@/components/workspace/PreviousEngagementWork";
 import { ActiveFileProvenance } from "@/components/workspace/ActiveFileProvenance";
 import { useEngagement } from "@/contexts/EngagementContext";
-import { buildPrepareReviewRoute, canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
+import { buildPrepareReviewRoute } from "@/lib/workspace/resolveActiveUpload";
 import { buildManageTrialBalanceRoute } from "@/lib/workspace/trialBalanceManagement";
 import { customerCapabilityTitle, CUSTOMER_CAPABILITY_OUTCOMES } from "@/lib/workspace/mandate";
 import { customerVisibleCapabilities, isStageCustomerVisible } from "@/lib/workspace/moduleAvailability";
@@ -94,29 +97,20 @@ export default function WorkspaceOverview() {
   // Durable data choice for this workspace (never a URL flag, local flag or navigation history).
   const dataStart = useDataStart(engagement?.id ?? null);
 
+  // Retry is offered only with what the server checks: the workspace capability prepare_close and the processing
+  // entitlement (CLOSE_ASSURANCE) — never on an engagement's service scope alone.
+  const { state: myCapabilities } = useWorkspaceCapabilities(companyId);
+  const { state: commercial } = useWorkspaceCommercialState(companyId);
+
   // Retry the ingest pipeline when the active upload failed.
   const handleRetryProcessing = async () => {
     // Only an active upload is ever reprocessed (PR #32 N-04); the server refuses the rest (409) regardless.
-    if (!upload?.id || retrying || !canReprocessUpload(upload)) return;
+    if (!upload?.id || retrying || !mayRequestReprocess(upload, myCapabilities, commercial)) return;
     setRetrying(true);
     toast.info(`Retrying: ${upload.file_name ?? "Trial Balance"}…`);
     try {
-      await supabase
-        .from("trial_balance_uploads")
-        .update({
-          status: "processing",
-          processing_result: null,
-          accounting_errors: null,
-          is_valid: null,
-        })
-        .eq("id", upload.id);
-
-      await ensureFreshSession();
-      const clientRequestId = crypto.randomUUID();
-      const { error: fnErr } = await supabase.functions.invoke("process-trial-balance", {
-        body: { uploadId: upload.id, clientRequestId },
-      });
-      if (fnErr) throw fnErr;
+      // S1: the server records the request and marks the upload; processing is invoked only when it accepted.
+      await requestReprocess(supabase as unknown as ReprocessClient, upload.id, { ensureFreshSession });
 
       refreshUpload();
       toast.success("Re-processing started. Status will update automatically.");
@@ -218,7 +212,7 @@ export default function WorkspaceOverview() {
   // The two existing Prepare Data destinations classification decisions route to — unchanged route builders.
   const prepareHref = `${basePath}/prepare`;
   const reviewHref = buildPrepareReviewRoute(companyId, periodYear, upload?.id ?? null);
-  const classificationDecisionOptions = { retrying, onRetry: canReprocessUpload(upload) ? handleRetryProcessing : undefined, prepareHref, reviewHref };
+  const classificationDecisionOptions = { retrying, onRetry: mayRequestReprocess(upload, myCapabilities, commercial) ? handleRetryProcessing : undefined, prepareHref, reviewHref };
 
   if (launchState === "IMPORT_PENDING") {
     decision = {

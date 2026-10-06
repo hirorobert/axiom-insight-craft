@@ -5,6 +5,8 @@ import {
   resolveCashState,
   certifiedRowKey,
   sumRequiringAll,
+  loadCashPerimeter,
+  type CertifiedTbClient,
 } from "../../../supabase/functions/_shared/certifiedTbSource";
 
 const row = (over: Record<string, unknown> = {}) => ({
@@ -123,5 +125,62 @@ describe("sumRequiringAll", () => {
 
   it("fails closed on non-finite input", () => {
     expect(sumRequiringAll([Number.POSITIVE_INFINITY, 1])).toBeNull();
+  });
+});
+
+describe("loadCashPerimeter — S1 review provenance (20261006100000)", () => {
+  // A stand-in for the service-role client: records the exact query and answers like PostgREST.
+  const client = (rows: unknown[] | null, error: { message: string } | null = null) => {
+    const seen: { table?: string; cols?: string; eq?: [string, unknown] } = {};
+    const c: CertifiedTbClient = {
+      rpc: async () => ({ data: null, error: null }),
+      from: (table) => ({
+        select: (cols) => ({
+          eq: async (col, val) => { Object.assign(seen, { table, cols, eq: [col, val] }); return { data: rows, error }; },
+        }),
+      }),
+    };
+    return { c, seen };
+  };
+
+  it("reads only this company's rows, with review_decision_id", async () => {
+    const { c, seen } = client([]);
+    await loadCashPerimeter(c, "co-1");
+    expect(seen).toEqual({ table: "account_mappings", cols: "account_key, is_cash_account, review_decision_id", eq: ["company_id", "co-1"] });
+  });
+
+  it("a flag counts only on a row with review provenance; unproven, cleared or malformed links decide nothing", async () => {
+    const { c } = client([
+      { account_key: "1000", is_cash_account: true, review_decision_id: "d-1" },   // reviewed cash
+      { account_key: "1100", is_cash_account: false, review_decision_id: "d-2" },  // reviewed not-cash
+      { account_key: "1200", is_cash_account: true, review_decision_id: null },    // unproven / cleared by an edit
+      { account_key: "1300", is_cash_account: true },                              // field absent
+      { account_key: "1400", is_cash_account: true, review_decision_id: "" },      // malformed
+      { account_key: "1500", is_cash_account: true, review_decision_id: 42 },      // malformed
+      { account_key: "1600", is_cash_account: null, review_decision_id: "d-3" },   // reviewed, flag undecided
+    ]);
+    const r = await loadCashPerimeter(c, "co-1");
+    expect(r.state).toBe("KNOWN");
+    const decided = (r as { value: { decided: Map<string, boolean> } }).value.decided;
+    expect([...decided.entries()]).toEqual([["1000", true], ["1100", false]]);
+    expect(resolveCashState({ decided }, "1200")).toBe("UNKNOWN");
+    expect(resolveCashState({ decided }, "1600")).toBe("UNKNOWN");
+  });
+
+  it("mixed accounts: the reviewed account is known, the unproven one stays UNKNOWN (never NOT_CASH)", async () => {
+    const { c } = client([
+      { account_key: "1000", is_cash_account: true, review_decision_id: "d-1" },
+      { account_key: "1001", is_cash_account: false, review_decision_id: null },
+    ]);
+    const r = await loadCashPerimeter(c, "co-1");
+    const decided = (r as { value: { decided: Map<string, boolean> } }).value.decided;
+    expect(resolveCashState({ decided }, "1000")).toBe("CASH");
+    expect(resolveCashState({ decided }, "1001")).toBe("UNKNOWN");
+  });
+
+  it("pre-S1 schema (column review_decision_id does not exist) → CANNOT_ASSESS, never a perimeter", async () => {
+    const { c } = client(null, { message: 'column account_mappings.review_decision_id does not exist' });
+    const r = await loadCashPerimeter(c, "co-1");
+    expect(r.state).toBe("CANNOT_ASSESS");
   });
 });

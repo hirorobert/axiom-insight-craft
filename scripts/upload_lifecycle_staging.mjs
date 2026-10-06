@@ -383,7 +383,7 @@ async function main() {
   section('Security review hardening (20260923140000): F-01 no reprocessing of history, F-02 current-authority visibility, F-04, F-05')
   const opState = async (op) => (await svc.from('trial_balance_upload_operations').select('state').eq('id', op).single()).data?.state
   const clientRetry = async (who, id) => who.c.from('trial_balance_uploads').update({ status: 'processing', processing_result: null, accounting_errors: null, is_valid: null }).eq('id', id).select('id')
-  await check('F-01 superseded: process-trial-balance answers 409 not_active; the client Retry write is refused (55000); the row is unchanged; the active replacement still processes', async () => {
+  await check('F-01 superseded: process-trial-balance answers 409 not_active; the client Retry write is refused (42501 since S1: no client privilege on processing fields); the row is unchanged; the active replacement still processes', async () => {
     const u = await workspaceUpload(U.owner, A, 2070)
     const p0 = await process_(U.owner, u.id)
     const rep = await retireWith(U.owner, u.id, await version(u.id), A)
@@ -393,7 +393,7 @@ async function main() {
     const after = JSON.stringify(await row(u.id))
     const p2 = await process_(U.owner, rep.new_upload_id)
     return p0.body.status === 'valid' && rep.outcome === 'replaced' && p.status === 409 && p.body.status === 'not_active' && p.body.lifecycle_state === 'superseded'
-      && retry.error?.code === '55000' && before === after && p2.status === 200 && (await row(rep.new_upload_id)).lifecycle_state === 'active_processed'
+      && retry.error?.code === '42501' && before === after && p2.status === 200 && (await row(rep.new_upload_id)).lifecycle_state === 'active_processed'
       || `first=${p0.body.status} replace=${rep.outcome} ptb=${p.status}/${p.body.status}/${p.body.lifecycle_state} retry=${retry.error?.code} unchanged=${before === after} active=${p2.status}`
   })
   await check('F-01 discard_pending: process-trial-balance answers 409 and writes nothing; the discard then completes and is undone normally', async () => {
