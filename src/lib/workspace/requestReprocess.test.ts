@@ -174,3 +174,14 @@ describe("Retry availability matches tbu_request_reprocess's authority (S1)", ()
     expect(panel).not.toContain("canReprocessUpload(");
   });
 });
+
+describe("H1a: a held processing window is a named, non-processing refusal", () => {
+  it("PROCESSING_HELD is refused with its own message and never invokes processing", async () => {
+    const { client, calls } = fakeClient(answer("refused", "PROCESSING_HELD"));
+    const err = await requestReprocess(client, "u-1", deps).catch((e) => e);
+    expect(err).toBeInstanceOf(ReprocessRefusedError);
+    expect(err.code).toBe("PROCESSING_HELD");
+    expect(err.message).toBe("Checking is paused briefly for a system update. Try again in a few minutes.");
+    expect(calls.some((c) => c.kind === "invoke")).toBe(false);
+  });
+});

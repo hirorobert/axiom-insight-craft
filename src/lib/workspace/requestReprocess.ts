@@ -54,6 +54,7 @@ const REFUSAL_MESSAGES: Record<string, string> = {
   SOURCE_NOT_BOUND: "This trial balance's source file is not bound to it.",
   SOURCE_CHANGED: "The source file changed since it was last read. Refresh and try again.",
   IN_PROGRESS: "This trial balance is already being checked.",
+  PROCESSING_HELD: "Checking is paused briefly for a system update. Try again in a few minutes.",
   IDEMPOTENCY_KEY_REUSED: "This request was already used for a different check. Try again.",
 };
 

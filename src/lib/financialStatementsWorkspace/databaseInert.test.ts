@@ -190,6 +190,11 @@ describe("database inertness — schema and functions", () => {
       // with review provenance, the supported-combination review RPC, tbu_request_reprocess, append-only certification
       // invalidation and server-owned upload processing fields. No financial-statements schema.
       "supabase/migrations/20261006100000_mapping_and_processing_authority.sql",
+      // H1 (forward-only; PENDING HOSTED APPLICATION): processing release control (numeric engine generation, hold, drain,
+      // append-only events) and CONFIRM_ACCOUNT_TREATMENT bound to an engine-emitted request. No financial-statements schema.
+      "supabase/migrations/20261007100000_treatment_authority_and_processing_control.sql",
+      // ...and the treatment request identity the engine (E1) will use; identical bytes to public.treatment_request_id.
+      "supabase/functions/_shared/treatmentRequest.ts",
       // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",
@@ -346,6 +351,8 @@ describe("database inertness — schema and functions", () => {
       // ledger rules and the ledger itself. Loopback-only; no deploy behaviour; the handler is not modified.
       "scripts/db-proof/tbHandlerCharacterization.mjs", "scripts/db-proof/lib/defectLedger.mjs",
       "scripts/db-proof/fixtures/h2-known-defects.json",
+      // H1 (20261007100000): the loopback-only real-PostgreSQL proof (with the real handler). No deploy behaviour.
+      "scripts/db-proof/h1Authority.mjs",
       "scripts/db-proof/fixtures/functions-main-e8962f2/ingest.index.ts", "scripts/db-preflight/safishaIngestionPreflight.sql",
       "scripts/db-preflight/safishaIngestionVerify.sql",
       // S1 (20261006100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.

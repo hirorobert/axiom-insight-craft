@@ -35,7 +35,7 @@ describe("the reviewed release journal", () => {
     expect(RELEASE_JOURNAL["0020_pr34_apply_20260925140000"].digest).toBe("c26e47f3a78b4fd0d47a5a2fab82a69caf13bfe2344e69687f9b30c13a8e5f9a");
     for (const [tag, e] of Object.entries(RELEASE_JOURNAL)) if ("source" in e && e.source) expect(sha(srcBytes(e.source)!), tag).toBe(e.digest);
   });
-  it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 , the removal migration 20260927100000 (0024) and (out of order on purpose) the prerequisite; 0028 applies S1 byte for byte; nothing is pending (the parked 20261004100000 / 20261005100000 are quarantined)", () => {
+  it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 , the removal migration 20260927100000 (0024) and (out of order on purpose) the prerequisite; 0028 applies S1 byte for byte; only H1 (20261007100000) is pending (the parked 20261004100000 / 20261005100000 are quarantined)", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
     // 0022 applied the processing correction (f21a58f); 0024 the removal migration (main 0d2a09e); 0025 the annual term
@@ -44,7 +44,8 @@ describe("the reviewed release journal", () => {
     // S1 record: 0028 applied 20261006100000 byte for byte (release_verbatim; hosted journal id 29, created_at 1791299426677).
     // The parked 20261004100000 / 20261005100000 were never applied and are quarantined in supabase/migrations_historical/,
     // so the source chain is exactly the hosted journal: nothing pending, nothing skipped.
-    expect(r.pending).toEqual([]);
+    // H1 (20261007100000) is authored and pending hosted application.
+    expect(r.pending).toEqual(["20261007100000_treatment_authority_and_processing_control.sql"]);
     expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({
       tag: "0028_apply_20261006100000_mapping_and_processing_authority", source: "20261006100000_mapping_and_processing_authority.sql", how: "release_verbatim" });
     expect(r.mirrored.find((m) => m.tag === "0026_apply_20261002100000_refuse_withheld_service_grants")?.how).toBe("release_verbatim");

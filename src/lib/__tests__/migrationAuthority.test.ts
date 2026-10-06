@@ -46,7 +46,8 @@ describe("migration authority parity", () => {
     // not yet applied.
     // S1 record: 20261006100000 applied as 0028. The parked 20261004100000 / 20261005100000 (never applied) are quarantined in
     // supabase/migrations_historical/, so nothing is pending and no source migration is skipped by the hosted journal.
-    expect(r.pending).toEqual([]);
+    // H1 (20261007100000) is authored and pending hosted application.
+    expect(r.pending).toEqual(["20261007100000_treatment_authority_and_processing_control.sql"]);
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {
