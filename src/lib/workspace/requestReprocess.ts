@@ -11,7 +11,24 @@
  *      answered accepted or replayed. Any other outcome stops here with a named reason.
  */
 
+import { canExercise, type MyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
+import { canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
+
 export type ReprocessOutcome = "accepted" | "replayed" | "conflict" | "refused";
+
+/**
+ * Whether to OFFER Retry: the same authority tbu_request_reprocess checks — an active upload, and the WORKSPACE capability
+ * prepare_close that the person may exercise now (held through an accepted membership, on an account with a current plan;
+ * get_my_workspace_capabilities). An engagement's service scope (e.g. Trial Balance Review being in the engagement) is
+ * NOT this capability and never makes Retry available. Unknown capabilities → not offered (fail closed). The server
+ * still decides; this only keeps the button from promising what the server will refuse.
+ */
+export function mayRequestReprocess(
+  upload: { lifecycle_state?: string | null } | null | undefined,
+  capabilities: MyWorkspaceCapabilities | null | undefined,
+): boolean {
+  return canReprocessUpload(upload) && canExercise(capabilities, "prepare_close");
+}
 
 export interface ReprocessResponse {
   outcome: ReprocessOutcome;

@@ -175,3 +175,32 @@ Deno.test("refusals: no token → 401; not authorized → 403 before any write o
   assertEquals(r.status, 403);
   assertEquals(w.calls.filter((c) => c.kind === "update" || c.kind === "download").length, 0);
 });
+
+// ── S1 boundary: how the deployed handler consumes account mappings (20261006100000 adds review_decision_id) ─────────
+// The handler does not read review_decision_id. These tests pin what it does TODAY so the provenance-consumption change
+// flips the first one deliberately: until then S1 alone does not stop an unproven company mapping from being trusted.
+const unproven = REVIEWED.map((m) => ({ ...m, review_decision_id: null }));
+
+Deno.test("S1 OPEN GAP: a company mapping WITHOUT review provenance is still trusted as reviewed (certified, no review)", async () => {
+  const w = setup({ csv: BALANCED, mappings: unproven });
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(r.status, 200);
+  assertEquals(upload(w).status, "complete");
+  assertEquals([w.tables.tb_certifications[0].p_is_blocking, w.tables.tb_certifications[0].p_requires_review], [false, false]);
+  assertEquals((upload(w).processing_result as { needs_review_accounts?: unknown[] }).needs_review_accounts ?? [], []);
+});
+
+Deno.test("S1 boundary: a global (company_id NULL) mapping is only a suggestion — certification requires review", async () => {
+  const w = setup({ csv: BALANCED, mappings: unproven.map((m) => ({ ...m, company_id: null })) });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "needs_review");
+  assertEquals(w.tables.tb_certifications[0].p_requires_review, true);
+  assertEquals(((upload(w).processing_result as { needs_review_accounts: unknown[] }).needs_review_accounts).length, 4);
+});
+
+Deno.test("S1 boundary: another company's mapping is never read for this upload", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED.map((m) => ({ ...m, company_id: "55555555-5555-4555-8555-555555555555" })) });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "needs_review");
+  assertEquals(w.tables.tb_certifications[0].p_requires_review, true);
+});

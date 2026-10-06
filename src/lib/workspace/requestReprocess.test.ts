@@ -7,7 +7,9 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { parseMyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
 import {
+  mayRequestReprocess,
   mayInvokeProcessing,
   parseReprocessResponse,
   ReprocessRefusedError,
@@ -124,5 +126,37 @@ describe("no browser path writes an upload's processing fields (S1)", () => {
     expect(gate).toBeGreaterThan(0);
     expect(invoke).toBeGreaterThan(gate);
     expect(src).toContain("clientRequestId: operationId");
+  });
+});
+
+describe("Retry availability matches tbu_request_reprocess's authority (S1)", () => {
+  const caps = (capabilities: string[], allowed: string[], plan = true) =>
+    parseMyWorkspaceCapabilities({ access: true, capabilities, allowed, has_current_plan: plan });
+  const active = { lifecycle_state: "active_processed" };
+
+  it("offered only for an active upload AND prepare_close that may be exercised now", () => {
+    expect(mayRequestReprocess(active, caps(["prepare_close"], ["prepare_close"]))).toBe(true);
+    expect(mayRequestReprocess({ lifecycle_state: "retired" }, caps(["prepare_close"], ["prepare_close"]))).toBe(false);
+  });
+
+  it("not offered on other capabilities, a held-but-not-allowed capability (no current plan), no access, or unknown state", () => {
+    expect(mayRequestReprocess(active, caps(["review_close", "issue_reporting_pack"], ["review_close", "issue_reporting_pack"]))).toBe(false);
+    expect(mayRequestReprocess(active, caps(["prepare_close"], [], false))).toBe(false);
+    expect(mayRequestReprocess(active, parseMyWorkspaceCapabilities({ access: false, capabilities: [], allowed: [] }))).toBe(false);
+    expect(mayRequestReprocess(active, null)).toBe(false);
+  });
+
+  it("an engagement service grant is not a workspace capability: a service name never makes Retry available", () => {
+    expect(mayRequestReprocess(active, caps(["TRIAL_BALANCE_REVIEW", "FINANCIAL_STATEMENTS"], ["TRIAL_BALANCE_REVIEW", "FINANCIAL_STATEMENTS"]))).toBe(false);
+  });
+
+  it("every Retry surface uses the predicate (no lifecycle-only Retry remains)", () => {
+    const ov = read("src/pages/workspace/WorkspaceOverview.tsx");
+    expect(ov).toContain("useWorkspaceCapabilities(companyId)");
+    expect(ov).toMatch(/onRetry: mayRequestReprocess\(upload, myCapabilities\)/);
+    const panel = read("src/components/UploadsStatusPanel.tsx");
+    expect(panel).toContain("mayRetry={mayRequestReprocess(u, capabilities)}");
+    expect(panel).toContain("!mayRequestReprocess(u, capabilities)) return;");
+    expect(panel).not.toContain("canReprocessUpload(");
   });
 });

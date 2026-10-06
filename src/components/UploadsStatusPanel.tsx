@@ -6,7 +6,8 @@
 import { useState, useMemo, useCallback } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { supabase } from "@/integrations/supabase/client";
-import { requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
+import { mayRequestReprocess, requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
+import type { MyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -39,7 +40,6 @@ import {
 } from "lucide-react";
 import { CertUpload, fmtNum } from "./certification/types";
 import { toast } from "sonner";
-import { canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type Tone = "valid" | "blocked" | "review" | "processing";
@@ -100,9 +100,11 @@ interface Props {
   onRefresh: () => Promise<void>;
   /** Opens the discard confirmation for this upload. Omit to hide the action. */
   onDiscard?: (u: CertUpload) => void;
+  /** The person's workspace capabilities (get_my_workspace_capabilities). Retry is offered only with prepare_close; omitted → no Retry. */
+  capabilities?: MyWorkspaceCapabilities | null;
 }
 
-export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, onDiscard }: Props) {
+export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, onDiscard, capabilities = null }: Props) {
   const [search,       setSearch]       = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [dateFrom,     setDateFrom]     = useState("");
@@ -163,7 +165,7 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
   // ── Retry ────────────────────────────────────────────────────────────────
   const handleRetry = useCallback(async (u: CertUpload, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (retrying.has(u.id) || !canReprocessUpload(u)) return;
+    if (retrying.has(u.id) || !mayRequestReprocess(u, capabilities)) return;
 
     setRetrying((prev) => new Set(prev).add(u.id));
     toast.info(`Retrying: ${u.file_name}…`);
@@ -202,7 +204,7 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
       setRetrying((prev) => { const s = new Set(prev); s.delete(u.id); return s; });
       toast.error(`Retry failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [retrying, onRefresh]);
+  }, [retrying, onRefresh, capabilities]);
 
   // ── Export CSV ───────────────────────────────────────────────────────────
   const handleExportCSV = useCallback(() => {
@@ -441,6 +443,7 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
               isExpanded={expanded.has(u.id)}
               onSelect={onSelect}
               onRetry={handleRetry}
+              mayRetry={mayRequestReprocess(u, capabilities)}
               onDiscard={onDiscard}
               onToggleExpand={toggleExpand}
             />
@@ -459,6 +462,8 @@ interface RowProps {
   isExpanded: boolean;
   onSelect: (u: CertUpload) => void;
   onRetry: (u: CertUpload, e: React.MouseEvent) => void;
+  /** Active upload AND prepare_close (mayRequestReprocess) — the authority tbu_request_reprocess checks. */
+  mayRetry: boolean;
   onDiscard?: (u: CertUpload) => void;
   onToggleExpand: (id: string, e: React.MouseEvent) => void;
 }
@@ -470,12 +475,13 @@ function UploadRow({
   isExpanded,
   onSelect,
   onRetry,
+  mayRetry,
   onDiscard,
   onToggleExpand,
 }: RowProps) {
   const { tone, label } = toneFor(u);
   // Only an active upload may be retried: retired, superseded, discarded and discard_pending uploads are history.
-  const canRetry = (tone === "blocked") && canReprocessUpload(u) && !isRetrying;
+  const canRetry = (tone === "blocked") && mayRetry && !isRetrying;
 
   const vr      = u.processing_result?.validation_report;
   const tb      = vr?.tb_balance_check;
