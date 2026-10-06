@@ -10,8 +10,10 @@
  * unknown or missing severity → "unavailable" (fail closed, never passed). The `message` text is displayed as-is and is
  * NEVER read as state: rewording it cannot change a classification, a tone, the count or anything else.
  *
- * The headline counts the four required layers only ("Required checks passed · 4/4"). Before this, an upload whose
- * supporting evidence was never evaluated read "Checks passed · 6/6".
+ * The headline counts the four required layers only ("Reviewed · 4/4"). Before this, an upload whose
+ * supporting evidence was never evaluated read "Checks passed · 6/6"; and "Required checks passed" was a blanket claim
+ * over a statement equation no stored result proves exactly: the layer-3 row itself says the equation is NOT EXACTLY
+ * VERIFIED whenever layer 3 recorded no exception (computeCertificationReadiness).
  *
  * If friendly per-state labels (for example "Not evaluated", "No prior-period certification available") are wanted, the
  * producer must first emit a structured state field — a separate producer-contract enhancement, not prose parsing.
@@ -67,7 +69,7 @@ function severityTone(row: TbCertificationRow, layer: number): "failed" | "revie
 }
 
 const VERDICT_WORD: Record<PreflightVerdict, string> = {
-  certified: "Required checks passed",
+  certified: "Reviewed",
   review: "Needs review",
   blocked: "Checks failed",
   pending: "Checking",
@@ -108,8 +110,8 @@ export function presentReadiness(result: PreflightResult, legacyVerdictLabel: st
   const required = REQUIRED_LAYERS.map((l) => presentRequired(byId.get(LAYER_CHECK_ID[l])!, row, l));
   const informational = INFORMATIONAL_LAYERS.map((l) => presentInformational(byId.get(LAYER_CHECK_ID[l])!, row, l));
   const passed = required.filter((c) => c.tone === "passed").length;
-  // "Required checks passed" only when every required layer really shows passed; otherwise say what is true.
   const allPassed = passed === required.length;
+  // "Reviewed" is said only when every required layer really shows passed; otherwise say what is true.
   const word = result.verdict === "certified" && !allPassed ? "Certified" : VERDICT_WORD[result.verdict];
   const suffix = result.verdict === "certified" && !allPassed ? " required" : "";
   return { layered, required, informational, countLabel: `${word} · ${passed}/${required.length}${suffix}` };

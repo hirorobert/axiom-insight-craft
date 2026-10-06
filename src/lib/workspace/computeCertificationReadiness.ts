@@ -12,7 +12,17 @@
  *        the evidence for this layer.
  *   L2 — data quality (malformed numeric / parse-level errors).
  *   L3 — arithmetic integrity (TB imbalance AND statement/balance-sheet
- *        equation — both use layer 3 in the source of truth).
+ *        equation — both use layer 3 in the source of truth). Told apart by
+ *        their recorded exception code only (classifyLayer3): debit/credit
+ *        imbalance (TRIAL_BALANCE_IMBALANCE; legacy L3_TB_IMBALANCE), statement
+ *        equation (BALANCE_SHEET_EQUATION_FAILED), or unknown — an unknown code
+ *        keeps its recorded message and severity and is never read as clear.
+ *        A row carrying ANY layer-3 exception is never "certified", even when
+ *        get_authoritative_certification returned it (the engine records an
+ *        equation failure as a non-blocking warning). No stored result proves
+ *        the statement equation exactly: the earlier engine compared rounded
+ *        floats, so a layer 3 with no exception says debits equal credits and
+ *        that the equation is NOT EXACTLY VERIFIED — never that it holds.
  *   L4 — classification completeness (NEEDS_REVIEW / unresolved accounts).
  *   L5 — supporting evidence (generic bank/subledger reconciliation signal,
  *        Slice 4A). Informational only — never drives is_blocking/
@@ -111,6 +121,50 @@ export interface CertificationReadinessInput {
    * stale is unsafe rather than merely over-cautious.
    */
   revalidating?: boolean;
+  /**
+   * What the upload's own stored result recorded about the statement equation (readRecordedEquation on
+   * processing_result). "failed" and "unreadable" are never reviewed, even when the certification carries no layer-3
+   * exception for them. Omitted = not read (the certification alone decides).
+   */
+  recordedEquation?: RecordedEquation;
+}
+
+/**
+ * The statement-equation record in the stored result (processing_result.validation_report.balance_sheet_equation),
+ * read only from its own `passed` field — never computed from the recorded amounts:
+ *   failed      passed === false: a recorded failure;
+ *   not_failed  passed === true: no recorded failure (which does NOT prove the equation exactly);
+ *   unreadable  passed present but not a boolean (null, a string, a number): malformed — held, never a pass;
+ *   absent      no record, or a record without `passed`: nothing recorded either way.
+ */
+export type RecordedEquation = "failed" | "not_failed" | "unreadable" | "absent";
+
+export function readRecordedEquation(processingResult: unknown): RecordedEquation {
+  const obj = (v: unknown) => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+  const eq = obj(obj(obj(processingResult)?.validation_report)?.balance_sheet_equation);
+  if (!eq || !("passed" in eq) || eq.passed === undefined) return "absent";
+  return eq.passed === false ? "failed" : eq.passed === true ? "not_failed" : "unreadable";
+}
+
+/** The one sentence for a statement-equation failure recorded in the stored result itself. */
+export const RECORDED_EQUATION_FAILURE = "The statement equation does not hold: the engine recorded a failure in this result.";
+/** The one sentence for a stored statement-equation record that cannot be read. */
+export const RECORDED_EQUATION_UNREADABLE = "The recorded statement-equation result could not be read, so this trial balance cannot be shown as reviewed.";
+
+/** The reason a stored equation record holds a result for review, or null when it does not. */
+export function recordedEquationHold(recorded: RecordedEquation | undefined): string | null {
+  return recorded === "failed" ? RECORDED_EQUATION_FAILURE : recorded === "unreadable" ? RECORDED_EQUATION_UNREADABLE : null;
+}
+
+/**
+ * tb_certifications.exceptions is JSONB NOT NULL DEFAULT '[]' with CHECK (jsonb_typeof(exceptions) = 'array')
+ * (20260902130000); its elements are not shape-checked by the database. So [] is the one legitimate empty value, and a
+ * row is MALFORMED when the list is not an array or an entry is not an object with a layer 1–6. Malformed findings are
+ * never read as "no findings": the result is unknown, never certified.
+ */
+export function exceptionsMalformed(row: TbCertificationRow): boolean {
+  if (!Array.isArray(row.exceptions)) return true;
+  return row.exceptions.some((e) => e === null || typeof e !== "object" || Array.isArray(e) || ![1, 2, 3, 4, 5, 6].includes((e as { layer?: unknown }).layer as number));
 }
 
 const LAYER_META: Record<1 | 2 | 3 | 4 | 5 | 6, { id: string; label: string }> = {
@@ -124,9 +178,58 @@ const LAYER_META: Record<1 | 2 | 3 | 4 | 5 | 6, { id: string; label: string }> =
 
 const PASSED_DETAIL: Record<2 | 3 | 4, string> = {
   2: "No data-quality errors raised.",
-  3: "The trial balance and statement equation both hold.",
+  3: "Total debits equal total credits. Statement equation: not exactly verified (recorded by an earlier engine).",
   4: "All accounts are classified.",
 };
+
+/** Layer-3 exception codes, by what they record. Anything else is unknown and is never guessed at. */
+export const LAYER3_PARITY_CODES: ReadonlySet<string> = new Set(["TRIAL_BALANCE_IMBALANCE", "L3_TB_IMBALANCE"]);
+export const LAYER3_EQUATION_CODES: ReadonlySet<string> = new Set(["BALANCE_SHEET_EQUATION_FAILED"]);
+
+/** How a layer-3 result is labelled: by the recorded code, never by the message text. */
+export const LAYER3_LABEL = {
+  parity: "Debits equal credits",
+  equation: "Statement equation",
+  unknown: "Arithmetic check",
+} as const;
+export type Layer3Kind = keyof typeof LAYER3_LABEL;
+
+/** The statement equation's display wording wherever a stored result does not prove it exactly. */
+export const EQUATION_NOT_EXACTLY_VERIFIED = "Not exactly verified — recorded by an earlier engine; re-check after the engine update.";
+
+/** A row's layer-3 exceptions, split by recorded code. Order within each group is the recorded order. */
+export function classifyLayer3(exceptions: readonly TbCertificationExceptionRecord[] | null | undefined): Record<Layer3Kind, TbCertificationExceptionRecord[]> {
+  const out: Record<Layer3Kind, TbCertificationExceptionRecord[]> = { parity: [], equation: [], unknown: [] };
+  for (const e of Array.isArray(exceptions) ? exceptions : []) {
+    if (!e || e.layer !== 3) continue;
+    const code = typeof e.code === "string" ? e.code : "";
+    out[LAYER3_PARITY_CODES.has(code) ? "parity" : LAYER3_EQUATION_CODES.has(code) ? "equation" : "unknown"].push(e);
+  }
+  return out;
+}
+
+/** The kind a layer-3 check is shown as: debit/credit imbalance first, then the statement equation, then unknown. */
+function layer3Kind(groups: Record<Layer3Kind, TbCertificationExceptionRecord[]>): Layer3Kind | null {
+  return groups.parity.length ? "parity" : groups.equation.length ? "equation" : groups.unknown.length ? "unknown" : null;
+}
+
+/** "Assets (10.00) != Liabilities (8.00)" → "Assets (10.00) does not equal Liabilities (8.00)"; the code prefix removed. */
+function recordedMessage(e: TbCertificationExceptionRecord): string {
+  const m = typeof e.message === "string" ? e.message : "";
+  return m.replace(/^[A-Z][A-Z0-9_]{2,}:\s*/, "").replace(/\s*!=\s*/g, " does not equal ").trim();
+}
+
+/**
+ * The plain reason a layer-3 exception gives for review or a block, naming what was recorded. An unknown code keeps
+ * its recorded message; nothing is inferred about it.
+ */
+export function layer3Reason(e: TbCertificationExceptionRecord): string {
+  const code = typeof e.code === "string" ? e.code : "";
+  const recorded = recordedMessage(e);
+  if (LAYER3_EQUATION_CODES.has(code)) return `The statement equation does not hold${recorded ? `: ${recorded}` : "."}`;
+  if (LAYER3_PARITY_CODES.has(code)) return `Debits and credits do not agree${recorded ? `: ${recorded}` : "."}`;
+  return recorded || `An arithmetic check recorded ${code || "an unidentified exception"}.`;
+}
 
 function buildLayerChecks(row: TbCertificationRow | null): PreflightCheck[] {
   return ([1, 2, 3, 4, 5, 6] as const).map((layer) => {
@@ -146,7 +249,9 @@ function buildLayerChecks(row: TbCertificationRow | null): PreflightCheck[] {
       };
     }
 
-    const entries = row.exceptions.filter((e) => e.layer === layer);
+    const entries = exceptionsOf(row).filter((e) => e.layer === layer);
+    // Layer 3 is labelled by what its recorded codes say (debits/credits, statement equation, or unknown).
+    const label = layer === 3 && entries.length > 0 ? LAYER3_LABEL[layer3Kind(classifyLayer3(entries))!] : meta.label;
 
     if (entries.length === 0) {
       if (layer === 5 || layer === 6) {
@@ -159,9 +264,34 @@ function buildLayerChecks(row: TbCertificationRow | null): PreflightCheck[] {
 
     const hasError = entries.some((e) => e.severity === "error");
     const hasWarning = entries.some((e) => e.severity === "warning");
-    const state: PreflightCheckState = hasError ? "failed" : hasWarning ? "review" : "passed";
-    return { id: meta.id, label: meta.label, state, detail: entries.map((e) => e.message).join(" ") };
+    const hasUnknownSeverity = entries.some((e) => e.severity !== "error" && e.severity !== "warning" && e.severity !== "info");
+    // Layer 3: an exception is never clear. An "info" or unknown-severity layer-3 entry is held for review, not passed.
+    const state: PreflightCheckState = hasError ? "failed" : hasWarning ? "review" : layer === 3 || hasUnknownSeverity ? "review" : "passed";
+    const detail = layer === 3 ? entries.map(layer3Reason).join(" ") : entries.map((e) => e.message).join(" ");
+    return { id: meta.id, label, state, detail };
   });
+}
+
+/** A row's recorded exceptions. Only called on rows that are not malformed (exceptionsMalformed); never crashes. */
+function exceptionsOf(row: TbCertificationRow): TbCertificationExceptionRecord[] {
+  return Array.isArray(row.exceptions) ? row.exceptions.filter((e) => e !== null && typeof e === "object") : [];
+}
+
+/** The verdict for a row whose findings are malformed: unknown, never certified, never a crash. */
+function malformedResult(): PreflightResult {
+  const checks = buildLayerChecks(null);
+  return {
+    verdict: "unknown",
+    headline: "Certification findings could not be read",
+    blocker: "The recorded certification findings are not in the expected form, so this trial balance cannot be shown as reviewed.",
+    checks,
+    passedCount: 0,
+    totalCount: checks.length,
+  };
+}
+
+function layer3Entries(row: TbCertificationRow): TbCertificationExceptionRecord[] {
+  return exceptionsOf(row).filter((e) => e.layer === 3);
 }
 
 function countPassed(checks: PreflightCheck[]): number {
@@ -196,7 +326,22 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
   // matching alone (which is all get_authoritative_certification checks) is
   // not sufficient — verified explicitly here, not assumed.
   if (input.authoritative && input.authoritative.upload_id === input.currentUploadId) {
+    if (exceptionsMalformed(input.authoritative)) return malformedResult();
     const checks = buildLayerChecks(input.authoritative);
+    // A recorded layer-3 exception (the engine certifies an equation failure as a non-blocking warning) is never
+    // certified: it is held for review, or blocked when recorded as an error, with the recorded reason.
+    const l3 = layer3Entries(input.authoritative);
+    if (l3.length > 0 && !input.revalidating) {
+      const blocking = l3.find((e) => e.severity === "error");
+      return {
+        verdict: blocking ? "blocked" : "review",
+        headline: blocking ? "Not reviewed — an arithmetic check failed" : "Not reviewed — an arithmetic check needs review",
+        blocker: layer3Reason(blocking ?? l3[0]),
+        checks,
+        passedCount: countPassed(checks),
+        totalCount: checks.length,
+      };
+    }
 
     if (input.revalidating) {
       // A fresher read is in flight after a certification-affecting
@@ -212,6 +357,23 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
         checks,
         passedCount: countPassed(checks),
         totalCount: checks.length,
+      };
+    }
+
+    // A statement-equation failure recorded in the stored result itself is never certified either; the layer-3 check
+    // shows it (debit/credit parity is a separate, recorded fact and is not changed here).
+    const hold = recordedEquationHold(input.recordedEquation);
+    if (hold) {
+      const held = checks.map((c) => (c.id === "l3_arithmetic"
+        ? { ...c, label: LAYER3_LABEL.equation, state: "review" as const, detail: hold }
+        : c));
+      return {
+        verdict: "review",
+        headline: "Not reviewed — an arithmetic check needs review",
+        blocker: hold,
+        checks: held,
+        passedCount: countPassed(held),
+        totalCount: held.length,
       };
     }
 
@@ -247,15 +409,16 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
 
   if (input.latestForUpload && input.latestForUpload.upload_id === input.currentUploadId) {
     const row = input.latestForUpload;
+    if (exceptionsMalformed(row)) return malformedResult();
     const checks = buildLayerChecks(row);
     const passedCount = countPassed(checks);
 
     if (row.is_blocking) {
-      const failing = row.exceptions.find((e) => e.severity === "error");
+      const failing = exceptionsOf(row).find((e) => e.severity === "error");
       return {
         verdict: "blocked",
         headline: "Not certified — the trial balance does not hold",
-        blocker: failing?.message ?? "This trial balance failed certification.",
+        blocker: failing ? (failing.layer === 3 ? layer3Reason(failing) : failing.message) : "This trial balance failed certification.",
         checks,
         passedCount,
         totalCount: checks.length,
@@ -263,11 +426,14 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
     }
 
     if (row.requires_review) {
-      const reviewItem = row.exceptions.find((e) => e.layer === 4);
+      const reviewItem = exceptionsOf(row).find((e) => e.layer === 4);
+      // A recorded layer-3 reason is named first (it is never replaced by the generic classification text).
+      const l3 = layer3Entries(row);
+      const reasons = [...(l3.length ? [layer3Reason(l3.find((e) => e.severity === "error") ?? l3[0])] : []), ...(reviewItem ? [reviewItem.message] : [])];
       return {
         verdict: "review",
         headline: "Needs your decision before statements",
-        blocker: reviewItem?.message ?? "Some accounts still need a classification decision.",
+        blocker: reasons.length ? reasons.join(" ") : "Some accounts still need a classification decision.",
         checks,
         passedCount,
         totalCount: checks.length,

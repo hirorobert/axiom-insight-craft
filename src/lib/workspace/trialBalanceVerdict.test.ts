@@ -111,8 +111,11 @@ describe("each status has one failure-appropriate action", () => {
   it("accepted: a Reviewed trial balance, ready for statement preparation — no action, never reconciled, never an approval", () => {
     const a = deriveTrialBalanceVerdict({ upload: upload("complete"), readiness: { verdict: "certified", blocker: null, checks: passedLayers }, canRetry: true });
     expect(a).toMatchObject({ status: "accepted", statusLabel: "Reviewed", tone: "success", primaryAction: null });
-    expect(a.reason).toBe("Reviewed trial balance: every check passed and every account classification is confirmed. It is ready for statement preparation. This is not an approval of financial statements.");
-    expect(`${a.statusLabel} ${a.reason}`).not.toMatch(/reconciled|audited|assured|signed off|verified/i);
+    // F1a: no blanket "every check passed"; the statement equation is stated as not exactly verified.
+    expect(a.reason).toBe("Reviewed trial balance. Debit and credit totals agree and every account classification is confirmed. The statement equation is not exactly verified for this result. It is ready for statement preparation. This is not an approval of financial statements.");
+    // F1a: the reason now states that the equation is NOT exactly verified; only a positive "verified" claim is banned.
+    expect(`${a.statusLabel} ${a.reason}`).not.toMatch(/reconciled|audited|assured|signed off|(?<!not exactly )verified/i);
+    expect(a.reason).toContain("The statement equation is not exactly verified");
     // The reconciliation is not an input: an open, partial or escalated one changes nothing about this outcome.
     for (const extra of [{}, { safisha_status: "needs_review" }, { safisha_status: "blocked" }, { safisha_status: "clean" }]) {
       expect(deriveTrialBalanceVerdict({ upload: upload("complete", extra), readiness: { verdict: "certified", blocker: null, checks: passedLayers }, canRetry: true })).toEqual(a);

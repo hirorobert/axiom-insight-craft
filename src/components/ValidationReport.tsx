@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   ArrowRight,
   RotateCcw,
+  MinusCircle,
 } from "lucide-react";
 
 interface ValidationReportData {
@@ -213,22 +214,10 @@ export function ValidationReport({
   const hasUniqueContent = hasCashRecon || hasProfitLink || hasErrors;
   if (!hasUniqueContent) return null;
 
-  // Errors take precedence: if any errors exist the status is INVALID
-  // regardless of what the isValid prop says.
-  const statusLabel =
-    errors.length > 0
-      ? "INVALID"
-      : isValid === true
-      ? "VALID"
-      : isValid === false
-      ? "INVALID"
-      : "PENDING";
-  const statusColor =
-    statusLabel === "VALID"
-      ? "bg-accent/20 text-accent border-accent/30"
-      : statusLabel === "INVALID"
-      ? "bg-destructive/20 text-destructive border-destructive/30"
-      : "bg-muted text-muted-foreground";
+  // A recorded failure is always shown: errors, or an engine result marked invalid, read INVALID. Nothing here is ever
+  // labelled VALID — this report does not decide acceptance (the trial balance checks do), and the cash row below is
+  // never evidence of anything.
+  const statusLabel = errors.length > 0 || isValid === false ? "INVALID" : null;
 
   return (
     <Card className={`border-2 ${isBlocked ? "border-destructive/30" : "border-border"}`}>
@@ -238,30 +227,25 @@ export function ValidationReport({
             <FileCheck className="w-5 h-5 text-primary" />
             CFOClose -- Validation Report
           </CardTitle>
-          <Badge className={statusColor}>{statusLabel}</Badge>
+          {statusLabel && <Badge className="bg-destructive/20 text-destructive border-destructive/30">{statusLabel}</Badge>}
         </div>
         <p className="text-sm text-foreground/60">
-          Deterministic accounting validation -- all checks must pass for VALID status
+          Further engine output for this file. It does not decide whether the trial balance is reviewed.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
         {report && (
           <div className="space-y-3">
-            {/* Cash Reconciliation */}
+            {/* Cash reconciliation: never a pass. The stored result compared a figure with itself, so whatever was
+                recorded, cash is shown as not checked — neutral, no pass or fail styling, and no badge derives from it. */}
             {report.cash_reconciliation && (
-              <div
-                className={`p-4 rounded-lg border ${
-                  report.cash_reconciliation.passed
-                    ? "bg-accent/5 border-accent/20"
-                    : "bg-destructive/5 border-destructive/20"
-                }`}
-              >
+              <div className="p-4 rounded-lg border border-border bg-muted/30" data-testid="cash-reconciliation-row" data-state="not_checked">
                 <div className="flex items-center gap-3">
-                  <CheckIcon passed={report.cash_reconciliation.passed} />
+                  <MinusCircle className="w-5 h-5 text-muted-foreground" aria-hidden="true" />
                   <div>
-                    <p className="font-medium text-foreground">Cash Reconciliation</p>
+                    <p className="font-medium text-foreground">Cash reconciliation: Not checked</p>
                     <p className="text-sm text-foreground/60">
-                      Cash flow ending balance = Balance sheet cash
+                      Cash is not reconciled to a bank statement or a cash-flow statement in Trial balance review.
                     </p>
                   </div>
                   <Banknote className="w-5 h-5 text-foreground/40 ml-auto" />

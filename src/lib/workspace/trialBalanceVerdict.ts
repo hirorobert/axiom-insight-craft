@@ -21,6 +21,12 @@
  *   5. certification verdict:
  *        certified  → accepted     ("Reviewed trial balance": ready for statement preparation; no action. Not an
  *                                   approval of financial statements; supporting-evidence reconciliation is not part of it)
+ *                                   — only when no check needs review or failed; otherwise needs_review, naming it
+ *
+ * Layer 3 is shown by its recorded code (computeCertificationReadiness.classifyLayer3): "Debits equal credits",
+ * "Statement equation" or "Arithmetic check" (unknown code: recorded message and severity kept). No stored result proves
+ * the statement equation exactly, so a result with no equation failure lists it, for information, as NOT EXACTLY
+ * VERIFIED — never as passed — and no reason claims that every check passed.
  *        blocked    → blocked      (the failing check, by CHECK_PRECEDENCE: file → amounts → balance → classification;
  *                                   Replace, except a classification-only block → Resolve classifications)
  *        review     → needs_review (Resolve classifications)
@@ -31,6 +37,19 @@
 
 import type { PreflightCheck, PreflightCheckState, PreflightVerdict } from "./computePreflight";
 import { NOT_AN_APPROVAL, REVIEWED_TRIAL_BALANCE } from "./trialBalanceReadiness";
+import { LAYER3_LABEL, readRecordedEquation, recordedEquationHold } from "./computeCertificationReadiness";
+
+/**
+ * What a reviewed trial balance establishes, stated without a blanket "every check passed": debit/credit parity and
+ * confirmed classifications, and that the statement equation is not exactly verified. Shared by the card, the Prepare
+ * step and the Overview / hub, so they say the same thing.
+ */
+export const REVIEWED_SCOPE = "Debit and credit totals agree and every account classification is confirmed. The statement equation is not exactly verified for this result.";
+
+/** Presentation-only row (not a stored check): the statement equation for a result that records no equation failure. */
+export const STATEMENT_EQUATION_NOTE_ID = "statement_equation";
+/** That row's one neutral explanation (no state word beside it: it is neither passed nor "not checked yet"). */
+export const EQUATION_VERIFICATION_UNAVAILABLE = "Exact equation verification unavailable for this legacy result.";
 
 /**
  * Recorded totals in integer minor units (cents). Every subtraction and comparison is done on these safe integers —
@@ -277,6 +296,8 @@ export interface TrialBalanceCheck {
   label: string;
   state: PreflightCheckState;
   detail: string;
+  /** Shown with its detail only — no state word (a neutral explanation, neither a result nor "not checked yet"). */
+  neutral?: boolean;
 }
 
 export interface TrialBalanceVerdict {
@@ -338,18 +359,26 @@ const INFO_TEXT: Record<string, string> = {
   l6_prior_period: "Comparison with the prior year",
 };
 
+const LAYER3_LABELS = new Set<string>(Object.values(LAYER3_LABEL));
+
 function plainCheck(c: PreflightCheck, totals: TrialBalanceTotals | null): TrialBalanceCheck {
   const text = CHECK_TEXT[c.id];
-  const label = text?.label ?? INFO_TEXT[c.id] ?? c.label;
+  // Layer 3 keeps the label its recorded code gave it (debits/credits, statement equation, or an unknown check). A
+  // layer-3 problem carrying no such label is a debit/credit failure only when the recorded totals prove it.
+  const label = c.id === "l3_arithmetic" && c.state !== "passed"
+    ? (LAYER3_LABELS.has(c.label) ? c.label : isOutOfBalance(totals) ? LAYER3_LABEL.parity : LAYER3_LABEL.unknown)
+    : text?.label ?? INFO_TEXT[c.id] ?? c.label;
   let detail = c.detail;
   if (c.state === "passed" && c.id === "l3_arithmetic" && totals && totals.differenceCents !== 0 && !isOutOfBalance(totals)) detail = `${WITHIN_TOLERANCE_TEXT}.`;
   else if (c.state === "passed" && text) detail = text.passed;
   else if (/NO_PRIOR/.test(c.detail)) detail = "No accepted prior-year trial balance to compare with.";
   else if (c.id === "l5_supporting_evidence" && (c.state === "pending" || /NOT_EVALUATED|NO_EVIDENCE/.test(c.detail))) detail = "Not required for a reviewed trial balance.";
   else if (c.state === "pending" || /NOT_EVALUATED/.test(c.detail)) detail = "Waiting for processing to finish.";
-  else if (c.id === "l3_arithmetic" && totals && isOutOfBalance(totals)) {
+  else if (c.id === "l3_arithmetic" && label === LAYER3_LABEL.parity && totals && isOutOfBalance(totals)) {
     detail = `Debits ${formatTotal(totals, totals.debitCents)} and credits ${formatTotal(totals, totals.creditCents)} differ by ${formatTotal(totals, Math.abs(totals.differenceCents))}.`;
   } else detail = stripEngineCode(c.detail);
+  // Raw "x != y" comparisons are never shown as they were recorded.
+  if (c.id === "l3_arithmetic") detail = detail.replace(/\s*!=\s*/g, " does not equal ");
   // Supporting evidence that was never evaluated is shown as not checked — never "Passed" — and is not required for a
   // reviewed trial balance (the layer is informational; it never decides acceptance).
   const unevaluatedEvidence = c.id === "l5_supporting_evidence" && (c.state === "pending" || /NOT_EVALUATED|NO_EVIDENCE/.test(c.detail));
@@ -363,10 +392,24 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
     && input.readinessSubject !== uploadSubjectKey({ id: upload.id, version: upload.version, source_file_hash: upload.source_file_hash });
   // A result read for another upload (or an earlier version of this one) is never shown as this upload's checks.
   const layerChecks = subjectMismatch ? [] : input.readiness?.checks ?? [];
-  const checks = CHECK_PRECEDENCE.flatMap((id) => layerChecks.filter((c) => c.id === id)).map((c) => plainCheck(c, totals));
-  const informational = layerChecks.filter((c) => c.id in INFO_TEXT).map((c) => plainCheck(c, totals));
+  // What the stored result itself recorded about the statement equation (passed === false, or an unreadable value) holds
+  // the result even where the certification carries no layer-3 exception: the layer-3 row shows it, never reviewed. The
+  // same reading feeds the Overview and hub (fetchWorkspaceSnapshot → computeCertificationReadiness), so they agree.
+  const storedEquationHold = recordedEquationHold(readRecordedEquation(upload?.processing_result));
+  const checks = CHECK_PRECEDENCE.flatMap((id) => layerChecks.filter((c) => c.id === id)).map((c) => plainCheck(c, totals))
+    .map((c) => (c.id === "l3_arithmetic" && c.state === "passed" && storedEquationHold
+      ? { ...c, label: LAYER3_LABEL.equation, state: "review" as const, detail: storedEquationHold }
+      : c));
+  const l3 = checks.find((c) => c.id === "l3_arithmetic") ?? null;
+  // The statement equation, when nothing recorded it as failed: listed for information as not exactly verified.
+  const equationNote: TrialBalanceCheck[] = l3?.state === "passed"
+    ? [{ id: STATEMENT_EQUATION_NOTE_ID, label: LAYER3_LABEL.equation, state: "pending", detail: EQUATION_VERIFICATION_UNAVAILABLE, neutral: true }]
+    : [];
+  const informational = [...equationNote, ...layerChecks.filter((c) => c.id in INFO_TEXT).map((c) => plainCheck(c, totals))];
   const failed = checks.find((c) => c.state === "failed") ?? checks.find((c) => c.state === "review") ?? null;
-  const l3Passed = checks.some((c) => c.id === "l3_arithmetic" && c.state === "passed");
+  // Debit/credit parity still holds when only the statement equation was recorded as failing.
+  const l3Passed = !!l3 && (l3.state === "passed" || l3.label === LAYER3_LABEL.equation);
+  const classificationOpen = checks.some((c) => c.id === "l4_classification" && (c.state === "review" || c.state === "failed"));
   const issues = upload ? readIngestionIssues(upload.processing_result) : [];
   const milestones = upload ? readMilestones(upload.processing_result) : [];
   const base = { totals, checks, informational, failedCheckId: failed?.id ?? null, balanceStatement: l3Passed ? balanceStatement(totals) : null, issues: [] as TrialBalanceIssue[], milestones };
@@ -393,9 +436,17 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
   const verdict = input.readiness?.verdict;
   switch (verdict) {
     case "certified":
+      // "Reviewed" only when no check needs review or failed — a contradictory certification is never shown as reviewed.
+      if (failed) {
+        return {
+          ...base, status: "needs_review", statusLabel: "Needs review", tone: "warning",
+          reason: failed.id === "l3_arithmetic" ? failed.detail : `${failed.label}: ${failed.detail}`,
+          primaryAction: classificationOpen ? { kind: "review_classifications", label: "Resolve account classifications" } : null,
+        };
+      }
       return {
         ...base, status: "accepted", statusLabel: "Reviewed", tone: "success",
-        reason: `${REVIEWED_TRIAL_BALANCE}: every check passed and every account classification is confirmed. It is ready for statement preparation. ${NOT_AN_APPROVAL}`,
+        reason: `${REVIEWED_TRIAL_BALANCE}. ${REVIEWED_SCOPE} It is ready for statement preparation. ${NOT_AN_APPROVAL}`,
         primaryAction: null,
       };
     case "blocked":
@@ -411,7 +462,9 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
       return {
         ...base, status: "needs_review", statusLabel: "Needs review", tone: "warning",
         reason: stripEngineCode(input.readiness?.blocker ?? "Some accounts need a classification decision."),
-        primaryAction: { kind: "review_classifications", label: "Resolve account classifications" },
+        // Classification decisions are offered when a classification needs one, or when nothing else is named; a review
+        // held only by an arithmetic check is not resolved by classifying accounts that need no decision.
+        primaryAction: classificationOpen || failed?.id !== "l3_arithmetic" ? { kind: "review_classifications", label: "Resolve account classifications" } : null,
       };
     case "superseded":
       return { ...base, status: "not_current", statusLabel: "Not current", tone: "neutral", reason: "An older trial balance. Another upload is the current one for this period.", primaryAction: null };
@@ -422,7 +475,8 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
         primaryAction: input.canRetry ? { kind: "retry", label: "Retry processing" } : null,
       };
     case "unknown":
-      return { ...base, status: "unavailable", statusLabel: "Status unavailable", tone: "warning", reason: "The result could not be read. Refresh to try again.", primaryAction: null };
+      // The readiness's own reason (a failed read, or recorded findings not in the expected form), as the Overview shows it.
+      return { ...base, status: "unavailable", statusLabel: "Status unavailable", tone: "warning", reason: input.readiness?.blocker ? stripEngineCode(input.readiness.blocker) : "The result could not be read. Refresh to try again.", primaryAction: null };
     default:
       return { ...base, status: "checking", statusLabel: "Checking", tone: "neutral", reason: "The result is being confirmed.", primaryAction: null };
   }

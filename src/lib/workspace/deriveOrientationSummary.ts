@@ -19,6 +19,7 @@ import type { EngagementCapability } from "./mandate";
 import { customerCapabilityTitle } from "./mandate";
 import { customerVisibleCapabilities, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
 import type { WorkspaceState } from "./types";
+import { REVIEWED_SCOPE } from "./trialBalanceVerdict";
 
 export interface OrientationMilestone {
   stageLabel: string;
@@ -47,8 +48,9 @@ export interface TrialBalanceReviewStep {
 
 /**
  * The trial-balance-review outcome once Prepare has passed (the engine's own next action then lies in a withheld stage).
- * Prepare passes only on a certified trial balance (deriveWorkspaceState PATH 6B: checks passed and every classification
- * confirmed), which is exactly trialBalanceReadiness: a "Reviewed trial balance", ready for statement preparation.
+ * Prepare passes only on a certified trial balance (deriveWorkspaceState PATH 6B; a recorded layer-3 exception is never
+ * certified): debit/credit parity and every classification confirmed, which is exactly trialBalanceReadiness — a
+ * "Reviewed trial balance", ready for statement preparation, whose statement equation is not exactly verified.
  * Supporting-evidence reconciliation is not part of it and is never claimed here. Null while Prepare has not passed (its
  * own next action applies).
  */
@@ -58,7 +60,7 @@ export function trialBalanceReviewStep(state: WorkspaceState): TrialBalanceRevie
   return {
     ready: true,
     label: TRIAL_BALANCE_REVIEW.ready,
-    detail: `Its checks have passed and every account classification is confirmed. It is ready for statement preparation. ${TRIAL_BALANCE_REVIEW.notApproval}`,
+    detail: `${REVIEWED_SCOPE} It is ready for statement preparation. ${TRIAL_BALANCE_REVIEW.notApproval}`,
   };
 }
 
