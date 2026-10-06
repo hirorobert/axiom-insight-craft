@@ -129,7 +129,17 @@ export function deriveTrialBalanceSteps(upload: WorkspaceUpload | null, opts: { 
   // A recorded imbalance is a failure of the balance step itself.
   if (outOfBalance) steps[steps.findIndex((s) => s.key === "balanced")].state = "failed";
 
-  if (isFailed) {
+  // A layer-3 problem while the recorded debit and credit totals agree is NOT a debit/credit failure (it is the
+  // statement equation or an unknown arithmetic check): it belongs to "Validation complete", never to "Debits equal
+  // credits", and the run is not shown as validated while the verdict holds it.
+  const arithmeticBeyondParity = opts.failedCheckId === "l3_arithmetic" && totals !== null && !outOfBalance;
+  if (arithmeticBeyondParity) {
+    const idx = steps.findIndex((s) => s.key === "complete");
+    steps[idx].state = isFailed ? "failed" : "attention";
+    steps[idx].detail = "An arithmetic check needs attention — see the trial balance checks";
+  }
+
+  if (isFailed && !arithmeticBeyondParity) {
     const verdictStep = opts.failedCheckId ? STEP_FOR_CHECK[opts.failedCheckId] : undefined;
     const idx = verdictStep ? steps.findIndex((s) => s.key === verdictStep) : -1;
     if (idx >= 0) steps[idx].state = "failed";

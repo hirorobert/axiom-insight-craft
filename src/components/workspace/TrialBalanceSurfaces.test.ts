@@ -48,7 +48,9 @@ describe("Current Trial Balance card", () => {
   it("accepted: a Reviewed trial balance, ready for statement preparation, with no further action and no approval claim", () => {
     const html = card(accepted);
     expect(html).toContain("Reviewed");
-    expect(html).toContain("Reviewed trial balance: every check passed and every account classification is confirmed. It is ready for statement preparation. This is not an approval of financial statements.");
+    // F1a: no blanket "every check passed"; the statement equation is stated as not exactly verified.
+    expect(html).toContain("Reviewed trial balance. Debit and credit totals agree and every account classification is confirmed. The statement equation is not exactly verified for this result. It is ready for statement preparation. This is not an approval of financial statements.");
+    expect(html).not.toMatch(/every check passed/i);
     expect(html).not.toContain('data-testid="trial-balance-primary-action"');
     expect(html).not.toMatch(/Verify against bank|evidence is verified|reconciled|audited|assured|signed off/i);
   });

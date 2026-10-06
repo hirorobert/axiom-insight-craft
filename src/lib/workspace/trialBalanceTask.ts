@@ -8,7 +8,7 @@
  */
 
 import { TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
-import type { TrialBalanceVerdict } from "./trialBalanceVerdict";
+import { REVIEWED_SCOPE, type TrialBalanceVerdict } from "./trialBalanceVerdict";
 
 export interface TrialBalanceTask {
   service: string;
@@ -47,8 +47,11 @@ export function currentTrialBalanceTask(
           ? `Correct ${verdict.issues.length === 1 ? "the issue" : `the ${verdict.issues.length} issues`} shown below in your file, then replace it.`
           : "Correct the file, then replace it.");
     case "needs_review":
-      return task(2, "Confirm the classification of the accounts listed below.");
+      // Held by an arithmetic check (debits/credits, statement equation or an unknown check), not a classification.
+      return verdict.failedCheckId === "l3_arithmetic"
+        ? task(1, "An arithmetic check needs attention before this trial balance can be reviewed. See the checks below.")
+        : task(2, "Confirm the classification of the accounts listed below.");
     case "accepted":
-      return task(3, `${TRIAL_BALANCE_REVIEW.ready}: checks passed and every account classification confirmed. ${TRIAL_BALANCE_REVIEW.notApproval}`);
+      return task(3, `${TRIAL_BALANCE_REVIEW.ready}. ${REVIEWED_SCOPE} ${TRIAL_BALANCE_REVIEW.notApproval}`);
   }
 }

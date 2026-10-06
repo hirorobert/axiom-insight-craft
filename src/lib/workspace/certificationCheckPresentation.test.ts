@@ -52,12 +52,16 @@ describe("certificationRowForDisplay mirrors the row computeCertificationReadine
   });
 });
 
-describe("required checks: layers 1–4 only, 'Required checks passed · 4/4'", () => {
+// F1a: the certified headline was the blanket "Required checks passed"; it is now "Reviewed", and layer 3 says the
+// statement equation is not exactly verified (no stored result proves it exactly).
+describe("required checks: layers 1–4 only, 'Reviewed · 4/4'", () => {
   it("typical certified upload", () => {
     const r = computeCertificationReadiness(input(TYPICAL));
     expect([r.verdict, r.passedCount, r.totalCount]).toEqual(["certified", 6, 6]); // readiness itself unchanged
     const p = present(input(TYPICAL));
-    expect(p.countLabel).toBe("Required checks passed · 4/4");
+    expect(p.countLabel).toBe("Reviewed · 4/4");
+    expect(p.countLabel).not.toMatch(/checks passed/i);
+    expect(p.required.find((c) => c.id === "l3_arithmetic")?.text).toBe("Total debits equal total credits. Statement equation: not exactly verified (recorded by an earlier engine).");
     expect(p.required.map((c) => c.id)).toEqual(["l1_structure", "l2_data_quality", "l3_arithmetic", "l4_classification"]);
     expect(p.required.every((c) => c.tone === "passed")).toBe(true);
     expect(p.informational.map((c) => c.id)).toEqual(["l5_supporting_evidence", "l6_prior_period"]);
@@ -68,9 +72,15 @@ describe("required checks: layers 1–4 only, 'Required checks passed · 4/4'", 
     expect(p.required.find((c) => c.id === "l3_arithmetic")?.tone).toBe("failed");
   });
   it("an unknown severity on a required layer is never counted as passed", () => {
+    const p = present(input(row([x(2, "bogus")])));
+    expect(p.required.find((c) => c.id === "l2_data_quality")?.tone).toBe("unavailable");
+    expect(p.countLabel).toBe("Certified · 3/4 required");
+  });
+  it("F1a: any layer-3 exception, even with an unknown severity, is never certified (held for review) and never counted as passed", () => {
+    // Was "Certified · 3/4 required": an authoritative row carrying a layer-3 exception was certified. It no longer is.
     const p = present(input(row([x(3, "bogus")])));
     expect(p.required.find((c) => c.id === "l3_arithmetic")?.tone).toBe("unavailable");
-    expect(p.countLabel).toBe("Certified · 3/4 required");
+    expect(p.countLabel).toBe("Needs review · 3/4");
   });
   it("no certification yet: 'Checking · 0/4', all pending", () => {
     const p = present(input(null, false));
@@ -142,8 +152,9 @@ describe("TrialBalancePreflight renders it", () => {
   const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(TrialBalancePreflight, {
     upload: null, readiness: computeCertificationReadiness(inp), certificationRow: certificationRowForDisplay(inp),
   })));
-  it("'Required checks passed · 4/4', never 6/6", () => {
-    expect(html).toContain("Required checks passed · 4/4");
+  it("'Reviewed · 4/4', never 6/6 and never the blanket 'Required checks passed'", () => {
+    expect(html).toContain("Reviewed · 4/4");
+    expect(html).not.toContain("Required checks passed");
     expect(html).not.toMatch(/6\/6/);
   });
   it("informational rows are neutral (no success glyph) and labelled as not counted", () => {

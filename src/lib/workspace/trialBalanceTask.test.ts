@@ -16,7 +16,9 @@ describe("current service and task", () => {
   it("an accepted trial balance is the final step: a Reviewed trial balance, never reconciled, never an approval", () => {
     const t = currentTrialBalanceTask(v("accepted"));
     expect(t).toMatchObject({ step: 3, of: 3, label: "Trial balance ready for statement preparation" });
-    expect(t.instruction).toBe("Reviewed trial balance: checks passed and every account classification confirmed. This is not an approval of financial statements.");
+    // F1a: no blanket "checks passed"; the statement equation is stated as not exactly verified.
+    expect(t.instruction).toBe("Reviewed trial balance. Debit and credit totals agree and every account classification is confirmed. The statement equation is not exactly verified for this result. This is not an approval of financial statements.");
+    expect(t.instruction).not.toMatch(/checks passed/i);
     expect(t.instruction).not.toMatch(/reconcil|audit|assur|signed off/i);
   });
 });
