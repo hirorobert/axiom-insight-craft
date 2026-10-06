@@ -39,7 +39,8 @@ export function currentTrialBalanceTask(
     case "not_current":
       return task(1, "This is an earlier upload. Open the current trial balance for this period.");
     case "unavailable":
-      return task(1, "The result could not be read. Refresh the page.");
+      // A failed read, or recorded findings that cannot be read: the card states which.
+      return task(1, "The result could not be confirmed. The reason is shown below.");
     case "blocked":
       return verdict.failedCheckId === "l4_classification"
         ? task(2, "Confirm the classification of the accounts listed below.")

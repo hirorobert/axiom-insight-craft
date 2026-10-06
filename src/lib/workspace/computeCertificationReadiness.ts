@@ -121,6 +121,50 @@ export interface CertificationReadinessInput {
    * stale is unsafe rather than merely over-cautious.
    */
   revalidating?: boolean;
+  /**
+   * What the upload's own stored result recorded about the statement equation (readRecordedEquation on
+   * processing_result). "failed" and "unreadable" are never reviewed, even when the certification carries no layer-3
+   * exception for them. Omitted = not read (the certification alone decides).
+   */
+  recordedEquation?: RecordedEquation;
+}
+
+/**
+ * The statement-equation record in the stored result (processing_result.validation_report.balance_sheet_equation),
+ * read only from its own `passed` field — never computed from the recorded amounts:
+ *   failed      passed === false: a recorded failure;
+ *   not_failed  passed === true: no recorded failure (which does NOT prove the equation exactly);
+ *   unreadable  passed present but not a boolean (null, a string, a number): malformed — held, never a pass;
+ *   absent      no record, or a record without `passed`: nothing recorded either way.
+ */
+export type RecordedEquation = "failed" | "not_failed" | "unreadable" | "absent";
+
+export function readRecordedEquation(processingResult: unknown): RecordedEquation {
+  const obj = (v: unknown) => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+  const eq = obj(obj(obj(processingResult)?.validation_report)?.balance_sheet_equation);
+  if (!eq || !("passed" in eq) || eq.passed === undefined) return "absent";
+  return eq.passed === false ? "failed" : eq.passed === true ? "not_failed" : "unreadable";
+}
+
+/** The one sentence for a statement-equation failure recorded in the stored result itself. */
+export const RECORDED_EQUATION_FAILURE = "The statement equation does not hold: the engine recorded a failure in this result.";
+/** The one sentence for a stored statement-equation record that cannot be read. */
+export const RECORDED_EQUATION_UNREADABLE = "The recorded statement-equation result could not be read, so this trial balance cannot be shown as reviewed.";
+
+/** The reason a stored equation record holds a result for review, or null when it does not. */
+export function recordedEquationHold(recorded: RecordedEquation | undefined): string | null {
+  return recorded === "failed" ? RECORDED_EQUATION_FAILURE : recorded === "unreadable" ? RECORDED_EQUATION_UNREADABLE : null;
+}
+
+/**
+ * tb_certifications.exceptions is JSONB NOT NULL DEFAULT '[]' with CHECK (jsonb_typeof(exceptions) = 'array')
+ * (20260902130000); its elements are not shape-checked by the database. So [] is the one legitimate empty value, and a
+ * row is MALFORMED when the list is not an array or an entry is not an object with a layer 1–6. Malformed findings are
+ * never read as "no findings": the result is unknown, never certified.
+ */
+export function exceptionsMalformed(row: TbCertificationRow): boolean {
+  if (!Array.isArray(row.exceptions)) return true;
+  return row.exceptions.some((e) => e === null || typeof e !== "object" || Array.isArray(e) || ![1, 2, 3, 4, 5, 6].includes((e as { layer?: unknown }).layer as number));
 }
 
 const LAYER_META: Record<1 | 2 | 3 | 4 | 5 | 6, { id: string; label: string }> = {
@@ -228,9 +272,22 @@ function buildLayerChecks(row: TbCertificationRow | null): PreflightCheck[] {
   });
 }
 
-/** A row's recorded exceptions; a missing or malformed list is no list (never a crash, never a pass on its own). */
+/** A row's recorded exceptions. Only called on rows that are not malformed (exceptionsMalformed); never crashes. */
 function exceptionsOf(row: TbCertificationRow): TbCertificationExceptionRecord[] {
   return Array.isArray(row.exceptions) ? row.exceptions.filter((e) => e !== null && typeof e === "object") : [];
+}
+
+/** The verdict for a row whose findings are malformed: unknown, never certified, never a crash. */
+function malformedResult(): PreflightResult {
+  const checks = buildLayerChecks(null);
+  return {
+    verdict: "unknown",
+    headline: "Certification findings could not be read",
+    blocker: "The recorded certification findings are not in the expected form, so this trial balance cannot be shown as reviewed.",
+    checks,
+    passedCount: 0,
+    totalCount: checks.length,
+  };
 }
 
 function layer3Entries(row: TbCertificationRow): TbCertificationExceptionRecord[] {
@@ -269,6 +326,7 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
   // matching alone (which is all get_authoritative_certification checks) is
   // not sufficient — verified explicitly here, not assumed.
   if (input.authoritative && input.authoritative.upload_id === input.currentUploadId) {
+    if (exceptionsMalformed(input.authoritative)) return malformedResult();
     const checks = buildLayerChecks(input.authoritative);
     // A recorded layer-3 exception (the engine certifies an equation failure as a non-blocking warning) is never
     // certified: it is held for review, or blocked when recorded as an error, with the recorded reason.
@@ -299,6 +357,23 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
         checks,
         passedCount: countPassed(checks),
         totalCount: checks.length,
+      };
+    }
+
+    // A statement-equation failure recorded in the stored result itself is never certified either; the layer-3 check
+    // shows it (debit/credit parity is a separate, recorded fact and is not changed here).
+    const hold = recordedEquationHold(input.recordedEquation);
+    if (hold) {
+      const held = checks.map((c) => (c.id === "l3_arithmetic"
+        ? { ...c, label: LAYER3_LABEL.equation, state: "review" as const, detail: hold }
+        : c));
+      return {
+        verdict: "review",
+        headline: "Not reviewed — an arithmetic check needs review",
+        blocker: hold,
+        checks: held,
+        passedCount: countPassed(held),
+        totalCount: held.length,
       };
     }
 
@@ -334,6 +409,7 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
 
   if (input.latestForUpload && input.latestForUpload.upload_id === input.currentUploadId) {
     const row = input.latestForUpload;
+    if (exceptionsMalformed(row)) return malformedResult();
     const checks = buildLayerChecks(row);
     const passedCount = countPassed(checks);
 

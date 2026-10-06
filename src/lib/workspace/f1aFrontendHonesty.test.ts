@@ -128,7 +128,8 @@ describe("legacy equation success: 'Not exactly verified', never 'Balanced', nev
     expect(v.reason).toBe(`Reviewed trial balance. ${REVIEWED_SCOPE} It is ready for statement preparation. This is not an approval of financial statements.`);
     expect(v.reason).not.toMatch(/every check passed|checks passed/i);
     expect(v.checks.find((c) => c.id === "l3_arithmetic")).toMatchObject({ label: "Debits equal credits", state: "passed" });
-    expect(v.informational[0]).toEqual({ id: STATEMENT_EQUATION_NOTE_ID, label: "Statement equation", state: "pending", detail: "Not exactly verified — recorded by an earlier engine; re-check after the engine update." });
+    // One neutral explanation, no state word (was "Not checked yet · Not exactly verified…", a contradiction).
+    expect(v.informational[0]).toEqual({ id: STATEMENT_EQUATION_NOTE_ID, label: "Statement equation", state: "pending", detail: "Exact equation verification unavailable for this legacy result.", neutral: true });
     expect(v.checks.map((c) => c.id)).toEqual(["l1_structure", "l2_data_quality", "l3_arithmetic", "l4_classification"]); // stored ids unchanged
   });
 
@@ -148,7 +149,8 @@ describe("legacy equation success: 'Not exactly verified', never 'Balanced', nev
     expect(card(v)).toMatch(/REVIEWED|Reviewed/);
     expect(card(v)).not.toMatch(/every check passed/i);
     const list = checksList(v);
-    expect(list).toMatch(/Statement equation Not checked yet Not exactly verified/);
+    expect(list).toMatch(/Statement equation Exact equation verification unavailable for this legacy result\./);
+    expect(list).not.toMatch(/Not checked yet Not exactly verified|Statement equation Not checked yet/);
     expect(list).not.toMatch(/every check passed/i);
     const task = currentTrialBalanceTask(v);
     expect(task).toMatchObject({ step: 3 });
@@ -251,8 +253,10 @@ describe("layer-3 codes: known, legacy and unknown", () => {
     expect(bare.verdict).toBe("review");
     expect(bare.blocker).toBe("An arithmetic check recorded an unidentified exception.");
     expect(verdictFor(bare).statusLabel).not.toBe("Reviewed");
+    // exceptions is JSONB NOT NULL, an array by CHECK (20260902130000): a missing list is malformed — unknown, never a
+    // review that could later read as clear, never certified, never a crash.
     const noArray = computeCertificationReadiness({ uploadExists: true, currentUploadId: U, authoritative: null, latestForUpload: { ...cert([]), exceptions: null as never, requires_review: true } });
-    expect(noArray.verdict).toBe("review");
+    expect(noArray.verdict).toBe("unknown");
     // A result with no processing_result and no equation record shows no card and no stored-failure override.
     expect(renderToStaticMarkup(createElement(BalanceSheetEquationCard, { upload: { processing_result: null } } as never))).toBe("");
     expect(verdictFor(authoritative(cert([])), "complete", null).statusLabel).toBe("Reviewed");

@@ -14,7 +14,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { deriveWorkspaceState } from "./deriveWorkspaceState";
 import { resolveActiveUpload } from "./resolveActiveUpload";
-import { computeCertificationReadiness } from "./computeCertificationReadiness";
+import { computeCertificationReadiness, readRecordedEquation } from "./computeCertificationReadiness";
 import { readTrialBalanceTotals } from "./trialBalanceVerdict";
 import { fetchCertificationReadiness } from "@/hooks/useCertificationReadiness";
 import type { WorkspaceState, UploadSnapshot } from "./types";
@@ -227,6 +227,8 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
         latestForUpload: reads.latestForUpload,
         fetchFailed: false,
         revalidating: false,
+        // The upload's own stored equation record, so the Overview and hub never show "Reviewed" where Prepare does not.
+        recordedEquation: readRecordedEquation(match.processing_result),
       });
       certificationVerdict = readiness.verdict;
       certificationBlocker = readiness.blocker;

@@ -37,7 +37,7 @@
 
 import type { PreflightCheck, PreflightCheckState, PreflightVerdict } from "./computePreflight";
 import { NOT_AN_APPROVAL, REVIEWED_TRIAL_BALANCE } from "./trialBalanceReadiness";
-import { EQUATION_NOT_EXACTLY_VERIFIED, LAYER3_LABEL } from "./computeCertificationReadiness";
+import { LAYER3_LABEL, readRecordedEquation, recordedEquationHold } from "./computeCertificationReadiness";
 
 /**
  * What a reviewed trial balance establishes, stated without a blanket "every check passed": debit/credit parity and
@@ -48,6 +48,8 @@ export const REVIEWED_SCOPE = "Debit and credit totals agree and every account c
 
 /** Presentation-only row (not a stored check): the statement equation for a result that records no equation failure. */
 export const STATEMENT_EQUATION_NOTE_ID = "statement_equation";
+/** That row's one neutral explanation (no state word beside it: it is neither passed nor "not checked yet"). */
+export const EQUATION_VERIFICATION_UNAVAILABLE = "Exact equation verification unavailable for this legacy result.";
 
 /**
  * Recorded totals in integer minor units (cents). Every subtraction and comparison is done on these safe integers —
@@ -294,6 +296,8 @@ export interface TrialBalanceCheck {
   label: string;
   state: PreflightCheckState;
   detail: string;
+  /** Shown with its detail only — no state word (a neutral explanation, neither a result nor "not checked yet"). */
+  neutral?: boolean;
 }
 
 export interface TrialBalanceVerdict {
@@ -388,17 +392,18 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
     && input.readinessSubject !== uploadSubjectKey({ id: upload.id, version: upload.version, source_file_hash: upload.source_file_hash });
   // A result read for another upload (or an earlier version of this one) is never shown as this upload's checks.
   const layerChecks = subjectMismatch ? [] : input.readiness?.checks ?? [];
-  // A failure the engine stored in the result itself (balance_sheet_equation.passed === false) is a recorded failure too,
-  // even where the certification carries no layer-3 exception for it: the layer-3 row shows it and it is never reviewed.
-  const storedEquationFailed = record(record(record(upload?.processing_result)?.validation_report)?.balance_sheet_equation)?.passed === false;
+  // What the stored result itself recorded about the statement equation (passed === false, or an unreadable value) holds
+  // the result even where the certification carries no layer-3 exception: the layer-3 row shows it, never reviewed. The
+  // same reading feeds the Overview and hub (fetchWorkspaceSnapshot → computeCertificationReadiness), so they agree.
+  const storedEquationHold = recordedEquationHold(readRecordedEquation(upload?.processing_result));
   const checks = CHECK_PRECEDENCE.flatMap((id) => layerChecks.filter((c) => c.id === id)).map((c) => plainCheck(c, totals))
-    .map((c) => (c.id === "l3_arithmetic" && c.state === "passed" && storedEquationFailed
-      ? { ...c, label: LAYER3_LABEL.equation, state: "review" as const, detail: "The statement equation does not hold: the engine recorded a failure in this result." }
+    .map((c) => (c.id === "l3_arithmetic" && c.state === "passed" && storedEquationHold
+      ? { ...c, label: LAYER3_LABEL.equation, state: "review" as const, detail: storedEquationHold }
       : c));
   const l3 = checks.find((c) => c.id === "l3_arithmetic") ?? null;
   // The statement equation, when nothing recorded it as failed: listed for information as not exactly verified.
   const equationNote: TrialBalanceCheck[] = l3?.state === "passed"
-    ? [{ id: STATEMENT_EQUATION_NOTE_ID, label: LAYER3_LABEL.equation, state: "pending", detail: EQUATION_NOT_EXACTLY_VERIFIED }]
+    ? [{ id: STATEMENT_EQUATION_NOTE_ID, label: LAYER3_LABEL.equation, state: "pending", detail: EQUATION_VERIFICATION_UNAVAILABLE, neutral: true }]
     : [];
   const informational = [...equationNote, ...layerChecks.filter((c) => c.id in INFO_TEXT).map((c) => plainCheck(c, totals))];
   const failed = checks.find((c) => c.state === "failed") ?? checks.find((c) => c.state === "review") ?? null;
@@ -470,7 +475,8 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
         primaryAction: input.canRetry ? { kind: "retry", label: "Retry processing" } : null,
       };
     case "unknown":
-      return { ...base, status: "unavailable", statusLabel: "Status unavailable", tone: "warning", reason: "The result could not be read. Refresh to try again.", primaryAction: null };
+      // The readiness's own reason (a failed read, or recorded findings not in the expected form), as the Overview shows it.
+      return { ...base, status: "unavailable", statusLabel: "Status unavailable", tone: "warning", reason: input.readiness?.blocker ? stripEngineCode(input.readiness.blocker) : "The result could not be read. Refresh to try again.", primaryAction: null };
     default:
       return { ...base, status: "checking", statusLabel: "Checking", tone: "neutral", reason: "The result is being confirmed.", primaryAction: null };
   }
