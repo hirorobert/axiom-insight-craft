@@ -190,6 +190,20 @@ confirming they were never applied. Their proofs run as revival candidates on to
 reports the sweeper still **paused**: step 5 (resume and verify) and the function deploys (step 3) are not confirmed by
 this record and remain to be verified in Lovable.
 
+**Live smoke tests (reported by the owner, 2026-10-06): PASSED.** Scope as reported:
+
+| Evidence | Status |
+| --- | --- |
+| Upload: a trial balance processed on the live system after S1 | Passed (owner report) |
+| Certification: the processed upload reached its certification state | Passed (owner report) |
+| Invalidation: a reprocess request invalidated the current certification (no older one resurrected) | Passed (owner report) |
+| Exact record identifiers (upload id, certification id, invalidation row, operation id) | Not provided to this record; not independently read from the hosted database |
+| Exact deployed-build identity (function versions, frontend build) | **UNAVAILABLE.** Lovable exposes no version hash for deployed functions; commit labels are not version evidence |
+| Supporting-evidence checks (G0 counts after apply, OD2 linked-row count against the prediction, grants/policies read-back, sweeper resumption) | **NOT EVALUATED** in this record |
+
+These are the owner's results, recorded as reported. This record does not claim the deployed builds equal the reviewed
+source, and the steps marked not evaluated stay open until they are read.
+
 - **Hosted journal reconciliation:** a read of the hosted journal confirms the application. Then a separate record PR
   writes the **actual** journal number, hash and applied timestamp, adds the numbered drizzle mirror, and moves the file
   into the applied-immutability and inventory/ordering pins. If the journal shows a different number or hash, or an
