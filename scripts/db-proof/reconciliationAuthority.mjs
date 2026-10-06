@@ -27,6 +27,7 @@
 // Synthetic users only. It reads no Supabase credential, refuses every non-loopback host and the production project
 // reference, and works in a uniquely named database it creates and drops itself.
 import fs from "node:fs";
+import { currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -77,7 +78,7 @@ async function stop() {
   try { await server?.stop(); } catch { /* */ } try { if (dir) fs.rmSync(dir, { recursive: true, force: true }); } catch { /* */ }
 }
 async function apply(f) {
-  let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
+  let text = migrationSql(REPO, f);
   if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
   try { await admin.query(text); } catch (e) { throw new Error(`migration ${f} failed: ${String(e.message).split("\n")[0]}`); }
 }
@@ -124,11 +125,11 @@ const diff = (a, b) => Object.keys({ ...a, ...b }).filter((k) => a[k] !== b[k]);
 
 async function main() {
   await start();
-  const files = fs.readdirSync(path.join(REPO, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
-  // This proof applies the chain up to and including its migration; later migrations (e.g. 20261005100000, evidence
-  // ingestion) are proven by their own proofs.
-  const cut = files.indexOf(MIGRATION);
-  if (cut < 0) throw new Error(`${MIGRATION} is missing`);
+  // MIGRATION is parked (never applied to the hosted database; quarantined in supabase/migrations_historical/). It is
+  // proven as a revival candidate: the WHOLE current chain first, then MIGRATION on top — the only order a revival
+  // could take. (20261005100000, evidence ingestion, is proven by its own proof.)
+  const files = currentChain(REPO);
+  const cut = files.length;
   console.log(`\n== Setup (synthetic users, disposable database ${PROOF_DB})`);
   await admin.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));
   await admin.query(`GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
@@ -187,8 +188,11 @@ async function main() {
   await admin.query("UPDATE public.safisha_reconciliations SET status='needs_review' WHERE id=$1", [P.r]);
   const Q = await upload();
   const legit = [
-    ["owner: Overview/Account Review retry — upload status processing, processing_result cleared", U.owner, "UPDATE public.trial_balance_uploads SET status='processing', processing_result=NULL WHERE id=$1", [P.up]],
-    ["owner: uploads-panel retry — status, processing_result, accounting_errors, is_valid cleared", U.owner, "UPDATE public.trial_balance_uploads SET status='processing', processing_result=NULL, accounting_errors=NULL, is_valid=NULL WHERE id=$1", [P.up]],
+    // The pre-S1 browser retry writes. Since S1 (20261006100000, applied before this parked migration in the revival
+    // order) an upload's processing fields are server-owned: these are refused 42501 both before and after (asserted
+    // explicitly below); the browser now requests a new check through tbu_request_reprocess.
+    ["owner: pre-S1 Overview/Account Review retry write — refused since S1", U.owner, "UPDATE public.trial_balance_uploads SET status='processing', processing_result=NULL WHERE id=$1", [P.up], 0],
+    ["owner: pre-S1 uploads-panel retry write — refused since S1", U.owner, "UPDATE public.trial_balance_uploads SET status='processing', processing_result=NULL, accounting_errors=NULL, is_valid=NULL WHERE id=$1", [P.up], 0],
     ["owner: ingest — upload safisha_status processing", U.owner, "UPDATE public.trial_balance_uploads SET safisha_status='processing' WHERE id=$1", [P.up]],
     ["owner: ingest — create a reconciliation as processing", U.owner, "INSERT INTO public.safisha_reconciliations (client_id,tb_upload_id,status) VALUES ($2,$1,'processing')", [Q, U.owner]],
     ["owner: ingest — trial-balance row", U.owner, "INSERT INTO public.safisha_transactions (reconciliation_id,source_id,account_code,raw_row_hash) VALUES ($1,'tb','1000','h')", [P.r]],
@@ -256,6 +260,9 @@ async function main() {
       return same && expected ? true : { before: legitBefore[i], after: legitAfter[i] };
     });
   }
+  await check("S1 holds on both sides: the two pre-S1 retry writes are refused 42501 before AND after this migration", async () =>
+    [0, 1].every((i) => !legitBefore[i].ok && legitBefore[i].code === "42501" && !legitAfter[i].ok && legitAfter[i].code === "42501")
+      ? true : { before: legitBefore.slice(0, 2), after: legitAfter.slice(0, 2) });
   await check("intended change: a client could insert a pending exception before; now refused 42501 (exceptions are server-recorded)", async () => {
     const after = await clientException(); return clientExceptionBefore.ok && !after.ok && after.code === "42501" ? true : { before: clientExceptionBefore, after };
   });

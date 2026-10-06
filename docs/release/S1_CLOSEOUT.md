@@ -181,6 +181,31 @@ Resume the sweeper and processing. Then read back:
 
 ### Step 6: after confirmed application
 
+**Recorded (S1 record PR, from main `b7b7257`):** the hosted journal applied S1 as entry `0028` (hosted id 29,
+`created_at` 1791299426677 = 2026-10-06T15:10:26.677Z); the drizzle mirror is byte-identical to the source (43,248 bytes,
+SHA-256 `d189ddf5…a967a6`); `scripts/ci/releaseJournal.mjs` pins it as `release_verbatim`, and the applied-immutability
+and inventory/ordering pins include it. The parked `20261004100000` / `20261005100000` are quarantined to
+`supabase/migrations_historical/` (PPG-1 precedent) — the regenerated Supabase types contain none of their objects,
+confirming they were never applied. Their proofs run as revival candidates on top of the current chain.
+
+**Live smoke tests — Lovable's report (2026-10-06): PASSED.** Everything in this block is as Lovable reported it. None of
+it was independently read from the hosted database by this record. Abbreviated identifiers are kept as reported.
+
+| Evidence | As reported by Lovable |
+| --- | --- |
+| Smoke upload | `b5b7e2c0-cdde-4544-ba3b-a25ff027f21e`, FY2026 period `8e85fba8-b548-4e67-8e89-f0221abad2e0` |
+| First certification | #36 (`ebcff9fa…`): unreviewed; required review; **not** authoritative |
+| Authorized confirmation | produced certification #37 (`ba9ead07…`), authoritative |
+| Reprocessing | invalidated #36 and #37, both retained in history (certifications are never edited). Invalidation records `b9ff608b…` and `6556a2fc…` |
+| Final authoritative certification | #38 `d75e96e7-da6d-46e6-aa4d-83920a311de6` |
+| Permissions checks | passed |
+| Mapping provenance | all five original mappings linked |
+| Sweeper | remained running under the approved waiver; no resume was necessary. (Lovable's sync commit `b7b7257` is titled "Kept sweeper paused, S1 applied"; this record follows Lovable's later, explicit report.) |
+| Supporting-evidence reconciliation | **NOT EVALUATED** |
+| Exact deployed-build identity (function versions, frontend build) | **UNAVAILABLE.** Lovable exposes no version hash for deployed functions; commit labels are not version evidence |
+
+This record does not claim that the deployed builds equal the reviewed source.
+
 - **Hosted journal reconciliation:** a read of the hosted journal confirms the application. Then a separate record PR
   writes the **actual** journal number, hash and applied timestamp, adds the numbered drizzle mirror, and moves the file
   into the applied-immutability and inventory/ordering pins. If the journal shows a different number or hash, or an

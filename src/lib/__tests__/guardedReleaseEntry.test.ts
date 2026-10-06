@@ -12,11 +12,14 @@ import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { RELEASE_2026_10, checkGuardedEntry, renderRelease } from "../../../scripts/release/guardedEntry.mjs";
 import { TEMPLATES, checkGuardedReleaseEntry } from "../../../scripts/ci/releaseJournal.mjs";
+import { migrationSql, PARKED_MIGRATIONS } from "../../../scripts/db-proof/lib/parkedMigrations.mjs";
 
 const ROOT = path.resolve(__dirname, "../../..");
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), "utf8");
 const sha256 = (s: string | Buffer) => crypto.createHash("sha256").update(s).digest("hex");
-const srcBytes = (name: string) => (fs.existsSync(path.join(ROOT, "supabase/migrations", name)) ? fs.readFileSync(path.join(ROOT, "supabase/migrations", name)) : null);
+// The two parked sources are quarantined (S1 record): their original bytes come from migrations_historical, hash-verified.
+const srcBytes = (name: string) => (name in PARKED_MIGRATIONS ? Buffer.from(migrationSql(ROOT, name), "utf8")
+  : fs.existsSync(path.join(ROOT, "supabase/migrations", name)) ? fs.readFileSync(path.join(ROOT, "supabase/migrations", name)) : null);
 const INSPECTION = "release/candidates/inspect_release_2026_10.sql";
 
 describe("guarded release entries", () => {
@@ -26,7 +29,7 @@ describe("guarded release entries", () => {
 
   for (const e of RELEASE_2026_10.entries) {
     const candidate = read(`release/candidates/${e.tag}.sql`);
-    const source = read(`supabase/migrations/${e.source}`);
+    const source = migrationSql(ROOT, e.source);
 
     it(`${e.tag}: the approved source is unchanged (${e.bytes} bytes, ${e.digest.slice(0, 8)}…)`, () => {
       expect(Buffer.byteLength(source)).toBe(e.bytes);
@@ -67,7 +70,7 @@ describe("guarded release entries", () => {
   it("0028 refuses unless 0027 is recorded with its exact digest; 0027 has no prerequisite", () => {
     const [e27, e28] = RELEASE_2026_10.entries;
     expect(e28.requires).toEqual([{ source: e27.source, digest: e27.digest }]);
-    const g28 = read(`release/candidates/${e28.tag}.sql`).split(read(`supabase/migrations/${e28.source}`))[0];
+    const g28 = read(`release/candidates/${e28.tag}.sql`).split(migrationSql(ROOT, e28.source))[0];
     expect(g28).toContain(`IF NOT EXISTS (SELECT 1 FROM public._release_migration_ledger WHERE source = '${e27.source}' AND source_sha256 = '${e27.digest}') THEN`);
     expect(g28.indexOf("RELEASE_ALREADY_APPLIED")).toBeLessThan(g28.indexOf("RELEASE_PREREQUISITE_MISSING"));
     expect(read(`release/candidates/${e27.tag}.sql`)).not.toContain("RELEASE_PREREQUISITE_MISSING");

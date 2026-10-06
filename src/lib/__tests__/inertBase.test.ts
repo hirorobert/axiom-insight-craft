@@ -84,6 +84,17 @@ describe("unregistered files fail", () => {
     expect(unreviewedChanges(`R100\tsupabase/migrations/0001_init.sql\t${REVIEWED_MIGRATION}\n`, { added, modified })).toHaveLength(1);
     expect(unreviewedChanges("M\tsupabase/config.toml\n", { added, modified })).toHaveLength(1);
   });
+
+  it("a removal passes only when that exact file is a reviewed removal (no default, no prefix match)", () => {
+    const removed = new Set(["supabase/migrations/0001_init.sql"]);
+    expect(unreviewedChanges("D\tsupabase/migrations/0001_init.sql\n", { added, modified, removed })).toEqual([]);
+    expect(unreviewedChanges("D\tsupabase/migrations/0001_init.sql.bak\n", { added, modified, removed })).toHaveLength(1);
+    expect(unreviewedChanges("D\tsupabase/config.toml\n", { added, modified, removed })).toHaveLength(1);
+    // A reviewed removal never excuses an addition or modification of the same path, nor a rename or type-change line.
+    expect(unreviewedChanges("M\tsupabase/migrations/0001_init.sql\n", { added, modified, removed })).toHaveLength(1);
+    expect(unreviewedChanges(`R100\tsupabase/migrations/0001_init.sql\t${REVIEWED_MIGRATION}\n`, { added, modified, removed })).toHaveLength(1);
+    expect(unreviewedChanges("T\tsupabase/migrations/0001_init.sql\n", { added, modified, removed })).toHaveLength(1);
+  });
 });
 
 describe("missing, malformed, absent, stale or wrong base fails closed (never skips)", () => {

@@ -22,6 +22,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { migrationSql } from "../db-proof/lib/parkedMigrations.mjs";
 
 export const LEDGER = "public._release_migration_ledger";
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -90,7 +91,7 @@ export function renderGuardedEntry({ source, sourceText, head, verifyText, requi
 
 /** Problems with an entry claimed to be the guarded application of `source` (empty when exact). */
 export function checkGuardedEntry(text, { source, head, repoRoot, verify, requires = [] }) {
-  const sourceText = fs.readFileSync(path.join(repoRoot, "supabase/migrations", source), "utf8");
+  const sourceText = migrationSql(repoRoot, source); // the parked sources are quarantined (S1 record); original bytes
   const verifyText = fs.readFileSync(path.join(repoRoot, "scripts/db-preflight", verify), "utf8");
   const expected = renderGuardedEntry({ source, sourceText, head, verifyText, requires });
   const problems = [];
@@ -199,7 +200,7 @@ export function renderRelease(repoRoot, release = RELEASE_2026_10) {
   const files = {};
   const entries = release.entries.map((e) => {
     const verifyText = read(`scripts/db-preflight/${e.verify}`);
-    const text = renderGuardedEntry({ source: e.source, sourceText: read(`supabase/migrations/${e.source}`), head: release.head, verifyText, requires: e.requires });
+    const text = renderGuardedEntry({ source: e.source, sourceText: migrationSql(repoRoot, e.source), head: release.head, verifyText, requires: e.requires });
     files[`release/candidates/${e.tag}.sql`] = text;
     return { ...e, verifyText, entrySha256: sha256(Buffer.from(text, "utf8")) };
   });

@@ -203,7 +203,10 @@ describe("migration directory integrity", () => {
     // Bumped from 148 -> 149: 20261006100000_mapping_and_processing_authority.sql, a NEW forward-only migration (S1: server-written
     // account mappings with review provenance, tbu_request_reprocess, append-only certification invalidation, server-owned
     // processing fields), pending hosted application. No applied migration is edited.
-    expect(files.length).toBe(149);
+    // 149 -> 147: S1 record — 20261004100000_reconciliation_server_authority.sql and 20261005100000_safisha_ingestion_authority.sql,
+    // never applied to the hosted database, are quarantined to supabase/migrations_historical/ (PPG-1 precedent); 20261006100000
+    // is applied (hosted 0028). No applied migration is edited.
+    expect(files.length).toBe(147);
   });
 });
 

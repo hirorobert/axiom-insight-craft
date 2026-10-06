@@ -19,6 +19,7 @@
 //
 // Synthetic users only; loopback only; refuses the production project reference; creates and drops its own databases.
 import fs from "node:fs";
+import { currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -86,9 +87,11 @@ async function migrate(url, withRelease) {
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;`);
-    const files = fs.readdirSync(path.join(REPO, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort().filter((f) => withRelease || !RELEASE_MIGRATIONS.includes(f));
+    // Old schema: the current chain (what the hosted database has). New schema: the current chain, then the two parked
+    // release migrations from their quarantine (the only order a revival could take).
+    const files = [...currentChain(REPO), ...(withRelease ? RELEASE_MIGRATIONS : [])];
     for (const f of files) {
-      let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
+      let text = migrationSql(REPO, f);
       if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
       try { await db.query(text); } catch (e) { throw new Error(`migration ${f} failed: ${String(e.message).split("\n")[0]}`); }
     }

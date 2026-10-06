@@ -1,3 +1,24 @@
+-- ════════════════════════════════════════════════════════════════════════════
+-- QUARANTINED HISTORICAL SOURCE — S1 record (2026-10-06)
+--
+-- This file was authored as 20261004100000_reconciliation_server_authority.sql — reconciliation server authority (readiness computed and recorded by the server; match runs, exception decisions, client-role forgery guards) — and
+-- was NEVER applied to the hosted database. It was parked (PR #53 close-out) and is not revived. The hosted journal
+-- applied the later S1 migration (20261006100000_mapping_and_processing_authority.sql) as entry 0028 / hosted id 29;
+-- leaving this file in supabase/migrations/ would make the source chain claim a migration the hosted database has never
+-- run, sorted BEFORE one it has — the migration-authority guard (rule 3) correctly refuses that gap.
+--
+-- It is renamed `.sql.historical` and moved out of supabase/migrations/ (which Supabase tooling and every replay globs by
+-- directory and extension), following the PPG-1 precedent. Its SQL is preserved byte for byte below this notice.
+-- It is retained for its design and is still proven as a REVIVAL CANDIDATE: the reconciliation proofs apply it on top of
+-- the current chain (the only order a revival could take). Its original SHA-256 is befca97c5f8fe1a1a8f1d13ab05100facf29417de5d32ab6aa6f2eb214d3425d.
+--
+-- To revive it: author a NEW forward migration timestamped after the current head, carrying this design re-reviewed
+-- against the schema as it then is. Never move this file back into supabase/migrations/ under its old timestamp.
+--
+-- The Edge Function sources on main that call its objects (safisha-ingest, safisha-match, safisha-resolve) must not be
+-- deployed until that revival is applied.
+-- ════════════════════════════════════════════════════════════════════════════
+
 -- 20261004100000_reconciliation_server_authority.sql
 --
 -- Reconciliation readiness becomes a SERVER fact. Found by the disposable-PostgreSQL reconciliation proofs:

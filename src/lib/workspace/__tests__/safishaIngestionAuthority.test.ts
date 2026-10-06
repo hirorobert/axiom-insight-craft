@@ -3,13 +3,16 @@
  * scripts/db-proof/safishaIngestion.mjs (the real old and new handlers against disposable PostgreSQL without and with the
  * migration); this file keeps the contract visible in the fast suite.
  */
+import { parkedMigrationSql } from "../../../../scripts/db-proof/lib/parkedMigrations.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = path.resolve(__dirname, "../../../..");
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), "utf8");
-const MIGRATION = read("supabase/migrations/20261005100000_safisha_ingestion_authority.sql");
+// Parked: never applied to the hosted database; quarantined in supabase/migrations_historical/ (S1 record). The original
+// SQL (notice stripped, SHA-256 verified) is what this static contract pins.
+const MIGRATION = parkedMigrationSql(ROOT, "20261005100000_safisha_ingestion_authority.sql");
 const SQL = MIGRATION.replace(/--[^\n]*/g, "");
 const INGEST = read("supabase/functions/safisha-ingest/index.ts");
 

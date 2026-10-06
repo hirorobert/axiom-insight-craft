@@ -26,7 +26,8 @@ const D25 = "621f55c35bdadf3c7baa8c259056712dbfbbedbd25417a2a5d6a92fd4a1d38fa";
 describe("the reviewed release journal", () => {
   it("every entry 0013–0022 and 0024 validates: exact content, exact template, digest = the source file in this repository", () => {
     for (const tag of Object.keys(RELEASE_JOURNAL)) expect(checkReleaseEntry(tag, read(tag), srcBytes).problems, tag).toEqual([]);
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(13);
+    // 14: 0028 (S1, release_verbatim, hosted journal id 29) joins the reviewed entries.
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(14);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -34,14 +35,18 @@ describe("the reviewed release journal", () => {
     expect(RELEASE_JOURNAL["0020_pr34_apply_20260925140000"].digest).toBe("c26e47f3a78b4fd0d47a5a2fab82a69caf13bfe2344e69687f9b30c13a8e5f9a");
     for (const [tag, e] of Object.entries(RELEASE_JOURNAL)) if ("source" in e && e.source) expect(sha(srcBytes(e.source)!), tag).toBe(e.digest);
   });
-  it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 , the removal migration 20260927100000 (0024) and (out of order on purpose) the prerequisite; only 20261004100000, 20261005100000 and 20261006100000 are pending", () => {
+  it("the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 , the removal migration 20260927100000 (0024) and (out of order on purpose) the prerequisite; 0028 applies S1 byte for byte; nothing is pending (the parked 20261004100000 / 20261005100000 are quarantined)", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
     // 0022 applied the processing correction (f21a58f); 0024 the removal migration (main 0d2a09e); 0025 the annual term
     // (release_verbatim); 0026 the withheld-service grant refusal (release_verbatim). Authored and not yet applied: 20261004100000 (reconciliation server authority) and
     // 20261005100000 (evidence ingestion authority).
-    // 20261006100000 (S1 mapping and processing authority) is authored and pending hosted application likewise.
-    expect(r.pending).toEqual(["20261004100000_reconciliation_server_authority.sql", "20261005100000_safisha_ingestion_authority.sql", "20261006100000_mapping_and_processing_authority.sql"]);
+    // S1 record: 0028 applied 20261006100000 byte for byte (release_verbatim; hosted journal id 29, created_at 1791299426677).
+    // The parked 20261004100000 / 20261005100000 were never applied and are quarantined in supabase/migrations_historical/,
+    // so the source chain is exactly the hosted journal: nothing pending, nothing skipped.
+    expect(r.pending).toEqual([]);
+    expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({
+      tag: "0028_apply_20261006100000_mapping_and_processing_authority", source: "20261006100000_mapping_and_processing_authority.sql", how: "release_verbatim" });
     expect(r.mirrored.find((m) => m.tag === "0026_apply_20261002100000_refuse_withheld_service_grants")?.how).toBe("release_verbatim");
     expect(r.mirrored.find((m) => m.tag === T25)).toEqual({ tag: T25, source: S25, how: "release_verbatim" });
     expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" }]);
