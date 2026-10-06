@@ -15,6 +15,7 @@ import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { buildReviewDecision, type ReviewFlagDecisions } from "@/lib/accounting/buildReviewDecisions";
 import { supabase } from "@/integrations/supabase/client";
+import { requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -402,18 +403,9 @@ export function AccountReviewPanel({
       // misrepresent the decisions already committed above.
       let reprocessStarted = false;
       try {
-        await supabase
-          .from("trial_balance_uploads")
-          .update({ status: "processing", processing_result: null })
-          .eq("id", uploadId);
-
-        await ensureFreshSession();
-        const reprocessRequestId = crypto.randomUUID();
-        const { error: fnError } = await supabase.functions.invoke(
-          "process-trial-balance",
-          { body: { uploadId, clientRequestId: reprocessRequestId } }
-        );
-        if (fnError) throw fnError;
+        // S1: the processing fields are server-owned. The server records the request (and invalidates the current
+        // certification) before processing is invoked with the same operation id; a refusal stops here.
+        await requestReprocess(supabase as unknown as ReprocessClient, uploadId, { ensureFreshSession });
         reprocessStarted = true;
         // PPG-1R HIGH-1: reprocessing is now confirmed ACCEPTED by the
         // backend — invalidate the caller's certification display THIS

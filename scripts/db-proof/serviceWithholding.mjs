@@ -232,8 +232,9 @@ async function main() {
   group("Static contract");
   const code = migrationText.replace(/--[^\n]*/g, "");
   // Reviewed, unrelated forward migrations that may follow this one (exact names; nothing else may).
-  // 20261003100000 is the classification-save digest fix (hosted 0027); 20261004100000 / 20261005100000 are parked.
-  const LATER = ["20261003100000_account_review_digest_schema_qualification.sql", "20261004100000_reconciliation_server_authority.sql", "20261005100000_safisha_ingestion_authority.sql"];
+  // 20261003100000 is the classification-save digest fix (hosted 0027); 20261004100000 / 20261005100000 are parked;
+  // 20261006100000 (S1 mapping and processing authority) is pending hosted application.
+  const LATER = ["20261003100000_account_review_digest_schema_qualification.sql", "20261004100000_reconciliation_server_authority.sql", "20261005100000_safisha_ingestion_authority.sql", "20261006100000_mapping_and_processing_authority.sql"];
   await check("the migration is the newest but for the named later migrations; its top-level statements contain no DROP, DELETE, TRUNCATE, UPDATE, INSERT or ALTER TABLE", async () => {
     // Function bodies (dollar-quoted) are excluded: the two RPC bodies are their existing definitions, proven below to
     // differ from them by exactly one line each.

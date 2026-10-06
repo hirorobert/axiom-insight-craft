@@ -27,6 +27,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowRight, AlertTriangle } from "lucide-react";
 import { STAGE_SEQUENCE, STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { supabase } from "@/integrations/supabase/client";
+import { requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
 import { toast } from "sonner";
 import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
 import EngagementScopeDialog from "@/components/workspace/EngagementScopeDialog";
@@ -101,22 +102,8 @@ export default function WorkspaceOverview() {
     setRetrying(true);
     toast.info(`Retrying: ${upload.file_name ?? "Trial Balance"}…`);
     try {
-      await supabase
-        .from("trial_balance_uploads")
-        .update({
-          status: "processing",
-          processing_result: null,
-          accounting_errors: null,
-          is_valid: null,
-        })
-        .eq("id", upload.id);
-
-      await ensureFreshSession();
-      const clientRequestId = crypto.randomUUID();
-      const { error: fnErr } = await supabase.functions.invoke("process-trial-balance", {
-        body: { uploadId: upload.id, clientRequestId },
-      });
-      if (fnErr) throw fnErr;
+      // S1: the server records the request and marks the upload; processing is invoked only when it accepted.
+      await requestReprocess(supabase as unknown as ReprocessClient, upload.id, { ensureFreshSession });
 
       refreshUpload();
       toast.success("Re-processing started. Status will update automatically.");

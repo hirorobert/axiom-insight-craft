@@ -373,6 +373,7 @@ src/
       discardSuppression.ts   ← Discarded-upload suppression rules
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing
+      requestReprocess.ts     ← ONLY browser path to a new check: tbu_request_reprocess, then processing with the same operation id
       unavailableService.ts   ← An open engagement whose every service is withheld: listed as "service currently unavailable" (never "no engagement"); explicit user-chosen grant of Trial balance review on that SAME engagement via grant_engagement_capability
       moduleAvailability.ts   ← ONE customer-facing availability boundary: only Trial balance review (UNPROVEN_MODULES_CUSTOMER_VISIBLE = false; §9.2)
       sourceUpload.ts         ← ONLY browser path for a trial balance source: reserve → signed workspace-scoped upload → register

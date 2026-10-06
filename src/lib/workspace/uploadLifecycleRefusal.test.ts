@@ -141,7 +141,9 @@ describe("N-04: no actionable reprocessing control for a non-active upload", () 
     expect(ov).toMatch(/onRetry: canReprocessUpload\(upload\) \? handleRetryProcessing : undefined/);
     const h = ov.indexOf("const handleRetryProcessing");
     expect(ov.slice(h, h + 300)).toMatch(/!canReprocessUpload\(upload\)\) return;/);
-    expect(ov.indexOf("!canReprocessUpload(upload)) return;")).toBeLessThan(ov.indexOf('.from("trial_balance_uploads")'));
+    // S1: the handler no longer writes the upload; it requests a new check. The guard still precedes that request.
+    expect(ov.indexOf("requestReprocess(supabase")).toBeGreaterThan(h);
+    expect(ov.indexOf("!canReprocessUpload(upload)) return;")).toBeLessThan(ov.indexOf("requestReprocess(supabase"));
   });
   const audited = (onProcessAsAuditedAccounts?: () => void) => renderToStaticMarkup(createElement(ValidationReport, {
     report: { tb_balance_check: { passed: false, total_debits: 1, total_credits: 1, difference: 900_000_000 }, mapping_completeness: { passed: true } },

@@ -180,6 +180,10 @@ describe("database inertness — schema and functions", () => {
       // Evidence ingestion authority (forward-only): one serialized server path for evidence rows, provenance-based row
       // identity (additive nullable columns + a partial unique index), no client-role row inserts. No financial-statements schema.
       "supabase/migrations/20261005100000_safisha_ingestion_authority.sql",
+      // S1 mapping and processing authority (forward-only; PENDING HOSTED APPLICATION): server-written account mappings
+      // with review provenance, the supported-combination review RPC, tbu_request_reprocess, append-only certification
+      // invalidation and server-owned upload processing fields. No financial-statements schema.
+      "supabase/migrations/20261006100000_mapping_and_processing_authority.sql",
       // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",
@@ -318,6 +322,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/safishaIngestion.mjs", "scripts/db-proof/lib/functionHarness.mjs",
       "scripts/db-proof/fixtures/functions-main-e8962f2/ingest.index.ts", "scripts/db-preflight/safishaIngestionPreflight.sql",
       "scripts/db-preflight/safishaIngestionVerify.sql",
+      // S1 (20261006100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.
+      "scripts/db-proof/mappingProcessingAuthority.mjs",
       // The release application proofs (Lovable's stated hosted-executor contract; drizzle-orm migrate() compatibility), their
       // shared disposable base, and the guarded-entry and inspection renderer they prove
       // (loopback-only; release-journal tooling; no deploy behaviour).

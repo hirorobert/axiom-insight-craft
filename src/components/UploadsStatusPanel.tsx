@@ -6,6 +6,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { supabase } from "@/integrations/supabase/client";
+import { requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -168,17 +169,8 @@ export function UploadsStatusPanel({ uploads, selectedId, onSelect, onRefresh, o
     toast.info(`Retrying: ${u.file_name}…`);
 
     try {
-      await supabase
-        .from("trial_balance_uploads")
-        .update({ status: "processing", processing_result: null, accounting_errors: null, is_valid: null })
-        .eq("id", u.id);
-
-      await ensureFreshSession();
-      const clientRequestId = crypto.randomUUID();
-      const { error: fnErr } = await supabase.functions.invoke("process-trial-balance", {
-        body: { uploadId: u.id, clientRequestId },
-      });
-      if (fnErr) throw fnErr;
+      // S1: the server records the request and marks the upload; processing is invoked only when it accepted.
+      await requestReprocess(supabase as unknown as ReprocessClient, u.id, { ensureFreshSession });
 
       // Live poll until terminal status
       const TERMINAL = new Set(["complete", "error", "blocked", "needs_review"]);
