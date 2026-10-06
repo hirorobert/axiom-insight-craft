@@ -195,6 +195,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261007100000_treatment_authority_and_processing_control.sql",
       // ...and the treatment request identity the engine (E1) will use; identical bytes to public.treatment_request_id.
       "supabase/functions/_shared/treatmentRequest.ts",
+      // E1: the exact class-side amounts contract (tb-amounts/1) the engine writes and validates. Pure module; no schema.
+      "supabase/functions/_shared/tbAmounts.ts",
       // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",

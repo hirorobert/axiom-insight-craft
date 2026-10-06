@@ -36,7 +36,13 @@ describe("classifyProbe", () => {
 describe("validateLedger", () => {
   it("the committed ledger is complete: every entry has a defect id, probe, assertion and non-null signature; no duplicates", () => {
     expect(() => validateLedger(ledger)).not.toThrow();
-    expect(ledger.defects.map((d: { defect: string }) => d.defect).sort()).toEqual(["D1", "D10", "D1b", "D5", "D6", "D7", "D7", "D8"].sort());
+    // E1 added the genuine equation-failure fixture (D1G) beside the contra case; the previous engine must reproduce both.
+    expect(ledger.defects.map((d: { defect: string }) => d.defect).sort()).toEqual(["D1", "D1", "D10", "D1b", "D5", "D6", "D7", "D7", "D8"].sort());
+    expect(ledger.defects.map((d: { probe: string }) => d.probe)).toContain("D1G-GENUINE-EQUATION-FAILURE");
+  });
+  it("names the previous engine exactly: a full commit id and the SHA-256 of its handler", () => {
+    expect(ledger.engine_commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(ledger.handler_sha256).toMatch(/^[0-9a-f]{64}$/);
   });
   it("refuses incomplete, null-signature, blank-assertion and duplicate entries", () => {
     const base = { defect: "D7", probe: "P", assertion: "a", signature: { x: 1 } };

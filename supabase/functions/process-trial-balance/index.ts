@@ -43,6 +43,9 @@ import {
   minorToNumber, sheetRowsFromMatrix, type Cell, type IngestIssue, type IngestResult,
 } from "../_shared/tbIngestion.ts";
 import { detectSourceFormat, readTrialBalanceSource, type XlsxLike } from "../_shared/tbSource.ts";
+// E1: exact class-side amounts ("tb-amounts/1") and the treatment request identity (H1b, 20261007100000).
+import { TB_ROW_CONTRACT, buildTbAmounts, classSideMinor, classSideOf, type TbAmounts } from "../_shared/tbAmounts.ts";
+import { CLOSING_STOCK_RULE, buildTreatmentRequest, type TreatmentRequest } from "../_shared/treatmentRequest.ts";
 
 // processing_result.summary.parser_version — the ingestion core's version (one value on every outcome).
 const PARSER_VERSION = TB_INGESTION_VERSION;
@@ -50,7 +53,13 @@ const PARSER_VERSION = TB_INGESTION_VERSION;
 // Ω∞ Phase 0 Slice 2 — SAFISHA certification engine identity. Bumped
 // independently of parser_version (which tracks the TB parsing/aggregation
 // logic below, unchanged this slice).
-const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v1";
+// E1: v2 — exact class-side aggregation, no closing-stock rescue (a treatment question instead), no silent suppression of
+// a non-zero account, an exact accounting equation that is never certified when it fails.
+const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v2";
+
+// The numeric engine generation written on every run (engine_runs.engine_generation, 20261007100000). The database
+// refuses runs and certifications below processing_release_control.min_engine_generation; compared as an integer only.
+const ENGINE_GENERATION = 2;
 
 // Matches crypto.randomUUID() output (and any standard UUID). Case-
 // insensitive: RFC 4122 doesn't mandate lowercase, and rejecting a
@@ -75,6 +84,17 @@ interface RawAccount {
   identity:          string;
   /** Dimension values (cost centre, department, …) when the trial balance is split by dimension. */
   dimensions:        Record<string, string>;
+  /** E1: the exact amounts in minor units. Every figure that decides anything is computed from these, never the floats. */
+  debitMinor:        bigint;
+  creditMinor:       bigint;
+}
+
+/** An account as written into processing_result.statements (no BigInt: the result is JSON). */
+type StatementAccount = Omit<RawAccount, "debitMinor" | "creditMinor">;
+
+function statementAccount(account: RawAccount, balance: number): StatementAccount {
+  const { debitMinor: _d, creditMinor: _c, ...rest } = account;
+  return { ...rest, balance };
 }
 
 interface AccountMapping {
@@ -92,6 +112,8 @@ interface AccountMapping {
    * this company's row without that link; "shared" for a global (company_id NULL) row. Only "reviewed" is ever Tier 1/2.
    */
   provenance?: "reviewed" | "unconfirmed_company" | "shared";
+  /** S1: the review decision this company's reviewed mapping is linked to (null for any other row). */
+  review_decision_id?: string | null;
 }
 
 interface ValidationError {
@@ -104,7 +126,7 @@ interface ValidationError {
 
 // Engine-compatible section structure
 interface StatementSection {
-  accounts: RawAccount[];
+  accounts: StatementAccount[];
   total:    number;
 }
 
@@ -136,6 +158,8 @@ interface NeedsReviewAccount {
   confidence_source?:        string;
   stale_non_reporting_reason?: string;
   reason:                    string;
+  /** E1: present when the account needs a treatment decision; the request a "keep as mapped" confirmation binds to. */
+  treatment_request_id?:     string;
 }
 
 // Ω∞ Phase 0 Slice 3 — `tier` carries the REAL classifier tier that fired
@@ -181,6 +205,10 @@ interface ProcessingResult {
   };
   /** What ingestion did with every source row, its exact totals, issues and the milestones processing reached. */
   ingestion?:                Record<string, unknown>;
+  /** E1: the treatment requests this run emitted (the server binds CONFIRM_ACCOUNT_TREATMENT to these). */
+  treatment_requests?:       TreatmentRequest[];
+  /** E1: the exact amounts ("tb-amounts/1"); present on every result whose statements were aggregated. */
+  amounts?:                  TbAmounts;
 }
 
 // ── Pattern libraries (mirrors kinga-findings-engine) ─────────────────────────
@@ -702,10 +730,17 @@ function classifyAccountTiered(
 
 // ── Statements Aggregator ─────────────────────────────────────────────────────
 
+// E1: class-side signing from the exact amounts. Assets and expenses are debit − credit; liabilities, equity and income
+// are credit − debit. normal_balance only marks contra behaviour and never re-signs a class (a contra asset such as
+// accumulated depreciation reduces assets; a contra liability reduces liabilities). Nothing is moved between classes: the
+// closing-stock "rescue" that used to re-route a current-asset credit into cost of sales is gone — the same pattern now
+// raises a treatment question (STEP 6b) and the figures stay as mapped. Every account reaching here is on a
+// balance-sheet or income-statement class (STEP 6b sends anything else to review); anything else is an internal error.
 function aggregateStatements(
   accounts:  RawAccount[],
-  mappings:  Map<string, AccountMapping>
-): { statements: Statements; totals: { assets: number; liabilities: number; equity: number; revenue: number; expenses: number }; cashBalance: number } {
+  mappings:  Map<string, AccountMapping>,
+  exponent:  number,
+): { statements: Statements; totals: { assets: number; liabilities: number; equity: number; revenue: number; expenses: number } } {
   const bs: Record<string, StatementSection> = {
     current_assets:         { accounts: [], total: 0 },
     non_current_assets:     { accounts: [], total: 0 },
@@ -720,94 +755,57 @@ function aggregateStatements(
     other_income:        { accounts: [], total: 0 },
     taxes:               { accounts: [], total: 0 },
   };
-  const cf: Record<string, StatementSection> = {
-    operating_activities:  { accounts: [], total: 0 },
-    investing_activities:  { accounts: [], total: 0 },
-    financing_activities:  { accounts: [], total: 0 },
-  };
-
-  let cashBalance = 0;
+  const sectionMinor = new Map<string, bigint>();
 
   for (const account of accounts) {
     const m = mappings.get(accountKey(account));
     if (!m) continue;
-
-    const signed = m.normal_balance === "debit"
-      ? account.debit - account.credit
-      : account.credit - account.debit;
-
-    const enriched = { ...account, balance: signed };
-
-    if (m.is_cash_account) cashBalance = signed;
-
-    // ── #85-FIX: Closing-stock rescue ────────────────────────────────────────
-    // Accounts mis-classified as current_assets that are actually P&L COGS adjustments
-    // are intercepted here and reclassified to cost_of_goods_sold (credit).
-    //
-    // Condition 1 (code-based): classification=current_assets + net-credit balance +
-    //   account_code prefix matches income-statement range ("5", "6", "4", "7" depending on chart)
-    // Condition 2 (name-based): classification=current_assets + net-credit balance +
-    //   account name matches any closing-stock pattern regardless of code
-    //
-    // WHY: the general `/\binventor[yi]/i` and `/\bstock\b/i` patterns route ALL
-    // "inventory/stock" names to current_assets.  If the CPA named a COGS adjustment
-    // "Inventory — Closing" or "Stock at Year End" and the pattern falls through to
-    // the generic inventory rule, the rescue intercepts it here.
-    const closingStockNamePats = [
-      /\bclosing\s+(?:stock|inventor[yi])/i,
-      /\bless[:\s]+closing\b/i,
-      /(stock|inventor[yi])[\s\-–—]*(?:\(?\s*closing|end|final\s*\)?)/i,
-      /\bend.{0,8}(?:year|period)\s+(?:stock|inventor[yi])/i,
-      /\bending\s+(?:stock|inventor[yi])\b/i,
-      /\bstock\s+(?:at\s+)?(?:year|period)\s*end\b/i,
-    ];
-    const accountNameForRescue = account.account_name ?? "";
-    const isClosingStockByName = closingStockNamePats.some(p => p.test(accountNameForRescue));
-    const isIncomeCodeRange    = /^[4-9]/.test(account.account_code?.trim() ?? ""); // broad IS code range
-    const needsRescue =
-      m.classification === "current_assets" &&
-      signed < 0 &&
-      (isIncomeCodeRange || isClosingStockByName);
-
-    if (needsRescue) {
-      const cogsCredit    = Math.abs(signed); // positive credit reduction of COGS
-      const rescuedEnrich = { ...account, balance: cogsCredit };
-      is.cost_of_goods_sold.accounts.push(rescuedEnrich);
-      is.cost_of_goods_sold.total += cogsCredit;
-      continue; // do NOT push to current_assets
+    const side = classSideOf(m.classification);
+    const section = bs[m.classification] ?? is[m.classification];
+    if (!side || !section) {
+      throw new Error(`[PTB] Internal invariant violation: account "${accountKey(account)}" reached aggregation on classification "${m.classification}", which is not on the balance sheet or income statement.`);
     }
-
-    if (bs[m.classification]) {
-      bs[m.classification].accounts.push(enriched);
-      bs[m.classification].total += signed;
-    } else if (is[m.classification]) {
-      is[m.classification].accounts.push(enriched);
-      is[m.classification].total += signed;
-    } else if (cf[m.classification]) {
-      cf[m.classification].accounts.push(enriched);
-      cf[m.classification].total += signed;
-    }
+    const classSide = classSideMinor(side, account.debitMinor, account.creditMinor);
+    section.accounts.push(statementAccount(account, minorToNumber(classSide, exponent)));
+    sectionMinor.set(m.classification, (sectionMinor.get(m.classification) ?? 0n) + classSide);
   }
+  for (const [cls, total] of sectionMinor) (bs[cls] ?? is[cls]).total = minorToNumber(total, exponent);
 
-  const totalAssets       = bs.current_assets.total + bs.non_current_assets.total;
-  const totalLiabilities  = bs.current_liabilities.total + bs.non_current_liabilities.total;
-  const totalEquity       = bs.equity.total;
-  const totalRevenue      = is.revenue.total + is.other_income.total;
-  const totalExpenses     = is.cost_of_goods_sold.total + is.operating_expenses.total + is.taxes.total;
-
-  const hasCashFlow = cf.operating_activities.accounts.length > 0 ||
-                      cf.investing_activities.accounts.length  > 0 ||
-                      cf.financing_activities.accounts.length  > 0;
-
+  const sum = (...classes: string[]) => minorToNumber(classes.reduce((t, c) => t + (sectionMinor.get(c) ?? 0n), 0n), exponent);
   return {
-    statements: {
-      balance_sheet:    bs,
-      income_statement: is,
-      cash_flow:        hasCashFlow ? cf : null,
+    statements: { balance_sheet: bs, income_statement: is, cash_flow: null },
+    totals: {
+      assets:      sum("current_assets", "non_current_assets"),
+      liabilities: sum("current_liabilities", "non_current_liabilities"),
+      equity:      sum("equity"),
+      revenue:     sum("revenue", "other_income"),
+      expenses:    sum("cost_of_goods_sold", "operating_expenses", "taxes"),
     },
-    totals: { assets: totalAssets, liabilities: totalLiabilities, equity: totalEquity, revenue: totalRevenue, expenses: totalExpenses },
-    cashBalance,
   };
+}
+
+// ── Treatment rule closing_stock_credit/1 (E1) ────────────────────────────────
+// The name and code patterns the deleted rescue used. They no longer move money: a reviewed current-asset account
+// whose combined balance is a credit and that matches them needs a TREATMENT decision — keep it as mapped (with a
+// recorded reason, CONFIRM_ACCOUNT_TREATMENT) or reclassify it through the ordinary review.
+const CLOSING_STOCK_NAME_PATTERNS = [
+  /\bclosing\s+(?:stock|inventor[yi])/i,
+  /\bless[:\s]+closing\b/i,
+  /(stock|inventor[yi])[\s\-–—]*(?:\(?\s*closing|end|final\s*\)?)/i,
+  /\bend.{0,8}(?:year|period)\s+(?:stock|inventor[yi])/i,
+  /\bending\s+(?:stock|inventor[yi])\b/i,
+  /\bstock\s+(?:at\s+)?(?:year|period)\s*end\b/i,
+];
+
+function matchesClosingStockRule(account: RawAccount): boolean {
+  return /^[4-9]/.test(account.account_code?.trim() ?? "") ||
+    CLOSING_STOCK_NAME_PATTERNS.some((p) => p.test(account.account_name ?? ""));
+}
+
+/** The review account key the server derives (resolve_account_review_batch): the trimmed code, else the normalized name. */
+function reviewAccountKey(account: RawAccount): string {
+  const code = account.account_code?.trim() ?? "";
+  return code !== "" ? code : normalizeAccountName(account.account_name ?? "");
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -872,6 +870,13 @@ interface CertifiedTBRowRecord {
   requiresReview: boolean;
   /** Present only for a trial balance split by dimension: the row's dimension values (several rows may share a code). */
   dimensions?:    Record<string, string>;
+  /** E1: "tb-row/1" — the exact fields below are present. Rows without it are legacy. */
+  rowContract?:   "tb-row/1";
+  /** E1: exact debit and credit in minor units, as canonical decimal strings. */
+  debitMinor?:    string;
+  creditMinor?:   string;
+  /** E1: the class-side amount (assets and expenses debit − credit; liabilities, equity, income credit − debit). */
+  classSideMinor?: string;
 }
 
 function classificationToNature(cls: string): "asset" | "liability" | "equity" | "income" | "expense" {
@@ -917,9 +922,15 @@ function buildCertifiedRows(
         `[PTB] Internal invariant violation: account "${key}" has a resolved classification mapping but no tracked evidence tier. This should be structurally impossible — resolvedMappings and resolvedTiers must be populated together.`,
       );
     }
+    // LEGACY meaning, unchanged: netBalance is signed by normal_balance (MAONO and every older certification read it this
+    // way). The exact, class-side figure is classSideMinor; consumers move to it in E2.
     const signed = m.normal_balance === "debit"
       ? account.debit - account.credit
       : account.credit - account.debit;
+    const side = classSideOf(m.classification);
+    if (!side) {
+      throw new Error(`[PTB] Internal invariant violation: certified account "${key}" is on classification "${m.classification}", which is not on the balance sheet or income statement.`);
+    }
     rows.push({
       accountCode:    account.account_code,
       accountName:    account.account_name,
@@ -932,6 +943,10 @@ function buildCertifiedRows(
       ruleId:         null,
       requiresReview: false,
       ...(Object.keys(account.dimensions).length > 0 ? { dimensions: account.dimensions } : {}),
+      rowContract:    TB_ROW_CONTRACT,
+      debitMinor:     account.debitMinor.toString(),
+      creditMinor:    account.creditMinor.toString(),
+      classSideMinor: classSideMinor(side, account.debitMinor, account.creditMinor).toString(),
     });
   }
   return rows;
@@ -1381,6 +1396,8 @@ serve(async (req) => {
       source_row_number: a.sourceRowNumber,
       identity: a.identity,
       dimensions: a.dimensions,
+      debitMinor: a.debitMinor,
+      creditMinor: a.creditMinor,
     }));
     const rejectedRows = ingest.lineage.filter((l) => l.disposition === "rejected" || l.disposition === "total" || l.disposition === "zero_balance");
     console.log(`[PTB] Ingested ${ingest.lineageSummary.rowsRead} rows → ${rawAccounts.length} accounts; ${ingest.issues.length} issue(s)`);
@@ -1416,6 +1433,7 @@ serve(async (req) => {
         actorType: resolvedActor.actorType,
         functionName: "process-trial-balance",
         engineVersion: SAFISHA_ENGINE_VERSION,
+        engineGeneration: ENGINE_GENERATION,
         clientRequestId,
         requestHash,
         inputHash: normalizedInputHash,
@@ -1552,6 +1570,7 @@ serve(async (req) => {
         is_cash_account:      m.is_cash_account      ?? false,
         is_retained_earnings: m.is_retained_earnings ?? false,
         is_payroll_account:   m.is_payroll_account   ?? false,
+        review_decision_id:   typeof m.review_decision_id === "string" && m.review_decision_id.length > 0 ? m.review_decision_id : null,
       };
       // S1 provenance: a company row is the company's REVIEWED mapping only when it carries review_decision_id. The
       // database (trg_account_mappings_provenance) accepts that link only for a decision of the same company and account
@@ -1654,8 +1673,21 @@ serve(async (req) => {
     for (const account of rawAccounts) {
       const eff = professionalState.get(accountJoinKey(account.account_code, account.account_name));
       if (eff?.suppressed) {
-        nonReportingAccounts.push({ account_code: account.account_code, account_name: account.account_name });
-        continue; // classifyAccountTiered() is never invoked for this account
+        // E1 (OD3): only a zero-balance account may be left out of the trial balance. A non-zero account marked as
+        // non-reporting goes to review with its amounts intact; it is never silently dropped.
+        if (account.debitMinor === account.creditMinor) {
+          nonReportingAccounts.push({ account_code: account.account_code, account_name: account.account_name });
+          continue; // classifyAccountTiered() is never invoked for this account
+        }
+        queueReview({
+          account_code: account.account_code,
+          account_name: account.account_name,
+          debit:        account.debit,
+          credit:       account.credit,
+          balance:      account.balance,
+          reason:       `Marked as non-reporting, but it carries a balance of ${formatMinor(account.debitMinor - account.creditMinor, exponent)}. A non-zero account can't be left out of the trial balance: classify it.`,
+        });
+        continue;
       }
 
       const result = classifyAccountTiered(
@@ -1701,6 +1733,96 @@ serve(async (req) => {
         });
       }
     }
+    // ── STEP 6b (E1): accounts on a reviewed mapping that still need a person ──
+    // 1. A mapping to anything other than a balance-sheet or income-statement class (legacy cash-flow classes; S1
+    //    already refuses new ones) would leave the account's amount out of the statements: review.
+    // 2. A cash account must be an asset or a liability (C2): review otherwise.
+    // 3. Treatment rule closing_stock_credit/1: review with a treatment request, unless a CONFIRM_ACCOUNT_TREATMENT for
+    //    exactly that request (same facts, same mapping link) is on record.
+    const takeForReview = (account: RawAccount, mapping: AccountMapping, reason: string, extra: Partial<NeedsReviewAccount> = {}) => {
+      resolvedMappings.delete(accountKey(account));
+      resolvedTiers.delete(accountKey(account));
+      queueReview({
+        account_code:             account.account_code,
+        account_name:             account.account_name,
+        debit:                    account.debit,
+        credit:                   account.credit,
+        balance:                  account.balance,
+        suggested_classification: mapping.classification,
+        suggested_statement:      mapping.statement,
+        confidence_source:        "mapping",
+        reason,
+        ...extra,
+      });
+    };
+    for (const account of rawAccounts) {
+      const m = resolvedMappings.get(accountKey(account));
+      if (!m) continue;
+      const side = classSideOf(m.classification);
+      if (!side) {
+        takeForReview(account, m, `Mapped to "${m.classification}", which is not a balance-sheet or income-statement class, so its amount would be left out of the statements. Choose the statement class for this account.`);
+      } else if (m.is_cash_account && side !== "assets" && side !== "liabilities") {
+        takeForReview(account, m, `Marked as a cash account but classified as ${m.classification}. A cash account must be an asset or a liability.`);
+      }
+    }
+
+    // Treatment: per review account key (rows of one code split by dimension are one decision, amounts combined).
+    type TreatmentGroup = { accounts: RawAccount[]; mapping: AccountMapping; debit: bigint; credit: bigint };
+    const treatmentGroups = new Map<string, TreatmentGroup>();
+    for (const account of rawAccounts) {
+      const m = resolvedMappings.get(accountKey(account));
+      if (!m || m.classification !== "current_assets") continue;
+      const key = reviewAccountKey(account);
+      const g = treatmentGroups.get(key) ?? { accounts: [], mapping: m, debit: 0n, credit: 0n };
+      g.accounts.push(account);
+      g.debit += account.debitMinor;
+      g.credit += account.creditMinor;
+      treatmentGroups.set(key, g);
+    }
+    const treatmentRequests: TreatmentRequest[] = [];
+    const treatmentPending: { group: TreatmentGroup; request: TreatmentRequest | null }[] = [];
+    for (const [key, g] of treatmentGroups) {
+      if (g.debit >= g.credit || !matchesClosingStockRule(g.accounts[0])) continue;
+      // Only a reviewed mapping resolves without review, so the link is always present here; without a company (legacy
+      // personal upload) or a link no request can be bound, and the account simply stays in review.
+      const request = companyId && g.mapping.review_decision_id
+        ? await buildTreatmentRequest({
+            ...CLOSING_STOCK_RULE,
+            company_id:          companyId,
+            upload_id:           uploadId,
+            source_file_hash:    sourceFileHash,
+            account_key:         key,
+            account_code:        g.accounts[0].account_code?.trim() || null,
+            debit_minor:         g.debit.toString(),
+            credit_minor:        g.credit.toString(),
+            mapping_decision_id: g.mapping.review_decision_id,
+          })
+        : null;
+      if (request) treatmentRequests.push(request);
+      treatmentPending.push({ group: g, request });
+    }
+    let confirmedTreatments = new Set<string>();
+    if (treatmentRequests.length > 0 && companyId) {
+      const { data: confirmedRows, error: confirmedError } = await supabase.rpc("get_confirmed_treatments", {
+        p_company_id: companyId,
+        p_request_ids: treatmentRequests.map((r) => r.request_id),
+      });
+      // Fails closed: without the answer no treatment is assumed confirmed and no result is recorded.
+      if (confirmedError) throw new Error(`get_confirmed_treatments failed: ${confirmedError.message}`);
+      confirmedTreatments = new Set(((confirmedRows ?? []) as { request_id: string }[]).map((r) => r.request_id));
+    }
+    for (const { group, request } of treatmentPending) {
+      if (request && confirmedTreatments.has(request.request_id)) continue; // kept as mapped, on record
+      const credit = formatMinor(group.credit - group.debit, exponent);
+      for (const account of group.accounts) {
+        takeForReview(
+          account, group.mapping,
+          `A current asset with a credit balance of ${credit} that looks like a closing-stock adjustment. Keep it as mapped (record why) or reclassify it.`,
+          request ? { treatment_request_id: request.request_id } : {},
+        );
+      }
+    }
+
     console.log(`[PTB] Classification: ${resolvedMappings.size} reviewed, ${needsReviewAccounts.length} needs_review (${autoClassifiedCount} suggested), ${nonReportingAccounts.length} non_reporting`);
     milestones.mark(
       "classification",
@@ -1724,6 +1846,7 @@ serve(async (req) => {
         errors:                 allErrors,
         needs_review_accounts:  needsReviewAccounts,
         non_reporting_accounts: nonReportingAccounts,
+        ...(treatmentRequests.length > 0 ? { treatment_requests: treatmentRequests } : {}),
         validation_report: {
           tb_balance_check: balanceCheck,
           mapping_completeness: {
@@ -1782,41 +1905,100 @@ serve(async (req) => {
       return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── STEP 8: Statement aggregation ─────────────────────────────────────────
-    const { statements, totals, cashBalance } = aggregateStatements(rawAccounts, resolvedMappings);
+    // ── STEP 8: Statement aggregation (exact, class-side) ───────────────────────
+    const { statements, totals } = aggregateStatements(rawAccounts, resolvedMappings, exponent);
+    if (!ingest.currency) throw new Error("[PTB] Internal invariant violation: an accepted trial balance has no currency.");
+    const amounts = buildTbAmounts({
+      currency:         ingest.currency,
+      exponent,
+      debitTotalMinor:  ingestTotals.debitMinor,
+      creditTotalMinor: ingestTotals.creditMinor,
+      accounts: rawAccounts.flatMap((a) => {
+        const m = resolvedMappings.get(accountKey(a));
+        return m ? [{ classification: m.classification, isCash: m.is_cash_account, debitMinor: a.debitMinor, creditMinor: a.creditMinor }] : [];
+      }),
+    });
 
-    // ── STEP 9: Accounting equation ───────────────────────────────────────────
-    // In an unadjusted trial balance, P&L accounts are not yet closed to
-    // retained earnings. Closing equity = opening equity + current-year net income.
-    const netIncome      = totals.revenue - totals.expenses;
-    const closingEquity  = totals.equity + netIncome;
-    const bsDifference   = Math.abs(totals.assets - (totals.liabilities + closingEquity));
-    // The account amounts are exact; this equation sums their doubles, so it is compared at the currency's minor
-    // unit (a difference that rounds to zero minor units is zero). A soft warning, as before.
-    const bsPassed       = Math.round(bsDifference * 10 ** exponent) === 0;
-    if (!bsPassed) {
-      allErrors.push({
-        code: "BALANCE_SHEET_EQUATION_FAILED",
-        message: `Assets (${totals.assets.toFixed(2)}) != Liabilities (${totals.liabilities.toFixed(2)}) + Closing Equity (${closingEquity.toFixed(2)}). [Opening Equity: ${totals.equity.toFixed(2)}, Net Income: ${netIncome.toFixed(2)}]. Difference: ${bsDifference.toFixed(2)}`,
-        expected: 0,
-        actual: bsDifference,
+    // ── STEP 9: Accounting equation — exact ───────────────────────────────────
+    // assets = liabilities + equity + income − expenses, in minor units, with no tolerance. In an unadjusted trial
+    // balance P&L accounts are not yet closed, so income − expenses is the current-year result.
+    // Every account is now either on a statement class or a zero-balance non-reporting account, and the trial balance
+    // balances to the minor unit (STEP 2), so class-side sums make the difference zero by construction. A non-zero
+    // difference can only be an engine defect: the run fails, nothing is certified, and the upload is never accepted.
+    const netIncome     = totals.revenue - totals.expenses;
+    const closingEquity = totals.equity + netIncome;
+    const fmt = (minor: string) => formatMinor(BigInt(minor), exponent);
+    const equationReport = {
+      passed: amounts.equation.status === "balanced",
+      assets: totals.assets, liabilities: totals.liabilities, equity: totals.equity,
+      revenue_total: totals.revenue, expenses_total: totals.expenses,
+      net_income: netIncome, closing_equity: closingEquity,
+      difference: minorToNumber(BigInt(amounts.equation.difference_minor), exponent),
+      exact: amounts.equation,
+    };
+    const mappingCompleteness = { passed: true, total_accounts: rawAccounts.length, mapped_accounts: resolvedMappings.size, non_reporting: nonReportingAccounts.length, unmapped: [], auto_classified: autoClassifiedCount };
+
+    if (amounts.equation.status !== "balanced") {
+      const message = `Assets (${fmt(amounts.equation.lhs_minor)}) do not equal liabilities + equity + income − expenses (${fmt(amounts.equation.rhs_minor)}). Difference: ${fmt(amounts.equation.difference_minor)}. The trial balance balances and every account is on a statement, so this is not a classification matter: processing stopped and nothing was accepted.`;
+      allErrors.push({ code: "INVARIANT_VIOLATION", message, expected: "0", actual: amounts.equation.difference_minor });
+      console.error(`[PTB] INVARIANT_VIOLATION: equation difference ${amounts.equation.difference_minor} minor units`);
+      if (engineRunId && idempotencyKeyId && engineStartedAt) {
+        await recordEngineRunFailed(supabase as never, engineRunId, {
+          startedAt: engineStartedAt,
+          errorCode: "INVARIANT_VIOLATION",
+          errorDetail: { stage: "accounting_equation", safe_message: `difference_minor=${amounts.equation.difference_minor}` },
+        });
+        await failIdempotency(supabase as never, idempotencyKeyId, "INVARIANT_VIOLATION");
+      }
+      milestones.mark("recorded", "failed", "The accounting equation did not hold; nothing was accepted.");
+      const failedValidation = {
+        tb_balance_check:       balanceCheck,
+        mapping_completeness:   mappingCompleteness,
+        balance_sheet_equation: equationReport,
+        profit_equity_linkage:  null,
+        cash_reconciliation:    null,
+      };
+      const failedResult: ProcessingResult = {
+        status: "invalid",
+        statements: null,
+        validation_report: failedValidation,
+        errors: allErrors,
+        non_reporting_accounts: nonReportingAccounts,
+        amounts,
+        summary: {
+          total_accounts:   rawAccounts.length,
+          processed_at:     new Date().toISOString(),
+          parser_version:   PARSER_VERSION,
+          columns_detected: detectedCols,
+          auto_classified:  autoClassifiedCount,
+          rejected_rows:    rejectedRows,
+        },
+      };
+      failedResult.ingestion = ingestionRecord(ingest, milestones);
+      const failedWrite = await writeOutcome(supabase as never, uploadId, {
+        status:            "error",
+        is_valid:          false,
+        validation_report: failedValidation,
+        accounting_errors: allErrors,
+        processing_result: failedResult,
+        processed_at:      new Date().toISOString(),
       });
+      if (failedWrite) return failedWrite;
+      return new Response(JSON.stringify(failedResult), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // SOFT-WARNING: Dr=Cr (TRIAL_BALANCE_IMBALANCE) is the only hard block.
-    // BALANCE_SHEET_EQUATION_FAILED means a classification issue, not corrupt data —
-    // the error is recorded in allErrors + validationReport for the CPA to see,
-    // but it does NOT block statements, tax engine, or PDF export.
     const allValid   = true;
     const finalStatus: "valid" | "invalid" = allValid ? "valid" : "invalid";
-    console.log(`[PTB] Final status: ${finalStatus.toUpperCase()} | BS equation: ${bsPassed ? "PASS" : `WARN diff=${bsDifference.toFixed(2)}`} | Auto-classified: ${autoClassifiedCount}`);
+    console.log(`[PTB] Final status: ${finalStatus.toUpperCase()} | BS equation: exact PASS | Auto-classified: ${autoClassifiedCount}`);
 
     const validationReport = {
       tb_balance_check:     balanceCheck,
-      mapping_completeness: { passed: true, total_accounts: rawAccounts.length, mapped_accounts: resolvedMappings.size, non_reporting: nonReportingAccounts.length, unmapped: [], auto_classified: autoClassifiedCount },
-      balance_sheet_equation: { passed: bsPassed, assets: totals.assets, liabilities: totals.liabilities, equity: totals.equity, revenue_total: totals.revenue, expenses_total: totals.expenses, net_income: netIncome, closing_equity: closingEquity, difference: bsDifference },
+      mapping_completeness: mappingCompleteness,
+      balance_sheet_equation: equationReport,
       profit_equity_linkage: null,
-      cash_reconciliation:  cashBalance !== 0 ? { passed: true, cf_ending_cash: cashBalance, bs_cash: cashBalance } : null,
+      // The trial balance alone never proves cash against a bank: no reconciliation is claimed (amounts.reconciliation
+      // is "not_checked"). The old self-comparison of one figure with itself is gone.
+      cash_reconciliation:  null,
     };
 
     // ── STEP 10: Save processing_result in engine-compatible format ───────────
@@ -1830,6 +2012,8 @@ serve(async (req) => {
       validation_report: validationReport,
       errors: allErrors,
       non_reporting_accounts: nonReportingAccounts,
+      amounts,
+      ...(treatmentRequests.length > 0 ? { treatment_requests: treatmentRequests } : {}),
       summary: {
         total_accounts:    rawAccounts.length,
         processed_at:      new Date().toISOString(),
@@ -1848,10 +2032,6 @@ serve(async (req) => {
         sourceFileHash, normalizedInputHash,
         isBlocking: false, requiresReview: false,
         exceptions: [
-          ...(bsPassed ? [] : [{
-            code: "BALANCE_SHEET_EQUATION_FAILED", layer: 3 as const, severity: "warning" as const, accountCode: null,
-            message: `Assets (${totals.assets.toFixed(2)}) != Liabilities + Closing Equity (${(totals.liabilities + closingEquity).toFixed(2)}). Difference: ${bsDifference.toFixed(2)}`,
-          }]),
           ...(phase0Evidence?.layer5Exceptions ?? []),
           ...(phase0Evidence?.layer6Exceptions ?? []),
         ],
