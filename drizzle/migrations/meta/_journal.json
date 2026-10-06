@@ -197,6 +197,13 @@
       "when": 1791137643914,
       "tag": "0027_account_review_digest_schema_qualification",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791299426677,
+      "tag": "0028_apply_20261006100000_mapping_and_processing_authority",
+      "breakpoints": true
     }
   ]
 }

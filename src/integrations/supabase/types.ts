@@ -201,6 +201,7 @@ export type Database = {
           line_item: string
           normal_balance: string
           normalized_account_name: string | null
+          review_decision_id: string | null
           statement: Database["public"]["Enums"]["financial_statement"]
           updated_at: string
           user_id: string
@@ -221,6 +222,7 @@ export type Database = {
           line_item: string
           normal_balance: string
           normalized_account_name?: string | null
+          review_decision_id?: string | null
           statement: Database["public"]["Enums"]["financial_statement"]
           updated_at?: string
           user_id: string
@@ -241,6 +243,7 @@ export type Database = {
           line_item?: string
           normal_balance?: string
           normalized_account_name?: string | null
+          review_decision_id?: string | null
           statement?: Database["public"]["Enums"]["financial_statement"]
           updated_at?: string
           user_id?: string
@@ -251,6 +254,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_mappings_review_decision_id_fkey"
+            columns: ["review_decision_id"]
+            isOneToOne: false
+            referencedRelation: "account_review_decisions"
             referencedColumns: ["id"]
           },
         ]
@@ -5430,6 +5440,47 @@ export type Database = {
           },
         ]
       }
+      tb_certification_invalidations: {
+        Row: {
+          actor_user_id: string
+          certification_id: string
+          company_id: string
+          created_at: string
+          id: string
+          operation_id: string
+          reason: string
+          upload_id: string
+        }
+        Insert: {
+          actor_user_id: string
+          certification_id: string
+          company_id: string
+          created_at?: string
+          id?: string
+          operation_id: string
+          reason: string
+          upload_id: string
+        }
+        Update: {
+          actor_user_id?: string
+          certification_id?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          operation_id?: string
+          reason?: string
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tb_certification_invalidations_certification_id_fkey"
+            columns: ["certification_id"]
+            isOneToOne: true
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tb_certifications: {
         Row: {
           certified_at: string
@@ -5502,6 +5553,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      tb_reprocess_requests: {
+        Row: {
+          actor_user_id: string
+          code: string
+          company_id: string | null
+          created_at: string
+          id: string
+          invalidated_certification_id: string | null
+          operation_id: string
+          outcome: string
+          request_hash: string
+          upload_id: string
+        }
+        Insert: {
+          actor_user_id: string
+          code: string
+          company_id?: string | null
+          created_at?: string
+          id?: string
+          invalidated_certification_id?: string | null
+          operation_id: string
+          outcome: string
+          request_hash: string
+          upload_id: string
+        }
+        Update: {
+          actor_user_id?: string
+          code?: string
+          company_id?: string | null
+          created_at?: string
+          id?: string
+          invalidated_certification_id?: string | null
+          operation_id?: string
+          outcome?: string
+          request_hash?: string
+          upload_id?: string
+        }
+        Relationships: []
       }
       tbu_source_sweeper_config: {
         Row: {
@@ -6885,6 +6975,22 @@ export type Database = {
         Returns: string
       }
       accept_workspace_invitations: { Args: never; Returns: Json }
+      account_mapping_content: {
+        Args: {
+          p_classification: Database["public"]["Enums"]["account_classification"]
+          p_is_cash: boolean
+          p_is_payroll: boolean
+          p_is_retained: boolean
+          p_line_item: string
+          p_normal_balance: string
+          p_statement: Database["public"]["Enums"]["financial_statement"]
+        }
+        Returns: Json
+      }
+      account_review_decision_content: {
+        Args: { p_new_value: Json }
+        Returns: Json
+      }
       acquire_checkout_attempt: {
         Args: {
           p_amount_minor: number
@@ -8286,6 +8392,14 @@ export type Database = {
       tbu_redeem_source_sweeper_ticket: {
         Args: { p_token: string }
         Returns: boolean
+      }
+      tbu_request_reprocess: {
+        Args: {
+          p_expected_source_hash: string
+          p_operation_id: string
+          p_upload_id: string
+        }
+        Returns: Json
       }
       tbu_reservation_sweep_grace: { Args: never; Returns: string }
       tbu_resolve_processing_actor: {
