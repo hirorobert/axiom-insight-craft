@@ -186,23 +186,25 @@ Resume the sweeper and processing. Then read back:
 SHA-256 `d189ddf5…a967a6`); `scripts/ci/releaseJournal.mjs` pins it as `release_verbatim`, and the applied-immutability
 and inventory/ordering pins include it. The parked `20261004100000` / `20261005100000` are quarantined to
 `supabase/migrations_historical/` (PPG-1 precedent) — the regenerated Supabase types contain none of their objects,
-confirming they were never applied. Their proofs run as revival candidates on top of the current chain. Lovable's sync
-reports the sweeper still **paused**: step 5 (resume and verify) and the function deploys (step 3) are not confirmed by
-this record and remain to be verified in Lovable.
+confirming they were never applied. Their proofs run as revival candidates on top of the current chain.
 
-**Live smoke tests (reported by the owner, 2026-10-06): PASSED.** Scope as reported:
+**Live smoke tests — Lovable's report (2026-10-06): PASSED.** Everything in this block is as Lovable reported it. None of
+it was independently read from the hosted database by this record. Abbreviated identifiers are kept as reported.
 
-| Evidence | Status |
+| Evidence | As reported by Lovable |
 | --- | --- |
-| Upload: a trial balance processed on the live system after S1 | Passed (owner report) |
-| Certification: the processed upload reached its certification state | Passed (owner report) |
-| Invalidation: a reprocess request invalidated the current certification (no older one resurrected) | Passed (owner report) |
-| Exact record identifiers (upload id, certification id, invalidation row, operation id) | Not provided to this record; not independently read from the hosted database |
+| Smoke upload | `b5b7e2c0-cdde-4544-ba3b-a25ff027f21e`, FY2026 period `8e85fba8-b548-4e67-8e89-f0221abad2e0` |
+| First certification | #36 (`ebcff9fa…`): unreviewed; required review; **not** authoritative |
+| Authorized confirmation | produced certification #37 (`ba9ead07…`), authoritative |
+| Reprocessing | invalidated #36 and #37, both retained in history (certifications are never edited). Invalidation records `b9ff608b…` and `6556a2fc…` |
+| Final authoritative certification | #38 `d75e96e7-da6d-46e6-aa4d-83920a311de6` |
+| Permissions checks | passed |
+| Mapping provenance | all five original mappings linked |
+| Sweeper | remained running under the approved waiver; no resume was necessary. (Lovable's sync commit `b7b7257` is titled "Kept sweeper paused, S1 applied"; this record follows Lovable's later, explicit report.) |
+| Supporting-evidence reconciliation | **NOT EVALUATED** |
 | Exact deployed-build identity (function versions, frontend build) | **UNAVAILABLE.** Lovable exposes no version hash for deployed functions; commit labels are not version evidence |
-| Supporting-evidence checks (G0 counts after apply, OD2 linked-row count against the prediction, grants/policies read-back, sweeper resumption) | **NOT EVALUATED** in this record |
 
-These are the owner's results, recorded as reported. This record does not claim the deployed builds equal the reviewed
-source, and the steps marked not evaluated stay open until they are read.
+This record does not claim that the deployed builds equal the reviewed source.
 
 - **Hosted journal reconciliation:** a read of the hosted journal confirms the application. Then a separate record PR
   writes the **actual** journal number, hash and applied timestamp, adds the numbered drizzle mirror, and moves the file
