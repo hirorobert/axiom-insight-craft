@@ -17,7 +17,8 @@
 //               get_authoritative_certification and tbu_derived_active_state until a new certification is recorded.
 // Every assertion runs as the real role (SET LOCAL ROLE + simulated JWT claims, the mechanism PostgREST uses).
 //
-//   DB_PROOF_MODULES_DIR=<dir whose node_modules has pg + embedded-postgres> node scripts/db-proof/mappingProcessingAuthority.mjs
+//   DB_PROOF_MODULES_DIR=<dir whose node_modules has pg + embedded-postgres> bun scripts/db-proof/mappingProcessingAuthority.mjs
+//   (bun: the proof imports the real TypeScript cash-perimeter reader, supabase/functions/_shared/certifiedTbSource.ts)
 //   DB_PROOF_MODE=external DB_PROOF_CONN=postgres://… (a throwaway, EMPTY local database) also works.
 //
 // It reads no Supabase credential and refuses every non-loopback host and the production project reference. It does
@@ -37,6 +38,9 @@ const S1_FILE = "20261006100000_mapping_and_processing_authority.sql";
 const MODE = process.env.DB_PROOF_MODE ?? "embedded";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
 const CONCURRENCY = 12;
+
+// The REAL MAONO cash-perimeter reader (provenance-aware since S1). TypeScript: run this proof with bun (as CI does).
+const { loadCashPerimeter, resolveCashState } = await import(pathToFileURL(path.join(REPO, "supabase/functions/_shared/certifiedTbSource.ts")).href);
 
 const req = createRequire(MODULES_DIR ? path.join(path.resolve(MODULES_DIR), "noop.js") : import.meta.url);
 const { Pool, Client } = req("pg");
@@ -159,6 +163,34 @@ const count = async (sql, params = []) => Number((await admin.query(sql, params)
 const upRow = async (id) => (await admin.query("SELECT * FROM public.trial_balance_uploads WHERE id=$1", [id])).rows[0];
 const mapRow = async (company, key) => (await admin.query("SELECT * FROM public.account_mappings WHERE company_id IS NOT DISTINCT FROM $1 AND account_key=$2", [company, key])).rows[0];
 
+// The service-role client edge certifiedTbSource uses (from → select → eq), executed as service_role on real PostgreSQL;
+// errors are returned like PostgREST's, never thrown.
+const serviceTbClient = {
+  rpc: async () => ({ data: null, error: { message: "not used" } }),
+  from: (table) => ({
+    select: (cols) => ({
+      eq: async (col, val) => {
+        if (!/^[a-z_]+$/.test(table) || !/^[a-z_, ]+$/.test(cols) || !/^[a-z_]+$/.test(col)) throw new Error("bad identifier");
+        try { return { data: await q(SERVICE, `SELECT ${cols} FROM public.${table} WHERE ${col} = $1`, [val]), error: null }; }
+        catch (e) { return { data: null, error: { message: e.message } }; }
+      },
+    }),
+  }),
+};
+// S1 contract, checked independently in JS for EVERY linked row: same company, same key, approving action, identical
+// seven-field content. Returns the offending rows.
+async function linkedRowsViolatingContract() {
+  const rows = (await admin.query(`SELECT m.*, d.company_id d_company, d.review_account_key d_key, d.decision_action d_action, d.new_value d_new
+    FROM public.account_mappings m LEFT JOIN public.account_review_decisions d ON d.id = m.review_decision_id WHERE m.review_decision_id IS NOT NULL`)).rows;
+  const F = ["statement", "classification", "line_item", "normal_balance", "is_cash_account", "is_retained_earnings", "is_payroll_account"];
+  return rows.filter((r) => {
+    const content = r.d_new?.mapping ?? null;
+    return r.d_company !== r.company_id || r.d_key !== (r.account_code ?? r.normalized_account_name)
+      || !["USER_ACCEPTED_SUGGESTION", "USER_MANUAL_CLASSIFICATION"].includes(r.d_action) || content === null
+      || F.some((f) => (content[f] ?? null) !== (r[f] ?? null));
+  }).map((r) => r.account_key);
+}
+
 const U = { ownerA: uuid(), preparerA: uuid(), viewerA: uuid(), outsider: uuid(), ownerB: uuid(), lapsed: uuid(), solo: uuid() };
 const ownerMemberOf = {};
 
@@ -253,6 +285,11 @@ async function main() {
   // Uploads for the processing proofs.
   const uCert = await seedUpload(A, U.ownerA, { period: 2026 });
   const certA = await certify(A, uCert, 2026);
+
+  await check("compatibility: the provenance-aware cash-perimeter reader fails CLOSED on the pre-S1 schema (CANNOT_ASSESS)", async () => {
+    const r = await loadCashPerimeter(serviceTbClient, A);
+    return r.state === "CANNOT_ASSESS" ? true : r;
+  });
   const before1000 = await mapRow(A, "1000");
 
   group("Rollback — S1 inside a transaction, rolled back, changes nothing");
@@ -383,6 +420,24 @@ async function main() {
   await check("an unchanged-content update (e.g. approved_at) keeps the link", async () => {
     await q(SERVICE, "UPDATE public.account_mappings SET approved_at=now() WHERE company_id=$1 AND account_code='1000'", [A]);
     return (await mapRow(A, "1000")).review_decision_id === dA1000;
+  });
+
+  await check("sufficiency: after every R6c manipulation, EVERY linked row satisfies the full contract (checked independently)", async () => {
+    const bad = await linkedRowsViolatingContract();
+    return bad.length === 0 && (await count("SELECT count(*) n FROM public.account_mappings WHERE review_decision_id IS NOT NULL")) > 0 ? true : bad;
+  });
+  await check("cash perimeter on real PostgreSQL: a reviewed flag is known; the same flag on an unproven row is UNKNOWN", async () => {
+    // 1000: linked and reviewed as cash. 9100: the forged pre-S1 row, made cash by the service role (no decision → no link).
+    await q(SERVICE, "UPDATE public.account_mappings SET is_cash_account=true WHERE company_id=$1 AND account_code='9100'", [A]);
+    const r = await loadCashPerimeter(serviceTbClient, A);
+    if (r.state !== "KNOWN") return r;
+    return resolveCashState(r.value, "1000") === "CASH" && resolveCashState(r.value, "9100") === "UNKNOWN"
+      && (await mapRow(A, "9100")).review_decision_id === null ? true : [...r.value.decided.entries()];
+  });
+  await check("cash perimeter: another company's reviewed rows never enter this company's perimeter", async () => {
+    const r = await loadCashPerimeter(serviceTbClient, A);
+    const rB = await loadCashPerimeter(serviceTbClient, B);
+    return r.state === "KNOWN" && rB.state === "KNOWN" && resolveCashState(rB.value, "1000") === "CASH" && [...rB.value.decided.keys()].join() === "1000" ? true : { a: [...r.value.decided.entries()], b: [...rB.value.decided.entries()] };
   });
 
   group("R7 — processing fields are server-owned");
@@ -583,8 +638,13 @@ async function main() {
     return r.outcome === "accepted" && r.invalidated_certification_id === latest && (await invCount()) >= 3 && (await certSnapshot(certA)) === certBefore;
   });
 
+  await check("final sufficiency sweep: every linked mapping still satisfies the full contract", async () => {
+    const bad = await linkedRowsViolatingContract();
+    return bad.length === 0 ? true : bad;
+  });
+
   const failed = results.filter((r) => !r.ok);
-  console.log(`\n──────────────────────────────────────────\nassertions:${results.length}   passed: ${results.length - failed.length}   failed: ${failed.length}`);
+  console.log(`\n──────────────────────────────────────────\nassertions: ${results.length}   passed: ${results.length - failed.length}   failed: ${failed.length}`);
   for (const f of failed) console.log(`  FAILED [${f.group}] ${f.name}`);
   console.log(failed.length === 0 ? "MAPPING_PROCESSING_AUTHORITY: ALL PASSED" : "MAPPING_PROCESSING_AUTHORITY: FAILED");
   return failed.length === 0;

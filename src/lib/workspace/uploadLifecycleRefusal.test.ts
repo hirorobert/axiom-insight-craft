@@ -7,6 +7,7 @@
  * The database refusals (20260923140000, 20260923150000) are proven in scripts/db-proof/uploadLifecycle.mjs.
  */
 import { parseMyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
+import { parseWorkspaceCommercialState } from "@/lib/commercial/paidActions";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createElement } from "react";
@@ -74,10 +75,11 @@ describe("UploadsStatusPanel: Retry only on an active blocked upload", () => {
   });
   // S1: Retry is offered only with the workspace capability tbu_request_reprocess checks (prepare_close, allowed now).
   const PREPARE = parseMyWorkspaceCapabilities({ access: true, capabilities: ["prepare_close"], allowed: ["prepare_close"], has_current_plan: true });
-  const retryFor = (lifecycle_state: string | null | undefined, capabilities: unknown = PREPARE) => {
+  const ENTITLED = parseWorkspaceCommercialState({ access: true, capabilities: { CLOSE_ASSURANCE: { allowed: true, code: "ALLOWED" } } });
+  const retryFor = (lifecycle_state: string | null | undefined, capabilities: unknown = PREPARE, commercial: unknown = ENTITLED) => {
     const html = renderToStaticMarkup(createElement(UploadsStatusPanel, {
       uploads: [blocked("u1", lifecycle_state)], selectedId: null, onSelect: () => {}, onRefresh: async () => {}, onDiscard: () => {},
-      capabilities: capabilities as never,
+      capabilities: capabilities as never, commercial: commercial as never,
     }));
     expect(html).toContain('data-upload-id="u1"');
     return html.includes('data-testid="upload-retry"');
@@ -90,9 +92,13 @@ describe("UploadsStatusPanel: Retry only on an active blocked upload", () => {
     expect(retryFor(s, parseMyWorkspaceCapabilities({ access: true, capabilities: ["review_close"], allowed: ["review_close"] }))).toBe(false);
     expect(retryFor(s, parseMyWorkspaceCapabilities({ access: true, capabilities: ["prepare_close"], allowed: [], has_current_plan: false }))).toBe(false);
   });
+  it.each(ACTIVE)("%s with prepare_close but without the processing entitlement → no Retry", (s) => {
+    expect(retryFor(s, PREPARE, null)).toBe(false);
+    expect(retryFor(s, PREPARE, parseWorkspaceCommercialState({ access: true, capabilities: { CLOSE_ASSURANCE: { allowed: false, code: "ENTITLEMENT_REQUIRED" } } }))).toBe(false);
+  });
   it("the handler itself refuses a non-active upload (or one without prepare_close) before the request", () => {
     const panel = readFileSync(resolve(__dirname, "../../components/UploadsStatusPanel.tsx"), "utf8");
-    const guard = panel.indexOf("!mayRequestReprocess(u, capabilities)) return;");
+    const guard = panel.indexOf("!mayRequestReprocess(u, capabilities, commercial)) return;");
     expect(guard).toBeGreaterThan(-1);
     expect(guard).toBeLessThan(panel.indexOf("requestReprocess(supabase"));
   });
@@ -148,12 +154,12 @@ describe("N-04: no actionable reprocessing control for a non-active upload", () 
   it("WorkspaceOverview supplies onRetry only for an active upload, and the handler re-checks", () => {
     const ov = readFileSync(resolve(__dirname, "../../pages/workspace/WorkspaceOverview.tsx"), "utf8");
     // S1: Retry also needs the workspace capability the server checks (mayRequestReprocess = active upload + prepare_close).
-    expect(ov).toMatch(/onRetry: mayRequestReprocess\(upload, myCapabilities\) \? handleRetryProcessing : undefined/);
+    expect(ov).toMatch(/onRetry: mayRequestReprocess\(upload, myCapabilities, commercial\) \? handleRetryProcessing : undefined/);
     const h = ov.indexOf("const handleRetryProcessing");
-    expect(ov.slice(h, h + 300)).toMatch(/!mayRequestReprocess\(upload, myCapabilities\)\) return;/);
+    expect(ov.slice(h, h + 300)).toMatch(/!mayRequestReprocess\(upload, myCapabilities, commercial\)\) return;/);
     // S1: the handler no longer writes the upload; it requests a new check. The guard still precedes that request.
     expect(ov.indexOf("requestReprocess(supabase")).toBeGreaterThan(h);
-    expect(ov.indexOf("!mayRequestReprocess(upload, myCapabilities)) return;")).toBeLessThan(ov.indexOf("requestReprocess(supabase"));
+    expect(ov.indexOf("!mayRequestReprocess(upload, myCapabilities, commercial)) return;")).toBeLessThan(ov.indexOf("requestReprocess(supabase"));
   });
   const audited = (onProcessAsAuditedAccounts?: () => void) => renderToStaticMarkup(createElement(ValidationReport, {
     report: { tb_balance_check: { passed: false, total_debits: 1, total_credits: 1, difference: 900_000_000 }, mapping_completeness: { passed: true } },

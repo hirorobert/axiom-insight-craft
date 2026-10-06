@@ -13,21 +13,29 @@
 
 import { canExercise, type MyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
 import { canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
+import type { WorkspaceCommercialState } from "@/lib/commercial/paidActions";
 
 export type ReprocessOutcome = "accepted" | "replayed" | "conflict" | "refused";
 
 /**
- * Whether to OFFER Retry: the same authority tbu_request_reprocess checks — an active upload, and the WORKSPACE capability
- * prepare_close that the person may exercise now (held through an accepted membership, on an account with a current plan;
- * get_my_workspace_capabilities). An engagement's service scope (e.g. Trial Balance Review being in the engagement) is
- * NOT this capability and never makes Retry available. Unknown capabilities → not offered (fail closed). The server
- * still decides; this only keeps the button from promising what the server will refuse.
+ * Whether to OFFER Retry: the same authority tbu_request_reprocess checks for a workspace upload —
+ *   1. an active upload;
+ *   2. the WORKSPACE capability prepare_close, exercisable now (get_my_workspace_capabilities().allowed: held through
+ *      an accepted membership, on an account with a current plan);
+ *   3. the processing entitlement: get_workspace_commercial_state().capabilities.CLOSE_ASSURANCE — computed by
+ *      _authorize_paid_action(user, company, 'CLOSE_ASSURANCE'), the exact check authorize_trial_balance_processing
+ *      makes for a workspace upload.
+ * An engagement's service scope (e.g. Trial Balance Review being in the engagement) is NOT a workspace capability and
+ * never makes Retry available. Anything unknown → not offered (fail closed). The server still decides.
  */
 export function mayRequestReprocess(
   upload: { lifecycle_state?: string | null } | null | undefined,
   capabilities: MyWorkspaceCapabilities | null | undefined,
+  commercial: WorkspaceCommercialState | null | undefined,
 ): boolean {
-  return canReprocessUpload(upload) && canExercise(capabilities, "prepare_close");
+  const entitled = !!commercial && commercial.access && commercial.capabilities.CLOSE_ASSURANCE?.allowed === true
+    && commercial.capabilities.CLOSE_ASSURANCE.code === "ALLOWED";
+  return canReprocessUpload(upload) && canExercise(capabilities, "prepare_close") && entitled;
 }
 
 export interface ReprocessResponse {

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { parseMyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
+import { parseWorkspaceCommercialState } from "@/lib/commercial/paidActions";
 import {
   mayRequestReprocess,
   mayInvokeProcessing,
@@ -132,31 +133,44 @@ describe("no browser path writes an upload's processing fields (S1)", () => {
 describe("Retry availability matches tbu_request_reprocess's authority (S1)", () => {
   const caps = (capabilities: string[], allowed: string[], plan = true) =>
     parseMyWorkspaceCapabilities({ access: true, capabilities, allowed, has_current_plan: plan });
+  const PREPARE = caps(["prepare_close"], ["prepare_close"]);
+  const commercial = (allowed: boolean, code = allowed ? "ALLOWED" : "ENTITLEMENT_REQUIRED") =>
+    parseWorkspaceCommercialState({ access: true, plan_code: "SOLO", capabilities: { CLOSE_ASSURANCE: { allowed, code } } });
+  const ENTITLED = commercial(true);
   const active = { lifecycle_state: "active_processed" };
 
-  it("offered only for an active upload AND prepare_close that may be exercised now", () => {
-    expect(mayRequestReprocess(active, caps(["prepare_close"], ["prepare_close"]))).toBe(true);
-    expect(mayRequestReprocess({ lifecycle_state: "retired" }, caps(["prepare_close"], ["prepare_close"]))).toBe(false);
+  it("offered only for an active upload AND prepare_close AND the CLOSE_ASSURANCE entitlement", () => {
+    expect(mayRequestReprocess(active, PREPARE, ENTITLED)).toBe(true);
+    expect(mayRequestReprocess({ lifecycle_state: "retired" }, PREPARE, ENTITLED)).toBe(false);
   });
 
-  it("not offered on other capabilities, a held-but-not-allowed capability (no current plan), no access, or unknown state", () => {
-    expect(mayRequestReprocess(active, caps(["review_close", "issue_reporting_pack"], ["review_close", "issue_reporting_pack"]))).toBe(false);
-    expect(mayRequestReprocess(active, caps(["prepare_close"], [], false))).toBe(false);
-    expect(mayRequestReprocess(active, parseMyWorkspaceCapabilities({ access: false, capabilities: [], allowed: [] }))).toBe(false);
-    expect(mayRequestReprocess(active, null)).toBe(false);
+  it("not offered without prepare_close: other capabilities, held-but-not-allowed (no plan), no access, unknown", () => {
+    expect(mayRequestReprocess(active, caps(["review_close", "issue_reporting_pack"], ["review_close", "issue_reporting_pack"]), ENTITLED)).toBe(false);
+    expect(mayRequestReprocess(active, caps(["prepare_close"], [], false), ENTITLED)).toBe(false);
+    expect(mayRequestReprocess(active, parseMyWorkspaceCapabilities({ access: false, capabilities: [], allowed: [] }), ENTITLED)).toBe(false);
+    expect(mayRequestReprocess(active, null, ENTITLED)).toBe(false);
+  });
+
+  it("not offered without the processing entitlement: refused, missing, malformed, no access, or unknown commercial state", () => {
+    expect(mayRequestReprocess(active, PREPARE, commercial(false))).toBe(false);
+    expect(mayRequestReprocess(active, PREPARE, commercial(true, "SOMETHING_ELSE"))).toBe(false);
+    expect(mayRequestReprocess(active, PREPARE, parseWorkspaceCommercialState({ access: true, capabilities: {} }))).toBe(false);
+    expect(mayRequestReprocess(active, PREPARE, parseWorkspaceCommercialState({ access: false }))).toBe(false);
+    expect(mayRequestReprocess(active, PREPARE, null)).toBe(false);
   });
 
   it("an engagement service grant is not a workspace capability: a service name never makes Retry available", () => {
-    expect(mayRequestReprocess(active, caps(["TRIAL_BALANCE_REVIEW", "FINANCIAL_STATEMENTS"], ["TRIAL_BALANCE_REVIEW", "FINANCIAL_STATEMENTS"]))).toBe(false);
+    expect(mayRequestReprocess(active, caps(["TRIAL_BALANCE_REVIEW", "FINANCIAL_STATEMENTS"], ["TRIAL_BALANCE_REVIEW", "FINANCIAL_STATEMENTS"]), ENTITLED)).toBe(false);
   });
 
-  it("every Retry surface uses the predicate (no lifecycle-only Retry remains)", () => {
+  it("every Retry surface uses the predicate with both inputs (no lifecycle-only Retry remains)", () => {
     const ov = read("src/pages/workspace/WorkspaceOverview.tsx");
     expect(ov).toContain("useWorkspaceCapabilities(companyId)");
-    expect(ov).toMatch(/onRetry: mayRequestReprocess\(upload, myCapabilities\)/);
+    expect(ov).toContain("useWorkspaceCommercialState(companyId)");
+    expect(ov).toMatch(/onRetry: mayRequestReprocess\(upload, myCapabilities, commercial\)/);
     const panel = read("src/components/UploadsStatusPanel.tsx");
-    expect(panel).toContain("mayRetry={mayRequestReprocess(u, capabilities)}");
-    expect(panel).toContain("!mayRequestReprocess(u, capabilities)) return;");
+    expect(panel).toContain("mayRetry={mayRequestReprocess(u, capabilities, commercial)}");
+    expect(panel).toContain("!mayRequestReprocess(u, capabilities, commercial)) return;");
     expect(panel).not.toContain("canReprocessUpload(");
   });
 });

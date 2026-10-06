@@ -234,6 +234,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/generate-management-letter/index.ts",
       "supabase/functions/generate-disclosure-notes/index.ts",
       "supabase/functions/_shared/certifiedTbSource.ts",
+      // S1 provenance consumption (20261006100000): process-trial-balance's function-path suite pins that only a company
+      // mapping linked to a review decision is trusted (absent/cleared/malformed links, pre-S1 rows, mixed accounts,
+      // precedence, tenant isolation). Never deployed (not under a function's entry point), no schema.
+      "supabase/functions/process-trial-balance/functionpath/functionPath.test.ts",
       // Named-user activity (20260925110000): the shared membership checks and the service-role membership lookups
       // also require an ACTIVE named user (a billing-suspended member gets an outsider's 403); the invitation function
       // reserves the seat before any email and releases it when the email fails. Accounting logic unchanged.

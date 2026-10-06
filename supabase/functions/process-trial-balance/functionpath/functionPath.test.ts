@@ -54,6 +54,8 @@ function setup(opts: { csv: string; fileName?: string; currency?: string | null;
 const mapping = (code: string, classification: string, statement: string, normal: string): Row => ({
   company_id: COMPANY, account_code: code, account_name: code, normalized_account_name: null, statement, classification,
   line_item: classification, normal_balance: normal, is_cash_account: null, is_retained_earnings: null, is_payroll_account: null,
+  // S1 (20261006100000): a professionally reviewed company mapping carries the review decision the database validated.
+  review_decision_id: `decision-${code}`,
 });
 const REVIEWED = [
   mapping("1000", "current_assets", "balance_sheet", "debit"),
@@ -176,18 +178,67 @@ Deno.test("refusals: no token → 401; not authorized → 403 before any write o
   assertEquals(w.calls.filter((c) => c.kind === "update" || c.kind === "download").length, 0);
 });
 
-// ── S1 boundary: how the deployed handler consumes account mappings (20261006100000 adds review_decision_id) ─────────
-// The handler does not read review_decision_id. These tests pin what it does TODAY so the provenance-consumption change
-// flips the first one deliberately: until then S1 alone does not stop an unproven company mapping from being trusted.
+// ── S1 provenance consumption (20261006100000) ───────────────────────────────────────────────────────────────────
+// A company mapping is the company's REVIEWED mapping only with review_decision_id. The database accepts that link only
+// for a matching decision (same company, same account key, approving action, identical seven-field content) and clears
+// it on any later content, company or key change — so a present link is the contract; anything else is a suggestion.
 const unproven = REVIEWED.map((m) => ({ ...m, review_decision_id: null }));
+const reviewAccounts = (w: World) => (upload(w).processing_result as { needs_review_accounts?: { account_code: string; reason?: string; suggestion_reason?: string }[] }).needs_review_accounts ?? [];
+const reasonOf = (a: Record<string, unknown>) => String(a.reason ?? a.suggestion_reason ?? a.review_reason ?? JSON.stringify(a));
 
-Deno.test("S1 OPEN GAP: a company mapping WITHOUT review provenance is still trusted as reviewed (certified, no review)", async () => {
-  const w = setup({ csv: BALANCED, mappings: unproven });
-  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
-  assertEquals(r.status, 200);
+Deno.test("S1 valid provenance: linked company mappings are trusted → certified with no review", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals(upload(w).status, "complete");
   assertEquals([w.tables.tb_certifications[0].p_is_blocking, w.tables.tb_certifications[0].p_requires_review], [false, false]);
-  assertEquals((upload(w).processing_result as { needs_review_accounts?: unknown[] }).needs_review_accounts ?? [], []);
+  assertEquals(reviewAccounts(w), []);
+});
+
+Deno.test("S1 absent / cleared provenance: an unproven company mapping is a suggestion → needs review, with an accurate reason", async () => {
+  const w = setup({ csv: BALANCED, mappings: unproven });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "needs_review");
+  assertEquals(w.tables.tb_certifications[0].p_requires_review, true);
+  const review = reviewAccounts(w);
+  assertEquals(review.map((a) => a.account_code).sort(), ["1000", "3000", "4000", "6000"]);
+  for (const a of review) {
+    const reason = reasonOf(a as Record<string, unknown>);
+    assert(/no recorded review decision confirms it/.test(reason), reason);
+    assert(!/shared chart of accounts/.test(reason), reason);
+  }
+});
+
+Deno.test("S1 malformed provenance (empty or non-string link) is not provenance → needs review", async () => {
+  for (const bad of ["", 42, false, {}]) {
+    const w = setup({ csv: BALANCED, mappings: REVIEWED.map((m) => ({ ...m, review_decision_id: bad })) });
+    await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+    assertEquals(upload(w).status, "needs_review", `link ${JSON.stringify(bad)}`);
+  }
+});
+
+Deno.test("S1 compatibility: a pre-S1 database (no review_decision_id field at all) fails safe → needs review", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED.map(({ review_decision_id: _x, ...m }) => m) });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "needs_review");
+  assertEquals(w.tables.tb_certifications[0].p_requires_review, true);
+});
+
+Deno.test("S1 mixed accounts: linked rows trusted, only the unproven account goes to review", async () => {
+  const w = setup({ csv: BALANCED, mappings: [...REVIEWED.slice(0, 3), { ...REVIEWED[3], review_decision_id: null }] });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "needs_review");
+  assertEquals(reviewAccounts(w).map((a) => a.account_code), ["6000"]);
+});
+
+Deno.test("S1 precedence: this company's unconfirmed row is the suggestion over a shared row for the same code", async () => {
+  const shared = { ...REVIEWED[3], company_id: null, review_decision_id: null, classification: "cost_of_goods_sold", line_item: "shared" };
+  for (const order of [[shared, { ...REVIEWED[3], review_decision_id: null }], [{ ...REVIEWED[3], review_decision_id: null }, shared]]) {
+    const w = setup({ csv: BALANCED, mappings: [...REVIEWED.slice(0, 3), ...order] });
+    await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+    const r = reviewAccounts(w);
+    assertEquals(r.map((a) => a.account_code), ["6000"]);
+    assert(/no recorded review decision confirms it/.test(reasonOf(r[0] as Record<string, unknown>)));
+  }
 });
 
 Deno.test("S1 boundary: a global (company_id NULL) mapping is only a suggestion — certification requires review", async () => {
@@ -195,10 +246,11 @@ Deno.test("S1 boundary: a global (company_id NULL) mapping is only a suggestion 
   await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals(upload(w).status, "needs_review");
   assertEquals(w.tables.tb_certifications[0].p_requires_review, true);
-  assertEquals(((upload(w).processing_result as { needs_review_accounts: unknown[] }).needs_review_accounts).length, 4);
+  assertEquals(reviewAccounts(w).length, 4);
+  assert(/shared chart of accounts/.test(reasonOf(reviewAccounts(w)[0] as Record<string, unknown>)));
 });
 
-Deno.test("S1 boundary: another company's mapping is never read for this upload", async () => {
+Deno.test("S1 tenant isolation: another company's mapping — even a linked one — is never read for this upload", async () => {
   const w = setup({ csv: BALANCED, mappings: REVIEWED.map((m) => ({ ...m, company_id: "55555555-5555-4555-8555-555555555555" })) });
   await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals(upload(w).status, "needs_review");

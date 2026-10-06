@@ -399,7 +399,7 @@ jobs:
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/s1_proof
         run: |
           createdb s1_proof
-          node scripts/db-proof/mappingProcessingAuthority.mjs
+          bun scripts/db-proof/mappingProcessingAuthority.mjs
 
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:

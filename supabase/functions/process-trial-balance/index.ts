@@ -87,6 +87,11 @@ interface AccountMapping {
   is_cash_account:    boolean;
   is_retained_earnings: boolean;
   is_payroll_account: boolean;
+  /**
+   * S1 (20261006100000): "reviewed" only for THIS company's row linked to a review decision; "unconfirmed_company" for
+   * this company's row without that link; "shared" for a global (company_id NULL) row. Only "reviewed" is ever Tier 1/2.
+   */
+  provenance?: "reviewed" | "unconfirmed_company" | "shared";
 }
 
 interface ValidationError {
@@ -1548,17 +1553,30 @@ serve(async (req) => {
         is_retained_earnings: m.is_retained_earnings ?? false,
         is_payroll_account:   m.is_payroll_account   ?? false,
       };
-      const isCompany = companyId != null && m.company_id === companyId;
-      const isGlobal  = m.company_id == null;
-      if (isCompany) {
+      // S1 provenance: a company row is the company's REVIEWED mapping only when it carries review_decision_id. The
+      // database (trg_account_mappings_provenance) accepts that link only for a decision of the same company and account
+      // key, with an approving action and identical seven-field content, and clears it on any later content, company or
+      // key change — so a present link is the contract. Anything else is a suggestion (Tier 3: always needs review). A
+      // database without the column (pre-S1) has no links: every company row is a suggestion (fails safe).
+      const isCompanyRow = companyId != null && m.company_id === companyId;
+      const reviewed     = isCompanyRow && typeof m.review_decision_id === "string" && m.review_decision_id.length > 0;
+      if (reviewed) {
+        mapping.provenance = "reviewed";
         if (m.account_code)            companyByCode.set(m.account_code, mapping);
         if (m.normalized_account_name) companyByName.set(m.normalized_account_name, mapping);
-      } else if (isGlobal) {
-        if (m.account_code)            globalByCode.set(m.account_code, mapping);
-        if (m.normalized_account_name) globalByName.set(m.normalized_account_name, mapping);
+      } else if (isCompanyRow || m.company_id == null) {
+        mapping.provenance = isCompanyRow ? "unconfirmed_company" : "shared";
+        // Deterministic precedence among suggestions: this company's own unconfirmed row over a shared row.
+        const put = (map: Map<string, AccountMapping>, key: string) => {
+          if (!isCompanyRow && map.get(key)?.provenance === "unconfirmed_company") return;
+          map.set(key, mapping);
+        };
+        if (m.account_code)            put(globalByCode, m.account_code);
+        if (m.normalized_account_name) put(globalByName, m.normalized_account_name);
       }
+      // Any other company's row is never used (the query already excludes it; this is the second guard).
     }
-    console.log(`[PTB] Mappings loaded — company: ${companyByCode.size} by code / ${companyByName.size} by name, global: ${globalByCode.size} / ${globalByName.size}`);
+    console.log(`[PTB] Mappings loaded — reviewed company: ${companyByCode.size} by code / ${companyByName.size} by name, suggestions (unconfirmed company + shared): ${globalByCode.size} / ${globalByName.size}`);
 
     const { data: rawKwd } = await supabase
       .from("keyword_dictionary")
@@ -1989,6 +2007,9 @@ async function restoreStatus(supabase: ReturnType<typeof createClient>, uploadId
 /** Plain-language reason a classifier suggestion still needs a reviewer. */
 function suggestionReason(result: Extract<TieredClassifyResult, { status: "classified" }>): string {
   const label = result.mapping.line_item || result.mapping.classification;
+  if (result.mapping.provenance === "unconfirmed_company") {
+    return `Saved for this company as ${label}, but no recorded review decision confirms it — confirm the classification before the trial balance is accepted.`;
+  }
   if (result.fuzzy) return `Close to a saved mapping (${result.mapping.account_name}) — confirm it applies to this account.`;
   if (result.tier === 3) return `Matched the shared chart of accounts (${label}) — confirm it for this company.`;
   if (result.tier === 4) return `Suggested from the account-name dictionary (${label}) — confirm before the trial balance is accepted.`;
