@@ -67,6 +67,12 @@ Proven by: function-path suite (`functionPath.test.ts`, 17 tests, CI `deno test`
 pre-change handler — 5 failures); `src/lib/accounting/certifiedTbSource.test.ts`; and the real-PostgreSQL proof
 (pre-S1 `CANNOT_ASSESS`, post-S1 reviewed flag known / unproven flag UNKNOWN, tenant isolation).
 
+**Verification still pending:** the real `process-trial-balance` handler has **not** been run against real PostgreSQL.
+Its proof is the function-path suite (the real, unmodified handler over in-memory doubles of the Supabase client,
+Storage and auth). The database contract is proven separately on real PostgreSQL. Running the real handler on real
+PostgreSQL needs the harness extension the blueprint schedules for E1 (I-1a: `.or()`, `.is()`, Storage download,
+`auth.getClaims`); until then that end-to-end claim is not made.
+
 Expected once after release: accounts whose mappings were not linked by the OD2 backfill reappear in review once.
 
 Not changed here: `kinga-findings-engine` (withheld; DEFECT-KINGA-MAPPING-TENANCY-001) still reads mapping flags without
@@ -107,25 +113,111 @@ standalone PostgreSQL: clean → exit 0 (`bun scripts/db-proof/mappingProcessing
 `node scripts/db-proof/uploadLifecycle.mjs`); one temporary mutation of the S1 migration (`get_authoritative_certification`
 no longer honours invalidations) → exit 1 for both, each naming the failing assertion; the migration restored
 byte-identical (SHA-256 checked). The S1 proof runs under **bun** in CI because it imports the real TypeScript
-cash-perimeter reader. Local **embedded** mode can print FAILED with exit 0 for proofs ending in `process.exitCode = …`;
+cash-perimeter reader. The S1 proof was also run on the chain the hosted database is expected to have: every migration **except** the
+parked `20261004100000` and `20261005100000`. It passed 162/162. S1 references no object they define, and they touch
+only `safisha_status`, which S1 leaves client-writable as before. Local **embedded** mode can print FAILED with exit 0 for proofs ending in `process.exitCode = …`;
 that is never used as evidence and is tracked separately.
 
 ## 6. One coordinated release window
 
-All three steps happen in one window, in this order. Until step 3 completes, S1 is **not** described as hardened.
+Forward-only. Every step uses the existing paths only: Lovable's native migrator for the migration, ordinary function
+deploys, an ordinary publish. No new executor or wrapper. Until step 5 completes, S1 is **not** described as hardened.
 
-1. **Lovable applies `20261006100000`** (native migrator). Old frontends stay safe: their direct processing write is
-   refused, the error is ignored at all three call sites, and the handler sets its own status.
-   *Unsafe until step 2:* the old handler and old MAONO reader still trust unproven company mappings.
-2. **Deploy the provenance-aware functions immediately after:** `process-trial-balance` and every function bundling
-   `_shared/certifiedTbSource.ts` (`maono-compute`, `maono-cashflow`). Deploying before step 1 is safe but noisy (every
-   company mapping goes to review; the MAONO perimeter is CANNOT_ASSESS).
-3. **Publish the S1 frontend** (`tbu_request_reprocess` Retry, capability + entitlement gating). Before step 1 it would
-   call a missing RPC and fail visibly.
+### Step 0: before apply, G0 read-only checks (Lovable, read-only, never preview)
 
-Afterwards: a hosted journal read confirms the migration, then a separate record PR writes the actual journal number,
-hash and timestamp, the drizzle mirror and the pins; run G0 (count unlinked company mappings, pre-S1 forged/global rows).
+Record the results; any surprise stops the release before anything changes.
 
-**Still unsafe after the window (not S1):** crash at `validating`, the pre-claim window and two-operation-id
-acceptance (§1, S2/E2); notes/letter `processing_result` writers (E2); `kinga-findings-engine` provenance (before it is
-re-enabled); `CONFIRM_ACCOUNT_TREATMENT` (before E1).
+- **Journal and chain:** the hosted journal head; whether `20261004100000` and `20261005100000` are absent (expected:
+  parked, not applied); `pgcrypto` is in schema `extensions` (`extensions.digest` exists).
+- **Grants and policies today:** on `account_mappings` and `trial_balance_uploads` (table- and column-level grants for
+  `anon` / `authenticated`, policies, triggers). This confirms what S1 replaces.
+- **Mapping counts (the OD2 baseline):**
+  - company mappings in total;
+  - how many have a latest decision for the same company and key that is approving and whose content equals the
+    mapping's seven fields (the rows the backfill will link);
+  - how many will stay unlinked (they go to review once);
+  - global (`company_id IS NULL`) rows;
+  - rows whose `user_id` is not an accepted member of their `company_id` workspace (forged-looking);
+  - unsupported combinations (`statement = 'cash_flow'`, cash-flow classes, statement/class mismatches).
+- **Processing state:** uploads at `status = 'validating'` (in flight or stuck), pending discard / cleanup operations,
+  and the latest authoritative certification per active upload (the set the release must not silently change).
+
+### Step 1: hold processing activity
+
+The migration takes short exclusive locks on `account_mappings` and `trial_balance_uploads`, and until step 3 the old
+engine still trusts unproven mappings. So, during the window:
+
+- **Drain in-flight processing:** wait until no upload is at `validating` (G0 query). Record any upload stuck at
+  `validating` and leave it alone; after the release, recover it with a service-role status reset (§1).
+- **Hold new processing:** announce a short maintenance window. This repository has no processing kill switch, so the
+  team does not invoke uploads, Retry or review saves during the window. Any invocation that happens anyway is
+  identified afterwards (step 6) and re-checked.
+- **Pause the scheduled sweeper:** `trial-balance-source-sweeper` (the only `cron.schedule` in the repository), and do
+  not run `trial-balance-storage-cleanup` or `maono-monitor` manually, so no discard/cleanup claim or MAONO run
+  straddles the change.
+
+### Step 2: apply `20261006100000` (Lovable native migrator)
+
+One transaction. On failure nothing changes; the release stops and the failure is investigated.
+
+### Step 3: deploy the provenance-aware functions immediately
+
+`process-trial-balance`, `maono-compute` and `maono-cashflow` (the two MAONO functions bundle
+`_shared/certifiedTbSource.ts`).
+
+### Step 4: publish the frontend
+
+The `tbu_request_reprocess` Retry, with capability and entitlement gating. It must follow step 2: before it, Retry calls
+a missing RPC and fails visibly.
+
+### Step 5: resume and verify
+
+Resume the sweeper and processing. Then read back:
+
+- the S1 objects are present (grants, policies, triggers, functions);
+- the linked-row count equals the G0 backfill prediction;
+- one synthetic upload on the demo workspace reaches its expected state;
+- an unproven mapping goes to review.
+
+### Step 6: after confirmed application
+
+- **Hosted journal reconciliation:** a read of the hosted journal confirms the application. Then a separate record PR
+  writes the **actual** journal number, hash and applied timestamp, adds the numbered drizzle mirror, and moves the file
+  into the applied-immutability and inventory/ordering pins. If the journal shows a different number or hash, or an
+  intervening entry, the record PR uses the hosted values.
+- **Parked migrations:** once S1 is mirrored, the migration-authority guard (rule 3) treats the parked
+  `20261004100000` / `20261005100000`, which sort before it, as skipped by the hosted journal. The record PR must
+  reconcile them with the repository's existing mechanisms: the precedent of moving an unapplied source to
+  `supabase/migrations_historical/` (PPG-1), or an owner decision to apply them first. Not decided here.
+- **Re-check anything processed between steps 2 and 3:** list the certifications committed after the step-2 applied
+  timestamp and before the step-3 deploy. The old engine made each of them, and each is re-checked through
+  `tbu_request_reprocess` by its workspace.
+
+### Recovery: migration applied, deployment fails
+
+The state is: migration in; old functions (and possibly the old frontend) still live.
+
+- **What stays safe:** clients cannot write mappings or processing fields. The old frontend's direct writes are refused
+  and the error is ignored, and processing still sets its own status. Certification invalidation and the reprocess RPC
+  work.
+- **What is unsafe:** the old handler and the old MAONO reader still trust unproven company mappings and cash flags.
+- **Do:**
+  - keep processing held (step 1);
+  - retry the failed deploy;
+  - if only some functions deployed, deploy the rest. Every combination fails safe towards review / `CANNOT_ASSESS`,
+    never towards trust;
+  - do not publish the frontend until step 3 is complete;
+  - if a deploy cannot be completed in the window, keep the hold, record the state, and resume processing only after
+    the provenance-aware handler is live.
+- **Never:** revert the migration, restore the old `get_authoritative_certification`, or re-grant client write access
+  to mappings or processing fields (blueprint §9). There is no down migration.
+- **If the frontend publish fails:** there is no safety impact, because the old frontend works against the new backend
+  (its writes are refused and processing still runs). Retry the publish.
+
+### Still unsafe after the window (not S1)
+
+- Crash at `validating`, the pre-claim window and two-operation-id acceptance (§1): S2/E2.
+- Notes and management-letter writers to `processing_result`: E2.
+- `kinga-findings-engine` reads mapping flags without provenance; fix it before it is re-enabled.
+- Real handler on real PostgreSQL: pending (I-1a harness, E1).
+- **`CONFIRM_ACCOUNT_TREATMENT`: required before E1** (§3).
