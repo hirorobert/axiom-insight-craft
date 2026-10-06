@@ -1,3 +1,24 @@
+-- ════════════════════════════════════════════════════════════════════════════
+-- QUARANTINED HISTORICAL SOURCE — S1 record (2026-10-06)
+--
+-- This file was authored as 20261005100000_safisha_ingestion_authority.sql — evidence ingestion authority (one serialized server path for evidence rows; provenance-based row identity) — and
+-- was NEVER applied to the hosted database. It was parked (PR #53 close-out) and is not revived. The hosted journal
+-- applied the later S1 migration (20261006100000_mapping_and_processing_authority.sql) as entry 0028 / hosted id 29;
+-- leaving this file in supabase/migrations/ would make the source chain claim a migration the hosted database has never
+-- run, sorted BEFORE one it has — the migration-authority guard (rule 3) correctly refuses that gap.
+--
+-- It is renamed `.sql.historical` and moved out of supabase/migrations/ (which Supabase tooling and every replay globs by
+-- directory and extension), following the PPG-1 precedent. Its SQL is preserved byte for byte below this notice.
+-- It is retained for its design and is still proven as a REVIVAL CANDIDATE: the reconciliation proofs apply it on top of
+-- the current chain (the only order a revival could take). Its original SHA-256 is d814bbebeeaa541cbbe703aa3c037759e0b41882f7c64575f58ee3ed24bcc425.
+--
+-- To revive it: author a NEW forward migration timestamped after the current head, carrying this design re-reviewed
+-- against the schema as it then is. Never move this file back into supabase/migrations/ under its old timestamp.
+--
+-- The Edge Function sources on main that call its objects (safisha-ingest, safisha-match, safisha-resolve) must not be
+-- deployed until that revival is applied.
+-- ════════════════════════════════════════════════════════════════════════════
+
 -- 20261005100000_safisha_ingestion_authority.sql
 --
 -- Evidence ingestion becomes one authoritative, serialized database operation with explicit provenance. Found by

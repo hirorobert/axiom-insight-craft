@@ -12,6 +12,7 @@
 //   DB_PROOF_MODULES_DIR=<dir with node_modules/pg + embedded-postgres> bun ./scripts/db-proof/reconciliationEvidence.mjs
 //   (or DB_PROOF_CONN=postgres://postgres:postgres@localhost:<port>/postgres for an already-running disposable server)
 import fs from "node:fs";
+import { currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -66,7 +67,7 @@ async function stop() {
   try { await server?.stop(); } catch { /* */ } try { if (dir) fs.rmSync(dir, { recursive: true, force: true }); } catch { /* */ }
 }
 async function apply(f) {
-  let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
+  let text = migrationSql(REPO, f);
   if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
   await admin.query(text);
 }
@@ -110,20 +111,21 @@ const one = async (sql, p = []) => (await admin.query(sql, p)).rows[0];
 
 async function main() {
   await start();
-  const files = fs.readdirSync(path.join(REPO, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
+  const files = currentChain(REPO);
   console.log(`\n== Setup (synthetic users, disposable database ${PROOF_DB})`);
   await admin.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));
   await admin.query(`GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;`);
-  // A later reconciliation-authority migration (20261004100000) refuses the incomplete 'clean' states seeded below for
-  // every writer. When it is present they are seeded as LEGACY rows — recorded before it — and it is applied right
-  // after, exactly as on an upgraded database. Without it nothing changes.
+  // The reconciliation-authority migration (20261004100000) refuses the incomplete 'clean' states seeded below for every
+  // writer. It is parked (never applied to the hosted database; quarantined in supabase/migrations_historical/) and is
+  // proven here as a revival candidate: the states are seeded as LEGACY rows on the whole current chain, and it is
+  // applied right after, exactly as a revival would upgrade a database.
   const AUTHORITY = "20261004100000_reconciliation_server_authority.sql";
-  const before = files.filter((x) => x !== AUTHORITY);
+  const before = files;
   for (const f of before) await apply(f);
-  console.log(`  migrations applied: ${before.length}${files.includes(AUTHORITY) ? ` (then ${AUTHORITY} after the legacy states)` : ""}`);
+  console.log(`  migrations applied: ${before.length} (then ${AUTHORITY}, parked, after the legacy states)`);
 
   const U = { owner: uuid(), reviewer: uuid(), prepareOnly: uuid(), outsider: uuid(), ownerB: uuid() };
   for (const [k, id] of Object.entries(U)) await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [id, `${k}@example.test`]);
@@ -173,7 +175,7 @@ async function main() {
   }
   // tenant B: complete, for cross-tenant reads
   S.tenantB = await upload(B, U.ownerB, 2025); { const r = await recon(S.tenantB, "clean", 2, 2, U.ownerB); await setUploadStatus(S.tenantB, "clean"); void r; }
-  if (files.includes(AUTHORITY)) await apply(AUTHORITY);
+  await apply(AUTHORITY);
 
   const raw = async (up) => (await one("SELECT u.safisha_status s, r.status r FROM public.trial_balance_uploads u LEFT JOIN public.safisha_reconciliations r ON r.tb_upload_id=u.id WHERE u.id=$1", [up]));
   console.log("\n== What the database itself records (raw statuses after the REAL resolve RPC)");

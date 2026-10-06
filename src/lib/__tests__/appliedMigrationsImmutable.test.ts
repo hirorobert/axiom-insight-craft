@@ -20,6 +20,8 @@ const APPLIED: Record<string, string> = {
   "20260926160000_trial_balance_processing_entitlement_wall.sql": "d032fb0821210b59937e8f513d5de126fb31bbcffff151a91d459dd33914e868",
   // Applied in production by Lovable (hosted journal entry 0027, when 1791137643914; the classification-save digest fix).
   "20261003100000_account_review_digest_schema_qualification.sql": "2776fc2b0e6e18005b0700b966c2d66ca1910429e03bb3554c3f47d4cbf459ff",
+  // S1 mapping and processing authority — hosted journal 0028 (id 29, created_at 1791299426677), applied byte for byte.
+  "20261006100000_mapping_and_processing_authority.sql": "d189ddf5fa021c0c9a7a70536fd851b1152016269a7718ca8967f89837a967a6",
 };
 
 describe("applied migrations are immutable", () => {

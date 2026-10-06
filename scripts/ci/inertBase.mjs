@@ -48,19 +48,23 @@ export function resolveComparisonBase({ env, git }) {
 }
 
 /**
- * Exact-file review of `git diff --name-status` output.
+ * Exact-file review of `git diff --no-renames --name-status` output.
  * @param {string} nameStatus raw output (tab-separated status and path per line)
- * @param {{ added: ReadonlySet<string>, modified: ReadonlySet<string> }} reviewed
+ * @param {{ added: ReadonlySet<string>, modified: ReadonlySet<string>, removed?: ReadonlySet<string> }} reviewed
+ *   `removed` lists the exact files a reviewed change takes OUT of the tree (e.g. a migration quarantined to
+ *   supabase/migrations_historical/); a move is one removal plus one addition, each reviewed. Default: none.
  * @returns {string[]} one message per unreviewed change; empty = every change is a reviewed exact file
  */
-export function unreviewedChanges(nameStatus, { added, modified }) {
+export function unreviewedChanges(nameStatus, { added, modified, removed = new Set() }) {
   const out = [];
+  const KIND = { A: ["addition", added], M: ["modification", modified], D: ["removal", removed] };
   for (const line of nameStatus.split("\n")) {
     if (line === "") continue;
     const fields = line.split("\t");
     const [status, file] = fields;
-    if (fields.length !== 2 || (status !== "A" && status !== "M")) { out.push(`unsupported change: ${JSON.stringify(line)}`); continue; }
-    if (!(status === "A" ? added : modified).has(file)) out.push(`${JSON.stringify(file)} is not a reviewed ${status === "A" ? "addition" : "modification"}`);
+    if (fields.length !== 2 || !Object.hasOwn(KIND, status)) { out.push(`unsupported change: ${JSON.stringify(line)}`); continue; }
+    const [label, set] = KIND[status];
+    if (!set.has(file)) out.push(`${JSON.stringify(file)} is not a reviewed ${label}`);
   }
   return out;
 }

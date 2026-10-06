@@ -181,6 +181,15 @@ Resume the sweeper and processing. Then read back:
 
 ### Step 6: after confirmed application
 
+**Recorded (S1 record PR, from main `b7b7257`):** the hosted journal applied S1 as entry `0028` (hosted id 29,
+`created_at` 1791299426677 = 2026-10-06T15:10:26.677Z); the drizzle mirror is byte-identical to the source (43,248 bytes,
+SHA-256 `d189ddf5…a967a6`); `scripts/ci/releaseJournal.mjs` pins it as `release_verbatim`, and the applied-immutability
+and inventory/ordering pins include it. The parked `20261004100000` / `20261005100000` are quarantined to
+`supabase/migrations_historical/` (PPG-1 precedent) — the regenerated Supabase types contain none of their objects,
+confirming they were never applied. Their proofs run as revival candidates on top of the current chain. Lovable's sync
+reports the sweeper still **paused**: step 5 (resume and verify) and the function deploys (step 3) are not confirmed by
+this record and remain to be verified in Lovable.
+
 - **Hosted journal reconciliation:** a read of the hosted journal confirms the application. Then a separate record PR
   writes the **actual** journal number, hash and applied timestamp, adds the numbered drizzle mirror, and moves the file
   into the applied-immutability and inventory/ordering pins. If the journal shows a different number or hash, or an

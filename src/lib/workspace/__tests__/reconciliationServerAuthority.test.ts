@@ -5,13 +5,16 @@
  * forgery refused per role, MAONO gate, re-apply) and scripts/db-proof/reconciliationFunctionMatrix.mjs (the real old
  * and new handlers against the old and new schema); this file keeps the contract visible in the fast suite.
  */
+import { parkedMigrationSql } from "../../../../scripts/db-proof/lib/parkedMigrations.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = path.resolve(__dirname, "../../../..");
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), "utf8");
-const MIGRATION = read("supabase/migrations/20261004100000_reconciliation_server_authority.sql");
+// Parked: never applied to the hosted database; quarantined in supabase/migrations_historical/ (S1 record). The original
+// SQL (notice stripped, SHA-256 verified) is what this static contract pins.
+const MIGRATION = parkedMigrationSql(ROOT, "20261004100000_reconciliation_server_authority.sql");
 const SQL = MIGRATION.replace(/--[^\n]*/g, "");
 const MATCH = read("supabase/functions/safisha-match/index.ts");
 const RESOLVE = read("supabase/functions/safisha-resolve/index.ts");

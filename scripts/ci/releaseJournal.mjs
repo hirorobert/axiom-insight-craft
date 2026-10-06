@@ -159,6 +159,12 @@ export const RELEASE_JOURNAL = {
     source: "20261002100000_refuse_withheld_service_grants.sql", bytes: 10824,
     digest: "704beb2d1c2cc3a1276633055cbf3fc049d26049db4ce60565130a4d550cf0f8",
     sha256: "704beb2d1c2cc3a1276633055cbf3fc049d26049db4ce60565130a4d550cf0f8" },
+  // S1 mapping and processing authority (PR #55, merged at 9e166f7), applied by Lovable's native migrator as a
+  // byte-for-byte copy (hosted journal id 29, created_at 1791299426677 = 2026-10-06T15:10:26.677Z).
+  "0028_apply_20261006100000_mapping_and_processing_authority": { kind: "release_verbatim",
+    source: "20261006100000_mapping_and_processing_authority.sql", bytes: 43248,
+    digest: "d189ddf5fa021c0c9a7a70536fd851b1152016269a7718ca8967f89837a967a6",
+    sha256: "d189ddf5fa021c0c9a7a70536fd851b1152016269a7718ca8967f89837a967a6" },
 };
 
 const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");

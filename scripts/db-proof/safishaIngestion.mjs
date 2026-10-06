@@ -19,6 +19,7 @@
 //
 // Synthetic users only; loopback only; refuses the production project reference; creates and drops its own databases.
 import fs from "node:fs";
+import { currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -87,10 +88,13 @@ async function migrate(url, withCandidate) {
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;`);
-    const all = fs.readdirSync(path.join(REPO, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
+    // MIGRATION and its prerequisite (20261004100000) are parked (never applied to the hosted database; quarantined in
+    // supabase/migrations_historical/). Revival order: the current chain, the prerequisite, then — for the new schema —
+    // MIGRATION.
+    const all = [...currentChain(REPO), "20261004100000_reconciliation_server_authority.sql", MIGRATION];
     const files = all.filter((f) => withCandidate || f !== MIGRATION);
     for (const f of files) {
-      let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
+      let text = migrationSql(REPO, f);
       if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
       try { await db.query(text); } catch (e) { throw new Error(`migration ${f} failed: ${String(e.message).split("\n")[0]}`); }
     }
@@ -587,7 +591,7 @@ async function main() {
       const snap = async () => (await s.pool.query(`SELECT (SELECT md5(coalesce(string_agg(t::text, ',' ORDER BY t::text), '')) FROM public.safisha_transactions t)
         || (SELECT md5(coalesce(string_agg(o::text, ',' ORDER BY o::text), '')) FROM public.safisha_source_occurrences o)
         || (SELECT md5(coalesce(string_agg(i::text, ',' ORDER BY i::text), '')) FROM public.safisha_ingestions i) AS d`)).rows[0].d;
-      const a = await snap(); await s.pool.query(fs.readFileSync(path.join(REPO, "supabase/migrations", MIGRATION), "utf8")); const b = await snap();
+      const a = await snap(); await s.pool.query(migrationSql(REPO, MIGRATION)); const b = await snap();
       return a === b ? true : { a, b };
     });
   } finally {

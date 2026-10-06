@@ -81,7 +81,8 @@ describe("database inertness — schema and functions", () => {
 
   it("changes under supabase/ relative to the exact base are only reviewed ADDED or MODIFIED exact files (no Edge Function, no config change, nothing deleted)", () => {
     // The two financial-statements migrations are already on main; a later change may only append forward-only migrations.
-    const changed = gitStrict(`diff --name-status ${baseSha()}...HEAD -- supabase`);
+    // --no-renames: a move is reported as a removal plus an addition, and each must be an exact reviewed file.
+    const changed = gitStrict(`diff --no-renames --name-status ${baseSha()}...HEAD -- supabase`);
     // Reviewed artifacts. The Phase 1 service enquiry intake (PR #27) added one forward-only migration and two NEW Edge Functions
     // with their shared modules; its pre-activation hardening adds one more forward-only migration and one new shared module and
     // edits ONLY the enquiry's own shared modules. No pre-existing migration, function or config is modified or deleted.
@@ -180,6 +181,11 @@ describe("database inertness — schema and functions", () => {
       // Evidence ingestion authority (forward-only): one serialized server path for evidence rows, provenance-based row
       // identity (additive nullable columns + a partial unique index), no client-role row inserts. No financial-statements schema.
       "supabase/migrations/20261005100000_safisha_ingestion_authority.sql",
+      // ...and the two parked migrations' quarantined copies (S1 record): renamed `.sql.historical`, moved out of the
+      // replayed chain, original SQL byte for byte after a comment-only notice (verified by
+      // scripts/db-proof/lib/parkedMigrations.mjs).
+      "supabase/migrations_historical/20261004100000_reconciliation_server_authority.sql.historical",
+      "supabase/migrations_historical/20261005100000_safisha_ingestion_authority.sql.historical",
       // S1 mapping and processing authority (forward-only; PENDING HOSTED APPLICATION): server-written account mappings
       // with review provenance, the supported-combination review RPC, tbu_request_reprocess, append-only certification
       // invalidation and server-owned upload processing fields. No financial-statements schema.
@@ -255,7 +261,13 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/safisha-match/index.ts",
       "supabase/functions/safisha-resolve/index.ts",
     ]);
-    expect(unreviewedChanges(changed, { added, modified })).toEqual([]);
+    // Files a reviewed change takes OUT of supabase/: the two parked reconciliation migrations, never applied to the hosted
+    // database, quarantined (S1 record, PPG-1 precedent) to supabase/migrations_historical/ (added above).
+    const removed = new Set([
+      "supabase/migrations/20261004100000_reconciliation_server_authority.sql",
+      "supabase/migrations/20261005100000_safisha_ingestion_authority.sql",
+    ]);
+    expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });
 
   it("changes no automation-deploy surface other than the reviewed CI/RLS hardening, the disposable-database proof and the guarded hosted-staging acceptance script", () => {

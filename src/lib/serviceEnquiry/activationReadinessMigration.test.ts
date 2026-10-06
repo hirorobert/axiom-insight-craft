@@ -19,11 +19,10 @@ describe("readiness migration hygiene", () => {
     expect(FILE).toMatch(/^\d{14}_[A-Za-z0-9._-]+\.sql$/);
     const everyFile = fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
     // 20261002100000_refuse_withheld_service_grants.sql (withheld-service grant refusal), 20261003100000_account_review_digest_schema_qualification.sql
-    // (classification-save digest fix, hosted 0027), 20261004100000_reconciliation_server_authority.sql
-    // (reconciliation server authority), 20261005100000_safisha_ingestion_authority.sql (evidence ingestion authority) and
-    // 20261006100000_mapping_and_processing_authority.sql (S1 mapping and processing authority, pending hosted application) are later,
+    // (classification-save digest fix, hosted 0027) and 20261006100000_mapping_and_processing_authority.sql (S1, hosted 0028) are later,
+    // (the parked 20261004100000 / 20261005100000 are quarantined in supabase/migrations_historical/, never applied)
     // unrelated forward migrations: they sort last, and the tail asserted below is the chain before them.
-    const LAST = ["20261002100000_refuse_withheld_service_grants.sql", "20261003100000_account_review_digest_schema_qualification.sql", "20261004100000_reconciliation_server_authority.sql", "20261005100000_safisha_ingestion_authority.sql", "20261006100000_mapping_and_processing_authority.sql"];
+    const LAST = ["20261002100000_refuse_withheld_service_grants.sql", "20261003100000_account_review_digest_schema_qualification.sql", "20261006100000_mapping_and_processing_authority.sql"];
     expect(everyFile.slice(-LAST.length)).toEqual(LAST);
     const all = everyFile.filter((f) => !LAST.includes(f));
     // 20260922180000_discard_trial_balance_authority.sql, 20260923100000_upload_lifecycle_retire_and_replace.sql and

@@ -469,9 +469,10 @@ scripts/
     run.mjs                   ← Financial-statements persistence proof (real PostgreSQL)
     setupAuthority.mjs        ← Workspace setup authority proof (25-way concurrency, role/RLS matrix)
     serviceWithholding.mjs    ← Withheld-service grant refusal proof (20261002100000; history byte-identical)
-    reconciliationAuthority.mjs ← Reconciliation server authority proof (20261004100000; forgery per role, MAONO gate)
+    reconciliationAuthority.mjs ← Reconciliation server authority proof (parked 20261004100000 as a revival candidate; forgery per role, MAONO gate)
     reconciliationFunctionMatrix.mjs ← Old/new reconciliation handlers × old/new schema (bun)
-    safishaIngestion.mjs      ← Real safisha-ingest handler (old/new) × schema without/with 20261005100000 (bun)
+    safishaIngestion.mjs      ← Real safisha-ingest handler (old/new) × schema without/with parked 20261005100000 (bun)
+    lib/parkedMigrations.mjs  ← The quarantined reconciliation migrations: hash-verified original SQL for revival proofs
     uploadLifecycle.mjs       ← Upload lifecycle proof (legacy upgrade, B1–B4, capability matrix, concurrency)
   db-preflight/
     uploadLifecyclePreflight.sql ← Read-only report of what the lifecycle backfill would retire
@@ -1144,7 +1145,7 @@ existing row stays byte-identical and readable; REVOKE stays allowed and a revok
 Re-enabling a service is a separate, reviewed migration that edits `capability_customer_available()`.
 
 **RECONCILIATION_READINESS_IS_A_SERVER_FACT** — `20261004100000_reconciliation_server_authority.sql` (branch
-`fix/reconciliation-server-authority`; authored, NOT applied — only Lovable/the owner applies it). Completeness
+`fix/reconciliation-server-authority`; authored, NOT applied — only Lovable/the owner applies it). QUARANTINED (S1 record, 2026-10-06): never applied to the hosted database; moved to `supabase/migrations_historical/` as `.sql.historical` (PPG-1 precedent), original SQL byte for byte after a comment-only notice. Still proven as a revival candidate on top of the current chain. Reviving it requires a NEW forward migration after the current head; `safisha-ingest`, `safisha-match` and `safisha-resolve` on main call its objects and must not be deployed until then. Completeness
 (`safisha_reconciliation_complete`) is computed from stored rows: at least one `tb` line, exactly the lines the matcher
 recorded (`total_tb_lines`, server-written), every line exception-free or approved-only, nothing pending, escalated or
 rejected. One verdict for every writer (`_safisha_record_verdict`): rejected investigate → `blocked`, complete → `clean`,
@@ -1170,7 +1171,7 @@ project-chat request). Apply migrations only through Lovable's native migrator, 
 (hash = file SHA-256) in the same transaction; never through the SQL editor (no journal record).
 
 **EVIDENCE_INGESTION_IS_ONE_SERVER_PATH** — `20261005100000_safisha_ingestion_authority.sql` (branch
-`fix/safisha-ingest-authority`; authored, NOT applied). `safisha-ingest` writes ONLY through the service-role
+`fix/safisha-ingest-authority`; authored, NOT applied). QUARANTINED (S1 record, 2026-10-06): never applied to the hosted database; moved to `supabase/migrations_historical/` as `.sql.historical` (PPG-1 precedent), original SQL byte for byte after a comment-only notice. Still proven as a revival candidate on top of the current chain. Reviving it requires a NEW forward migration after the current head; `safisha-ingest`, `safisha-match` and `safisha-resolve` on main call its objects and must not be deployed until then. `safisha-ingest` writes ONLY through the service-role
 `safisha_ingest_evidence(upload, actor, source, file_name, file_sha256, mapping, ingestion_key, rows)` (actor from the
 verified JWT): serialized per upload (transaction advisory lock), plan + `prepare_close` (personal: owner), finds or creates
 the one unsealed reconciliation (no INSERT … RETURNING through RLS — that is what made every first ingest fail on main), and
