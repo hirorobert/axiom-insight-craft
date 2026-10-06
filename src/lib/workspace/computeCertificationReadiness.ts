@@ -56,6 +56,7 @@ import type {
   PreflightResult,
   PreflightVerdict,
 } from "./computePreflight";
+import { readRecordedAmounts } from "../accounting/tbAmounts";
 
 export interface TbCertificationExceptionRecord {
   code: string;
@@ -130,16 +131,26 @@ export interface CertificationReadinessInput {
 }
 
 /**
- * The statement-equation record in the stored result (processing_result.validation_report.balance_sheet_equation),
- * read only from its own `passed` field — never computed from the recorded amounts:
+ * What the stored result says about the statement equation.
+ *
+ * Since E1 the engine records exact amounts (processing_result.amounts, "tb-amounts/1"). When they are present they
+ * alone decide, through the recomputing validator (readRecordedAmounts):
+ *   exact       a valid document whose equation is balanced: the equation holds exactly, to the minor unit;
+ *   failed      a valid document whose equation failed;
+ *   unreadable  amounts present but malformed: result unavailable — held, never a pass.
+ * A legacy result (no amounts) is read only from balance_sheet_equation's own `passed` field — never computed from the
+ * recorded amounts, and never converted into the exact contract:
  *   failed      passed === false: a recorded failure;
  *   not_failed  passed === true: no recorded failure (which does NOT prove the equation exactly);
  *   unreadable  passed present but not a boolean (null, a string, a number): malformed — held, never a pass;
  *   absent      no record, or a record without `passed`: nothing recorded either way.
  */
-export type RecordedEquation = "failed" | "not_failed" | "unreadable" | "absent";
+export type RecordedEquation = "exact" | "failed" | "not_failed" | "unreadable" | "absent";
 
 export function readRecordedEquation(processingResult: unknown): RecordedEquation {
+  const amounts = readRecordedAmounts(processingResult);
+  if (amounts.state === "malformed") return "unreadable";
+  if (amounts.state === "exact") return amounts.amounts.equation.status === "balanced" ? "exact" : "failed";
   const obj = (v: unknown) => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
   const eq = obj(obj(obj(processingResult)?.validation_report)?.balance_sheet_equation);
   if (!eq || !("passed" in eq) || eq.passed === undefined) return "absent";
@@ -175,6 +186,9 @@ const LAYER_META: Record<1 | 2 | 3 | 4 | 5 | 6, { id: string; label: string }> =
   5: { id: "l5_supporting_evidence", label: "Supporting evidence" },
   6: { id: "l6_prior_period", label: "Prior-period signal" },
 };
+
+/** Layer 3 passed, with the stored result's exact amounts showing the equation holds to the minor unit. */
+export const LAYER3_PASSED_EXACT_DETAIL = "Total debits equal total credits. Statement equation: holds exactly.";
 
 const PASSED_DETAIL: Record<2 | 3 | 4, string> = {
   2: "No data-quality errors raised.",
@@ -231,7 +245,7 @@ export function layer3Reason(e: TbCertificationExceptionRecord): string {
   return recorded || `An arithmetic check recorded ${code || "an unidentified exception"}.`;
 }
 
-function buildLayerChecks(row: TbCertificationRow | null): PreflightCheck[] {
+function buildLayerChecks(row: TbCertificationRow | null, recordedEquation?: RecordedEquation): PreflightCheck[] {
   return ([1, 2, 3, 4, 5, 6] as const).map((layer) => {
     const meta = LAYER_META[layer];
 
@@ -259,7 +273,7 @@ function buildLayerChecks(row: TbCertificationRow | null): PreflightCheck[] {
         // genuinely have nothing here — that is NOT_COMPUTED, not "clean".
         return { id: meta.id, label: meta.label, state: "pending", detail: "Not available for this certification." };
       }
-      return { id: meta.id, label: meta.label, state: "passed", detail: PASSED_DETAIL[layer] };
+      return { id: meta.id, label: meta.label, state: "passed", detail: layer === 3 && recordedEquation === "exact" ? LAYER3_PASSED_EXACT_DETAIL : PASSED_DETAIL[layer] };
     }
 
     const hasError = entries.some((e) => e.severity === "error");
@@ -327,7 +341,7 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
   // not sufficient — verified explicitly here, not assumed.
   if (input.authoritative && input.authoritative.upload_id === input.currentUploadId) {
     if (exceptionsMalformed(input.authoritative)) return malformedResult();
-    const checks = buildLayerChecks(input.authoritative);
+    const checks = buildLayerChecks(input.authoritative, input.recordedEquation);
     // A recorded layer-3 exception (the engine certifies an equation failure as a non-blocking warning) is never
     // certified: it is held for review, or blocked when recorded as an error, with the recorded reason.
     const l3 = layer3Entries(input.authoritative);
@@ -396,7 +410,7 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
     // (certification order) is available here, not upload recency, and
     // conflating the two would be exactly the fabrication this hardening
     // pass exists to remove.
-    const checks = buildLayerChecks(input.latestForUpload);
+    const checks = buildLayerChecks(input.latestForUpload, input.recordedEquation);
     return {
       verdict: "superseded",
       headline: "Not the current certified upload",
@@ -410,7 +424,7 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
   if (input.latestForUpload && input.latestForUpload.upload_id === input.currentUploadId) {
     const row = input.latestForUpload;
     if (exceptionsMalformed(row)) return malformedResult();
-    const checks = buildLayerChecks(row);
+    const checks = buildLayerChecks(row, input.recordedEquation);
     const passedCount = countPassed(checks);
 
     if (row.is_blocking) {
