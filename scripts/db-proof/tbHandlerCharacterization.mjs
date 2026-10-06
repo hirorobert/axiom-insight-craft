@@ -50,7 +50,7 @@ const REQUIRED_REQUIREMENTS = ["REQ-AUTH-1", "REQ-AUTH-2", "REQ-AUTH-3", "REQ-HA
   // E1 (the current handler on the defect fixtures; each must equal the oracle)
   "REQ-E1-AMOUNTS", "REQ-E1-CASH-ORDER-A", "REQ-E1-CASH-ORDER-B", "REQ-E1-TREATMENT", "REQ-E1-TREATMENT-REFUTED", "REQ-E1-CONTRA",
   "REQ-E1-GENUINE-EQUATION", "REQ-E1-NONREPORTING-NONZERO", "REQ-E1-NONREPORTING-ZERO", "REQ-E1-PRECISION", "REQ-E1-INVARIANT",
-  "REQ-E1-GENERATION"];
+  "REQ-E1-GENERATION", "REQ-E1-REPROCESS-REQUIRED", "X-E1-INV"];
 const ledger = validateLedger(JSON.parse(fs.readFileSync(LEDGER_FILE, "utf8")));
 const REQUIRED_PROBES = ledger.defects.map((d) => d.probe);
 const results = { requirement: new Map(), probe: new Map() };
@@ -528,6 +528,31 @@ async function main() {
       // The recorded amounts are inconsistent (lhs ≠ assets), and the independent validator refuses them: never shown as a result.
       && row.processing_result?.amounts?.equation?.status === "failed" && validateTbAmounts(row.processing_result.amounts).ok === false
       && (await authoritative(A, 2023)) === null ? true : { http: r.http, status: row.status, run: run && { status: run.status, error_code: run.error_code }, key, err };
+  });
+  await req1("REQ-E1-REPROCESS-REQUIRED", async () => {
+    // A direct new request on a certified upload is refused (409) after its claim: run failed, key failed, status kept,
+    // no certification; the same request replayed later is still refused the same way, never processed.
+    const id = await upload(A, 2025, csv(HAPPY)); await runHandler(U.owner, id);
+    const before = await certs(id);
+    const reqId = uuid();
+    const r = await runHandler(U.owner, id, reqId);
+    const row = await uploadRow(id);
+    const run = await one("SELECT status, error_code FROM public.engine_runs WHERE source_record_id::text=$1 ORDER BY started_at DESC LIMIT 1", [id]);
+    return before.length === 1 && r.http === 409 && r.body?.code === "REPROCESS_REQUIRED" && row.status === "complete" && (await certs(id)).length === 1
+      && run.status === "failed" && run.error_code === "REPROCESS_REQUIRED" && (await isAuthoritative(A, 2025, id)) ? true : { http: r.http, body: r.body, status: row.status, run };
+  });
+  await req1("X-E1-INV", async () => {
+    // An invariant failure after a reprocess request leaves NO current authority: the earlier certification was
+    // invalidated by the request and is never current again; the failed run certifies nothing.
+    const id = await upload(A, 2026, csv(HAPPY)); await runHandler(U.owner, id);
+    const first = await latestCert(id);
+    const wasAuthoritative = (await authoritative(A, 2026)) === first?.id;
+    const op = uuid();
+    const acc = (await asUser(U.owner, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [id, op, (await uploadRow(id)).source_file_hash]))[0].r;
+    const r = await runHandler(U.owner, id, op, faulty);
+    const row = await uploadRow(id);
+    return wasAuthoritative && acc.outcome === "accepted" && r.http === 200 && row.status === "error" && (await certs(id)).length === 1
+      && (await authoritative(A, 2026)) === null ? true : { wasAuthoritative, acc, http: r.http, status: row.status, authoritative: await authoritative(A, 2026) };
   });
   await req1("REQ-E1-GENERATION", async () => {
     const rows = (await admin.query("SELECT engine_version, engine_generation, count(*)::int n FROM public.engine_runs WHERE function_name='process-trial-balance' GROUP BY 1,2 ORDER BY 1,2")).rows;

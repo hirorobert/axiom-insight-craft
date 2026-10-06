@@ -335,7 +335,7 @@ Deno.test("E1 treatment lookup failure fails closed: no certification, run faile
   w.rpc.get_confirmed_treatments = () => ({ data: null, error: { code: "XX000", message: "down" } });
   const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals(r.status, 500);
-  assertEquals(w.tables.tb_certifications, undefined);
+  assertEquals((w.tables.tb_certifications ?? []).length, 0);
   assertEquals(upload(w).status, "processing");
   assertEquals((w.tables.engine_runs ?? []).filter((e) => e.status === "failed").length, 1);
 });
@@ -379,4 +379,21 @@ Deno.test("E1 a cash account must be an asset or a liability: otherwise review (
   await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals(upload(w).status, "needs_review");
   assertEquals(reviewAccounts(w).map((a) => a.account_code), ["3000"]);
+});
+
+Deno.test("E1 REPROCESS_REQUIRED: a new request on an upload whose latest certification is in force is refused; an invalidated one runs", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED, priorStatus: "complete" });
+  w.tables.tb_certifications = [{ id: "cert-0", upload_id: UPLOAD, sequence_no: 1 }];
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r.status, r.json.code], [409, "REPROCESS_REQUIRED"]);
+  assertEquals(upload(w).status, "complete"); // restored, nothing processed
+  assertEquals(w.tables.tb_certifications.length, 1);
+  assertEquals(w.tables.engine_runs.map((e) => [e.status, e.error_code]), [["failed", "REPROCESS_REQUIRED"]]);
+  assertEquals(w.calls.filter((c) => c.kind === "download").length, 1); // the claim follows the read; no certification
+
+  w.tables.tb_certification_invalidations = [{ id: "inv-0", certification_id: "cert-0" }];
+  const r2 = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(r2.status, 200);
+  assertEquals(upload(w).status, "complete");
+  assertEquals(w.tables.tb_certifications.length, 2);
 });

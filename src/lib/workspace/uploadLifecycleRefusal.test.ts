@@ -178,6 +178,9 @@ describe("N-04: no actionable reprocessing control for a non-active upload", () 
     const h = prep.indexOf("const handleProcessAsAuditedAccounts");
     const guard = prep.indexOf("!canReprocessUpload(upload)) return;", h);
     expect(guard).toBeGreaterThan(h);
-    expect(guard).toBeLessThan(prep.indexOf('invoke("process-trial-balance"', h));
+    // The re-run goes through the one reprocess path (E1: a direct re-run of a certified upload is refused).
+    const run = prep.indexOf("requestReprocess(supabase as unknown as ReprocessClient, upload.id", h);
+    expect(run).toBeGreaterThan(guard);
+    expect(prep.slice(h, prep.indexOf("const ", run))).not.toMatch(/functions\.invoke\(/);
   });
 });

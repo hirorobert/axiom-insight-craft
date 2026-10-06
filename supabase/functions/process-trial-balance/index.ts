@@ -1472,6 +1472,32 @@ serve(async (req) => {
       idempotencyKeyId = claim.keyId;
       engineStartedAt  = claim.startedAt;
 
+      // E1 (Amendment 2, C6): a new run on an upload whose latest certification is still in force is refused. Every
+      // re-check goes through tbu_request_reprocess, which invalidates that certification first, so a failed re-run
+      // can never leave the earlier result current. Checked after the claim, so a retry of the SAME request replays
+      // above instead; the claimed run is recorded as failed and the upload returns to its prior status.
+      const { data: latestCert, error: latestCertError } = await supabase
+        .from("tb_certifications").select("id").eq("upload_id", uploadId).order("sequence_no", { ascending: false }).limit(1).maybeSingle();
+      if (latestCertError) throw new Error(`latest certification lookup failed: ${latestCertError.message}`);
+      if (latestCert) {
+        const { data: invalidation, error: invalidationError } = await supabase
+          .from("tb_certification_invalidations").select("id").eq("certification_id", (latestCert as { id: string }).id).maybeSingle();
+        if (invalidationError) throw new Error(`invalidation lookup failed: ${invalidationError.message}`);
+        if (!invalidation) {
+          await recordEngineRunFailed(supabase as never, engineRunId, {
+            startedAt: engineStartedAt, errorCode: "REPROCESS_REQUIRED",
+            errorDetail: { stage: "reprocess_gate", safe_message: "the latest certification is still in force" },
+          });
+          await failIdempotency(supabase as never, idempotencyKeyId, "REPROCESS_REQUIRED");
+          await restoreStatus(supabase as never, uploadId, priorStatus);
+          statusClaimed = false;
+          return new Response(
+            JSON.stringify({ status: "blocked", code: "REPROCESS_REQUIRED", message: "This trial balance already has a recorded result. Request a new check to process it again." }),
+            { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+      }
+
       // Ω∞ Phase 0 Slice 4A — ONE collection path, called exactly once here, reused on every certification branch.
       phase0Evidence = await collectPhase0Evidence(supabase as never, {
         companyId: upload.company_id, periodYear: upload.period_year ?? null, uploadId,

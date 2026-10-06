@@ -17,6 +17,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
 import { buildPrepareUploadRoute, buildPrepareReviewRoute, canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
 import { toast } from "sonner";
 
@@ -326,16 +327,15 @@ export default function PrepareWorkspace() {
     if (!canInitiateCertificationAffectingMutation(isRevalidatingCertification)) return;
     toast.info("Re-processing as Audited Financial Statements…");
     try {
-      await ensureFreshSession();
-      const clientRequestId = crypto.randomUUID();
-      const { error } = await supabase.functions.invoke("process-trial-balance", {
-        body: { uploadId: upload.id, mode: "audited_accounts", clientRequestId },
-      });
+      // E1: a new check of an upload with a recorded result goes through tbu_request_reprocess (it authorizes the
+      // request and invalidates the current certification first); the engine refuses anything else (REPROCESS_REQUIRED).
       // Initiation failure: nothing was actually accepted — the guard is
       // never entered, and whatever certification state was already
       // showing (still genuinely current, since nothing changed) is left
       // exactly as it was. Only the mutation-failure toast is shown.
-      if (error) {
+      try {
+        await requestReprocess(supabase as unknown as ReprocessClient, upload.id, { ensureFreshSession });
+      } catch (error) {
         setIsRevalidatingCertification((prev) =>
           reduceCertificationRevalidationGuard(prev, { type: "MUTATION_INITIATION_FAILED" }),
         );
@@ -436,9 +436,8 @@ export default function PrepareWorkspace() {
     if (!upload?.id || retryingProcess || !canReprocessUpload(upload)) return;
     setRetryingProcess(true);
     try {
-      await ensureFreshSession();
-      const { error } = await supabase.functions.invoke("process-trial-balance", { body: { uploadId: upload.id, clientRequestId: crypto.randomUUID() } });
-      if (error) throw error;
+      // Through the one reprocess path (E1: the engine refuses a direct re-run of an upload with a recorded result).
+      await requestReprocess(supabase as unknown as ReprocessClient, upload.id, { ensureFreshSession });
       toast.success("Processing started. The result appears on this page.");
     } catch (err) {
       console.error("[handleRetry]", err);
