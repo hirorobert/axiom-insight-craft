@@ -108,7 +108,10 @@ CREATE TABLE IF NOT EXISTS public.processing_release_control (
   version bigint NOT NULL DEFAULT 1,
   CONSTRAINT chk_prc_held_at CHECK ((hold AND held_at IS NOT NULL) OR (NOT hold AND held_at IS NULL))
 );
-INSERT INTO public.processing_release_control (singleton) VALUES (true) ON CONFLICT (singleton) DO NOTHING;
+-- Seeded once. Re-application inserts nothing (the singleton guard below refuses any INSERT, so the row must not even be
+-- attempted when it exists).
+INSERT INTO public.processing_release_control (singleton)
+SELECT true WHERE NOT EXISTS (SELECT 1 FROM public.processing_release_control);
 
 CREATE TABLE IF NOT EXISTS public.processing_release_control_events (
   id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
