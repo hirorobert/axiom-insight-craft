@@ -347,9 +347,12 @@ ALTER TABLE public.account_review_decisions ADD CONSTRAINT account_review_decisi
 
 -- SHA-256 (hex) of the canonical text of a treatment request. supabase/functions/_shared/treatmentRequest.ts builds the
 -- identical text; a missing field contributes an empty segment, so any change of any field changes the id.
+-- PL/pgSQL (not SQL): extensions.digest is resolved when called, as in S1's RPCs, so the migration applies wherever
+-- pgcrypto lives; the hosted project has it in schema "extensions".
 CREATE OR REPLACE FUNCTION public.treatment_request_id(p_req jsonb)
-RETURNS text LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
-  SELECT encode(extensions.digest(
+RETURNS text LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog, public AS $$
+BEGIN
+  RETURN encode(extensions.digest(
     'tb-treatment/1'
     || '|' || coalesce(p_req->>'rule_id', '') || '|' || coalesce(p_req->>'rule_version', '')
     || '|' || coalesce(p_req->>'company_id', '') || '|' || coalesce(p_req->>'upload_id', '')
@@ -357,6 +360,7 @@ RETURNS text LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
     || '|' || coalesce(p_req->>'account_code', '') || '|' || coalesce(p_req->>'debit_minor', '')
     || '|' || coalesce(p_req->>'credit_minor', '') || '|' || coalesce(p_req->>'mapping_decision_id', ''),
     'sha256'), 'hex');
+END;
 $$;
 
 -- The confirmed treatment requests among p_request_ids whose mapping link is still the one each was bound to.
