@@ -34,7 +34,11 @@ describe("applied migrations are immutable", () => {
     const forward = "20260926160000_trial_balance_processing_entitlement_wall.sql";
     expect(files).toContain(forward);
     expect(files.indexOf(forward)).toBeGreaterThan(files.indexOf("20260925150000_can_user_act_on_workspace_minimum_grant.sql"));
-    for (const f of Object.keys(APPLIED).filter((x) => x !== forward)) expect(fs.readFileSync(path.join(MIGRATIONS, f), "utf8")).not.toMatch(/tbu_processing_wall|authorize_trial_balance_processing/);
+    // Not edited into any migration applied BEFORE it. A later applied migration may use it: S1 (20261006100000,
+    // hosted 0028) calls authorize_trial_balance_processing for tbu_request_reprocess's entitlement check — and only S1.
+    for (const f of Object.keys(APPLIED).filter((x) => x < forward)) expect(fs.readFileSync(path.join(MIGRATIONS, f), "utf8")).not.toMatch(/tbu_processing_wall|authorize_trial_balance_processing/);
+    expect(Object.keys(APPLIED).filter((x) => x > forward && /tbu_processing_wall|authorize_trial_balance_processing/.test(fs.readFileSync(path.join(MIGRATIONS, x), "utf8"))))
+      .toEqual(["20261006100000_mapping_and_processing_authority.sql"]);
   });
   it("removing a processed trial balance is a NEW forward migration after every applied one, and not inside any of them", () => {
     const files = fs.readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql")).sort();

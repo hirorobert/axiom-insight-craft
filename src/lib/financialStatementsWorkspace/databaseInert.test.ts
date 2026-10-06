@@ -339,6 +339,9 @@ describe("database inertness — schema and functions", () => {
       // Evidence ingestion (20261005100000): the loopback-only proof running the real safisha-ingest handler (main's, pinned by
       // git blob hash, and this tree's), the shared handler harness, and the READ-ONLY duplicate inspection. No deploy behaviour.
       "scripts/db-proof/safishaIngestion.mjs", "scripts/db-proof/lib/functionHarness.mjs",
+      // S1 record: the hash-verified reader of the two quarantined (never applied) reconciliation migrations, used only by
+      // their revival-candidate proofs and the obsolete r5 renderer. Read-only; no deploy behaviour.
+      "scripts/db-proof/lib/parkedMigrations.mjs",
       "scripts/db-proof/fixtures/functions-main-e8962f2/ingest.index.ts", "scripts/db-preflight/safishaIngestionPreflight.sql",
       "scripts/db-preflight/safishaIngestionVerify.sql",
       // S1 (20261006100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.
