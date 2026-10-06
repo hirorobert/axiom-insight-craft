@@ -13,7 +13,7 @@
 
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { buildReviewDecision, type ReviewFlagDecisions } from "@/lib/accounting/buildReviewDecisions";
+import { buildBatchDecisions, isTreatmentReasonValid, KEEP_AS_MAPPED_CHOICE, type ReviewFlagDecisions } from "@/lib/accounting/buildReviewDecisions";
 import { supabase } from "@/integrations/supabase/client";
 import { requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
 import { Button } from "@/components/ui/button";
@@ -90,6 +90,20 @@ interface NeedsReviewAccount {
   suggested_statement?: string;
   confidence_source?: string;
   reason: string;
+  /**
+   * Set by the engine (E1) when the account needs a TREATMENT decision (e.g. a reviewed current-asset credit matching
+   * closing-stock patterns): the request the server binds a "keep as mapped" confirmation to (20261007100000). Absent on
+   * every other row, so the option below never appears for them.
+   */
+  treatment_request_id?: string;
+}
+
+/** The "keep as mapped" choice for a treatment row (never a classification value). */
+const KEEP_AS_MAPPED = KEEP_AS_MAPPED_CHOICE;
+
+/** A non-zero balance can never be excluded from the trial balance (it must be classified or its treatment confirmed). */
+function hasNonZeroBalance(a: { debit: number; credit: number }): boolean {
+  return Math.abs(a.debit - a.credit) > 0;
 }
 
 interface AccountReviewPanelProps {
@@ -251,6 +265,10 @@ export function AccountReviewPanel({
    * AUTHORITATIVE-FLAGS-001 in CLAUDE.md §9.1.
    */
   const [flagChoices,  setFlagChoices]  = useState<Record<string, ReviewFlagDecisions>>({});
+  /** The reason RECORDED with a "keep as mapped" treatment confirmation, per row (3–500 characters). */
+  const [keepReasons,  setKeepReasons]  = useState<Record<string, string>>({});
+  /** The reason being typed; it is recorded only by the explicit button, so a row never vanishes mid-typing. */
+  const [keepDrafts,   setKeepDrafts]   = useState<Record<string, string>>({});
   const [saving,       setSaving]       = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
   const [unresolvedOnly, setUnresolvedOnly] = useState(focusUnresolved);
@@ -303,7 +321,12 @@ export function AccountReviewPanel({
   }, []);
 
   const pendingRows   = needsReviewAccounts.filter((a) => !excluded.has(rowKey(a)));
-  const resolvedCount = pendingRows.filter((a) => !!choices[rowKey(a)]).length;
+  // A row is decided when it has a classification, or — for a treatment row — "keep as mapped" with a valid reason.
+  const isDecided = (a: NeedsReviewAccount) => {
+    const c = choices[rowKey(a)];
+    return !!c && (c !== KEEP_AS_MAPPED || (!!a.treatment_request_id && isTreatmentReasonValid(keepReasons[rowKey(a)])));
+  };
+  const resolvedCount = pendingRows.filter(isDecided).length;
   const allResolved   = pendingRows.length > 0
     ? resolvedCount === pendingRows.length
     : excluded.size > 0; // all rows excluded is also valid
@@ -315,16 +338,14 @@ export function AccountReviewPanel({
     const rank = (a: NeedsReviewAccount) => {
       const key = rowKey(a);
       if (excluded.has(key)) return 2;
-      return choices[key] ? 1 : 0;
+      return isDecided(a) ? 1 : 0;
     };
     return [...needsReviewAccounts].sort((a, b) => rank(a) - rank(b));
-  }, [needsReviewAccounts, choices, excluded]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsReviewAccounts, choices, excluded, keepReasons]);
 
   const visible = unresolvedOnly
-    ? ordered.filter((a) => {
-        const key = rowKey(a);
-        return !excluded.has(key) && !choices[key];
-      })
+    ? ordered.filter((a) => !excluded.has(rowKey(a)) && !isDecided(a))
     : ordered;
 
   /**
@@ -332,13 +353,11 @@ export function AccountReviewPanel({
    * and exactly one row is on screen. Nothing about saving changes.
    */
   const focusQueue = useMemo(() => {
-    const undecided = ordered.filter((a) => {
-      const key = rowKey(a);
-      return !excluded.has(key) && !choices[key];
-    });
+    const undecided = ordered.filter((a) => !excluded.has(rowKey(a)) && !isDecided(a));
     const rank = (a: NeedsReviewAccount) => (skipped.includes(rowKey(a)) ? 1 : 0);
     return [...undecided].sort((a, b) => rank(a) - rank(b));
-  }, [ordered, excluded, choices, skipped]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ordered, excluded, choices, skipped, keepReasons]);
 
   const focusRow = focusQueue[0];
   const displayed = focusMode ? (focusRow ? [focusRow] : []) : visible;
@@ -363,18 +382,19 @@ export function AccountReviewPanel({
     const clientRequestId = crypto.randomUUID();
 
     try {
-      const decisions = needsReviewAccounts.map((account) =>
-        buildReviewDecision(
-          {
+      // Treatment rows kept as mapped become CONFIRM_ACCOUNT_TREATMENT (bound by the server to the engine's request);
+      // everything else is the ordinary classification / exclusion decision.
+      const decisions = buildBatchDecisions(
+        needsReviewAccounts.map((account) => ({
+          key: rowKey(account),
+          account: {
             account_code: isCoded(account) ? account.account_code : null,
             account_name: account.account_name,
             suggested_classification: account.suggested_classification,
+            treatment_request_id: account.treatment_request_id,
           },
-          excluded.has(rowKey(account)),
-          choices[rowKey(account)],
-          classificationMeta,
-          flagChoices[rowKey(account)],
-        )
+        })),
+        excluded, choices, keepReasons, flagChoices, classificationMeta,
       );
 
       // `resolve_account_review_batch` is defined in migration 20260816120000,
@@ -481,19 +501,27 @@ export function AccountReviewPanel({
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const decisionControls = (key: string, isExcluded: boolean, choice?: string) => {
+  const decisionControls = (account: NeedsReviewAccount, key: string, isExcluded: boolean, choice?: string) => {
     const flags = flagChoices[key];
+    const treatmentRow = !!account.treatment_request_id;
+    const keeping = treatmentRow && choice === KEEP_AS_MAPPED;
+    const nonZero = hasNonZeroBalance(account);
     return (
-    <div className="flex flex-col items-stretch gap-2 md:items-end">
+    <div className="flex flex-col items-stretch gap-2 md:items-end" data-treatment-row={treatmentRow ? "true" : undefined}>
       <Select
         value={isExcluded ? "" : (choice ?? "")}
         onValueChange={(val) => setChoice(key, val)}
         disabled={isExcluded || isWorking}
       >
         <SelectTrigger className="w-full md:w-[13.5rem] h-9 text-[13px] rounded-none">
-          <SelectValue placeholder="Classify…" />
+          <SelectValue placeholder={treatmentRow ? "Keep as mapped or reclassify…" : "Classify…"} />
         </SelectTrigger>
         <SelectContent>
+          {treatmentRow && (
+            <SelectItem key={KEEP_AS_MAPPED} value={KEEP_AS_MAPPED} data-testid="treatment-keep-as-mapped">
+              Keep as mapped (record why)
+            </SelectItem>
+          )}
           {CLASSIFICATIONS.map((cls) => (
             <SelectItem key={cls.value} value={cls.value}>
               {cls.label}
@@ -501,18 +529,53 @@ export function AccountReviewPanel({
           ))}
         </SelectContent>
       </Select>
-      <label className="inline-flex items-center gap-2 cursor-pointer">
+      {keeping && (
+        <label className="flex flex-col gap-1 w-full md:w-[13.5rem]">
+          <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">Why keep it as mapped?</span>
+          <textarea
+            data-testid="treatment-reason"
+            value={keepDrafts[key] ?? keepReasons[key] ?? ""}
+            onChange={(e) => setKeepDrafts((prev) => ({ ...prev, [key]: e.target.value }))}
+            disabled={isWorking}
+            maxLength={500}
+            rows={2}
+            className="w-full border border-border bg-background px-2 py-1 text-[12px]"
+            placeholder="Required — at least 3 characters"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 rounded-none text-[12px]"
+            data-testid="treatment-record-reason"
+            disabled={isWorking || !isTreatmentReasonValid(keepDrafts[key] ?? keepReasons[key])}
+            onClick={() => setKeepReasons((prev) => ({ ...prev, [key]: (keepDrafts[key] ?? keepReasons[key] ?? "").trim() }))}
+          >
+            Keep as mapped
+          </Button>
+          {isTreatmentReasonValid(keepReasons[key])
+            ? <span className="text-[11px] text-muted-foreground" data-testid="treatment-reason-recorded">Reason recorded.</span>
+            : <span className="text-[11px] text-muted-foreground">A reason of 3–500 characters is required.</span>}
+        </label>
+      )}
+      <label className={`inline-flex items-center gap-2 ${nonZero && !isExcluded ? "cursor-not-allowed" : "cursor-pointer"}`}>
         <Checkbox
           checked={isExcluded}
           onCheckedChange={() => toggleExclude(key)}
-          disabled={isWorking}
+          disabled={isWorking || (nonZero && !isExcluded)}
           className="border-border"
+          data-testid="exclude-from-import"
         />
         <span className="text-[11px] text-muted-foreground whitespace-nowrap">
           Exclude from import
         </span>
       </label>
-      {!isExcluded && (
+      {nonZero && !isExcluded && (
+        <span className="text-[11px] text-muted-foreground" data-testid="exclude-refused-nonzero">
+          A non-zero balance can't be excluded — classify it{treatmentRow ? " or keep it as mapped" : ""}.
+        </span>
+      )}
+      {!isExcluded && !keeping && (
         <div className="flex flex-col items-stretch gap-1 md:items-end pt-1 border-t border-border/60 w-full md:w-[13.5rem]">
           <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
             Also flag this account as (optional)
@@ -668,7 +731,7 @@ export function AccountReviewPanel({
                     )}
                   </td>
                   <td className="px-5 py-4">
-                    {decisionControls(key, isExcluded, choice)}
+                    {decisionControls(account, key, isExcluded, choice)}
                   </td>
                 </tr>
               );
@@ -708,7 +771,7 @@ export function AccountReviewPanel({
                   </p>
                 )}
               </div>
-              <div className="mt-4">{decisionControls(key, isExcluded, choice)}</div>
+              <div className="mt-4">{decisionControls(account, key, isExcluded, choice)}</div>
             </div>
           );
         })}
