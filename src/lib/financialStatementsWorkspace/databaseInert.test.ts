@@ -197,6 +197,12 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/treatmentRequest.ts",
       // E1: the exact class-side amounts contract (tb-amounts/1) the engine writes and validates. Pure module; no schema.
       "supabase/functions/_shared/tbAmounts.ts",
+      // S2 (20261008100000): attempts, the fence, dependency revisions and read-time authority — a NEW forward-only
+      // migration pending hosted application — and E2's consumer authority guard (authority or refuse) and the function-path
+      // doubles of the attempt functions (test-only, never deployed).
+      "supabase/migrations/20261008100000_processing_attempt_authority.sql",
+      "supabase/functions/_shared/tbAuthority.ts",
+      "supabase/functions/process-trial-balance/functionpath/attemptDouble.ts",
       // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",
@@ -261,6 +267,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/actor.ts",
       "supabase/functions/invite-firm-member/index.ts",
       "supabase/functions/kinga-tax-engine/index.ts",
+      // E2 (W3): the findings engine computes only from the period's authoritative trial balance (or refuses).
+      "supabase/functions/kinga-findings-engine/index.ts",
+      // ...and so does the one Comparative Assurance implementation, for both periods.
+      "supabase/functions/_shared/comparativeAssurance.ts",
       // B-5: the evidence-attachment RPC error is a failure, never ignored.
       "supabase/functions/safisha-ingest/index.ts",
       // Reconciliation server authority (20261004100000): the matcher records its result through the service-role RPC
@@ -355,6 +365,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/fixtures/h2-known-defects.json",
       // H1 (20261007100000): the loopback-only real-PostgreSQL proof (with the real handler). No deploy behaviour.
       "scripts/db-proof/h1Authority.mjs",
+      // S2 (20261008100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.
+      "scripts/db-proof/s2Authority.mjs",
       "scripts/db-proof/fixtures/functions-main-e8962f2/ingest.index.ts", "scripts/db-preflight/safishaIngestionPreflight.sql",
       "scripts/db-preflight/safishaIngestionVerify.sql",
       // S1 (20261006100000): the loopback-only real-PostgreSQL proof. No deploy behaviour.

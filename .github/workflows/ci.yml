@@ -408,6 +408,7 @@ jobs:
         run: |
           createdb h2_proof
           git fetch --no-tags --depth=1 origin "$(node -p "require('./scripts/db-proof/fixtures/h2-known-defects.json').engine_commit")"
+          git fetch --no-tags --depth=1 origin "$(node -p "require('./scripts/db-proof/fixtures/h2-known-defects.json').e1_engine_commit")"
           bun scripts/db-proof/tbHandlerCharacterization.mjs
 
       - name: H1 treatment authority and processing control proof (admin-only versioned control, database-enforced hold for every role, drain bound, numeric generation floor, the real handler refused while held and below the floor, treatment request identity TS = SQL, confirmation binding/replay/conflict/expiry; on the same throwaway container)
@@ -417,7 +418,16 @@ jobs:
         run: |
           createdb h1_proof
           git fetch --no-tags --depth=1 origin "$(node -p "require('./scripts/db-proof/fixtures/h2-known-defects.json').engine_commit")"
+          git fetch --no-tags --depth=1 origin "$(node -p "require('./scripts/db-proof/fixtures/h2-known-defects.json').e1_engine_commit")"
           bun scripts/db-proof/h1Authority.mjs
+
+      - name: S2 attempt authority proof (upgrade with rollback and OD1, the fence for every role, begin/replay/conflict/in-progress and every refusal, dependency staleness at finalize and at read time, preemption and lifecycle abandonment, lease expiry and the drain, fault injection at every finalize statement, pg_stat_activity barriers, lock pairs with deadlock controls, the prior contracts of the re-created functions; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/s2_proof
+        run: |
+          createdb s2_proof
+          bun scripts/db-proof/s2Authority.mjs
 
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:

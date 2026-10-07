@@ -43,9 +43,18 @@ export interface CertifiedTbRow {
   subNature: string;
   debitBalance: number;
   creditBalance: number;
+  /** LEGACY meaning (signed by normal_balance); never used for a class-side figure. */
   netBalance: number;
   evidenceTier: number | null;
   requiresReview: boolean;
+  /**
+   * E2: the exact fields of a "tb-row/1" row (E1 onward), as minor-unit decimal strings; null on a legacy row. Read and
+   * checked here: a row naming the contract with a missing or inconsistent figure is unreadable, never a number.
+   */
+  rowContract: "tb-row/1" | null;
+  debitMinor: string | null;
+  creditMinor: string | null;
+  classSideMinor: string | null;
 }
 
 export interface CertifiedTb {
@@ -90,6 +99,8 @@ export function normalizeCertifiedRow(raw: unknown): CertifiedTbRow | null {
   const nature = typeof r.nature === "string" ? r.nature : null;
   const subNature = typeof r.subNature === "string" ? r.subNature : null;
   if (nature === null || subNature === null) return null;
+  const exact = readExactRowFields(r, nature);
+  if (exact === "malformed") return null;
   return {
     accountCode: typeof r.accountCode === "string" && r.accountCode.trim() !== "" ? r.accountCode : null,
     accountName: name,
@@ -100,7 +111,34 @@ export function normalizeCertifiedRow(raw: unknown): CertifiedTbRow | null {
     netBalance: net ?? debit - credit,
     evidenceTier: finiteNumber(r.evidenceTier),
     requiresReview: r.requiresReview === true,
+    ...exact,
   };
+}
+
+const MINOR = /^(0|-?[1-9][0-9]*)$/;
+type ExactRowFields = Pick<CertifiedTbRow, "rowContract" | "debitMinor" | "creditMinor" | "classSideMinor">;
+
+/**
+ * The exact fields of a certified row. A legacy row (no rowContract) has none. A "tb-row/1" row must carry all three as
+ * canonical minor-unit strings, debit and credit non-negative, and classSideMinor must equal the class-side amount
+ * recomputed from them (asset and expense: debit − credit; liability, equity and income: credit − debit). Anything else,
+ * including an unknown contract, is malformed.
+ */
+function readExactRowFields(r: Record<string, unknown>, nature: string): ExactRowFields | "malformed" {
+  if (r.rowContract === undefined || r.rowContract === null) {
+    return { rowContract: null, debitMinor: null, creditMinor: null, classSideMinor: null };
+  }
+  if (r.rowContract !== "tb-row/1") return "malformed";
+  const { debitMinor, creditMinor, classSideMinor } = r;
+  if (typeof debitMinor !== "string" || typeof creditMinor !== "string" || typeof classSideMinor !== "string"
+      || !MINOR.test(debitMinor) || !MINOR.test(creditMinor) || !MINOR.test(classSideMinor)) return "malformed";
+  const d = BigInt(debitMinor), c = BigInt(creditMinor);
+  if (d < 0n || c < 0n) return "malformed";
+  const debitSide = nature === "asset" || nature === "expense";
+  const creditSide = nature === "liability" || nature === "equity" || nature === "income";
+  if (!debitSide && !creditSide) return "malformed";
+  if (BigInt(classSideMinor) !== (debitSide ? d - c : c - d)) return "malformed";
+  return { rowContract: "tb-row/1", debitMinor, creditMinor, classSideMinor };
 }
 
 /**

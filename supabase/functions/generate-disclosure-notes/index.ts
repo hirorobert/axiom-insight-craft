@@ -24,6 +24,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { isNamedUserActive } from "../_shared/namedUserAccess.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { authorityRefusal, requireAuthoritativeUpload } from "../_shared/tbAuthority.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -517,7 +518,7 @@ serve(async (req) => {
     // 1. Upload record (company, period)
     const { data: upload, error: uploadErr } = await admin
       .from("trial_balance_uploads")
-      .select("company_id, company_name, fiscal_year_end, uploaded_at, reporting_framework")
+      .select("company_id, company_name, fiscal_year_end, uploaded_at, reporting_framework, period_year")
       .eq("id", uploadId)
       .single();
 
@@ -545,6 +546,12 @@ serve(async (req) => {
           { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
+    }
+
+    // E2 (W3): computed only from the period's authoritative trial balance — otherwise refused (AUTHORITY_REQUIRED).
+    {
+      const authority = await requireAuthoritativeUpload((fn, args) => admin.rpc(fn, args), { companyId: upload.company_id, periodYear: upload.period_year, uploadId });
+      if (!authority.ok) return authorityRefusal(corsHeaders, authority);
     }
 
     // 1b. Company TIN (mandatory for all TRA-facing documents)
@@ -608,7 +615,8 @@ serve(async (req) => {
       note8_accountingPolicies(framework, generatedAt, engineVersion),
     ];
 
-    // ── Persist to upload record — safe merge into processing_result ──
+    // E2 (20261008100000): the upload's processing result is the engine's own record, changed only inside a processing
+    // attempt — the notes are returned to the caller and logged, never merged into it.
     const disclosurePayload = {
       notes,
       metadata: {
@@ -621,19 +629,6 @@ serve(async (req) => {
         hasEngineData: !!computation,
       },
     };
-
-    // Fetch existing processing_result to merge (avoid overwriting TB data)
-    const { data: existing } = await admin
-      .from("trial_balance_uploads")
-      .select("processing_result")
-      .eq("id", uploadId)
-      .single();
-
-    const existingResult = (existing?.processing_result as Record<string, unknown>) ?? {};
-    await admin
-      .from("trial_balance_uploads")
-      .update({ processing_result: { ...existingResult, disclosureNotes: disclosurePayload } })
-      .eq("id", uploadId);
 
     // Log action
     await admin.from("audit_logs").insert({

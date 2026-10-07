@@ -45,7 +45,8 @@ describe("the reviewed release journal", () => {
     // The parked 20261004100000 / 20261005100000 were never applied and are quarantined in supabase/migrations_historical/,
     // so the source chain is exactly the hosted journal: nothing pending, nothing skipped.
     // H1 (20261007100000) is authored and pending hosted application.
-    expect(r.pending).toEqual(["20261007100000_treatment_authority_and_processing_control.sql"]);
+    // S2 (20261008100000) is authored and pending hosted application too.
+    expect(r.pending).toEqual(["20261007100000_treatment_authority_and_processing_control.sql", "20261008100000_processing_attempt_authority.sql"]);
     expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({
       tag: "0028_apply_20261006100000_mapping_and_processing_authority", source: "20261006100000_mapping_and_processing_authority.sql", how: "release_verbatim" });
     expect(r.mirrored.find((m) => m.tag === "0026_apply_20261002100000_refuse_withheld_service_grants")?.how).toBe("release_verbatim");

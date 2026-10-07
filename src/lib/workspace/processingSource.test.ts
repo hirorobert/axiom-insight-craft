@@ -66,12 +66,12 @@ describe("L-1: the recovery write is checked and decides the answer", () => {
 
 describe("the handler uses exactly this path, after the entitlement refusal", () => {
   const src = readFileSync(resolve(__dirname, "../../../supabase/functions/process-trial-balance/index.ts"), "utf8");
-  it("the restoration write is checked and its result decides the response; the old unchecked write is gone", () => {
+  it("E2: a download failure writes nothing (no claim precedes the attempt) and the classified outcome decides the response", () => {
     const dl = src.indexOf(".download(upload.file_path)");
     const block = src.slice(dl, dl + 1400);
     expect(block).toMatch(/const classification = classifyDownloadFailure\(downloadError\);/);
-    expect(block).toMatch(/const \{ error: restoreErr \} = await supabase\.from\("trial_balance_uploads"\)\.update\(\{ status: upload\.status \}\)/);
-    expect(block).toMatch(/sourceFailureOutcome\(classification, restoreErr, downloadError\)[\s\S]*status: outcome\.httpStatus/);
+    expect(block).toMatch(/sourceFailureOutcome\(classification, null, downloadError\)[\s\S]*status: outcome\.httpStatus/);
+    expect(block.slice(0, block.indexOf("status: outcome.httpStatus"))).not.toMatch(/\.update\(|\.rpc\(/);
     expect(src).not.toMatch(/\n\s*await supabase\.from\("trial_balance_uploads"\)\.update\(\{ status: upload\.status \}\)/);
     expect(src).not.toMatch(/JSON\.stringify\(SOURCE_MISSING\)/);
   });

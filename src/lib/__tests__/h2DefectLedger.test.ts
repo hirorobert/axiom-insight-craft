@@ -34,15 +34,17 @@ describe("classifyProbe", () => {
 });
 
 describe("validateLedger", () => {
-  it("the committed ledger is complete: every entry has a defect id, probe, assertion and non-null signature; no duplicates", () => {
+  it("the committed ledger is valid and EMPTY since E2 (every registered defect fixed), and names the engines still run", () => {
     expect(() => validateLedger(ledger)).not.toThrow();
-    // E1 added the genuine equation-failure fixture (D1G) beside the contra case; the previous engine must reproduce both.
-    expect(ledger.defects.map((d: { defect: string }) => d.defect).sort()).toEqual(["D1", "D1", "D10", "D1b", "D5", "D6", "D7", "D7", "D8"].sort());
-    expect(ledger.defects.map((d: { probe: string }) => d.probe)).toContain("D1G-GENUINE-EQUATION-FAILURE");
-  });
-  it("names the previous engine exactly: a full commit id and the SHA-256 of its handler", () => {
+    expect(ledger.defects).toEqual([]);
     expect(ledger.engine_commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(ledger.e1_engine_commit).toMatch(/^[0-9a-f]{40}$/);
     expect(ledger.handler_sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+  it("an empty list is valid; a missing or non-array list is not", () => {
+    expect(() => validateLedger({ defects: [] })).not.toThrow();
+    expect(() => validateLedger({})).toThrow();
+    expect(() => validateLedger({ defects: {} })).toThrow();
   });
   it("refuses incomplete, null-signature, blank-assertion and duplicate entries", () => {
     const base = { defect: "D7", probe: "P", assertion: "a", signature: { x: 1 } };
@@ -50,7 +52,8 @@ describe("validateLedger", () => {
       expect(() => validateLedger({ defects: [bad] })).toThrow();
     }
     expect(() => validateLedger({ defects: [base, base] })).toThrow(/twice/);
-    expect(() => validateLedger({ defects: [] })).toThrow();
+    // Since E2 an empty list is a valid ledger (no registered defect); see the next block for what is still refused.
+    expect(() => validateLedger({ defects: [] })).not.toThrow();
   });
 });
 

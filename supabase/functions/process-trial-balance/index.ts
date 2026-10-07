@@ -33,8 +33,6 @@ import { PROCESSING_FORBIDDEN, personalUploadRefusal, processingRefusal, sourceB
 import { isEntitlementWallError, paidActionRefusal, processingEntitlementRefusal } from "../_shared/paidAction.ts";
 // Controlled answers (never a raw database or Storage error) and the source-download failure path (L-1 / L-2).
 import { PROCESSING_UNAVAILABLE, classifyDownloadFailure, sourceFailureOutcome } from "../_shared/processingSource.ts";
-import { claimIdempotency, failIdempotency } from "../_shared/idempotency.ts";
-import { recordEngineRunFailed } from "../_shared/engine-run.ts";
 import { canonicalJson, sha256Hex, sha256HexBytes, type CanonicalValue } from "../_shared/hash.ts";
 import { computeNormalizedInputHash, type NormalizedInputRow } from "../_shared/safisha-normalize.ts";
 // The ingestion core: exact money, explicit period and currency, one identity per account, safe totals, row lineage.
@@ -53,13 +51,19 @@ const PARSER_VERSION = TB_INGESTION_VERSION;
 // Ω∞ Phase 0 Slice 2 — SAFISHA certification engine identity. Bumped
 // independently of parser_version (which tracks the TB parsing/aggregation
 // logic below, unchanged this slice).
-// E1: v2 — exact class-side aggregation, no closing-stock rescue (a treatment question instead), no silent suppression of
-// a non-zero account, an exact accounting equation that is never certified when it fails.
-const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v2";
+// E1: exact class-side aggregation, no closing-stock rescue (a treatment question instead), no silent suppression of a
+// non-zero account, an exact accounting equation that is never certified when it fails.
+// E2 (v3): every run is an ATTEMPT (20261008100000) — begun, snapshotted and finished only through the fenced attempt
+// functions; the database refuses every other write to the upload's processing fields, runs and certifications.
+const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v3";
 
 // The numeric engine generation written on every run (engine_runs.engine_generation, 20261007100000). The database
 // refuses runs and certifications below processing_release_control.min_engine_generation; compared as an integer only.
-const ENGINE_GENERATION = 2;
+const ENGINE_GENERATION = 3;
+
+// The attempt lease: longer than the hosted Edge wall-clock limit (400 s) plus a margin. A run still marked running after
+// it can be abandoned (LEASE_EXPIRED) by the next authorized request or the expiry pass; its worker is then fenced out.
+const PROCESSING_LEASE_SECONDS = 600;
 
 // Matches crypto.randomUUID() output (and any standard UUID). Case-
 // insensitive: RFC 4122 doesn't mandate lowercase, and rejecting a
@@ -1120,68 +1124,106 @@ async function collectPhase0Evidence(
   return { layer5Exceptions, layer6Exceptions };
 }
 
-/**
- * Commits a SAFISHA certification and terminates this engine_run —
- * commit_tb_certification completes both engine_runs and idempotency_keys
- * atomically inside one transaction (Slice 1 design); this function never
- * calls completeIdempotency/recordEngineRunComplete separately (Slice 2
- * directive Priority 6). If the RPC itself fails (thrown exception — the
- * whole RPC call rolls back, nothing is written), that is a genuine system
- * failure, not a SAFISHA outcome — falls back to recordEngineRunFailed +
- * failIdempotency so the run/claim are never left stuck at running/reserved.
- */
-async function commitSafishaCertification(
+// ── E2 — finishing an attempt (20261008100000) ───────────────────────────────
+// Every outcome is recorded by ONE fenced call, all or nothing: the certification (when there is one), the upload's
+// processing fields, the run and its idempotency key. Only the upload's current attempt can finish; a preempted, expired,
+// drained or superseded worker is refused (ATTEMPT_NOT_CURRENT) and changes nothing.
+interface AttemptUploadFields {
+  status: string;
+  is_valid: boolean;
+  processing_result: unknown;
+  validation_report?: unknown;
+  accounting_errors: unknown;
+}
+type AttemptOutcome =
+  | { outcome: "certified"; upload: AttemptUploadFields; normalizedInputHash: string; isBlocking: boolean; requiresReview: boolean;
+      exceptions: SafishaExceptionRecord[]; rowsSnapshot: CertifiedTBRowRecord[] }
+  | { outcome: "failed"; errorCode: string; upload: AttemptUploadFields };
+
+const COMPANY_REQUIRED = {
+  status: "blocked", code: "COMPANY_REQUIRED",
+  message: "This upload isn't in a workspace, so it can't be checked. Upload the trial balance again inside a workspace.",
+};
+const ATTEMPT_SUPERSEDED = {
+  status: "blocked", code: "ATTEMPT_SUPERSEDED",
+  message: "A newer check of this trial balance replaced this one, so this one's result was not recorded.",
+};
+const PROCESSING_HELD_BODY = {
+  status: "blocked", code: "PROCESSING_HELD",
+  message: "Processing is paused for a short system update. Try again in a few minutes.",
+};
+
+/** The plain answer to an attempt the database refused to begin. */
+function attemptRefusal(code: string): { status: string; code: string; message: string } {
+  const message: Record<string, string> = {
+    REPROCESS_REQUIRED: "This trial balance already has a recorded result. Request a new check to process it again.",
+    SOURCE_CHANGED: "The file changed since this check was requested. Start a new check of the current file.",
+    UPLOAD_NOT_ACTIVE: "This trial balance is no longer in active use, so it can't be checked.",
+    COMPANY_REQUIRED: COMPANY_REQUIRED.message,
+  };
+  return { status: "blocked", code, message: message[code] ?? "This check could not start. Refresh and try again." };
+}
+
+/** A controlled answer for a database refusal of the attempt functions, or null for any other error. */
+function attemptErrorResponse(error: { code?: string; message?: string }): Response | null {
+  if (isEntitlementWallError(error)) {
+    const wall = paidActionRefusal("CLOSE_ASSURANCE", { allowed: false, code: "ENTITLEMENT_REQUIRED", required_plan: "SOLO" })!;
+    return jsonResponse(wall.body, wall.httpStatus);
+  }
+  if (error.code === "PT503" || error.code === "PT410") return jsonResponse(PROCESSING_HELD_BODY, 503);
+  if (error.code === "PT409") return jsonResponse(ATTEMPT_SUPERSEDED, 409);
+  return null;
+}
+
+/** Every dependency key a run can consult (absent ones included), for tb_snapshot_dependencies. */
+function dependencyKeys(companyId: string, accounts: RawAccount[]): { scope: string; key: string }[] {
+  const keys = new Map<string, { scope: string; key: string }>();
+  const add = (scope: string, key: string) => keys.set(`${scope}|${key}`, { scope, key });
+  for (const a of accounts) {
+    const code = a.account_code?.trim() ?? "";
+    const name = normalizeAccountName(a.account_name ?? "");
+    for (const scope of [companyId, "global"]) {
+      if (code !== "") add(scope, `code:${code}`);
+      add(scope, `name:${name}`);
+    }
+  }
+  add(companyId, "#framework");
+  add(companyId, "#currency");
+  add("global", "#dictionary");
+  return [...keys.values()];
+}
+
+async function finishAttempt(
   supabase: ReturnType<typeof createClient>,
-  params: {
-    engineRunId: string;
-    idempotencyKeyId: string;
-    engineStartedAt: string;
-    uploadId: string;
-    companyId: string;
-    periodYear: number | null;
-    sourceFileHash: string;
-    normalizedInputHash: string;
-    isBlocking: boolean;
-    requiresReview: boolean;
-    exceptions: SafishaExceptionRecord[];
-    rowsSnapshot: CertifiedTBRowRecord[];
-  },
+  engineRunId: string,
+  params: AttemptOutcome,
 ): Promise<{ ok: true } | { ok: false; response: Response }> {
-  const outputHashSource: CanonicalValue = (params.rowsSnapshot.length > 0
-    ? params.rowsSnapshot
-    : params.exceptions) as unknown as CanonicalValue;
-  const outputHash = await sha256Hex(canonicalJson(outputHashSource));
-
-  const { error } = await supabase.rpc("commit_tb_certification", {
-    p_engine_run_id:         params.engineRunId,
-    p_expected_function_name: "process-trial-balance",
-    p_upload_id:              params.uploadId,
-    p_company_id:             params.companyId,
-    p_period_year:            params.periodYear,
-    p_source_file_hash:       params.sourceFileHash,
-    p_normalized_input_hash:  params.normalizedInputHash,
-    p_output_hash:            outputHash,
-    p_is_blocking:            params.isBlocking,
-    p_requires_review:        params.requiresReview,
-    p_exceptions:             params.exceptions,
-    p_rows_snapshot:          params.rowsSnapshot,
-  } as never);
-
-  if (error) {
-    console.error("[PTB] commit_tb_certification failed:", error.message);
-    await recordEngineRunFailed(supabase as never, params.engineRunId, {
-      startedAt: params.engineStartedAt,
-      errorCode: "CERTIFICATION_COMMIT_FAILED",
-      errorDetail: { stage: "commit_tb_certification", safe_message: String(error.message ?? "unknown").slice(0, 200) },
-    });
-    await failIdempotency(supabase as never, params.idempotencyKeyId, "CERTIFICATION_COMMIT_FAILED");
-    return {
-      ok: false,
-      response: new Response(
-        JSON.stringify({ status: "blocked", error: "Certification could not be recorded" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      ),
+  const result: Record<string, unknown> = { outcome: params.outcome, upload: params.upload };
+  if (params.outcome === "certified") {
+    const outputHashSource: CanonicalValue = (params.rowsSnapshot.length > 0 ? params.rowsSnapshot : params.exceptions) as unknown as CanonicalValue;
+    result.certification = {
+      normalized_input_hash: params.normalizedInputHash,
+      output_hash: await sha256Hex(canonicalJson(outputHashSource)),
+      is_blocking: params.isBlocking,
+      requires_review: params.requiresReview,
+      exceptions: params.exceptions,
+      rows_snapshot: params.rowsSnapshot,
     };
+  } else {
+    result.error_code = params.errorCode;
+  }
+  const { data, error } = await supabase.rpc("tb_finalize_attempt", { p_engine_run_id: engineRunId, p_result: result } as never);
+  if (error) {
+    console.error("[PTB] tb_finalize_attempt refused:", (error as { code?: string }).code ?? "unknown");
+    return { ok: false, response: attemptErrorResponse(error as { code?: string }) ?? jsonResponse(PROCESSING_UNAVAILABLE, 500) };
+  }
+  const recorded = data as { outcome?: string; error_code?: string | null };
+  if (params.outcome === "certified" && recorded?.outcome !== "certified") {
+    // An input changed while the check ran: the database recorded the attempt as failed instead of certifying it.
+    return { ok: false, response: jsonResponse({
+      status: "blocked", code: recorded?.error_code ?? "DEPENDENCY_CHANGED",
+      message: "A mapping, decision or setting this check used changed while it ran. Run the check again.",
+    }, 409) };
   }
   return { ok: true };
 }
@@ -1196,18 +1238,13 @@ serve(async (req) => {
   // fail an already-claimed engine_run/idempotency reservation on a fatal,
   // unhandled error — never leave one stuck at running/reserved.
   let engineRunId: string | null = null;
-  let idempotencyKeyId: string | null = null;
-  let engineStartedAt: string | null = null;
+  // Whether this request has already recorded its attempt's outcome (the catch block never records a second one).
+  let attemptFinished = false;
   // Ω∞ Phase 0 Slice 4A — collected once (see collectPhase0Evidence), reused
   // verbatim on every certification-construction branch that follows.
   let phase0Evidence: Phase0Evidence | null = null;
   // What processing actually reached, in order (returned and stored in processing_result.ingestion.milestones).
   const milestones = new MilestoneLog();
-  // The status the upload had when this request arrived, and whether this request has replaced it with
-  // "validating" — so no exit (an exception, a replay, a conflict) leaves an upload stuck at "validating".
-  let priorStatus: string | null = null;
-  let statusClaimed = false;
-  let claimedUploadId: string | null = null;
 
   try {
     const auth = await validateAuth(req.headers.get("Authorization"));
@@ -1312,34 +1349,17 @@ serve(async (req) => {
     // lookup error is a processing failure (thrown), never "no currency".
     const reportingCurrency = await resolveReportingCurrency(supabase as never, upload as { company_id?: string | null; period_id?: string | null; engagement_id?: string | null });
 
-    // The status as it is BEFORE this request writes anything — what every early exit restores.
-    priorStatus = (upload as { status?: string | null }).status ?? null;
-
-    // Only after ownership AND the plan are confirmed do we mutate the upload row. The database processing wall
-    // (trg_tbu_processing_wall) refuses this write too without a current plan: the error is checked, never ignored,
-    // so a plan that ended in between answers the same structured 402 and Storage is never touched.
-    const { error: claimErr } = await supabase.from("trial_balance_uploads").update({ status: "validating" }).eq("id", uploadId);
-    if (claimErr) {
-      if (isEntitlementWallError(claimErr)) {
-        const wall = paidActionRefusal("CLOSE_ASSURANCE", { allowed: false, code: "ENTITLEMENT_REQUIRED", required_plan: "SOLO" })!;
-        return new Response(JSON.stringify(wall.body), { status: wall.httpStatus, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-      console.error("[PTB] status claim failed:", (claimErr as { code?: string }).code ?? "unknown");
-      return new Response(JSON.stringify(PROCESSING_UNAVAILABLE), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    statusClaimed = true;
-    claimedUploadId = uploadId;
+    // E2: nothing is written to the upload before the attempt begins (below, after the source is read and parsed). The
+    // previous status claim ("validating") is now part of tb_begin_attempt, in one transaction with the run.
 
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("trial-balance-files").download(upload.file_path);
     if (downloadError || !fileData) {
       // L-1 / L-2: classify from structured fields (confirmed not-found → source_missing; anything else →
-      // processing_unavailable), restore the previous status with a CHECKED write, and answer from its result (a plan
-      // that ended concurrently → the controlled 402). Nothing else is written; no raw error reaches the response.
+      // processing_unavailable). Nothing has been written (E2: no claim precedes the attempt); no raw error reaches the
+      // response.
       const classification = classifyDownloadFailure(downloadError);
-      const { error: restoreErr } = await supabase.from("trial_balance_uploads").update({ status: upload.status }).eq("id", uploadId);
-      statusClaimed = false;
-      const outcome = sourceFailureOutcome(classification, restoreErr, downloadError);
+      const outcome = sourceFailureOutcome(classification, null, downloadError);
       console.error("[PTB] source download failed", JSON.stringify({ upload_id: uploadId, ...outcome.log }));
       return new Response(JSON.stringify(outcome.body), { status: outcome.httpStatus, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -1351,20 +1371,10 @@ serve(async (req) => {
     console.log(`[PTB] Detected file: ${upload.file_name}`);
 
     // Ω∞ Phase 0 Slice 2 — Priority 3: server-authoritative source_file_hash, computed from the exact downloaded
-    // bytes before any format-specific parsing touches them (raw bytes, never a re-encoded copy). Persisted
-    // immediately and independently of everything downstream: it is observational truth about the current Storage
-    // bytes, and Slice 1R's source-hash-drift check in get_authoritative_certification depends on it being recorded
-    // even when this attempt later blocks or fails. The write is checked and hard-stops on failure
-    // (DEFECT-SAFISHA-SOURCE-HASH-WRITE-FAILURE-STALE-AUTHORITY-001).
+    // bytes before any format-specific parsing touches them (raw bytes, never a re-encoded copy). E2: recorded by
+    // tb_begin_attempt (a hash never recorded is set; a different recorded hash refuses the attempt: SOURCE_CHANGED).
     const fileBuffer = await fileData.arrayBuffer();
     const sourceFileHash = await sha256HexBytes(fileBuffer);
-    const { error: sourceHashUpdateError } = await supabase
-      .from("trial_balance_uploads")
-      .update({ source_file_hash: sourceFileHash })
-      .eq("id", uploadId);
-    if (sourceHashUpdateError) {
-      throw new Error(`Failed to persist source_file_hash: ${sourceHashUpdateError.message}`);
-    }
 
     const fileBytes = new Uint8Array(fileBuffer);
     const readContext = { fileName: upload.file_name ?? "", periodYear: upload.period_year ?? null, currency: reportingCurrency };
@@ -1402,9 +1412,65 @@ serve(async (req) => {
     const rejectedRows = ingest.lineage.filter((l) => l.disposition === "rejected" || l.disposition === "total" || l.disposition === "zero_balance");
     console.log(`[PTB] Ingested ${ingest.lineageSummary.rowsRead} rows → ${rawAccounts.length} accounts; ${ingest.issues.length} issue(s)`);
 
+    // ── E2 — the attempt begins (20261008100000) ─────────────────────────────
+    // Nothing has been written so far: download, hashing and parsing are reads. tb_begin_attempt is the one place an
+    // attempt starts — idempotent (replay / in progress / conflict); refusing a new attempt over a certification still in
+    // force (REPROCESS_REQUIRED: re-checks go through tbu_request_reprocess), a changed source, a historical upload or one
+    // already being checked; it records the source hash and points the upload at this attempt. The request identity is
+    // E1's (upload, source hash, normalized input), so a retry that crosses the release replays instead of conflicting.
+    const normalizedInputHash = await computeNormalizedInputHash(
+      rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
+    );
+    if (!upload.company_id || !resolvedActor) {
+      // A legacy upload outside any workspace cannot hold an attempt (or a certification): it stays readable as history.
+      return jsonResponse(COMPANY_REQUIRED, 409);
+    }
+    const requestHash = await sha256Hex(canonicalJson({ uploadId, sourceFileHash, normalizedInputHash } as unknown as CanonicalValue));
+    const { data: begun, error: beginError } = await supabase.rpc("tb_begin_attempt", {
+      p_upload_id:         uploadId,
+      p_client_request_id: clientRequestId,
+      p_request_hash:      requestHash,
+      p_input_hash:        normalizedInputHash,
+      p_source_file_hash:  sourceFileHash,
+      p_engine_version:    SAFISHA_ENGINE_VERSION,
+      p_engine_generation: ENGINE_GENERATION,
+      p_actor_type:        resolvedActor.actorType,
+      p_firm_member_id:    resolvedActor.actorType === "user" ? resolvedActor.firmMemberId : null,
+      p_actor_user_id:     resolvedActor.actorType === "workspace_user" ? resolvedActor.userId : null,
+      p_lease_seconds:     PROCESSING_LEASE_SECONDS,
+    } as never);
+    if (beginError) {
+      const refusal = attemptErrorResponse(beginError);
+      if (refusal) return refusal;
+      throw new Error(`tb_begin_attempt failed: ${beginError.message}`);
+    }
+    const attempt = begun as {
+      outcome: "claimed" | "replay" | "in_progress" | "conflict" | "refused";
+      code?: string; engine_run_id?: string; result?: { status?: string; reference_id?: string | null };
+    };
+    if (attempt.outcome === "conflict") {
+      return jsonResponse({ status: "blocked", error: "Idempotency conflict", message: "This request was already used for different file content. Start a new check of the current file." }, 409);
+    }
+    if (attempt.outcome === "in_progress" || (attempt.outcome === "refused" && attempt.code === "IN_PROGRESS")) {
+      return jsonResponse({ status: "in_progress", message: "This upload is already being checked." }, 409);
+    }
+    if (attempt.outcome === "replay") {
+      return jsonResponse({ status: attempt.result?.status ?? "completed", replay: true, reference_id: attempt.result?.reference_id ?? null }, 200);
+    }
+    if (attempt.outcome !== "claimed" || !attempt.engine_run_id) {
+      return jsonResponse(attemptRefusal(attempt.code ?? "REFUSED"), 409);
+    }
+    engineRunId = attempt.engine_run_id;
+    const runId: string = attempt.engine_run_id;
+
+    // Ω∞ Phase 0 Slice 4A — ONE collection path, called exactly once here, reused on every certification branch.
+    phase0Evidence = await collectPhase0Evidence(supabase as never, {
+      companyId: upload.company_id, periodYear: upload.period_year ?? null, uploadId,
+    });
+
     if (rawAccounts.length === 0) {
-      // Nothing identifiable as an account (unreadable file, missing columns, no period or currency, …). A pre-flight
-      // input-shape failure: no idempotency claim has happened, so there is no engine_run to fail.
+      // Nothing identifiable as an account (unreadable file, missing columns, no period or currency, …): the attempt
+      // fails (INGESTION_REFUSED), nothing is certified, and the upload shows the reasons.
       milestones.mark("recorded", "passed");
       const result: Partial<ProcessingResult> = {
         status: "blocked", statements: null, errors: allErrors,
@@ -1412,96 +1478,13 @@ serve(async (req) => {
         summary: { total_accounts: 0, processed_at: new Date().toISOString(), parser_version: PARSER_VERSION, columns_detected: detectedCols, auto_classified: 0 },
         ingestion: ingestionRecord(ingest, milestones),
       };
-      const failed = await writeOutcome(supabase as never, uploadId, { status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() });
-      if (failed) return failed;
-      return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // ── Ω∞ Phase 0 Slice 2 — idempotency claim + engine_run creation ─────────
-    // Deliberately placed HERE, not before download/parse: normalized_input_hash is the true input identity.
-    // source_file_hash, normalized_input_hash and client_request_id are three separate identities (exact bytes /
-    // canonical parsed input / retry identity); none stands in for another. Skipped for legacy company_id-null uploads.
-    const normalizedInputHash = await computeNormalizedInputHash(
-      rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
-    );
-
-    if (resolvedActor && upload.company_id) {
-      const requestHash = await sha256Hex(canonicalJson({ uploadId, sourceFileHash, normalizedInputHash } as unknown as CanonicalValue));
-      const claim = await claimIdempotency(supabase as never, {
-        companyId: upload.company_id,
-        actor: resolvedActor,
-        actorType: resolvedActor.actorType,
-        functionName: "process-trial-balance",
-        engineVersion: SAFISHA_ENGINE_VERSION,
-        engineGeneration: ENGINE_GENERATION,
-        clientRequestId,
-        requestHash,
-        inputHash: normalizedInputHash,
-        periodYear: upload.period_year ?? null,
-        sourceTable: "trial_balance_uploads",
-        sourceRecordId: uploadId,
+      attemptFinished = true;
+      const done = await finishAttempt(supabase as never, runId, {
+        outcome: "failed", errorCode: "INGESTION_REFUSED",
+        upload: { status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, validation_report: null },
       });
-
-      if (claim.outcome !== "claimed") {
-        // A retry of a request that already ran (replay) or that reused its identity for different content
-        // (conflict) does not process — and must not leave behind the "validating" mark this attempt set: the upload
-        // returns to the status it had when this request arrived, so a replay keeps the original run's recorded
-        // outcome. An in-progress run keeps "validating"; it is genuinely running.
-        if (claim.outcome !== "in_progress") await restoreStatus(supabase as never, uploadId, priorStatus);
-        statusClaimed = false;
-      }
-      if (claim.outcome === "conflict") {
-        return new Response(
-          JSON.stringify({ status: "blocked", error: "Idempotency conflict", message: "This request was already used for different file content. Start a new check of the current file." }),
-          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-      if (claim.outcome === "in_progress") {
-        return new Response(
-          JSON.stringify({ status: "in_progress", message: "This upload is already being checked." }),
-          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-      if (claim.outcome === "replay") {
-        return new Response(
-          JSON.stringify({ status: claim.result.status, replay: true, reference_id: claim.result.reference_id ?? null }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-      engineRunId      = claim.engineRunId;
-      idempotencyKeyId = claim.keyId;
-      engineStartedAt  = claim.startedAt;
-
-      // E1 (Amendment 2, C6): a new run on an upload whose latest certification is still in force is refused. Every
-      // re-check goes through tbu_request_reprocess, which invalidates that certification first, so a failed re-run
-      // can never leave the earlier result current. Checked after the claim, so a retry of the SAME request replays
-      // above instead; the claimed run is recorded as failed and the upload returns to its prior status.
-      const { data: latestCert, error: latestCertError } = await supabase
-        .from("tb_certifications").select("id").eq("upload_id", uploadId).order("sequence_no", { ascending: false }).limit(1).maybeSingle();
-      if (latestCertError) throw new Error(`latest certification lookup failed: ${latestCertError.message}`);
-      if (latestCert) {
-        const { data: invalidation, error: invalidationError } = await supabase
-          .from("tb_certification_invalidations").select("id").eq("certification_id", (latestCert as { id: string }).id).maybeSingle();
-        if (invalidationError) throw new Error(`invalidation lookup failed: ${invalidationError.message}`);
-        if (!invalidation) {
-          await recordEngineRunFailed(supabase as never, engineRunId, {
-            startedAt: engineStartedAt, errorCode: "REPROCESS_REQUIRED",
-            errorDetail: { stage: "reprocess_gate", safe_message: "the latest certification is still in force" },
-          });
-          await failIdempotency(supabase as never, idempotencyKeyId, "REPROCESS_REQUIRED");
-          await restoreStatus(supabase as never, uploadId, priorStatus);
-          statusClaimed = false;
-          return new Response(
-            JSON.stringify({ status: "blocked", code: "REPROCESS_REQUIRED", message: "This trial balance already has a recorded result. Request a new check to process it again." }),
-            { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-          );
-        }
-      }
-
-      // Ω∞ Phase 0 Slice 4A — ONE collection path, called exactly once here, reused on every certification branch.
-      phase0Evidence = await collectPhase0Evidence(supabase as never, {
-        companyId: upload.company_id, periodYear: upload.period_year ?? null, uploadId,
-      });
+      if (!done.ok) return done.response;
+      return jsonResponse(result, 200);
     }
 
     // ── STEP 2: Ingestion integrity gate ──────────────────────────────────────
@@ -1535,28 +1518,52 @@ serve(async (req) => {
         },
         summary: { total_accounts: rawAccounts.length, processed_at: new Date().toISOString(), parser_version: PARSER_VERSION, columns_detected: detectedCols, auto_classified: 0, rejected_rows: rejectedRows },
       };
-      if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
-        const commit = await commitSafishaCertification(supabase as never, {
-          engineRunId, idempotencyKeyId, engineStartedAt,
-          uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
-          sourceFileHash, normalizedInputHash,
-          isBlocking: true, requiresReview: false,
-          exceptions: [
-            ...blockingIssues.map((i): SafishaExceptionRecord => ({
-              code: i.code, layer: i.code === "TRIAL_BALANCE_IMBALANCE" ? 3 : 2, severity: "error", accountCode: null, message: i.message,
-            })),
-            ...(phase0Evidence?.layer5Exceptions ?? []),
-            ...(phase0Evidence?.layer6Exceptions ?? []),
-          ],
-          rowsSnapshot: [],
-        });
-        if (!commit.ok) return commit.response;
-      }
       milestones.mark("recorded", "passed");
       result.ingestion = ingestionRecord(ingest, milestones);
-      const failed = await writeOutcome(supabase as never, uploadId, { status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, processed_at: new Date().toISOString() });
-      if (failed) return failed;
-      return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      attemptFinished = true;
+      const done = await finishAttempt(supabase as never, runId, {
+        outcome: "certified", normalizedInputHash, isBlocking: true, requiresReview: false,
+        exceptions: [
+          ...blockingIssues.map((i): SafishaExceptionRecord => ({
+            code: i.code, layer: i.code === "TRIAL_BALANCE_IMBALANCE" ? 3 : 2, severity: "error", accountCode: null, message: i.message,
+          })),
+          ...(phase0Evidence?.layer5Exceptions ?? []),
+          ...(phase0Evidence?.layer6Exceptions ?? []),
+        ],
+        rowsSnapshot: [],
+        upload: { status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, validation_report: result.validation_report },
+      });
+      if (!done.ok) return done.response;
+      return jsonResponse(result, 200);
+    }
+
+    // ── E2: dependency snapshot (20261008100000) ──────────────────────────────
+    // BEFORE any classification input is read: the revision of every key this run can consult — each account by code and
+    // by normalized name, in this company's chart and the shared one; the framework; the period currency; the keyword
+    // dictionary (absent = revision 0). Finalize re-checks them (DEPENDENCY_CHANGED), and authority is re-checked against
+    // them at read time, so a later mapping, decision or setting change makes this result a re-check.
+    const { error: snapshotError } = await supabase.rpc("tb_snapshot_dependencies", {
+      p_engine_run_id: runId, p_keys: dependencyKeys(upload.company_id, rawAccounts),
+    } as never);
+    if (snapshotError) {
+      const refusal = attemptErrorResponse(snapshotError);
+      if (refusal) { attemptFinished = true; return refusal; }
+      throw new Error(`tb_snapshot_dependencies failed: ${snapshotError.message}`);
+    }
+    // The reporting currency was read before the attempt began (ingestion needs it): read it again now that its
+    // revision is recorded. A change in between would otherwise certify amounts parsed in the old currency against the
+    // new currency's revision — so a different answer fails the attempt (DEPENDENCY_CHANGED), nothing certified.
+    const currencyAfterSnapshot = await resolveReportingCurrency(supabase as never, upload as { company_id?: string | null; period_id?: string | null; engagement_id?: string | null });
+    if (currencyAfterSnapshot !== reportingCurrency) {
+      const changed = { code: "DEPENDENCY_CHANGED", message: "The period's reporting currency changed while this check ran. Run the check again." };
+      attemptFinished = true;
+      const done = await finishAttempt(supabase as never, runId, {
+        outcome: "failed", errorCode: "DEPENDENCY_CHANGED",
+        upload: { status: "error", is_valid: false, accounting_errors: [changed], validation_report: null,
+                  processing_result: { status: "blocked", statements: null, errors: [changed], validation_report: {} } },
+      });
+      if (!done.ok) return done.response;
+      return jsonResponse({ status: "blocked", ...changed }, 409);
     }
 
     // ── STEP 5: Load account_mappings (company-scoped + global) and keyword_dictionary ──
@@ -1900,35 +1907,23 @@ serve(async (req) => {
           rejected_rows:    rejectedRows,
         },
       };
-      if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
-        const commit = await commitSafishaCertification(supabase as never, {
-          engineRunId, idempotencyKeyId, engineStartedAt,
-          uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
-          sourceFileHash, normalizedInputHash,
-          isBlocking: false, requiresReview: true,
-          exceptions: [
-            ...needsReviewAccounts.map((r): SafishaExceptionRecord => ({
-              code: "NEEDS_REVIEW", layer: 4, severity: "warning", accountCode: r.account_code, message: r.reason,
-            } as SafishaExceptionRecord)),
-            ...(phase0Evidence?.layer5Exceptions ?? []),
-            ...(phase0Evidence?.layer6Exceptions ?? []),
-          ],
-          rowsSnapshot: [],
-        });
-        if (!commit.ok) return commit.response;
-      }
       milestones.mark("recorded", "passed");
       result.ingestion = ingestionRecord(ingest, milestones);
-      // source_file_hash already persisted independently above.
-      const failed = await writeOutcome(supabase as never, uploadId, {
-        status:            "needs_review",
-        is_valid:           false,
-        accounting_errors:  allErrors,
-        processing_result:  result,
-        processed_at:       new Date().toISOString(),
+      attemptFinished = true;
+      const done = await finishAttempt(supabase as never, runId, {
+        outcome: "certified", normalizedInputHash, isBlocking: false, requiresReview: true,
+        exceptions: [
+          ...needsReviewAccounts.map((r): SafishaExceptionRecord => ({
+            code: "NEEDS_REVIEW", layer: 4, severity: "warning", accountCode: r.account_code, message: r.reason,
+          } as SafishaExceptionRecord)),
+          ...(phase0Evidence?.layer5Exceptions ?? []),
+          ...(phase0Evidence?.layer6Exceptions ?? []),
+        ],
+        rowsSnapshot: [],
+        upload: { status: "needs_review", is_valid: false, accounting_errors: allErrors, processing_result: result, validation_report: result.validation_report },
       });
-      if (failed) return failed;
-      return new Response(JSON.stringify(result), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (!done.ok) return done.response;
+      return jsonResponse(result, 200);
     }
 
     // ── STEP 8: Statement aggregation (exact, class-side) ───────────────────────
@@ -1968,14 +1963,6 @@ serve(async (req) => {
       const message = `Assets (${fmt(amounts.equation.lhs_minor)}) do not equal liabilities + equity + income − expenses (${fmt(amounts.equation.rhs_minor)}). Difference: ${fmt(amounts.equation.difference_minor)}. The trial balance balances and every account is on a statement, so this is not a classification matter: processing stopped and nothing was accepted.`;
       allErrors.push({ code: "INVARIANT_VIOLATION", message, expected: "0", actual: amounts.equation.difference_minor });
       console.error(`[PTB] INVARIANT_VIOLATION: equation difference ${amounts.equation.difference_minor} minor units`);
-      if (engineRunId && idempotencyKeyId && engineStartedAt) {
-        await recordEngineRunFailed(supabase as never, engineRunId, {
-          startedAt: engineStartedAt,
-          errorCode: "INVARIANT_VIOLATION",
-          errorDetail: { stage: "accounting_equation", safe_message: `difference_minor=${amounts.equation.difference_minor}` },
-        });
-        await failIdempotency(supabase as never, idempotencyKeyId, "INVARIANT_VIOLATION");
-      }
       milestones.mark("recorded", "failed", "The accounting equation did not hold; nothing was accepted.");
       const failedValidation = {
         tb_balance_check:       balanceCheck,
@@ -2001,16 +1988,13 @@ serve(async (req) => {
         },
       };
       failedResult.ingestion = ingestionRecord(ingest, milestones);
-      const failedWrite = await writeOutcome(supabase as never, uploadId, {
-        status:            "error",
-        is_valid:          false,
-        validation_report: failedValidation,
-        accounting_errors: allErrors,
-        processing_result: failedResult,
-        processed_at:      new Date().toISOString(),
+      attemptFinished = true;
+      const done = await finishAttempt(supabase as never, runId, {
+        outcome: "failed", errorCode: "INVARIANT_VIOLATION",
+        upload: { status: "error", is_valid: false, validation_report: failedValidation, accounting_errors: allErrors, processing_result: failedResult },
       });
-      if (failedWrite) return failedWrite;
-      return new Response(JSON.stringify(failedResult), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (!done.ok) return done.response;
+      return jsonResponse(failedResult, 200);
     }
 
     const allValid   = true;
@@ -2050,69 +2034,38 @@ serve(async (req) => {
       },
     };
 
-    if (engineRunId && idempotencyKeyId && engineStartedAt && upload.company_id) {
-      const rowsSnapshot = buildCertifiedRows(rawAccounts, resolvedMappings, resolvedTiers);
-      const commit = await commitSafishaCertification(supabase as never, {
-        engineRunId, idempotencyKeyId, engineStartedAt,
-        uploadId, companyId: upload.company_id, periodYear: upload.period_year ?? null,
-        sourceFileHash, normalizedInputHash,
-        isBlocking: false, requiresReview: false,
-        exceptions: [
-          ...(phase0Evidence?.layer5Exceptions ?? []),
-          ...(phase0Evidence?.layer6Exceptions ?? []),
-        ],
-        rowsSnapshot,
-      });
-      if (!commit.ok) return commit.response;
-    }
-
     milestones.mark("recorded", "passed");
     processingResult.ingestion = ingestionRecord(ingest, milestones);
-    // source_file_hash already persisted independently above.
-    const failedFinal = await writeOutcome(supabase as never, uploadId, {
-      status:             allValid ? "complete" : "error",
-      is_valid:           allValid,
-      validation_report:  validationReport,
-      accounting_errors:  allErrors,
-      processing_result:  processingResult,
-      processed_at:       new Date().toISOString(),
+    attemptFinished = true;
+    const done = await finishAttempt(supabase as never, runId, {
+      outcome: "certified", normalizedInputHash, isBlocking: false, requiresReview: false,
+      exceptions: [
+        ...(phase0Evidence?.layer5Exceptions ?? []),
+        ...(phase0Evidence?.layer6Exceptions ?? []),
+      ],
+      rowsSnapshot: buildCertifiedRows(rawAccounts, resolvedMappings, resolvedTiers),
+      upload: { status: allValid ? "complete" : "error", is_valid: allValid, validation_report: validationReport, accounting_errors: allErrors, processing_result: processingResult },
     });
-    if (failedFinal) return failedFinal;
+    if (!done.ok) return done.response;
 
-    return new Response(JSON.stringify(processingResult), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(processingResult, 200);
 
   } catch (error) {
     console.error("[PTB] Fatal error:", error);
-    // Never leave the upload at "validating" after an unhandled failure: put back the status it had, so the person
-    // can retry from where they were (the checked write that claimed it is the only thing this request changed).
-    if (statusClaimed && claimedUploadId) {
+    // E2: an attempt that began is always finished — as failed (UNHANDLED_EXCEPTION), nothing certified, the upload
+    // showing an error (never the status it had: a failure never re-exposes an earlier result). Before the attempt
+    // began nothing was written, so there is nothing to undo.
+    if (engineRunId && !attemptFinished) {
       try {
         const cleanupClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-        await restoreStatus(cleanupClient as never, claimedUploadId, priorStatus);
-      } catch (restoreError) {
-        console.error("[PTB] status restore after failure did not complete:", restoreError instanceof Error ? restoreError.name : "unknown");
-      }
-    }
-    // Ω∞ Phase 0 Slice 2: a claimed engine_run/idempotency reservation must
-    // never be left stuck at running/reserved by an unhandled exception —
-    // this is a genuine system failure, not a SAFISHA outcome, so no
-    // certification is committed here.
-    if (engineRunId && idempotencyKeyId && engineStartedAt) {
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const supabase    = createClient(supabaseUrl, supabaseKey);
-      try {
-        await recordEngineRunFailed(supabase as never, engineRunId, {
-          startedAt: engineStartedAt,
-          errorCode: "UNHANDLED_EXCEPTION",
-          errorDetail: { stage: "process-trial-balance", safe_message: String(error instanceof Error ? error.message : "Processing failed").slice(0, 200) },
+        const failure = { code: "UNHANDLED_EXCEPTION", message: PROCESSING_UNAVAILABLE.message };
+        await finishAttempt(cleanupClient as never, engineRunId, {
+          outcome: "failed", errorCode: "UNHANDLED_EXCEPTION",
+          upload: { status: "error", is_valid: false, accounting_errors: [...allErrors, failure],
+                    processing_result: { status: "blocked", statements: null, errors: [...allErrors, failure], validation_report: {} }, validation_report: null },
         });
-        await failIdempotency(supabase as never, idempotencyKeyId, "UNHANDLED_EXCEPTION");
       } catch (cleanupError) {
-        console.error("[PTB] Failed to record engine_run failure during cleanup:", cleanupError);
+        console.error("[PTB] the attempt's failure could not be recorded:", cleanupError instanceof Error ? cleanupError.name : "unknown");
       }
     }
     return new Response(
@@ -2186,28 +2139,6 @@ function ingestionRecord(ingest: IngestResult, milestones: MilestoneLog): Record
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-}
-
-/**
- * Writes the outcome to the upload row and checks the write. null when written; otherwise the controlled answer to
- * return — a result is never reported as recorded when the row did not take it.
- */
-async function writeOutcome(supabase: ReturnType<typeof createClient>, uploadId: string, fields: Record<string, unknown>): Promise<Response | null> {
-  const { error } = await supabase.from("trial_balance_uploads").update(fields as never).eq("id", uploadId);
-  if (!error) return null;
-  console.error("[PTB] outcome write failed:", (error as { code?: string }).code ?? "unknown");
-  if (isEntitlementWallError(error)) {
-    const wall = paidActionRefusal("CLOSE_ASSURANCE", { allowed: false, code: "ENTITLEMENT_REQUIRED", required_plan: "SOLO" })!;
-    return jsonResponse(wall.body, wall.httpStatus);
-  }
-  return jsonResponse(PROCESSING_UNAVAILABLE, 500);
-}
-
-/** Puts back the status the upload had when this request arrived (best effort; logged, never thrown). */
-async function restoreStatus(supabase: ReturnType<typeof createClient>, uploadId: string, status: string | null): Promise<void> {
-  if (status === null) return;
-  const { error } = await supabase.from("trial_balance_uploads").update({ status } as never).eq("id", uploadId);
-  if (error) console.error("[PTB] status restore failed:", (error as { code?: string }).code ?? "unknown");
 }
 
 /** Plain-language reason a classifier suggestion still needs a reviewer. */

@@ -184,3 +184,36 @@ describe("loadCashPerimeter — S1 review provenance (20261006100000)", () => {
     expect(r.state).toBe("CANNOT_ASSESS");
   });
 });
+
+describe("normalizeCertifiedRow — exact tb-row/1 fields (E2)", () => {
+  const base = { accountCode: "1510", accountName: "Accumulated depreciation", nature: "asset", subNature: "non_current_assets", debitBalance: 0, creditBalance: 300, netBalance: 300 };
+  it("a legacy row (no contract) has no exact fields and keeps its figures", () => {
+    const r = normalizeCertifiedRow(base);
+    expect(r?.rowContract).toBeNull();
+    expect(r?.classSideMinor).toBeNull();
+    expect(r?.creditBalance).toBe(300);
+  });
+  it("a tb-row/1 row exposes the exact figures, with the class side recomputed (a contra asset is negative)", () => {
+    const r = normalizeCertifiedRow({ ...base, rowContract: "tb-row/1", debitMinor: "0", creditMinor: "30000", classSideMinor: "-30000" });
+    expect(r).toMatchObject({ rowContract: "tb-row/1", debitMinor: "0", creditMinor: "30000", classSideMinor: "-30000" });
+  });
+  it("credit-side natures recompute credit − debit", () => {
+    const r = normalizeCertifiedRow({ ...base, nature: "liability", subNature: "current_liabilities", rowContract: "tb-row/1", debitMinor: "100", creditMinor: "300", classSideMinor: "200" });
+    expect(r?.classSideMinor).toBe("200");
+  });
+  it("a tb-row/1 row with a missing, malformed or inconsistent figure is unreadable (never a number)", () => {
+    for (const bad of [
+      { rowContract: "tb-row/1", debitMinor: "0", creditMinor: "30000" },
+      { rowContract: "tb-row/1", debitMinor: "0", creditMinor: "300.00", classSideMinor: "-30000" },
+      { rowContract: "tb-row/1", debitMinor: "-0", creditMinor: "30000", classSideMinor: "-30000" },
+      { rowContract: "tb-row/1", debitMinor: "0", creditMinor: "30000", classSideMinor: "30000" },
+      { rowContract: "tb-row/1", debitMinor: "-5", creditMinor: "0", classSideMinor: "-5" },
+      { rowContract: "tb-row/2", debitMinor: "0", creditMinor: "30000", classSideMinor: "-30000" },
+    ]) expect(normalizeCertifiedRow({ ...base, ...bad }), JSON.stringify(bad)).toBeNull();
+  });
+  it("exact beyond 2^53", () => {
+    // The legacy float is whatever the engine wrote; the exact field is the string.
+    const r = normalizeCertifiedRow({ ...base, debitBalance: Number("9007199254740993"), creditBalance: 0, rowContract: "tb-row/1", debitMinor: "9007199254740993", creditMinor: "0", classSideMinor: "9007199254740993" });
+    expect(r?.classSideMinor).toBe("9007199254740993");
+  });
+});

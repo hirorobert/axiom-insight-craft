@@ -13,7 +13,8 @@ export function canon(v) {
 
 /** Validates the ledger shape; throws on any incomplete or duplicate entry. */
 export function validateLedger(ledger) {
-  if (!ledger || !Array.isArray(ledger.defects) || ledger.defects.length === 0) throw new Error("ledger has no defects");
+  // An empty list is a valid ledger (no registered defect); a missing or non-array list is not.
+  if (!ledger || !Array.isArray(ledger.defects)) throw new Error("ledger has no defect list");
   const seen = new Set();
   for (const d of ledger.defects) {
     if (!d || typeof d.probe !== "string" || typeof d.defect !== "string" || typeof d.assertion !== "string" || d.assertion.trim() === "") throw new Error(`ledger entry incomplete: ${JSON.stringify(d)}`);
