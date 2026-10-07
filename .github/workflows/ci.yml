@@ -429,7 +429,7 @@ jobs:
           createdb s2_proof
           bun scripts/db-proof/s2Authority.mjs
 
-      - name: I1-A periods and currency proof (migration preflight refusals, currency registry, explicit and non-calendar periods, year identity, adjacent prior, 25-way concurrency through the RPC and the exclusion constraint alone, the client-write fence, the processing lock, date confirmation, v1 compatibility, append-only history; on the same throwaway container)
+      - name: I1-A periods and currency proof (migration preflight refusals, currency registry, explicit and non-calendar periods, year identity, adjacent prior, 25-way concurrency through the RPC and the exclusion constraint alone, the client-write fence, processed history still datable, date confirmation, v1 compatibility, append-only history; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/periods_proof
