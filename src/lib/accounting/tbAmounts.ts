@@ -13,15 +13,12 @@
  * pass. A result without `amounts` is legacy: shown conservatively, and its floats are never converted into this contract.
  */
 
+import { CURRENCY_REGISTRY } from "@/lib/currency/registry";
+
 export const TB_AMOUNTS_CONTRACT = "tb-amounts/1";
 
-/** ISO 4217 exponents — identical to the engine's table (supabase/functions/_shared/tbIngestion.ts; parity-tested). */
-export const TB_CURRENCY_EXPONENTS: Readonly<Record<string, number>> = Object.freeze({
-  TZS: 2, KES: 2, UGX: 0, RWF: 0, BIF: 0, ETB: 2, ZAR: 2, ZMW: 2, MWK: 2, MZN: 2, NGN: 2, GHS: 2, XOF: 0, XAF: 0,
-  EGP: 2, MAD: 2, MUR: 2, SCR: 2, CDF: 2, SSP: 2, SDG: 2, SOS: 2, DJF: 0, BWP: 2, NAD: 2, LSL: 2, SZL: 2, AOA: 2,
-  USD: 2, EUR: 2, GBP: 2, CHF: 2, CAD: 2, AUD: 2, NZD: 2, SEK: 2, NOK: 2, DKK: 2, CNY: 2, INR: 2, PKR: 2, AED: 2,
-  SAR: 2, QAR: 2, JPY: 0, KRW: 0, BHD: 3, KWD: 3, OMR: 3, JOD: 3, TND: 3, LYD: 3, IQD: 3,
-});
+/** ISO 4217 exponents — currency-registry/1, identical to the engine's table (supabase/functions/_shared/currencyRegistry.ts; parity-tested). */
+export const TB_CURRENCY_EXPONENTS: Readonly<Record<string, number>> = CURRENCY_REGISTRY;
 
 export interface TbAmounts {
   contract: "tb-amounts/1";

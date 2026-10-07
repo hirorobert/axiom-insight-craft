@@ -1003,7 +1003,7 @@ async function main() {
     return admin.query("SELECT public.commit_tb_certification($1,'process-trial-balance',$2,$3,$4,'h','n','o',false,false,'[]'::jsonb,'[]'::jsonb)", [run, upload, company, period]);
   };
   const newPeriod = async (company, year, pointer = null) => (await admin.query(
-    "INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, active_upload_id) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+    "INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, active_upload_id, reporting_currency) VALUES ($1,$2,$3,$4,$5,'TZS') RETURNING id",
     [company, `${year}-12-31`, `FY${year}`, U.owner, pointer])).rows[0].id;
   const pointerOf = async (fp) => (await admin.query("SELECT active_upload_id FROM public.fiscal_periods WHERE id=$1", [fp])).rows[0].active_upload_id;
 
