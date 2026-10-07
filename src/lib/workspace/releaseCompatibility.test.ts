@@ -1,6 +1,7 @@
 /**
  * The R0 frontend is published ONCE, from main, after the ordered merge of #58–#63 — so the same bundle meets every backend
- * stage of the rollout: production today (S1, the engine before E1), then H1, then E1, then S2/E2. This matrix pins what
+ * stage of the rollout: production today (S1, the engine before E1), then H1, then S2/E2 (E1 is not deployed on its own;
+ * its column stays tested because the bundle is compatible with it). This matrix pins what
  * each frontend feature does at each stage, from the backend's real answer at that stage (no live call):
  *
  *   feature                         S1 (today)          H1                  E1                  S2/E2
