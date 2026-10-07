@@ -16,12 +16,14 @@ export interface World {
   claims: { sub: string; exp: number } | null;
   /** Make a table's reads fail (simulates an unavailable database for that table). */
   failReads: Set<string>;
+  /** Tables this database does not have (a migration not applied): every read answers PGRST205, as PostgREST does. */
+  missingTables: Set<string>;
   calls: { kind: "select" | "insert" | "update" | "rpc" | "download"; target: string; payload?: unknown }[];
   nextId: number;
 }
 
 export function newWorld(): World {
-  return { tables: {}, rpc: {}, storage: {}, claims: null, failReads: new Set(), calls: [], nextId: 1 };
+  return { tables: {}, rpc: {}, storage: {}, claims: null, failReads: new Set(), missingTables: new Set(), calls: [], nextId: 1 };
 }
 
 const g = globalThis as unknown as { __ptbWorld?: World };
@@ -87,6 +89,7 @@ class Query implements PromiseLike<Answer> {
       return { data: hit, error: null };
     }
     w.calls.push({ kind: "select", target: this.table });
+    if (w.missingTables.has(this.table)) return { data: null, error: { code: "PGRST205", message: `Could not find the table 'public.${this.table}' in the schema cache` } };
     if (w.failReads.has(this.table)) return { data: null, error: { code: "08006", message: "connection failure" } };
     return this.shape(rows.filter((r) => this.filters.every((f) => f(r))));
   }

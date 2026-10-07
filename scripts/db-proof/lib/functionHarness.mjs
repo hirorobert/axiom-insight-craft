@@ -122,7 +122,7 @@ export function makeClient(pool, role, uid) {
         return { data: q.op === "select" || q.returning ? r.rows : null, error: null };
       };
       const b = {
-        select(cols = "*") { if (!/^[a-z_, *]+$/.test(cols)) throw new Error(`bad columns ${cols}`); if (q.op === "select") q.cols = cols; else q.returning = cols; return b; },
+        select(cols = "*") { if (!/^[a-z0-9_, *]+$/.test(cols)) throw new Error(`bad columns ${cols}`); if (q.op === "select") q.cols = cols; else q.returning = cols; return b; },
         insert(v) { q.op = "insert"; q.values = v; return b; },
         update(v) { q.op = "update"; q.values = v; return b; },
         delete() { q.op = "delete"; return b; },

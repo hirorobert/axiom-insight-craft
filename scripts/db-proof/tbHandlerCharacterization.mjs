@@ -504,9 +504,9 @@ async function main() {
       && (await authoritative(A, 2026)) === null ? true : { wasAuthoritative, acc, http: r.http, status: row.status, authoritative: await authoritative(A, 2026) };
   });
   await req1("REQ-E1-GENERATION", async () => {
-    // Every run is a current-engine attempt: version v3, integer generation 3, an attempt number and a lease.
+    // Every run is a current-engine attempt: version v4, integer generation 4, an attempt number and a lease.
     const rows = (await admin.query("SELECT engine_version, engine_generation, bool_and(attempt_no IS NOT NULL AND lease_expires_at IS NOT NULL) a, count(*)::int n FROM public.engine_runs WHERE function_name='process-trial-balance' GROUP BY 1,2 ORDER BY 1,2")).rows;
-    return rows.length === 1 && rows[0].engine_version === "safisha-tb-certification-v3" && rows[0].engine_generation === 3 && rows[0].a === true ? true : rows;
+    return rows.length === 1 && rows[0].engine_version === "safisha-tb-certification-v4" && rows[0].engine_generation === 4 && rows[0].a === true ? true : rows;
   });
 
   await req1("REQ-E2-DEPENDENCY-STALE", async () => {

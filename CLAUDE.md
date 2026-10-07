@@ -497,6 +497,7 @@ supabase/
   functions/
     _shared/
       auth.ts                 ← CANONICAL shared auth utilities (see section 5)
+      layoutProfile.ts        ← layout-template/1: explicit layouts, number formats, resolution against one file (no layout → automatic path, byte-identical)
       tbIngestion.ts          ← THE trial-balance ingestion core (pure): exact minor-unit money, explicit period + currency, one identity per account, safe totals, complete row lineage, review policy, milestones
       tbSource.ts             ← Bytes → rows → ingestion (CSV strict UTF-8 / RFC 4180; one trial-balance sheet per workbook); SheetJS injected so tests run the same code
     kinga-tax-engine/         ← ITA Cap.332 engine. Has idempotency + engine_runs.
@@ -509,6 +510,7 @@ supabase/
     safisha-efdms-ingest/     ← EFDMS Z-Report → safisha_transactions (service role)
     safisha-match/            ← 6-tier fuzzy matching engine
     generate-xbrl/            ← XBRL filing pack generator
+    trial-balance-layout/     ← Manual layout editor server (inspect/validate/confirm/save template); writes only layout_templates/layout_confirmations via service-role writers
   migrations/                 ← All migrations. Apply in filename order.
 ```
 

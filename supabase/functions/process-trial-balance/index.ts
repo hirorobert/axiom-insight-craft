@@ -40,7 +40,10 @@ import {
   MilestoneLog, TB_INGESTION_VERSION, classificationNeedsReview, formatMinor, ingestTrialBalance, markIngestionMilestones,
   minorToNumber, sheetRowsFromMatrix, type Cell, type IngestIssue, type IngestResult,
 } from "../_shared/tbIngestion.ts";
-import { detectSourceFormat, readTrialBalanceSource, type XlsxLike } from "../_shared/tbSource.ts";
+import { detectSourceFormat, readTrialBalanceSource, readTrialBalanceSourceWithLayout, type XlsxLike } from "../_shared/tbSource.ts";
+// A2: a confirmed manual layout (layout-confirmation/1, 20261010100000) replaces automatic column detection for its file.
+import { LAYOUT_AUTHORITY_UNAVAILABLE, readCurrentLayoutConfirmation, type LayoutConfirmationRow } from "../_shared/layoutConfirmationRead.ts";
+import { profileSha256, resolvedLayoutSha256, validateProfile } from "../_shared/layoutProfile.ts";
 // E1: exact class-side amounts ("tb-amounts/1") and the treatment request identity (H1b, 20261007100000).
 import { TB_ROW_FORMAT, buildTbAmounts, classSideMinor, classSideOf, type TbAmounts } from "../_shared/tbAmounts.ts";
 import { CLOSING_STOCK_RULE, buildTreatmentRequest, type TreatmentRequest } from "../_shared/treatmentRequest.ts";
@@ -55,11 +58,14 @@ const PARSER_VERSION = TB_INGESTION_VERSION;
 // non-zero account, an exact accounting equation that is never certified when it fails.
 // E2 (v3): every run is an ATTEMPT (20261008100000) — begun, snapshotted and finished only through the fenced attempt
 // functions; the database refuses every other write to the upload's processing fields, runs and certifications.
-const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v3";
+// A2 (v4): reads the upload's confirmed layout, binds its resolved hash into the input hash and records the
+// '#layout_confirmation:<upload>' dependency; refuses before any write when the layout authority is missing.
+const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v4";
 
 // The numeric engine generation written on every run (engine_runs.engine_generation, 20261007100000). The database
 // refuses runs and certifications below processing_release_control.min_engine_generation; compared as an integer only.
-const ENGINE_GENERATION = 3;
+// 4 = reads layout confirmations; tb_begin_attempt refuses a lower generation for an upload that has one (20261010100000).
+const ENGINE_GENERATION = 4;
 
 // The attempt lease: longer than the hosted Edge wall-clock limit (400 s) plus a margin. A run still marked running after
 // it can be abandoned (LEASE_EXPIRED) by the next authorized request or the expiry pass; its worker is then fenced out.
@@ -1176,7 +1182,7 @@ function attemptErrorResponse(error: { code?: string; message?: string }): Respo
 }
 
 /** Every dependency key a run can consult (absent ones included), for tb_snapshot_dependencies. */
-function dependencyKeys(companyId: string, accounts: RawAccount[]): { scope: string; key: string }[] {
+function dependencyKeys(companyId: string, uploadId: string, accounts: RawAccount[]): { scope: string; key: string }[] {
   const keys = new Map<string, { scope: string; key: string }>();
   const add = (scope: string, key: string) => keys.set(`${scope}|${key}`, { scope, key });
   for (const a of accounts) {
@@ -1189,6 +1195,7 @@ function dependencyKeys(companyId: string, accounts: RawAccount[]): { scope: str
   }
   add(companyId, "#framework");
   add(companyId, "#currency");
+  add(companyId, `#layout_confirmation:${uploadId}`);
   add("global", "#dictionary");
   return [...keys.values()];
 }
@@ -1349,6 +1356,16 @@ serve(async (req) => {
     // lookup error is a processing failure (thrown), never "no currency".
     const reportingCurrency = await resolveReportingCurrency(supabase as never, upload as { company_id?: string | null; period_id?: string | null; engagement_id?: string | null });
 
+    // A2: the upload's newest layout confirmation, if any — read before anything is mutated. A database without the
+    // layout authority (20261010100000 not applied) is refused here, with nothing written: this engine never reads a
+    // file with automatic detection when a confirmed layout might exist.
+    let layoutConfirmation: LayoutConfirmationRow | null = null;
+    if (upload.company_id) {
+      const layoutRead = await readCurrentLayoutConfirmation(supabase as never, uploadId);
+      if (layoutRead.kind === "unavailable") return jsonResponse(LAYOUT_AUTHORITY_UNAVAILABLE, 503);
+      layoutConfirmation = layoutRead.confirmation;
+    }
+
     // E2: nothing is written to the upload before the attempt begins (below, after the source is read and parsed). The
     // previous status claim ("validating") is now part of tb_begin_attempt, in one transaction with the run.
 
@@ -1379,19 +1396,39 @@ serve(async (req) => {
     const fileBytes = new Uint8Array(fileBuffer);
     const readContext = { fileName: upload.file_name ?? "", periodYear: upload.period_year ?? null, currency: reportingCurrency };
     let ingest: IngestResult;
-    const workbook = detectSourceFormat(readContext.fileName) === "xlsx" ? tryReadWorkbook(fileBytes) : null;
-    if (workbook && isAuditedAccountsFormat(workbook)) {
-      // Audited financial statements (SCI + SFP sheets) are converted to a flat trial balance first; its row numbers
-      // are positions in that reconstructed table.
-      const meta = getAuditedAccountsMetadata(workbook);
-      console.log(`[PTB] Detected AUDITED ACCOUNTS format — SCI: "${meta.sci_sheet}", SFP: "${meta.sfp_sheet}", Notes: "${meta.notes_sheet}"`);
-      ingest = ingestTrialBalance({
-        rows: sheetRowsFromMatrix(parseAuditedAccounts(workbook) as Cell[][], 1),
-        sheetName: `AUDITED_ACCOUNTS (SCI="${meta.sci_sheet}", SFP="${meta.sfp_sheet}")`,
-        periodYear: readContext.periodYear, currency: readContext.currency,
-      });
+    // A2: under a confirmed layout the file is read exactly as confirmed — the same bytes (source hash), the same layout
+    // (profile hash) resolving to the same columns (resolved hash). Any difference is refused before the attempt begins.
+    let layoutResolvedSha256: string | null = null;
+    if (layoutConfirmation) {
+      const layoutRefusal = (code: string, message: string) => jsonResponse({ status: "blocked", code, message }, 409);
+      if (layoutConfirmation.source_file_hash !== sourceFileHash) {
+        return layoutRefusal("LAYOUT_SOURCE_MISMATCH", "The confirmed layout is for different file contents. Confirm the layout for this file again.");
+      }
+      const profile = validateProfile(layoutConfirmation.profile);
+      if (!profile.ok || (await profileSha256(profile.profile)) !== layoutConfirmation.profile_sha256) {
+        return layoutRefusal("LAYOUT_RECORD_INVALID", "The confirmed layout could not be read. Confirm the layout again.");
+      }
+      const read = readTrialBalanceSourceWithLayout(fileBytes, readContext, XLSX as unknown as XlsxLike, profile.profile, layoutConfirmation.profile_sha256);
+      layoutResolvedSha256 = read.resolved ? await resolvedLayoutSha256(read.resolved) : null;
+      if (layoutResolvedSha256 !== layoutConfirmation.resolved_profile_sha256) {
+        return layoutRefusal("LAYOUT_RECORD_INVALID", "The confirmed layout no longer resolves to the same columns. Confirm the layout again.");
+      }
+      ingest = read.result;
     } else {
-      ingest = readTrialBalanceSource(fileBytes, readContext, XLSX as unknown as XlsxLike);
+      const workbook = detectSourceFormat(readContext.fileName) === "xlsx" ? tryReadWorkbook(fileBytes) : null;
+      if (workbook && isAuditedAccountsFormat(workbook)) {
+        // Audited financial statements (SCI + SFP sheets) are converted to a flat trial balance first; its row numbers
+        // are positions in that reconstructed table.
+        const meta = getAuditedAccountsMetadata(workbook);
+        console.log(`[PTB] Detected AUDITED ACCOUNTS format — SCI: "${meta.sci_sheet}", SFP: "${meta.sfp_sheet}", Notes: "${meta.notes_sheet}"`);
+        ingest = ingestTrialBalance({
+          rows: sheetRowsFromMatrix(parseAuditedAccounts(workbook) as Cell[][], 1),
+          sheetName: `AUDITED_ACCOUNTS (SCI="${meta.sci_sheet}", SFP="${meta.sfp_sheet}")`,
+          periodYear: readContext.periodYear, currency: readContext.currency,
+        });
+      } else {
+        ingest = readTrialBalanceSource(fileBytes, readContext, XLSX as unknown as XlsxLike);
+      }
     }
     markIngestionMilestones(milestones, ingest);
     for (const issue of ingest.issues) allErrors.push(issueToValidationError(issue));
@@ -1418,9 +1455,13 @@ serve(async (req) => {
     // force (REPROCESS_REQUIRED: re-checks go through tbu_request_reprocess), a changed source, a historical upload or one
     // already being checked; it records the source hash and points the upload at this attempt. The request identity is
     // E1's (upload, source hash, normalized input), so a retry that crosses the release replays instead of conflicting.
-    const normalizedInputHash = await computeNormalizedInputHash(
+    const accountsInputHash = await computeNormalizedInputHash(
       rawAccounts.map((a): NormalizedInputRow => ({ accountCode: a.account_code, accountName: a.account_name, debit: a.debit, credit: a.credit })),
     );
+    // A2: under a confirmed layout the input is the accounts AND the layout that read them (unchanged without one).
+    const normalizedInputHash = layoutResolvedSha256
+      ? await sha256Hex(canonicalJson({ accountsInputHash, layoutResolvedSha256 } as unknown as CanonicalValue))
+      : accountsInputHash;
     if (!upload.company_id || !resolvedActor) {
       // A legacy upload outside any workspace cannot hold an attempt (or a certification): it stays readable as history.
       return jsonResponse(COMPANY_REQUIRED, 409);
@@ -1543,7 +1584,7 @@ serve(async (req) => {
     // dictionary (absent = revision 0). Finalize re-checks them (DEPENDENCY_CHANGED), and authority is re-checked against
     // them at read time, so a later mapping, decision or setting change makes this result a re-check.
     const { error: snapshotError } = await supabase.rpc("tb_snapshot_dependencies", {
-      p_engine_run_id: runId, p_keys: dependencyKeys(upload.company_id, rawAccounts),
+      p_engine_run_id: runId, p_keys: dependencyKeys(upload.company_id, uploadId, rawAccounts),
     } as never);
     if (snapshotError) {
       const refusal = attemptErrorResponse(snapshotError);
@@ -1556,6 +1597,21 @@ serve(async (req) => {
     const currencyAfterSnapshot = await resolveReportingCurrency(supabase as never, upload as { company_id?: string | null; period_id?: string | null; engagement_id?: string | null });
     if (currencyAfterSnapshot !== reportingCurrency) {
       const changed = { code: "DEPENDENCY_CHANGED", message: "The period's reporting currency changed while this check ran. Run the check again." };
+      attemptFinished = true;
+      const done = await finishAttempt(supabase as never, runId, {
+        outcome: "failed", errorCode: "DEPENDENCY_CHANGED",
+        upload: { status: "error", is_valid: false, accounting_errors: [changed], validation_report: null,
+                  processing_result: { status: "blocked", statements: null, errors: [changed], validation_report: {} } },
+      });
+      if (!done.ok) return done.response;
+      return jsonResponse({ status: "blocked", ...changed }, 409);
+    }
+
+    // A2: likewise the layout — a confirmation recorded between the read above and the snapshot would otherwise be
+    // certified as current while the file was read under the previous layout.
+    const layoutAfterSnapshot = await readCurrentLayoutConfirmation(supabase as never, uploadId);
+    if (layoutAfterSnapshot.kind !== "read" || (layoutAfterSnapshot.confirmation?.id ?? null) !== (layoutConfirmation?.id ?? null)) {
+      const changed = { code: "DEPENDENCY_CHANGED", message: "The file's confirmed layout changed while this check ran. Run the check again." };
       attemptFinished = true;
       const done = await finishAttempt(supabase as never, runId, {
         outcome: "failed", errorCode: "DEPENDENCY_CHANGED",

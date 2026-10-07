@@ -12,6 +12,9 @@ import { capturedHandler } from "./serverDouble.ts";
 import { installAttemptDoubles } from "./attemptDouble.ts";
 import { validateTbAmounts } from "../../_shared/tbAmounts.ts";
 import { treatmentRequestId } from "../../_shared/treatmentRequest.ts";
+import { LAYOUT_TEMPLATE_FORMAT, profileSha256, resolveLayout, resolvedLayoutSha256, type LayoutProfile } from "../../_shared/layoutProfile.ts";
+import { parseCsvText } from "../../_shared/tbIngestion.ts";
+import { sha256HexBytes } from "../../_shared/hash.ts";
 
 Deno.env.set("SUPABASE_URL", "http://functionpath.invalid");
 Deno.env.set("SUPABASE_ANON_KEY", "anon");
@@ -284,7 +287,7 @@ Deno.test("E1 exact amounts: tb-amounts/1 validates, equation exact, cash claime
   const rows = w.tables.tb_certifications[0].p_rows_snapshot as Record<string, unknown>[];
   const sales = rows.find((r) => r.accountCode === "4000")!;
   assertEquals([sales.rowContract, sales.debitMinor, sales.creditMinor, sales.classSideMinor, sales.netBalance], ["tb-row/1", "0", "90025", "90025", 900.25]);
-  assertEquals(w.tables.engine_runs.map((r) => [r.engine_version, r.engine_generation]), [["safisha-tb-certification-v3", 3]]);
+  assertEquals(w.tables.engine_runs.map((r) => [r.engine_version, r.engine_generation]), [["safisha-tb-certification-v4", 4]]);
 });
 
 Deno.test("E1 contra asset: accumulated depreciation (credit normal) reduces assets; balanced and certified (R3c)", async () => {
@@ -482,4 +485,91 @@ Deno.test("E2 begin refusals answer without processing: hold (503), source chang
   const r4 = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals([r4.status, r4.json.code], [409, "COMPANY_REQUIRED"]);
   assertEquals(personal.calls.filter((c) => c.kind === "update" || c.target === "tb_begin_attempt").length, 0);
+});
+
+// ── A2: confirmed layouts (20261010100000) ───────────────────────────────────────────────────────────────────────────
+const EUROPEAN = 'Code;Name;Soll;Haben
+1000;Cash at bank;"1.500,25";
+3000;Share capital;;"1.000,00"
+4000;Sales;;"900,25"
+6000;Rent;"400,00";
+';
+const EURO_LAYOUT: LayoutProfile = {
+  format: LAYOUT_TEMPLATE_FORMAT, sheet: { kind: "csv" }, headerRow: 1, numberFormat: "dot_comma", balanceSign: null,
+  columns: { accountCode: "Code", accountName: "Name", debit: "Soll", credit: "Haben", balance: null, dimensions: [] },
+};
+async function confirmLayout(w: World, csv: string, profile: LayoutProfile, over: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  const ph = await profileSha256(profile);
+  const parsed = parseCsvText(csv);
+  if (!parsed.ok) throw new Error("fixture");
+  const r = resolveLayout(parsed.rows, null, profile, ph);
+  if (!r.ok) throw new Error("layout does not fit fixture");
+  const row = {
+    id: `lc-${(w.tables.layout_confirmations ?? []).length + 1}`, upload_id: UPLOAD, company_id: COMPANY, confirmation_no: (w.tables.layout_confirmations ?? []).length + 1,
+    source_file_hash: await sha256HexBytes(enc(csv)), profile, profile_sha256: ph, resolved_profile_sha256: await resolvedLayoutSha256(r.resolved), template_id: null, ...over,
+  };
+  (w.tables.layout_confirmations ??= []).push(row);
+  return row;
+}
+
+Deno.test("A2 no layout authority (migration not applied): refused 503 before any write, no attempt begun", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED });
+  w.missingTables.add("layout_confirmations");
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r.status, r.json.code], [503, "LAYOUT_AUTHORITY_UNAVAILABLE"]);
+  assertEquals(w.calls.filter((c) => c.kind === "update" || c.kind === "insert" || c.target === "tb_begin_attempt" || c.kind === "download").length, 0);
+});
+
+Deno.test("A2 no confirmation: the automatic path, the layout key recorded at revision snapshot, input hash = accounts hash", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "complete");
+  const keys = (w.tables.engine_run_dependencies ?? []).map((d) => d.dep_key);
+  assert(keys.includes(`#layout_confirmation:${UPLOAD}`));
+});
+
+Deno.test("A2 a confirmed European layout: read exactly as confirmed, certified, the layout bound into the input hash", async () => {
+  const plain = setup({ csv: EUROPEAN, fileName: "tb.csv", mappings: REVIEWED });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assert(upload(plain).status !== "complete"); // the automatic path cannot read this file (unrecognised headers)
+  const w = setup({ csv: EUROPEAN, fileName: "tb.csv", mappings: REVIEWED });
+  await confirmLayout(w, EUROPEAN, EURO_LAYOUT);
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(r.status, 200);
+  assertEquals(upload(w).status, "complete");
+  const amounts = result(w).amounts as Record<string, Record<string, unknown>>;
+  assertEquals(amounts.equation.status, "balanced");
+  assertEquals(amounts.classes.assets_minor, "150025");
+  const run = w.tables.engine_runs[0];
+  assertEquals([run.engine_version, run.engine_generation], ["safisha-tb-certification-v4", 4]);
+  assert(String(w.tables.tb_certifications[0].p_normalized_input_hash) === String(run.input_hash));
+});
+
+Deno.test("A2 the confirmation is for other bytes: refused before the attempt (LAYOUT_SOURCE_MISMATCH), nothing written", async () => {
+  const w = setup({ csv: EUROPEAN, mappings: REVIEWED });
+  await confirmLayout(w, EUROPEAN, EURO_LAYOUT, { source_file_hash: "a".repeat(64) });
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r.status, r.json.code], [409, "LAYOUT_SOURCE_MISMATCH"]);
+  assertEquals(w.calls.filter((c) => c.kind === "update" || c.target === "tb_begin_attempt").length, 0);
+});
+
+Deno.test("A2 a tampered resolved hash is refused before the attempt (LAYOUT_RECORD_INVALID)", async () => {
+  const w = setup({ csv: EUROPEAN, mappings: REVIEWED });
+  await confirmLayout(w, EUROPEAN, EURO_LAYOUT, { resolved_profile_sha256: "b".repeat(64) });
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r.status, r.json.code], [409, "LAYOUT_RECORD_INVALID"]);
+  assertEquals(w.calls.filter((c) => c.target === "tb_begin_attempt").length, 0);
+});
+
+Deno.test("A2 a new confirmation lands before the snapshot: the attempt fails DEPENDENCY_CHANGED, nothing certified", async () => {
+  const w = setup({ csv: EUROPEAN, mappings: REVIEWED });
+  await confirmLayout(w, EUROPEAN, EURO_LAYOUT);
+  const real = w.rpc.tb_snapshot_dependencies;
+  w.rpc.tb_snapshot_dependencies = async (a) => {
+    await confirmLayout(w, EUROPEAN, { ...EURO_LAYOUT, columns: { ...EURO_LAYOUT.columns, accountCode: null } });
+    return real(a);
+  };
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r.status, r.json.code], [409, "DEPENDENCY_CHANGED"]);
+  assertEquals((w.tables.tb_certifications ?? []).length, 0);
 });

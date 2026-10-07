@@ -22,7 +22,7 @@ describe("readiness migration hygiene", () => {
     // (classification-save digest fix, hosted 0027) and 20261006100000_mapping_and_processing_authority.sql (S1, hosted 0028) are later,
     // (the parked 20261004100000 / 20261005100000 are quarantined in supabase/migrations_historical/, never applied)
     // unrelated forward migrations: they sort last, and the tail asserted below is the chain before them.
-    const LAST = ["20261002100000_refuse_withheld_service_grants.sql", "20261003100000_account_review_digest_schema_qualification.sql", "20261006100000_mapping_and_processing_authority.sql", "20261007100000_treatment_authority_and_processing_control.sql", "20261008100000_processing_attempt_authority.sql", "20261009100000_currency_registry_and_reporting_periods.sql"];
+    const LAST = ["20261002100000_refuse_withheld_service_grants.sql", "20261003100000_account_review_digest_schema_qualification.sql", "20261006100000_mapping_and_processing_authority.sql", "20261007100000_treatment_authority_and_processing_control.sql", "20261008100000_processing_attempt_authority.sql", "20261009100000_currency_registry_and_reporting_periods.sql", "20261010100000_layout_templates_and_confirmations.sql"];
     expect(everyFile.slice(-LAST.length)).toEqual(LAST);
     const all = everyFile.filter((f) => !LAST.includes(f));
     // 20260922180000_discard_trial_balance_authority.sql, 20260923100000_upload_lifecycle_retire_and_replace.sql and

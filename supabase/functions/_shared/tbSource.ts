@@ -14,6 +14,7 @@ import {
   decodeCsvBytes, detectColumns, ingestTrialBalance, parseCsvText, sheetRowsFromMatrix,
   type Cell, type IngestIssue, type IngestResult, type SourceRow,
 } from "./tbIngestion.ts";
+import { ingestWithLayout, type LayoutProfile, type ResolvedLayout } from "./layoutProfile.ts";
 
 export type SourceFormat = "xlsx" | "csv" | "unknown";
 
@@ -102,4 +103,48 @@ export function readTrialBalanceSource(bytes: Uint8Array, ctx: ReadContext, xlsx
   const choice = selectTrialBalanceSheet(workbookSheets(xlsx, wb), ctx.periodYear);
   if (!choice.ok) return unreadable(ctx, null, choice.issue);
   return ingestTrialBalance({ rows: choice.sheet.rows, sheetName: choice.sheet.name, periodYear: ctx.periodYear, currency: ctx.currency });
+}
+
+// ── With a confirmed layout ──────────────────────────────────────────────────────────────────────────────────────────
+
+export interface LayoutRead { result: IngestResult; resolved: ResolvedLayout | null }
+
+/** The rows of every sheet (workbook) or the one CSV table, for the layout editor and for layout validation. */
+export type SourceTables = { ok: true; kind: "csv" | "workbook"; sheets: WorkbookSheet[] } | { ok: false; issue: IngestIssue };
+
+export function readSourceTables(bytes: Uint8Array, fileName: string, xlsx: XlsxLike): SourceTables {
+  const format = detectSourceFormat(fileName);
+  if (format === "unknown") return { ok: false, issue: { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: "Upload the trial balance as .xlsx, .xls or .csv." } };
+  if (format === "csv") {
+    const decoded = decodeCsvBytes(bytes);
+    if (!decoded.ok) return { ok: false, issue: decoded.issue };
+    const parsed = parseCsvText(decoded.text);
+    if (!parsed.ok) return { ok: false, issue: parsed.issue };
+    return { ok: true, kind: "csv", sheets: [{ name: "", rows: parsed.rows }] };
+  }
+  try {
+    return { ok: true, kind: "workbook", sheets: workbookSheets(xlsx, xlsx.read(bytes, { type: "array", cellDates: false })) };
+  } catch {
+    return { ok: false, issue: { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: "The workbook could not be opened. Save it again from Excel as .xlsx and upload it." } };
+  }
+}
+
+/**
+ * Bytes → ingest result under a confirmed layout: the layout's sheet (exactly that name, or the CSV table), its header
+ * row and columns, its number format. Every row of that table gets a disposition. Nothing is detected or guessed.
+ */
+export function readTrialBalanceSourceWithLayout(bytes: Uint8Array, ctx: ReadContext, xlsx: XlsxLike, profile: LayoutProfile, profileHash: string): LayoutRead {
+  const tables = readSourceTables(bytes, ctx.fileName, xlsx);
+  if (!tables.ok) return { result: unreadable(ctx, null, tables.issue), resolved: null };
+  let sheet: WorkbookSheet | undefined;
+  if (tables.kind === "csv" && profile.sheet.kind === "csv") sheet = tables.sheets[0];
+  if (tables.kind === "workbook" && profile.sheet.kind === "sheet") {
+    const name = profile.sheet.name;
+    sheet = tables.sheets.find((s) => s.name === name);
+  }
+  if (!sheet) {
+    const wanted = profile.sheet.kind === "csv" ? "a CSV file" : `a sheet named “${profile.sheet.name}”`;
+    return { result: unreadable(ctx, null, { code: "LAYOUT_SHEET_NOT_FOUND", severity: "blocking", message: `The confirmed layout is for ${wanted}, which this file does not have. Check the file, or confirm a new layout.` }), resolved: null };
+  }
+  return ingestWithLayout({ rows: sheet.rows, sheetName: tables.kind === "csv" ? null : sheet.name, periodYear: ctx.periodYear, currency: ctx.currency }, profile, profileHash);
 }
