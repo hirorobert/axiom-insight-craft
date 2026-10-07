@@ -446,6 +446,7 @@ jobs:
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/layout_proof
         run: |
           createdb layout_proof
+          git fetch --no-tags --depth=1 origin 553d54cac9921cfc7b2698842bd4fff2a6be8f1b
           bun scripts/db-proof/layoutAuthority.mjs
 
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
