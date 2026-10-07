@@ -2074,10 +2074,81 @@ export type Database = {
           },
         ]
       }
+      engine_run_dependencies: {
+        Row: {
+          dep_key: string
+          engine_run_id: string
+          revision: number
+          scope: string
+        }
+        Insert: {
+          dep_key: string
+          engine_run_id: string
+          revision: number
+          scope: string
+        }
+        Update: {
+          dep_key?: string
+          engine_run_id?: string
+          revision?: number
+          scope?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engine_run_dependencies_engine_run_id_fkey"
+            columns: ["engine_run_id"]
+            isOneToOne: false
+            referencedRelation: "engine_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      engine_run_events: {
+        Row: {
+          attempt_no: number | null
+          code: string | null
+          company_id: string
+          engine_run_id: string
+          from_status: string | null
+          id: number
+          occurred_at: string
+          to_status: string
+        }
+        Insert: {
+          attempt_no?: number | null
+          code?: string | null
+          company_id: string
+          engine_run_id: string
+          from_status?: string | null
+          id?: number
+          occurred_at?: string
+          to_status: string
+        }
+        Update: {
+          attempt_no?: number | null
+          code?: string | null
+          company_id?: string
+          engine_run_id?: string
+          from_status?: string | null
+          id?: number
+          occurred_at?: string
+          to_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engine_run_events_engine_run_id_fkey"
+            columns: ["engine_run_id"]
+            isOneToOne: false
+            referencedRelation: "engine_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       engine_runs: {
         Row: {
           actor_type: string
           actor_user_id: string | null
+          attempt_no: number | null
           company_id: string
           completed_at: string | null
           created_at: string
@@ -2090,6 +2161,7 @@ export type Database = {
           function_name: string
           id: string
           input_hash: string | null
+          lease_expires_at: string | null
           output_hash: string | null
           period_year: number | null
           request_id: string | null
@@ -2102,6 +2174,7 @@ export type Database = {
         Insert: {
           actor_type: string
           actor_user_id?: string | null
+          attempt_no?: number | null
           company_id: string
           completed_at?: string | null
           created_at?: string
@@ -2114,6 +2187,7 @@ export type Database = {
           function_name: string
           id?: string
           input_hash?: string | null
+          lease_expires_at?: string | null
           output_hash?: string | null
           period_year?: number | null
           request_id?: string | null
@@ -2126,6 +2200,7 @@ export type Database = {
         Update: {
           actor_type?: string
           actor_user_id?: string | null
+          attempt_no?: number | null
           company_id?: string
           completed_at?: string | null
           created_at?: string
@@ -2138,6 +2213,7 @@ export type Database = {
           function_name?: string
           id?: string
           input_hash?: string | null
+          lease_expires_at?: string | null
           output_hash?: string | null
           period_year?: number | null
           request_id?: string | null
@@ -5626,6 +5702,27 @@ export type Database = {
           },
         ]
       }
+      tb_dependency_revisions: {
+        Row: {
+          changed_at: string
+          dep_key: string
+          revision: number
+          scope: string
+        }
+        Insert: {
+          changed_at?: string
+          dep_key: string
+          revision: number
+          scope: string
+        }
+        Update: {
+          changed_at?: string
+          dep_key?: string
+          revision?: number
+          scope?: string
+        }
+        Relationships: []
+      }
       tb_reprocess_requests: {
         Row: {
           actor_user_id: string
@@ -5879,6 +5976,7 @@ export type Database = {
           accounting_errors: Json | null
           company_id: string | null
           company_name: string | null
+          current_engine_run_id: string | null
           engagement_id: string | null
           file_name: string
           file_path: string
@@ -5890,6 +5988,7 @@ export type Database = {
           period_id: string | null
           period_year: number | null
           processed_at: string | null
+          processing_attempt: number
           processing_result: Json | null
           replaces_upload_id: string | null
           retired_at: string | null
@@ -5909,6 +6008,7 @@ export type Database = {
           accounting_errors?: Json | null
           company_id?: string | null
           company_name?: string | null
+          current_engine_run_id?: string | null
           engagement_id?: string | null
           file_name: string
           file_path: string
@@ -5920,6 +6020,7 @@ export type Database = {
           period_id?: string | null
           period_year?: number | null
           processed_at?: string | null
+          processing_attempt?: number
           processing_result?: Json | null
           replaces_upload_id?: string | null
           retired_at?: string | null
@@ -5939,6 +6040,7 @@ export type Database = {
           accounting_errors?: Json | null
           company_id?: string | null
           company_name?: string | null
+          current_engine_run_id?: string | null
           engagement_id?: string | null
           file_name?: string
           file_path?: string
@@ -5950,6 +6052,7 @@ export type Database = {
           period_id?: string | null
           period_year?: number | null
           processed_at?: string | null
+          processing_attempt?: number
           processing_result?: Json | null
           replaces_upload_id?: string | null
           retired_at?: string | null
@@ -5971,6 +6074,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_balance_uploads_current_engine_run_id_fkey"
+            columns: ["current_engine_run_id"]
+            isOneToOne: false
+            referencedRelation: "engine_runs"
             referencedColumns: ["id"]
           },
           {
@@ -7035,6 +7145,16 @@ export type Database = {
         Returns: Json
       }
       _seat_capacity_for_account: { Args: { p_account: string }; Returns: Json }
+      _tb_abandon_run: {
+        Args: { p_code: string; p_run_id: string }
+        Returns: boolean
+      }
+      _tb_attempt_writer: { Args: { p_on: boolean }; Returns: undefined }
+      _tb_attempt_writer_active: { Args: never; Returns: boolean }
+      _tb_bump_dependency: {
+        Args: { p_key: string; p_scope: string }
+        Returns: undefined
+      }
       _title_capability_template: {
         Args: { p_title: string }
         Returns: string[]
@@ -8414,6 +8534,27 @@ export type Database = {
         Returns: Json
       }
       submit_service_enquiry: { Args: { p_request: Json }; Returns: Json }
+      tb_begin_attempt: {
+        Args: {
+          p_actor_type: string
+          p_actor_user_id: string
+          p_client_request_id: string
+          p_engine_generation: number
+          p_engine_version: string
+          p_firm_member_id: string
+          p_input_hash: string
+          p_lease_seconds: number
+          p_request_hash: string
+          p_source_file_hash: string
+          p_upload_id: string
+        }
+        Returns: Json
+      }
+      tb_expire_attempts: { Args: never; Returns: number }
+      tb_finalize_attempt: {
+        Args: { p_engine_run_id: string; p_result: Json }
+        Returns: Json
+      }
       tb_official_output_lock: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: undefined
@@ -8423,6 +8564,20 @@ export type Database = {
         Returns: boolean
       }
       tb_require_read_committed: { Args: never; Returns: undefined }
+      tb_run_authoritative: {
+        Args: { p_engine_run_id: string }
+        Returns: boolean
+      }
+      tb_run_dependencies_current: {
+        Args: { p_engine_run_id: string }
+        Returns: boolean
+      }
+      tb_snapshot_dependencies: {
+        Args: { p_engine_run_id: string; p_keys: Json }
+        Returns: Json
+      }
+      tb_upload_attempts: { Args: { p_upload_id: string }; Returns: Json }
+      tb_upload_authority: { Args: { p_upload_id: string }; Returns: Json }
       tbu_abort_discard: {
         Args: {
           p_actor: string
