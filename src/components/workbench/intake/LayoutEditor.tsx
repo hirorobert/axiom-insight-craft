@@ -45,6 +45,8 @@ export function LayoutEditor(p: {
   const [conflict, setConflict] = useState<{ what: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState("");
+  // Several plausible number formats give different values: the person must confirm the declared one explicitly.
+  const [formatConfirmed, setFormatConfirmed] = useState(false);
 
   const inspect = inspected.state.status === "ready" && inspected.state.value.kind === "ok" ? inspected.state.value.value : null;
   const kind = inspect?.kind ?? "csv";
@@ -69,7 +71,8 @@ export function LayoutEditor(p: {
   const headers = headerCells(sheet, draft.headerRow);
   const problems = draftProblems(draft, kind);
   const profile = toProfile(draft, kind);
-  const change = (next: Partial<LayoutDraft>) => { setDraft({ ...draft, ...next }); setReport(null); setNotice(null); };
+  const change = (next: Partial<LayoutDraft>) => { setDraft({ ...draft, ...next }); setReport(null); setNotice(null); setFormatConfirmed(false); };
+  const formatAmbiguous = !!report?.numberFormats?.ambiguous;
   const setRole = (role: ColumnRole, header: string) => change({ columns: { ...draft.columns, [role]: header || null } });
   const evidence = sheet?.numberFormats;
   const balanceOnly = !!draft.columns.balance && !(draft.columns.debit && draft.columns.credit);
@@ -94,7 +97,7 @@ export function LayoutEditor(p: {
     if (!profile) return;
     setBusy("confirm");
     try {
-      const v = handle(await p.client.confirm(p.uploadId, profile, answer.value.currentConfirmationNo, template?.id ?? null), "this file's layout");
+      const v = handle(await p.client.confirm(p.uploadId, profile, answer.value.currentConfirmationNo, template?.id ?? null, formatAmbiguous && formatConfirmed), "this file's layout");
       if (v) {
         setReport(v.report);
         setNotice(v.unchanged || v.replay ? `This layout was already confirmed for this file (confirmation ${v.confirmationNo}).` : `Layout confirmed for this file (confirmation ${v.confirmationNo}). Run a new check to read the trial balance with it.`);
@@ -218,11 +221,30 @@ export function LayoutEditor(p: {
         <ul aria-label="Still needed" className="list-disc pl-5 text-sm text-muted-foreground">{problems.map((x) => <li key={x}>{x}</li>)}</ul>
       ) : null}
 
+      {report && formatAmbiguous ? (
+        <div role="group" aria-labelledby={`${ids.format}-amb`} className="rounded-md border border-[#7a4a00] bg-[#fdf8ee] p-3 text-sm text-[#5c3800]" data-testid="number-format-ambiguity">
+          <p id={`${ids.format}-amb`} className="font-semibold"><span aria-hidden="true">! </span>These amounts can be read in more than one way, with different values.</p>
+          <ul className="mt-1 list-disc pl-5">
+            {(report.numberFormats?.examples ?? []).map((e) => (
+              <li key={`${e.row}-${e.column}`}>
+                Row {e.row} ({e.column}) “{e.text}”: {Object.entries(e.readings).map(([f, val]) => `${val} as ${NUMBER_FORMAT_CHOICES.find((c) => c.id === f)?.example ?? f}`).join(" · ")}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 flex items-start gap-2">
+            <input id={`${ids.format}-ack`} type="checkbox" checked={formatConfirmed} onChange={(e) => setFormatConfirmed(e.target.checked)} />
+            <label htmlFor={`${ids.format}-ack`}>
+              I confirm the amounts are written as <span className="font-mono">{NUMBER_FORMAT_CHOICES.find((c) => c.id === report.numberFormats?.declared)?.example}</span> — the whole file was checked in this format.
+            </label>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap gap-2">
         <button type="button" className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" disabled={!profile || busy !== null} onClick={validate} data-testid="layout-validate">
           {busy === "validate" ? "Checking the whole file…" : "Check against the whole file"}
         </button>
-        <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" disabled={!report?.layoutFits || busy !== null} onClick={() => setConfirming(true)} data-testid="layout-confirm">
+        <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" disabled={!report?.layoutFits || (formatAmbiguous && !formatConfirmed) || busy !== null} onClick={() => setConfirming(true)} data-testid="layout-confirm">
           Confirm layout for this file
         </button>
         {report ? <button type="button" className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" onClick={() => setReportOpen(true)} data-report-trigger>Open the report</button> : null}

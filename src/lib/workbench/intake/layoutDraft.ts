@@ -53,7 +53,9 @@ export function draftFromSuggestion(sheet: InspectSheet): LayoutDraft {
   }
   const dims = sheet.suggestion?.columns.dimensions;
   const evidence = sheet.numberFormats;
-  const numberFormat = evidence.textCells === 0 ? "comma_dot" : !evidence.ambiguous && evidence.consistent.length > 0 ? evidence.consistent[0] : null;
+  // Pre-selected only from real evidence that allows exactly one reading of every amount. No text amounts (no evidence)
+  // or several readings with different values: the person chooses explicitly.
+  const numberFormat = evidence.textCells > 0 && !evidence.ambiguous && evidence.consistent.length > 0 ? evidence.consistent[0] : null;
   return {
     sheetName: sheet.name, headerRow: sheet.suggestion?.headerRow ?? null, columns,
     dimensions: dims ? dims.split(", ").filter(Boolean) : [], numberFormat, balanceSign: null,
