@@ -177,6 +177,26 @@ async function main() {
     const c = await L(U.outsider, { action: "validate", uploadId: euro.id, layout: EURO_LAYOUT });
     return a.http === 401 && b.http === 403 && c.http === 403 && (await confirmations(euro.id)).length === 0 ? true : [a.http, b.http, c.http];
   });
+  await check("another workspace's owner: inspect, validate and confirm are each refused 403 with the same body; the stored file is never read; nothing is recorded or changed", async () => {
+    const reads = [];
+    const realGet = shim.storage.get.bind(shim.storage);
+    shim.storage.get = (k) => { reads.push(k); return realGet(k); };
+    const before = JSON.stringify(await one("SELECT status, processing_attempt, source_file_hash, current_engine_run_id FROM public.trial_balance_uploads WHERE id=$1", [euro.id]));
+    const counts = async () => JSON.stringify(await one("SELECT (SELECT count(*) FROM public.layout_confirmations)::int c, (SELECT count(*) FROM public.layout_templates)::int t, (SELECT count(*) FROM public.engine_runs)::int r"));
+    const n0 = await counts();
+    let rs;
+    try {
+      rs = [
+        await L(U.ownerB, { action: "inspect", uploadId: euro.id }),
+        await L(U.ownerB, { action: "validate", uploadId: euro.id, layout: EURO_LAYOUT }),
+        await L(U.ownerB, { action: "confirm", uploadId: euro.id, layout: EURO_LAYOUT, expectedConfirmationNo: 0, numberFormatConfirmed: true }),
+      ];
+    } finally { shim.storage.get = realGet; }
+    const after = JSON.stringify(await one("SELECT status, processing_attempt, source_file_hash, current_engine_run_id FROM public.trial_balance_uploads WHERE id=$1", [euro.id]));
+    const bodies = new Set(rs.map((r) => JSON.stringify(r.body)));
+    return rs.every((r) => r.http === 403) && bodies.size === 1 && reads.length === 0 && before === after && (await counts()) === n0
+      ? true : { http: rs.map((r) => r.http), bodies: [...bodies], reads, before, after };
+  });
   await check("validate: the layout fits, every row has a disposition, exact totals; nothing is written", async () => {
     const r = await L(U.viewer, { action: "validate", uploadId: euro.id, layout: EURO_LAYOUT });
     const rep = r.body?.report;
