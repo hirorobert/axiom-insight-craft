@@ -50,6 +50,8 @@ export const REVIEWED_SCOPE = "Debit and credit totals agree and every account c
 export const STATEMENT_EQUATION_NOTE_ID = "statement_equation";
 /** That row's one neutral explanation (no state word beside it: it is neither passed nor "not checked yet"). */
 export const EQUATION_VERIFICATION_UNAVAILABLE = "Exact equation verification unavailable for this legacy result.";
+/** The statement equation proven by the stored result's exact amounts (tb-amounts/1, recomputed on read). */
+export const EQUATION_HOLDS_EXACTLY = "Holds exactly: assets equal liabilities + equity + income − expenses, to the minor unit.";
 
 /**
  * Recorded totals in integer minor units (cents). Every subtraction and comparison is done on these safe integers —
@@ -395,15 +397,19 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
   // What the stored result itself recorded about the statement equation (passed === false, or an unreadable value) holds
   // the result even where the certification carries no layer-3 exception: the layer-3 row shows it, never reviewed. The
   // same reading feeds the Overview and hub (fetchWorkspaceSnapshot → computeCertificationReadiness), so they agree.
-  const storedEquationHold = recordedEquationHold(readRecordedEquation(upload?.processing_result));
+  const recordedEquation = readRecordedEquation(upload?.processing_result);
+  const storedEquationHold = recordedEquationHold(recordedEquation);
   const checks = CHECK_PRECEDENCE.flatMap((id) => layerChecks.filter((c) => c.id === id)).map((c) => plainCheck(c, totals))
     .map((c) => (c.id === "l3_arithmetic" && c.state === "passed" && storedEquationHold
       ? { ...c, label: LAYER3_LABEL.equation, state: "review" as const, detail: storedEquationHold }
       : c));
   const l3 = checks.find((c) => c.id === "l3_arithmetic") ?? null;
-  // The statement equation, when nothing recorded it as failed: listed for information as not exactly verified.
+  // The statement equation, when nothing recorded it as failed: proven exactly by the stored result's exact amounts, or
+  // (a legacy result) listed for information as not exactly verified.
   const equationNote: TrialBalanceCheck[] = l3?.state === "passed"
-    ? [{ id: STATEMENT_EQUATION_NOTE_ID, label: LAYER3_LABEL.equation, state: "pending", detail: EQUATION_VERIFICATION_UNAVAILABLE, neutral: true }]
+    ? [recordedEquation === "exact"
+      ? { id: STATEMENT_EQUATION_NOTE_ID, label: LAYER3_LABEL.equation, state: "passed", detail: EQUATION_HOLDS_EXACTLY }
+      : { id: STATEMENT_EQUATION_NOTE_ID, label: LAYER3_LABEL.equation, state: "pending", detail: EQUATION_VERIFICATION_UNAVAILABLE, neutral: true }]
     : [];
   const informational = [...equationNote, ...layerChecks.filter((c) => c.id in INFO_TEXT).map((c) => plainCheck(c, totals))];
   const failed = checks.find((c) => c.state === "failed") ?? checks.find((c) => c.state === "review") ?? null;

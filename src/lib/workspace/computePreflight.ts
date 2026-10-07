@@ -7,6 +7,8 @@
  * Iron Dome: null means NOT COMPUTED. Never default to zero or to pass.
  */
 
+import { formatMinorString, readRecordedAmounts } from "../accounting/tbAmounts";
+
 export type PreflightCheckState = "passed" | "failed" | "review" | "pending";
 
 export interface PreflightCheck {
@@ -104,7 +106,27 @@ export function computePreflight(input: PreflightInput | null): PreflightResult 
   // 3 — Statement equation. This can only be evaluated after every account has
   // a classification. It is not an upload-integrity prerequisite: Dr = Cr is.
   const eq = report?.balance_sheet_equation ?? null;
-  if (eq) {
+  // Since E1 the stored result carries exact amounts (tb-amounts/1); when present they alone decide, recomputed on read.
+  const recordedAmounts = readRecordedAmounts(input.processingResult);
+  if (recordedAmounts.state === "exact") {
+    const a = recordedAmounts.amounts;
+    const balanced = a.equation.status === "balanced";
+    checks.push({
+      id: "bs_equation",
+      label: "Statement equation",
+      state: balanced ? "passed" : "review",
+      detail: balanced
+        ? "Assets equal liabilities + equity + income − expenses, exactly."
+        : `Out by ${formatMinorString(a.equation.difference_minor, a.exponent)} ${a.currency} — the recorded amounts do not satisfy the equation.`,
+    });
+  } else if (recordedAmounts.state === "malformed") {
+    checks.push({
+      id: "bs_equation",
+      label: "Statement equation",
+      state: "review",
+      detail: "Result unavailable: the recorded exact amounts could not be read.",
+    });
+  } else if (eq) {
     checks.push({
       id: "bs_equation",
       label: "Statement equation",
