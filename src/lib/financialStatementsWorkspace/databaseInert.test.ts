@@ -224,8 +224,16 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/process-trial-balance/functionpath/import_map.json",
       // ...and the mixed-version probe (the same doubles over the release scenarios, for scripts/compat/tbMixedVersions.mjs).
       "supabase/functions/process-trial-balance/functionpath/compatProbe.ts",
+      // I1-A A1 (20261009100000): currency-registry/1 and explicit reporting periods — a NEW forward-only migration pending
+      // hosted application (its preflight refuses incompatible data; nothing is backfilled or repaired) — and the engine's
+      // copy of the registry (generated; parity-tested with the browser copy and the migration seed).
+      "supabase/migrations/20261009100000_currency_registry_and_reporting_periods.sql",
+      "supabase/functions/_shared/currencyRegistry.ts",
     ]);
     const modified = new Set([
+      // I1-A A1: the ingestion core reads its exponents from currency-registry/1 (every previously supported currency keeps
+      // its exponent; characterization-tested).
+      "supabase/functions/_shared/tbIngestion.ts",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
       "supabase/functions/_shared/serviceEnquiryHandler.ts",
@@ -383,6 +391,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/lib/releaseBase.mjs", "scripts/release/renderRelease2026_10.mjs",
       // This guard's own fail-closed base resolver and exact-file review (no deploy behaviour), and the CI check that the
       // guard executed with zero skipped tests.
+      // I1-A A1 (20261009100000): the loopback-only real-PostgreSQL proof of periods and currency. No deploy behaviour.
+      "scripts/db-proof/periodsAuthority.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
