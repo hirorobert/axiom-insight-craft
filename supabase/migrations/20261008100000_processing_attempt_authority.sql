@@ -483,6 +483,7 @@ DECLARE
   v_started timestamptz;
   v_key_id uuid;
   v_attempt integer;
+  v_constraint text;
 BEGIN
   IF p_upload_id IS NULL OR p_client_request_id IS NULL OR p_request_hash IS NULL OR p_engine_version IS NULL THEN
     RAISE EXCEPTION 'INVALID_REQUEST' USING ERRCODE = '22023';
@@ -546,22 +547,32 @@ BEGIN
 
   PERFORM public._tb_attempt_writer(true);
   v_attempt := v_row.processing_attempt + 1;
-  INSERT INTO public.engine_runs (company_id, firm_member_id, actor_user_id, actor_type, function_name, engine_version,
-                                  engine_generation, input_hash, period_year, source_table, source_record_id, attempt_no,
-                                  lease_expires_at)
-  VALUES (v_row.company_id, p_firm_member_id, p_actor_user_id, p_actor_type, 'process-trial-balance', p_engine_version,
-          p_engine_generation, p_input_hash, v_row.period_year, 'trial_balance_uploads', p_upload_id, v_attempt,
-          now() + make_interval(secs => p_lease_seconds))
-  RETURNING id, started_at INTO v_run, v_started;
-  INSERT INTO public.idempotency_keys (company_id, firm_member_id, actor_user_id, actor_type, function_name,
-                                       client_request_id, request_hash, input_hash, engine_run_id)
-  VALUES (v_row.company_id, p_firm_member_id, p_actor_user_id, p_actor_type, 'process-trial-balance',
-          p_client_request_id, p_request_hash, p_input_hash, v_run)
-  RETURNING id INTO v_key_id;
-  UPDATE public.trial_balance_uploads t
-     SET current_engine_run_id = v_run, processing_attempt = v_attempt, status = 'validating',
-         source_file_hash = coalesce(t.source_file_hash, p_source_file_hash)
-   WHERE t.id = p_upload_id;
+  -- The run, its key and the upload's pointer are one unit: the same request id claimed concurrently for ANOTHER upload
+  -- (the per-upload lock above does not serialize that) loses on uq_ik_claim and is a recorded conflict, with nothing left
+  -- behind — never a raw error.
+  BEGIN
+    INSERT INTO public.engine_runs (company_id, firm_member_id, actor_user_id, actor_type, function_name, engine_version,
+                                    engine_generation, input_hash, period_year, source_table, source_record_id, attempt_no,
+                                    lease_expires_at)
+    VALUES (v_row.company_id, p_firm_member_id, p_actor_user_id, p_actor_type, 'process-trial-balance', p_engine_version,
+            p_engine_generation, p_input_hash, v_row.period_year, 'trial_balance_uploads', p_upload_id, v_attempt,
+            now() + make_interval(secs => p_lease_seconds))
+    RETURNING id, started_at INTO v_run, v_started;
+    INSERT INTO public.idempotency_keys (company_id, firm_member_id, actor_user_id, actor_type, function_name,
+                                         client_request_id, request_hash, input_hash, engine_run_id)
+    VALUES (v_row.company_id, p_firm_member_id, p_actor_user_id, p_actor_type, 'process-trial-balance',
+            p_client_request_id, p_request_hash, p_input_hash, v_run)
+    RETURNING id INTO v_key_id;
+    UPDATE public.trial_balance_uploads t
+       SET current_engine_run_id = v_run, processing_attempt = v_attempt, status = 'validating',
+           source_file_hash = coalesce(t.source_file_hash, p_source_file_hash)
+     WHERE t.id = p_upload_id;
+  EXCEPTION WHEN unique_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint IS DISTINCT FROM 'uq_ik_claim' THEN RAISE; END IF;
+    PERFORM public._tb_attempt_writer(false);
+    RETURN jsonb_build_object('outcome', 'conflict', 'code', 'IDEMPOTENCY_KEY_REUSED');
+  END;
   PERFORM public._tb_attempt_writer(false);
 
   RETURN jsonb_build_object('outcome', 'claimed', 'engine_run_id', v_run, 'key_id', v_key_id, 'started_at', v_started,
@@ -819,7 +830,8 @@ BEGIN
   -- Only a signed-in person who can read this upload's workspace (the same answer for "absent" and "not yours").
   IF auth.uid() IS NULL OR v_row.id IS NULL OR NOT (
        (v_row.company_id IS NOT NULL AND public.tbu_can_read_prepare(v_row.company_id))
-    OR EXISTS (SELECT 1 FROM public.firm_members fm WHERE fm.user_id = auth.uid() AND fm.company_id = v_row.company_id AND fm.accepted_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM public.firm_members fm WHERE fm.user_id = auth.uid() AND fm.company_id = v_row.company_id AND fm.accepted_at IS NOT NULL
+                  AND public.named_user_access_active(fm.company_id, fm.user_id))
     OR (v_row.company_id IS NULL AND v_row.user_id = auth.uid())) THEN
     RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
   END IF;
@@ -863,7 +875,8 @@ BEGIN
   SELECT * INTO v_row FROM public.trial_balance_uploads t WHERE t.id = p_upload_id;
   IF auth.uid() IS NULL OR v_row.id IS NULL OR NOT (
        (v_row.company_id IS NOT NULL AND public.tbu_can_read_prepare(v_row.company_id))
-    OR EXISTS (SELECT 1 FROM public.firm_members fm WHERE fm.user_id = auth.uid() AND fm.company_id = v_row.company_id AND fm.accepted_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM public.firm_members fm WHERE fm.user_id = auth.uid() AND fm.company_id = v_row.company_id AND fm.accepted_at IS NOT NULL
+                  AND public.named_user_access_active(fm.company_id, fm.user_id))
     OR (v_row.company_id IS NULL AND v_row.user_id = auth.uid())) THEN
     RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
   END IF;

@@ -1550,6 +1550,21 @@ serve(async (req) => {
       if (refusal) { attemptFinished = true; return refusal; }
       throw new Error(`tb_snapshot_dependencies failed: ${snapshotError.message}`);
     }
+    // The reporting currency was read before the attempt began (ingestion needs it): read it again now that its
+    // revision is recorded. A change in between would otherwise certify amounts parsed in the old currency against the
+    // new currency's revision — so a different answer fails the attempt (DEPENDENCY_CHANGED), nothing certified.
+    const currencyAfterSnapshot = await resolveReportingCurrency(supabase as never, upload as { company_id?: string | null; period_id?: string | null; engagement_id?: string | null });
+    if (currencyAfterSnapshot !== reportingCurrency) {
+      const changed = { code: "DEPENDENCY_CHANGED", message: "The period's reporting currency changed while this check ran. Run the check again." };
+      attemptFinished = true;
+      const done = await finishAttempt(supabase as never, runId, {
+        outcome: "failed", errorCode: "DEPENDENCY_CHANGED",
+        upload: { status: "error", is_valid: false, accounting_errors: [changed], validation_report: null,
+                  processing_result: { status: "blocked", statements: null, errors: [changed], validation_report: {} } },
+      });
+      if (!done.ok) return done.response;
+      return jsonResponse({ status: "blocked", ...changed }, 409);
+    }
 
     // ── STEP 5: Load account_mappings (company-scoped + global) and keyword_dictionary ──
     // All data fetched ONCE; all matching is in-memory (no per-account DB queries).

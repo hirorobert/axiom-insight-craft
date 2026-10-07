@@ -524,6 +524,20 @@ async function main() {
     const cur = await one("SELECT revision FROM public.tb_dependency_revisions WHERE scope=$1 AND dep_key='code:1000'", [A]);
     return waited === "advisory" && Number(rec.revision) === Number(cur.revision) ? true : { waited, rec, cur };
   });
+  await check("one request id on two uploads at once: the second waits on the first's key, then answers conflict — nothing left behind", async () => {
+    const upX = await upload(A); const upY = await upload(A); const reqId = uuid();
+    const s1 = await session("service_role");
+    const r1 = (await s1.c.query("SELECT public.tb_begin_attempt($1,$2,'hx','i',$3,'v',2,'workspace_user',NULL,$4,600) r", [upX, reqId, SRC, U.owner])).rows[0].r;
+    const s2 = await session("service_role");
+    const p2 = s2.c.query("SELECT public.tb_begin_attempt($1,$2,'hy','i',$3,'v',2,'workspace_user',NULL,$4,600) r", [upY, reqId, SRC, U.owner]);
+    const waited = await waitBlocked(s2.pid);
+    await s1.end(true);
+    const r2 = (await p2).rows[0].r; await s2.end(true);
+    const y = await row(upY);
+    return r1.outcome === "claimed" && waited === "transactionid" && r2.outcome === "conflict" && r2.code === "IDEMPOTENCY_KEY_REUSED"
+      && (await count("SELECT count(*) n FROM public.engine_runs WHERE source_record_id=$1", [upY])) === 0
+      && y.current_engine_run_id === null && y.processing_attempt === 0 && y.status === "processing" ? true : { r1, waited, r2, y };
+  });
   await check("25 concurrent begins with distinct requests on one upload: exactly one claimed, the rest IN_PROGRESS", async () => {
     const up = await upload(A);
     const rs = await Promise.all(Array.from({ length: 25 }, () => begin(up)));
@@ -673,6 +687,17 @@ async function main() {
     const hist = await one("SELECT id, status FROM public.trial_balance_uploads WHERE lifecycle_state NOT IN ('active_unprocessed','active_processing','active_processed','blocked') AND status='validating' LIMIT 1");
     return hist !== undefined && hist.status === "validating" ? true : "no historical validating upload to observe";
   });
+
+  section("Status reads — a suspended named user is not a member");
+  {
+    // Last: the suspension changes what the viewer may see. Before it the viewer reads both; after it, NOT_FOUND.
+    const up = await upload(A); await certify(up, ["1000"]);
+    const before = (await asUser(U.viewer, "SELECT public.tb_upload_authority($1) r", [up]))[0].r;
+    await admin.query("INSERT INTO public.named_user_billing_suspensions (account_user_id, user_id, reason) VALUES ($1,$2,'OWNER_SELECTION')", [U.owner, U.viewer]);
+    await check("before the suspension the viewer reads the status", async () => (before.reason === "current" ? true : before));
+    await refused("tb_upload_authority answers NOT_FOUND to a suspended named user", "P0002", () => asUser(U.viewer, "SELECT public.tb_upload_authority($1)", [up]));
+    await refused("tb_upload_attempts answers NOT_FOUND to a suspended named user", "P0002", () => asUser(U.viewer, "SELECT public.tb_upload_attempts($1)", [up]));
+  }
 }
 
 let crashed = false;

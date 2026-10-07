@@ -441,6 +441,24 @@ Deno.test("E2 a dependency changed while running: the database fails the attempt
   assertEquals((w.tables.tb_certifications ?? []).length, 0);
 });
 
+Deno.test("E2 the reporting currency changed before the snapshot: re-read after it, the attempt fails DEPENDENCY_CHANGED, nothing certified", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED });
+  const real = w.rpc.tb_snapshot_dependencies;
+  w.rpc.tb_snapshot_dependencies = (a) => {
+    w.tables.fiscal_periods[0].reporting_currency = "KES"; // changed after ingestion read TZS, before this revision was recorded
+    return real(a);
+  };
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r.status, r.json.code], [409, "DEPENDENCY_CHANGED"]);
+  assertEquals((w.tables.tb_certifications ?? []).length, 0);
+  const finals = w.calls.filter((c) => c.target === "tb_finalize_attempt");
+  assertEquals(finals.length, 1);
+  const sent = (finals[0].payload as { p_result: { outcome: string; error_code: string } }).p_result;
+  assertEquals([sent.outcome, sent.error_code], ["failed", "DEPENDENCY_CHANGED"]);
+  assertEquals(w.calls.some((c) => c.kind === "select" && c.target === "account_mappings"), false); // no classification read
+  assertEquals(upload(w).status, "error");
+});
+
 Deno.test("E2 begin refusals answer without processing: hold (503), source changed, in progress, legacy upload outside a workspace", async () => {
   const held = setup({ csv: BALANCED, mappings: REVIEWED });
   held.rpc.tb_begin_attempt = () => ({ data: null, error: { code: "PT503", message: "PROCESSING_HELD" } });
