@@ -413,12 +413,12 @@ Deno.test("E2 nothing is written before the attempt begins; begin, snapshot, fin
   assertEquals(upload(w).status, "complete");
 });
 
-Deno.test("E2 the snapshot names every account by code and by name, in the company's and the shared scope, plus framework, currency, dictionary", async () => {
+Deno.test("E2 the snapshot names every account by code and by name, in the company's and the shared scope, plus framework, currency, dictionary and the upload's layout (A2)", async () => {
   const w = setup({ csv: BALANCED, mappings: REVIEWED });
   await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   const keys = (w.tables.engine_run_dependencies as { scope: string; dep_key: string }[]).map((d) => `${d.scope === COMPANY ? "C" : d.scope}|${d.dep_key}`).sort();
-  for (const k of ["C|code:1000", "global|code:1000", "C|name:cash at bank", "global|name:cash at bank", "C|#framework", "C|#currency", "global|#dictionary"]) assert(keys.includes(k), k);
-  assertEquals(keys.length, 4 * 4 + 3);
+  for (const k of ["C|code:1000", "global|code:1000", "C|name:cash at bank", "global|name:cash at bank", "C|#framework", "C|#currency", "global|#dictionary", `C|#layout_confirmation:${UPLOAD}`]) assert(keys.includes(k), k);
+  assertEquals(keys.length, 4 * 4 + 4);
 });
 
 Deno.test("E2 a preempted attempt (not current at finalize) records nothing and answers ATTEMPT_SUPERSEDED", async () => {
