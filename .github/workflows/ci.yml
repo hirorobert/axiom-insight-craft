@@ -409,6 +409,14 @@ jobs:
           createdb h2_proof
           bun scripts/db-proof/tbHandlerCharacterization.mjs
 
+      - name: H1 treatment authority and processing control proof (admin-only versioned control, database-enforced hold for every role, drain bound, numeric generation floor, the real handler refused while held and below the floor, treatment request identity TS = SQL, confirmation binding/replay/conflict/expiry; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/h1_proof
+        run: |
+          createdb h1_proof
+          bun scripts/db-proof/h1Authority.mjs
+
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

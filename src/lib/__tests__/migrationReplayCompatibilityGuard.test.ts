@@ -206,7 +206,9 @@ describe("migration directory integrity", () => {
     // 149 -> 147: S1 record — 20261004100000_reconciliation_server_authority.sql and 20261005100000_safisha_ingestion_authority.sql,
     // never applied to the hosted database, are quarantined to supabase/migrations_historical/ (PPG-1 precedent); 20261006100000
     // is applied (hosted 0028). No applied migration is edited.
-    expect(files.length).toBe(147);
+    // 147 -> 148: 20261007100000_treatment_authority_and_processing_control.sql (H1: processing release control and
+    // CONFIRM_ACCOUNT_TREATMENT), a NEW forward-only migration pending hosted application. No applied migration is edited.
+    expect(files.length).toBe(148);
   });
 });
 

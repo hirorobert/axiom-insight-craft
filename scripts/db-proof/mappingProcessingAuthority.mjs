@@ -243,8 +243,8 @@ async function main() {
   const files = migrationFiles();
   const cut = files.indexOf(S1_FILE);
   group("Setup — every migration before S1, then legacy state through the pre-S1 client paths");
-  await check(`${S1_FILE} is the last migration and every earlier one applies on an empty PostgreSQL`, async () => {
-    if (cut !== files.length - 1) return `S1 at ${cut} of ${files.length}`;
+  await check(`${S1_FILE} is in the chain and every earlier migration applies on an empty PostgreSQL`, async () => {
+    if (cut < 0) return `${S1_FILE} missing`;
     for (const f of files.slice(0, cut)) await applyMigration(f);
     return true;
   });
@@ -316,6 +316,13 @@ async function main() {
     const m = await mapRow(A, "1000");
     const enabled = (await admin.query("SELECT tgenabled FROM pg_trigger WHERE tgname='update_account_mappings_updated_at'")).rows[0].tgenabled;
     return m.updated_at.getTime() === before1000.updated_at.getTime() && m.line_item === before1000.line_item && enabled === "O";
+  });
+
+  // Every later migration (H1 onward) is applied before the behaviour groups, so S1's properties are proven on the whole
+  // current chain, not only on S1 alone.
+  await check("every migration after S1 applies on top (S1's properties below hold on the full current chain)", async () => {
+    for (const f of files.slice(cut + 1)) await applyMigration(f);
+    return true;
   });
 
   group("R6 — direct client mapping writes are refused for every role");
