@@ -390,6 +390,7 @@ src/
       routes.ts               ← Workbench groups/pages, canonical routes, legacy aliases (regroups deriveWorkspaceNavigation; never widens it)
       statusWords.ts          ← Server status → words + icon + AA colour (exhaustive over MissionStatus and AuthorityReason)
       context.ts              ← Company · period · report version (`v`) context; links carry it; changes are explicit
+      table.ts                ← Roving focus, batch eligibility (every selected row must qualify), search matching
     jurisdiction/
       registry.ts             ← Filing-jurisdiction registry: ISO codes, which services need one, which have a pack
       packLoader.ts           ← ONLY module allowed to import a pack (dynamic import() only)
@@ -449,6 +450,7 @@ src/
       WorkbenchNav.tsx        ← Five-group navigation + inline "Next open item" (behind the workbench gate)
       ConfirmDialog.tsx       ← Confirmation for material actions only: period, version, consequences, reason/acknowledgement
       SecondaryPanel.tsx      ← On-demand technical detail; focus in on open, back to the opener on close
+      DataTable.tsx           ← Workbench table: sticky header, tabular amounts, roving keyboard focus, guarded batch, value states, progressive rendering
     workspace/
       ServiceLaunchpad.tsx    ← "What would you like to complete?" (services from the canonical registry)
       DataChoiceCard.tsx      ← The one data question
