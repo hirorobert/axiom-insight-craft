@@ -106,12 +106,13 @@ describe("Prepare Data wiring", () => {
     expect(prep).toContain("useCertificationReadiness(companyId, periodYear, upload?.id, uploadSubjectKey(upload))");
     expect(prep).toMatch(/<TrialBalanceProgressLedger upload=\{upload\} failedCheckId=\{verdict\.failedCheckId\} \/>/);
   });
-  it("retry only re-runs the Edge Function; the page makes no financial write", () => {
+  it("retry only requests a new check through the one reprocess path; the page makes no financial write", () => {
     const [from, to] = [prep.indexOf("const handleRetry"), prep.indexOf("const onPrimary")];
     expect(from).toBeGreaterThan(0);
     expect(to).toBeGreaterThan(from);
     const retry = prep.slice(from, to);
-    expect(retry).toMatch(/functions\.invoke\("process-trial-balance"/);
+    expect(retry).toMatch(/requestReprocess\(supabase as unknown as ReprocessClient, upload\.id, \{ ensureFreshSession \}\)/);
+    expect(retry).not.toMatch(/functions\.invoke\(/);
     expect(retry).not.toMatch(/\.from\(|\.update\(|\.insert\(/);
   });
 });

@@ -1,30 +1,36 @@
 #!/usr/bin/env bun
-// H2 — the REAL process-trial-balance handler on REAL PostgreSQL (blueprint Revision 2, gate I-1 foundation).
+// H2/E1 — REAL process-trial-balance handlers on REAL PostgreSQL (blueprint Revision 2, gates I-1 and I-1a).
 //
-// The handler (supabase/functions/process-trial-balance/index.ts, unmodified; its SHA-256 is printed) runs through the
-// shared harness: only std serve, supabase-js and the esm.sh xlsx specifier are replaced (xlsx by the identical npm
-// version). Every database call executes on a disposable PostgreSQL migrated through the whole current chain (S1 included),
-// as the caller's real role, so RLS, grants, triggers and RPCs apply as deployed.
+// Handlers run through the shared harness: only std serve, supabase-js and the esm.sh xlsx specifier are replaced (xlsx by
+// the identical npm version). Every database call executes on a disposable PostgreSQL migrated through the whole current
+// chain (S1 and H1 included), as the caller's real role, so RLS, grants, triggers and RPCs apply as deployed.
 //
-// Two kinds of checks, reported separately:
-//   REQUIREMENT  behaviour that must be correct today (authorization, provenance consumption, replay, lifecycle refusal,
-//                exact ingestion, review routing). It must PASS.
-//   DEFECT PROBE a registered defect (scripts/db-proof/fixtures/h2-known-defects.json). The probe computes the CORRECT
-//                value from an independent oracle (bigint minor units, class-side table, written here — never read back
-//                from the engine) and the engine's observed value. It counts as "defect reproduced" only when the observed
-//                value equals the ledger's exact signature AND differs from the oracle. A probe that matches the oracle
-//                (silently fixed) or shows any other value FAILS the gate. Defective behaviour is never a pass.
+// Three handlers on the same database:
+//   CURRENT   supabase/functions/process-trial-balance/index.ts as committed (E1). Its SHA-256 is printed.
+//   PREVIOUS  the same function at the ledger's engine_commit (main before E1; SHA-256 must equal the ledger's).
+//   FAULTY    CURRENT with one injected fault in _shared/tbAmounts.ts (the equation's left side off by one minor unit),
+//             to prove the invariant path: run failed, nothing certified, upload never accepted.
+//
+// Checks, reported separately:
+//   REQUIREMENT  behaviour of CURRENT that must be correct (authorization, provenance, replay, lifecycle, exact ingestion,
+//                review routing, and every E1 rule on the defect fixtures, compared with an independent oracle: bigint
+//                minor units and a class-side table written here, never read back from the engine). It must PASS.
+//   DEFECT PROBE a registered defect of PREVIOUS (scripts/db-proof/fixtures/h2-known-defects.json), on the same fixtures.
+//                It counts as "defect reproduced" only when PREVIOUS's value equals the ledger's exact signature AND
+//                differs from the oracle — proof that each fixture genuinely exercises its defect. Never a pass.
 // Any exception, harness or database error, or a required check that did not run fails the gate (exit 1).
 //
 //   DB_PROOF_MODULES_DIR=<dir with pg + embedded-postgres> bun scripts/db-proof/tbHandlerCharacterization.mjs
 //   DB_PROOF_MODE=external DB_PROOF_CONN=postgres://… (a throwaway, EMPTY local database) also works.
-// It refuses every non-loopback host and the production project reference. No production code or schema is changed.
+// The ledger's engine_commit must be present locally (CI fetches it). It refuses every non-loopback host and the
+// production project reference. No production code or schema is changed.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { call, loadFunctionTree, mintTestJwt, shim } from "./lib/functionHarness.mjs";
+import { call, functionsAtCommit, loadFunctionTree, mintTestJwt, shim } from "./lib/functionHarness.mjs";
+import { validateTbAmounts } from "../../supabase/functions/_shared/tbAmounts.ts";
 import { currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
 import { classifyProbe, canon, gateVerdict, validateLedger } from "./lib/defectLedger.mjs";
 
@@ -40,7 +46,11 @@ const { Pool, Client } = req("pg");
 
 // ── Results: requirements and defect probes are separate classes ───────────────────────────────────────────────────
 const REQUIRED_REQUIREMENTS = ["REQ-AUTH-1", "REQ-AUTH-2", "REQ-AUTH-3", "REQ-HAPPY", "REQ-EXACT-TOTALS", "REQ-R5C", "REQ-REVIEW",
-  "REQ-PROV-UNLINKED", "REQ-PROV-GLOBAL", "REQ-TENANT", "REQ-REPLAY", "REQ-REPROCESS", "REQ-LIFECYCLE"];
+  "REQ-PROV-UNLINKED", "REQ-PROV-GLOBAL", "REQ-TENANT", "REQ-REPLAY", "REQ-REPROCESS", "REQ-LIFECYCLE",
+  // E1 (the current handler on the defect fixtures; each must equal the oracle)
+  "REQ-E1-AMOUNTS", "REQ-E1-CASH-ORDER-A", "REQ-E1-CASH-ORDER-B", "REQ-E1-TREATMENT", "REQ-E1-TREATMENT-REFUTED", "REQ-E1-CONTRA",
+  "REQ-E1-GENUINE-EQUATION", "REQ-E1-NONREPORTING-NONZERO", "REQ-E1-NONREPORTING-ZERO", "REQ-E1-PRECISION", "REQ-E1-INVARIANT",
+  "REQ-E1-GENERATION", "REQ-E1-REPROCESS-REQUIRED", "X-E1-INV"];
 const ledger = validateLedger(JSON.parse(fs.readFileSync(LEDGER_FILE, "utf8")));
 const REQUIRED_PROBES = ledger.defects.map((d) => d.probe);
 const results = { requirement: new Map(), probe: new Map() };
@@ -165,7 +175,22 @@ async function main() {
     try { await admin.query(t); } catch (e) { throw new Error(`migration ${f} failed: ${String(e.message).split("\n")[0]}`); }
   }
   const { handler, sourceSha256 } = await loadFunctionTree(REPO, "process-trial-balance");
-  console.log(`\n== Setup: ${files.length} migrations (S1 included); real handler process-trial-balance/index.ts sha256 ${sourceSha256}`);
+  const priorTree = await loadFunctionTree(REPO, "process-trial-balance", { functionsDir: functionsAtCommit(REPO, ledger.engine_commit, "process-trial-balance") });
+  if (priorTree.sourceSha256 !== ledger.handler_sha256) throw new Error(`previous handler at ${ledger.engine_commit} has sha256 ${priorTree.sourceSha256}, ledger records ${ledger.handler_sha256}`);
+  const prior = priorTree.handler;
+  // Fault injection: the equation's left side is off by exactly one minor unit; everything else is the current handler.
+  let faultApplied = 0;
+  const faulty = (await loadFunctionTree(REPO, "process-trial-balance", { patch: (rel, t) => {
+    if (rel !== "_shared/tbAmounts.ts") return t;
+    const at = "const lhs = sums.assets;";
+    if (t.split(at).length !== 2) throw new Error("fault injection: anchor not found exactly once");
+    faultApplied++;
+    return t.replace(at, "const lhs = sums.assets + 1n;");
+  } })).handler;
+  if (faultApplied !== 1) throw new Error("fault injection did not apply");
+  console.log(`\n== Setup: ${files.length} migrations (S1 and H1 included)`);
+  console.log(`   current handler  process-trial-balance/index.ts sha256 ${sourceSha256}`);
+  console.log(`   previous handler at ${ledger.engine_commit.slice(0, 12)} sha256 ${priorTree.sourceSha256} (ledger match)`);
 
   const U = { owner: uuid(), viewer: uuid(), outsider: uuid(), ownerB: uuid() };
   for (const [k, id] of Object.entries(U)) await admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [id, `${k}@example.test`]);
@@ -205,7 +230,8 @@ async function main() {
       : { account_code: code, account_name: name, proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION", statement: STATEMENT(cls), classification: cls, normal_balance: NORMAL[cls], ...extra }));
     await asUser(owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [company, up, uuid(), JSON.stringify(decisions)]);
   }
-  const runHandler = (uid, uploadId, clientRequestId = uuid()) => call(handler, pool, uid ? mintTestJwt(uid) : null, { uploadId, clientRequestId });
+  const runHandler = (uid, uploadId, clientRequestId = uuid(), h = handler) => call(h, pool, uid ? mintTestJwt(uid) : null, { uploadId, clientRequestId });
+  const runPrior = (uid, uploadId) => runHandler(uid, uploadId, uuid(), prior);
   const uploadRow = (id) => one("SELECT * FROM public.trial_balance_uploads WHERE id=$1", [id]);
   const certs = async (id) => (await admin.query("SELECT * FROM public.tb_certifications WHERE upload_id=$1 ORDER BY sequence_no", [id])).rows;
   const authoritative = async (company, year) => (await one("SELECT id FROM public.get_authoritative_certification($1,$2)", [company, year]))?.id ?? null;
@@ -307,7 +333,7 @@ async function main() {
   });
 
   // ── Defect probes (registered; reproduced ≠ pass) ─────────────────────────────────────────────────────────────────
-  console.log("\n== Defect probes (each must reproduce its exact ledger signature; never counted as a pass)");
+  console.log("\n== Defect probes: the PREVIOUS handler (each must reproduce its exact ledger signature; never counted as a pass)");
   // CASH3 (D6, D7): three reviewed cash accounts.
   const CASH3 = [["1100", "Cash A", "10,000.00", ""], ["1110", "Cash B", "20,000.00", ""], ["1120", "Cash C", "30,500.00", ""], ["3100", "Capital cash", "", "60,500.00"]];
   await review(U.owner, A, reviewUpload, [["1100", "Cash A", "current_assets", { is_cash_account: true }], ["1110", "Cash B", "current_assets", { is_cash_account: true }],
@@ -315,13 +341,13 @@ async function main() {
   const cashOracle = oracle(CASH3, {}, 2, { cash: ["1100", "1110", "1120"] });
   for (const [pid, year, rows] of [["D7-CASH-ORDER-A", 2008, CASH3], ["D7-CASH-ORDER-B", 2009, [CASH3[2], CASH3[1], CASH3[0], CASH3[3]]]]) {
     await probe(pid, async () => {
-      const id = await upload(A, year, csv(rows)); await runHandler(U.owner, id);
+      const id = await upload(A, year, csv(rows)); await runPrior(U.owner, id);
       const cr = (await uploadRow(id)).processing_result.validation_report.cash_reconciliation;
       return { observed: { cash_total: cr?.bs_cash ?? null }, oracle: { cash_total: Number(cashOracle.fmt(cashOracle.cashTotal)) } };
     });
   }
   await probe("D6-CASH-SELF-COMPARE", async () => {
-    const id = await upload(A, 2010, csv(CASH3)); await runHandler(U.owner, id);
+    const id = await upload(A, 2010, csv(CASH3)); await runPrior(U.owner, id);
     const cr = (await uploadRow(id)).processing_result.validation_report.cash_reconciliation;
     return { observed: { cash_reconciliation: cr ?? null }, oracle: { cash_reconciliation: null } };
   });
@@ -330,7 +356,7 @@ async function main() {
   const RESCUE = [["1200", "Closing stock", "", "5,000.00"], ["1210", "Bank rescue", "15,000.00", ""], ["3200", "Capital rescue", "", "10,000.00"]];
   await review(U.owner, A, reviewUpload, [["1200", "Closing stock", "current_assets"], ["1210", "Bank rescue", "current_assets"], ["3200", "Capital rescue", "equity"]]);
   await probe("D5-CLOSING-STOCK-RESCUE", async () => {
-    const id = await upload(A, 2011, csv(RESCUE)); await runHandler(U.owner, id);
+    const id = await upload(A, 2011, csv(RESCUE)); await runPrior(U.owner, id);
     const pr = (await uploadRow(id)).processing_result; const eq = pr.validation_report.balance_sheet_equation;
     const o = oracle(RESCUE, { 1200: "current_assets", 1210: "current_assets", 3200: "equity" }, 2);
     const inCogs = pr.statements.income_statement.cost_of_goods_sold.accounts.map((a) => [a.account_code, a.balance]);
@@ -344,7 +370,7 @@ async function main() {
   const contraOracle = oracle(CONTRA, { 2300: "current_liabilities", 2310: "current_liabilities", 1300: "current_assets" }, 2);
   let contraUpload = null;
   await probe("D8-CONTRA-SIGNING", async () => {
-    contraUpload = await upload(A, 2012, csv(CONTRA)); await runHandler(U.owner, contraUpload);
+    contraUpload = await upload(A, 2012, csv(CONTRA)); await runPrior(U.owner, contraUpload);
     const eq = (await uploadRow(contraUpload)).processing_result.validation_report.balance_sheet_equation;
     return { observed: { liabilities: eq.liabilities, difference: eq.difference }, oracle: { liabilities: Number(contraOracle.fmt(contraOracle.liability)), difference: 0 } };
   });
@@ -362,7 +388,7 @@ async function main() {
   const NONREP = [["1400", "Bank nonrep", "3,000.00", ""], ["1410", "Suspense nonrep", "250.00", ""], ["3400", "Capital nonrep", "", "3,250.00"]];
   await review(U.owner, A, reviewUpload, [["1400", "Bank nonrep", "current_assets"], ["3400", "Capital nonrep", "equity"], ["1410", "Suspense nonrep", "NON_REPORTING"]]);
   await probe("D1B-NONREPORTING-NONZERO", async () => {
-    const id = await upload(A, 2013, csv(NONREP)); await runHandler(U.owner, id);
+    const id = await upload(A, 2013, csv(NONREP)); await runPrior(U.owner, id);
     const row = await uploadRow(id); const cs = await certs(id);
     return { observed: { status: row.status, non_reporting: (row.processing_result.non_reporting_accounts ?? []).map((a) => a.account_code), authoritative: (await authoritative(A, 2013)) === cs.at(-1)?.id },
       oracle: { status: "needs_review", non_reporting: [], authoritative: false } };
@@ -372,11 +398,167 @@ async function main() {
   const BHD = [["1500", "Bank bhd", "10.000", ""], ["1510", "Suspense bhd", "1.235", ""], ["3500", "Capital bhd", "", "11.235"]];
   await review(U.owner, A, reviewUpload, [["1500", "Bank bhd", "current_assets"], ["3500", "Capital bhd", "equity"], ["1510", "Suspense bhd", "NON_REPORTING"]]);
   await probe("D10-EQUATION-MESSAGE-PRECISION", async () => {
-    const id = await upload(A, 2014, csv(BHD), { currency: "BHD" }); await runHandler(U.owner, id);
+    const id = await upload(A, 2014, csv(BHD), { currency: "BHD" }); await runPrior(U.owner, id);
     const c = (await certs(id)).at(-1);
     const msg = (c?.exceptions ?? []).find((e) => e.code === "BALANCE_SHEET_EQUATION_FAILED")?.message ?? null;
     const diff = msg ? /Difference: (-?[0-9.]+)/.exec(msg)?.[1] ?? null : null;
     return { observed: { difference_text: diff }, oracle: { difference_text: "1.235" } };
+  });
+
+  // Genuine equation failure (D1, independent of the contra case): a LEGACY reviewed mapping to a cash-flow class. S1
+  // refuses new ones, so the decision is seeded directly (decisions are insert-only) and the mapping linked by the service
+  // role through S1's provenance guard. The previous engine leaves its 500.00 out of the statements and certifies.
+  const GEN = [["1800", "Legacy investing", "500.00", ""], ["1810", "Bank gen", "1,500.00", ""], ["3800", "Capital gen", "", "2,000.00"]];
+  await review(U.owner, A, reviewUpload, [["1810", "Bank gen", "current_assets"], ["3800", "Capital gen", "equity"]]);
+  const genDecision = (await one(`INSERT INTO public.account_review_decisions (batch_id, company_id, upload_id, firm_member_id, account_code,
+      normalized_account_name, review_account_key, proposal_type, decision_action, new_value, reason)
+    SELECT batch_id, company_id, upload_id, firm_member_id, '1800', 'legacy investing', '1800', 'NONE', 'USER_MANUAL_CLASSIFICATION',
+      jsonb_build_object('mapping', public.account_mapping_content('cash_flow', 'operating_activities', 'Legacy investing', 'debit', false, false, false)),
+      'legacy classification (seeded)'
+    FROM public.account_review_decisions WHERE company_id=$1 AND review_account_key='1810' ORDER BY sequence_no DESC LIMIT 1 RETURNING id`, [A])).id;
+  await asService(`INSERT INTO public.account_mappings (user_id, company_id, account_code, account_name, statement, classification, line_item, normal_balance,
+      is_cash_account, is_retained_earnings, is_payroll_account, review_decision_id)
+    VALUES ($1,$2,'1800','Legacy investing','cash_flow','operating_activities','Legacy investing','debit',false,false,false,$3)`, [U.owner, A, genDecision]);
+  const genOracle = oracle(GEN, { 1810: "current_assets", 3800: "equity" }, 2);
+  if (genOracle.difference === 0n) throw new Error("genuine fixture: the oracle shows no equation failure");
+  await probe("D1G-GENUINE-EQUATION-FAILURE", async () => {
+    const id = await upload(A, 2030, csv(GEN)); await runPrior(U.owner, id);
+    const row = await uploadRow(id); const c = (await certs(id)).at(-1);
+    const failure = (c?.exceptions ?? []).find((e) => e.code === "BALANCE_SHEET_EQUATION_FAILED") ?? null;
+    return { observed: { authoritative: (await authoritative(A, 2030)) === c?.id, equation_failure_severity: failure?.severity ?? null, status: row.status },
+      oracle: { authoritative: false, equation_failure_severity: null, status: "needs_review" } };
+  });
+
+  // ── E1 requirements: the CURRENT handler on the same fixtures must equal the oracle ───────────────────────────────
+  console.log("\n== E1 requirements: the CURRENT handler (must equal the independent oracle)");
+  const amountsOk = (pr) => validateTbAmounts(pr?.amounts).ok === true;
+  const latestCert = async (id) => (await certs(id)).at(-1) ?? null;
+  const isAuthoritative = async (company, year, id) => { const c = await latestCert(id); return c !== null && (await authoritative(company, year)) === c.id; };
+
+  await req1("REQ-E1-AMOUNTS", async () => {
+    const pr = (await uploadRow(happy)).processing_result; const o = oracle(HAPPY, { 1000: "current_assets", 3000: "equity", 4000: "revenue", 6000: "operating_expenses" }, 2);
+    const cl = pr?.amounts?.classes; const src = pr?.amounts?.source;
+    return amountsOk(pr) && cl.assets_minor === o.asset.toString() && cl.equity_minor === o.equity.toString() && cl.income_minor === o.income.toString()
+      && cl.expenses_minor === o.expense.toString() && cl.liabilities_minor === o.liability.toString() && src.debit_total_minor === o.debit.toString()
+      && src.credit_total_minor === o.credit.toString() && pr.amounts.equation.difference_minor === o.difference.toString() && pr.amounts.equation.status === "balanced"
+      && pr.amounts.currency === "TZS" && pr.amounts.exponent === 2 ? true : pr?.amounts ?? "no amounts";
+  });
+  for (const [rid, year, rows] of [["REQ-E1-CASH-ORDER-A", 2015, CASH3], ["REQ-E1-CASH-ORDER-B", 2016, [CASH3[2], CASH3[1], CASH3[0], CASH3[3]]]]) {
+    await req1(rid, async () => {
+      const id = await upload(A, year, csv(rows)); await runHandler(U.owner, id);
+      const row = await uploadRow(id); const pr = row.processing_result; const c = pr?.amounts?.cash; const want = cashOracle.cashTotal.toString();
+      return row.status === "complete" && amountsOk(pr) && c.reported_minor === want && c.net_position_minor === want && c.overdraft_minor === "0"
+        && c.credit_balances_minor === "0" && c.accounts === 3 && pr.validation_report.cash_reconciliation === null && pr.amounts.reconciliation.status === "not_checked"
+        && (await isAuthoritative(A, year, id)) ? true : { status: row.status, cash: c ?? null, cash_reconciliation: pr?.validation_report?.cash_reconciliation };
+    });
+  }
+  await req1("REQ-E1-TREATMENT", async () => {
+    const id = await upload(A, 2017, csv(RESCUE)); await runHandler(U.owner, id);
+    let row = await uploadRow(id); let pr = row.processing_result;
+    const reqs = pr?.treatment_requests ?? [];
+    const flagged = (pr?.needs_review_accounts ?? []).find((x) => x.account_code === "1200");
+    const step1 = row.status === "needs_review" && reqs.length === 1 && flagged?.treatment_request_id === reqs[0].request_id && pr.statements === null
+      && pr.amounts === undefined && reqs[0].source_file_hash === row.source_file_hash && reqs[0].debit_minor === "0" && reqs[0].credit_minor === "500000"
+      && (await authoritative(A, 2017)) === null;
+    if (!step1) return { step: "flagged", status: row.status, reqs, flagged };
+    // The person keeps it as mapped, with a reason, through the REAL review RPC; then a reprocess request and the handler.
+    await asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [A, id, uuid(), JSON.stringify([{ account_code: "1200", account_name: "Closing stock",
+      decision_action: "CONFIRM_ACCOUNT_TREATMENT", treatment_request_id: reqs[0].request_id, treatment: "keep_as_mapped", reason: "Stock count confirms the credit" }])]);
+    const op = uuid();
+    const acc = (await asUser(U.owner, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [id, op, row.source_file_hash]))[0].r;
+    await runHandler(U.owner, id, op);
+    row = await uploadRow(id); pr = row.processing_result;
+    const o = oracle(RESCUE, { 1200: "current_assets", 1210: "current_assets", 3200: "equity" }, 2);
+    const stock = (await latestCert(id))?.rows_snapshot?.find((r) => r.accountCode === "1200");
+    return acc.outcome === "accepted" && row.status === "complete" && amountsOk(pr) && pr.amounts.classes.assets_minor === o.asset.toString()
+      && pr.amounts.classes.expenses_minor === o.expense.toString() && o.expense === 0n && pr.amounts.equation.status === "balanced"
+      && pr.statements.income_statement.cost_of_goods_sold.accounts.length === 0 && stock?.classSideMinor === "-500000" && stock?.rowContract === "tb-row/1"
+      && (await isAuthoritative(A, 2017, id)) ? true : { step: "confirmed", acc, status: row.status, classes: pr?.amounts?.classes, stock };
+  });
+  await req1("REQ-E1-TREATMENT-REFUTED", async () => {
+    // The same name with a DEBIT balance is ordinary inventory: no question (R3b).
+    const rows = [["1200", "Closing stock", "5,000.00", ""], ["1210", "Bank rescue", "15,000.00", ""], ["3200", "Capital rescue", "", "20,000.00"]];
+    const id = await upload(A, 2024, csv(rows)); await runHandler(U.owner, id);
+    const row = await uploadRow(id);
+    return row.status === "complete" && row.processing_result.treatment_requests === undefined && (await isAuthoritative(A, 2024, id)) ? true : row.status;
+  });
+  await req1("REQ-E1-CONTRA", async () => {
+    const id = await upload(A, 2018, csv(CONTRA)); await runHandler(U.owner, id);
+    const row = await uploadRow(id); const pr = row.processing_result; const c = await latestCert(id);
+    return contraOracle.difference === 0n && row.status === "complete" && amountsOk(pr) && pr.amounts.classes.liabilities_minor === contraOracle.liability.toString()
+      && pr.amounts.equation.difference_minor === "0" && !(c?.exceptions ?? []).some((e) => e.code === "BALANCE_SHEET_EQUATION_FAILED")
+      && (await isAuthoritative(A, 2018, id)) ? true : { status: row.status, classes: pr?.amounts?.classes, exceptions: c?.exceptions };
+  });
+  await req1("REQ-E1-GENUINE-EQUATION", async () => {
+    const id = await upload(A, 2019, csv(GEN)); await runHandler(U.owner, id);
+    const row = await uploadRow(id); const cs = await certs(id);
+    const review = (row.processing_result?.needs_review_accounts ?? []).map((x) => x.account_code);
+    return row.status === "needs_review" && row.is_valid === false && canon(review) === canon(["1800"]) && cs.length > 0 && cs.every((c) => c.requires_review && (c.rows_snapshot ?? []).length === 0)
+      && (await authoritative(A, 2019)) === null ? true : { status: row.status, review, certs: cs.length };
+  });
+  await req1("REQ-E1-NONREPORTING-NONZERO", async () => {
+    const id = await upload(A, 2020, csv(NONREP)); await runHandler(U.owner, id);
+    const row = await uploadRow(id); const pr = row.processing_result;
+    const review = (pr?.needs_review_accounts ?? []).map((x) => x.account_code);
+    return row.status === "needs_review" && canon(review) === canon(["1410"]) && canon(pr.non_reporting_accounts ?? []) === "[]" && (await authoritative(A, 2020)) === null
+      ? true : { status: row.status, review, non_reporting: pr?.non_reporting_accounts };
+  });
+  await req1("REQ-E1-NONREPORTING-ZERO", async () => {
+    const rows = [["1400", "Bank nonrep", "3,000.00", ""], ["1410", "Suspense nonrep", "10.00", "10.00"], ["3400", "Capital nonrep", "", "3,000.00"]];
+    const id = await upload(A, 2021, csv(rows)); await runHandler(U.owner, id);
+    const row = await uploadRow(id);
+    return row.status === "complete" && canon((row.processing_result.non_reporting_accounts ?? []).map((x) => x.account_code)) === canon(["1410"])
+      && (await isAuthoritative(A, 2021, id)) ? true : row.status;
+  });
+  await req1("REQ-E1-PRECISION", async () => {
+    // BHD (exponent 3): the suspended 1.235 is a non-zero account (review), and its amount is stated at the currency's exponent.
+    const id = await upload(A, 2022, csv(BHD), { currency: "BHD" }); await runHandler(U.owner, id);
+    const row = await uploadRow(id);
+    const a = (row.processing_result?.needs_review_accounts ?? []).find((x) => x.account_code === "1510");
+    return row.status === "needs_review" && /\b1\.235\b/.test(a?.reason ?? "") ? true : { status: row.status, a };
+  });
+  await req1("REQ-E1-INVARIANT", async () => {
+    const id = await upload(A, 2023, csv(HAPPY)); const r = await runHandler(U.owner, id, uuid(), faulty);
+    const row = await uploadRow(id);
+    const run = await one("SELECT * FROM public.engine_runs WHERE source_record_id::text=$1 ORDER BY started_at DESC LIMIT 1", [id]);
+    const key = run ? await one("SELECT status FROM public.idempotency_keys WHERE engine_run_id=$1", [run.id]) : null;
+    const err = (row.accounting_errors ?? []).find((e) => e.code === "INVARIANT_VIOLATION");
+    return r.http === 200 && row.status === "error" && row.is_valid === false && (await certs(id)).length === 0 && run?.status === "failed"
+      && run?.error_code === "INVARIANT_VIOLATION" && key?.status === "failed" && /Difference: 0\.01\./.test(err?.message ?? "")
+      // The recorded amounts are inconsistent (lhs ≠ assets), and the independent validator refuses them: never shown as a result.
+      && row.processing_result?.amounts?.equation?.status === "failed" && validateTbAmounts(row.processing_result.amounts).ok === false
+      && (await authoritative(A, 2023)) === null ? true : { http: r.http, status: row.status, run: run && { status: run.status, error_code: run.error_code }, key, err };
+  });
+  await req1("REQ-E1-REPROCESS-REQUIRED", async () => {
+    // A direct new request on a certified upload is refused (409) after its claim: run failed, key failed, status kept,
+    // no certification; the same request replayed later is still refused the same way, never processed.
+    const id = await upload(A, 2025, csv(HAPPY)); await runHandler(U.owner, id);
+    const before = await certs(id);
+    const reqId = uuid();
+    const r = await runHandler(U.owner, id, reqId);
+    const row = await uploadRow(id);
+    const run = await one("SELECT status, error_code FROM public.engine_runs WHERE source_record_id::text=$1 ORDER BY started_at DESC LIMIT 1", [id]);
+    return before.length === 1 && r.http === 409 && r.body?.code === "REPROCESS_REQUIRED" && row.status === "complete" && (await certs(id)).length === 1
+      && run.status === "failed" && run.error_code === "REPROCESS_REQUIRED" && (await isAuthoritative(A, 2025, id)) ? true : { http: r.http, body: r.body, status: row.status, run };
+  });
+  await req1("X-E1-INV", async () => {
+    // An invariant failure after a reprocess request leaves NO current authority: the earlier certification was
+    // invalidated by the request and is never current again; the failed run certifies nothing.
+    const id = await upload(A, 2026, csv(HAPPY)); await runHandler(U.owner, id);
+    const first = await latestCert(id);
+    const wasAuthoritative = (await authoritative(A, 2026)) === first?.id;
+    const op = uuid();
+    const acc = (await asUser(U.owner, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [id, op, (await uploadRow(id)).source_file_hash]))[0].r;
+    const r = await runHandler(U.owner, id, op, faulty);
+    const row = await uploadRow(id);
+    return wasAuthoritative && acc.outcome === "accepted" && r.http === 200 && row.status === "error" && (await certs(id)).length === 1
+      && (await authoritative(A, 2026)) === null ? true : { wasAuthoritative, acc, http: r.http, status: row.status, authoritative: await authoritative(A, 2026) };
+  });
+  await req1("REQ-E1-GENERATION", async () => {
+    const rows = (await admin.query("SELECT engine_version, engine_generation, count(*)::int n FROM public.engine_runs WHERE function_name='process-trial-balance' GROUP BY 1,2 ORDER BY 1,2")).rows;
+    const v2 = rows.filter((x) => x.engine_version === "safisha-tb-certification-v2");
+    const v1 = rows.filter((x) => x.engine_version === "safisha-tb-certification-v1");
+    return v2.length === 1 && v2[0].engine_generation === 2 && v1.length === 1 && v1[0].engine_generation === null && rows.length === 2 ? true : rows;
   });
 }
 

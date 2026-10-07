@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { execFileSync } from "node:child_process";
 
 export const SERVICE_KEY = "service-key";
 export const ANON_KEY = "anon-key";
@@ -37,6 +38,7 @@ export function mintTestJwt(sub, { expiresIn = 3600 } = {}) {
   return `${enc({ alg: "none", typ: "JWT" })}.${enc({ sub, role: "authenticated", exp: Math.floor(Date.now() / 1000) + expiresIn })}.harness`;
 }
 const setReturning = new Map(); // function name → proretset (PostgREST answers a set-returning RPC with an array of rows)
+const arrayParams = new Map(); // function name → its input parameters declared as SQL arrays (bound as PostgreSQL arrays)
 const val = (v) => (v !== null && typeof v === "object" ? JSON.stringify(v) : v);
 
 export function makeClient(pool, role, uid) {
@@ -76,13 +78,21 @@ export function makeClient(pool, role, uid) {
       const call = `public.${ident(fn)}(${keys.map((k, i) => `${ident(k)} => $${i + 1}`).join(", ")})`;
       if (!setReturning.has(fn)) {
         const c = await pool.connect();
-        try { setReturning.set(fn, (await c.query("SELECT bool_or(proretset) s FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname=$1", [fn])).rows[0].s === true); } finally { c.release(); }
+        try {
+          setReturning.set(fn, (await c.query("SELECT bool_or(proretset) s FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname=$1", [fn])).rows[0].s === true);
+          // Input parameters declared as SQL arrays: PostgREST turns a JSON array argument into a PostgreSQL array for these.
+          arrayParams.set(fn, new Set((await c.query(`SELECT a.name FROM pg_proc p,
+              LATERAL unnest(p.proargnames, COALESCE(p.proallargtypes, p.proargtypes::oid[]),
+                             COALESCE(p.proargmodes, array_fill('i'::"char", ARRAY[cardinality(p.proargtypes::oid[])]))) AS a(name, type, mode)
+             WHERE p.pronamespace='public'::regnamespace AND p.proname=$1 AND a.mode IN ('i','b','v') AND format_type(a.type, NULL) LIKE '%[]'`, [fn])).rows.map((x) => x.name)));
+        } finally { c.release(); }
       }
+      const bind = (k) => (Array.isArray(args[k]) && arrayParams.get(fn).has(k) ? args[k] : val(args[k]));
       if (setReturning.get(fn)) {
-        const r = await run(`SELECT * FROM ${call}`, keys.map((k) => val(args[k])));
+        const r = await run(`SELECT * FROM ${call}`, keys.map(bind));
         return r.error ? { data: null, error: r.error } : { data: r.rows, error: null };
       }
-      const r = await run(`SELECT ${call} AS r`, keys.map((k) => val(args[k])));
+      const r = await run(`SELECT ${call} AS r`, keys.map(bind));
       return r.error ? { data: null, error: r.error } : { data: r.rows[0].r, error: null };
     },
     from(table) {
@@ -184,10 +194,32 @@ export async function loadHandler(source, name) {
  * identical npm package in node_modules. Every other byte is the repository's. Returns the handler and the SHA-256 of the
  * function's unmodified index.ts.
  */
-export async function loadFunctionTree(repo, fnName) {
+/**
+ * Writes `fnName` and `_shared` exactly as they are at git commit `ref` into a fresh directory (for running a previous
+ * engine beside the current one). The commit must be present locally (CI fetches it). Returns that functions directory.
+ */
+export function functionsAtCommit(repo, ref, fnName) {
+  const dir = fs.mkdtempSync(path.join(tmp, `at-${ref.slice(0, 7)}-`));
+  const prefixes = [`supabase/functions/${fnName}/`, "supabase/functions/_shared/"];
+  const files = execFileSync("git", ["-C", repo, "ls-tree", "-r", "--name-only", ref, ...prefixes], { encoding: "utf8" }).split("\n").filter(Boolean);
+  if (!files.some((f) => f === `supabase/functions/${fnName}/index.ts`)) throw new Error(`${fnName}/index.ts not found at ${ref}`);
+  for (const f of files) {
+    const out = path.join(dir, f.slice("supabase/functions/".length));
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, execFileSync("git", ["-C", repo, "show", `${ref}:${f}`], { maxBuffer: 64 * 1024 * 1024 }));
+  }
+  return dir;
+}
+
+/**
+ * Loads a function's handler. `functionsDir` (default: the working tree's supabase/functions) selects another copy, e.g.
+ * functionsAtCommit(); `patch(relativePath, text)` may rewrite a source file after the remote imports are mapped (fault
+ * injection — the caller asserts the patch applied). The reported SHA-256 is of the unpatched index.ts.
+ */
+export async function loadFunctionTree(repo, fnName, { functionsDir = path.join(repo, "supabase/functions"), patch = null } = {}) {
   const crypto = await import("node:crypto");
   const root = fs.mkdtempSync(path.join(tmp, `${fnName}-`));
-  for (const d of [fnName, "_shared"]) fs.cpSync(path.join(repo, "supabase/functions", d), path.join(root, d), { recursive: true });
+  for (const d of [fnName, "_shared"]) fs.cpSync(path.join(functionsDir, d), path.join(root, d), { recursive: true });
   const harnessSupabase = path.join(root, "__harness_supabase.mjs");
   const harnessServe = path.join(root, "__harness_serve.mjs");
   fs.writeFileSync(harnessSupabase, "export const createClient = (...a) => globalThis.__fnHarness.createClient(...a);\n");
@@ -208,11 +240,12 @@ export async function loadFunctionTree(repo, fnName) {
       let t = fs.readFileSync(p, "utf8");
       for (const [spec, to] of Object.entries(REMOTE)) t = t.split(`"${spec}"`).join(JSON.stringify(to(path.dirname(p))));
       if (/from\s+"https?:/.test(t)) throw new Error(`${path.relative(root, p)}: a remote import the harness does not map`);
+      if (patch) t = patch(path.relative(root, p).split(path.sep).join("/"), t);
       fs.writeFileSync(p, t);
     }
   };
   walk(root);
-  const sourceSha256 = crypto.createHash("sha256").update(fs.readFileSync(path.join(repo, "supabase/functions", fnName, "index.ts"))).digest("hex");
+  const sourceSha256 = crypto.createHash("sha256").update(fs.readFileSync(path.join(functionsDir, fnName, "index.ts"))).digest("hex");
   shim.handler = null;
   await import(pathToFileURL(path.join(root, fnName, "index.ts")).href);
   if (!shim.handler) throw new Error(`${fnName}: no handler registered`);

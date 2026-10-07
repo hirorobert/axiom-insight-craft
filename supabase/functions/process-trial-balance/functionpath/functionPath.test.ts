@@ -9,6 +9,8 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { newWorld, setWorld, type Row, type World } from "./supabaseDouble.ts";
 import { capturedHandler } from "./serverDouble.ts";
+import { validateTbAmounts } from "../../_shared/tbAmounts.ts";
+import { treatmentRequestId } from "../../_shared/treatmentRequest.ts";
 
 Deno.env.set("SUPABASE_URL", "http://functionpath.invalid");
 Deno.env.set("SUPABASE_ANON_KEY", "anon");
@@ -255,4 +257,143 @@ Deno.test("S1 tenant isolation: another company's mapping — even a linked one 
   await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals(upload(w).status, "needs_review");
   assertEquals(w.tables.tb_certifications[0].p_requires_review, true);
+});
+
+// ── E1: exact class-side amounts, treatment questions, no silent suppression ─────────────────────────────────────────
+// The engine writes processing_result.amounts ("tb-amounts/1"), certified rows gain exact fields under "tb-row/1" (the
+// legacy netBalance keeps its meaning), every run records the numeric engine generation, a closing-stock-like credit on
+// a current asset raises a treatment question instead of moving money, a non-zero account is never left out, and a
+// mapping outside the balance sheet and income statement goes to review.
+const result = (w: World) => upload(w).processing_result as Record<string, unknown>;
+
+Deno.test("E1 exact amounts: tb-amounts/1 validates, equation exact, cash claimed as not checked; rows carry tb-row/1; generation 2", async () => {
+  const cashMapped = REVIEWED.map((m) => m.account_code === "1000" ? { ...m, is_cash_account: true } : m);
+  const w = setup({ csv: BALANCED, mappings: cashMapped });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "complete");
+  const amounts = result(w).amounts as Record<string, unknown>;
+  const v = validateTbAmounts(amounts);
+  assert(v.ok, JSON.stringify(v));
+  assertEquals(amounts.classes, { assets_minor: "150025", liabilities_minor: "0", equity_minor: "100000", income_minor: "90025", expenses_minor: "40000" });
+  assertEquals(amounts.equation, { lhs_minor: "150025", rhs_minor: "150025", difference_minor: "0", status: "balanced" });
+  assertEquals(amounts.cash, { reported_minor: "150025", credit_balances_minor: "0", overdraft_minor: "0", net_position_minor: "150025", accounts: 1 });
+  assertEquals(amounts.reconciliation, { status: "not_checked" });
+  assertEquals((result(w).validation_report as Record<string, unknown>).cash_reconciliation, null);
+  const rows = w.tables.tb_certifications[0].p_rows_snapshot as Record<string, unknown>[];
+  const sales = rows.find((r) => r.accountCode === "4000")!;
+  assertEquals([sales.rowContract, sales.debitMinor, sales.creditMinor, sales.classSideMinor, sales.netBalance], ["tb-row/1", "0", "90025", "90025", 900.25]);
+  assertEquals(w.tables.engine_runs.map((r) => [r.engine_version, r.engine_generation]), [["safisha-tb-certification-v2", 2]]);
+});
+
+Deno.test("E1 contra asset: accumulated depreciation (credit normal) reduces assets; balanced and certified (R3c)", async () => {
+  const csv = "Code,Name,Debit,Credit\n1500,Equipment,1000,\n1510,Accumulated depreciation,,300\n3000,Capital,,700\n";
+  const w = setup({ csv, mappings: [mapping("1500", "non_current_assets", "balance_sheet", "debit"), mapping("1510", "non_current_assets", "balance_sheet", "credit"), REVIEWED[1]] });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "complete");
+  const a = result(w).amounts as Record<string, Record<string, unknown>>;
+  assertEquals([a.classes.assets_minor, a.equation.status], ["70000", "balanced"]);
+  const contra = (w.tables.tb_certifications[0].p_rows_snapshot as Record<string, unknown>[]).find((r) => r.accountCode === "1510")!;
+  assertEquals([contra.classSideMinor, contra.netBalance], ["-30000", 300]); // exact class side; legacy meaning kept
+});
+
+const STOCK_CSV = "Code,Name,Debit,Credit\n1000,Cash,1500,\n1200,Closing stock,,500\n3000,Capital,,1000\n";
+const STOCK_MAPPINGS = [REVIEWED[0], mapping("1200", "current_assets", "balance_sheet", "debit"), REVIEWED[1]];
+
+Deno.test("E1 treatment: a current-asset credit matching closing stock raises a treatment request; figures are not moved", async () => {
+  const w = setup({ csv: STOCK_CSV, mappings: STOCK_MAPPINGS });
+  w.rpc.get_confirmed_treatments = () => ({ data: [], error: null });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "needs_review");
+  const reqs = result(w).treatment_requests as Record<string, string>[];
+  assertEquals(reqs.length, 1);
+  const expected = await treatmentRequestId({
+    rule_id: "closing_stock_credit", rule_version: "1", company_id: COMPANY, upload_id: UPLOAD,
+    source_file_hash: reqs[0].source_file_hash, account_key: "1200", account_code: "1200",
+    debit_minor: "0", credit_minor: "50000", mapping_decision_id: "decision-1200",
+  });
+  assertEquals(reqs[0].request_id, expected);
+  assertEquals(reqs[0].source_file_hash, upload(w).source_file_hash);
+  const review = reviewAccounts(w) as unknown as Record<string, unknown>[];
+  assertEquals(review.map((r) => [r.account_code, r.treatment_request_id, r.suggested_classification]), [["1200", expected, "current_assets"]]);
+  assertEquals(result(w).statements, null);
+  assertEquals(w.tables.tb_certifications[0].p_requires_review, true);
+});
+
+Deno.test("E1 treatment confirmed for exactly that request: complete, kept as mapped (a negative current asset)", async () => {
+  const w = setup({ csv: STOCK_CSV, mappings: STOCK_MAPPINGS });
+  w.rpc.get_confirmed_treatments = (args) => ({ data: (args.p_request_ids as string[]).map((id) => ({ request_id: id, decision_id: "d", decided_at: "now" })), error: null });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "complete");
+  const a = result(w).amounts as Record<string, Record<string, unknown>>;
+  assertEquals([a.classes.assets_minor, a.classes.expenses_minor, a.equation.status], ["100000", "0", "balanced"]);
+  const cogs = (result(w).statements as Record<string, Record<string, { accounts: unknown[] }>>).income_statement.cost_of_goods_sold.accounts;
+  assertEquals(cogs.length, 0); // never re-routed into cost of sales
+});
+
+Deno.test("E1 treatment lookup failure fails closed: no certification, run failed, prior status restored", async () => {
+  const w = setup({ csv: STOCK_CSV, mappings: STOCK_MAPPINGS });
+  w.rpc.get_confirmed_treatments = () => ({ data: null, error: { code: "XX000", message: "down" } });
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(r.status, 500);
+  assertEquals((w.tables.tb_certifications ?? []).length, 0);
+  assertEquals(upload(w).status, "processing");
+  assertEquals((w.tables.engine_runs ?? []).filter((e) => e.status === "failed").length, 1);
+});
+
+Deno.test("E1 refuted pattern: a debit current asset named closing stock raises no question (R3b)", async () => {
+  const csv = "Code,Name,Debit,Credit\n1000,Cash,1500,\n1200,Closing stock,500,\n3000,Capital,,2000\n";
+  const w = setup({ csv, mappings: STOCK_MAPPINGS });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "complete");
+  assertEquals(result(w).treatment_requests, undefined);
+});
+
+Deno.test("E1 non-reporting: a suppressed non-zero account goes to review with its amount; a zero one may be suppressed (OD3)", async () => {
+  const csv = "Code,Name,Debit,Credit\n1000,Cash,1500,\n1410,Suspense,100,\n1420,Old clearing,50,50\n3000,Capital,,1600\n";
+  const w = setup({ csv, mappings: [REVIEWED[0], REVIEWED[1]] });
+  w.rpc.get_effective_non_reporting_status = () => ({ data: [
+    { account_code: "1410", account_name: "Suspense", suppressed: true, stale_reason: null },
+    { account_code: "1420", account_name: "Old clearing", suppressed: true, stale_reason: null },
+  ], error: null });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "needs_review");
+  const review = reviewAccounts(w);
+  assertEquals(review.map((a) => a.account_code), ["1410"]);
+  const reason = reasonOf(review[0] as Record<string, unknown>);
+  assert(/non-reporting/.test(reason) && /100\.00/.test(reason), reason);
+  assertEquals((result(w).non_reporting_accounts as { account_code: string }[]).map((a) => a.account_code), ["1420"]);
+});
+
+Deno.test("E1 genuine equation failure cannot become authoritative: a legacy cash-flow-class mapping goes to review (D1)", async () => {
+  const csv = "Code,Name,Debit,Credit\n1000,Cash,1500,\n1600,Investment outflow,500,\n3000,Capital,,2000\n";
+  const w = setup({ csv, mappings: [REVIEWED[0], mapping("1600", "investing_activities", "cash_flow", "debit"), REVIEWED[1]] });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "needs_review");
+  assertEquals(upload(w).is_valid, false);
+  assertEquals(reviewAccounts(w).map((a) => a.account_code), ["1600"]);
+  assertEquals([w.tables.tb_certifications[0].p_requires_review, (w.tables.tb_certifications[0].p_rows_snapshot as unknown[]).length], [true, 0]);
+});
+
+Deno.test("E1 a cash account must be an asset or a liability: otherwise review (C2)", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED.map((m) => m.account_code === "3000" ? { ...m, is_cash_account: true } : m) });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(upload(w).status, "needs_review");
+  assertEquals(reviewAccounts(w).map((a) => a.account_code), ["3000"]);
+});
+
+Deno.test("E1 REPROCESS_REQUIRED: a new request on an upload whose latest certification is in force is refused; an invalidated one runs", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED, priorStatus: "complete" });
+  w.tables.tb_certifications = [{ id: "cert-0", upload_id: UPLOAD, sequence_no: 1 }];
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r.status, r.json.code], [409, "REPROCESS_REQUIRED"]);
+  assertEquals(upload(w).status, "complete"); // restored, nothing processed
+  assertEquals(w.tables.tb_certifications.length, 1);
+  assertEquals(w.tables.engine_runs.map((e) => [e.status, e.error_code]), [["failed", "REPROCESS_REQUIRED"]]);
+  assertEquals(w.calls.filter((c) => c.kind === "download").length, 1); // the claim follows the read; no certification
+
+  w.tables.tb_certification_invalidations = [{ id: "inv-0", certification_id: "cert-0" }];
+  const r2 = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(r2.status, 200);
+  assertEquals(upload(w).status, "complete");
+  assertEquals(w.tables.tb_certifications.length, 2);
 });

@@ -43,6 +43,11 @@ interface ClaimParams {
   actorType: "user" | "workspace_user" | "system";
   functionName: string;
   engineVersion: string;
+  /**
+   * The numeric engine generation (20261007100000): compared as an integer against processing_release_control's floor,
+   * never as a version string. Written only when given, so callers without a generation keep their insert unchanged.
+   */
+  engineGeneration?: number;
   ruleVersion?: string | null;
   clientRequestId: string;
   requestHash: string;
@@ -86,6 +91,7 @@ export async function claimIdempotency(
       actor_type: params.actorType,
       function_name: params.functionName,
       engine_version: params.engineVersion,
+      ...(params.engineGeneration !== undefined ? { engine_generation: params.engineGeneration } : {}),
       rule_version: params.ruleVersion ?? null,
       input_hash: params.inputHash ?? null,
       period_year: params.periodYear ?? null,

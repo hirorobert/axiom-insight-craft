@@ -1,10 +1,11 @@
 {
   "_doc": [
-    "H2 known-defect ledger for scripts/db-proof/tbHandlerCharacterization.mjs (blueprint Revision 2 defect ledger).",
-    "Each signature is the EXACT value the deployed-equivalent handler (process-trial-balance at main af8a96b) produces for the probe's fixture, recorded from a real-handler, real-PostgreSQL run.",
-    "A probe counts as 'defect reproduced' (never a pass) only when the observed value equals this signature AND differs from the probe's independent oracle (bigint minor units, class-side table, computed in the test).",
-    "Matching the oracle means the defect was fixed: the fixing PR (E1) must remove the entry. Any other value fails the gate."
+    "Known-defect ledger of the PREVIOUS engine for scripts/db-proof/tbHandlerCharacterization.mjs (blueprint Revision 2 defect ledger; recorded in H2, kept by E1).",
+    "Each signature is the EXACT value the previous handler (process-trial-balance at engine_commit; its index.ts SHA-256 is handler_sha256, identical at main af8a96b and 9b0c2fd) produces for the probe's fixture, from a real-handler, real-PostgreSQL run.",
+    "Since E1 the gate runs THAT handler for these probes, beside the current one on the same database: a probe counts as 'defect reproduced' (never a pass) only when the previous handler's value equals this signature AND differs from the probe's independent oracle (bigint minor units, class-side table, computed in the test). This proves each fixture genuinely exercises its defect.",
+    "The current handler (E1) runs the same fixtures as REQUIREMENTS that must equal the oracle. Any other value fails the gate."
   ],
+  "engine_commit": "9b0c2fd7dc1ce897df97196a43cd491132f5590e",
   "handler_sha256": "f18e32cc6dfd08c76126590de5c55bd4ee75dbdabecec0ef98869ba064c270f8",
   "defects": [
     { "defect": "D7", "probe": "D7-CASH-ORDER-A",
@@ -25,6 +26,9 @@
     { "defect": "D1", "probe": "D1-EQUATION-FAILURE-CERTIFIED",
       "assertion": "an authoritative certification never carries a BALANCE_SHEET_EQUATION_FAILED exception (for this fixture the correct engine has no failure)",
       "signature": { "authoritative": true, "equation_failure_severity": "warning" } },
+    { "defect": "D1", "probe": "D1G-GENUINE-EQUATION-FAILURE",
+      "assertion": "a genuine equation failure (a legacy reviewed mapping to a cash-flow class leaves 500.00 out of the statements) never becomes authoritative: the account needs review",
+      "signature": { "authoritative": true, "equation_failure_severity": "warning", "status": "complete" } },
     { "defect": "D1b", "probe": "D1B-NONREPORTING-NONZERO",
       "assertion": "a non-reporting decision cannot remove a non-zero balance: the upload needs review and nothing is authoritative",
       "signature": { "authoritative": true, "non_reporting": ["1410"], "status": "complete" } },

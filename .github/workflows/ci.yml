@@ -401,12 +401,13 @@ jobs:
           createdb s1_proof
           bun scripts/db-proof/mappingProcessingAuthority.mjs
 
-      - name: H2 real-handler characterization (the unmodified process-trial-balance handler on real PostgreSQL; requirements must pass, every registered defect must reproduce its exact ledger signature, any other outcome or infrastructure error fails; on the same throwaway container)
+      - name: H2/E1 real-handler characterization (the current process-trial-balance handler on real PostgreSQL must meet every requirement and equal the independent oracle on every defect fixture; the previous engine, at the ledger's commit, must reproduce each registered defect exactly; an injected equation fault must fail the run with nothing certified; any other outcome or infrastructure error fails; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/h2_proof
         run: |
           createdb h2_proof
+          git fetch --no-tags --depth=1 origin "$(node -p "require('./scripts/db-proof/fixtures/h2-known-defects.json').engine_commit")"
           bun scripts/db-proof/tbHandlerCharacterization.mjs
 
       - name: H1 treatment authority and processing control proof (admin-only versioned control, database-enforced hold for every role, drain bound, numeric generation floor, the real handler refused while held and below the floor, treatment request identity TS = SQL, confirmation binding/replay/conflict/expiry; on the same throwaway container)
@@ -415,6 +416,7 @@ jobs:
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/h1_proof
         run: |
           createdb h1_proof
+          git fetch --no-tags --depth=1 origin "$(node -p "require('./scripts/db-proof/fixtures/h2-known-defects.json').engine_commit")"
           bun scripts/db-proof/h1Authority.mjs
 
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)

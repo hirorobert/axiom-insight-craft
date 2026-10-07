@@ -6,7 +6,9 @@
 //             certification and reprocess requests for every role (service role included) except canary companies; the
 //             numeric generation floor only rises and refuses older runs and their certifications; the drain closes only
 //             pre-hold runs after the stated bound; events and the control row cannot be edited directly;
-//   handler   the REAL process-trial-balance handler is refused while held and below the floor, writing no certification;
+//   handler   the REAL process-trial-balance handler is refused while held; the previous engine (no generation, at the
+//             known-defect ledger's engine_commit) is refused below floor 2, the current engine (E1, generation 2) runs at
+//             floor 2 and is refused once the floor rises to 3 — never writing a certification when refused;
 //   treatment the request id is identical in TypeScript and SQL; a confirmation is accepted only for a current, exact,
 //             untampered request with a reason, by a prepare_close holder; replay and conflict; every refusal named; the
 //             mapping is never changed; get_confirmed_treatments only returns requests whose mapping link is current.
@@ -19,7 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { call, loadFunctionTree, mintTestJwt, shim } from "./lib/functionHarness.mjs";
+import { call, functionsAtCommit, loadFunctionTree, mintTestJwt, shim } from "./lib/functionHarness.mjs";
 import { currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
 import { buildTreatmentRequest, canonicalTreatmentText, CLOSING_STOCK_RULE, treatmentRequestId } from "../../supabase/functions/_shared/treatmentRequest.ts";
 
@@ -210,6 +212,9 @@ async function main() {
   });
 
   const { handler } = await loadFunctionTree(REPO, "process-trial-balance");
+  // The previous engine (before E1: it records no engine generation), at the commit the known-defect ledger names.
+  const priorCommit = JSON.parse(fs.readFileSync(path.join(HERE, "fixtures/h2-known-defects.json"), "utf8")).engine_commit;
+  const { handler: priorHandler } = await loadFunctionTree(REPO, "process-trial-balance", { functionsDir: functionsAtCommit(REPO, priorCommit, "process-trial-balance") });
   await check("the REAL handler is refused while held: no run, no certification, the upload unchanged", async () => {
     const runs = await count("SELECT count(*) n FROM public.engine_runs WHERE function_name='process-trial-balance'");
     const before = JSON.stringify(await one("SELECT * FROM public.trial_balance_uploads WHERE id=$1", [heldUp]));
@@ -262,8 +267,20 @@ async function main() {
   await refused("a certification for a pre-floor run is refused (PT410)", "PT410", () => asService("SELECT public.commit_tb_certification($1,'process-trial-balance',$2,$3,2005,'h','n','o',false,false,'[]'::jsonb,'[]'::jsonb)", [oldRun, floorUp, A]), "ENGINE_GENERATION_RETIRED");
   await refused("the floor cannot decrease", "22023", () => control(U.opsAdmin, false, [], 1, "lower", 0).catch(async () => control(U.opsAdmin, false, [], 1, "lower", await version())), "ENGINE_GENERATION_FLOOR_CANNOT_DECREASE");
   await refused("the floor cannot be removed", "22023", async () => control(U.opsAdmin, false, [], null, "remove", await version()), "ENGINE_GENERATION_FLOOR_CANNOT_DECREASE");
-  await check("the REAL current handler (no generation) can no longer start a run: refused, no certification", async () => {
+  await check("the REAL previous handler (no generation) can no longer start a run: refused, no certification", async () => {
     const up = await upload(A, 2003);
+    const r = await call(priorHandler, pool, mintTestJwt(U.owner), { uploadId: up, clientRequestId: uuid() });
+    return r.http >= 400 && (await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [up])) === 0 ? true : r;
+  });
+  await check("the REAL current handler (E1) runs at floor 2 and records generation 2 (an integer)", async () => {
+    const up = await upload(A, 2007);
+    const r = await call(handler, pool, mintTestJwt(U.owner), { uploadId: up, clientRequestId: uuid() });
+    const run = await one("SELECT engine_generation g, pg_typeof(engine_generation)::text t FROM public.engine_runs WHERE source_record_id::text=$1 ORDER BY started_at DESC LIMIT 1", [up]);
+    return r.http === 200 && run?.g === 2 && run?.t === "integer" && (await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [up])) === 1 ? true : { http: r.http, run };
+  });
+  await check("raising the floor to 3 retires the current handler too: refused, no certification", async () => {
+    await control(U.opsAdmin, false, [], 3, "retire generation 2", await version());
+    const up = await upload(A, 2008);
     const r = await call(handler, pool, mintTestJwt(U.owner), { uploadId: up, clientRequestId: uuid() });
     return r.http >= 400 && (await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [up])) === 0 ? true : r;
   });
