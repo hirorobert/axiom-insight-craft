@@ -1568,6 +1568,27 @@ export type Database = {
         }
         Relationships: []
       }
+      currency_registry: {
+        Row: {
+          code: string
+          exponent: number
+          name: string
+          registry_version: string
+        }
+        Insert: {
+          code: string
+          exponent: number
+          name: string
+          registry_version?: string
+        }
+        Update: {
+          code?: string
+          exponent?: number
+          name?: string
+          registry_version?: string
+        }
+        Relationships: []
+      }
       deployment_approvals: {
         Row: {
           approved_at: string
@@ -3194,6 +3215,68 @@ export type Database = {
           },
         ]
       }
+      fiscal_period_events: {
+        Row: {
+          action: string
+          actor_member_id: string | null
+          actor_user_id: string | null
+          company_id: string
+          detail: Json
+          id: string
+          occurred_at: string
+          period_id: string
+        }
+        Insert: {
+          action: string
+          actor_member_id?: string | null
+          actor_user_id?: string | null
+          company_id: string
+          detail?: Json
+          id?: string
+          occurred_at?: string
+          period_id: string
+        }
+        Update: {
+          action?: string
+          actor_member_id?: string | null
+          actor_user_id?: string | null
+          company_id?: string
+          detail?: Json
+          id?: string
+          occurred_at?: string
+          period_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fiscal_period_events_actor_member_id_fkey"
+            columns: ["actor_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fiscal_period_events_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "fiscal_periods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fiscal_period_events_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["current_period_id"]
+          },
+          {
+            foreignKeyName: "fiscal_period_events_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["prior_period_id"]
+          },
+        ]
+      }
       fiscal_periods: {
         Row: {
           accounting_basis: string
@@ -3201,6 +3284,9 @@ export type Database = {
           company_id: string
           created_at: string
           created_by: string
+          dates_basis: string | null
+          dates_confirmed_at: string | null
+          dates_confirmed_by: string | null
           fiscal_year_end: string
           id: string
           period_label: string
@@ -3218,11 +3304,14 @@ export type Database = {
           company_id: string
           created_at?: string
           created_by: string
+          dates_basis?: string | null
+          dates_confirmed_at?: string | null
+          dates_confirmed_by?: string | null
           fiscal_year_end: string
           id?: string
           period_label: string
           prior_period_id?: string | null
-          reporting_currency?: string
+          reporting_currency: string
           reporting_end?: string | null
           reporting_framework?: string | null
           reporting_start?: string | null
@@ -3235,6 +3324,9 @@ export type Database = {
           company_id?: string
           created_at?: string
           created_by?: string
+          dates_basis?: string | null
+          dates_confirmed_at?: string | null
+          dates_confirmed_by?: string | null
           fiscal_year_end?: string
           id?: string
           period_label?: string
@@ -3262,6 +3354,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "fiscal_periods_dates_confirmed_by_fkey"
+            columns: ["dates_confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "fiscal_periods_prior_period_id_fkey"
             columns: ["prior_period_id"]
             isOneToOne: false
@@ -3281,6 +3380,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_period_pairs"
             referencedColumns: ["prior_period_id"]
+          },
+          {
+            foreignKeyName: "fk_fp_reporting_currency"
+            columns: ["reporting_currency"]
+            isOneToOne: false
+            referencedRelation: "currency_registry"
+            referencedColumns: ["code"]
           },
         ]
       }
@@ -6992,6 +7098,13 @@ export type Database = {
             referencedRelation: "companies"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "fk_fp_reporting_currency"
+            columns: ["reporting_currency"]
+            isOneToOne: false
+            referencedRelation: "currency_registry"
+            referencedColumns: ["code"]
+          },
         ]
       }
       v_wdv_carry_forward: {
@@ -7111,6 +7224,10 @@ export type Database = {
       _official_reporting_pack_document: {
         Args: { p_issuance_id: string }
         Returns: string
+      }
+      _period_has_processing: {
+        Args: { p_period_id: string }
+        Returns: boolean
       }
       _plan_lock_key: { Args: { p_account: string }; Returns: number }
       _plan_write_lock: { Args: { p_account: string }; Returns: undefined }
@@ -7509,12 +7626,25 @@ export type Database = {
         }
         Returns: Json
       }
+      complete_legacy_period_dates: {
+        Args: {
+          p_end: string
+          p_period_id: string
+          p_reason: string
+          p_start: string
+        }
+        Returns: Json
+      }
       complete_trial_balance_discard: {
         Args: { p_operation_id: string }
         Returns: {
           detail: string
           outcome: Database["public"]["Enums"]["discard_outcome"]
         }[]
+      }
+      confirm_period_dates: {
+        Args: { p_end: string; p_period_id: string; p_start: string }
+        Returns: Json
       }
       confirm_trial_balance_storage_cleanup: {
         Args: { p_operation_id: string }
@@ -8227,6 +8357,20 @@ export type Database = {
         Args: { p_engagement_id: string }
         Returns: number
       }
+      open_engagement_with_period: {
+        Args: {
+          p_capabilities: string[]
+          p_company_id: string
+          p_engagement_type?: string
+          p_period_end: string
+          p_period_start: string
+          p_prior_currency?: string
+          p_prior_end?: string
+          p_prior_start?: string
+          p_reporting_currency: string
+        }
+        Returns: Json
+      }
       open_engagement_with_scope: {
         Args: {
           p_capabilities: string[]
@@ -8345,6 +8489,7 @@ export type Database = {
           storage_path: string
         }[]
       }
+      reporting_period_max_months: { Args: never; Returns: number }
       reserve_trial_balance_source: {
         Args: { p_company_id: string; p_file_name: string }
         Returns: {
