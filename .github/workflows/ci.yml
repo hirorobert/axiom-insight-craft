@@ -157,8 +157,11 @@ jobs:
       - name: Type-check the complete process-trial-balance function against the real Supabase client types
         run: deno check supabase/functions/process-trial-balance/index.ts
 
+      - name: Type-check the complete trial-balance-layout function (authentication imports included) against the real Supabase client types
+        run: deno check supabase/functions/trial-balance-layout/index.ts
+
       - name: Type-check the ingestion core and the function-path test
-        run: deno check --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/_shared/tbIngestion.ts supabase/functions/_shared/tbSource.ts supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
+        run: deno check --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/_shared/tbIngestion.ts supabase/functions/_shared/tbSource.ts supabase/functions/_shared/layoutProfile.ts supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
 
       - name: Function-path tests (real handler, in-memory database double)
         run: deno test --no-check --allow-env --allow-net=esm.sh,deno.land --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
@@ -436,6 +439,24 @@ jobs:
         run: |
           createdb periods_proof
           node scripts/db-proof/periodsAuthority.mjs
+
+      - name: I1-A layout proof (real trial-balance-layout and process-trial-balance handlers; templates versioned without file identity, confirmations bound to source and resolved-layout hashes with every row's disposition, append-only, expected versions, 10-way concurrency, reuse re-validation, the layout dependency, generation-3/generation-4 and schema compatibility; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/layout_proof
+        run: |
+          createdb layout_proof
+          git fetch --no-tags --depth=1 origin 553d54cac9921cfc7b2698842bd4fff2a6be8f1b
+          bun scripts/db-proof/layoutAuthority.mjs
+
+      - name: I1-A release-order proof (one database upgraded main → A1 → A2 → generation 4 with the real engines and layout function at every stage; refusals before any write; confirmations through the function and directly through the service-role writer; pre-release results stay authoritative; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/release_order_proof
+        run: |
+          createdb release_order_proof
+          git fetch --no-tags --depth=1 origin 553d54cac9921cfc7b2698842bd4fff2a6be8f1b
+          bun scripts/db-proof/releaseOrder.mjs
 
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:

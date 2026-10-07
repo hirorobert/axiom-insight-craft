@@ -59,7 +59,14 @@ export type IssueCode =
   | "TOTAL_ROW_MISMATCH"
   | "TEMPLATE_EXAMPLE_UPLOADED"
   | "NO_ACCOUNT_ROWS"
-  | "TRIAL_BALANCE_IMBALANCE";
+  | "TRIAL_BALANCE_IMBALANCE"
+  // A confirmed layout (layout-template/1, _shared/layoutProfile.ts) that does not fit the file. Never produced
+  // without a layout.
+  | "LAYOUT_SHEET_NOT_FOUND"
+  | "LAYOUT_HEADER_NOT_FOUND"
+  | "LAYOUT_COLUMN_NOT_FOUND"
+  | "LAYOUT_COLUMN_DUPLICATED"
+  | "LAYOUT_NUMBER_FORMAT_MISMATCH";
 
 export interface IngestIssue {
   code: IssueCode;
@@ -98,7 +105,9 @@ export type ParsedAmount =
   | { kind: "amount"; minor: bigint }
   | { kind: "malformed"; text: string }
   | { kind: "precision"; text: string; decimals: number }
-  | { kind: "range"; text: string };
+  | { kind: "range"; text: string }
+  /** Only under a declared number format: the text reads in another known format (layoutProfile.ts). */
+  | { kind: "format"; text: string };
 
 const MAX_SAFE_MINOR = BigInt(Number.MAX_SAFE_INTEGER);
 const DASH_ONLY = /^[-‐‑‒–—―]$/;
@@ -560,6 +569,24 @@ export interface IngestInput {
   periodYear: number | null;
   /** ISO 4217 code of the period's reporting currency — required. */
   currency: string | null;
+  /**
+   * A confirmed layout, resolved against these rows (layoutProfile.resolveLayout). Absent: the automatic path, exactly
+   * as before — column detection and the default amount grammar.
+   */
+  layout?: IngestLayout;
+}
+
+/** The columns and amount reading a confirmed layout fixes for one file (built only by layoutProfile.ts). */
+export interface IngestLayout {
+  /** null when the layout does not fit the file; `issues` then says why. */
+  map: ColumnMap | null;
+  detected: Record<string, string>;
+  issues: IngestIssue[];
+  parse: (cell: Cell, exponent: number) => ParsedAmount;
+  /** A single Balance column whose positive values are credits. */
+  creditPositiveBalance: boolean;
+  /** The declared number format, as an example ("1.234.567,89"), for messages. */
+  formatLabel: string;
 }
 
 function emptySummary(rowsRead: number): IngestResult["lineageSummary"] {
@@ -596,7 +623,9 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
   }
   if (issues.length > 0) return result({});
 
-  const detection = detectColumns(rows, periodYear);
+  const detection = input.layout
+    ? { map: input.layout.map, detected: input.layout.detected, issues: input.layout.issues }
+    : detectColumns(rows, periodYear);
   issues.push(...detection.issues);
   if (!detection.map || detection.issues.some((i) => i.severity === "blocking")) return result({ columns: detection.detected });
   const map = detection.map;
@@ -609,6 +638,8 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
   const malformed: { row: number; field: string; text: string }[] = [];
   const precision: { row: number; field: string; text: string; decimals: number }[] = [];
   const range: { row: number; field: string; text: string }[] = [];
+  const formatMismatch: { row: number; field: string; text: string }[] = [];
+  const parse = input.layout ? input.layout.parse : parseAmount;
   const balanceMismatch: number[] = [];
   const missingCode: number[] = [];
   const exampleRows: number[] = [];
@@ -628,10 +659,11 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     const name = map.account_name !== null ? cellString(row.cells[map.account_name]) : "";
     const read = (col: number | null, field: string): bigint | null | "bad" => {
       if (col === null) return null;
-      const p = parseAmount(row.cells[col], exp);
+      const p = parse(row.cells[col], exp);
       if (p.kind === "blank") return null;
       if (p.kind === "amount") return p.minor;
       if (p.kind === "malformed") malformed.push({ row: row.rowNumber, field, text: p.text });
+      else if (p.kind === "format") formatMismatch.push({ row: row.rowNumber, field, text: p.text });
       else if (p.kind === "precision") precision.push({ row: row.rowNumber, field, text: p.text, decimals: p.decimals });
       else range.push({ row: row.rowNumber, field, text: p.text });
       return "bad";
@@ -660,7 +692,7 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
       // checked per row); a contradiction means the file is not one trial balance.
       if (typeof b === "bigint" && b !== debit - credit && b !== credit - debit) balanceMismatch.push(row.rowNumber);
     } else {
-      const bal = b ?? 0n;
+      const bal = input.layout?.creditPositiveBalance ? -(b ?? 0n) : b ?? 0n;
       debit = bal > 0n ? bal : 0n;
       credit = bal < 0n ? -bal : 0n;
     }
@@ -706,6 +738,9 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
 
   if (malformed.length > 0) {
     issues.push({ code: "MALFORMED_NUMERIC_VALUE", severity: "blocking", rows: malformed.map((x) => x.row), message: `Some amounts are not numbers: ${describe(malformed)}. Use plain numbers such as 1234.50 or 1,234.50 — no currency symbols or letters — and leave a cell empty (or “-”) for zero.` });
+  }
+  if (formatMismatch.length > 0) {
+    issues.push({ code: "LAYOUT_NUMBER_FORMAT_MISMATCH", severity: "blocking", rows: formatMismatch.map((x) => x.row), message: `The confirmed layout reads amounts written like ${input.layout?.formatLabel ?? "the declared format"}, but ${describe(formatMismatch)} ${formatMismatch.length === 1 ? "is" : "are"} written in another number format. Check the file, or confirm the layout again with the right number format.` });
   }
   if (precision.length > 0) {
     issues.push({ code: "PRECISION_EXCEEDS_CURRENCY", severity: "blocking", rows: precision.map((x) => x.row), message: `${currency} amounts have at most ${exp} decimal place${exp === 1 ? "" : "s"}, but ${describe(precision)} ${precision.length === 1 ? "has" : "have"} more. Round them in your accounting system so the trial balance still balances, then upload again.` });
@@ -821,9 +856,9 @@ export class MilestoneLog {
   }
 }
 
-const AMOUNT_ISSUES = new Set<IssueCode>(["MALFORMED_NUMERIC_VALUE", "PRECISION_EXCEEDS_CURRENCY", "AMOUNT_OUT_OF_RANGE", "BALANCE_COLUMN_MISMATCH", "CURRENCY_MISMATCH"]);
+const AMOUNT_ISSUES = new Set<IssueCode>(["MALFORMED_NUMERIC_VALUE", "LAYOUT_NUMBER_FORMAT_MISMATCH", "PRECISION_EXCEEDS_CURRENCY", "AMOUNT_OUT_OF_RANGE", "BALANCE_COLUMN_MISMATCH", "CURRENCY_MISMATCH"]);
 const ROW_ISSUES = new Set<IssueCode>(["MISSING_ACCOUNT_CODE", "DUPLICATE_ACCOUNT_CODE", "DUPLICATE_ACCOUNT_NAME", "TOTAL_ROW_MISMATCH", "TEMPLATE_EXAMPLE_UPLOADED", "NO_ACCOUNT_ROWS"]);
-const COLUMN_ISSUES = new Set<IssueCode>(["MISSING_COLUMN", "AMBIGUOUS_AMOUNT_COLUMNS", "PERIOD_MISMATCH", "MULTIPLE_TRIAL_BALANCE_SHEETS", "UNSUPPORTED_LAYOUT"]);
+const COLUMN_ISSUES = new Set<IssueCode>(["LAYOUT_SHEET_NOT_FOUND", "LAYOUT_HEADER_NOT_FOUND", "LAYOUT_COLUMN_NOT_FOUND", "LAYOUT_COLUMN_DUPLICATED", "MISSING_COLUMN", "AMBIGUOUS_AMOUNT_COLUMNS", "PERIOD_MISMATCH", "MULTIPLE_TRIAL_BALANCE_SHEETS", "UNSUPPORTED_LAYOUT"]);
 
 /** Marks the ingestion milestones (read → balance) from an ingest result. */
 export function markIngestionMilestones(log: MilestoneLog, r: IngestResult): void {

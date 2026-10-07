@@ -16,12 +16,14 @@ export interface World {
   claims: { sub: string; exp: number } | null;
   /** Make a table's reads fail (simulates an unavailable database for that table). */
   failReads: Set<string>;
+  /** Tables this database does not have (a migration not applied): every read answers PGRST205, as PostgREST does. */
+  missingTables: Set<string>;
   calls: { kind: "select" | "insert" | "update" | "rpc" | "download"; target: string; payload?: unknown }[];
   nextId: number;
 }
 
 export function newWorld(): World {
-  return { tables: {}, rpc: {}, storage: {}, claims: null, failReads: new Set(), calls: [], nextId: 1 };
+  return { tables: {}, rpc: {}, storage: {}, claims: null, failReads: new Set(), missingTables: new Set(), calls: [], nextId: 1 };
 }
 
 const g = globalThis as unknown as { __ptbWorld?: World };
@@ -42,6 +44,8 @@ class Query implements PromiseLike<Answer> {
   private payload: Row | Row[] | null = null;
   private wantRows = true;
   private cardinality: "many" | "single" | "maybe" = "many";
+  private sort: { col: string; ascending: boolean } | null = null;
+  private max: number | null = null;
   constructor(private readonly table: string) {}
 
   select(_cols?: string) { this.wantRows = true; return this; }
@@ -54,8 +58,9 @@ class Query implements PromiseLike<Answer> {
     return this;
   }
   not(col: string, op: string, val: unknown) { this.filters.push((r) => !(op === "is" ? (r[col] ?? null) === val : r[col] === val)); return this; }
-  order() { return this; }
-  limit() { return this; }
+  // Ordering and limits are applied to reads, as PostgREST does (the newest-row reads depend on them).
+  order(col: string, opts?: { ascending?: boolean }) { this.sort = { col, ascending: opts?.ascending !== false }; return this; }
+  limit(n: number) { this.max = n; return this; }
   single() { this.cardinality = "single"; return this; }
   maybeSingle() { this.cardinality = "maybe"; return this; }
   insert(p: Row | Row[]) { this.mode = "insert"; this.payload = p; this.wantRows = false; return this; }
@@ -87,8 +92,15 @@ class Query implements PromiseLike<Answer> {
       return { data: hit, error: null };
     }
     w.calls.push({ kind: "select", target: this.table });
+    if (w.missingTables.has(this.table)) return { data: null, error: { code: "PGRST205", message: `Could not find the table 'public.${this.table}' in the schema cache` } };
     if (w.failReads.has(this.table)) return { data: null, error: { code: "08006", message: "connection failure" } };
-    return this.shape(rows.filter((r) => this.filters.every((f) => f(r))));
+    let found = rows.filter((r) => this.filters.every((f) => f(r)));
+    if (this.sort) {
+      const { col, ascending } = this.sort;
+      found = [...found].sort((a, b) => (a[col] === b[col] ? 0 : (a[col] as number) < (b[col] as number) ? (ascending ? -1 : 1) : (ascending ? 1 : -1)));
+    }
+    if (this.max !== null) found = found.slice(0, this.max);
+    return this.shape(found);
   }
 
   // Like a real database, a read returns COPIES: later writes never change a row the caller already holds.

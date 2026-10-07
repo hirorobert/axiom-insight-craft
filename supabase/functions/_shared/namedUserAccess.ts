@@ -6,7 +6,10 @@
 // an explicit `true` fails closed. Callers return the SAME 403 an outsider gets, so a suspended person learns
 // nothing more than an unrelated user would. Unit-tested in src/lib/commercial/paidAction.test.ts.
 
-type Rpc = (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
+// The caller passes its own client's rpc through unchanged: `(fn, args) => client.rpc(fn, args)`. `args` is typed
+// `never` here so that call type-checks against the real supabase-js signature (whose argument type an untyped
+// client resolves to `undefined`); the two calls below state their exact payloads. Types only — no runtime change.
+type Rpc = (fn: string, args: never) => PromiseLike<{ data: unknown; error: unknown }>;
 
 /** Workspace capabilities (20260925140000): the authority is the stored capability, never a job title. */
 export type WorkspaceCapability = "prepare_close" | "review_close" | "approve_certification" | "issue_reporting_pack" | "manage_members";
@@ -16,12 +19,12 @@ export type WorkspaceCapability = "prepare_close" | "review_close" | "approve_ce
  * operational capabilities.) Asked with the service role and the user id from the verified JWT. Fails closed.
  */
 export async function hasWorkspaceCapability(rpc: Rpc, companyId: string, userId: string, capability: WorkspaceCapability): Promise<boolean> {
-  const { data, error } = await rpc("has_workspace_capability", { p_company_id: companyId, p_user: userId, p_capability: capability });
+  const { data, error } = await rpc("has_workspace_capability", { p_company_id: companyId, p_user: userId, p_capability: capability } as never);
   return !error && data === true;
 }
 
 export async function isNamedUserActive(rpc: Rpc, companyId: string, userId: string): Promise<boolean> {
   if (!companyId || !userId) return false;
-  const { data, error } = await rpc("named_user_access_active", { p_company_id: companyId, p_user: userId });
+  const { data, error } = await rpc("named_user_access_active", { p_company_id: companyId, p_user: userId } as never);
   return !error && data === true;
 }

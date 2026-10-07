@@ -212,7 +212,9 @@ describe("migration directory integrity", () => {
     // read-time authority), a NEW forward-only migration pending hosted application. No applied migration is edited.
     // 149 -> 150: 20261009100000_currency_registry_and_reporting_periods.sql (I1-A: currency-registry/1 and explicit reporting
     // periods), a NEW forward-only migration pending hosted application. No applied migration is edited.
-    expect(files.length).toBe(150);
+    // 150 -> 151: 20261010100000_layout_templates_and_confirmations.sql (I1-A: layout templates and confirmations,
+    // the '#layout_confirmation' dependency), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(151);
   });
 });
 

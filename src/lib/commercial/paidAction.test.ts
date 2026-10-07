@@ -204,6 +204,18 @@ describe("service-role membership checks also require an ACTIVE named user (bill
     expect(await isNamedUserActive(rpc, "", "u")).toBe(false);
     expect(rpc).not.toHaveBeenCalled();
   });
+  it("the named-user check asks exactly named_user_access_active(p_company_id, p_user) — the typing fix changed no payload", async () => {
+    const rpc = vi.fn(async (_fn: string, _args: never) => ({ data: true, error: null }));
+    expect(await isNamedUserActive(rpc, "co", "u")).toBe(true);
+    expect(rpc.mock.calls).toEqual([["named_user_access_active", { p_company_id: "co", p_user: "u" }]]);
+    const src = read("supabase/functions/_shared/namedUserAccess.ts");
+    expect(src).toMatch(/type Rpc = \(fn: string, args: never\) => PromiseLike<\{ data: unknown; error: unknown \}>;/);
+  });
+  it("CI type-checks the complete trial-balance-layout entry point (authentication imports included) with Deno", () => {
+    const ci = read(".github/workflows/ci.yml");
+    expect(ci).toContain("run: deno check supabase/functions/trial-balance-layout/index.ts");
+    expect(read("supabase/functions/trial-balance-layout/index.ts")).toMatch(/import \{ corsHeaders, validateAuth \} from "\.\.\/_shared\/auth\.ts";/);
+  });
   it.each([
     ["supabase/functions/_shared/auth.ts", "adminClient", "companyId", "userId"],
     ["supabase/functions/_shared/actor.ts", "adminClient", "companyId", "userId"],

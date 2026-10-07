@@ -229,8 +229,24 @@ describe("database inertness — schema and functions", () => {
       // copy of the registry (generated; parity-tested with the browser copy and the migration seed).
       "supabase/migrations/20261009100000_currency_registry_and_reporting_periods.sql",
       "supabase/functions/_shared/currencyRegistry.ts",
+      // I1-A A2 (20261010100000): layout templates and confirmations — a NEW forward-only migration pending hosted
+      // application — and ONE new Edge Function, trial-balance-layout (the manual layout editor's server: inspect, validate,
+      // confirm, save template; it writes only layout_templates / layout_confirmations through two service-role writer
+      // functions that derive the actor from the JWT and require prepare_close), with its pure shared modules.
+      "supabase/migrations/20261010100000_layout_templates_and_confirmations.sql",
+      "supabase/functions/trial-balance-layout/index.ts",
+      "supabase/functions/_shared/trialBalanceLayout.ts",
+      "supabase/functions/_shared/layoutProfile.ts",
+      "supabase/functions/_shared/layoutConfirmationRead.ts",
     ]);
     const modified = new Set([
+      // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
+      // over every corpus case), and the function-path database double can answer for a table that does not exist yet.
+      "supabase/functions/_shared/tbSource.ts",
+      "supabase/functions/process-trial-balance/functionpath/supabaseDouble.ts",
+      // ...and the named-user helper's rpc parameter type, so the shared auth module type-checks against the real
+      // supabase-js types (Deno check of trial-balance-layout). Types only; payloads unchanged (paidAction.test.ts).
+      "supabase/functions/_shared/namedUserAccess.ts",
       // I1-A A1: the ingestion core reads its exponents from currency-registry/1 (every previously supported currency keeps
       // its exponent; characterization-tested).
       "supabase/functions/_shared/tbIngestion.ts",
@@ -393,6 +409,11 @@ describe("database inertness — schema and functions", () => {
       // guard executed with zero skipped tests.
       // I1-A A1 (20261009100000): the loopback-only real-PostgreSQL proof of periods and currency. No deploy behaviour.
       "scripts/db-proof/periodsAuthority.mjs",
+      // I1-A A2 (20261010100000): the loopback-only real-PostgreSQL proof with the real layout and processing handlers.
+      "scripts/db-proof/layoutAuthority.mjs",
+      // ...its release-order proof (main → A1 → A2 → generation 4, real handlers at every stage) and the read-only
+      // function-closure manifest tool (every file a deploy ships, with SHA-256). No deploy behaviour.
+      "scripts/db-proof/releaseOrder.mjs", "scripts/release/functionClosure.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
