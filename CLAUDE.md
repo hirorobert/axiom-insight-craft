@@ -391,6 +391,8 @@ src/
       statusWords.ts          ← Server status → words + icon + AA colour (exhaustive over MissionStatus and AuthorityReason)
       context.ts              ← Company · period · report version (`v`) context; links carry it; changes are explicit
       table.ts                ← Roving focus, batch eligibility (every selected row must qualify), search matching
+      requestSequence.ts      ← Responses bound to context key + per-channel sequence; obsolete or older responses discarded
+      expectedVersion.ts      ← Recognises the server's version-conflict refusals; adds p_expected_version
     jurisdiction/
       registry.ts             ← Filing-jurisdiction registry: ISO codes, which services need one, which have a pack
       packLoader.ts           ← ONLY module allowed to import a pack (dynamic import() only)
