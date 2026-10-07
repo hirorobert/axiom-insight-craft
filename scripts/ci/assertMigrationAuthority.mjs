@@ -20,6 +20,9 @@
 //   8. the controlled PR #34 release entries (scripts/ci/releaseJournal.mjs) are each exactly their reviewed content and
 //      template: a wrapper applies exactly its named source migration, whose SHA-256 (and byte count) it pins; the probe
 //      and staging entries touch only release objects; an unreviewed release entry fails;
+//   9. a source migration with registered submission forms (SUBMISSION_FORMS in releaseJournal.mjs: H1, S2) is mirrored
+//      only by a reviewed release entry — byte for byte, or with exactly its single final LF removed — never by the
+//      whitespace-normalised parity of rule 2;
 //   6. no source migration and no journal entry may grant the service-only workspace-authority predicates to anyone
 //      else, or re-create them without revoking them from PUBLIC, anon and authenticated in the same file (a
 //      re-created function would otherwise inherit the platform's default EXECUTE grants).
@@ -29,7 +32,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isAtomicEnvelope, parseAtomicEnvelope, unwrapAtomicEnvelope } from "./atomicEnvelope.mjs";
-import { RELEASE_JOURNAL, checkReleaseEntry, isReleaseTag } from "./releaseJournal.mjs";
+import { RELEASE_JOURNAL, SUBMISSION_FORMS, checkReleaseEntry, isReleaseTag } from "./releaseJournal.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -161,6 +164,11 @@ export function checkMigrationAuthority(repo = REPO) {
       continue;
     }
     const pin = PINNED[t];
+    // Rule 9: a source with registered submission forms is never accepted by normalised parity.
+    if (exact && SUBMISSION_FORMS[exact]) {
+      errors.push(`drizzle: ${t} mirrors ${exact}, which is accepted only through a reviewed RELEASE_JOURNAL entry in a registered submission form (byte for byte, or with its single final LF removed)`);
+      continue;
+    }
     if (exact && !pin) { mirrored.push({ tag: t, source: exact, how: "equal" }); continue; }
     if (!pin) { errors.push(`drizzle: ${t} matches no source migration (drift)`); continue; }
     if (!srcText[pin.source]) { errors.push(`drizzle: ${t} is pinned to a missing source ${pin.source}`); continue; }

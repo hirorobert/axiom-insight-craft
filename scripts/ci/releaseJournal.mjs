@@ -165,7 +165,52 @@ export const RELEASE_JOURNAL = {
     source: "20261006100000_mapping_and_processing_authority.sql", bytes: 43248,
     digest: "d189ddf5fa021c0c9a7a70536fd851b1152016269a7718ca8967f89837a967a6",
     sha256: "d189ddf5fa021c0c9a7a70536fd851b1152016269a7718ca8967f89837a967a6" },
+  // H1 treatment authority and processing control (PR #58, merged in main 4b5806c), applied by Lovable's native migrator
+  // (mirror commit 005187f) as its source MINUS ITS SINGLE FINAL LF BYTE — the one registered submission form for this
+  // migration (SUBMISSION_FORMS below). The source ends "\n\n"; only the last byte is absent. Canonical source and
+  // submitted text are pinned separately.
+  "0029_apply_20261007100000_treatment_authority_and_processing_control": { kind: "release_verbatim_final_lf_removed",
+    source: "20261007100000_treatment_authority_and_processing_control.sql", bytes: 47457,
+    digest: "0010ec531f3924e3a63031a0f42185c94414ab72a15396b4a3d43499468092c6",
+    submittedBytes: 47456,
+    sha256: "3591b7d0a6a39db2bf479aa8ecb86e5c0b8c4f01bdb86cf166abb56fc5e23ae0" },
 };
+
+/**
+ * The reviewed SUBMITTED-TEXT forms of a source migration (R0). A hosted migrator may submit a source either byte for
+ * byte, or with exactly its single final LF byte removed — nothing else: no trimming of more bytes, no whitespace, CRLF
+ * or BOM normalisation. Each form is registered per migration with its exact byte count and SHA-256, so a mirror of a
+ * source listed here is accepted only through a reviewed RELEASE_JOURNAL entry, never by the whitespace-normalised
+ * parity of the ordinary mirror rule. A form registered here does not mean the migration is applied.
+ */
+export const SUBMISSION_FORMS = Object.freeze({
+  // H1: applied as 0029 in the final-LF-removed form.
+  "20261007100000_treatment_authority_and_processing_control.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 47457, sha256: "0010ec531f3924e3a63031a0f42185c94414ab72a15396b4a3d43499468092c6" }),
+    finalLfRemoved: Object.freeze({ bytes: 47456, sha256: "3591b7d0a6a39db2bf479aa8ecb86e5c0b8c4f01bdb86cf166abb56fc5e23ae0" }),
+  }),
+  // S2: pending hosted application. Both candidate forms are registered ahead of time; its journal entry is added (and
+  // reviewed) only after it is applied, naming the form actually used.
+  "20261008100000_processing_attempt_authority.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 75683, sha256: "6ad6ac7d6aac244950a0e69bd1c278bea1eee5ac9e12c98e541ca9c961c9c25d" }),
+    finalLfRemoved: Object.freeze({ bytes: 75682, sha256: "169a3771a009973114437a5bd24318083d05e391876f6dfbacfbaf994bb817b8" }),
+  }),
+});
+
+/**
+ * Which registered submission form `submitted` is of source `name` (`src` = its bytes): "identical", "final_lf_removed",
+ * or null (any other text, an unregistered source, or a source whose bytes no longer match its registration).
+ */
+export function submittedForm(name, src, submitted) {
+  const forms = SUBMISSION_FORMS[name];
+  if (!forms || !src || !submitted) return null;
+  if (src.length !== forms.identical.bytes || sha256(src) !== forms.identical.sha256) return null;
+  if (submitted.equals(src)) return "identical";
+  const lf = forms.finalLfRemoved;
+  if (lf && src[src.length - 1] === 0x0a && submitted.length === src.length - 1 && submitted.equals(src.subarray(0, src.length - 1))
+      && submitted.length === lf.bytes && sha256(submitted) === lf.sha256) return "final_lf_removed";
+  return null;
+}
 
 const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
 const code = (text) => lexSql(text).filter((t) => t.type !== "ws" && t.type !== "comment");
@@ -255,7 +300,26 @@ export function checkReleaseEntry(tag, text, srcBytes) {
     if (src.length !== entry.bytes) problems.push(`${tag}: the pinned byte count ${entry.bytes} does not match ${entry.source} (${src.length})`);
     if (hosted.length !== entry.bytes) problems.push(`${tag}: has ${hosted.length} bytes, expected ${entry.bytes}`);
     if (!hosted.equals(src)) problems.push(`${tag} is not byte-for-byte identical to ${entry.source}`);
+    if (SUBMISSION_FORMS[entry.source] && submittedForm(entry.source, src, hosted) !== "identical") {
+      problems.push(`${tag} is not the registered identical submission form of ${entry.source}`);
+    }
     return { covers: entry.source, how: "release_verbatim", outOfOrder: false, problems };
+  }
+  if (entry.kind === "release_verbatim_final_lf_removed") {
+    const src = srcBytes(entry.source);
+    if (!src) return { problems: [...problems, `${tag} applies an unknown migration ${entry.source}`] };
+    const hosted = Buffer.from(text, "utf8");
+    if (sha256(src) !== entry.digest) problems.push(`${tag}: the pinned digest does not match ${entry.source} in this repository`);
+    if (src.length !== entry.bytes) problems.push(`${tag}: the pinned byte count ${entry.bytes} does not match ${entry.source} (${src.length})`);
+    if (hosted.length !== entry.submittedBytes) problems.push(`${tag}: has ${hosted.length} bytes, expected ${entry.submittedBytes}`);
+    const lf = SUBMISSION_FORMS[entry.source]?.finalLfRemoved;
+    if (!lf || lf.sha256 !== entry.sha256 || lf.bytes !== entry.submittedBytes) {
+      problems.push(`${tag}: the final-LF-removed form is not registered for ${entry.source} (SUBMISSION_FORMS)`);
+    }
+    if (submittedForm(entry.source, src, hosted) !== "final_lf_removed") {
+      problems.push(`${tag} is not exactly ${entry.source} with its single final LF byte removed`);
+    }
+    return { covers: entry.source, how: "release_verbatim_final_lf_removed", outOfOrder: false, problems };
   }
   if (entry.kind === "probe" || entry.kind === "staging_table") {
     problems.push(...checkReleaseInfrastructure(entry.kind, text).map((p) => `${tag}: ${p}`));
