@@ -2082,6 +2082,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           duration_ms: number | null
+          engine_generation: number | null
           engine_version: string
           error_code: string | null
           error_detail: Json | null
@@ -2105,6 +2106,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           duration_ms?: number | null
+          engine_generation?: number | null
           engine_version: string
           error_code?: string | null
           error_detail?: Json | null
@@ -2128,6 +2130,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           duration_ms?: number | null
+          engine_generation?: number | null
           engine_version?: string
           error_code?: string | null
           error_detail?: Json | null
@@ -4297,6 +4300,75 @@ export type Database = {
           staff_role?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      processing_release_control: {
+        Row: {
+          canary_company_ids: string[]
+          changed_at: string
+          changed_by: string | null
+          held_at: string | null
+          hold: boolean
+          min_engine_generation: number | null
+          reason: string | null
+          singleton: boolean
+          version: number
+        }
+        Insert: {
+          canary_company_ids?: string[]
+          changed_at?: string
+          changed_by?: string | null
+          held_at?: string | null
+          hold?: boolean
+          min_engine_generation?: number | null
+          reason?: string | null
+          singleton?: boolean
+          version?: number
+        }
+        Update: {
+          canary_company_ids?: string[]
+          changed_at?: string
+          changed_by?: string | null
+          held_at?: string | null
+          hold?: boolean
+          min_engine_generation?: number | null
+          reason?: string | null
+          singleton?: boolean
+          version?: number
+        }
+        Relationships: []
+      }
+      processing_release_control_events: {
+        Row: {
+          action: string
+          actor_user_id: string
+          after_state: Json
+          before_state: Json
+          detail: Json
+          id: string
+          occurred_at: string
+          reason: string
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          after_state: Json
+          before_state: Json
+          detail?: Json
+          id?: string
+          occurred_at?: string
+          reason: string
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          after_state?: Json
+          before_state?: Json
+          detail?: Json
+          id?: string
+          occurred_at?: string
+          reason?: string
         }
         Relationships: []
       }
@@ -6932,6 +7004,7 @@ export type Database = {
       }
       _plan_lock_key: { Args: { p_account: string }; Returns: number }
       _plan_write_lock: { Args: { p_account: string }; Returns: undefined }
+      _processing_control_state: { Args: never; Returns: Json }
       _reporting_pack_object_matches: {
         Args: { p_byte_size: number; p_storage_path: string }
         Returns: boolean
@@ -7019,6 +7092,10 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_drain_processing: {
+        Args: { p_minimum_hold_seconds: number; p_reason: string }
+        Returns: Json
+      }
       admin_ensure_billing_customer: {
         Args: { p_owner_user_id: string; p_reason: string }
         Returns: Json
@@ -7027,6 +7104,7 @@ export type Database = {
         Args: { p_owner_user_id: string }
         Returns: Json
       }
+      admin_get_processing_control: { Args: never; Returns: Json }
       admin_grant_commercial_licence: {
         Args: {
           p_billing_customer_id: string
@@ -7103,6 +7181,16 @@ export type Database = {
       }
       admin_set_licence_additional_seats: {
         Args: { p_licence_id: string; p_quantity: number; p_reason: string }
+        Returns: Json
+      }
+      admin_set_processing_control: {
+        Args: {
+          p_canary_company_ids: string[]
+          p_expected_version: number
+          p_hold: boolean
+          p_min_engine_generation: number
+          p_reason: string
+        }
         Returns: Json
       }
       admin_supersede_commercial_offer: {
@@ -7748,6 +7836,14 @@ export type Database = {
         }
       }
       get_checkout_status: { Args: { p_saff_reference: string }; Returns: Json }
+      get_confirmed_treatments: {
+        Args: { p_company_id: string; p_request_ids: string[] }
+        Returns: {
+          decided_at: string
+          decision_id: string
+          request_id: string
+        }[]
+      }
       get_effective_entitlement: {
         Args: { p_company_id: string; p_feature_code: string }
         Returns: Json
@@ -8045,6 +8141,14 @@ export type Database = {
       prepare_official_reporting_pack: {
         Args: { p_issuance_id: string; p_user: string }
         Returns: Json
+      }
+      processing_control_allows: {
+        Args: { p_company_id: string }
+        Returns: boolean
+      }
+      processing_control_generation_ok: {
+        Args: { p_generation: number }
+        Returns: boolean
       }
       purge_trial_balance_discard: {
         Args: { p_operation_id: string }
@@ -8484,6 +8588,7 @@ export type Database = {
         Args: { p_company_id: string; p_path: string }
         Returns: boolean
       }
+      treatment_request_id: { Args: { p_req: Json }; Returns: string }
       workspace_authority_basis: {
         Args: { p_capability: string; p_company_id: string; p_user_id: string }
         Returns: string
