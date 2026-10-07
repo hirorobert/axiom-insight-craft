@@ -208,7 +208,9 @@ describe("migration directory integrity", () => {
     // is applied (hosted 0028). No applied migration is edited.
     // 147 -> 148: 20261007100000_treatment_authority_and_processing_control.sql (H1: processing release control and
     // CONFIRM_ACCOUNT_TREATMENT), a NEW forward-only migration pending hosted application. No applied migration is edited.
-    expect(files.length).toBe(148);
+    // 148 -> 149: 20261008100000_processing_attempt_authority.sql (S2: attempts, the fence, dependency revisions,
+    // read-time authority), a NEW forward-only migration pending hosted application. No applied migration is edited.
+    expect(files.length).toBe(149);
   });
 });
 

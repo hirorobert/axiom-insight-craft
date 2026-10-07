@@ -29,6 +29,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { ATTEMPT_AUTHORITY_MIGRATION, chainBefore } from "./lib/parkedMigrations.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
@@ -106,7 +107,8 @@ async function stopDatabase() {
   if (embeddedDir) fs.rmSync(embeddedDir, { recursive: true, force: true });
 }
 
-const migrationFiles = () => fs.readdirSync(path.join(REPO, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort();
+// Up to, not including, S2: this proof simulates the previous engine (see lib/parkedMigrations.mjs, chainBefore).
+const migrationFiles = () => chainBefore(fs.readdirSync(path.join(REPO, "supabase/migrations")).filter((f) => f.endsWith(".sql")).sort(), ATTEMPT_AUTHORITY_MIGRATION);
 async function applyMigration(f) {
   let text = fs.readFileSync(path.join(REPO, "supabase/migrations", f), "utf8");
   if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");

@@ -23,6 +23,20 @@ export function currentChain(repo) {
   return files;
 }
 
+/**
+ * S2 (20261008100000): from it on, a trial balance run starts only through tb_begin_attempt, certifications are written only
+ * by tb_finalize_attempt, and an upload's processing fields change only inside an attempt. Proofs that SIMULATE the previous
+ * engine (a direct run insert + commit_tb_certification, direct processing-field writes as the service role) prove their
+ * release on the chain BEFORE it; scripts/db-proof/s2Authority.mjs re-proves, on S2's schema, the contracts S2 re-creates.
+ */
+export const ATTEMPT_AUTHORITY_MIGRATION = "20261008100000_processing_attempt_authority.sql";
+
+/** `files` up to, not including, `file` (all of them when it is absent). */
+export function chainBefore(files, file) {
+  const i = files.indexOf(file);
+  return i < 0 ? files : files.slice(0, i);
+}
+
 /** The original SQL of a parked migration (the quarantine notice removed), verified against its pinned SHA-256. */
 export function parkedMigrationSql(repo, file) {
   const expected = PARKED_MIGRATIONS[file];
