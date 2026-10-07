@@ -67,6 +67,9 @@ function WorkbenchAliasRedirect({ segment }: { segment: string }) {
 // production build (see src/lib/workspace/classificationAcceptanceGate.ts). import.meta.env.DEV is a Vite
 // compile-time constant, statically false in every `vite build` output, so this ternary's lazy() call is dead
 // code there and the route below is never registered.
+// Workbench Trial balance › Intake (I1-A A3): a separate chunk, reached only through the gated route below.
+const TrialBalanceIntake = lazy(() => import("@/pages/workspace/TrialBalanceIntake"));
+
 const ClassificationStatesAcceptance = import.meta.env.DEV
   ? lazy(() => import("@/pages/internal/ClassificationStatesAcceptance"))
   : null;
@@ -113,7 +116,7 @@ const App = () => (
                   <Route path="prepare"    element={WORKBENCH_NAVIGATION_ENABLED ? <WorkbenchAliasRedirect segment="prepare" /> : <StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />
                   {/* Workbench canonical routes — registered only when WORKBENCH_NAVIGATION_ENABLED (src/lib/workbench/routes.ts). */}
                   {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance" element={<WorkbenchAliasRedirect segment="trial-balance" />} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/intake" element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/intake" element={<StageScopeGate stage="prepare"><Suspense fallback={null}><TrialBalanceIntake /></Suspense></StageScopeGate>} />}
                   {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/review" element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />}
                   <Route path="reconcile"  element={<StageScopeGate stage="reconcile"><ReconcileWorkspace /></StageScopeGate>} />
 

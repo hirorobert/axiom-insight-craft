@@ -393,6 +393,8 @@ src/
       table.ts                ← Roving focus, batch eligibility (every selected row must qualify), search matching
       requestSequence.ts      ← Responses bound to context key + per-channel sequence; obsolete or older responses discarded
       expectedVersion.ts      ← Recognises the server's version-conflict refusals; adds p_expected_version
+      intake/layoutClient.ts  ← The ONLY browser path to trial-balance-layout (typed answers: ok/unavailable/conflict/refused/invalid)
+      intake/layoutDraft.ts   ← Layout editor draft → layout-template/1 (client preflight only; the server re-validates the whole file)
     jurisdiction/
       registry.ts             ← Filing-jurisdiction registry: ISO codes, which services need one, which have a pack
       packLoader.ts           ← ONLY module allowed to import a pack (dynamic import() only)
@@ -455,6 +457,8 @@ src/
       ConfirmDialog.tsx       ← Confirmation for material actions only: period, version, consequences, reason/acknowledgement
       SecondaryPanel.tsx      ← On-demand technical detail; focus in on open, back to the opener on close
       DataTable.tsx           ← Workbench table: sticky header, tabular amounts, roving keyboard focus, guarded batch, value states, progressive rendering
+      intake/LayoutEditor.tsx ← Trial balance › Intake: manual layout, whole-file check report, confirmation, templates (behind the workbench gate)
+      intake/PeriodSetup.tsx  ← Explicit period dates + currency (open_engagement_with_period); no defaults
     workspace/
       ServiceLaunchpad.tsx    ← "What would you like to complete?" (services from the canonical registry)
       DataChoiceCard.tsx      ← The one data question
