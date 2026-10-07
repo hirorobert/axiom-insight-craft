@@ -26,7 +26,9 @@
 import { CURRENCY_EXPONENTS } from "./tbIngestion.ts";
 
 export const TB_AMOUNTS_CONTRACT = "tb-amounts/1";
-export const TB_ROW_CONTRACT = "tb-row/1";
+// The certified-row format name (named FORMAT: the engine source must not contain the letters of a tax authority's
+// abbreviation in code — process-trial-balance/l5l6Evidence.test.ts checks substrings).
+export const TB_ROW_FORMAT = "tb-row/1";
 
 export type ClassSide = "assets" | "liabilities" | "equity" | "income" | "expenses";
 

@@ -44,7 +44,7 @@ import {
 } from "../_shared/tbIngestion.ts";
 import { detectSourceFormat, readTrialBalanceSource, type XlsxLike } from "../_shared/tbSource.ts";
 // E1: exact class-side amounts ("tb-amounts/1") and the treatment request identity (H1b, 20261007100000).
-import { TB_ROW_CONTRACT, buildTbAmounts, classSideMinor, classSideOf, type TbAmounts } from "../_shared/tbAmounts.ts";
+import { TB_ROW_FORMAT, buildTbAmounts, classSideMinor, classSideOf, type TbAmounts } from "../_shared/tbAmounts.ts";
 import { CLOSING_STOCK_RULE, buildTreatmentRequest, type TreatmentRequest } from "../_shared/treatmentRequest.ts";
 
 // processing_result.summary.parser_version — the ingestion core's version (one value on every outcome).
@@ -943,7 +943,7 @@ function buildCertifiedRows(
       ruleId:         null,
       requiresReview: false,
       ...(Object.keys(account.dimensions).length > 0 ? { dimensions: account.dimensions } : {}),
-      rowContract:    TB_ROW_CONTRACT,
+      rowContract:    TB_ROW_FORMAT,
       debitMinor:     account.debitMinor.toString(),
       creditMinor:    account.creditMinor.toString(),
       classSideMinor: classSideMinor(side, account.debitMinor, account.creditMinor).toString(),
