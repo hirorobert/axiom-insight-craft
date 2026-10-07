@@ -1568,6 +1568,27 @@ export type Database = {
         }
         Relationships: []
       }
+      currency_registry: {
+        Row: {
+          code: string
+          exponent: number
+          name: string
+          registry_version: string
+        }
+        Insert: {
+          code: string
+          exponent: number
+          name: string
+          registry_version?: string
+        }
+        Update: {
+          code?: string
+          exponent?: number
+          name?: string
+          registry_version?: string
+        }
+        Relationships: []
+      }
       deployment_approvals: {
         Row: {
           approved_at: string
@@ -3194,6 +3215,68 @@ export type Database = {
           },
         ]
       }
+      fiscal_period_events: {
+        Row: {
+          action: string
+          actor_member_id: string | null
+          actor_user_id: string | null
+          company_id: string
+          detail: Json
+          id: string
+          occurred_at: string
+          period_id: string
+        }
+        Insert: {
+          action: string
+          actor_member_id?: string | null
+          actor_user_id?: string | null
+          company_id: string
+          detail?: Json
+          id?: string
+          occurred_at?: string
+          period_id: string
+        }
+        Update: {
+          action?: string
+          actor_member_id?: string | null
+          actor_user_id?: string | null
+          company_id?: string
+          detail?: Json
+          id?: string
+          occurred_at?: string
+          period_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fiscal_period_events_actor_member_id_fkey"
+            columns: ["actor_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fiscal_period_events_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "fiscal_periods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fiscal_period_events_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["current_period_id"]
+          },
+          {
+            foreignKeyName: "fiscal_period_events_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "v_period_pairs"
+            referencedColumns: ["prior_period_id"]
+          },
+        ]
+      }
       fiscal_periods: {
         Row: {
           accounting_basis: string
@@ -3201,6 +3284,9 @@ export type Database = {
           company_id: string
           created_at: string
           created_by: string
+          dates_basis: string | null
+          dates_confirmed_at: string | null
+          dates_confirmed_by: string | null
           fiscal_year_end: string
           id: string
           period_label: string
@@ -3218,11 +3304,14 @@ export type Database = {
           company_id: string
           created_at?: string
           created_by: string
+          dates_basis?: string | null
+          dates_confirmed_at?: string | null
+          dates_confirmed_by?: string | null
           fiscal_year_end: string
           id?: string
           period_label: string
           prior_period_id?: string | null
-          reporting_currency?: string
+          reporting_currency: string
           reporting_end?: string | null
           reporting_framework?: string | null
           reporting_start?: string | null
@@ -3235,6 +3324,9 @@ export type Database = {
           company_id?: string
           created_at?: string
           created_by?: string
+          dates_basis?: string | null
+          dates_confirmed_at?: string | null
+          dates_confirmed_by?: string | null
           fiscal_year_end?: string
           id?: string
           period_label?: string
@@ -3262,6 +3354,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "fiscal_periods_dates_confirmed_by_fkey"
+            columns: ["dates_confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "fiscal_periods_prior_period_id_fkey"
             columns: ["prior_period_id"]
             isOneToOne: false
@@ -3281,6 +3380,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_period_pairs"
             referencedColumns: ["prior_period_id"]
+          },
+          {
+            foreignKeyName: "fk_fp_reporting_currency"
+            columns: ["reporting_currency"]
+            isOneToOne: false
+            referencedRelation: "currency_registry"
+            referencedColumns: ["code"]
           },
         ]
       }
@@ -3588,6 +3694,158 @@ export type Database = {
           term?: string
         }
         Relationships: []
+      }
+      layout_confirmations: {
+        Row: {
+          actor_type: string
+          actor_user_id: string | null
+          company_id: string
+          confirmation_no: number
+          created_at: string
+          firm_member_id: string | null
+          format: string
+          id: string
+          profile: Json
+          profile_sha256: string
+          resolved_profile: Json
+          resolved_profile_sha256: string
+          row_dispositions: Json
+          rows_read: number
+          source_file_hash: string
+          template_id: string | null
+          upload_id: string
+          validation: Json
+        }
+        Insert: {
+          actor_type: string
+          actor_user_id?: string | null
+          company_id: string
+          confirmation_no: number
+          created_at?: string
+          firm_member_id?: string | null
+          format?: string
+          id?: string
+          profile: Json
+          profile_sha256: string
+          resolved_profile: Json
+          resolved_profile_sha256: string
+          row_dispositions: Json
+          rows_read: number
+          source_file_hash: string
+          template_id?: string | null
+          upload_id: string
+          validation: Json
+        }
+        Update: {
+          actor_type?: string
+          actor_user_id?: string | null
+          company_id?: string
+          confirmation_no?: number
+          created_at?: string
+          firm_member_id?: string | null
+          format?: string
+          id?: string
+          profile?: Json
+          profile_sha256?: string
+          resolved_profile?: Json
+          resolved_profile_sha256?: string
+          row_dispositions?: Json
+          rows_read?: number
+          source_file_hash?: string
+          template_id?: string | null
+          upload_id?: string
+          validation?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_lc_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_lc_member"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_lc_template"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "layout_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_lc_upload"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      layout_templates: {
+        Row: {
+          actor_type: string
+          actor_user_id: string | null
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          format: string
+          id: string
+          name: string
+          profile: Json
+          profile_sha256: string
+          template_key: string
+          version: number
+        }
+        Insert: {
+          actor_type: string
+          actor_user_id?: string | null
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          format?: string
+          id?: string
+          name: string
+          profile: Json
+          profile_sha256: string
+          template_key: string
+          version: number
+        }
+        Update: {
+          actor_type?: string
+          actor_user_id?: string | null
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          format?: string
+          id?: string
+          name?: string
+          profile?: Json
+          profile_sha256?: string
+          template_key?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_lt_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_lt_member"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       management_inputs: {
         Row: {
@@ -6992,6 +7250,13 @@ export type Database = {
             referencedRelation: "companies"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "fk_fp_reporting_currency"
+            columns: ["reporting_currency"]
+            isOneToOne: false
+            referencedRelation: "currency_registry"
+            referencedColumns: ["code"]
+          },
         ]
       }
       v_wdv_carry_forward: {
@@ -7099,6 +7364,13 @@ export type Database = {
         }
         Returns: Json
       }
+      _layout_actor: {
+        Args: { p_company_id: string; p_user_id: string }
+        Returns: {
+          actor_type: string
+          firm_member_id: string
+        }[]
+      }
       _member_capability_lock: {
         Args: { p_company_id: string; p_user: string }
         Returns: undefined
@@ -7111,6 +7383,10 @@ export type Database = {
       _official_reporting_pack_document: {
         Args: { p_issuance_id: string }
         Returns: string
+      }
+      _period_has_processing: {
+        Args: { p_period_id: string }
+        Returns: boolean
       }
       _plan_lock_key: { Args: { p_account: string }; Returns: number }
       _plan_write_lock: { Args: { p_account: string }; Returns: undefined }
@@ -7509,12 +7785,25 @@ export type Database = {
         }
         Returns: Json
       }
+      complete_legacy_period_dates: {
+        Args: {
+          p_end: string
+          p_period_id: string
+          p_reason: string
+          p_start: string
+        }
+        Returns: Json
+      }
       complete_trial_balance_discard: {
         Args: { p_operation_id: string }
         Returns: {
           detail: string
           outcome: Database["public"]["Enums"]["discard_outcome"]
         }[]
+      }
+      confirm_period_dates: {
+        Args: { p_end: string; p_period_id: string; p_start: string }
+        Returns: Json
       }
       confirm_trial_balance_storage_cleanup: {
         Args: { p_operation_id: string }
@@ -8144,6 +8433,34 @@ export type Database = {
         }
         Returns: Json
       }
+      layout_record_confirmation: {
+        Args: {
+          p_expected_confirmation_no: number
+          p_profile: Json
+          p_profile_sha256: string
+          p_resolved_profile: Json
+          p_resolved_profile_sha256: string
+          p_row_dispositions: Json
+          p_source_file_hash: string
+          p_template_id: string
+          p_upload_id: string
+          p_user_id: string
+          p_validation: Json
+        }
+        Returns: Json
+      }
+      layout_save_template: {
+        Args: {
+          p_company_id: string
+          p_expected_version: number
+          p_name: string
+          p_profile: Json
+          p_profile_sha256: string
+          p_template_key: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       list_purgeable_trial_balance_sources: {
         Args: { p_company_id: string }
         Returns: {
@@ -8226,6 +8543,20 @@ export type Database = {
       next_engagement_sequence: {
         Args: { p_engagement_id: string }
         Returns: number
+      }
+      open_engagement_with_period: {
+        Args: {
+          p_capabilities: string[]
+          p_company_id: string
+          p_engagement_type?: string
+          p_period_end: string
+          p_period_start: string
+          p_prior_currency?: string
+          p_prior_end?: string
+          p_prior_start?: string
+          p_reporting_currency: string
+        }
+        Returns: Json
       }
       open_engagement_with_scope: {
         Args: {
@@ -8345,6 +8676,7 @@ export type Database = {
           storage_path: string
         }[]
       }
+      reporting_period_max_months: { Args: never; Returns: number }
       reserve_trial_balance_source: {
         Args: { p_company_id: string; p_file_name: string }
         Returns: {

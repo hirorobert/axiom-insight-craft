@@ -218,6 +218,20 @@
       "when": 1791360699011,
       "tag": "0030_apply_20261008100000_processing_attempt_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791389044422,
+      "tag": "0031_currency_registry_and_reporting_periods",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791389191617,
+      "tag": "0032_layout_templates_and_confirmations",
+      "breakpoints": true
     }
   ]
 }
