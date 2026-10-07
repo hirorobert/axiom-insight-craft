@@ -174,6 +174,13 @@ export const RELEASE_JOURNAL = {
     digest: "0010ec531f3924e3a63031a0f42185c94414ab72a15396b4a3d43499468092c6",
     submittedBytes: 47456,
     sha256: "3591b7d0a6a39db2bf479aa8ecb86e5c0b8c4f01bdb86cf166abb56fc5e23ae0" },
+  // S2 processing-attempt authority (PR #62, merged in main 4b5806c), applied by Lovable's native migrator (mirror commit
+  // da1ad01) in its pre-registered final-LF-removed form (SUBMISSION_FORMS, registered in PR #64 before application).
+  "0030_apply_20261008100000_processing_attempt_authority": { kind: "release_verbatim_final_lf_removed",
+    source: "20261008100000_processing_attempt_authority.sql", bytes: 75683,
+    digest: "6ad6ac7d6aac244950a0e69bd1c278bea1eee5ac9e12c98e541ca9c961c9c25d",
+    submittedBytes: 75682,
+    sha256: "169a3771a009973114437a5bd24318083d05e391876f6dfbacfbaf994bb817b8" },
 };
 
 /**
@@ -189,8 +196,7 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 47457, sha256: "0010ec531f3924e3a63031a0f42185c94414ab72a15396b4a3d43499468092c6" }),
     finalLfRemoved: Object.freeze({ bytes: 47456, sha256: "3591b7d0a6a39db2bf479aa8ecb86e5c0b8c4f01bdb86cf166abb56fc5e23ae0" }),
   }),
-  // S2: pending hosted application. Both candidate forms are registered ahead of time; its journal entry is added (and
-  // reviewed) only after it is applied, naming the form actually used.
+  // S2: both candidate forms were registered before application; applied as 0030 in the final-LF-removed form.
   "20261008100000_processing_attempt_authority.sql": Object.freeze({
     identical: Object.freeze({ bytes: 75683, sha256: "6ad6ac7d6aac244950a0e69bd1c278bea1eee5ac9e12c98e541ca9c961c9c25d" }),
     finalLfRemoved: Object.freeze({ bytes: 75682, sha256: "169a3771a009973114437a5bd24318083d05e391876f6dfbacfbaf994bb817b8" }),

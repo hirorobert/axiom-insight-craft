@@ -37,7 +37,8 @@ describe("migration authority parity", () => {
     // digest fix) is a byte-equal mirror of its source.
     // 26: 0028 (20261006100000, S1) is a release_verbatim entry (hosted journal id 29).
     // 27: 0029 (20261007100000, H1) is a release_verbatim_final_lf_removed entry (rule 9; releaseJournal.test.ts).
-    expect(r.mirrored.length).toBe(27);
+    // 28: 0030 (20261008100000, S2) is the same kind.
+    expect(r.mirrored.length).toBe(28);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
@@ -47,8 +48,8 @@ describe("migration authority parity", () => {
     // not yet applied.
     // S1 record: 20261006100000 applied as 0028. The parked 20261004100000 / 20261005100000 (never applied) are quarantined in
     // supabase/migrations_historical/, so nothing is pending and no source migration is skipped by the hosted journal.
-    // H1 (20261007100000) is applied as 0029. S2 (20261008100000) is authored and pending hosted application.
-    expect(r.pending).toEqual(["20261008100000_processing_attempt_authority.sql"]);
+    // H1 (20261007100000) is applied as 0029 and S2 (20261008100000) as 0030. Nothing is pending.
+    expect(r.pending).toEqual([]);
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {

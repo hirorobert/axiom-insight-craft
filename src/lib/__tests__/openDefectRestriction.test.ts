@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { OPEN_DEFECT_RESTRICTIONS, openDefectRefusal, SERVICE_RESTRICTED_BODY } from "../../../supabase/functions/_shared/openDefectRestriction";
+import { OPEN_DEFECT_RESTRICTIONS, openDefectRefusal, SERVICE_RESTRICTED_BODY, WITHHELD_SERVICES } from "../../../supabase/functions/_shared/openDefectRestriction";
 
 const fnSrc = (fn: string) => readFileSync(resolve(__dirname, `../../../supabase/functions/${fn}/index.ts`), "utf8").replace(/\r\n/g, "\n");
 const claude = readFileSync(resolve(__dirname, "../../../CLAUDE.md"), "utf8");
@@ -30,9 +30,21 @@ describe("open-defect restrictions", () => {
     const body = await r.json();
     expect(body).toEqual({ ...SERVICE_RESTRICTED_BODY });
     expect(JSON.stringify(body)).not.toMatch(/kinga|maono|hesabu|safisha|defect/i);
-    expect(openDefectRefusal("kinga-tax-engine", {})).toBeNull();
+    expect(openDefectRefusal("process-trial-balance", {})).toBeNull();
+    expect(openDefectRefusal("maono-cashflow", {})).toBeNull();
   });
-  for (const fn of Object.keys(OPEN_DEFECT_RESTRICTIONS)) {
+  it("withholds exactly tax, notes and the management letter from R0, with the same refusal", async () => {
+    expect(WITHHELD_SERVICES).toEqual({
+      "kinga-tax-engine": "withheld-r0", "generate-disclosure-notes": "withheld-r0", "generate-management-letter": "withheld-r0",
+    });
+    for (const fn of Object.keys(WITHHELD_SERVICES)) {
+      const r = openDefectRefusal(fn, {})!;
+      expect([r.status, await r.json()], fn).toEqual([503, { ...SERVICE_RESTRICTED_BODY }]);
+    }
+    // Their defects are recorded for the change that releases them.
+    expect(claude).toContain("DEFECT-WITHHELD-TAX-NOTES-LETTER-001");
+  });
+  for (const fn of [...Object.keys(OPEN_DEFECT_RESTRICTIONS), ...Object.keys(WITHHELD_SERVICES)]) {
     it(`${fn} refuses right after the CORS preflight, before authentication, a client, or any read`, () => {
       const src = fnSrc(fn);
       const handler = src.indexOf("serve(async (req");

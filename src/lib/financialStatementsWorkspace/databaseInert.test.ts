@@ -271,6 +271,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/kinga-tax-engine/index.ts",
       // E2 (W3): the findings engine computes only from the period's authoritative trial balance (or refuses).
       "supabase/functions/kinga-findings-engine/index.ts",
+      // R0: tax, notes and the management letter are withheld on the server (WITHHELD_SERVICES): the same refusal as the
+      // open-defect restrictions, before authentication or any read or write. No schema, no business logic.
+      "supabase/functions/_shared/openDefectRestriction.ts",
       // ...and so does the one Comparative Assurance implementation, for both periods.
       "supabase/functions/_shared/comparativeAssurance.ts",
       // B-5: the evidence-attachment RPC error is a failure, never ignored.

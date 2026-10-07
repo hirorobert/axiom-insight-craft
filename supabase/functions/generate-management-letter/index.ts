@@ -21,6 +21,7 @@ import { isNamedUserActive } from "../_shared/namedUserAccess.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requirePaidAction } from "../_shared/paidAction.ts";
 import { authorityRefusal, requireAuthoritativeUpload } from "../_shared/tbAuthority.ts";
+import { openDefectRefusal } from "../_shared/openDefectRestriction.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -136,6 +137,12 @@ async function validateAuth(
 // ── Main ─────────────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  // R0 release: withheld on the server — refuses before authentication or any read or write
+  // (_shared/openDefectRestriction.ts, WITHHELD_SERVICES).
+  {
+    const restricted = openDefectRefusal("generate-management-letter", corsHeaders);
+    if (restricted) return restricted;
+  }
 
   try {
     const supabaseUrl      = Deno.env.get("SUPABASE_URL") ?? "";

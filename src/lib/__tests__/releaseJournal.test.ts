@@ -25,6 +25,7 @@ const S29 = "20261007100000_treatment_authority_and_processing_control.sql";
 const H1_CANONICAL = "0010ec531f3924e3a63031a0f42185c94414ab72a15396b4a3d43499468092c6";
 const H1_SUBMITTED = "3591b7d0a6a39db2bf479aa8ecb86e5c0b8c4f01bdb86cf166abb56fc5e23ae0";
 const S2 = "20261008100000_processing_attempt_authority.sql";
+const T30 = "0030_apply_20261008100000_processing_attempt_authority";
 const S2_CANONICAL = "6ad6ac7d6aac244950a0e69bd1c278bea1eee5ac9e12c98e541ca9c961c9c25d";
 const S2_SUBMITTED = "169a3771a009973114437a5bd24318083d05e391876f6dfbacfbaf994bb817b8";
 const S25 = "20261001120000_annual_commercial_term.sql";
@@ -34,8 +35,8 @@ describe("the reviewed release journal", () => {
   it("every entry 0013–0022 and 0024 validates: exact content, exact template, digest = the source file in this repository", () => {
     for (const tag of Object.keys(RELEASE_JOURNAL)) expect(checkReleaseEntry(tag, read(tag), srcBytes).problems, tag).toEqual([]);
     // 14: 0028 (S1, release_verbatim, hosted journal id 29) joins the reviewed entries.
-    // 15: 0029 (H1, release_verbatim_final_lf_removed) joins them.
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(15);
+    // 15: 0029 (H1, release_verbatim_final_lf_removed) joins them; 16: 0030 (S2, the same kind).
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(16);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -53,9 +54,10 @@ describe("the reviewed release journal", () => {
     // The parked 20261004100000 / 20261005100000 were never applied and are quarantined in supabase/migrations_historical/,
     // so the source chain is exactly the hosted journal: nothing pending, nothing skipped.
     // H1 (20261007100000) is applied as 0029: its source minus its single final LF (release_verbatim_final_lf_removed).
-    // S2 (20261008100000) is authored and pending hosted application.
-    expect(r.pending).toEqual(["20261008100000_processing_attempt_authority.sql"]);
+    // S2 (20261008100000) is applied as 0030 in the same registered form. Nothing is pending.
+    expect(r.pending).toEqual([]);
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
+    expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({
       tag: "0028_apply_20261006100000_mapping_and_processing_authority", source: "20261006100000_mapping_and_processing_authority.sql", how: "release_verbatim" });
     expect(r.mirrored.find((m) => m.tag === "0026_apply_20261002100000_refuse_withheld_service_grants")?.how).toBe("release_verbatim");
@@ -314,7 +316,7 @@ describe("0029: H1 applied as its source minus its single final LF (release_verb
   }, 120_000);   // full-repository guard runs
 });
 
-describe("S2: both submission forms registered ahead of application, S2 not applied", () => {
+describe("S2: both submission forms registered ahead of application; applied as 0030 in the final-LF-removed form", () => {
   const src = () => srcBytes(S2)!;
   it("registers exactly the source and the source minus its single final LF", () => {
     expect(SUBMISSION_FORMS[S2]).toEqual({ identical: { bytes: 75683, sha256: S2_CANONICAL }, finalLfRemoved: { bytes: 75682, sha256: S2_SUBMITTED } });
@@ -332,23 +334,31 @@ describe("S2: both submission forms registered ahead of application, S2 not appl
       expect(submittedForm(S2, s, bad)).toBeNull();
     }
   });
-  it("is still pending, with no journal entry", () => {
-    expect((checkMigrationAuthority(ROOT) as Result).pending).toEqual([S2]);
-    expect(Object.values(RELEASE_JOURNAL).some((e) => "source" in e && e.source === S2)).toBe(false);
-  }, 120_000);   // full-repository guard runs
-  it("a hosted S2 mirror is refused until its reviewed entry is added (rule 9), even in a registered form", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-s2-"));
+  it("0030 pins the canonical source and the submitted text separately; the mirror is the source minus its final byte", () => {
+    const mirror = fs.readFileSync(path.join(DZ, `${T30}.sql`));
+    expect(RELEASE_JOURNAL[T30]).toEqual({ kind: "release_verbatim_final_lf_removed", source: S2, bytes: 75683, digest: S2_CANONICAL,
+      submittedBytes: 75682, sha256: S2_SUBMITTED });
+    expect([mirror.length, sha(mirror)]).toEqual([75682, S2_SUBMITTED]);
+    expect(mirror.equals(src().subarray(0, src().length - 1))).toBe(true);
+    expect(checkReleaseEntry(T30, read(T30), srcBytes).problems).toEqual([]);
+  });
+  it("rejects the source byte for byte, both trailing bytes removed, CRLF or one changed byte in 0030", () => {
+    const m = fs.readFileSync(path.join(DZ, `${T30}.sql`));
+    const variants: Record<string, Buffer> = {
+      "byte-identical source": src(),
+      "last two bytes removed": src().subarray(0, src().length - 2),
+      "CRLF": Buffer.from(m.toString("utf8").replace(/\n/g, "\r\n"), "utf8"),
+      "one changed byte": (() => { const b = Buffer.from(m); b[2000] = b[2000] === 0x41 ? 0x42 : 0x41; return b; })(),
+    };
+    for (const [label, bytes] of Object.entries(variants)) {
+      expect(checkReleaseEntry(T30, bytes.toString("utf8"), srcBytes).problems.length, label).toBeGreaterThan(0);
+    }
+  });
+  it("without its reviewed entry, normalised parity cannot accept 0030 (rule 9)", () => {
+    const saved = RELEASE_JOURNAL[T30];
+    delete (RELEASE_JOURNAL as Record<string, unknown>)[T30];
     try {
-      fs.cpSync(SRC, path.join(dir, "supabase/migrations"), { recursive: true });
-      fs.cpSync(path.join(ROOT, "drizzle"), path.join(dir, "drizzle"), { recursive: true });
-      const tag = "0030_apply_20261008100000_processing_attempt_authority";
-      const jp = path.join(dir, "drizzle/migrations/meta/_journal.json");
-      const j = JSON.parse(fs.readFileSync(jp, "utf8"));
-      j.entries.push({ idx: j.entries.length, version: "7", when: 1791400000000, tag, breakpoints: true });
-      fs.writeFileSync(jp, JSON.stringify(j, null, 2));
-      fs.copyFileSync(path.join(dir, "drizzle/migrations/meta/0029_snapshot.json"), path.join(dir, "drizzle/migrations/meta/0030_snapshot.json"));
-      fs.writeFileSync(path.join(dir, "drizzle/migrations", `${tag}.sql`), src().subarray(0, src().length - 1));
-      expect((checkMigrationAuthority(dir) as Result).errors.join("\n")).toMatch(/0030_apply_20261008100000[^\n]*only through a reviewed RELEASE_JOURNAL entry/);
-    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+      expect((checkMigrationAuthority(ROOT) as Result).errors.join("\n")).toMatch(/0030_apply_20261008100000[^\n]*only through a reviewed RELEASE_JOURNAL entry/);
+    } finally { (RELEASE_JOURNAL as Record<string, unknown>)[T30] = saved; }
   }, 120_000);   // full-repository guard runs
 });

@@ -11,7 +11,16 @@
  *   maono-compute          DEFECT-MAONO-UNTRACKED-CLASSIFICATION-TABLES-001 — reads account_classifications and
  *                          account_pl_mapping, which no migration creates and no certified authority produces.
  *
- * The answer names no internal engine or defect (customer-facing copy); the defect id is logged server-side only.
+ * R0 also WITHHOLDS three services: they are not part of this release, so they refuse every request in the same way,
+ * before authentication or any read or write. Their business logic is neither repaired nor enabled here; their recorded
+ * defects (CLAUDE.md §9.1, DEFECT-WITHHELD-TAX-NOTES-LETTER-001) are for the reviewed change that releases them, which
+ * also removes the entry.
+ *
+ *   kinga-tax-engine            tax computation
+ *   generate-disclosure-notes   disclosure notes
+ *   generate-management-letter  management letter
+ *
+ * The answer names no internal engine or defect (customer-facing copy); the reason is logged server-side only.
  */
 
 // Function slug -> the open defect, by a short neutral key (string values are scanned as possibly customer-visible, so the
@@ -21,17 +30,26 @@ export const OPEN_DEFECT_RESTRICTIONS: Readonly<Record<string, string>> = Object
   "maono-compute": "untracked-classification-tables-001",      // DEFECT-MAONO-UNTRACKED-CLASSIFICATION-TABLES-001
 });
 
+// Function slug -> why it is withheld from this release (neutral key).
+export const WITHHELD_SERVICES: Readonly<Record<string, string>> = Object.freeze({
+  "kinga-tax-engine": "withheld-r0",
+  "generate-disclosure-notes": "withheld-r0",
+  "generate-management-letter": "withheld-r0",
+});
+
 export const SERVICE_RESTRICTED_BODY = Object.freeze({
   error: "SERVICE_RESTRICTED",
   code: "SERVICE_RESTRICTED",
   message: "This analysis is not available yet.",
 });
 
-/** The refusal for a restricted function, or null when it is not restricted. */
+/** The refusal for a restricted or withheld function, or null when it is neither. */
 export function openDefectRefusal(functionName: string, corsHeaders: Record<string, string>): Response | null {
   const defect = OPEN_DEFECT_RESTRICTIONS[functionName];
-  if (!defect) return null;
-  console.warn(`[${functionName}] refused: restricted while open defect ${defect} is unresolved`);
+  const withheld = WITHHELD_SERVICES[functionName];
+  if (!defect && !withheld) return null;
+  console.warn(defect ? `[${functionName}] refused: restricted while open defect ${defect} is unresolved`
+    : `[${functionName}] refused: service withheld from this release (${withheld})`);
   return new Response(JSON.stringify(SERVICE_RESTRICTED_BODY), {
     status: 503,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
