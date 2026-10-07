@@ -55,7 +55,8 @@ describe("the reviewed release journal", () => {
     // so the source chain is exactly the hosted journal: nothing pending, nothing skipped.
     // H1 (20261007100000) is applied as 0029: its source minus its single final LF (release_verbatim_final_lf_removed).
     // S2 (20261008100000) is applied as 0030 in the same registered form. Nothing is pending.
-    expect(r.pending).toEqual([]);
+    // I1-A (20261009100000, currency registry and explicit reporting periods) is authored and pending hosted application.
+    expect(r.pending).toEqual(["20261009100000_currency_registry_and_reporting_periods.sql"]);
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({

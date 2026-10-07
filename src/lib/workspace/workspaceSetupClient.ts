@@ -96,3 +96,106 @@ export async function recordDataStart(client: RpcClient, engagementId: string, c
 export async function setFilingJurisdiction(client: RpcClient, companyId: string, code: string | null): Promise<string | null> {
   return call<string | null>(client, "set_company_filing_jurisdiction", { p_company_id: companyId, p_jurisdiction: code });
 }
+
+// ── I1-A: explicit reporting periods (migration 20261009100000) ──────────────────────────────────────────────────────
+
+/** Refusals the server returns as answers (nothing was created or changed). */
+export type PeriodRefusalCode =
+  | "PERIOD_OVERLAP"
+  | "PERIOD_YEAR_TAKEN"
+  | "PERIOD_DATES_UNCONFIRMED"
+  | "CURRENCY_DIFFERS_FROM_EXISTING"
+  | "PRIOR_NOT_ADJACENT"
+  | "PRIOR_DATES_UNCONFIRMED"
+  | "PRIOR_YEAR_TAKEN"
+  | "PRIOR_LINK_CONFLICT"
+  | "END_DIFFERS_FROM_YEAR_END";
+
+export const PERIOD_REFUSAL_COPY: Readonly<Record<PeriodRefusalCode, string>> = Object.freeze({
+  PERIOD_OVERLAP: "These dates overlap another reporting period of this company. Choose dates that do not overlap.",
+  PERIOD_YEAR_TAKEN: "Another reporting period already ends in this year. Open that period, or choose different dates.",
+  PERIOD_DATES_UNCONFIRMED: "A period ending in this year exists but its dates are not recorded. Confirm its dates first.",
+  CURRENCY_DIFFERS_FROM_EXISTING: "This period already exists with a different reporting currency.",
+  PRIOR_NOT_ADJACENT: "The prior period must end the day before this period starts.",
+  PRIOR_DATES_UNCONFIRMED: "A prior period ending in that year exists but its dates are not recorded. Confirm its dates first.",
+  PRIOR_YEAR_TAKEN: "A different period already ends in the prior year. Use its dates, or leave the prior year out.",
+  PRIOR_LINK_CONFLICT: "This period is already linked to a different prior period.",
+  END_DIFFERS_FROM_YEAR_END: "The end date must be the period's recorded year end.",
+});
+
+/** The backend does not have this function yet (PGRST202 / 42883): the feature is unavailable, not failed. */
+export class SetupFeatureUnavailable extends Error {
+  constructor() { super("This setup option is not available yet."); this.name = "SetupFeatureUnavailable"; }
+}
+
+export type PeriodOpenResult =
+  | { readonly outcome: "opened"; readonly engagementId: string; readonly periodId: string; readonly priorPeriodId: string | null; readonly periodYear: number; readonly created: boolean; readonly granted: readonly EngagementCapability[] }
+  | { readonly outcome: "refused"; readonly code: PeriodRefusalCode; readonly message: string; readonly periodId: string | null };
+
+async function callPeriod<T>(client: RpcClient, fn: string, args: Record<string, unknown>): Promise<T> {
+  const { data, error } = await client.rpc(fn, args);
+  if (error) {
+    if (error.code === "PGRST202" || error.code === "42883") throw new SetupFeatureUnavailable();
+    throw classifySetupError(error);
+  }
+  return data as T;
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function refusal(raw: { code?: unknown; periodId?: unknown }): PeriodOpenResult {
+  const code = String(raw.code) as PeriodRefusalCode;
+  if (!(code in PERIOD_REFUSAL_COPY)) throw new WorkspaceSetupError("UNKNOWN", "The request could not be completed.");
+  return { outcome: "refused", code, message: PERIOD_REFUSAL_COPY[code], periodId: typeof raw.periodId === "string" ? raw.periodId : null };
+}
+
+/**
+ * Opens (or reuses) the engagement for an explicitly dated period in an explicitly chosen currency, optionally with
+ * the adjacent prior period. Dates are ISO yyyy-mm-dd. The server validates everything; nothing is defaulted here.
+ */
+export async function openEngagementWithPeriod(client: RpcClient, input: {
+  companyId: string; periodStart: string; periodEnd: string; reportingCurrency: string;
+  capabilities: readonly EngagementCapability[]; engagementType?: string;
+  prior?: { start: string; end: string; currency?: string };
+}): Promise<PeriodOpenResult> {
+  if (!input.capabilities.every(isCapabilityCustomerVisible)) throw new Error(SERVICE_NOT_AVAILABLE_MESSAGE);
+  for (const d of [input.periodStart, input.periodEnd, input.prior?.start, input.prior?.end].filter((x): x is string => x !== undefined)) {
+    if (!ISO_DATE.test(d)) throw new WorkspaceSetupError("INVALID", "Dates must be given as yyyy-mm-dd.");
+  }
+  const r = await callPeriod<Record<string, unknown>>(client, "open_engagement_with_period", {
+    p_company_id: input.companyId,
+    p_period_start: input.periodStart,
+    p_period_end: input.periodEnd,
+    p_reporting_currency: input.reportingCurrency,
+    p_capabilities: [...new Set(input.capabilities)],
+    p_engagement_type: input.engagementType ?? "composite",
+    p_prior_start: input.prior?.start ?? null,
+    p_prior_end: input.prior?.end ?? null,
+    p_prior_currency: input.prior?.currency ?? null,
+  });
+  if (r.outcome === "refused") return refusal(r);
+  return {
+    outcome: "opened",
+    engagementId: String(r.engagementId),
+    periodId: String(r.periodId),
+    priorPeriodId: typeof r.priorPeriodId === "string" ? r.priorPeriodId : null,
+    periodYear: Number(r.periodYear),
+    created: r.created === true,
+    granted: (r.granted as EngagementCapability[]) ?? [],
+  };
+}
+
+export type ConfirmDatesResult =
+  | { readonly outcome: "confirmed"; readonly periodId: string; readonly changed: boolean }
+  | { readonly outcome: "refused"; readonly code: PeriodRefusalCode; readonly message: string };
+
+/** Confirms (or states, for a period without recorded dates) a period's start and end dates. */
+export async function confirmPeriodDates(client: RpcClient, periodId: string, start: string, end: string): Promise<ConfirmDatesResult> {
+  if (!ISO_DATE.test(start) || !ISO_DATE.test(end)) throw new WorkspaceSetupError("INVALID", "Dates must be given as yyyy-mm-dd.");
+  const r = await callPeriod<Record<string, unknown>>(client, "confirm_period_dates", { p_period_id: periodId, p_start: start, p_end: end });
+  if (r.outcome === "refused") {
+    const x = refusal(r);
+    return x.outcome === "refused" ? { outcome: "refused", code: x.code, message: x.message } : (() => { throw new Error("unreachable"); })();
+  }
+  return { outcome: "confirmed", periodId: String(r.periodId), changed: r.changed === true };
+}

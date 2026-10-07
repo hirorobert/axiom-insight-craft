@@ -210,7 +210,9 @@ describe("migration directory integrity", () => {
     // CONFIRM_ACCOUNT_TREATMENT), a NEW forward-only migration pending hosted application. No applied migration is edited.
     // 148 -> 149: 20261008100000_processing_attempt_authority.sql (S2: attempts, the fence, dependency revisions,
     // read-time authority), a NEW forward-only migration pending hosted application. No applied migration is edited.
-    expect(files.length).toBe(149);
+    // 149 -> 150: 20261009100000_currency_registry_and_reporting_periods.sql (I1-A: currency-registry/1 and explicit reporting
+    // periods), a NEW forward-only migration pending hosted application. No applied migration is edited.
+    expect(files.length).toBe(150);
   });
 });
 

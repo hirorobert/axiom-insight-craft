@@ -1,7 +1,8 @@
 /**
  * tbIngestion — the ONE pure ingestion core for an uploaded trial balance (process-trial-balance).
  *
- * Plain TypeScript with no imports, so the Deno edge function and the vitest suite run the same code. It turns the
+ * Plain TypeScript whose only import is the currency registry, so the Deno edge function and the vitest suite run
+ * the same code. It turns the
  * rows of a CSV or worksheet into accounts, and accounts for every source row on the way:
  *
  *   · Exact money. Every amount is parsed from its text into integer minor units (bigint) at the reporting
@@ -21,6 +22,8 @@
  * Issues are "blocking" (the trial balance cannot be accepted until the file is corrected) or "review" (recorded for
  * the reviewer). Messages name the rows and say what to change.
  */
+
+import { CURRENCY_REGISTRY } from "./currencyRegistry.ts";
 
 export const TB_INGESTION_VERSION = "tb-ingest-3.0.0";
 
@@ -76,15 +79,11 @@ function listRows(rows: number[]): string {
 // ── Currency ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * ISO 4217 minor-unit exponents for the currencies a reporting period may use. A currency missing here is refused
+ * ISO 4217 minor-unit exponents for the currencies a reporting period may use: currency-registry/1
+ * (_shared/currencyRegistry.ts, the same published list as public.currency_registry). A currency missing here is refused
  * (CURRENCY_UNSUPPORTED), never assumed to have two decimals.
  */
-export const CURRENCY_EXPONENTS: Readonly<Record<string, number>> = Object.freeze({
-  TZS: 2, KES: 2, UGX: 0, RWF: 0, BIF: 0, ETB: 2, ZAR: 2, ZMW: 2, MWK: 2, MZN: 2, NGN: 2, GHS: 2, XOF: 0, XAF: 0,
-  EGP: 2, MAD: 2, MUR: 2, SCR: 2, CDF: 2, SSP: 2, SDG: 2, SOS: 2, DJF: 0, BWP: 2, NAD: 2, LSL: 2, SZL: 2, AOA: 2,
-  USD: 2, EUR: 2, GBP: 2, CHF: 2, CAD: 2, AUD: 2, NZD: 2, SEK: 2, NOK: 2, DKK: 2, CNY: 2, INR: 2, PKR: 2, AED: 2,
-  SAR: 2, QAR: 2, JPY: 0, KRW: 0, BHD: 3, KWD: 3, OMR: 3, JOD: 3, TND: 3, LYD: 3, IQD: 3,
-});
+export const CURRENCY_EXPONENTS: Readonly<Record<string, number>> = CURRENCY_REGISTRY;
 
 export function currencyExponent(code: string | null | undefined): number | null {
   if (!code) return null;

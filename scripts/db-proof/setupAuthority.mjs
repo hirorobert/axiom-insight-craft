@@ -94,7 +94,9 @@ async function stopDatabase() {
 async function replay() {
   await admin.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));
   const dir = path.join(REPO, "supabase/migrations");
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sql") && f !== WITHHOLDING).sort();
+  // Every migration BEFORE the withholding refusal (the check below says so): later migrations build on it (for example
+  // 20261009100000 re-creates the setup RPC from its withholding version) and are proven by their own scripts.
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sql") && f < WITHHOLDING).sort();
   for (const f of files) {
     let text = fs.readFileSync(path.join(dir, f), "utf8");
     if (f === PG_CRON_FILE) text = text.split("\n").slice(0, text.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");

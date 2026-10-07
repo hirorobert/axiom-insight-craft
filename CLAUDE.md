@@ -401,6 +401,8 @@ src/
     ingestion/
       uploadFlow.ts           ← Upload workflow state machine: one primary action per state, real steps, retries that reuse reservation / upload / request id
       trialBalanceTemplate.ts ← Downloadable header-only template + balanced, "Example —"-marked sample (refused if uploaded unchanged); formula-safe CSV; the file rules shown beside the uploader
+    currency/
+      registry.ts             ← currency-registry/1 (ISO 4217 monetary codes + exponents); parity-tested with supabase/functions/_shared/currencyRegistry.ts and the migration seed
     computeComplianceScore.ts ← Pure scoring engine (no DB writes)
     normalizeAccountName.ts   ← Account name normalisation
 
