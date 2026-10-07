@@ -1,0 +1,18 @@
+import { createClient } from "@supabase/supabase-js";
+import fs from "fs";
+const URL="https://bvyivmmfjejbmqoydezk.supabase.co", ANON=process.env.ANON;
+const s=JSON.parse(process.env.LOVABLE_BROWSER_SUPABASE_SESSION_JSON);
+const sb=createClient(URL,ANON,{auth:{persistSession:false}});
+await sb.auth.setSession({access_token:s.access_token,refresh_token:s.refresh_token});
+const C="659daa94-116c-4803-99f8-157e0bdd4c62";
+const out={};
+let r=await sb.rpc("open_engagement_with_period",{p_company_id:C,p_period_start:"2030-07-01",p_period_end:"2031-06-30",p_reporting_currency:"BHD",p_capabilities:["FINANCIAL_STATEMENTS"],p_prior_start:"2029-07-01",p_prior_end:"2030-06-30"});
+out.period=r; console.log(JSON.stringify(r));
+if(r.error) process.exit(1);
+const bytes=fs.readFileSync("bhd_tb.csv");
+r=await sb.rpc("reserve_trial_balance_source",{p_company_id:C,p_file_name:"bhd_tb.csv"}); console.log(JSON.stringify(r));
+const res=r.data[0];
+r=await sb.functions.invoke("trial-balance-source-signer",{body:{reservation_id:res.reservation_id}}); console.log(JSON.stringify(r.data));
+const up=await sb.storage.from("trial-balance-files").uploadToSignedUrl(r.data.path,r.data.token,new Blob([bytes],{type:"text/csv"})); console.log(JSON.stringify(up.error));
+r=await sb.rpc("register_trial_balance_upload",{p_reservation_id:res.reservation_id,p_file_size:bytes.length,p_period_year:2031,p_period_id:out.period.data.periodId,p_engagement_id:out.period.data.engagementId});
+console.log(JSON.stringify(r));
