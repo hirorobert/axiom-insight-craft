@@ -157,8 +157,8 @@ jobs:
       - name: Type-check the complete process-trial-balance function against the real Supabase client types
         run: deno check supabase/functions/process-trial-balance/index.ts
 
-      - name: Type-check the trial-balance-layout function against the real Supabase client types
-        run: deno check supabase/functions/trial-balance-layout/index.ts
+      - name: Type-check the trial-balance-layout handler and its shared modules
+        run: deno check supabase/functions/_shared/trialBalanceLayout.ts supabase/functions/_shared/layoutConfirmationRead.ts supabase/functions/_shared/layoutProfile.ts
 
       - name: Type-check the ingestion core and the function-path test
         run: deno check --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/_shared/tbIngestion.ts supabase/functions/_shared/tbSource.ts supabase/functions/_shared/layoutProfile.ts supabase/functions/process-trial-balance/functionpath/functionPath.test.ts

@@ -488,12 +488,7 @@ Deno.test("E2 begin refusals answer without processing: hold (503), source chang
 });
 
 // ── A2: confirmed layouts (20261010100000) ───────────────────────────────────────────────────────────────────────────
-const EUROPEAN = 'Code;Name;Soll;Haben
-1000;Cash at bank;"1.500,25";
-3000;Share capital;;"1.000,00"
-4000;Sales;;"900,25"
-6000;Rent;"400,00";
-';
+const EUROPEAN = 'Code;Name;Soll;Haben\n1000;Cash at bank;"1.500,25";\n3000;Share capital;;"1.000,00"\n4000;Sales;;"900,25"\n6000;Rent;"400,00";\n';
 const EURO_LAYOUT: LayoutProfile = {
   format: LAYOUT_TEMPLATE_FORMAT, sheet: { kind: "csv" }, headerRow: 1, numberFormat: "dot_comma", balanceSign: null,
   columns: { accountCode: "Code", accountName: "Name", debit: "Soll", credit: "Haben", balance: null, dimensions: [] },
