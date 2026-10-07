@@ -389,8 +389,16 @@ describe("database inertness — schema and functions", () => {
 
   it("package.json adds no dependency relative to the exact base (fflate, the audited zip reader behind the secure XLSX intake, is already declared)", () => {
     const diff = gitStrict(`diff -U0 ${baseSha()}...HEAD -- package.json`).split(/\r?\n/).filter((l) => /^\+/.test(l) && !/^\+\+\+/.test(l));
-    expect(diff.filter((l) => /"[@\w./-]+":\s*"[\^~]?\d/.test(l))).toEqual([]);
-    expect(JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).dependencies.fflate).toBeDefined();
+    // Reviewed exception (workbench F1): two TEST-ONLY devDependencies, exact-pinned, used by the jsdom keyboard/focus
+    // tests and axe-core accessibility checks (src/lib/workbench/testkit/dom.ts). Never a runtime dependency.
+    const REVIEWED_DEV_DEPENDENCIES = new Set(['+    "axe-core": "4.10.3",', '+    "jsdom": "26.1.0",']);
+    expect(diff.filter((l) => /"[@\w./-]+":\s*"[\^~]?\d/.test(l) && !REVIEWED_DEV_DEPENDENCIES.has(l))).toEqual([]);
+    const pkgNow = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+    for (const name of ["axe-core", "jsdom"]) {
+      expect(pkgNow.dependencies?.[name], `${name} must never be a runtime dependency`).toBeUndefined();
+      if (pkgNow.devDependencies?.[name] !== undefined) expect(pkgNow.devDependencies[name]).toMatch(/^\d+\.\d+\.\d+$/);
+    }
+    expect(pkgNow.dependencies.fflate).toBeDefined();
   });
 });
 
