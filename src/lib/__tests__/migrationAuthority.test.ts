@@ -38,7 +38,8 @@ describe("migration authority parity", () => {
     // 26: 0028 (20261006100000, S1) is a release_verbatim entry (hosted journal id 29).
     // 27: 0029 (20261007100000, H1) is a release_verbatim_final_lf_removed entry (rule 9; releaseJournal.test.ts).
     // 28: 0030 (20261008100000, S2) is the same kind.
-    expect(r.mirrored.length).toBe(28);
+    // 30: 0031 and 0032 (I1-A A1/A2) are release_verbatim entries in their registered identical form.
+    expect(r.mirrored.length).toBe(30);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
@@ -51,7 +52,8 @@ describe("migration authority parity", () => {
     // H1 (20261007100000) is applied as 0029 and S2 (20261008100000) as 0030. Nothing is pending.
     // I1-A (20261009100000, currency registry and explicit reporting periods) is authored and pending hosted application.
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
-    expect(r.pending).toEqual(["20261009100000_currency_registry_and_reporting_periods.sql", "20261010100000_layout_templates_and_confirmations.sql"]);
+    // I1-A A1/A2 are applied (hosted 0031/0032, identical form); nothing is pending.
+    expect(r.pending).toEqual([]);
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {

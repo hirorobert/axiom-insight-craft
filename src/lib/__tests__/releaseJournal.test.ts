@@ -38,7 +38,8 @@ describe("the reviewed release journal", () => {
     for (const tag of Object.keys(RELEASE_JOURNAL)) expect(checkReleaseEntry(tag, read(tag), srcBytes).problems, tag).toEqual([]);
     // 14: 0028 (S1, release_verbatim, hosted journal id 29) joins the reviewed entries.
     // 15: 0029 (H1, release_verbatim_final_lf_removed) joins them; 16: 0030 (S2, the same kind).
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(16);
+    // 18: 0031 and 0032 (I1-A A1/A2, release_verbatim, identical form).
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(18);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -59,7 +60,8 @@ describe("the reviewed release journal", () => {
     // S2 (20261008100000) is applied as 0030 in the same registered form. Nothing is pending.
     // I1-A (20261009100000, currency registry and explicit reporting periods) is authored and pending hosted application.
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
-    expect(r.pending).toEqual(["20261009100000_currency_registry_and_reporting_periods.sql", "20261010100000_layout_templates_and_confirmations.sql"]);
+    // I1-A A1/A2 are applied (hosted 0031/0032, identical form); nothing is pending.
+    expect(r.pending).toEqual([]);
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({
@@ -433,17 +435,55 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
           fs.writeFileSync(path.join(dir, `drizzle/migrations/${tag}.sql`), body);
           fs.copyFileSync(path.join(dir, `drizzle/migrations/meta/${String(idx - 1).padStart(4, "0")}_snapshot.json`), path.join(dir, `drizzle/migrations/meta/${String(idx).padStart(4, "0")}_snapshot.json`));
           const r = checkMigrationAuthority(dir) as Result;
+          // A SECOND, unreviewed mirror is refused by name (the reviewed 0031/0032 entries do not extend to it).
           expect(r.ok, `${f.name} ${label}`).toBe(false);
-          expect(r.mirrored.some((m) => m.source === f.name), `${f.name} ${label}`).toBe(false);
+          expect(r.mirrored.some((m) => m.tag === tag), `${f.name} ${label}`).toBe(false);
+          expect(r.errors.some((e) => e.includes(tag)), `${f.name} ${label}`).toBe(true);
         } finally { fs.rmSync(dir, { recursive: true, force: true }); }
       }
       function src() { return srcBytes(f.name)!; }
     }
   }, 600_000);   // full-repository guard runs (eight)
-  it("registering a form does not apply anything: both are still pending, and no journal entry mirrors them", () => {
+  it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([I1A_A1, I1A_A2]);
-    expect(Object.values(RELEASE_JOURNAL).some((e) => (e as { source?: string }).source === I1A_A1 || (e as { source?: string }).source === I1A_A2)).toBe(false);
+    expect(r.pending).toEqual([]);
+    expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
+      { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
+      { tag: "0032_layout_templates_and_confirmations", source: I1A_A2, how: "release_verbatim" },
+    ]);
   }, 120_000);   // full-repository guard runs
+});
+
+describe("I1-A hosted application: 0031/0032 pinned to the canonical (identical) forms", () => {
+  const CASES = [
+    { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, bytes: 49199, hash: "27970dfb5dcd84039d80424c0cb5c1bd8b6a672732967603b0b4a8a19a634509", when: 1791389044422 },
+    { tag: "0032_layout_templates_and_confirmations", source: I1A_A2, bytes: 31976, hash: "061fcb0f5ea3bf6044bc5065cf393728f5ee7ead000beb33df6fd5ce78babe21", when: 1791389191617 },
+  ];
+  for (const c of CASES) {
+    it(`${c.tag}: the mirror is the source byte for byte, the registered identical form, and its entry pins both`, () => {
+      const mirror = fs.readFileSync(path.join(DZ, `${c.tag}.sql`));
+      expect(RELEASE_JOURNAL[c.tag]).toEqual({ kind: "release_verbatim", source: c.source, bytes: c.bytes, digest: c.hash, sha256: c.hash });
+      expect([mirror.length, sha(mirror)]).toEqual([c.bytes, c.hash]);
+      expect(mirror.equals(srcBytes(c.source)!)).toBe(true);
+      expect(submittedForm(c.source, srcBytes(c.source)!, mirror)).toBe("identical");
+      expect(SUBMISSION_FORMS[c.source].identical).toEqual({ bytes: c.bytes, sha256: c.hash });
+      expect(checkReleaseEntry(c.tag, read(c.tag), srcBytes).problems).toEqual([]);
+    });
+    it(`${c.tag}: the Drizzle journal and snapshot chain record it in order, after 0030`, () => {
+      const j = JSON.parse(fs.readFileSync(path.join(DZ, "meta/_journal.json"), "utf8")) as { entries: { idx: number; tag: string; when: number }[] };
+      const e = j.entries.find((x) => x.tag === c.tag)!;
+      expect(e.when).toBe(c.when);
+      const snap = (i: number) => JSON.parse(fs.readFileSync(path.join(DZ, `meta/${String(i).padStart(4, "0")}_snapshot.json`), "utf8")) as { id: string; prevId: string };
+      expect(snap(e.idx).prevId).toBe(snap(e.idx - 1).id);
+    });
+    it(`${c.tag}: any other content is refused — a changed byte, the final-LF-removed form under this identical entry, or a changed source`, () => {
+      const src = srcBytes(c.source)!;
+      const flipped = Buffer.from(src); flipped[100] ^= 0x01;
+      expect(checkReleaseEntry(c.tag, flipped.toString("utf8"), srcBytes).problems.join("\n")).toMatch(/differs from its reviewed content|not byte-for-byte/);
+      expect(checkReleaseEntry(c.tag, src.subarray(0, src.length - 1).toString("utf8"), srcBytes).problems.join("\n")).toMatch(/differs from its reviewed content|expected/);
+      const changedSource = (name: string) => (name === c.source ? Buffer.concat([src, Buffer.from("-- note\n")]) : srcBytes(name));
+      expect(checkReleaseEntry(c.tag, read(c.tag), changedSource).problems.join("\n")).toMatch(/pinned digest/);
+    });
+  }
 });

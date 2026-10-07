@@ -181,6 +181,19 @@ export const RELEASE_JOURNAL = {
     digest: "6ad6ac7d6aac244950a0e69bd1c278bea1eee5ac9e12c98e541ca9c961c9c25d",
     submittedBytes: 75682,
     sha256: "169a3771a009973114437a5bd24318083d05e391876f6dfbacfbaf994bb817b8" },
+  // I1-A A1 (PR #70; submission forms registered in PR #73 before application), applied by Lovable's native migrator in
+  // its registered IDENTICAL form — a byte-for-byte copy of the source (mirror commit 52993f9; journal "when"
+  // 1791389044422 = 2026-10-07T16:04:04.422Z).
+  "0031_currency_registry_and_reporting_periods": { kind: "release_verbatim",
+    source: "20261009100000_currency_registry_and_reporting_periods.sql", bytes: 49199,
+    digest: "27970dfb5dcd84039d80424c0cb5c1bd8b6a672732967603b0b4a8a19a634509",
+    sha256: "27970dfb5dcd84039d80424c0cb5c1bd8b6a672732967603b0b4a8a19a634509" },
+  // I1-A A2 (PR #71; forms registered in PR #73), applied the same way in its registered IDENTICAL form (mirror commit
+  // c6c992f; journal "when" 1791389191617 = 2026-10-07T16:06:31.617Z).
+  "0032_layout_templates_and_confirmations": { kind: "release_verbatim",
+    source: "20261010100000_layout_templates_and_confirmations.sql", bytes: 31976,
+    digest: "061fcb0f5ea3bf6044bc5065cf393728f5ee7ead000beb33df6fd5ce78babe21",
+    sha256: "061fcb0f5ea3bf6044bc5065cf393728f5ee7ead000beb33df6fd5ce78babe21" },
 };
 
 /**
