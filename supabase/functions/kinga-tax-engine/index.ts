@@ -86,6 +86,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { isNamedUserActive } from "../_shared/namedUserAccess.ts";
 import { requirePaidAction } from "../_shared/paidAction.ts";
 import { authorityRefusal, requireAuthoritativeUpload } from "../_shared/tbAuthority.ts";
+import { openDefectRefusal } from "../_shared/openDefectRestriction.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ENGINE_VERSION = "Module E v1.3 — FA2026";
@@ -398,6 +399,12 @@ serve(async (req) => {
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   };
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // R0 release: withheld on the server — refuses before authentication or any read or write
+  // (_shared/openDefectRestriction.ts, WITHHELD_SERVICES).
+  {
+    const restricted = openDefectRefusal("kinga-tax-engine", corsHeaders);
+    if (restricted) return restricted;
+  }
 
   try {
     // ── Authentication: require valid JWT ─────────────────────────────

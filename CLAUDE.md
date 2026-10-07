@@ -792,6 +792,37 @@ either a new professional tri-state classification flag (mirroring
 enum extension — a future, explicitly product-owned decision, not
 something to half-build here.
 
+**DEFECT-WITHHELD-TAX-NOTES-LETTER-001** — Severity: HIGH — Status: OPEN /
+WITHHELD FROM R0 (recorded 2026-10-07; not repaired)
+
+`kinga-tax-engine`, `generate-disclosure-notes` and
+`generate-management-letter` are withheld from the R0 release. All three
+refuse every request on the server (`_shared/openDefectRestriction.ts`,
+`WITHHELD_SERVICES`: HTTP 503 `SERVICE_RESTRICTED`, before authentication
+or any read or write; proven with no writes by
+`scripts/db-proof/tbHandlerCharacterization.mjs` `REQ-WITHHELD-*`).
+Their business logic is neither repaired nor enabled. Recorded defects,
+from the code at main `ae162b5`:
+1. **Zero substitution (violates §4.1 NULL-means-NOT-COMPUTED):** absent
+   inputs become `0` via `?? 0` / `|| 0`. There are 37 sites in
+   `kinga-tax-engine` (statement totals feeding the tax base, e.g.
+   `is.revenue?.total ?? 0`), 26 in `generate-disclosure-notes` (e.g.
+   `r.cit_at_30pct_tzs ?? 0`, `r.tax_payable_tzs ?? 0`) and 17 in
+   `generate-management-letter` (e.g. `f.exposure_amount_tzs ?? 0`,
+   `r.amt_computed_tzs ?? 0`). A missing figure is presented as a
+   computed zero.
+2. **Currency is assumed, not read:** amounts are labelled and formatted
+   as TZS (`*_tzs` fields and literal "TZS"), and the period's
+   `reporting_currency` is not consulted.
+3. **Notes and letters are returned, not stored:** there is no persisted,
+   reviewable output (storage needs its own table and review).
+4. **The tax engine writes several financial tables from one request:**
+   `tax_computations`, `findings`, `period_closing_balances`,
+   `adjusting_journal_entries` and `aje_lines`. Releasing it needs its own
+   review of that write set against the attempt/authority model (S2).
+Lifting the restriction is the releasing change's own reviewed step. It
+removes the `WITHHELD_SERVICES` entry and closes the items above.
+
 ### 9.2 Registered Commercial Go-Live Gates
 
 **LEGAL_PROFESSIONAL_REVIEW_REQUIRED_BEFORE_PAID_GO_LIVE** — not a code

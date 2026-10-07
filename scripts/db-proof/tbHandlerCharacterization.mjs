@@ -51,7 +51,9 @@ const REQUIRED_REQUIREMENTS = ["REQ-AUTH-1", "REQ-AUTH-2", "REQ-AUTH-3", "REQ-HA
   // E2 / X8 (the previous engines on S2's schema)
   "X8-PREVIOUS-ENGINE-FENCED", "X8-E1-ENGINE-FENCED", "X8-REPLAY-COMPLETES", "REQ-E2-DEPENDENCY-STALE",
   // R0 release: functions with an open registered defect refuse on the server (_shared/openDefectRestriction.ts)
-  "REQ-RESTRICTED-KINGA-FINDINGS", "REQ-RESTRICTED-MAONO-COMPUTE"];
+  "REQ-RESTRICTED-KINGA-FINDINGS", "REQ-RESTRICTED-MAONO-COMPUTE",
+  // R0 release: services withheld from this release refuse on the server, with no writes
+  "REQ-WITHHELD-TAX", "REQ-WITHHELD-NOTES", "REQ-WITHHELD-LETTER"];
 const ledger = validateLedger(JSON.parse(fs.readFileSync(LEDGER_FILE, "utf8")));
 const REQUIRED_PROBES = ledger.defects.map((d) => d.probe);
 const results = { requirement: new Map(), probe: new Map() };
@@ -521,13 +523,24 @@ async function main() {
   });
 
   // ── Open-defect restrictions: the real handlers refuse before authenticating, reading or writing ──
-  for (const [rid, fn] of [["REQ-RESTRICTED-KINGA-FINDINGS", "kinga-findings-engine"], ["REQ-RESTRICTED-MAONO-COMPUTE", "maono-compute"]]) {
+  // Row counts of every table a restricted or withheld function can write (those that exist on this chain).
+  const WRITE_TABLES = ["engine_runs", "idempotency_keys", "audit_logs", "tax_computations", "findings", "period_closing_balances",
+    "adjusting_journal_entries", "aje_lines", "maono_insights", "variance_runs", "variance_analyses", "variance_alerts"];
+  const writeCounts = async () => {
+    const out = {};
+    for (const t of WRITE_TABLES) {
+      if ((await one("SELECT to_regclass($1) r", [`public.${t}`])).r) out[t] = (await one(`SELECT count(*)::int n FROM public.${t}`)).n;
+    }
+    return out;
+  };
+  for (const [rid, fn] of [["REQ-RESTRICTED-KINGA-FINDINGS", "kinga-findings-engine"], ["REQ-RESTRICTED-MAONO-COMPUTE", "maono-compute"],
+    ["REQ-WITHHELD-TAX", "kinga-tax-engine"], ["REQ-WITHHELD-NOTES", "generate-disclosure-notes"], ["REQ-WITHHELD-LETTER", "generate-management-letter"]]) {
     await req1(rid, async () => {
       const restricted = (await loadFunctionTree(REPO, fn)).handler;
-      const before = (await one("SELECT (SELECT count(*) FROM public.engine_runs)::int r, (SELECT count(*) FROM public.audit_logs)::int a")) ?? {};
+      const before = await writeCounts();
       const asOwner = await call(restricted, pool, mintTestJwt(U.owner), { company_id: A, upload_id: happy, uploadId: happy, companyId: A });
       const anonymous = await call(restricted, pool, null, {});
-      const after = (await one("SELECT (SELECT count(*) FROM public.engine_runs)::int r, (SELECT count(*) FROM public.audit_logs)::int a")) ?? {};
+      const after = await writeCounts();
       return asOwner.http === 503 && asOwner.body?.code === "SERVICE_RESTRICTED" && anonymous.http === 503
         && canon(before) === canon(after) && !/kinga|maono|defect/i.test(JSON.stringify(asOwner.body)) ? true : { asOwner, anonymous };
     });

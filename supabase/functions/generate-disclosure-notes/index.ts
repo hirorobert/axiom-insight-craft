@@ -25,6 +25,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { isNamedUserActive } from "../_shared/namedUserAccess.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { authorityRefusal, requireAuthoritativeUpload } from "../_shared/tbAuthority.ts";
+import { openDefectRefusal } from "../_shared/openDefectRestriction.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -492,6 +493,12 @@ async function validateAuth(authHeader: string | null, supabaseUrl: string, supa
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+  // R0 release: withheld on the server — refuses before authentication or any read or write
+  // (_shared/openDefectRestriction.ts, WITHHELD_SERVICES).
+  {
+    const restricted = openDefectRefusal("generate-disclosure-notes", corsHeaders);
+    if (restricted) return restricted;
   }
 
   try {

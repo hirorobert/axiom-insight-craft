@@ -105,11 +105,11 @@ Once S2 is applied, **only** E2 can process. The engine before E1 is refused at 
    | Function | Why |
    |---|---|
    | `process-trial-balance` | E2: v3, generation 3, on the attempt functions |
-   | `kinga-tax-engine` | authority or refuse |
+   | `kinga-tax-engine` | **withheld: refuses every request** (503 `SERVICE_RESTRICTED`, no writes); not part of R0 |
    | `kinga-findings-engine` | **restricted: refuses every request** while DEFECT-KINGA-MAPPING-TENANCY-001 is open (also authority or refuse once lifted) |
    | `maono-compute` | **restricted: refuses every request** while DEFECT-MAONO-UNTRACKED-CLASSIFICATION-TABLES-001 is open |
    | `maono-cashflow` | exact `tb-row/1` fields validated (shared reader) |
-   | `generate-disclosure-notes`, `generate-management-letter` | authority or refuse; no longer write into `processing_result` (fenced since S2) |
+   | `generate-disclosure-notes`, `generate-management-letter` | **withheld: refuse every request** (503 `SERVICE_RESTRICTED`, no writes); not part of R0 |
    | `comparative-assurance-engine`, `kinga-comparative-engine` | both periods must be authoritative |
 
    All nine are deployed before the canary. A partial set does not proceed to step 6.
@@ -134,8 +134,8 @@ Once S2 is applied, **only** E2 can process. The engine before E1 is refused at 
    - **History:** an existing pre-S2 result shows **Needs re-check** (F2 active); the processing history lists each attempt, newest first, with how it ended.
    - **Dependency staleness:** after a certified check, a mapping or review-decision change on an account it used turns it to **Needs re-check** at once (the certification itself is unchanged); a change to an account it did not use leaves it current.
    - **Retry and preemption:** repeating the same request replays the recorded outcome (no second run); a second "Check again" while one runs preempts it (the first records nothing; history shows `PREEMPTED`); "Retry now" appears only for an attempt whose lease expired.
-   - **Restricted endpoints:** `kinga-findings-engine` and `maono-compute` answer 503 `SERVICE_RESTRICTED` with neutral copy, and write nothing.
-   - **Consumers:** tax, notes, letters and comparatives refuse (`AUTHORITY_REQUIRED`) a period until its check is current, then work.
+   - **Restricted and withheld endpoints:** `kinga-findings-engine`, `maono-compute`, `kinga-tax-engine`, `generate-disclosure-notes` and `generate-management-letter` answer 503 `SERVICE_RESTRICTED` with neutral copy, and write nothing.
+   - **Consumers:** comparatives refuse (`AUTHORITY_REQUIRED`) a period until its check is current, then work. Tax, notes and letters are withheld (above).
    - **Hold boundary:** a workspace outside the canary is still refused (`PROCESSING_HELD`).
 
    If any check fails: **stay held**, fix forward (a new reviewed change, redeployed in this window), and repeat step 6.
@@ -150,7 +150,8 @@ S2 is forward-only and is never rolled back. If E2 can't be deployed or a canary
 - [ ] **Expiry pass:** schedule `SELECT public.tb_expire_attempts();` (service role), or rely on the next authorized request, which also abandons an expired attempt.
 
 ## Known limits carried by this release
-- **Pre-S2 certifications are history (OD1).** Each period needs one "Check again" before tax, notes, letters, comparatives or MAONO use it (`AUTHORITY_REQUIRED` otherwise).
+- **Pre-S2 certifications are history (OD1).** Each period needs one "Check again" before comparatives or MAONO use it (`AUTHORITY_REQUIRED` otherwise).
+- **Withheld from R0 on the server** (`_shared/openDefectRestriction.ts`, `WITHHELD_SERVICES`): tax (`kinga-tax-engine`), disclosure notes (`generate-disclosure-notes`) and the management letter (`generate-management-letter`). Their recorded defects are DEFECT-WITHHELD-TAX-NOTES-LETTER-001 (CLAUDE.md §9.1); releasing them is its own reviewed change.
 - **Generated notes and letters are returned, not stored.** Storage needs its own table and review.
 - **Legacy uploads outside any workspace can't be processed** (`COMPANY_REQUIRED`).
 - **Restricted on the server until fixed** (`_shared/openDefectRestriction.ts`; lifted only by the fix's own reviewed change):
