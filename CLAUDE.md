@@ -385,6 +385,11 @@ src/
       classificationPresentation.ts   ← Pure deterministic 7-state classification presentation (FAILED/PROCESSING/INCONSISTENT/COMPLETE_WITH_REVIEW/PARTIAL/COMPLETE_NO_REVIEW/NOT_COMPUTED) for WorkspaceOverview. "Classified" means mapping_completeness.mapped_accounts (Tier 1-5) — never summary.auto_classified (Tier 4-5 only).
       classificationAcceptanceFixtures.ts ← Deterministic fixture inputs (one per classification state) for the internal /internal/acceptance/classification-states dev-only page. No Supabase, no randomness.
       classificationAcceptanceGate.ts ← Gate for that page: renderable only in a dev build (import.meta.env.DEV) — no flag, never enabled in production.
+    workbench/
+      gate.ts                 ← WORKBENCH_NAVIGATION_ENABLED (reviewed source constant, false): five-group workbench navigation
+      routes.ts               ← Workbench groups/pages, canonical routes, legacy aliases (regroups deriveWorkspaceNavigation; never widens it)
+      statusWords.ts          ← Server status → words + icon + AA colour (exhaustive over MissionStatus and AuthorityReason)
+      context.ts              ← Company · period · report version (`v`) context; links carry it; changes are explicit
     jurisdiction/
       registry.ts             ← Filing-jurisdiction registry: ISO codes, which services need one, which have a pack
       packLoader.ts           ← ONLY module allowed to import a pack (dynamic import() only)
@@ -440,6 +445,10 @@ src/
     jurisdiction/
       JurisdictionPanel.tsx   ← JurisdictionPanel/JurisdictionGate: the only way a stage page reaches a pack
       FilingJurisdictionSetting.tsx ← Neutral "Filing jurisdiction" setting
+    workbench/
+      WorkbenchNav.tsx        ← Five-group navigation + inline "Next open item" (behind the workbench gate)
+      ConfirmDialog.tsx       ← Confirmation for material actions only: period, version, consequences, reason/acknowledgement
+      SecondaryPanel.tsx      ← On-demand technical detail; focus in on open, back to the opener on close
     workspace/
       ServiceLaunchpad.tsx    ← "What would you like to complete?" (services from the canonical registry)
       DataChoiceCard.tsx      ← The one data question

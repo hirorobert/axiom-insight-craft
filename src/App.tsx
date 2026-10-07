@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
@@ -34,6 +34,8 @@ import StageScopeGate from "./components/workspace/StageScopeGate";
 import { OverviewAccessGate } from "./components/workspace/WorkspaceAccessGate";
 import WorkspaceUnavailable from "./components/workspace/WorkspaceUnavailable";
 import { WITHHELD_WORKSPACE_ROUTE_SEGMENTS } from "./lib/workspace/moduleAvailability";
+import { WORKBENCH_NAVIGATION_ENABLED } from "./lib/workbench/gate";
+import { WORKBENCH_LEGACY_ALIASES } from "./lib/workbench/routes";
 
 // Command Center — partner-level cross-engagement view
 import CommandCenter from "./pages/command/CommandCenter";
@@ -52,6 +54,13 @@ import { serviceEnquiryRoutes } from "@/lib/serviceEnquiry/serviceEnquiryRoutes"
 function LegacySubRouteRedirect({ to }: { to: string }) {
   const { companyId, periodYear } = useParams<{ companyId: string; periodYear: string }>();
   return <Navigate to={`/workspace/${companyId}/${periodYear}/${to}`} replace />;
+}
+
+/** Workbench alias (WORKBENCH_NAVIGATION_ENABLED only): one canonical destination, keeping the query (report version). */
+function WorkbenchAliasRedirect({ segment }: { segment: string }) {
+  const { companyId, periodYear } = useParams<{ companyId: string; periodYear: string }>();
+  const { search } = useLocation();
+  return <Navigate to={`/workspace/${companyId}/${periodYear}/${WORKBENCH_LEGACY_ALIASES[segment]}${search}`} replace />;
 }
 
 // Internal, development-only visual-acceptance page for the 7 classification states — never present in a
@@ -101,7 +110,11 @@ const App = () => (
                   <Route index element={<OverviewAccessGate><WorkspaceOverview /></OverviewAccessGate>} />
 
                   {/* Architecture v3.1 canonical routes */}
-                  <Route path="prepare"    element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />
+                  <Route path="prepare"    element={WORKBENCH_NAVIGATION_ENABLED ? <WorkbenchAliasRedirect segment="prepare" /> : <StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />
+                  {/* Workbench canonical routes — registered only when WORKBENCH_NAVIGATION_ENABLED (src/lib/workbench/routes.ts). */}
+                  {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance" element={<WorkbenchAliasRedirect segment="trial-balance" />} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/intake" element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/review" element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />}
                   <Route path="reconcile"  element={<StageScopeGate stage="reconcile"><ReconcileWorkspace /></StageScopeGate>} />
 
                   {/* Compatibility redirects — engine-named sub-routes → accounting slugs */}

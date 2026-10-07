@@ -49,6 +49,12 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
+import { WORKBENCH_NAVIGATION_ENABLED } from "@/lib/workbench/gate";
+import { activeWorkbenchPage, canonicalWorkbenchHref, deriveWorkbenchNavigation } from "@/lib/workbench/routes";
+import { missionStatusWord } from "@/lib/workbench/statusWords";
+import { parseReportVersion } from "@/lib/workbench/context";
+import { NextOpenItem, WorkbenchNav } from "@/components/workbench/WorkbenchNav";
+import { ContextAnnouncer } from "@/components/workbench/ContextAnnouncer";
 import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import type { MissionStatus, WorkspaceMission } from "@/lib/workspace/types";
@@ -321,6 +327,20 @@ export default function WorkspaceLayout() {
           </div>
         </header>
 
+        {WORKBENCH_NAVIGATION_ENABLED ? (
+          <WorkbenchShell
+            basePath={basePath}
+            pathname={location.pathname}
+            search={location.search}
+            navItems={navItems}
+            companyId={companyId}
+            periodYear={periodYear}
+            missionStatus={(stage) => workspaceState.missions[stage]?.status ?? null}
+            nextAction={loading ? null : workspaceState.nextAction}
+            withheld={withheld}
+          />
+        ) : (
+        <>
         {/* ── Stage sub-nav — NO horizontal scroll ─────────────────────────── */}
         {/*
          *  Layout contract:
@@ -391,6 +411,8 @@ export default function WorkspaceLayout() {
         <main className="flex-1 max-w-screen-2xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
           {withheld ? <WorkspaceUnavailable /> : <Outlet />}
         </main>
+        </>
+        )}
         {/* Free printing of any workspace page carries the draft marking on every printed page. */}
         <DraftPrintMark companyId={companyId} />
 
@@ -398,5 +420,50 @@ export default function WorkspaceLayout() {
       </WorkspaceAccessShell>
      </EngagementContext.Provider>
     </WorkspaceContext.Provider>
+  );
+}
+
+/**
+ * The workbench shell (behind WORKBENCH_NAVIGATION_ENABLED): five-group navigation regrouped from the same navItems the
+ * tab bar uses, the inline next open item, and the page. Context (company, period, `v`) is preserved on every link.
+ */
+function WorkbenchShell(props: {
+  basePath: string;
+  pathname: string;
+  search: string;
+  navItems: readonly import("@/lib/workspace/navigation").NavItem[];
+  companyId: string;
+  periodYear: number;
+  missionStatus: (stage: WorkspaceMission) => MissionStatus | null;
+  nextAction: { label: string; href: string } | null;
+  withheld: boolean;
+}) {
+  const model = deriveWorkbenchNavigation(props.basePath, props.navItems);
+  const activePage = activeWorkbenchPage(props.pathname, props.basePath);
+  const reportVersion = parseReportVersion(props.search);
+  const next = props.nextAction ? { label: props.nextAction.label, href: canonicalWorkbenchHref(props.nextAction.href, props.basePath) } : null;
+  const showNext = !!next && activePage !== null && activePage !== "overview" && activeWorkbenchPage(next.href, props.basePath) !== activePage;
+  return (
+    <div className="mx-auto grid w-full max-w-screen-2xl flex-1 grid-cols-1 md:grid-cols-[232px_1fr]">
+      <div className="border-b border-border bg-muted/40 px-2 py-3 md:border-b-0 md:border-r">
+        {props.withheld ? null : (
+          <WorkbenchNav
+            model={model}
+            activePage={activePage}
+            reportVersion={reportVersion}
+            groupStatus={(groupId) => {
+              const g = model.groups.find((x) => x.id === groupId);
+              const st = g?.stage ? props.missionStatus(g.stage) : null;
+              return st ? missionStatusWord(st) : null;
+            }}
+          />
+        )}
+      </div>
+      <main className="min-w-0 px-4 py-6 sm:px-8">
+        <ContextAnnouncer context={{ companyId: props.companyId, periodYear: props.periodYear, reportVersion }} />
+        {showNext && next ? <NextOpenItem label={next.label} href={next.href} reportVersion={reportVersion} /> : null}
+        {props.withheld ? <WorkspaceUnavailable /> : <Outlet />}
+      </main>
+    </div>
   );
 }
