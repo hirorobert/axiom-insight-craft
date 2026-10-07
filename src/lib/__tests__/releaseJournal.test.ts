@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { RELEASE_JOURNAL, checkApplyWrapperStructure, checkReleaseEntry, checkReleaseInfrastructure } from "../../../scripts/ci/releaseJournal.mjs";
+import { RELEASE_JOURNAL, SUBMISSION_FORMS, checkApplyWrapperStructure, checkReleaseEntry, checkReleaseInfrastructure, submittedForm } from "../../../scripts/ci/releaseJournal.mjs";
 import { checkMigrationAuthority } from "../../../scripts/ci/assertMigrationAuthority.mjs";
 
 const ROOT = path.join(__dirname, "../../..");
@@ -20,6 +20,13 @@ const sha = (b: Buffer | string) => createHash("sha256").update(b).digest("hex")
 type Result = { ok: boolean; errors: string[]; pending: string[]; mirrored: Array<{ tag: string; source: string; how: string }>; releaseApplied: Array<{ tag: string; source: string }> };
 
 const T25 = "0025_apply_20261001120000_annual_commercial_term";
+const T29 = "0029_apply_20261007100000_treatment_authority_and_processing_control";
+const S29 = "20261007100000_treatment_authority_and_processing_control.sql";
+const H1_CANONICAL = "0010ec531f3924e3a63031a0f42185c94414ab72a15396b4a3d43499468092c6";
+const H1_SUBMITTED = "3591b7d0a6a39db2bf479aa8ecb86e5c0b8c4f01bdb86cf166abb56fc5e23ae0";
+const S2 = "20261008100000_processing_attempt_authority.sql";
+const S2_CANONICAL = "6ad6ac7d6aac244950a0e69bd1c278bea1eee5ac9e12c98e541ca9c961c9c25d";
+const S2_SUBMITTED = "169a3771a009973114437a5bd24318083d05e391876f6dfbacfbaf994bb817b8";
 const S25 = "20261001120000_annual_commercial_term.sql";
 const D25 = "621f55c35bdadf3c7baa8c259056712dbfbbedbd25417a2a5d6a92fd4a1d38fa";
 
@@ -27,7 +34,8 @@ describe("the reviewed release journal", () => {
   it("every entry 0013–0022 and 0024 validates: exact content, exact template, digest = the source file in this repository", () => {
     for (const tag of Object.keys(RELEASE_JOURNAL)) expect(checkReleaseEntry(tag, read(tag), srcBytes).problems, tag).toEqual([]);
     // 14: 0028 (S1, release_verbatim, hosted journal id 29) joins the reviewed entries.
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(14);
+    // 15: 0029 (H1, release_verbatim_final_lf_removed) joins them.
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(15);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -44,9 +52,10 @@ describe("the reviewed release journal", () => {
     // S1 record: 0028 applied 20261006100000 byte for byte (release_verbatim; hosted journal id 29, created_at 1791299426677).
     // The parked 20261004100000 / 20261005100000 were never applied and are quarantined in supabase/migrations_historical/,
     // so the source chain is exactly the hosted journal: nothing pending, nothing skipped.
-    // H1 (20261007100000) is authored and pending hosted application.
-    // S2 (20261008100000) is authored and pending hosted application too.
-    expect(r.pending).toEqual(["20261007100000_treatment_authority_and_processing_control.sql", "20261008100000_processing_attempt_authority.sql"]);
+    // H1 (20261007100000) is applied as 0029: its source minus its single final LF (release_verbatim_final_lf_removed).
+    // S2 (20261008100000) is authored and pending hosted application.
+    expect(r.pending).toEqual(["20261008100000_processing_attempt_authority.sql"]);
+    expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({
       tag: "0028_apply_20261006100000_mapping_and_processing_authority", source: "20261006100000_mapping_and_processing_authority.sql", how: "release_verbatim" });
     expect(r.mirrored.find((m) => m.tag === "0026_apply_20261002100000_refuse_withheld_service_grants")?.how).toBe("release_verbatim");
@@ -226,4 +235,120 @@ describe("0025 release_verbatim: exact tag, path, bytes, SHA-256 and byte-for-by
     expect(checkReleaseEntry("0025_apply_20261001120000_annual_commercial_term_v2", text(), srcBytes).problems.join("\n")).toMatch(/has not been reviewed/);
     expect(Object.keys(RELEASE_JOURNAL).filter((k) => k.startsWith("0025"))).toEqual([T25]);
   });
+});
+
+describe("0029: H1 applied as its source minus its single final LF (release_verbatim_final_lf_removed)", () => {
+  const src = () => srcBytes(S29)!;
+  const mirror = () => fs.readFileSync(path.join(DZ, `${T29}.sql`));
+  const copy = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-0029-"));
+    fs.cpSync(SRC, path.join(dir, "supabase/migrations"), { recursive: true });
+    fs.cpSync(path.join(ROOT, "drizzle"), path.join(dir, "drizzle"), { recursive: true });
+    return dir;
+  };
+  const errs = (mutate: (dir: string) => void) => {
+    const dir = copy();
+    try { mutate(dir); return (checkMigrationAuthority(dir) as Result).errors.join("\n"); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  };
+  const withMirror = (bytes: Buffer) => errs((dir) => fs.writeFileSync(path.join(dir, "drizzle/migrations", `${T29}.sql`), bytes));
+  const withEntry = <T>(patch: Record<string, unknown>, fn: () => T): T => {
+    const e = RELEASE_JOURNAL[T29] as Record<string, unknown>;
+    const saved = { ...e };
+    Object.assign(e, patch);
+    try { return fn(); } finally { for (const k of Object.keys(e)) delete e[k]; Object.assign(e, saved); }
+  };
+
+  it("pins the canonical source and the submitted text separately", () => {
+    expect(RELEASE_JOURNAL[T29]).toEqual({ kind: "release_verbatim_final_lf_removed", source: S29, bytes: 47457, digest: H1_CANONICAL,
+      submittedBytes: 47456, sha256: H1_SUBMITTED });
+    expect(SUBMISSION_FORMS[S29]).toEqual({ identical: { bytes: 47457, sha256: H1_CANONICAL }, finalLfRemoved: { bytes: 47456, sha256: H1_SUBMITTED } });
+    expect([src().length, sha(src())]).toEqual([47457, H1_CANONICAL]);
+    expect([mirror().length, sha(mirror())]).toEqual([47456, H1_SUBMITTED]);
+  });
+  it("the hosted mirror is exactly the source without its final byte, and nothing else (the source ends with two LFs)", () => {
+    expect(src().subarray(-2).toString("hex")).toBe("0a0a");
+    expect(mirror().equals(src().subarray(0, src().length - 1))).toBe(true);
+    expect(submittedForm(S29, src(), mirror())).toBe("final_lf_removed");
+    expect(checkReleaseEntry(T29, read(T29), srcBytes).problems).toEqual([]);
+  });
+  it("rejects the source byte for byte (not the registered form for 0029)", () => {
+    expect(withMirror(src())).toMatch(/0029_apply_20261007100000[^\n]*(differs from its reviewed content|single final LF)/);
+  }, 120_000);   // full-repository guard runs
+  it("rejects removing BOTH trailing LFs", () => {
+    const both = src().subarray(0, src().length - 2);
+    expect(submittedForm(S29, src(), both)).toBeNull();
+    expect(withMirror(both)).toMatch(/0029_apply_20261007100000/);
+  }, 120_000);   // full-repository guard runs
+  it("rejects every other change: an added LF or space, CRLF, a BOM, one changed byte, an added leading LF, collapsed whitespace", () => {
+    const m = mirror();
+    const variants: Record<string, Buffer> = {
+      "extra LF": Buffer.concat([src(), Buffer.from("\n")]),
+      "trailing space after the final LF": Buffer.concat([src(), Buffer.from(" ")]),
+      "space instead of the final LF": Buffer.concat([m, Buffer.from(" ")]),
+      "CRLF": Buffer.from(m.toString("utf8").replace(/\n/g, "\r\n"), "utf8"),
+      "BOM": Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), m]),
+      "one changed byte": (() => { const b = Buffer.from(m); b[1000] = b[1000] === 0x41 ? 0x42 : 0x41; return b; })(),
+      "added leading LF": Buffer.concat([Buffer.from([0x0a]), m]),
+      "collapsed whitespace": Buffer.from(m.toString("utf8").replace(/ {2,}/g, " "), "utf8"),
+    };
+    for (const [label, bytes] of Object.entries(variants)) {
+      expect(bytes.equals(m), label).toBe(false);
+      expect(submittedForm(S29, src(), bytes), label).toBeNull();
+      expect(withMirror(bytes), label).toMatch(/0029_apply_20261007100000/);
+    }
+  }, 120_000);   // full-repository guard runs
+  it("rejects a changed canonical source (its pinned digest and registered form no longer match)", () => {
+    expect(errs((dir) => fs.appendFileSync(path.join(dir, "supabase/migrations", S29), "-- note\n"))).toMatch(/0029_apply_20261007100000[^\n]*pinned digest/);
+  }, 120_000);   // full-repository guard runs
+  it("rejects a changed registration: another kind, another submitted hash, another byte count", () => {
+    withEntry({ kind: "release_verbatim" }, () => expect(checkReleaseEntry(T29, read(T29), srcBytes).problems.join("\n")).toMatch(/byte-for-byte identical/));
+    withEntry({ sha256: H1_CANONICAL }, () => expect(checkReleaseEntry(T29, read(T29), srcBytes).problems.join("\n")).toMatch(/differs from its reviewed content|not registered/));
+    withEntry({ submittedBytes: 47455 }, () => expect(checkReleaseEntry(T29, read(T29), srcBytes).problems.join("\n")).toMatch(/expected 47455|not registered/));
+  });
+  it("without its reviewed entry, normalised parity cannot accept it (rule 9)", () => {
+    const saved = RELEASE_JOURNAL[T29];
+    delete (RELEASE_JOURNAL as Record<string, unknown>)[T29];
+    try {
+      expect((checkMigrationAuthority(ROOT) as Result).errors.join("\n")).toMatch(/0029_apply_20261007100000[^\n]*only through a reviewed RELEASE_JOURNAL entry/);
+    } finally { (RELEASE_JOURNAL as Record<string, unknown>)[T29] = saved; }
+  }, 120_000);   // full-repository guard runs
+});
+
+describe("S2: both submission forms registered ahead of application, S2 not applied", () => {
+  const src = () => srcBytes(S2)!;
+  it("registers exactly the source and the source minus its single final LF", () => {
+    expect(SUBMISSION_FORMS[S2]).toEqual({ identical: { bytes: 75683, sha256: S2_CANONICAL }, finalLfRemoved: { bytes: 75682, sha256: S2_SUBMITTED } });
+    expect([src().length, sha(src())]).toEqual([75683, S2_CANONICAL]);
+    expect(src().subarray(-2).toString("hex")).not.toBe("0a0a"); // exactly one trailing LF
+    expect(sha(src().subarray(0, src().length - 1))).toBe(S2_SUBMITTED);
+    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2].sort());
+  });
+  it("accepts only those two forms", () => {
+    const s = src();
+    expect(submittedForm(S2, s, s)).toBe("identical");
+    expect(submittedForm(S2, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
+    for (const bad of [s.subarray(0, s.length - 2), Buffer.concat([s, Buffer.from("\n")]), Buffer.concat([s.subarray(0, s.length - 1), Buffer.from(" ")]),
+      Buffer.from(s.toString("utf8").replace(/\n/g, "\r\n"), "utf8"), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), s])]) {
+      expect(submittedForm(S2, s, bad)).toBeNull();
+    }
+  });
+  it("is still pending, with no journal entry", () => {
+    expect((checkMigrationAuthority(ROOT) as Result).pending).toEqual([S2]);
+    expect(Object.values(RELEASE_JOURNAL).some((e) => "source" in e && e.source === S2)).toBe(false);
+  }, 120_000);   // full-repository guard runs
+  it("a hosted S2 mirror is refused until its reviewed entry is added (rule 9), even in a registered form", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-s2-"));
+    try {
+      fs.cpSync(SRC, path.join(dir, "supabase/migrations"), { recursive: true });
+      fs.cpSync(path.join(ROOT, "drizzle"), path.join(dir, "drizzle"), { recursive: true });
+      const tag = "0030_apply_20261008100000_processing_attempt_authority";
+      const jp = path.join(dir, "drizzle/migrations/meta/_journal.json");
+      const j = JSON.parse(fs.readFileSync(jp, "utf8"));
+      j.entries.push({ idx: j.entries.length, version: "7", when: 1791400000000, tag, breakpoints: true });
+      fs.writeFileSync(jp, JSON.stringify(j, null, 2));
+      fs.copyFileSync(path.join(dir, "drizzle/migrations/meta/0029_snapshot.json"), path.join(dir, "drizzle/migrations/meta/0030_snapshot.json"));
+      fs.writeFileSync(path.join(dir, "drizzle/migrations", `${tag}.sql`), src().subarray(0, src().length - 1));
+      expect((checkMigrationAuthority(dir) as Result).errors.join("\n")).toMatch(/0030_apply_20261008100000[^\n]*only through a reviewed RELEASE_JOURNAL entry/);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }, 120_000);   // full-repository guard runs
 });
