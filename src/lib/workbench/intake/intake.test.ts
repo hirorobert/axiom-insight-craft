@@ -28,7 +28,7 @@ describe("layout client — every answer typed, never a raw error", () => {
     const c = layoutClient(async (_n, o) => { sent.push(o.body); return { data: { status: "confirmed" }, error: null }; });
     const layout = toProfile({ ...EMPTY_DRAFT, headerRow: 1, columns: { ...EMPTY_DRAFT.columns, accountName: "Name", balance: "Bal" }, numberFormat: "plain_dot", balanceSign: "debit_positive" }, "csv")!;
     await c.confirm("u", layout, 2, null);
-    expect(sent).toEqual([{ action: "confirm", uploadId: "u", layout, expectedConfirmationNo: 2, templateId: null }]);
+    expect(sent).toEqual([{ action: "confirm", uploadId: "u", layout, expectedConfirmationNo: 2, templateId: null, numberFormatConfirmed: false }]);
     expect(JSON.stringify(sent)).not.toMatch(/firmMember|userId|actor/i);
   });
 });
@@ -45,6 +45,8 @@ describe("layout draft", () => {
     const d = draftFromSuggestion(sheet());
     expect(d).toMatchObject({ headerRow: 1, columns: { accountCode: "Code", accountName: "Name", debit: null }, numberFormat: "dot_comma" });
     expect(draftFromSuggestion(sheet({ numberFormats: { consistent: ["comma_dot", "dot_comma"], ambiguous: true, textCells: 2 } })).numberFormat).toBeNull();
+    // No evidence (no text amounts found) is never read as "unambiguous": the person chooses.
+    expect(draftFromSuggestion(sheet({ numberFormats: { consistent: ["comma_dot", "dot_comma"], ambiguous: false, textCells: 0 } })).numberFormat).toBeNull();
   });
   it("names what is missing, in order, and becomes a layout only when complete", () => {
     const d = draftFromSuggestion(sheet());

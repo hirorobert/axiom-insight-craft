@@ -18,13 +18,14 @@
 
 import { sha256HexBytes } from "./hash.ts";
 import {
-  NUMBER_FORMATS, numberFormatEvidence, profileSha256, resolvedLayoutSha256, validateProfile, type LayoutProfile,
+  NUMBER_FORMATS, NUMBER_FORMAT_IDS, canonicalAmountBody, numberFormatEvidence, profileSha256, resolvedLayoutSha256, validateProfile,
+  type LayoutProfile, type NumberFormatId, type ResolvedLayout,
 } from "./layoutProfile.ts";
 import { isMissingRelation, readCurrentLayoutConfirmation, type LayoutReadClient } from "./layoutConfirmationRead.ts";
 import { resolveProcessingActor } from "./processingActor.ts";
 import { processingEntitlementRefusal } from "./paidAction.ts";
 import { PROCESSING_FORBIDDEN, processingRefusal, sourceBindingRefusal } from "./uploadLifecycle.ts";
-import { detectColumns, formatMinor, TB_INGESTION_VERSION, type Cell, type IngestResult } from "./tbIngestion.ts";
+import { detectColumns, formatMinor, TB_INGESTION_VERSION, type Cell, type IngestResult, type SourceRow } from "./tbIngestion.ts";
 import { readSourceTables, readTrialBalanceSourceWithLayout, type XlsxLike } from "./tbSource.ts";
 
 export interface LayoutUpload {
@@ -60,7 +61,7 @@ const unavailable = (): LayoutResponse => ({
 const bad = (message: string, errors?: string[]): LayoutResponse => ({ status: 400, body: { status: "invalid", code: "INVALID_REQUEST", message, ...(errors ? { errors } : {}) } });
 const isMissingFunction = (e: RpcAnswer["error"]) => !!e && (e.code === "PGRST202" || e.code === "42883");
 
-const REFUSAL_STATUS: Record<string, number> = { FORBIDDEN: 403, UPLOAD_NOT_FOUND: 403, VERSION_CONFLICT: 409, IN_PROGRESS: 409, REPROCESS_REQUIRED: 409, SOURCE_CHANGED: 409, UPLOAD_NOT_ACTIVE: 409, TEMPLATE_NOT_FOUND: 404, LAYOUT_DOES_NOT_FIT: 422 };
+const REFUSAL_STATUS: Record<string, number> = { NUMBER_FORMAT_AMBIGUOUS: 422, FORBIDDEN: 403, UPLOAD_NOT_FOUND: 403, VERSION_CONFLICT: 409, IN_PROGRESS: 409, REPROCESS_REQUIRED: 409, SOURCE_CHANGED: 409, UPLOAD_NOT_ACTIVE: 409, TEMPLATE_NOT_FOUND: 404, LAYOUT_DOES_NOT_FIT: 422 };
 const REFUSAL_COPY: Record<string, string> = {
   FORBIDDEN: "You don't have permission to set up layouts in this workspace.",
   UPLOAD_NOT_FOUND: "You don't have permission to set up layouts in this workspace.",
@@ -71,6 +72,7 @@ const REFUSAL_COPY: Record<string, string> = {
   UPLOAD_NOT_ACTIVE: "This trial balance is no longer in use, so its layout cannot change.",
   TEMPLATE_NOT_FOUND: "That layout template was not found in this workspace.",
   LAYOUT_DOES_NOT_FIT: "This layout does not fit the file. Correct it and validate again.",
+  NUMBER_FORMAT_AMBIGUOUS: "The amounts in this file can be read in more than one number format, giving different values. Check the examples, choose the format your system exported, and confirm that choice explicitly.",
 };
 function refusal(code: string, extra: Record<string, unknown> = {}): LayoutResponse {
   return { status: REFUSAL_STATUS[code] ?? 409, body: { status: "refused", code, message: REFUSAL_COPY[code] ?? "The request was refused.", ...extra } };
@@ -113,9 +115,46 @@ export interface LayoutReport {
   totals: { debit: string; credit: string; difference: string } | null;
   accounts: number;
   rows: [number, string, string | null][];
+  /**
+   * The number formats every TEXT amount in the layout's amount columns (the whole file, below the header) can be read
+   * in. `ambiguous`: two plausible formats give different values — the person must choose and confirm explicitly.
+   * `examples`: up to three cells whose value depends on the format, with each plausible reading.
+   */
+  numberFormats: {
+    declared: NumberFormatId;
+    consistent: NumberFormatId[];
+    ambiguous: boolean;
+    textCells: number;
+    examples: { row: number; column: string; text: string; readings: Partial<Record<NumberFormatId, string>> }[];
+  } | null;
 }
 
-async function buildReport(result: IngestResult, resolved: unknown, profileHash: string, sourceFileHash: string): Promise<LayoutReport> {
+const AMOUNT_WRAPPER = /^\(?\s*[-+]?\s*(.*?)\s*\)?$/;
+const amountBody = (t: string) => AMOUNT_WRAPPER.exec(t.replace(/[\u00a0\u202f\u2009]/g, " ").replace(/[’‘]/g, "'").trim())?.[1] ?? "";
+/** A text cell that reads as an amount in at least one supported number format (labels and notes are not evidence). */
+const isAmountText = (c: Cell): c is string => typeof c === "string" && NUMBER_FORMAT_IDS.some((f) => canonicalAmountBody(amountBody(c), f) !== null);
+
+/** Number-format evidence over the WHOLE file's amount columns as the layout resolved them (deterministic). */
+export function amountColumnEvidence(rows: SourceRow[], resolved: ResolvedLayout): NonNullable<LayoutReport["numberFormats"]> {
+  const cols = [["debit", resolved.columns.debit], ["credit", resolved.columns.credit], ["balance", resolved.columns.balance]]
+    .filter((x): x is [string, number] => x[1] !== null);
+  const below = rows.filter((r) => r.rowNumber > resolved.headerRowNumber);
+  const cells: { row: number; column: string; text: string }[] = [];
+  for (const r of below) for (const [name, i] of cols) { const c = r.cells[i]; if (isAmountText(c)) cells.push({ row: r.rowNumber, column: name, text: c }); }
+  const ev = numberFormatEvidence(cells.map((c) => c.text));
+  const examples: NonNullable<LayoutReport["numberFormats"]>["examples"] = [];
+  if (ev.ambiguous) {
+    for (const c of cells) {
+      const readings: Partial<Record<NumberFormatId, string>> = {};
+      for (const f of ev.consistent) readings[f] = canonicalAmountBody(amountBody(c.text), f) ?? "";
+      if (new Set(Object.values(readings)).size > 1) examples.push({ ...c, readings });
+      if (examples.length === 3) break;
+    }
+  }
+  return { declared: resolved.numberFormat, consistent: ev.consistent, ambiguous: ev.ambiguous, textCells: ev.textCells, examples };
+}
+
+async function buildReport(result: IngestResult, resolved: unknown, profileHash: string, sourceFileHash: string, numberFormats: LayoutReport["numberFormats"] = null): Promise<LayoutReport> {
   const exp = result.exponent ?? 0;
   const resolvedHash = resolved ? await resolvedLayoutSha256(resolved as never) : null;
   return {
@@ -131,6 +170,7 @@ async function buildReport(result: IngestResult, resolved: unknown, profileHash:
     totals: result.totals ? { debit: formatMinor(result.totals.debitMinor, exp), credit: formatMinor(result.totals.creditMinor, exp), difference: formatMinor(result.totals.differenceMinor, exp) } : null,
     accounts: result.accounts.length,
     rows: result.lineage.map((l) => [l.rowNumber, l.disposition, l.reason ?? l.identity ?? null]),
+    numberFormats,
   };
 }
 
@@ -141,7 +181,14 @@ async function validateOn(deps: LayoutDeps, opened: { upload: LayoutUpload; byte
   const hash = await profileSha256(v.profile);
   const currency = await deps.reportingCurrency(opened.upload);
   const read = readTrialBalanceSourceWithLayout(opened.bytes, { fileName: opened.upload.file_name ?? "", periodYear: opened.upload.period_year ?? null, currency }, deps.xlsx, v.profile, hash);
-  return { ok: true, profile: v.profile, report: await buildReport(read.result, read.resolved, hash, opened.sourceFileHash) };
+  // The evidence comes from the same rows the layout read: the whole file, the layout's sheet, its amount columns.
+  let evidence: LayoutReport["numberFormats"] = null;
+  if (read.resolved) {
+    const tables = readSourceTables(opened.bytes, opened.upload.file_name ?? "", deps.xlsx);
+    const sheet = tables.ok ? (tables.kind === "csv" ? tables.sheets[0] : tables.sheets.find((x) => x.name === read.resolved!.sheetName)) : undefined;
+    if (sheet) evidence = amountColumnEvidence(sheet.rows, read.resolved);
+  }
+  return { ok: true, profile: v.profile, report: await buildReport(read.result, read.resolved, hash, opened.sourceFileHash, evidence) };
 }
 
 /** What the confirmation records as its validation (the resolved layout is stored in its own column). */
@@ -168,7 +215,11 @@ export async function handleLayoutRequest(userId: string, body: unknown, deps: L
       const sheets = tables.sheets.map((s) => {
         const detection = detectColumns(s.rows, opened.upload.period_year ?? null);
         const amountCols = detection.map ? [detection.map.debit, detection.map.credit, detection.map.balance].filter((x): x is number => x !== null) : [];
-        const amountCells = detection.map ? s.rows.slice(detection.map.headerIndex + 1).flatMap((r) => amountCols.map((c) => r.cells[c])) : [];
+        // Evidence from the amount columns the automatic reading found; when it found none (custom headers), from every
+        // amount-like text cell below the first row — never "no evidence" read as "unambiguous".
+        const amountCells = detection.map && amountCols.length > 0
+          ? s.rows.slice(detection.map.headerIndex + 1).flatMap((r) => amountCols.map((c) => r.cells[c])).filter(isAmountText)
+          : s.rows.slice(1).flatMap((r) => r.cells).filter(isAmountText);
         return {
           name: tables.kind === "csv" ? null : s.name,
           rowCount: s.rows.length,
@@ -196,6 +247,11 @@ export async function handleLayoutRequest(userId: string, body: unknown, deps: L
       const v = await validateOn(deps, opened, b.layout);
       if (!v.ok) return v.response;
       if (!v.report.layoutFits) return { ...refusal("LAYOUT_DOES_NOT_FIT"), body: { ...refusal("LAYOUT_DOES_NOT_FIT").body, report: v.report } };
+      // Several plausible number formats that give different values: never a silent choice. The person must have seen the
+      // ambiguity and confirmed the declared format explicitly (the whole file was just validated under it).
+      if (v.report.numberFormats?.ambiguous && b.numberFormatConfirmed !== true) {
+        return { ...refusal("NUMBER_FORMAT_AMBIGUOUS"), body: { ...refusal("NUMBER_FORMAT_AMBIGUOUS").body, report: v.report } };
+      }
       const { rows, ...summary } = v.report;
       const { data, error } = await deps.rpc("layout_record_confirmation", {
         p_user_id: userId, p_upload_id: opened.upload.id, p_expected_confirmation_no: expected,

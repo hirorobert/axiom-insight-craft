@@ -31,9 +31,15 @@ export function currentTrialBalanceTask(
   switch (verdict.status) {
     case "none":
       return task(1, "Upload the trial balance for this period.");
+    // Derived from the actual processing state: only a running check is "being checked".
     case "processing":
-    case "checking":
       return task(1, "The file is being checked. This page updates itself.");
+    case "checking":
+      // A result was read for another file version, or not yet confirmed: nothing is running.
+      return task(1, "The result for this file is being confirmed. This page updates itself.");
+    case "needs_recheck":
+      // An input changed after the last check (for example a newly confirmed file layout): nothing is running.
+      return task(1, "The last result is out of date because an input changed (for example the file's layout). Run the check again.");
     case "processing_failed":
       return task(1, "The check stopped before it finished. Run it again.");
     case "not_current":

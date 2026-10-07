@@ -279,6 +279,9 @@ export type TrialBalanceStatus =
   | "none"
   | "processing"
   | "checking"
+  /** The result exists but is no longer current (an input such as the file's confirmed layout changed): a new check is
+   * needed. Nothing is running — never shown as "being checked". */
+  | "needs_recheck"
   | "processing_failed"
   | "blocked"
   | "needs_review"
@@ -300,6 +303,9 @@ export interface TrialBalanceCheck {
   detail: string;
   /** Shown with its detail only — no state word (a neutral explanation, neither a result nor "not checked yet"). */
   neutral?: boolean;
+  /** An informational assessment that was not made (for example no prior year to compare with): shown as
+   * "Not evaluated", never as a pass. */
+  notEvaluated?: boolean;
 }
 
 export interface TrialBalanceVerdict {
@@ -384,6 +390,16 @@ function plainCheck(c: PreflightCheck, totals: TrialBalanceTotals | null): Trial
   // Supporting evidence that was never evaluated is shown as not checked — never "Passed" — and is not required for a
   // reviewed trial balance (the layer is informational; it never decides acceptance).
   const unevaluatedEvidence = c.id === "l5_supporting_evidence" && (c.state === "pending" || /NOT_EVALUATED|NO_EVIDENCE/.test(c.detail));
+  // The prior-year comparison is a signal, not a check that can pass: with no accepted prior year it was not made
+  // ("Not evaluated"); with one, the row only states that a prior year is available (no pass is claimed either way).
+  if (c.id === "l6_prior_period") {
+    if (/NO_PRIOR/.test(c.detail) || c.state === "pending" || /NOT_EVALUATED/.test(c.detail)) {
+      return { id: c.id, label, state: "pending", notEvaluated: true, detail: /NO_PRIOR/.test(c.detail) ? "No accepted prior-year trial balance to compare with, so no comparison was made." : detail };
+    }
+    if (/PRIOR_CERTIFIED/.test(c.detail) && c.state === "passed") {
+      return { id: c.id, label, state: "pending", neutral: true, detail: "A reviewed prior-year trial balance is available for comparison." };
+    }
+  }
   return { id: c.id, label, state: unevaluatedEvidence ? "pending" : c.state, detail };
 }
 
@@ -476,7 +492,7 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
       return { ...base, status: "not_current", statusLabel: "Not current", tone: "neutral", reason: "An older trial balance. Another upload is the current one for this period.", primaryAction: null };
     case "stale":
       return {
-        ...base, status: "checking", statusLabel: "Needs re-check", tone: "warning",
+        ...base, status: "needs_recheck", statusLabel: "Needs re-check", tone: "warning",
         reason: "This trial balance has no current certification. Re-run processing to check it again.",
         primaryAction: input.canRetry ? { kind: "retry", label: "Retry processing" } : null,
       };

@@ -20,7 +20,7 @@ const MILESTONE_WORD: Record<MilestoneState, string> = { passed: "Done", failed:
 
 function Row({ check, muted = false }: { check: TrialBalanceCheck; muted?: boolean }) {
   return (
-    <li className="flex gap-3 border-t border-border px-5 py-3.5 first:border-t-0 sm:px-7" data-testid={`check-${check.id}`} data-state={check.neutral ? "neutral" : check.state}>
+    <li className="flex gap-3 border-t border-border px-5 py-3.5 first:border-t-0 sm:px-7" data-testid={`check-${check.id}`} data-state={check.neutral ? "neutral" : check.notEvaluated ? "not_evaluated" : check.state}>
       <span className="mt-0.5 shrink-0">{ICON[check.state]}</span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3">
@@ -28,7 +28,7 @@ function Row({ check, muted = false }: { check: TrialBalanceCheck; muted?: boole
           {/* A neutral explanation carries no state word: it is neither a result nor "not checked yet". */}
           {!check.neutral && (
             <span className={`text-[12px] ${check.state === "failed" ? "text-destructive" : check.state === "review" ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
-              {STATE_WORD[check.state]}
+              {check.notEvaluated ? "Not evaluated" : STATE_WORD[check.state]}
             </span>
           )}
         </div>

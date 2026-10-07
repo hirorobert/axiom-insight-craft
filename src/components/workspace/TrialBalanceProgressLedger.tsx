@@ -221,10 +221,11 @@ export default function TrialBalanceProgressLedger({
     <section className="mb-10" aria-live="polite">
       <SurfaceCard>
       <SurfaceCardHeader
-        label="Trial balance progress"
+        label="Processing checks (technical)"
         meta={
           <>
-            {phase} · {doneCount} of {steps.length}
+            {/* Processing checks, not journey steps: the journey's steps are the header's "Step x of 3". */}
+            {phase} · {doneCount} of {steps.length} processing checks
             {elapsedMs !== null && <span> · {formatElapsed(elapsedMs)} elapsed</span>}
           </>
         }

@@ -247,6 +247,9 @@ describe("database inertness — schema and functions", () => {
       // ...and the named-user helper's rpc parameter type, so the shared auth module type-checks against the real
       // supabase-js types (Deno check of trial-balance-layout). Types only; payloads unchanged (paidAction.test.ts).
       "supabase/functions/_shared/namedUserAccess.ts",
+      // Workbench activation (PR #75): the layout handler reports the whole file's number-format evidence for the chosen
+      // amount columns and refuses an ambiguous format without an explicit choice (NUMBER_FORMAT_AMBIGUOUS). No schema.
+      "supabase/functions/_shared/trialBalanceLayout.ts",
       // I1-A A1: the ingestion core reads its exponents from currency-registry/1 (every previously supported currency keeps
       // its exponent; characterization-tested).
       "supabase/functions/_shared/tbIngestion.ts",

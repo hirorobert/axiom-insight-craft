@@ -50,6 +50,14 @@ export interface LayoutReport {
   totals: { debit: string; credit: string; difference: string } | null;
   accounts: number;
   rows: [number, string, string | null][];
+  /** The whole file's amount columns: which number formats they can be read in, and examples whose value depends on it. */
+  numberFormats?: {
+    declared: NumberFormatId;
+    consistent: NumberFormatId[];
+    ambiguous: boolean;
+    textCells: number;
+    examples: { row: number; column: string; text: string; readings: Partial<Record<NumberFormatId, string>> }[];
+  } | null;
 }
 
 export type LayoutAnswer<T> =
@@ -96,9 +104,9 @@ export function layoutClient(invoke: LayoutInvoke) {
   return {
     inspect: (uploadId: string) => send<InspectResult>({ action: "inspect", uploadId }),
     validate: (uploadId: string, layout: LayoutProfile) => send<{ status: "validated"; report: LayoutReport }>({ action: "validate", uploadId, layout }),
-    confirm: (uploadId: string, layout: LayoutProfile, expectedConfirmationNo: number, templateId: string | null) =>
+    confirm: (uploadId: string, layout: LayoutProfile, expectedConfirmationNo: number, templateId: string | null, numberFormatConfirmed = false) =>
       send<{ status: "confirmed"; confirmationId: string; confirmationNo: number; replay: boolean; unchanged: boolean; report: LayoutReport }>(
-        { action: "confirm", uploadId, layout, expectedConfirmationNo, templateId }),
+        { action: "confirm", uploadId, layout, expectedConfirmationNo, templateId, numberFormatConfirmed }),
     saveTemplate: (companyId: string, templateKey: string, expectedVersion: number, name: string, layout: LayoutProfile) =>
       send<{ status: "saved"; templateId: string; templateKey: string; version: number; replay: boolean; unchanged: boolean }>(
         { action: "save_template", companyId, templateKey, expectedVersion, name, layout }),

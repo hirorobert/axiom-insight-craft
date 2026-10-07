@@ -79,7 +79,7 @@ describe("LayoutEditor", () => {
     expect(document.body.textContent).toContain("A current result for it will need a new check.");
     click(byText(/^Confirm layout$/));
     await flush();
-    expect(c.confirm).toHaveBeenCalledWith("u1", expect.any(Object), 0, null);
+    expect(c.confirm).toHaveBeenCalledWith("u1", expect.any(Object), 0, null, false);
     expect(document.body.textContent).toContain("Layout confirmed for this file (confirmation 1)");
   });
 
@@ -192,5 +192,40 @@ describe("Intake navigation keeps the workbench context", () => {
     expect(src).toContain("to={reviewHref}");
     const { withContext, parseReportVersion } = await import("../context");
     expect(withContext("/workspace/c/2025/trial-balance/review", { reportVersion: parseReportVersion("?v=3") })).toBe("/workspace/c/2025/trial-balance/review?v=3");
+  });
+});
+
+describe("LayoutEditor — number-format ambiguity requires an explicit choice", () => {
+  const AMBIGUOUS = REPORT({ currency: "BHD", numberFormats: { declared: "dot_comma", consistent: ["comma_dot", "dot_comma", "plain_comma"], ambiguous: true, textCells: 2,
+    examples: [{ row: 2, column: "debit", text: "500,000", readings: { comma_dot: "500000", dot_comma: "500.000", plain_comma: "500.000" } }] } });
+  it("shows every reading of an ambiguous amount; Confirm stays disabled until the person confirms the declared format; the confirmation says so", async () => {
+    const c = fakeClient({ validate: vi.fn(async () => ok({ status: "validated" as const, report: AMBIGUOUS })) });
+    m = mount(editor(c));
+    await flush();
+    choose(select("Debit"), "Soll"); choose(select("Credit"), "Haben");
+    click(byText(/Check against the whole file/)); await flush();
+    key(document.activeElement!, "Escape");
+    const box = document.querySelector("[data-testid=number-format-ambiguity]")!;
+    expect(box.textContent).toContain("Row 2 (debit) “500,000”");
+    expect(box.textContent).toContain("500000 as 1,234,567.89");
+    expect(box.textContent).toContain("500.000 as 1.234.567,89");
+    expect(byText(/Confirm layout for this file/).disabled).toBe(true);
+    click(box.querySelector("input[type=checkbox]")!);
+    expect(byText(/Confirm layout for this file/).disabled).toBe(false);
+    click(byText(/Confirm layout for this file/)); click(byText(/^Confirm layout$/)); await flush();
+    expect(c.confirm).toHaveBeenCalledWith("u1", expect.objectContaining({ numberFormat: "dot_comma" }), 0, null, true);
+    expect(await axeViolations(m.container)).toEqual([]);
+  });
+  it("changing the layout after confirming the format clears that confirmation (a new check is needed)", async () => {
+    const c = fakeClient({ validate: vi.fn(async () => ok({ status: "validated" as const, report: AMBIGUOUS })) });
+    m = mount(editor(c));
+    await flush();
+    choose(select("Debit"), "Soll"); choose(select("Credit"), "Haben");
+    click(byText(/Check against the whole file/)); await flush();
+    key(document.activeElement!, "Escape");
+    click(document.querySelector("[data-testid=number-format-ambiguity] input[type=checkbox]")!);
+    choose(select("Account name"), "");
+    expect(document.querySelector("[data-testid=number-format-ambiguity]")).toBeNull();
+    expect(byText(/Confirm layout for this file/).disabled).toBe(true);
   });
 });

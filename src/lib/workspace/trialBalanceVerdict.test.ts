@@ -83,8 +83,20 @@ describe("the reported contradiction is resolved at the source — every surface
     expect(text).not.toMatch(/NOT_EVALUATED|NO_PRIOR|!=/);
     expect(verdict.informational.map((c) => [c.label, c.detail])).toEqual([
       ["Bank and mobile-money evidence", "Not required for a reviewed trial balance."],
-      ["Comparison with the prior year", "No accepted prior-year trial balance to compare with."],
+      ["Comparison with the prior year", "No accepted prior-year trial balance to compare with, so no comparison was made."],
     ]);
+  });
+
+  it("a missing prior-year comparison is Not evaluated — never Passed, whatever state or severity the layer carries", () => {
+    for (const [state, detail] of [["passed", "NO_PRIOR: no authoritative certification exists for period 2024"], ["pending", "NO_PRIOR: x"], ["pending", "Not available for this certification."]] as const) {
+      const v = deriveTrialBalanceVerdict({ upload: upload("complete"), readiness: { verdict: "certified", blocker: null, checks: [layer("l6_prior_period", "Prior-period signal", state, detail)] }, canRetry: true });
+      expect(v.informational[0]).toMatchObject({ id: "l6_prior_period", state: "pending", notEvaluated: true });
+      expect(v.informational[0].state).not.toBe("passed");
+    }
+  });
+  it("an available prior year is stated neutrally — still no pass is claimed for a comparison that a signal does not make", () => {
+    const v = deriveTrialBalanceVerdict({ upload: upload("complete"), readiness: { verdict: "certified", blocker: null, checks: [layer("l6_prior_period", "Prior-period signal", "passed", "PRIOR_CERTIFIED: an authoritative certification exists for period 2024")] }, canRetry: true });
+    expect(v.informational[0]).toMatchObject({ state: "pending", neutral: true, detail: "A reviewed prior-year trial balance is available for comparison." });
   });
 
   it("supporting evidence that was never evaluated reads 'not checked', never 'Passed', whatever severity the layer carries", () => {
