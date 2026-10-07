@@ -14,11 +14,15 @@ const claude = readFileSync(resolve(__dirname, "../../../CLAUDE.md"), "utf8");
 describe("open-defect restrictions", () => {
   it("restricts exactly the two functions whose registered defects are open", () => {
     expect(OPEN_DEFECT_RESTRICTIONS).toEqual({
-      "kinga-findings-engine": "DEFECT-KINGA-MAPPING-TENANCY-001",
-      "maono-compute": "DEFECT-MAONO-UNTRACKED-CLASSIFICATION-TABLES-001",
+      "kinga-findings-engine": "mapping-tenancy-001",
+      "maono-compute": "untracked-classification-tables-001",
     });
-    // Each restricted defect is still registered as open (lifting the restriction is the fix's own change).
-    for (const d of Object.values(OPEN_DEFECT_RESTRICTIONS)) expect(claude).toContain(d);
+    // Each key is a registered, still-open defect (lifting the restriction is the fix's own change).
+    const registered: Record<string, string> = {
+      "mapping-tenancy-001": "DEFECT-KINGA-MAPPING-TENANCY-001",
+      "untracked-classification-tables-001": "DEFECT-MAONO-UNTRACKED-CLASSIFICATION-TABLES-001",
+    };
+    for (const k of Object.values(OPEN_DEFECT_RESTRICTIONS)) expect(claude).toContain(registered[k]);
   });
   it("answers 503 with neutral copy (no engine or defect names); unrestricted functions get null", async () => {
     const r = openDefectRefusal("maono-compute", { "Access-Control-Allow-Origin": "*" })!;

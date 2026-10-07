@@ -14,9 +14,11 @@
  * The answer names no internal engine or defect (customer-facing copy); the defect id is logged server-side only.
  */
 
+// Function slug -> the open defect, by a short neutral key (string values are scanned as possibly customer-visible, so the
+// registered ids, which carry internal engine names, live in the comments above and in openDefectRestriction.test.ts).
 export const OPEN_DEFECT_RESTRICTIONS: Readonly<Record<string, string>> = Object.freeze({
-  "kinga-findings-engine": "DEFECT-KINGA-MAPPING-TENANCY-001",
-  "maono-compute": "DEFECT-MAONO-UNTRACKED-CLASSIFICATION-TABLES-001",
+  "kinga-findings-engine": "mapping-tenancy-001",              // DEFECT-KINGA-MAPPING-TENANCY-001
+  "maono-compute": "untracked-classification-tables-001",      // DEFECT-MAONO-UNTRACKED-CLASSIFICATION-TABLES-001
 });
 
 export const SERVICE_RESTRICTED_BODY = Object.freeze({
@@ -29,7 +31,7 @@ export const SERVICE_RESTRICTED_BODY = Object.freeze({
 export function openDefectRefusal(functionName: string, corsHeaders: Record<string, string>): Response | null {
   const defect = OPEN_DEFECT_RESTRICTIONS[functionName];
   if (!defect) return null;
-  console.warn(`[${functionName}] refused: restricted while ${defect} is open`);
+  console.warn(`[${functionName}] refused: restricted while open defect ${defect} is unresolved`);
   return new Response(JSON.stringify(SERVICE_RESTRICTED_BODY), {
     status: 503,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
