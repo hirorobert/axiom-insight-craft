@@ -269,6 +269,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/kinga-tax-engine/index.ts",
       // E2 (W3): the findings engine computes only from the period's authoritative trial balance (or refuses).
       "supabase/functions/kinga-findings-engine/index.ts",
+      // ...and so does the one Comparative Assurance implementation, for both periods.
+      "supabase/functions/_shared/comparativeAssurance.ts",
       // B-5: the evidence-attachment RPC error is a failure, never ignored.
       "supabase/functions/safisha-ingest/index.ts",
       // Reconciliation server authority (20261004100000): the matcher records its result through the service-role RPC
